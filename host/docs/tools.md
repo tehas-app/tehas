@@ -285,8 +285,17 @@ that carry one of those labels, up to 100 a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
 one edit and logs `tidy #N: removed <labels>`. An open issue is never
 touched, and a closed one whose cycle still holds its lock on this host waits
-for that cycle. A dry run passes `--dry-run` and logs `tidy #N: would remove
-<labels>` instead. A search that fails, times out or cannot be read is logged
+for that cycle. To the issues it tidies that do not carry `tehas:shipped` it
+adds the label, in the same edit, when the last closed event of the issue is a
+merged pull request: one further GraphQL search a poll answers that for all of
+them at once, and only when there is a label to give, and it is the same read
+[tehasbot status](#tehasbot-status-and-the-console) makes (`lib/shipped.sh`).
+An issue whose closer is a person, an unmerged pull request, or nothing the
+read answered, keeps no label: the state labels still come off and the line
+says `WARN: tidy #N: no merged pull request was read as the closer,
+tehas:shipped was not added`. A dry run passes `--dry-run` and logs `tidy #N: would remove
+<labels>` instead, and `would add tehas:shipped` for the label it would give.
+A search that fails, times out or cannot be read is logged
 as `WARN: tidy: the search for closed issues with state labels failed`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
 neither stops the poll.
@@ -1917,7 +1926,10 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
-left with. `planning` is a count, not a list: the open issues labelled
+left with: the query and the acceptance rule are `lib/shipped.sh`'s, the ones
+`tehas tidy` reads too, so the two commands cannot disagree on what a merge
+closed. `tehasbot status` gives each issue its read finds shipped the label it
+lacks; `tehas tidy` is the one that logs the read. `planning` is a count, not a list: the open issues labelled
 `tehas:plan` or `tehas:planning`, found by the same search as the lists. `completedCount`
 is also a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
@@ -1928,7 +1940,7 @@ platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
 one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues; run `tehas labels` once so the label exists. The control
+lists the same issues, and `tehas tidy` gives it too, from the same read; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 

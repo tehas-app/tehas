@@ -22,23 +22,23 @@
 # tehas:shipped, which tidy adds and never removes: it is the record of a
 # merge, not the labels a person chooses (tehas:urgent, tehas:next,
 # tehas:prototype and the like), and not needs-human-attention, which nothing
-# in tehas removes. A new state label is added to the list on purpose, and
-# test/tidy_test.sh pins it.
+# in tehas removes. tehasbot status gives the same label from the same read;
+# tidy is the one that logs it. A new state label is added to the list on
+# purpose, and test/tidy_test.sh pins it.
 #
 # One search a poll: the closed issues that carry a state label, up to 100,
 # the most recently updated first; the rest come on later polls. The search may
 # take TEHAS_TIDY_WAIT seconds [60, from the environment], and each label
-# change as long. A closed issue whose cycle still holds its lock on this host
+# change as long, so a poll never waits on one call for more than that; no call
+# is retried. A closed issue whose cycle still holds its lock on this host
 # waits for that cycle.
-# Each removal is logged as "tidy #N: removed <labels>". When the labels come
-# off an issue whose last closed event is a merged pull request, the same edit
-# adds tehas:shipped and an extra line says "added tehas:shipped"; a dry run
-# says "would add tehas:shipped". The closer is read one GraphQL call per issue
-# it tidies, the way libexec/status reads it: the closing pull request is only
-# in the issue's closed event. An issue that already carries the label gets no
-# second add, and a closer this command cannot read is never taken for a merge:
-# the labels still come off, nothing is added, and the issue is logged as a
-# WARN.
+# Whether a closed issue was closed by a merge comes from one further search a
+# poll, the read lib/shipped.sh holds for tehasbot status too. It is made only
+# when a label is to be added, and answers for every such issue at once. The
+# label goes on an issue only when that read answers a merged pull request; when
+# it answers a person, an unmerged pull request, or cannot be read at all, the
+# state labels still come off, nothing is added, and the issue is logged as a
+# WARN. An issue that already carries the label is not read again for it.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, required.
 set -uo pipefail
@@ -71,6 +71,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/shipped.sh
+. "$here/../lib/shipped.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
 repo=$TEHAS_REPO
@@ -78,22 +80,9 @@ wait=${TEHAS_TIDY_WAIT:-60}
 [[ $wait =~ ^[1-9][0-9]{0,4}$ ]] || { tehas_err "TEHAS_TIDY_WAIT is not a number of seconds: $wait"; exit 78; }
 
 states=(tehas:running tehas:awaiting-merge tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine)
+shipped=$tehas_shipped_label
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
-
-# Whether the last closed event of issue $1 is a merged pull request. Anything
-# the read cannot answer - no closed event, a person as the closer, a call that
-# failed or hung - is a no, so no issue is labelled shipped on a guess.
-closed_by_merge() {
-  local answer
-  # shellcheck disable=SC2016  # $q is a GraphQL variable
-  answer=$(timeout "$wait" gh api graphql -f q="repo:$repo is:issue is:closed number:$1" -f query='
-    query($q: String!) { search(type: ISSUE, query: $q, first: 1) { nodes { ... on Issue {
-      timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {
-        closer { ... on PullRequest { merged } } } } } } } } }' 2>/dev/null) || return 1
-  jq -e '.data.search.nodes[0].timelineItems.nodes[0].closer.merged == true' \
-    <<<"$answer" >/dev/null 2>&1
-}
 
 # One search a poll, for the closed issues that carry a state label.
 # GitHub's search reads labels joined by commas as any of them.
@@ -101,47 +90,72 @@ query="label:$(printf '"%s",' "${states[@]}")"
 query=${query%,}
 # An empty answer is a failure too, not a list of no issues: jq -e fails on it.
 search_failed() { log "WARN: tidy: the search for closed issues with state labels failed"; exit 1; }
-found=$(timeout "$wait" gh issue list --repo "$repo" --state closed --search "$query" \
+found=$(timeout -k 1 "$wait" gh issue list --repo "$repo" --state closed --search "$query" \
   --limit 100 --json number,state,labels 2>/dev/null) || search_failed
 # The state is checked again: an open issue is never touched. Each line is the
 # number, the state labels to take off and whether the issue already carries
 # tehas:shipped, tab separated so that the list of labels stays one field.
-todo=$(jq -er --args '
+todo=$(jq -er --args --arg shipped "$shipped" '
   ($ARGS.positional) as $states
   | if type != "array" then error("not a list") else . end
   | ([.[] | select(.state == "CLOSED")
     | [(.labels // [])[].name] as $have
     | [$states[] | select(. as $s | any($have[]; . == $s))] as $off
     | select($off | length > 0)
-    | [.number, ($off | join(" ")), (if ($have | index("tehas:shipped")) then "yes" else "no" end)]
+    | [.number, ($off | join(" ")), (if ($have | index($shipped)) then "yes" else "no" end)]
     | @tsv] | join("\n"))' "${states[@]}" <<<"$found" 2>/dev/null) || search_failed
 
+# What closed them, for the whole list at once, the way tehasbot status asks:
+# one GraphQL search a poll, not one per issue, and only when a label may have
+# to go on - an issue that already carries it or waits for its cycle is not one
+# that may. GitHub's search takes whole numbers as terms, so the list is built
+# from the digit-gated numbers alone.
+closers=""
+numbers=""
+while IFS=$'\t' read -r n off have; do
+  [[ $n =~ ^[0-9]+$ ]] || continue
+  [ -n "$off" ] || continue
+  [ "$have" = no ] || continue
+  tehas_cycle_running "$n" && continue
+  numbers=$numbers" number:$n"
+done <<<"$todo"
+if [ -n "$numbers" ]; then
+  # shellcheck disable=SC2016  # $q is a GraphQL variable
+  closers=$(timeout -k 1 "$wait" gh api graphql -f q="repo:$repo is:issue is:closed$numbers" \
+    -f query="$(tehas_shipped_query)" 2>/dev/null) || closers=""
+fi
+
 rc=0
-while IFS=$'\t' read -r n off shipped; do
+while IFS=$'\t' read -r n off have; do
   [[ $n =~ ^[0-9]+$ ]] || continue
   ! tehas_cycle_running "$n" || continue
-  # A merge is what earns the label. When the closer cannot be read the labels
-  # still come off and nothing is added; an issue that already carries the
-  # label needs no read at all, so a WARN is never printed for it.
+  # A merge is what earns the label, and the label is earned once: an issue
+  # that already carries it is not read for it again.
   ship=0
-  if [ "$shipped" = yes ]; then
-    :
-  elif closed_by_merge "$n"; then
-    ship=1
-  else
-    log "WARN: tidy #$n: could not read what closed the issue, tehas:shipped was not added"
-  fi
+  case $have in
+    yes) ;;
+    no)
+      if tehas_shipped_answer "$n" "$closers"; then
+        ship=1
+      else
+        # Either the read did not answer or it answered no merged pull request:
+        # in both cases the label is not earned and the state labels still go.
+        log "WARN: tidy #$n: no merged pull request was read as the closer, $shipped was not added"
+      fi
+      ;;
+    *) log "WARN: tidy #$n: unreadable state for the label, $shipped was not added" ;;
+  esac
   if [ "$dry" = 1 ]; then
     log "tidy #$n: would remove $off"
-    [ "$ship" = 1 ] && log "tidy #$n: would add tehas:shipped"
+    if [ "$ship" = 1 ]; then log "tidy #$n: would add $shipped"; fi
     continue
   fi
   args=()
   for l in $off; do args+=(--remove-label "$l"); done
-  [ "$ship" = 1 ] && args+=(--add-label tehas:shipped)
-  if timeout "$wait" gh issue edit "$n" --repo "$repo" "${args[@]}" >/dev/null 2>&1; then
+  if [ "$ship" = 1 ]; then args+=(--add-label "$shipped"); fi
+  if timeout -k 1 "$wait" gh issue edit "$n" --repo "$repo" "${args[@]}" >/dev/null 2>&1; then
     log "tidy #$n: removed $off"
-    [ "$ship" = 1 ] && log "tidy #$n: added tehas:shipped"
+    if [ "$ship" = 1 ]; then log "tidy #$n: added $shipped"; fi
   else
     log "WARN: tidy #$n: could not remove $off"
     rc=1

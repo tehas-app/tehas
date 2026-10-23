@@ -75,6 +75,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
+# shellcheck source=lib/shipped.sh
+. "$here/../lib/shipped.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
 # shellcheck source=lib/update-release.sh
@@ -268,20 +270,19 @@ issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
 everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
 jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
-# The closing pull request is only in the issue's closed event, so this one is GraphQL.
+# The closing pull request is only in the issue's closed event, so this one is
+# GraphQL: the query and the acceptance rule are lib/shipped.sh's, the same ones
+# tehas tidy reads, so the two commands cannot disagree on what a merge closed.
 # shellcheck disable=SC2016  # $q is a GraphQL variable
-shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" -f query='
-  query($q: String!) { search(type: ISSUE, query: $q, first: 50) { nodes { ... on Issue {
-    number title url updatedAt closedAt labels(first: 50) { nodes { name } }
-    timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {
-      closer { ... on PullRequest { merged } } } } } } } } }' 2>/dev/null) || exit 0
-shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineItems.nodes[0].closer.merged == true)
-  | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
+shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" -f query="$(tehas_shipped_query)" 2>/dev/null) || exit 0
+shipped=$(jq -ce "$(tehas_shipped_rule)
+  .data.search.nodes | map(select(.number != null and shipped)
+  | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})" <<<"$shipped" 2>/dev/null) || exit 0
 # The figure of the Shipped stage: every closed issue with the label, not the
 # fifty this script reads. The query is written once here and shared with
 # links.completed below, so the figure and the list's "all" link cannot drift
 # apart.
-shipped_query="is:issue is:closed label:tehas:shipped"
+shipped_query="is:issue is:closed label:$tehas_shipped_label"
 # The same limit the platform reads go under: a search that hangs costs the run
 # this many seconds and is then a figure with no key, as a search that answered
 # nothing is. first: 0 asks for the total and no nodes.
@@ -421,8 +422,8 @@ if [ "$written" = 0 ]; then
 fi
 rm -f "$live/status.json.err"
 
-for n in $(jq -r '.[] | select(.labels | index("tehas:shipped") | not) | .number' <<<"$shipped"); do
-  gh issue edit "$n" --repo "$repo" --add-label tehas:shipped >/dev/null 2>&1 || true
+for n in $(jq -r --arg shipped "$tehas_shipped_label" '.[] | select(.labels | index($shipped) | not) | .number' <<<"$shipped"); do
+  gh issue edit "$n" --repo "$repo" --add-label "$tehas_shipped_label" >/dev/null 2>&1 || true
 done
 
 # The issue events of the factory's analytics, from what changed since the

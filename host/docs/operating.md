@@ -275,7 +275,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it   | Nothing; `tehas tidy` gives it           |
+| `tehas:shipped`         | A merged pull request closed it   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -302,12 +302,15 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 and `tehas:next`, stay.
 
 The same edit puts `tehas:shipped` on an issue that a merged pull request
-closed: `tehas tidy` reads what closed each issue it tidies and adds the label
-in the call that strips its state labels, so the label says one thing, that a
-merge closed the issue, whatever the queue's list happened to hold. An issue
-that already carries it is not labelled again, and one that the read could not
-answer is never labelled on a guess: its state labels still come off and the
-tidy line in `~/tehas/logs/dispatch.log` says the closer could not be read.
+closed: `tehas tidy` reads what closed the issues it tidies and adds the label
+in the call that strips their state labels, so the label says one thing, that a
+merge closed the issue, whatever the queue's list happened to hold. `tehasbot
+status` reads the same answer for its own list and gives the label to any issue
+missing it; `tehas tidy` is the one that says what it did in
+`~/tehas/logs/dispatch.log`. An issue that already carries the label is not
+labelled again, and one that the read could not answer is never labelled on a
+guess: its state labels still come off and the tidy line says no merged pull
+request was read as the closer.
 
 The pages' **Shipped** figure counts the closed issues that carry
 `tehas:shipped`, and not the fifty most recent items of the queue's list: an
