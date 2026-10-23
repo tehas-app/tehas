@@ -50,6 +50,16 @@ t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.
 t_case "a change that needs no follow-up asks for none"
 t_eq "$(tehas_steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
 
+t_case "tehas_steps_into gives the same steps in tehas_steps, and empties it first"
+for srcs in "systemd/tehas-dispatch.timer sandbox/Dockerfile edge/docs.Caddyfile edge/router.compose.yaml" \
+  "libexec/mcp" "versions.env" "libexec/dispatch"; do
+  # shellcheck disable=SC2086  # one source path per word
+  tehas_steps_into $srcs
+  # shellcheck disable=SC2086
+  t_eq "$(if [ "${#tehas_steps[@]}" != 0 ]; then printf '%s\n' "${tehas_steps[@]}"; fi)" "$(tehas_steps_for $srcs)"
+done
+t_eq "${#tehas_steps[@]}" 0
+
 t_case "every step it asks for is one it defines, and reads back as valid"
 ids=$(tehas_step_ids | tr '\n' ' ')
 while IFS= read -r step; do
