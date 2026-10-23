@@ -50,6 +50,20 @@ t_contains "$(tehas_steps_for env.sh)" "units tehas-dispatch.timer tehas-energy.
 t_case "a change that needs no follow-up asks for none"
 t_eq "$(tehas_steps_for libexec/dispatch docs/host.md lib/config.sh)" ""
 
+# The command that makes the labels is the one thing whose own change owes the
+# labels: a release that adds one ends with it on GitHub, not owed in the record.
+t_case "the labels command asks for the labels step, last"
+t_eq "$(tehas_steps_for libexec/labels)" "labels"
+t_eq "$(tehas_steps_for libexec/labels libexec/dispatch)" "labels"
+t_eq "$(tehas_steps_for libexec/labels-test libexec/labels_helper)" ""
+t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
+  edge/docs.compose.yaml edge/router.compose.yaml libexec/labels)" \
+  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
+sandbox
+docs --force-recreate
+edge --force-recreate
+labels"
+
 t_case "tehas_steps_into gives the same steps in tehas_steps, and empties it first"
 for srcs in "systemd/tehas-dispatch.timer sandbox/Dockerfile edge/docs.Caddyfile edge/router.compose.yaml" \
   "libexec/mcp" "versions.env" "libexec/dispatch"; do
@@ -82,7 +96,7 @@ for bad in "" "rm -rf something" "units" "units --help tehas-dispatch.timer" \
   "units gnome-shell.service" "units systemd-journald.service" \
   "docs" "edge" "docs restart" "docs up -d" "docs --always-recreate" \
   "docs --force-recreate up" "docs --force-recreate --force-recreate" \
-  "edge --always-recreate" "sandbox --now"; do
+  "edge --always-recreate" "sandbox --now" "labels x" "labels --force"; do
   t_case "refused: [$bad]"
   if tehas_valid_step "$bad"; then t_bad "accepted: $bad"; fi
 done
@@ -101,6 +115,10 @@ tehas_valid_step "units gnome-shell.service" &&
   t_bad "a unit tehas does not install was accepted"
 tehas_valid_step "docs --force-recreate" || t_bad "the flag install.sh asks for was refused"
 tehas_valid_step "docs" && t_bad "a bare docs was accepted, which is the weaker renewal"
+# The labels step is the bare id: the command it runs takes no argument.
+tehas_valid_step "labels" || t_bad "the bare labels line install.sh records was refused"
+t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "labels x"; echo rc=$?'
+t_eq "$t_out" "rc=1"
 
 t_case "a step recorded under the Protolab's old id is still a step"
 t_run '. "$T_ROOT/lib/update-steps.sh"; tehas_valid_step "protolab --force-recreate"; echo rc=$?'

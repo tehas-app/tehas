@@ -46,6 +46,10 @@
 #                     running; the one flag accepted is --force-recreate, and it
 #                     is required for the same reason. A line recorded as
 #                     "protolab <flag>" by an earlier version means this step.
+#   labels            the tehas labels are created in the product repository, or
+#                     brought back to the colours and descriptions this version
+#                     names; tehas labels is run with no arguments, and no
+#                     arguments are accepted on the line.
 #
 # Rules: an id this file does not define is run by nobody, and it stays in the
 # record so the host keeps reporting it until a command that knows it runs.
@@ -61,7 +65,7 @@
 # reload.
 tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer; }
 
-tehas_step_ids() { printf '%s\n' units sandbox docs edge; }
+tehas_step_ids() { printf '%s\n' units sandbox docs edge labels; }
 
 # The steps these changed sources call for, in the order they run: systemd
 # first, because a unit file is not in effect until it is reloaded and its unit
@@ -101,6 +105,11 @@ tehas_steps_into() { # changed source paths -> tehas_steps
   esac
   case "$list" in
     *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
+  esac
+  case "$list" in
+    # The command that makes the labels changed, so a release that adds one ends
+    # with that label in place on GitHub rather than owed to nobody.
+    *" libexec/labels "*) tehas_steps+=(labels) ;;
   esac
   return 0
 }
@@ -177,6 +186,10 @@ tehas_valid_step() { # <step line>
       # would then be counted as a step that ran.
       [ "${#argv[@]}" = 2 ] || return 1
       [ "${argv[1]}" = --force-recreate ] || return 1
+      ;;
+    labels)
+      # The command it runs takes no argument, so neither does the step.
+      [ "${#argv[@]}" = 1 ] || return 1
       ;;
     *) return 1 ;;
   esac
