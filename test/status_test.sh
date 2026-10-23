@@ -12,11 +12,12 @@ summary="$T_ROOT/libexec/summary"
 live=$T/home/tehas/live
 
 t_stub gh '
-# One answer per search. The query of the count is the only one with the label
-# term: the other asks for merged work, so that term tells the two apart.
+# One answer per search. The count is the only call that asks for a total and
+# no nodes, so that shape tells the two apart; the count of the label under
+# test is never the thing that routes the answer.
 gh_graphql() {
   case "$1" in
-    *"label:tehas:shipped"*) [ ! -e "$T/count-down" ] || exit 1
+    *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
       cat "$T/count.json" ;;
     *) cat "$T/shipped.json" ;;
   esac
@@ -52,6 +53,12 @@ shipped() { # closed issues, as the GraphQL answer
 }
 shipped_count() { # total of the closed issues labelled tehas:shipped, as GraphQL answers it
   printf '{"data":{"search":{"issueCount":%s}}}' "$1" >"$T/count.json"
+}
+# The state the count cases share: one closed issue a merged pull request closed,
+# and the count answer of reset still saying 0.
+one_shipped() {
+  reset
+  shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
 }
 issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
@@ -237,29 +244,31 @@ t_eq "$(jq -r '.completed | length' "$live/status.json")" 50
 t_eq "$(jq -r .completedCount "$live/status.json")" 138
 t_eq "$(t_calls gh | grep -c 'api graphql')" 2
 
-# The figure is published as a whole number of issues, or no key at all. An
-# answer that is not one is dropped rather than published for a reader to judge.
+# The figure is published as a whole number of issues, or no key at all: an
+# answer that is not one is dropped rather than published for a reader to judge,
+# and 0 is a published answer, not an absent one. The bounds are the ones
+# host/fun/business-view.js accepts, so both sides of the pair are pinned here.
 t_case "completedCount is published only as a whole number of issues"
-reset
-shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
-shipped_count 0
-t_run "$status"
-t_eq "$(jq -r .completedCount "$live/status.json")" 0
-for answer in -0.5 1e400 1E+999 9007199254740992; do
+one_shipped
+for answer in 0 1 9007199254740991; do
+  shipped_count "$answer"
+  t_run "$status"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r '.completedCount | type' "$live/status.json")" number
+  t_eq "$(jq -r .completedCount "$live/status.json")" "$answer"
+done
+# -138 and 1e400 are numbers GitHub could answer and no reader can use.
+for answer in -138 -0.5 1e400 1E+999 9007199254740992; do
   shipped_count "$answer"
   t_run "$status"
   t_eq "$t_rc" 0
   t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
 done
-# The largest count a JavaScript number holds exactly is kept as it is.
-shipped_count 9007199254740991
-t_run "$status"
-t_eq "$(jq -r .completedCount "$live/status.json")" 9007199254740991
 
-# The call failing outright, with an answer that would read well above it.
+# A gh that fails the call outright, with an answer that would read well above
+# every bound: the figure is left out as if the search had given no number.
 t_case "a count call that fails leaves the field out"
-reset
-shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+one_shipped
 shipped_count 138
 : >"$T/count-down"
 t_run "$status"
@@ -268,11 +277,9 @@ t_eq "$(jq -r 'has("completedCount") ' "$live/status.json")" false
 t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
 
 t_case "a count that cannot be read leaves the field out, and the rest of the snapshot is written"
-reset
-shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+one_shipped
 # The count that cannot be read, however gh answers: the snapshot is written as
-# it was before the field, and the list stands as it is. A gh that fails the
-# call outright is the case above.
+# it was before the field, and the list stands as it is.
 for answer in '' 'not json' '{"errors": [{"message": "rate limited"}]}' '{"data": {}}' \
   '{"data": {"search": {}}}' '{"data": {"search": {"issueCount": null}}}' \
   '{"data": {"search": {"issueCount": "138"}}}' '{"data": {"search": {"nodes": []}}}'; do
@@ -282,19 +289,11 @@ for answer in '' 'not json' '{"errors": [{"message": "rate limited"}]}' '{"data"
   t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
   t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
   t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
-  : >"$T/count-down"
-  t_run "$status"
-  t_eq "$t_rc" 0
-  t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
 done
 
 t_case "a shipped issue without the label is given it, once"
-reset
-shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+one_shipped
 t_run "$status"
-t_eq "$(t_calls gh | grep -c 'issue edit')" 1
-
-t_case "a shipped issue without the label is given it, once"
 t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 

@@ -16,7 +16,8 @@ export const FLIP_EVERY = 7; // seconds between waves of the line's cards
 
 // The line, left to right. `from` is the list in status.json; `search` the
 // GitHub query for the stage's "all" link; `total` the field of status.json
-// whose number the stage shows when it has one (see lineView).
+// whose figure the stage shows when the file has a usable one, counted by the
+// search its `search` names (see lineView).
 export const STAGES = [
   { key: "proto", label: "Prototypes", first: "Latest", later: "Prototype", none: "No prototypes." },
   { key: "line", label: "In line", from: "queued", first: "Next up", later: "In line", search: "is:open label:tehas:ready", none: "Nothing in line." },
@@ -25,6 +26,10 @@ export const STAGES = [
   { key: "stop", label: "Stopped", from: "stopped", first: "Needs a human", later: "Needs a human", search: "is:open label:needs-human-attention", none: "Nothing stopped." },
   { key: "ship", label: "Shipped", from: "completed", total: "completedCount", first: "Latest", later: "Shipped", search: "is:closed", none: "Nothing shipped yet." },
 ];
+// The figure of a stage that names a `total`: the field of the untrusted file,
+// its own and a whole number of issues above 0, as libexec/status publishes it.
+const countOf = (s, name) => (Object.prototype.hasOwnProperty.call(s, name)
+  && Number.isSafeInteger(s[name]) && s[name] > 0 ? s[name] : 0);
 const MORE = { proto: "in Protolab", line: "in line", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
 
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -91,19 +96,13 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
   for (const key of ["stop", "review", "build", "line"]) {
     items[key] = items[key].filter((t) => !seen.has(t.number) && seen.add(t.number));
   }
-  // The figure of a stage: the total its row names in the table above, or 0
-  // when the file has no such figure. Shipped is the label's total, not the
-  // list's length: status.json counts every closed issue that carries
-  // tehas:shipped, while the list holds only the latest fifty. Without a
-  // count, as on an older host, the length of the list is the best answer.
-  const total = (st) => st.total && s && Number.isSafeInteger(s[st.total]) && s[st.total] > 0
-    ? s[st.total] : 0;
   const stages = STAGES.map((st) => {
     const these = items[st.key];
-    // A stage that names a `total` in the table shows that figure when the file
-    // has a usable one, and keeps its "all" link even with no cards beneath it;
-    // otherwise the figure is the length of its list.
-    const count = total(st) || these.length;
+    // Shipped is the label's total, not the list's length: status.json counts
+    // every closed issue that carries tehas:shipped, while the list holds only
+    // the latest fifty. Without a count, as on an older host, the length of the
+    // list is the best answer, and it keeps the stage's "all" link.
+    const count = (st.total ? countOf(s || {}, st.total) : 0) || these.length;
     const href = st.key === "proto" ? base
       : repo ? `https://github.com/${repo}/issues?q=${encodeURIComponent(st.search)}` : null;
     const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;

@@ -1898,7 +1898,16 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with. `planning` is a count, not a list: the open issues labelled
-`tehas:plan` or `tehas:planning`, found by the same search as the lists. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
+`tehas:plan` or `tehas:planning`, found by the same search as the lists. `completedCount`
+is also a count, not a list: a whole number from 0 of the closed issues that
+carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
+the fifty `completed` holds. The figure of the Shipped stage of the business
+layout is that count where the file has one, and the length of the list where
+it has none. The call for that count may take 60 seconds, the same limit the
+platform reads go under; a call that fails or runs out of time leaves the key
+out of the snapshot. The key is absent whenever the search gave no such number, so
+absence is not zero: a reader cannot tell a factory that shipped nothing from
+one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
 lists the same issues; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
