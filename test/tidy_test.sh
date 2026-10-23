@@ -8,6 +8,11 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 tidy="$T_ROOT/libexec/tidy"
+# The line of a read that answered and named no merged closer, and the one of a
+# read that failed or timed out: the two must read differently, or a rate-limited
+# search looks like a factory that shipped nothing.
+no_closer() { printf 'no merged pull request was read as the closer'; }
+read_failed_line() { printf 'WARN: tidy: the read of what closed these issues failed, tehas:shipped was not added for %s issues\n' "$1"; }
 fx=$T/fx
 mkdir -p "$fx"
 # shellcheck disable=SC1083  # the braces of the JSON answers below are literal
@@ -26,9 +31,16 @@ t_stub gh 'case "$1 $2" in
     # here from the terms the caller sent. A name that has no file closes the
     # call: the stub would answer nothing about an issue the caller named, and
     # a caller that reads no answer adds no label, so the case would pass for
-    # the wrong reason.
+    # the wrong reason. NO_NODE makes it answer a whole search that never
+    # speaks of the issues it was asked about, as a lagged index does.
+    # The call is matched on "$*", the arguments joined into one word, so the
+    # number has to be split out of the word that carries it.
     terms=""
     for a in "$@"; do case $a in q=*) terms=${a#q=} ;; esac; done
+    if [ -e "$T/fx/no-node" ]; then
+      echo '{"data":{"search":{"nodes":[]}}}'
+      exit 0
+    fi
     nodes=""
     for a in $terms; do
       case $a in
@@ -57,6 +69,14 @@ reset() {
 }
 edits() { t_calls gh | grep '^issue edit' || true; }
 reads() { t_calls gh | grep '^api graphql' || true; }
+# The ceiling of one closer read, read from the library so the case cannot ask
+# for a number the shared query would not answer for.
+tehas_page_count() {
+  local page
+  # shellcheck source=lib/shipped.sh
+  page=$(bash -c ". '$T_ROOT/lib/shipped.sh'; printf '%s' \"\$tehas_shipped_page\"")
+  printf '%s' "$page"
+}
 # One issue's node of the closer answer, as the batched search returns it. The
 # closer is the only part a case chooses, so the shape of the timeline is
 # written once.
@@ -211,7 +231,10 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" ""
 t_contains "$t_out" "tidy #194: would remove tehas:awaiting-merge"
 t_lacks "$t_out" "would add tehas:shipped"
-t_contains "$t_out" "WARN: tidy #194: no merged pull request was read as the closer, tehas:shipped was not added"
+# The read failed at all: one line for the poll says so, and no line calls the
+# closer unmerged for an issue the read never answered.
+t_contains "$t_out" "$(read_failed_line 1)"
+t_lacks "$t_out" "$(no_closer)"
 
 t_case "a failed search is logged, nothing is edited, exit 1"
 reset
@@ -308,7 +331,7 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 33 --repo acme/widget --remove-label tehas:awaiting-merge --add-label tehas:shipped"
 t_contains "$t_out" "tidy #33: added tehas:shipped"
 
-t_case "a closer read that fails still takes the state labels off, and adds nothing"
+t_case "a closer read that fails still takes the state labels off, and says the read failed"
 reset
 : >"$fx/graphql-fails"
 echo '[{"number":40,"state":"CLOSED","labels":[{"name":"tehas:question"}]},
@@ -318,7 +341,10 @@ t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 40 --repo acme/widget --remove-label tehas:question
 issue edit 41 --repo acme/widget --remove-label tehas:plan"
 t_contains "$t_out" "tidy #40: removed tehas:question"
-t_contains "$t_out" "WARN: tidy #40: no merged pull request was read as the closer, tehas:shipped was not added"
+# One line for the poll, not one per issue: a read that never answered is not
+# an answer that no closer was merged.
+t_contains "$t_out" "$(read_failed_line 2)"
+t_lacks "$t_out" "$(no_closer)"
 t_lacks "$t_out" "added tehas:shipped"
 t_eq "$(t_calls gh | grep -c 'add-label')" 0
 
@@ -334,7 +360,30 @@ t_eq "$t_rc" 0
 t_fast 5000
 t_eq "$(edits)" "issue edit 42 --repo acme/widget --remove-label tehas:question"
 t_contains "$t_out" "tidy #42: removed tehas:question"
-t_contains "$t_out" "WARN: tidy #42: no merged pull request was read as the closer, tehas:shipped was not added"
+t_contains "$t_out" "$(read_failed_line 1)"
+t_lacks "$t_out" "$(no_closer)"
+
+t_case "a read that answers and names none of the issues is a failed read, not a closed issue"
+reset
+: >"$fx/no-node"
+merged 47
+echo '[{"number":47,"state":"CLOSED","labels":[{"name":"tehas:question"}]}]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(edits)" "issue edit 47 --repo acme/widget --remove-label tehas:question"
+t_eq "$(t_calls gh | grep -c 'add-label')" 0
+t_contains "$t_out" "$(read_failed_line 1)"
+t_lacks "$t_out" "$(no_closer)"
+
+t_case "a read that answers and names the issue with no merged closer is logged per issue"
+reset
+by_hand 48
+echo '[{"number":48,"state":"CLOSED","labels":[{"name":"tehas:question"}]}]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(edits)" "issue edit 48 --repo acme/widget --remove-label tehas:question"
+t_contains "$t_out" "$(no_closer 48)"
+t_lacks "$t_out" "the read of what closed these issues failed"
 
 t_case "a GraphQL answer that carries errors adds nothing, even where it holds a merged closer"
 reset
@@ -345,7 +394,67 @@ t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits)" "issue edit 43 --repo acme/widget --remove-label tehas:question"
 t_eq "$(t_calls gh | grep -c 'add-label')" 0
-t_contains "$t_out" "WARN: tidy #43: no merged pull request was read as the closer, tehas:shipped was not added"
+t_contains "$t_out" "$(read_failed_line 1)"
+t_lacks "$t_out" "$(no_closer)"
+
+t_case "a label that is not a state label is neither taken off nor written to the log"
+# The names come from GitHub. One that is not a state label is not passed to the
+# edit, and a name carrying a newline of its own cannot put a second line in
+# dispatch.log.
+reset
+merged 55
+printf '[{"number":55,"state":"CLOSED","labels":[{"name":"tehas:running"},{"name":"fake\\u000aWARN: tidy #999: forged line"}]}]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(edits)" "issue edit 55 --repo acme/widget --remove-label tehas:running --add-label tehas:shipped"
+t_lacks "$(edits)" "fake"
+t_eq "$(printf '%s\n' "$t_out" | grep -c 'tidy #55')" 2
+t_lacks "$t_out" "forged line"
+
+t_case "the control issue is tidied like any other closed issue, and the label never goes on it"
+# libexec/status leaves the number TEHAS_CONTROL_ISSUE names out of every list
+# and every count: it holds the pause switch and is not work. tidy now writes the
+# label too, so it must follow the same rule, whatever the closer read answers.
+reset
+merged 1
+merged 23
+echo '[{"number":1,"state":"CLOSED","labels":[{"name":"tehas:running"}]},
+  {"number":23,"state":"CLOSED","labels":[{"name":"tehas:running"}]}]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(edits)" "issue edit 23 --repo acme/widget --remove-label tehas:running --add-label tehas:shipped"
+t_lacks "$t_out" "#1:"
+t_eq "$(reads | wc -l)" 1
+t_lacks "$(reads)" "number:1"
+t_contains "$(reads)" "number:23"
+
+t_case "the candidates past the page of the read are left to a later poll"
+# More candidates than the page of the shared read, twice over: the terms of a
+# search are capped, so the read is asked about tehas_shipped_page of them and
+# no more, and the rest keep their state labels for the polls that follow.
+reset
+page=$(tehas_page_count)
+last=$((page + page + 100))
+for n in $(seq 100 "$last"); do merged "$n"; done
+{
+  printf '['
+  first=1
+  for n in $(seq 100 "$last"); do
+    [ "$first" = 1 ] || printf ','
+    first=0
+    printf '{"number":%s,"state":"CLOSED","labels":[{"name":"tehas:running"}]}' "$n"
+  done
+  printf ']'
+} >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(reads | wc -l)" 1
+t_eq "$(edits | grep -c -- '--add-label tehas:shipped')" "$page"
+t_contains "$(reads)" "number:100"
+# The candidates past the page were not named: a list past the ceiling of a
+# search is no answer at all, so a longer one is refused rather than truncated.
+t_lacks "$(reads)" "number:$last"
+t_eq "$(edits | wc -l)" "$((last - 100 + 1))"
 
 t_case "an edit that fails is logged and the next issue is still tidied"
 reset

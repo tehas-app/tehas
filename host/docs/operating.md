@@ -304,16 +304,20 @@ and `tehas:next`, stay.
 The same edit puts `tehas:shipped` on an issue that a merged pull request
 closed: `tehas tidy` reads what closed the issues it tidies and adds the label
 in the call that strips their state labels, so the label says one thing, that a
-merge closed the issue, whatever the queue's list happened to hold. `tehasbot
-status` reads the same answer for its own list and gives the label to any issue
-missing it; `tehas tidy` is the one that says what it did in
-`~/tehas/logs/dispatch.log`. An issue that already carries the label is not
+merge closed the issue, whatever the queue's list happened to hold. Two commands
+put the label from a merged closer, and both read the one answer from
+`lib/shipped.sh`: `tehas tidy` in the edit that takes the state labels off, and
+`tehasbot status` from its own read of the list for any issue missing it.
+`tehas tidy` is the one that says what it did in
+`~/tehas/logs/dispatch.log`. Neither gives it to the control issue. An issue
+that already carries the label is not
 labelled again, and one that the read could not answer is never labelled on a
 guess: its state labels still come off and the tidy line says no merged pull
-request was read as the closer.
+request was read as the closer, or, when the whole read failed, that the read
+failed once for the poll.
 
 The pages' **Shipped** figure counts the closed issues that carry
-`tehas:shipped`, and not the fifty most recent items of the queue's list: an
+`tehas:shipped`, and not the hundred most recent items of the queue's list: an
 issue a person closes as completed without a merged pull request does not carry
 the label and is not counted. The count is the `completedCount` of the queue
 snapshot; where the snapshot has none, the figure is the length of that list.

@@ -40,11 +40,11 @@
 # work being planned, a count only. The same search as the lists finds them.
 #
 # `completedCount` is how many closed issues carry tehas:shipped, counted by a
-# search of its own, so it keeps rising past the fifty the `completed` list
-# holds. It is the whole number the search answered, or no key at all when the
-# search gave no such number, in which case the page counts the list. The one
-# statement of the bound is the select below; host/docs/tools.md names the same
-# contract for a reader outside this repository.
+# search of its own, so it keeps rising past the hundred items the `completed`
+# list holds. It is the whole number the search answered, or no key at all when
+# the search gave no such number, in which case the page counts the list. The
+# one statement of the bound is the select below; host/docs/tools.md names the
+# same contract for a reader outside this repository.
 #
 # It writes live/analytics.json, the ten-day report of the factory's
 # analytics (analytics_report below), at every run, the runs that end early
@@ -274,19 +274,37 @@ jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 # GraphQL: the query and the acceptance rule are lib/shipped.sh's, the same ones
 # tehas tidy reads, so the two commands cannot disagree on what a merge closed.
 # shellcheck disable=SC2016  # $q is a GraphQL variable
-shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" -f query="$(tehas_shipped_query)" 2>/dev/null) || exit 0
-shipped=$(jq -ce "$(tehas_shipped_rule)
-  .data.search.nodes | map(select(.number != null and shipped)
-  | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})" <<<"$shipped" 2>/dev/null) || exit 0
+search_wait=$fetch_limit
+# The list of shipped work goes under the same bound as the count below it: a
+# read that hangs costs the run this many seconds and is then no snapshot at
+# all, as a read that answered nothing is. It is timed out with the call, not
+# read from a file: the answer is one argument to jq and no file holds it.
+# shellcheck disable=SC2016  # $q is a GraphQL variable
+shipped=$(timeout -k 1 "$search_wait" gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" \
+  -f query="$(tehas_shipped_query)" 2>/dev/null) || {
+  log "WARN status: the read of what closed these issues could not be read, no snapshot was written"
+  exit 0
+}
+# The answer is the one lib/shipped.sh accepts: no top-level errors, a list of
+# nodes, and a node whose closer is a merged pull request. `shipped` is the
+# library's rule, so the list and the label tehas tidy gives cannot disagree.
+shipped=$(jq -ce --arg control "$control" "$(tehas_shipped_rule)
+  # The whole answer is judged the way lib/shipped.sh judges it: an errors key
+  # that holds nothing is no refusal, gh answers one for a read that went well.
+  if ((.errors // []) | length) > 0 then error(\"declined\")
+  elif (.data.search.nodes | type) != \"array\" then error(\"no list\")
+  else . end
+  | .data.search.nodes
+  | map(select(.number != null and (.number | tostring) != \$control and shipped)
+  | {number, title, url, updatedAt, closedAt})" <<<"$shipped" 2>/dev/null) || exit 0
 # The figure of the Shipped stage: every closed issue with the label, not the
-# fifty this script reads. The query is written once here and shared with
+# page this script reads. The query is written once here and shared with
 # links.completed below, so the figure and the list's "all" link cannot drift
 # apart.
 shipped_query="is:issue is:closed label:$tehas_shipped_label"
 # The same limit the platform reads go under: a search that hangs costs the run
 # this many seconds and is then a figure with no key, as a search that answered
 # nothing is. first: 0 asks for the total and no nodes.
-search_wait=$fetch_limit
 # shellcheck disable=SC2016  # $q is a GraphQL variable
 completed_raw=$(timeout -k 1 "$search_wait" gh api graphql -f q="repo:$repo $shipped_query" -f query='
   query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }' 2>/dev/null) || completed_raw=""
@@ -422,7 +440,9 @@ if [ "$written" = 0 ]; then
 fi
 rm -f "$live/status.json.err"
 
-for n in $(jq -r --arg shipped "$tehas_shipped_label" '.[] | select(.labels | index($shipped) | not) | .number' <<<"$shipped"); do
+# An issue this read finds shipped carries the label whatever the reason: the
+# edit is idempotent, so an issue that already holds it is asked for nothing.
+for n in $(jq -r '.[].number' <<<"$shipped"); do
   gh issue edit "$n" --repo "$repo" --add-label "$tehas_shipped_label" >/dev/null 2>&1 || true
 done
 

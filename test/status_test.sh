@@ -232,7 +232,7 @@ t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed label:tehas:sh
 t_contains "$(t_calls gh)" "first: 0) { issueCount }"
 t_eq "$(jq -r .completedCount "$live/status.json")" 0
 
-t_case "completedCount is every closed issue labelled tehas:shipped, though the list holds only the latest fifty"
+t_case "completedCount is every closed issue labelled tehas:shipped, though the list holds only the latest hundred"
 reset
 jq -n '{data: {search: {nodes: [range(50) | {number: (. + 100), title: "t",
   url: "u", updatedAt: "2026-01-02T00:00:00Z", closedAt: "2026-01-02T00:00:00Z",
@@ -296,6 +296,47 @@ one_shipped
 t_run "$status"
 t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
+
+t_case "a shipped issue is given the label whatever else it carries, and once"
+# The shared read answers by the closer, not by the labels: the query names no
+# labels at all, so the loop gives the label to what the read finds shipped and
+# GitHub makes the edit idempotent for the rest.
+reset
+jq -n '{data: {search: {nodes: [range(6; 9) | {number: ., title: "t", url: "u",
+  updatedAt: "2026-01-02T00:00:00Z", closedAt: "2026-01-02T00:00:00Z",
+  timelineItems: {nodes: [{closer: {merged: true}}]}}]}}}' >"$T/shipped.json"
+t_run "$status"
+t_eq "$(jq -c '[.completed[].number] | sort' "$live/status.json")" "[6,7,8]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 3
+
+t_case "the control issue is not listed as shipped and not given the label, whatever the read answers"
+# It holds the pause switch and is not work: libexec/status leaves the number
+# TEHAS_CONTROL_ISSUE names out of every list and every count, and tehas tidy
+# follows the same rule when it puts the label on.
+reset
+jq -n '{data: {search: {nodes: [
+  {number: 1, title: "t", url: "u", updatedAt: "2026-01-02T00:00:00Z",
+   closedAt: "2026-01-02T00:00:00Z", timelineItems: {nodes: [{closer: {merged: true}}]}},
+  {number: 20, title: "t", url: "u", updatedAt: "2026-01-02T00:00:00Z",
+   closedAt: "2026-01-02T00:00:00Z", timelineItems: {nodes: [{closer: {merged: true}}]}}]}}}' >"$T/shipped.json"
+t_run "$status"
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 1
+t_lacks "$(t_calls gh)" "issue edit 1 --repo"
+
+t_case "an answer that carries errors is no snapshot, even where it holds a merged closer"
+# The same refusal tehas tidy makes of an answer with errors beside its data:
+# the two commands read one acceptance rule, so neither may publish what the
+# other refuses. The snapshot of the run before is the thing that must stay.
+reset
+t_run "$status"
+before=$(jq -c .completed "$live/status.json")
+jq -n '{errors: [{message: "declined"}], data: {search: {nodes: [
+  {number: 20, title: "t", url: "u", updatedAt: "2026-01-02T00:00:00Z",
+   closedAt: "2026-01-02T00:00:00Z", timelineItems: {nodes: [{closer: {merged: true}}]}}]}}}' >"$T/shipped.json"
+t_run "$status"
+t_eq "$(jq -c .completed "$live/status.json")" "$before"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 0
 
 t_case "an issue closed with its label still on is not counted as shipped for the label alone"
 reset
