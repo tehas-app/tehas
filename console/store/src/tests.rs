@@ -566,6 +566,586 @@ fn a_locked_database_is_exit_1_and_the_word_busy() {
 }
 
 #[test]
+fn migrate_writes_its_backup_before_it_changes_anything() {
+    // The order is the deliverable, seen from the one thing that can stop it:
+    // the copy. It is what the verb does first, it is what the verb names in its
+    // answer, and a verb that cannot make it has changed nothing -- no schema,
+    // no version, no row -- because it never got past the copy.
+    let home = scratch("migrate-first");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    checkpoint(&file);
+    // What the file holds once its log is in it: the bytes the verb is not
+    // allowed to change, taken now and asked of again after every call below.
+    let before = fs::read(&file).unwrap();
+    let state = home.join("state");
+
+    // The copy itself: beside the file it came from, at the store's mode, and a
+    // database a reader can open.
+    let line = migrate(&home, &state).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    let copy = PathBuf::from(value["backup"].as_str().unwrap());
+    assert_eq!(copy.parent().unwrap(), state);
+    assert_eq!(
+        mode(&copy),
+        0o600,
+        "a copy of the store is as unreadable as the store"
+    );
+    assert!(db::is_database(&copy));
+    // A copy is a database of its own, compacted by VACUUM rather than handed
+    // over page for page, so it is asked what it holds rather than how it reads.
+    // It holds the database as the verb found it, and the store's own bytes are
+    // unchanged by the verb that made it.
+    let copy_conn = Connection::open(&copy).unwrap();
+    assert_eq!(
+        one::<i64>(&copy_conn, "PRAGMA user_version"),
+        db::SCHEMA_VERSION,
+        "the copy is of the database as it was"
+    );
+    assert_eq!(one::<i64>(&copy_conn, "SELECT count(*) FROM meta"), 6);
+    drop(copy_conn);
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        before,
+        "a verb with nothing to run wrote"
+    );
+
+    // The same name, asked for again: the copy that is there is not opened for
+    // writing, and the verb says so. This is the failure that would otherwise
+    // leave a person with one copy where they counted on two -- a copy of a
+    // later database under the name of an earlier one -- and a host reaches it
+    // on its own, with two verbs of one update in the same second. Chosen over a
+    // directory that cannot be written because no mode of a directory says it: a
+    // caller that may read one may write it too, whatever its bits say, and root
+    // is not stopped by 0500.
+    let err = migrate_at(&home, &state, 1_792_000_000)
+        .expect_err("a backup whose name is taken is refused, not overwritten");
+    assert_eq!(err.0, 78, "{}", err.1);
+    assert!(err.1.starts_with("unreadable "), "{}", err.1);
+    // The whole point: no schema was touched, so a reader still sees the version
+    // the file came with, and the copy the verb could not make left nothing
+    // behind to be mistaken for one.
+    let conn = db::open_read_only(&file).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "1"
+    );
+    drop(conn);
+    assert_eq!(fs::read(&file).unwrap(), before, "a failed backup migrated");
+    let mut left = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    left.sort();
+    let allowed: Vec<std::ffi::OsString> = [
+        "tehas.db",
+        "tehas.db-shm",
+        "tehas.db-wal",
+        &format!("tehas-1-{}.db", 1_792_000_000),
+    ]
+    .iter()
+    .map(std::ffi::OsString::from)
+    .collect();
+    for name in &left {
+        assert!(allowed.contains(name), "state/ holds {name:?}");
+    }
+    assert_eq!(
+        fs::read(&copy).unwrap().len(),
+        fs::metadata(&copy).unwrap().len() as usize,
+        "the refused verb left the first copy as it wrote it"
+    );
+
+    // A minute later it is a different instant and a different file: an older
+    // copy kept under the name of a newer one is the failure the time in the
+    // name exists to prevent, and a verb that read the first copy back and
+    // called it done would report a backup it never made.
+    let again = migrate_at(&home, &state, 1_792_000_060).unwrap();
+    let second = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&again).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_ne!(second, copy);
+    assert!(copy.exists() && second.exists(), "both copies are kept");
+    assert_eq!(fs::read(&file).unwrap(), before);
+
+    // And a directory that is not the state/ of this home is refused before the
+    // copy: the store keeps its copies where the 0700 of state/ keeps them
+    // readable by nobody but the tehas user, and a person's directory is not the
+    // store's to write one into.
+    let elsewhere = scratch("migrate-elsewhere");
+    let (code, err) = migrate(&home, &elsewhere).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("unreadable "), "{err}");
+    assert!(err.contains("state/"), "{err}");
+    assert_eq!(fs::read(&file).unwrap(), before, "a refused backup wrote");
+    assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
+}
+
+#[test]
+fn migrate_brings_an_empty_file_to_schema_1_and_the_rows_it_lacks() {
+    // An empty file is SQLite's own shape for nothing: no header, no tables and
+    // a user_version of 0. `init` would make one at 1, so this is the state the
+    // one migration of schema 1 exists for, made here rather than by a verb --
+    // and made the way a host makes one, with the umask's mode on the file and
+    // on the directory, which is the state `install.sh` and `libexec/update`
+    // leave behind and the reason a migration settles both modes on the way in.
+    let home = scratch("migrate-zero");
+    fs::create_dir_all(home.join("state")).unwrap();
+    fs::write(db::path(&home), b"").unwrap();
+    fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o644)).unwrap();
+    fs::set_permissions(home.join("state"), fs::Permissions::from_mode(0o755)).unwrap();
+    let line = migrate(&home, &home.join("state")).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["from"], 0, "{line}");
+    assert_eq!(value["to"], 1, "{line}");
+    let file = db::path(&home);
+    let conn = db::open_read_only(&file).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 1);
+    assert_eq!(
+        one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
+        "1"
+    );
+    // The migration writes the rows a database at 1 holds and has no way to
+    // get: the four the caller gave, and the instant.
+    let got = one::<String>(
+        &conn,
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+    );
+    assert_eq!(
+        got.split(' ').collect::<Vec<_>>(),
+        [
+            "created_at=1792000000",
+            "instance=tehas-tehas",
+            "repo=example-owner/example-product",
+            "schema=1",
+            "tehas_commit=cb6912a",
+            "tehas_version=v0.10.2",
+        ]
+    );
+    // And it is a database of the store's own making: the file arrived at the
+    // umask's mode and is one the store filled, so it leaves at 0600, and the
+    // directory that holds it -- with its log, its backups and every approval
+    // the host ever recorded -- leaves at 0700. With WAL on, a readable `state/`
+    // is a readable copy of the store whatever the file's own bits say, so the
+    // directory is the mode that matters and `migrate` is the verb that meets a
+    // `state/` some `mkdir -p` made. The mode of the log and its shared-memory
+    // sibling is not asked of a verb that has already closed its connection:
+    // SQLite takes the mode of a file it makes itself from the umask and may
+    // make the two only as the commit ends, and by the time this test looks the
+    // last connection has closed and SQLite has taken both away. The test that
+    // holds a connection open to ask is `the_wal_and_shm_siblings_take_the_file_s_mode`.
+    drop(conn);
+    assert_eq!(mode(&file), 0o600, "the migrated file");
+    assert_eq!(mode(&home.join("state")), 0o700, "state/");
+    // Every table of the schema is there, so the migrated file is one the other
+    // verbs read. The count is what the schema holds, counted from the schema
+    // the store was given rather than from a number written here: the schema of
+    // the epic grows, and a table added to it is not a reason for this test to
+    // say a migration went wrong.
+    let report = check(&home).unwrap();
+    let report: serde_json::Value = serde_json::from_str(&report).unwrap();
+    assert_eq!(report["schema"], 1);
+    assert_eq!(report["integrity"], "ok");
+    assert_eq!(
+        report["rows"].as_object().unwrap().len(),
+        db::COUNTED_TABLES.len()
+    );
+    let conn = db::open_read_only(&file).unwrap();
+    let tables: i64 = one(
+        &conn,
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    );
+    let indexes: i64 = one(
+        &conn,
+        "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'",
+    );
+    drop(conn);
+    assert_eq!(tables, db::COUNTED_TABLES.len() as i64);
+    assert_eq!(indexes, db::COUNTED_INDEXES.len() as i64);
+    // What a migration leaves in `state/`, and what each of the two copies
+    // holds. A verb that changed the version leaves two files: the copy the
+    // answer gives, which is the database as the verb found it and the copy that
+    // had to exist before the step was allowed to run, and the copy of the file
+    // under the version it came with, which is its twin. The reported name is
+    // the one a person reaches for, so it is the one taken first: a verb that
+    // could not write it has run nothing.
+    let state = home.join("state");
+    let copies: Vec<String> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("tehas-"))
+        .collect();
+    let found = format!("tehas-0-{}.db", 1_792_000_000);
+    let made = format!("tehas-1-{}.db", 1_792_000_000);
+    assert!(
+        copies.contains(&found),
+        "the copy of the file as it was found is not in state/: {copies:?}"
+    );
+    assert!(
+        copies.contains(&made),
+        "the copy the verb reports is not in state/: {copies:?}"
+    );
+    // The copy the verb reports is a database of its own, of the version the
+    // answer says the store ends at, and it is the state before the step: at 0,
+    // with no table of the schema in it. That is what makes it the restore
+    // point. The store itself is what the step made, and the test of the copy
+    // that could not be written is what holds the verb to the order.
+    let copy = PathBuf::from(value["backup"].as_str().unwrap());
+    assert_eq!(
+        copy,
+        db::backup_name(&state, 1, 1_792_000_000),
+        "{line} reports a copy other than the one taken first"
+    );
+    assert!(copy.exists(), "{line} names a copy that is not there");
+    let after = Connection::open(&copy).unwrap();
+    assert_eq!(
+        one::<i64>(&after, "PRAGMA user_version"),
+        0,
+        "the reported copy is not the state before the step"
+    );
+    assert_eq!(
+        one::<i64>(
+            &after,
+            "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ),
+        0,
+        "the reported copy holds part of the schema the step laid"
+    );
+    drop(after);
+    // The other copy is the same bytes under the version the file came with:
+    // SQLite's VACUUM INTO writes a header for a file of no bytes, so it is a
+    // copy of an empty database rather than a copy of nothing.
+    let found = db::backup_name(&state, 0, 1_792_000_000);
+    assert!(
+        found.exists(),
+        "the copy of the file as it was found is missing"
+    );
+    let was = Connection::open(&found).unwrap();
+    assert_eq!(one::<i64>(&was, "PRAGMA user_version"), 0);
+    assert_eq!(
+        one::<i64>(
+            &was,
+            "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ),
+        0,
+        "the copy of the file as it was found holds no part of the schema"
+    );
+}
+
+#[test]
+fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
+    // The name the answer carries is the name the caller opens, so it is the
+    // name that must be written before the step can commit -- not after it.
+    // Two verbs of one update land in the same second, so `tehas-1-<now>.db`
+    // can be held by a file the verb did not make, and the verb must then
+    // change nothing at all.
+    let home = scratch("migrate-after");
+    fs::create_dir_all(home.join("state")).unwrap();
+    fs::write(db::path(&home), b"").unwrap();
+    let state = home.join("state");
+    let foreign = db::backup_name(&state, 1, 1_792_000_000);
+    fs::write(&foreign, b"not a backup").unwrap();
+
+    let (code, err) = migrate(&home, &state).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("unreadable "), "{err}");
+    assert!(err.contains("cannot make the backup"), "{err}");
+
+    // The store is the empty file it was: no schema, no version, no rows.
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<i64>(&conn, "PRAGMA user_version"),
+        0,
+        "a copy the verb could not make still migrated the store"
+    );
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ),
+        0,
+        "a copy the verb could not make still laid the schema"
+    );
+    drop(conn);
+    // The foreign file is untouched: the verb neither opened it for writing nor
+    // replaced it with a copy of its own.
+    assert_eq!(fs::read(&foreign).unwrap(), b"not a backup");
+}
+
+#[test]
+fn migrate_reports_the_three_fields_and_a_database_at_1_stays_at_1() {
+    let home = scratch("migrate-json");
+    init(&home, false).unwrap();
+    let state = home.join("state");
+    let line = migrate(&home, &state).unwrap();
+    // One object, one line, valid JSON, and the fields the verb states: api
+    // first as every answer of tehas writes it, then the verb and its ok, then
+    // the three of the migration.
+    assert_eq!(line.lines().count(), 1);
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert!(
+        line.starts_with("{\"api\":1,\"verb\":\"migrate\",\"ok\":true"),
+        "{line}"
+    );
+    assert_eq!(value["api"], 1, "{line}");
+    assert_eq!(value["verb"], "migrate", "{line}");
+    assert_eq!(value["ok"], true, "{line}");
+    assert_eq!(value["from"], 1, "{line}");
+    assert_eq!(value["to"], 1, "{line}");
+    assert!(value["backup"].is_string(), "{line}");
+    for field in ["api", "verb", "ok", "from", "to", "backup"] {
+        assert!(value.get(field).is_some(), "{field} is missing from {line}");
+    }
+    // Already at 1: nothing to run, and the same answer shape. The backup is
+    // still written, because the verb promises a copy before it touches the
+    // file and has no way to know it will not need it until it has looked.
+    assert_eq!(value["from"], 1, "{line}");
+    assert_eq!(value["to"], 1, "{line}");
+    assert!(db::is_database(&PathBuf::from(
+        value["backup"].as_str().unwrap()
+    )));
+    let file = db::path(&home);
+    checkpoint(&file);
+    let before = fs::read(&file).unwrap();
+    // The same instant again: the copy of the first call is on the disk under
+    // that name, and a verb that read it back and called it done would report a
+    // backup it did not make. The name is made afresh from the instant and the
+    // name that is taken is asked for by name, so a run of the verb twice in one
+    // second says so rather than quietly answering with the older file.
+    let (code, err) = migrate(&home, &state).unwrap_err();
+    assert_eq!(
+        code, 78,
+        "a second call in the same second overwrote a copy: {code} {err}"
+    );
+    assert!(err.starts_with("unreadable "), "{err}");
+    // A minute later it is a different instant and a different file, and the
+    // store itself is the file it was: the verb had nothing to run.
+    let again = migrate_at(&home, &state, 1_792_000_060).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&again).unwrap()["from"],
+        1,
+        "{again}"
+    );
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        before,
+        "a verb with nothing to run wrote"
+    );
+    let copies: Vec<_> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("tehas-"))
+        .collect();
+    assert_eq!(copies.len(), 2, "two calls, two copies: {copies:?}");
+}
+
+#[test]
+fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
+    // A version between 0 and what this binary writes is not a database this
+    // verb can bring forward, and it is not one it may overwrite with schema 1
+    // either: the file keeps its bytes and the verb says which version it gave
+    // up on. The backup is still there, because the copy is what a person needs
+    // most when the step cannot be run.
+    let home = scratch("migrate-unknown");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    let state = home.join("state");
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+    }
+    checkpoint(&file);
+    let before = fs::read(&file).unwrap();
+    let (code, err) = migrate(&home, &state).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    // The version is read on the connection, and a version above what this
+    // binary writes is the one class every way into the store already gives:
+    // `future`, met before the copy, so a database this command must not touch
+    // is not copied either.
+    assert!(err.starts_with("future "), "{err}");
+    assert_eq!(fs::read(&file).unwrap(), before);
+    let copies: Vec<_> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("tehas-"))
+        .collect();
+    assert!(
+        copies.is_empty(),
+        "a future database was copied: {copies:?}"
+    );
+    // A version this binary does not write and does not exceed -- a step of a
+    // later release, seen by a command that has no step for it -- is reached by
+    // the copy and refused by the step: the file keeps its bytes, and the copy
+    // the verb did make is what a person restores from. The name in the refusal
+    // is the copy that exists, not one the verb hoped to write -- and it exists
+    // twice, because the copy the answer would have carried is taken first, under
+    // the version the step was going to write, and the copy of the file under its
+    // own version follows it. Both predate the refusal. (Two below 1 is
+    // the shape; nothing in the world of schema 1 writes one, so it is made
+    // here, and a version above 1 is the `future` case just above.)
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "user_version", -1).unwrap();
+    }
+    checkpoint(&file);
+    let before = fs::read(&file).unwrap();
+    let (code, err) = migrate(&home, &state).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("corrupt "), "{err}");
+    assert!(err.contains("no migration from schema -1"), "{err}");
+    assert!(err.contains(&format!("{}", db::SCHEMA_VERSION)), "{err}");
+    assert_eq!(fs::read(&file).unwrap(), before);
+    let copies: Vec<_> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("tehas-"))
+        .collect();
+    assert_eq!(
+        copies.len(),
+        2,
+        "the copies of the refused database: {copies:?}"
+    );
+    assert!(
+        copies
+            .iter()
+            .any(|n| n.to_string_lossy().starts_with("tehas--1-")),
+        "the copy of the file as it was found: {copies:?}"
+    );
+    assert!(
+        copies
+            .iter()
+            .any(|n| n.to_string_lossy().starts_with("tehas-1-")),
+        "the copy the verb reports: {copies:?}"
+    );
+    // A file with tables and no version is the same case seen from the other
+    // side: 0 with rows in it is not an empty file and is not migrated over.
+    let home = scratch("migrate-tables-no-version");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    {
+        let conn = Connection::open(&file).unwrap();
+        conn.pragma_update(None, "user_version", 0).unwrap();
+    }
+    checkpoint(&file);
+    let before = fs::read(&file).unwrap();
+    let (code, err) = migrate(&home, &home.join("state")).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("corrupt "), "{err}");
+    assert_eq!(fs::read(&file).unwrap(), before);
+}
+
+#[test]
+fn migrate_waits_on_a_lock_the_way_a_write_verb_does() {
+    // A migration is a write: it takes the write lock when it opens, so a
+    // caller that already holds it is met before the verb reads a version or
+    // copies a file. The holder waits for nothing, so the verb cannot win the
+    // race and must report it: `busy` is exit 1, and no copy was made.
+    let home = scratch("migrate-busy");
+    init(&home, false).unwrap();
+    let state = home.join("state");
+    let mut holder = Connection::open(db::path(&home)).unwrap();
+    holder.pragma_update(None, "busy_timeout", 0).unwrap();
+    let tx = holder
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    tx.execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
+        .unwrap();
+    let (code, err) = migrate(&home, &state).unwrap_err();
+    assert_eq!(code, 1, "{err}");
+    assert!(err.starts_with("busy "), "{err}");
+    let copies: Vec<_> = fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n.to_string_lossy().starts_with("tehas-"))
+        .collect();
+    assert!(
+        copies.is_empty(),
+        "a locked database was copied: {copies:?}"
+    );
+    drop(tx);
+    drop(holder);
+    // Once the lock is gone the same call answers, and the copy it was asked
+    // for is the file the verb names.
+    let line = migrate(&home, &state).unwrap();
+    let copy = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
+    );
+    assert!(copy.exists(), "{line} names a copy that is not there");
+    assert!(db::is_database(&copy));
+}
+
+#[test]
+fn the_arguments_migrate_accepts_are_the_ones_it_states() {
+    let dir = "/tmp/store-migrate-dir";
+    let full: &[&str] = &[
+        "--backup",
+        dir,
+        "--version",
+        "v0.10.2",
+        "--commit",
+        "cb6912a",
+        "--instance",
+        "tehas-tehas",
+        "--repo",
+        "example-owner/example-product",
+    ];
+    assert_eq!(
+        parse(&migrate_args(full)),
+        Some(Verb::Migrate {
+            backup: PathBuf::from(dir),
+            settings: settings(),
+        })
+    );
+    let mut jsoned = vec!["--json"];
+    jsoned.extend_from_slice(full);
+    assert!(matches!(
+        parse(&migrate_args(&jsoned)),
+        Some(Verb::Migrate { .. })
+    ));
+    for bad in [
+        vec![],
+        vec!["--backup"],
+        vec!["--backup", dir, "--backup", dir],
+        vec!["--backup", "relative/dir"],
+        vec!["--backup", "--json"],
+        vec!["--backup", dir, "--json", "--json"],
+        vec!["--backup", dir, "--force"],
+        vec!["--backup", dir, "extra"],
+        vec!["--backup", dir, "--version", "v0.10.2"],
+        vec!["--backup", dir, "--repo", "not a repo"],
+        vec!["--backup", dir, "--commit", "zzzzzzz"],
+    ] {
+        assert_eq!(parse(&migrate_args(&bad)), None, "{bad:?}");
+    }
+}
+
+/// The arguments of migrate, with these flags.
+fn migrate_args(args: &[&str]) -> Vec<String> {
+    let mut v = vec!["migrate".to_string()];
+    v.extend(args.iter().map(|s| s.to_string()));
+    v
+}
+
+fn migrate(home: &Path, dir: &Path) -> Result<String, (u8, String)> {
+    migrate_at(home, dir, 1_792_000_000)
+}
+
+fn migrate_at(home: &Path, dir: &Path, now: i64) -> Result<String, (u8, String)> {
+    execute(
+        home,
+        &Verb::Migrate {
+            backup: dir.to_path_buf(),
+            settings: settings(),
+        },
+        now,
+    )
+}
+
+#[test]
 fn an_unknown_verb_or_argument_is_64() {
     let home = scratch("usage");
     for args in [

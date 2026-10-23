@@ -17,6 +17,24 @@
 //!     Answers
 //!     {"api":1,"verb":"init","ok":true,"schema":1,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
+//!   store migrate --backup <dir> [--json]
+//!     Backs the database up and then brings it forward, in that order: a
+//!     consistent copy of the store as it stands is written to
+//!     <dir>/tehas-<to>-<time>.db with VACUUM INTO before a byte of the store is
+//!     changed, and a backup that cannot be made migrates nothing. The copy the
+//!     answer names is that one, so no step runs without the copy a caller is
+//!     told to open already being on disk; a step that runs also leaves a second
+//!     copy under the version the file came with. With schema 1 the only step is
+//!     from 0 to 1: an SQLite file with no tables and user_version 0 (what an
+//!     empty file is) is given the schema, the rows of meta and the version, in
+//!     one transaction. A database init made is already at 1, and says "from":1,
+//!     "to":1 and still writes its backup, the one copy of the two. <dir> is the
+//!     state/ of this instance's home, where the copy takes the 0700 of the
+//!     directory and the 0600 of the file: another directory is refused, because
+//!     the store was not given leave to write a copy of itself in a person's.
+//!     Answers
+//!     {"api":1,"verb":"migrate","ok":true,"from":1,"to":1,
+//!     "backup":"..."}.
 //!   store check [--json]
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
 //!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":1,
@@ -24,8 +42,8 @@
 //!     check answers with "integrity" naming what failed and exit 1; it is
 //!     never moved aside.
 //!
-//! This part of the store is the schema and the two housekeeping verbs. The
-//! verbs of the 13 groups, migrate, state-audit and the journal are later
+//! This part of the store is the schema, the two housekeeping verbs and
+//! migrate. The verbs of the 13 groups, state-audit and the journal are later
 //! parts of epic #244; an argument this command does not know is exit 64.
 //!
 //! The database is $TEHAS_HOME/state/tehas.db, mode 0600, made so before
@@ -60,13 +78,24 @@ mod tests;
 /// tested by watching a process, so these are the seams the tests are given.
 pub use db::{classify, classify_io};
 
+/// The home of a database the store named itself: `db::path` joins state/ and
+/// the file onto it, so the home is the directory two above the file. `migrate`
+/// asks for it rather than the environment again because the verb was given the
+/// file by `execute`, and the two must agree about whose store this is.
+fn home_of(file: &Path) -> PathBuf {
+    file.parent()
+        .and_then(Path::parent)
+        .unwrap_or(file)
+        .to_path_buf()
+}
+
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | check [--json]";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json]";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -105,25 +134,63 @@ fn main() -> ExitCode {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Verb {
     Init { force: bool, settings: Settings },
+    Migrate { backup: PathBuf, settings: Settings },
     Check,
 }
 
-/// What `init` was given about the installation. The store checks that each
-/// arrived and is shaped as the verb states, and stops with 78 when one did
-/// not: the rules of a valid setting stay in lib/config.sh.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Settings {
-    pub version: String,
-    pub commit: String,
-    pub instance: String,
-    pub repo: String,
-}
+/// What `init` and `migrate` were given about the installation: the four
+/// values of the instance and the checkout, passed down by the command that
+/// loaded them. The store checks that each arrived and is shaped as the verb
+/// states, and stops with 64 when one did not: the rules of a valid setting
+/// stay in lib/config.sh, and `migrate` needs the same four because its only
+/// step writes the rows of meta that `init` would have written.
+pub use db::Settings;
 
 fn parse(args: &[String]) -> Option<Verb> {
     match args {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
+        }
+        [verb, rest @ ..] if verb == "migrate" => {
+            let mut backup: Option<String> = None;
+            let mut given: BTreeMap<&str, &str> = BTreeMap::new();
+            let mut i = 0;
+            while i < rest.len() {
+                match rest[i].as_str() {
+                    "--json" => i += 1,
+                    "--backup" => {
+                        // Twice is two answers, and the verb writes one file.
+                        if backup.is_some() {
+                            return None;
+                        }
+                        backup = Some(rest.get(i + 1)?.clone());
+                        i += 2;
+                    }
+                    // A directory is a path and not a setting, so it is not
+                    // offered to the shape a setting must have: one that starts
+                    // with a dash is not an absolute path either.
+                    flag if flag.starts_with("--") => {
+                        let value = rest.get(i + 1)?;
+                        if value.starts_with('-') || given.insert(flag, value).is_some() {
+                            return None;
+                        }
+                        i += 2;
+                    }
+                    _ => return None,
+                }
+            }
+            // The one place a directory is turned into a path: the verb was
+            // refused at 64 unless it named one, and the store's home is not a
+            // relative place.
+            let dir = PathBuf::from(backup?);
+            if !dir.is_absolute() {
+                return None;
+            }
+            Some(Verb::Migrate {
+                backup: dir,
+                settings: settings(given)?,
+            })
         }
         [verb, rest @ ..] if verb == "init" => {
             let mut force = false;
@@ -245,7 +312,121 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
             ))
         }
         Verb::Init { force, settings } => init(&file, *force, settings, now),
+        Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
     }
+}
+
+/// `migrate --backup <dir>`: the copy first, then the steps forward.
+///
+/// The order is the deliverable. The database is opened for writing so that a
+/// lock another verb holds is met before anything is decided, the backup is
+/// written from that connection while nothing else can change the file, and
+/// only then do the steps run. So a backup that cannot be written leaves the
+/// schema version exactly as it was: the verb has not touched the store, and
+/// the failure is the ordinary one of the store's four words.
+///
+/// The copy written first is the one the answer names, taken under the version
+/// the store ends at. A copy taken after the step is not a guard: when it fails
+/// the store has already been migrated, and the caller is left with an error and
+/// no name to restore from. So the reported name is on disk before the step can
+/// commit, and where the two names differ -- a database below this binary's
+/// version -- the copy under the version the file came with is written beside it
+/// before the step too.
+///
+/// `dir` is the argument the caller gave, and `backup_dir` below is the only
+/// reader of it: the copy is written beside the file it came from, where the
+/// 0700 of `state/` and the 0600 of the store keep a copy of the host's
+/// approvals as unreadable as the store itself. A directory off the command line
+/// is a person's -- it could be a link, it could walk out of the home with a
+/// `..`, it could be 0755 -- and the store was never given leave to write a copy
+/// of itself there. So the answer a wrong `<dir>` gets is the same refusal
+/// whatever it names, and it comes before the copy: the verb cannot be made to
+/// put a copy of the store in a place the host did not agree to read.
+fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<String, (u8, String)> {
+    // The write lock first, before the version is read: a verb that writes the
+    // store meets a lock another verb holds before it has decided anything, and
+    // SQLite will not answer `busy` for a read-only open. Then it is given back,
+    // because SQLite will not copy a database that a transaction is open on. It
+    // is the verb's own lock and nothing else takes it in between: a host's
+    // other verbs wait on the busy timeout, and the step ahead takes the lock
+    // again in its own transaction.
+    db::settle_state_dir(
+        file.parent()
+            .expect("the store's path has a directory of its own"),
+    )
+    .map_err(line)?;
+    // The file's own mode comes from the store too. `create` is what gives it
+    // to a file `init` makes, and the empty file of a migration arrives from a
+    // host's `touch` at the umask: a verb that fills it with the store's rows
+    // leaves it at 0600, whatever it came with. A file that is not there yet is
+    // `open`'s to answer for, with the word `missing`.
+    if file.exists() {
+        db::set_file_mode(file).map_err(line)?;
+    }
+    let mut conn = db::lock(file).map_err(line)?;
+    db::backup_dir(&home_of(file), dir).map_err(|e| {
+        let _ = db::settle(&conn);
+        line(e)
+    })?;
+    let from: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(db::classify)
+        .map_err(|e| {
+            let _ = db::settle(&conn);
+            line(e)
+        })?;
+    let state = home_of(file).join("state");
+    db::settle(&conn).map_err(line)?;
+    // The version of the copy the verb reports. For a database that needs a
+    // step it is the one the step takes the store to, known before it runs: a
+    // database above the version this binary writes is refused by `lock`'s
+    // checks, so this is the ceiling and not a guess. A database already at it
+    // has no step, and the name is the one it carries already.
+    let target = db::SCHEMA_VERSION;
+    // The copy the verb reports is the one the caller will open, so it is
+    // written first: before it, the step has not run, and a copy that cannot be
+    // made leaves the store exactly as it was -- no schema, no version, no row.
+    // It holds the database as the verb found it, under the name the answer
+    // gives, which is the copy whose bytes predate whatever the step does next.
+    let reported = db::backup(&conn, &state, target, now).map_err(line)?;
+    // The copy under the version the file came with, asked of only when the two
+    // names differ. A database at the version this binary writes is copied once:
+    // the same bytes under two names would be a directory of backups saying a
+    // migration happened when none did.
+    if target != from {
+        db::backup(&conn, &state, from, now).map_err(line)?;
+    }
+    // The step is its own transaction and its own lock, and it is the only one:
+    // a database already at the version this binary writes has no step to run,
+    // so nothing asks for the lock again and the file is not opened for writing
+    // at all. Both copies are on disk by now, so a step that fails halfway
+    // leaves a store nobody was told to open and a copy a person can restore
+    // from, rather than a migrated store behind a name that was never written.
+    if from < db::SCHEMA_VERSION {
+        db::migrate(&mut conn, file, from, now, settings).map_err(line)?;
+    }
+    // Read back, not assumed: the answer reports the version the file holds,
+    // and a step that left it anywhere else is reported as what it did.
+    let to: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(db::classify)
+        .map_err(line)?;
+    if to != from && to != target {
+        return Err(line(db::DbError::Corrupt(format!(
+            "the step left schema {to} of {} behind, expected {target}",
+            file.display()
+        ))));
+    }
+    let copied = reported;
+    let name = copied.to_str().ok_or_else(|| {
+        (
+            78,
+            format!("unreadable the backup: {} is not UTF-8", copied.display()),
+        )
+    })?;
+    Ok(format!(
+        "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"from\":{from},\"to\":{to},\"backup\":{name:?}}}"
+    ))
 }
 
 /// `init [--force]`: schema v1 in a file of the store's own making.
@@ -321,7 +502,7 @@ fn init(file: &Path, force: bool, settings: &Settings, now: i64) -> Result<Strin
     // from the umask of the process, which a caller of the library can set.
     let sides = || -> Result<(), (u8, String)> {
         for suffix in ["-wal", "-shm"] {
-            let sibling = side_file(file, suffix);
+            let sibling = db::side_file(file, suffix);
             if sibling.exists() {
                 std::fs::set_permissions(&sibling, std::fs::Permissions::from_mode(0o600))
                     .map_err(|e| (78, format!("unreadable {}: {e}", sibling.display())))?;
@@ -352,12 +533,8 @@ fn init(file: &Path, force: bool, settings: &Settings, now: i64) -> Result<Strin
     ))
 }
 
-// SQLite names a database's side files by appending to its name.
-fn side_file(file: &Path, side: &str) -> PathBuf {
-    let mut name = file.as_os_str().to_owned();
-    name.push(side);
-    PathBuf::from(name)
-}
+// SQLite names a database's side files by appending to its name; db::side_file
+// is the one place that does, for `init` and for the log a migration leaves.
 
 /// The line for standard error: the class of the failure first, then what
 /// SQLite said, so a caller reads the word and a person reads the reason.
