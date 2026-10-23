@@ -186,6 +186,49 @@ head_sha() { git -C "$checkout" rev-parse --short=12 HEAD; }
 owed_steps() { cat "$owed_file" 2>/dev/null || true; }
 
 instance() { t_instance "${T_MINIMAL[@]}"; }
+
+# The tehas.rukas label of the sandbox image, as `docker image inspect` answers
+# it. The rest of docker keeps answering what platform() gave it: the ps of the
+# two compose projects, and the capabilities of a build. "none" is an image with
+# no label, or no image at all: docker answers nothing and fails.
+rukas_image() { # <commit or none>
+  mkdir -p "$T/fx"
+  if [ "$1" = none ]; then
+    rm -f "$T/fx/label"
+  else
+    printf '%s\n' "$1" >"$T/fx/label"
+  fi
+  t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
+if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi
+if [ "$1" = image ]; then case "$*" in
+  "image inspect tehas/pi-rukas:release-"*) exit 1 ;;
+  *"image inspect"*) [ -e "$T/fx/label" ] || exit 1; cat "$T/fx/label" ;;
+esac; fi'
+}
+
+# The host's clone of pi-rukas, at a commit of its own, or not there at all. A
+# commit of 40 hex digits is made in git, so the case names the label it wants
+# and reads back the head the clone came out on - the one thing it may not
+# assume is the sha git wrote.
+rukas_clone() { # <40 hex digits, or none>
+  local dir=$th/repos/pi-rukas
+  rm -rf "$dir"
+  [ "$1" = none ] && return 0
+  [[ $1 =~ ^[0-9a-f]{40}$ ]] || { echo "rukas_clone: $1 is not 40 hex digits" >&2; return 2; }
+  mkdir -p "$dir"
+  git init -q --initial-branch=main "$dir"
+  git -C "$dir" config user.name test
+  git -C "$dir" config user.email test@example.com
+  echo "pi-rukas" >"$dir/README"
+  git -C "$dir" add -A
+  # One instant, whoever runs the case: two clones of one commit are one commit,
+  # so a case that means them to agree is given one sha back. Named in git's own
+  # ISO form - this git refuses the @-seconds form.
+  GIT_AUTHOR_DATE=2026-01-01T00:00:00 GIT_COMMITTER_DATE=2026-01-01T00:00:00 \
+    git -C "$dir" commit -q --no-gpg-sign -m "pi-rukas at $1"
+  printf '%s\n' "$(git -C "$dir" rev-parse HEAD)"
+}
+
 # An instance install.sh accepts too: it wants the model list beside the settings.
 instance_models() {
   instance

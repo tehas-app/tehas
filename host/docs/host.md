@@ -391,6 +391,14 @@ The line is printed only by the run that copied the file. After that only
 version: a changed npm lockfile with the same version is not reported there
 (see [Bootstrap](/bootstrap#3-check)).
 
+pi-rukas is followed and not pinned, so its commit can move with no
+`versions.env` to copy. `tehas update` prints the same line, once per run, when
+the commit the sandbox image was built on is not the commit the host's clone in
+`~/tehas/repos/pi-rukas` is on: the image moves to what is followed, the clone
+moves only when you run the line. It reads the image's `tehas.rukas` label and
+the clone's `HEAD`, and says nothing where either has no answer, so a host with
+no clone or an image with no label is left as it was.
+
 Each file is copied to `<name>.new` beside the installed one and renamed over
 it. A cycle that starts during an install runs the old file or the new one,
 never part of one, and an install that is stopped or fails partway leaves the

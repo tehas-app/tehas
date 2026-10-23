@@ -1024,4 +1024,72 @@ t_run "$update"
 t_eq "$t_rc" 0
 t_eq "$(t_calls build)" ""
 
+# The host's clone of pi-rukas only moves when bootstrap.sh user runs, and
+# versions.env is not the only thing that can move the commit it follows: a
+# followed release gets a new head with no file of tehas changing. The follow-up
+# is printed for that case too, and the exit status is what it was - the clone is
+# the operator's to move, as host/docs/host.md says.
+image_head=$(printf 'b%.0s' {1..40})
+
+t_case "an image past the host's clone asks for bootstrap.sh user on a later line"
+instance
+platform 0
+rukas_build 0
+rukas_clone "$image_head" >/dev/null
+rukas_image "$image_head"
+t_run "$update"
+t_eq "$t_rc" 0
+t_contains "$t_out" "later: $checkout/bootstrap.sh user   (pi-rukas moved to ${image_head:0:7}"
+t_contains "$t_out" "until it runs, --check says Dependencies: NOT OK)"
+# The image step still ran, and this line is not a step: nothing was recorded.
+t_eq "$(t_calls build)" "build --if-moved"
+t_eq "$(owed_steps)" ""
+
+t_case "a clone on the image's commit asks for nothing"
+instance
+platform 0
+rukas_build 0
+head=$(rukas_clone "$image_head")
+rukas_image "$head"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$head" "$(git -C "$th/repos/pi-rukas" rev-parse HEAD)"
+t_lacks "$t_out" "pi-rukas moved to"
+t_lacks "$t_out" "bootstrap.sh user"
+
+t_case "a host with no clone, and one with no label on its image, say nothing and end 0"
+instance
+platform 0
+rukas_build 0
+rukas_clone none
+rukas_image "$image_head"
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "pi-rukas moved to"
+t_lacks "$t_out" "bootstrap.sh user"
+
+instance
+platform 0
+rukas_build 0
+rukas_clone "$image_head" >/dev/null
+rukas_image none
+t_run "$update"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "pi-rukas moved to"
+t_lacks "$t_out" "bootstrap.sh user"
+
+# Once per run: install.sh already names the follow-up when it copied a changed
+# versions.env, and a person reading the log needs the step once.
+t_case "the line of a run that copied versions.env is not printed twice"
+instance
+platform 0 "echo 'later: $th/current/bootstrap.sh user   (versions.env changed; until it runs, --check says Dependencies: NOT OK)'"
+rukas_build 0
+rukas_clone "$image_head" >/dev/null
+rukas_image "$image_head"
+t_run "$update"
+t_eq "$t_rc" 0
+t_eq "$(grep -c 'bootstrap.sh user' <<<"$t_out")" 1
+t_contains "$t_out" "versions.env changed"
+t_lacks "$t_out" "pi-rukas moved to"
+
 t_done
