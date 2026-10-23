@@ -7,7 +7,7 @@
 //! the store exists to keep. Every failure below stops with 78 and one word on
 //! stderr and leaves the file exactly where a person can read it.
 
-use rusqlite::{params, Connection, ErrorCode, OpenFlags};
+use rusqlite::{params, Connection, ErrorCode, OpenFlags, Transaction, TransactionBehavior};
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -22,6 +22,27 @@ pub const SCHEMA: &str = include_str!("schema.sql");
 /// up, as the spec's section 4 states it. A database still busy then is exit
 /// 1 with the word `busy`.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A writer does not answer `busy` the first time SQLite says the lock is
+/// taken: it waits and asks again, because eight writers of this store meet
+/// each other exactly there (tests/concurrency.rs) and none of them may be told
+/// to go away. The busy timeout covers the wait for a lock a connection has
+/// already named; it does not cover a deferred transaction's upgrade to a write,
+/// which SQLite answers at once rather than waiting for, and it does not cover
+/// `SQLITE_LOCKED` at all. So the wait continues in the one place that knows the
+/// difference between a lock and a broken file: the attempt sleeps and asks
+/// again.
+///
+/// The rounds are the window section 4 gives a write divided up, which is what
+/// keeps the two the same promise. A writer that waits spends about
+/// `BUSY_TIMEOUT` and no more, and the word `busy` is still what a caller hears
+/// when the window is used up -- never a command that has stopped answering.
+pub const WRITE_RETRY_WAIT: Duration = Duration::from_millis(250);
+
+/// The number of rounds of `WRITE_RETRY_WAIT` in the window: the whole of
+/// `BUSY_TIMEOUT` divided by the round, so a caller that reads the two constants
+/// can see the wait of a write is the timeout of the connection and not more.
+pub const WRITE_ATTEMPTS: u32 = (BUSY_TIMEOUT.as_millis() / WRITE_RETRY_WAIT.as_millis()) as u32;
 
 /// The indexes of schema v1 by name, so the test that pins the schema can name
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
@@ -292,6 +313,160 @@ pub mod pages {
     }
 }
 
+/// One report of the store that the tests of the killed writer and of the storm
+/// ask for by number rather than by verb: `__ask`. A test's assertions belong in
+/// the test, so the answers of the store are read back by a query of the test's
+/// own and only the facts come from here -- whether the killed writer's row of
+/// `cycle_locks` was committed, how many of the rows around it are, whether the
+/// file passes `integrity_check`, and how many heartbeats the storm's writers
+/// wrote. The line is one answer of the store, in the shape every answer of the
+/// store has: `{"api":1,...}` on standard output.
+pub fn ask(file: &Path, issue: i64) -> Result<String, DbError> {
+    // Read-only, as `check` is: the report is asked of a file another process
+    // may still be writing.
+    let conn = open_read_only(file)?;
+    let lock: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM cycle_locks WHERE issue = ?1",
+            params![issue],
+            |r| r.get(0),
+        )
+        .map_err(classify)?;
+    let locks: i64 = conn
+        .query_row("SELECT count(*) FROM cycle_locks", [], |r| r.get(0))
+        .map_err(classify)?;
+    let heartbeats = heartbeats(&conn, issue)?;
+    let integrity = integrity(&conn)?;
+    Ok(format!(
+        "{{\"api\":1,\"lock\":{lock},\"locks\":{locks},\"heartbeats\":{heartbeats},\
+         \"integrity\":{integrity:?}}}"
+    ))
+}
+
+/// The write half of the store, for the process that is about to be killed: the
+/// connection, the lock, and nothing else. `open` is what the store's own
+/// opening does, including the two `PRAGMA quick_check`s that ask the store for
+/// its attention and so can be told busy; a caller that means to be killed
+/// partway through a transaction is asking only for the write, so it is given
+/// only the write and waits for nothing else. The transaction is `begin`'s, and
+/// the caller's next statement is what commits it or, in the test of the killed
+/// writer, what never does.
+pub fn burst(file: &Path) -> Result<Connection, DbError> {
+    guard_result(file)?;
+    if !file.exists() {
+        return Err(DbError::Missing);
+    }
+    let mut conn = Connection::open_with_flags(
+        file,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(classify)?;
+    // The same pragmas as every other connection: they are the store's contract
+    // with the file, not this caller's to choose. Set here rather than by
+    // `prepare`, which asks the store for two checks a writer that is about to
+    // be killed does not need and would only be told busy for.
+    conn.busy_timeout(BUSY_TIMEOUT).map_err(classify)?;
+    conn.pragma_update(None, "synchronous", "FULL")
+        .map_err(classify)?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    begin(&mut conn, std::time::Instant::now() + BUSY_TIMEOUT)?;
+    Ok(conn)
+}
+
+/// One heartbeat of the store: the row of `heartbeats` that a supervisor's tick
+/// of ten seconds writes. Named for the test that asks for it -- the storm of
+/// tests/concurrency.rs, which needs a write a verb of the store would really
+/// make, and one short enough that eight writers a second is the rate of section
+/// 3 rather than an artificial one -- and built for it, as `burst` is. The issue
+/// is seeded with its `cycles` and `issues` parents by the storm before it lets
+/// its writers go, because `foreign_keys` is ON on every connection of the store
+/// and a heartbeat is a child row: the parents are committed rows of the store
+/// that the storm's writers only ever read.
+pub fn heartbeat(conn: &Connection, issue: i64, at: i64) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO heartbeats (issue, at, running) VALUES (?1, ?2, 1)",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    Ok(())
+}
+
+/// The two parents of the issue whose heartbeats the storm writes: the rows a
+/// `cycle-start` would have made, committed once before the writers are let go so
+/// that every write of the storm is the single row of one tick and nothing else.
+pub fn seed_heartbeat(conn: &Connection, issue: i64, at: i64) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (?1, 'issue', ?2, ?2)",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO cycles (issue, started_at, started_by, how) VALUES (?1, ?2, 'tests', 'label')",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    Ok(())
+}
+
+/// The rows of one issue of `heartbeats`: what the storm counts afterwards, so
+/// that every write its writers said they committed is a row and none that they
+/// did not is.
+pub fn heartbeats(conn: &Connection, issue: i64) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT count(*) FROM heartbeats WHERE issue = ?1",
+        params![issue],
+        |r| r.get(0),
+    )
+    .map_err(classify)
+}
+
+/// The rows of a table the killed writer's transaction belongs to. `cycle_locks`
+/// is a child of `cycles`, which is a child of `issues`, and `foreign_keys` is ON
+/// on every connection of the store, so a lock row is written with its two
+/// parents in the same statement group. The seeds are committed, each in its own
+/// transaction, before the transaction the killed writer is killed inside opens:
+/// they are the rows the file has already, and the killed row is the one a reader
+/// of the file afterwards must not be able to see.
+pub fn lock_row(conn: &Connection, issue: i64, at: i64) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO issues (issue, kind, kind_at, checked_at) VALUES (?1, 'issue', ?2, ?2)",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    conn.execute(
+        "INSERT OR IGNORE INTO cycles (issue, started_at, started_by, how) VALUES (?1, ?2, 'tests', 'label')",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    conn.execute(
+        "INSERT INTO cycle_locks (issue, held, seen_at, probe_rc) VALUES (?1, 1, ?2, 0)",
+        params![issue, at],
+    )
+    .map_err(classify)?;
+    Ok(())
+}
+
+/// `PRAGMA integrity_check` as `check` reads it, for the caller that asks only
+/// that one question of the database its own process left behind. `check` is
+/// the verb and reports the version and the rows of every table too; the test of
+/// the killed writer wants the one word, so it is asked on its own rather than
+/// by building the whole report.
+pub fn integrity(conn: &Connection) -> Result<String, DbError> {
+    let mut words = Vec::new();
+    let mut q = conn.prepare("PRAGMA integrity_check").map_err(classify)?;
+    let rows = q
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(classify)?;
+    for row in rows {
+        words.push(row.map_err(classify)?);
+    }
+    Ok(match words.as_slice() {
+        [only] if only == "ok" => "ok".to_string(),
+        others => others.join("; "),
+    })
+}
+
 /// The two kinds of call section 4 states: a verb that writes waits up to the
 /// busy timeout for a lock another connection holds, and one that only reads
 /// does not wait at all. The timeout is per-connection and per-thread, so a
@@ -357,8 +532,15 @@ pub fn open_write(file: &Path) -> Result<Connection, DbError> {
 /// which the next caller's busy timeout then pays for: `settle` below, or the
 /// commit of a step, is the statement that ends it.
 pub fn lock(file: &Path) -> Result<Connection, DbError> {
-    let conn = open(file, Purpose::Write)?;
-    conn.execute("BEGIN IMMEDIATE", []).map_err(classify)?;
+    let mut conn = open(file, Purpose::Write)?;
+    // The lock is asked for in a transaction of its own rather than as a bare
+    // `BEGIN IMMEDIATE`, so that it waits for a lock another writer holds
+    // instead of answering busy at once: as a transaction the statement is
+    // still in SQLite's hands when the lock is wanted, and it is the busy
+    // timeout that answers rather than the caller. The window is the write's
+    // own: a verb that takes this lock and then writes spends the busy timeout
+    // once, not once for the lock and once again for the step.
+    begin(&mut conn, std::time::Instant::now() + BUSY_TIMEOUT)?;
     Ok(conn)
 }
 
@@ -366,7 +548,142 @@ pub fn lock(file: &Path) -> Result<Connection, DbError> {
 /// the store and has nothing to write: nothing was changed, so there is nothing
 /// to commit, and SQLite asks for the word all the same.
 pub fn settle(conn: &Connection) -> Result<(), DbError> {
-    conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
+    // The verb that looks and writes nothing holds the lock it took at the
+    // open: the commit that gives it back is the same statement as any other
+    // and is waited for the same way, within the window of the call.
+    commit(conn, std::time::Instant::now() + BUSY_TIMEOUT)
+}
+
+/// The whole of a write, from the lock to the commit: the retry loop of
+/// `write_transaction` opens it, `f` writes it, and this closes it. A body that
+/// answers `busy` after the retries of one statement are spent is retried as a
+/// transaction, which is what a body that read before it wrote can need: the
+/// snapshot of a deferred read is stale the moment another writer commits, and
+/// SQLite says so with `SQLITE_BUSY_SNAPSHOT` rather than with a stale answer.
+/// A body that answers with anything else is the verb's own failure and is
+/// handed back untouched.
+pub fn write<F>(conn: &mut Connection, f: F) -> Result<(), DbError>
+where
+    F: Fn(&Connection) -> Result<(), DbError>,
+{
+    // The window of a write is `BUSY_TIMEOUT` however it is spent: the loops
+    // below are bounded by `WRITE_ATTEMPTS` rounds each, and each round sleeps
+    // `WRITE_RETRY_WAIT`, so a write waits about the timeout of the connection
+    // and no more. One deadline is carried through them so that the lock, the
+    // body and the commit together spend the window once rather than each being
+    // given the whole of it.
+    let until = std::time::Instant::now() + BUSY_TIMEOUT;
+    for _ in 0..WRITE_ATTEMPTS {
+        match begin(conn, until)? {
+            Loop::Again => continue,
+            Loop::Done => {}
+        }
+        // The body borrows the connection as a reader: the transaction is
+        // rusqlite's to finish, and `commit` and `rollback` below are the
+        // statements that do it.
+        let body = conn as &Connection;
+        let done = match f(body) {
+            Ok(()) => commit(conn, until),
+            Err(e) => Err(e),
+        };
+        abort(conn);
+        match done {
+            Ok(()) => return Ok(()),
+            // The window is the wait of the whole write, so a body that read
+            // before it wrote is retried as a transaction until it runs out:
+            // the snapshot of a deferred read is stale the moment another
+            // writer commits, and SQLite says so with `SQLITE_BUSY_SNAPSHOT`
+            // rather than with a stale answer. A body that answers with
+            // anything else is the verb's own failure and is handed back
+            // untouched.
+            Err(DbError::Busy) if std::time::Instant::now() < until => {
+                std::thread::sleep(WRITE_RETRY_WAIT);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    // The rounds of a write are used up and another connection still holds what
+    // this one wants: the word the caller reads, as section 4 states it.
+    Err(DbError::Busy)
+}
+
+/// Whether the wait of a lock is over. `Again` is the round the caller takes
+/// again; `Done` is either the lock or the reason it will not come, which the
+/// loop below turns into the error of the whole write.
+pub(crate) enum Loop {
+    Again,
+    Done,
+}
+
+/// `BEGIN IMMEDIATE`, waited for until `until`. Asked as a transaction rather
+/// than as a bare statement: rusqlite's `execute` of the same words returns
+/// before SQLite ever wanted the lock, so SQLite answers busy at once whatever
+/// the busy timeout says and the caller is told. As a transaction the statement
+/// is still stepping while it waits, so the timeout covers the wait, which is
+/// the difference between eight writers taking their turn and seven of them
+/// being told to go away.
+pub(crate) fn begin(conn: &mut Connection, until: std::time::Instant) -> Result<Loop, DbError> {
+    for _ in 0..WRITE_ATTEMPTS {
+        // `Transaction::new` rather than a bare `execute` of the same words:
+        // rusqlite's `execute` of `BEGIN IMMEDIATE` is a statement that has
+        // finished before SQLite ever wanted the lock, so SQLite answers busy
+        // at once whatever the busy timeout says and the caller is told. As a
+        // transaction the same statement is still stepping while it waits, and
+        // the timeout covers the wait, which is the difference between eight
+        // writers taking their turn and seven of them being told to go away.
+        match Transaction::new(conn, TransactionBehavior::Immediate) {
+            Ok(tx) => {
+                // The commit and the rollback are the statements below rather
+                // than rusqlite's drop of this: a transaction that is forgotten
+                // cannot roll itself back behind the write it was opened for.
+                std::mem::forget(tx);
+                return Ok(Loop::Done);
+            }
+            // SQLite's own timeout does the waiting inside each round; the
+            // sleep is the round between two rounds, and the deadline is what
+            // says when to stop rather than a count of them.
+            Err(e) => match classify(e) {
+                DbError::Busy if std::time::Instant::now() >= until => return Err(DbError::Busy),
+                DbError::Busy => std::thread::sleep(WRITE_RETRY_WAIT),
+                other => return Err(other),
+            },
+        }
+    }
+    Ok(Loop::Again)
+}
+
+/// The commit of the transaction `begin` opened, waited for until `until`. The
+/// commit of a WAL write waits for the read locks of the readers of the log it
+/// is about to append to, so it is a statement that can be told busy, and is
+/// asked the same way for the same reason.
+fn commit(conn: &Connection, until: std::time::Instant) -> Result<(), DbError> {
+    for _ in 0..WRITE_ATTEMPTS {
+        match conn.execute("COMMIT", []) {
+            Ok(_) => return Ok(()),
+            Err(e) => match classify(e) {
+                DbError::Busy if std::time::Instant::now() >= until => return Err(DbError::Busy),
+                DbError::Busy => std::thread::sleep(WRITE_RETRY_WAIT),
+                other => return Err(other),
+            },
+        }
+    }
+    Ok(())
+}
+
+/// The way out of a transaction that did not finish. Nothing was committed, so
+/// the database is what it was, and the lock goes back to whoever wants it
+/// next. A rollback that answers for a transaction that is not open is the
+/// statement's own complaint and says nothing about the write that failed, so
+/// it is not the error the caller reads.
+fn abort(conn: &Connection) {
+    let _ = rollback(conn);
+}
+
+/// The word `abort` rolls back with, spelled out for the tests of tests.rs,
+/// which pin that a body which failed inside a transaction leaves no lock
+/// behind: the next caller is not made to wait for one that nothing holds.
+pub fn rollback(conn: &Connection) -> Result<(), DbError> {
+    conn.execute("ROLLBACK", []).map(|_| ()).map_err(classify)
 }
 
 /// The same checks and the same connection as `open`, for the reader that must
@@ -572,6 +889,11 @@ pub fn guard(file: &Path) -> DbError {
 /// and leaves the file as empty as it was. An empty file is not the same thing
 /// as a file holding a schema: SQLite gives a file of no bytes at all its own
 /// header and its user_version of 0, so both are asked for.
+///
+/// The two reads of the guard are inside the transaction on purpose: `write`
+/// begins with `BEGIN IMMEDIATE`, so the snapshot they read is the one the
+/// commit is allowed to change, and a schema another process laid in between is
+/// seen rather than overwritten.
 pub fn write_schema(
     conn: &mut Connection,
     now: i64,
@@ -588,21 +910,6 @@ pub fn write_schema(
             "a value of the installation arrived empty".to_string(),
         ));
     }
-    let tx = conn
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(classify)?;
-    let tables: i64 = tx
-        .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
-        .map_err(classify)?;
-    let held: i64 = tx
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .map_err(classify)?;
-    if tables != 0 || held != 0 {
-        return Err(DbError::Corrupt(
-            "the file already holds a schema".to_string(),
-        ));
-    }
-    tx.execute_batch(SCHEMA).map_err(classify)?;
     let rows = [
         ("schema", SCHEMA_VERSION.to_string()),
         ("created_at", now.to_string()),
@@ -611,16 +918,34 @@ pub fn write_schema(
         ("instance", instance.to_string()),
         ("repo", repo.to_string()),
     ];
-    for (key, value) in rows {
-        tx.execute(
-            "INSERT INTO meta (key, value) VALUES (?1, ?2)",
-            params![key, value],
-        )
-        .map_err(classify)?;
-    }
-    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
-        .map_err(classify)?;
-    tx.commit().map_err(classify)
+    write(conn, |store| {
+        let tables: i64 = store
+            .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+            .map_err(classify)?;
+        let held: i64 = store
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(classify)?;
+        if tables != 0 || held != 0 {
+            return Err(DbError::Corrupt(
+                "the file already holds a schema".to_string(),
+            ));
+        }
+        // The whole of schema.sql is statements that change nothing until the
+        // commit, so one `execute_batch` stays inside the transaction `write`
+        // opened.
+        store.execute_batch(SCHEMA).map_err(classify)?;
+        for (key, value) in rows.iter() {
+            store
+                .execute(
+                    "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                    params![key, value],
+                )
+                .map_err(classify)?;
+        }
+        store
+            .pragma_update(None, "user_version", SCHEMA_VERSION)
+            .map_err(classify)
+    })
 }
 
 /// The one migration this binary holds: from schema 0, an SQLite file with no

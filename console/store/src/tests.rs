@@ -565,6 +565,95 @@ fn a_locked_database_is_exit_1_and_the_word_busy() {
     assert!(check(&home).is_ok());
 }
 
+/// The other half of the same lock: a writer that meets a lock and finds it gone
+/// a moment later is a writer that commits, not a writer that is told `busy`. The
+/// test of tests/concurrency.rs proves it for eight processes of the store over
+/// ten seconds; this proves it here, where the wait is the thing under test and
+/// the machine running the gate need not be loaded for it to mean anything.
+#[test]
+fn a_write_waits_for_a_lock_that_is_given_up_and_writes_anyway() {
+    let home = scratch("waited");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    // The parent of the heartbeat the writer below inserts: `foreign_keys` is ON
+    // on every connection of the store, so the child row needs its issue, and
+    // `cycles` is the table `heartbeats` really points at.
+    let parents = Connection::open(&file).unwrap();
+    parents
+        .execute(
+            "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (9999, 'issue', 1792000000, 1792000000)",
+            [],
+        )
+        .unwrap();
+    parents
+        .execute(
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (9999, 1792000000, 'tests', 'label')",
+            [],
+        )
+        .unwrap();
+    drop(parents);
+
+    // A holder that gives the lock back while the writer is still asking for it,
+    // on a thread of its own: rusqlite's `Connection` is `Send`, and each thread
+    // has its own SQLite connection from its own `open`, so the two threads do not
+    // share a handle. The writer's wait is the thing under test; the other thread
+    // only says when the lock may be given back, and it says it after a beat
+    // longer than one round of the wait, so the writer is genuinely inside its
+    // wait when the lock is let go rather than racing it.
+    let waiting = {
+        let file = file.clone();
+        std::thread::spawn(move || {
+            let mut holder = Connection::open(&file).unwrap();
+            holder.pragma_update(None, "busy_timeout", 0).unwrap();
+            let tx = holder
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .unwrap();
+            // The row is written through the transaction, which derefs to the
+            // connection it was opened on: that is the connection SQLite holds
+            // the write lock for, and the row is part of the transaction's own
+            // work rather than of the connection's autocommit.
+            tx.execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
+                .unwrap();
+            // The writer below is asking for the lock by now: a beat is twice one
+            // round of the wait, so the writer has begun to wait and has not yet
+            // given up.
+            std::thread::sleep(db::WRITE_RETRY_WAIT * 2);
+            // The lock goes back with the transaction and then the connection:
+            // SQLite takes the write lock back only when the transaction ends and
+            // the log is checkpointed, which is the closing of the file. The
+            // rollback is asked of the transaction's own word so that the failure
+            // of the writer below is the writer's and not this thread's.
+            let back = tx.rollback();
+            drop(holder);
+            back.unwrap();
+        })
+    };
+    // The writer's own connection, opened before the wait begins: `open` reads no
+    // page and takes no lock, so the contention below is asked for rather than
+    // hoped for, as the test above says of the same lock.
+    let mut conn = db::open(&file, db::Purpose::Write).unwrap();
+    let body = |store: &rusqlite::Connection| {
+        store
+            .execute(
+                "INSERT INTO heartbeats (issue, at, running) VALUES (?1, ?2, 1)",
+                rusqlite::params![9_999, 1],
+            )
+            .map_err(db::classify)?;
+        Ok(())
+    };
+    let wrote = db::write(&mut conn, body);
+    waiting.join().unwrap();
+    assert!(
+        wrote.is_ok(),
+        "a write gave up on a lock it could have had: {wrote:?}"
+    );
+    drop(conn);
+    // The row it wrote is there, so what the wait bought was the write and not
+    // only the exit of the transaction.
+    let conn = db::open_read_only(&file).unwrap();
+    assert_eq!(db::heartbeats(&conn, 9_999).unwrap(), 1);
+}
+
 #[test]
 fn migrate_writes_its_backup_before_it_changes_anything() {
     // The order is the deliverable, seen from the one thing that can stop it:

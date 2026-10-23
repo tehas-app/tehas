@@ -78,6 +78,15 @@ mod tests;
 /// tested by watching a process, so these are the seams the tests are given.
 pub use db::{classify, classify_io};
 
+/// The entry of a member of the workspace that is not the program itself: the
+/// two resilience tests of tests/ spawn this binary as the writers and readers
+/// they need, which is what the deliverable asks for -- processes of the store,
+/// not threads of the test -- and cargo gives an integration target no path to
+/// the library of the package it belongs to. One argv word reaches the code that
+/// was written for the storm; a word this command does not know is the 64 every
+/// other unknown argument of the store gets.
+mod resilience;
+
 /// The home of a database the store named itself: `db::path` joins state/ and
 /// the file onto it, so the home is the directory two above the file. `migrate`
 /// asks for it rather than the environment again because the verb was given the
@@ -105,10 +114,21 @@ const MAX_COMMIT: usize = 40;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // The four words of the resilience tests are answered before `parse`, which
+    // knows only the verbs of section 4 and would answer 64 for them. They are
+    // not verbs: no person calls them and no shell command of tehas names them
+    // -- see src/resilience.rs for why they are here at all.
+    if resilience::known(&args) {
+        return resilience::run(&args);
+    }
     let Some(verb) = parse(&args) else {
         eprintln!("{USAGE}");
         return ExitCode::from(64);
     };
+    // The same rule for every verb and every shape: the home is an absolute
+    // directory. The storm's processes name theirs with `--home`, which `run`
+    // holds to the same test, so no caller of the store gets a home it did not
+    // check.
     let home = match std::env::var_os("TEHAS_HOME").map(PathBuf::from) {
         Some(h) if h.is_absolute() && h.is_dir() => h,
         _ => {
