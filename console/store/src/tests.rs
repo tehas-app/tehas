@@ -1152,7 +1152,7 @@ fn an_unknown_verb_or_argument_is_64() {
         &[][..],
         &["migrate"][..],
         &["state-audit"][..],
-        &["cycle-start", "12"][..],
+        &["cycle-heartbeat", "12"][..],
         &["check", "--json", "--json"][..],
         &["check", "--force"][..],
         &["init", "--json", "--json"][..],
