@@ -248,12 +248,11 @@ sized() {
 }
 
 t_case "a body of forty thousand lines is measured, and in the time one start can wait for"
-start=$(date +%s%N)
+t_start
 sized 40000
-elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
 t_eq "$t_rc" 0
 t_eq "$t_out" '{"files":1000,"tests":1000,"deliverables":0,"done_when":0}'
-t_eq "$([ "$elapsed" -lt 5000 ] && echo fast || echo "slow: ${elapsed}ms")" fast
+t_fast 5000
 
 t_case "TEHAS_SIZE_MAX_LINES is the bound on lines: a body past it is measured from its front"
 sized 300 TEHAS_SIZE_MAX_LINES=100

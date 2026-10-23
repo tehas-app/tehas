@@ -193,7 +193,7 @@ host.
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand, and the one name each of the sandbox's images is known by (the build and `tehasbot clean` both ask it; `tehas_base_image` needs `lib/rukas.sh` sourced beside it) |
 | `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
-| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs |
+| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |
