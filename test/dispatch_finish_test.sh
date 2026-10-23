@@ -42,7 +42,10 @@ t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p 
 --user show -p LoadState --value tehas-cycle@7.service
 --user show -p ActiveState --value tehas-index.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
+# The disk hold comes after the slice's, so the poll asks Docker twice: for the
+# cgroup driver and version, and for the directory of the images.
+t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}
+info --format {{.DockerRootDir}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c"
 t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 0

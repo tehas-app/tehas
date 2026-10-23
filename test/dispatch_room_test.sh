@@ -285,6 +285,175 @@ t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_eq "$(t_calls fake-start)" ""
 
+# --- Free disk ---------------------------------------------------------------
+# The dispatcher starts no cycle while the file system of ~/tehas and the one
+# Docker keeps its images on have less free space than TEHAS_CYCLE_MIN_FREE.
+# The host of reset has 40 GB free on both, above the default minimum of 10g,
+# and Docker's own file system is one of the same size, so a case that wants
+# the two apart writes them with df_free_of.
+
+t_case "a full disk: nothing starts, no label is edited, the dry run says the figure"
+reset
+slots 2
+ready 7 8
+df_free 1
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_lacks "$(t_calls gh)" "issue comment"
+t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "at the minimum a ready issue starts, and the figure is not said"
+reset
+slots 2
+ready 7 8
+df_free 10
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "7 8 "
+t_lacks "$t_out" "free on the disk"
+t_eq "$(jq -r .why "$dispatch_json")" ""
+
+t_case "one kilobyte under the minimum holds"
+reset
+slots 2
+ready 7 8
+df_free 10
+kb_free=$((10 * 1048576 - 1))
+echo $kb_free >"$fx/free"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 9.9 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
+
+t_case "the instance's minimum is the one that is asked of"
+reset
+slots 2
+ready 7
+df_free 30
+slots 2 TEHAS_CYCLE_MIN_FREE=40g
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 30.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=40g: no cycle starts"
+
+t_case "the lesser of the two file systems decides"
+reset
+slots 2
+ready 7 8
+df_free_of 40 1
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
+reset
+slots 2
+ready 7 8
+df_free_of 1 40
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 1.0 GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=10g: no cycle starts"
+
+t_case "a disk whose free space cannot be read holds: no df, no docker info, and no number"
+reset
+slots 2
+ready 7
+: >"$fx/df-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+t_eq "$(jq -r .why "$dispatch_json")" "disk"
+reset
+slots 2
+ready 7
+# No figure at all: neither file system answers.
+df_reset
+: >"$fx/df-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+reset
+slots 2
+ready 7
+# The file system Docker keeps its images on cannot be read: the figure of
+# ~/tehas is no answer for it.
+df_free_of 40 1
+echo /srv/docker >"$fx/df-fails-of"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+reset
+slots 2
+ready 7
+df_reset
+echo lots >"$fx/free"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "holding: the free disk space could not be read: no cycle starts"
+
+sha=0123456789abcdef0123456789abcdef01234567
+# The one run of the check on the head commit, failed.
+checks() {
+  jq -nc --arg sha "$sha" '{total_count: 1, check_runs: [{name: "verify",
+    head_sha: $sha, status: "completed", conclusion: "failure"}]}' >"$fx/checks.json"
+}
+
+t_case "the disk hold comes before the count, the limit and a red branch"
+reset
+slots 1
+ready 7 8
+df_free 1
+limit 0 1 '' 'the mesh is busy'
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" "disk"
+reset
+slots 1 TEHAS_BRANCH_CHECK=verify
+ready 7 8
+df_free 1
+checks completed failure
+t_run "$dispatch"
+t_eq "$(jq -r .why "$dispatch_json")" "disk"
+t_lacks "$t_out" "is red at"
+
+t_case "a full disk does not hold a planning turn"
+to_plan
+df_free 1
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--brief"
+t_lacks "$t_out" "would start a planning session"
+
+t_case "a full disk leaves a running cycle alone"
+reset
+slots 2
+ready 7 8
+df_free 1
+hold 7
+cid 7 a $gib
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 1.0 GiB free on the disk"
+release
+
+t_case "a full disk leaves the sweep of kept workspaces and the orphan labels alone"
+reset
+no_slice
+df_free 1
+slice_show $((20 * gib))
+echo '[{"number":9}]' >"$fx/marked.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "holding: 1.0 GiB free on the disk"
+
 t_case "a real poll logs a hold once, then released once, and writes live/dispatch.json"
 reset
 echo '[]' >"$fx/ready.json"

@@ -200,7 +200,7 @@ _tehas_valid() {
     TEHAS_PREVIEW_MAX)
       [[ $v =~ ^[1-9][0-9]?$ ]] || { echo "expected a number from 1 to 99"; return 1; }
       ;;
-    TEHAS_PREVIEW_MIN_FREE)
+    TEHAS_PREVIEW_MIN_FREE | TEHAS_CYCLE_MIN_FREE)
       if ! mb=$(_tehas_mem_mb "$v") || [ "$mb" -le 0 ]; then
         echo "expected a size such as 512m or 5g"
         return 1
@@ -551,6 +551,9 @@ tehas_load() {
   export TEHAS_PREVIEWS=${TEHAS_PREVIEWS:-0}
   export TEHAS_PREVIEW_MAX=${TEHAS_PREVIEW_MAX:-5}
   export TEHAS_PREVIEW_MIN_FREE=${TEHAS_PREVIEW_MIN_FREE:-5g}
+  # Free disk below which the dispatcher starts no cycle (libexec/dispatch).
+  # The 2026-10-20 outage: the host disk filled and every running cycle died.
+  export TEHAS_CYCLE_MIN_FREE=${TEHAS_CYCLE_MIN_FREE:-10g}
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   # How many workstreams one cycle may run side by side, inside its one
@@ -579,7 +582,7 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # The bound install.sh puts on one cargo build. Its default belongs to
@@ -668,6 +671,8 @@ tehas_load() {
   fi
   export TEHAS_PREVIEW_MIN_FREE_MB
   TEHAS_PREVIEW_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE")
+  export TEHAS_CYCLE_MIN_FREE_MB
+  TEHAS_CYCLE_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_CYCLE_MIN_FREE")
   if [ -n "$TEHAS_DOMAIN" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ]; then
     export TEHAS_PROTOLAB_URL=https://lab.$TEHAS_DOMAIN
   fi

@@ -193,11 +193,67 @@ systemctl_stub='case "$1 $2" in
 esac'
 t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
-  info) cat "$T/fx/docker.info" ;;
+  info) case "$*" in
+      # The two questions the host asks Docker, both answered from
+      # $T/fx/docker.info: lib/slice.sh wants the cgroup driver and version,
+      # the first line, and the disk hold wants the directory of the images,
+      # the second line when a case wrote one.
+      *DockerRootDir*) sed -n 2p <"$T/fx/docker.info" 2>/dev/null ;;
+      *) cat "$T/fx/docker.info" ;;
+    esac ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
   rm) [ ! -e "$T/fx/orphan-$3" ] || echo "$3" ;;
   run) [ -e "$T/fx/caps.json" ] || exit 1; cat "$T/fx/caps.json" ;;
 esac'
+# The free space of the host, as the disk hold reads it. The file system asked
+# about answers with the kilobytes named for it: those of Docker's own come
+# from $T/fx/free-docker and the ones of every other path from $T/fx/free, so
+# $T/fx/docker-name both names Docker's directory and puts it on its own file
+# system. With none of them written there is 40 GB free everywhere. A case
+# makes a reading fail with $T/fx/df-fails, which takes both file systems with
+# it, names an unreadable one in $T/fx/df-fails-of, or puts a word that is no
+# number in a file: a figure that is not a number is no reading either. docker
+# info answers from $T/fx/docker.info: one line with Docker's cgroup driver and
+# version, or a second line with the directory of its images. A figure is
+# checked with a pattern match rather than a case pattern, because t_stub
+# expands the body as it writes the stub and would eat the quotes an empty
+# pattern needs.
+kb() { # <gibibytes>: the kilobytes of that many GiB
+  printf '%s\n' $(($1 * 1048576))
+}
+df_reset() {
+  rm -f "$fx/free" "$fx/free-docker" "$fx/df-fails" "$fx/df-fails-of"
+}
+# The directory the host asks Docker about, which is the one df is pointed at
+# for it. Unset, that is /var/lib/docker, as it is on a host whose Docker
+# answers nothing.
+docker_root() { # <directory>
+  printf '%s\n' "systemd 2" "$1" >"$fx/docker.info"
+}
+df_free() { # <gibibytes>: the same figure on every file system
+  df_reset
+  kb "$1" >"$fx/free"
+}
+# df_free_of <gibibytes of ~/tehas> <gibibytes of Docker's data>: the two file
+# systems asked about answer differently. The lesser of them is the one that
+# holds a cycle back.
+df_free_of() {
+  df_reset
+  docker_root /srv/docker
+  kb "$1" >"$fx/free"
+  kb "$2" >"$fx/free-docker"
+}
+t_stub df '
+[ ! -e "$T/fx/df-fails" ] || exit 1
+[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(cat "$T/fx/df-fails-of")" ] || exit 1
+docker_dir=$(sed -n 2p <"$T/fx/docker.info" 2>/dev/null)
+answer=$(cat "$T/fx/free" 2>/dev/null || echo 41943040)
+if [ -n "$docker_dir" ] && [ "${2%/}" = "$docker_dir" ]; then
+  answer=$(cat "$T/fx/free-docker" 2>/dev/null)
+fi
+[[ $answer =~ ^[0-9]+$ ]] || exit 1
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/x 60000000 1 $answer 1% /"'
 gib=1073741824
 slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
 slice_show() { # <MemoryMax> [<ActiveState>]: a slice loaded from its file
@@ -221,6 +277,7 @@ reset() {
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
   echo "systemd 2" >"$fx/docker.info"
+  df_reset
   slice_state 0.00
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"

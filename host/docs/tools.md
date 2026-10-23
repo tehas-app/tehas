@@ -73,6 +73,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_PREVIEWS`                | `0`                                      | `1` builds a preview of every open pull request whose branch is in the product repository and that an owner, member or collaborator opened. Needs `TEHAS_DOMAIN` |
 | `TEHAS_PREVIEW_MAX`             | `5`                                      | How many previews run at once. The newest pull requests win |
 | `TEHAS_PREVIEW_MIN_FREE`        | `5g`                                     | Free disk space below which no preview is built |
+| `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
 | `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
@@ -206,7 +207,9 @@ up what this host already has: it still stops a cycle whose issue is closed or
 whose pull request is merged or closed, stops a cycle nobody has heard from, and
 clears an issue marked `tehas:running` with no cycle behind it. The poll ends
 there. For a factory that is not paused it goes on: a usable `tehas.slice`,
-a model endpoint that answers and offers the model, the free slots
+a model endpoint that answers and offers the model, free disk of at least
+`TEHAS_CYCLE_MIN_FREE` on the file system of `~/tehas` and on Docker's own,
+the free slots
 (`TEHAS_TICKET_CONCURRENCY` less the running cycles, after that housekeeping),
 the cap on issues awaiting merge or being worked on, the room, the containers'
 ceilings and the memory pressure in the slice, who applied `tehas:urgent`
@@ -2094,11 +2097,12 @@ previews are not being built." when `freeBytes` is `null`.
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
-`resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`, and
+`disk`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
 and what was missing in it. `resources` is a model endpoint that does not
 answer or does not offer the configured model, or, with `TEHAS_WORK_IMAGES=1`,
-a model or sandbox image that cannot take the images. `red` is the check
+a model or sandbox image that cannot take the images. `disk` is less than
+`TEHAS_CYCLE_MIN_FREE` free, or free space that could not be read. `red` is the check
 `TEHAS_BRANCH_CHECK` names, failed on the branch's head commit. `awaiting` and `room`
 are also given, with cycles starting, when the awaiting-merge limit or the
 slice's room let fewer start than there are free slots and issues waiting;
