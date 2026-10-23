@@ -197,6 +197,7 @@ install_limit=1800 # install.sh: the copies, the dependency check and the tests.
 compose_limit=180  # docker ps and docker compose up
 systemd_limit=60   # systemctl daemon-reload, is-active and restart
 build_limit=1800   # sandbox image build
+labels_limit=120   # tehas labels: one gh label create per label of this version
 
 # How long the mark of a half-finished takeover stands (see edge_up). Long
 # enough to fix the cause and run the update again, short enough that a mark
@@ -1036,6 +1037,34 @@ build_sandbox() {
   return 0
 }
 
+# The labels of the product repository, when the command that makes them changed.
+# `tehas labels` is run as the host's own command does it, by the path the host's
+# units name rather than by whatever `tehas` the calling account has on its PATH:
+# the installed command loads the instance settings and calls gh for each label, so
+# those two are the whole of what this step asks of the host, and the status of the
+# labels command is the status of the step. install.sh makes the same call on a
+# first install, and libexec/labels answers a repository it cannot write with 1.
+run_labels() {
+  local out rc
+  if [ ! -x "$TEHAS_HOME/bin/tehas" ]; then
+    echo "labels: $TEHAS_HOME/bin/tehas is not installed" >&2
+    return 1
+  fi
+  echo "labels: making the tehas labels"
+  out=$(timeout "$labels_limit" "$TEHAS_HOME/bin/tehas" labels 7>&- 2>&1)
+  rc=$?
+  [ -n "$out" ] && printf '%s\n' "$out"
+  if [ "$rc" = 124 ]; then
+    echo "labels: tehas labels gave no answer in ${labels_limit}s; the step is not done" >&2
+    return 1
+  fi
+  if [ "$rc" != 0 ]; then
+    echo "labels: tehas labels exited $rc; the step is not done" >&2
+    return 1
+  fi
+  return 0
+}
+
 # One step, run as this command's own words: the id says which, and the
 # arguments on install.sh's line - checked by tehas_valid_step - say how. The
 # helper answers with a status; whether that stops the run is decided here, in
@@ -1049,6 +1078,7 @@ run_step() { # step line
     sandbox) build_sandbox ;;
     docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
     edge) edge_up "${argv[@]:1}" ;;
+    labels) run_labels ;;
     *)
       echo "WARN: no step this command knows for: $1" >&2
       return 1

@@ -187,5 +187,5 @@ next_steps() {
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
-    edge/router.compose.yaml
+    edge/router.compose.yaml libexec/labels
 }

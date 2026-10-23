@@ -60,6 +60,23 @@ docker_no_answer() { t_stub docker 'if [ "$1" = ps ]; then echo "could not conne
 # nor one of "inactive": the command has to refuse it.
 systemctl_no_answer() { t_stub systemctl 'if [ "$2" = is-active ]; then echo "systemd is not running in this container"; exit 0; fi'; }
 
+# The host's own `tehas` as the labels step runs it: the file at the path
+# $TEHAS_HOME/bin/tehas, not a stub on PATH, which this repository's real
+# bin/tehas is ahead of in the checkout a fixture carries. The two helpers name the
+# host's bin from the $th the case's file sets, and are called from a case.
+labels_put() { # <bin dir> <body> - the host's tehas, and what its labels does
+  # Written one line per argument of the outer printf: the nested printf has to
+  # reach the file intact, and the stub records a call of two words as one line.
+  [ -n "$1" ] || { echo "labels_put: no host bin given" >&2; return 2; }
+  mkdir -p "$1"
+  printf '%s\n' "#!/usr/bin/env bash" \
+    "printf '%s\\n' \"\$*\" >>'$T/calls/tehas'" \
+    "$2" >"$1/tehas"
+  chmod +x "$1/tehas"
+}
+labels_ok() { labels_put "$th/bin" 'case "$*" in labels) echo "label tehas:ready" ;; esac'; }
+labels_fail() { labels_put "$th/bin" 'case "$*" in labels) echo "tehas labels: could not make tehas:ready" >&2; exit 1 ;; esac'; }
+
 # install.sh as this case wants it answered. It records that it ran, so a case
 # can tell "ran with no arguments" from "never ran". It lives in the fake
 # checkout and is committed with it: an uncommitted stub would read as a local
@@ -89,8 +106,8 @@ ASK=$(ask_all)
 # A platform checkout with a remote beside it, plus the parts of a host an
 # update touches. Arguments: how many commits the remote holds that the
 # checkout does not, and what install.sh should print.
-platform() { # [behind] [install body]
-  local n=${1:-0} body=${2-}
+platform() { # [behind] [install body] [bin of the host, where its tehas is put]
+  local n=${1:-0} body=${2-} bin=${3-$th/bin}
   [ -n "$body" ] || body='echo "installed: nothing"'
   rm -rf "$th" "$T/origin" "$T/upstream" "$T/calls"/*
   systemctl_active
@@ -98,6 +115,11 @@ platform() { # [behind] [install body]
   bound_calls
   mkdir -p "$checkout/libexec" "$checkout/lib" "$th/sandbox" "$th/edge"
   write_install "$body"
+  # The host's own `tehas`, as the labels step runs it: by the path
+  # $TEHAS_HOME/bin/tehas, and not by name. A stub on PATH would be shadowed by
+  # this repository's real bin/tehas, which a case has on it. The third argument
+  # is the bin of the host: a fixture that makes the home somewhere else names it.
+  labels_put "$th/bin" 'case "$*" in labels) echo "label tehas:ready" ;; esac'
   # The libraries the checkout carries are this repository's own: after a
   # fast-forward, tehas update re-checks the instance with the settings rules
   # that came with the code it pulled.
@@ -287,7 +309,7 @@ login_state() { cksum "$dev_bin/tehas"; }
 # The order an update ran the steps it was asked for, read off its own lines.
 # shellcheck disable=SC2154  # t_out is set by test/lib.sh, which the part sources first
 step_order() {
-  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|edge: updating\).*/\1/p'
+  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|edge: updating\|labels: making\).*/\1/p'
 }
 
 # A change on the remote that adds a required setting to lib/config.sh, as some-
