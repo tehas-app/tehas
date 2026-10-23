@@ -29,7 +29,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees under `.worktrees` of either, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
@@ -57,13 +57,23 @@ what the host can make again once nothing has touched it for
 `TEHAS_CLEAN_AFTER` hours (24 unless the instance says otherwise): the build
 output of a kept workspace - every directory anywhere under it whose name is one
 of `TEHAS_CLEAN_DIRS`, the toolchain names listed in [Commands](/tools) - and the
-cycle's `cache`, its copy of the code index. What the workspace keeps is what a
-person reads: `.git`, the sources, what the agents wrote there, uncommitted
+cycle's `cache`, its copy of the code index. The same step walks the trees beside
+the workspace that hold build output of their own: `tehas-<issue>.before-retry`,
+the workspace a retry moved aside, and each worktree under `.worktrees` of
+either, which a cycle makes in the workspace it was given and leaves where it
+stands with a clone of its own and that clone's build output under it. A worktree
+sits under a dot-name, so the walk of the workspace never reaches it: each is
+asked as a root of its own. An issue with no workspace left, only the tree a
+retry moved aside, is asked too, since that is all of it the disk still holds.
+What the workspace keeps is what a person reads: `.git`, the sources, what the
+agents wrote there, uncommitted
 changes, and the `memory` and `sessions` of its `.state`. The cleaner runs no git
 command in a workspace, follows no symlink, and enters no dot-name, which is what
 keeps those trees out of the removal. It holds the issue's lock while it removes,
 so no cycle starts under it, and it removes nothing for an issue whose lock file
-is not there to hold. The 7-day sweep of the dispatcher still takes the workspace
+is not there to hold. An issue with no build output in any of its trees says so
+in the log, in the same line as one whose lock was not there: the two are told
+apart. The 7-day sweep of the dispatcher still takes the workspace
 itself. The build output of a manual session, `~/tehas/dev/<name>.state/target`,
 is the one build output the cleaner never takes: it walks no directory under
 `~/tehas/dev` for build-output names, and that tree is a person's call (see

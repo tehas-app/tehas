@@ -1016,10 +1016,20 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 - the build output of a kept workspace: every directory anywhere under
   `~/tehas/work/<name>-<issue>` whose name is one of `TEHAS_CLEAN_DIRS`, the
   toolchain names listed in [Commands](/tools), and `<name>-<issue>.state/cache`,
-  the cycle's copy of the code index. A kept workspace is never built in again -
+  the cycle's copy of the code index. The trees beside the workspace are walked
+  as roots of their own: `<name>-<issue>.before-retry`, the workspace a retry
+  moved aside, and each worktree directly under `.worktrees` of either. A cycle
+  makes its worktrees in the workspace it was given, under that dot-name, and
+  leaves them with a clone of their own and that clone's build output under them,
+  so the walk of the workspace, which enters no dot-name, reaches none of them.
+  An issue kept only by the tree a retry moved aside - the workspace of the cycle
+  that merged is gone - is walked too. A worktree that is a symlink is not walked:
+  a link there stands outside the workspace and is left while the roots beside it
+  are taken. A kept workspace is never built in again -
   every cycle clones fresh - and the dispatcher's 7-day sweep takes the whole of
   it later. The issue's lock is held while they go, so no cycle starts in it,
-  and a workspace touched within the age is left alone. Nothing is removed
+  and a workspace touched within the age is left alone, the tree of a retry and
+  the worktrees beside it being part of that age rule. Nothing is removed
   under a lock that is not there: an issue whose lock file is gone is left
   alone, because the cleaner cannot tell a finished cycle from a removed lock.
   `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
@@ -1052,7 +1062,11 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
-shows them in the terminal. A timer run prints to the journal: what it refuses
+shows them in the terminal. An issue is left alone for one of two reasons, and
+the line says which: `kept the build output of #<issue>: its lock is held` when
+something was there to remove and the lock was not, and `nothing to remove in
+#<issue>` when none of its trees held build output at all. A timer run prints to
+the journal: what it refuses
 to do before it can open the log - settings it will not accept, another run
 holding its lock, a state directory it could not make - is in
 `journalctl --user -u tehas-clean` and in no log file. The command starts no
