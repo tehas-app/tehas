@@ -358,6 +358,7 @@ fi
 requeued=0
 [ ! -e "$cycles/$issue.requeued" ] || requeued=1
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
+  "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
   "${cycles:?}/${issue:?}.nostart" \
   "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
@@ -736,6 +737,26 @@ if [ "$timed" != 0 ]; then
     killed="$killed It ran past its time limit of $((timed / 60)) min at step \`$step\`, and the runner did not stop on its own, so tehas stopped it."
   fi
 fi
+# The marker tehas stop leaves: epoch seconds and an account, read as .timed is
+# (plain file, at most 200 bytes, both fields checked) and removed either way.
+# The status stays as it is.
+stopped_by="" stopped_at="" stopped_at_shown="" stopped_by_person=0
+stopped_file=${cycles:?}/${issue:?}.stopped
+if [ -f "$stopped_file" ] && [ ! -L "$stopped_file" ]; then
+  read -r stopped_at stopped_by _ < <(head -c 200 "$stopped_file" 2>/dev/null | head -n 1)
+  [[ $stopped_at =~ ^(0|[1-9][0-9]{0,9})$ ]] || stopped_at=""
+  [[ $stopped_by =~ ^[A-Za-z0-9._-]{1,64}$ ]] || stopped_by=""
+fi
+rm -f "$stopped_file"
+if [ -n "$stopped_at" ]; then
+  stopped_at_shown=$(date -u -d "@$stopped_at" +%FT%TZ 2>/dev/null) || stopped_at_shown=""
+fi
+if [ -n "$stopped_at_shown" ]; then
+  stopped_by=$(printf '%s' "$stopped_by" | tr -cd 'A-Za-z0-9._-' | head -c 64)
+  [ -n "$stopped_by" ] || stopped_by="name not recorded"
+  stopped_by_person=1
+  killed="$killed A person stopped it with \`tehas stop\` ($stopped_by, at $stopped_at_shown)."
+fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
 branch=$(jq -r '.branch // ""' <<<"$outcome")
 # Two arms, and they are not the same question. The first is the branch of this
@@ -800,12 +821,12 @@ else
   esac
 fi
 # When tehas stopped the cycle itself, the cap is tehas's own: the time limit
-# or the stall. The runner's cap is kept only where its result names an end it
-# reached first, such as a handoff; the cap of a runner stopped mid-step is the
-# last verdict of a step, not why the cycle ended, and goes in the reason. So a
-# stop tehas made says who made it, and at which step, wherever cap is used:
-# the park record, the comment's marker, the history line and the improvement
-# record.
+# or the stall, or a person's `tehas stop`. The runner's cap is kept only where
+# its result names an end it reached first, such as a handoff; the cap of a
+# runner stopped mid-step is the last verdict of a step, not why the cycle
+# ended, and goes in the reason. So a stop tehas made says who made it, and at
+# which step, wherever cap is used: the park record, the comment's marker, the
+# history line and the improvement record.
 own=""
 if [ "$nostart_seen" = 1 ] && [ "$no_result" = 1 ]; then
   own=runner-never-started
@@ -820,6 +841,9 @@ elif [ "$timed" != 0 ] && { [ -z "$cap" ] || [ "$status" = timeout ]; }; then
 elif [ "$stalled" != 0 ] && { [ -z "$cap" ] || [ "$status" = stalled ]; }; then
   own=stall
   stop_why="tehas work stopped the container when no log changed for ${stalled}s"
+elif [ "$stopped_by_person" = 1 ] && [ -z "$cap" ]; then
+  # No cap of tehas's own: the stop is named in the reason only.
+  reason=$(printf '%s' "tehas stop ended the cycle, run by $stopped_by at $stopped_at_shown, step $step in flight${reason:+; $reason}" | head -c 200)
 fi
 if [ -n "$own" ]; then
   [ "$own" = wall-clock ] && [ "$timed_by" = runner ] ||

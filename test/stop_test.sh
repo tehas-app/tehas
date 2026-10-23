@@ -18,15 +18,19 @@ runs=$T/home/.pi/agent/ensemble-runs
 # lists are here so a case can pin both sides of the line. The sibling name of
 # the nostart note goes with the note: a write of it is made beside it and moved
 # into place, and tehas work clears both when a cycle starts.
-GO=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart nostart.new progress.json result.json)
+GO=(lock taken cid park requeued "done" stalled timed stopped stopped.new quiet oom forks branch image nostart nostart.new progress.json result.json)
 KEEP=(json history.jsonl by settings manifest.json approved.json rukas runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
 # ends the process holding the issue's lock, as a unit that stopped does.
 systemctl_live() {
+  # SHOW is what the unit reports as its state, and KILL the process the unit's
+  # death takes with it, as the process of a real cycle is taken: 0 ends nothing
+  # of its own, and the lock stays held.
   t_stub systemctl 'case "$2" in
-  show) printf "active\n" ;;
-  stop) kill "$(cat "$T/holder" 2>/dev/null)" 2>/dev/null ;;
+  show) printf "%s\n" "${SHOW:-active}" ;;
+  stop) [ "${KILL:-1}" = 1 ] && kill "$(cat "$T/holder" 2>/dev/null)" 2>/dev/null
+    : ;;
 esac'
 }
 # A unit that is not running, and a stop that would do nothing.
@@ -84,6 +88,18 @@ hold() { # <issue>
   ( exec 9>"$state/$1.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
   echo "$!" >"$T/holder"
 }
+# The same, but the lock stays held however the unit is stopped: its holder is
+# a process the stop's kill does not name, so the run stops the unit, waits for
+# a lock that will not free, and leaves the cycle whole.
+hold_whole() { # <issue>
+  mkdir -p "$state"
+  : >"$state/$1.lock"
+  ( exec 9>"$state/$1.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
+  echo "$!" >"$T/holder-keep"
+  # A holder of no cycle at all, so the stop's kill ends nothing of this case.
+  : >"$T/holder"
+  T_ENV=("${T_ENV[@]}" KILL=0)
+}
 release() {
   local pid
   pid=$(cat "$T/holder" 2>/dev/null) || return 0
@@ -95,7 +111,10 @@ release() {
 cycle_files() { # <issue>
   local n=$1 ext
   mkdir -p "$state" "$th/live" "$works" "$runs/issue-$n"
+  # The marker holds the seconds and the account, not the "<issue> <ext>" line
+  # the other notes hold.
   for ext in "${GO[@]}" "${KEEP[@]}"; do printf '%s\n' "$n $ext" >"$state/$n.$ext"; done
+  printf '%s %s\n' "$(date +%s)" "$whoami_here" >"$state/$n.stopped"
   printf '42\n' >"$th/state/park-$n.id"
   printf 'console line\n' >"$th/live/console-$n.txt"
   printf 'transcript\n' >"$runs/issue-$n/a-1-coder.json"
@@ -118,8 +137,12 @@ leftovers() { # <issue>
 }
 # The number a case says a stop leaves behind: the notes of GO, and the seven paths beside them. It is stated here, not read back from the lists,
 # so a note added to GO without being named here fails the cases that say a stop
-# took everything a cycle left.
-LEFTOVERS_N=24
+# took everything a cycle left. The marker of a stop and the sibling name of its
+# write are the two last of them, and are removed on the same terms as any other.
+# The two names of the marker are the two last of them, and go on the same terms
+# as any other: the marker of a stop keeps the line it was written with, so a
+# case that means a marker of its own says the name here.
+LEFTOVERS_N=26
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext
@@ -128,6 +151,14 @@ record() { # <issue>
 }
 # The containers the stub was asked to remove.
 removed_containers() { t_calls docker | sed -n 's/^rm -f //p' | tr '\n' ' '; }
+
+# The marker of a stop, as libexec/cycle reads it: the epoch seconds and the
+# account, one line. What this host's account is, read the way libexec/stop
+# reads it, so no case names a user the host does not have.
+whoami_here=$(id -un)
+# The marker of a stop, when the stop wrote one; the sibling name of its write
+# is asked for by name, never by a glob.
+stopped_marker() { cat "$state/$1.stopped" 2>/dev/null || true; }
 
 t_case "a running cycle: its unit is stopped, its container and every leftover go, its label comes off, and the record stays"
 reset
@@ -158,6 +189,156 @@ t_contains "$t_out" "removed tehas:running from #5"
 t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 1
 t_eq "$(gh_views | wc -l)" 1
 t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running"
+
+t_case "a marker holds the time and the account, and a cycle left whole keeps it"
+reset
+# A host whose cycle ran and has not reported: its lock is held by a process the
+# stubbed stop leaves alone, so the run stops the unit, waits 10 seconds for a
+# lock that will not free, leaves every leftover where it is and says so. The
+# marker the stop wrote before it asked is the record of that stop, and the case
+# reads it as libexec/cycle would. The stop that clears the leftovers, and takes
+# the marker with them, is the case after this one.
+cycle_files 5
+# The marker this case takes away is written again by the stop itself, and the
+# name of its write goes as any leftover does.
+rm -f "$state/5.stopped"
+systemctl_live
+# The lock of the cycle is held by a process the stop's kill does not end, so
+# the run stops the unit, waits for a lock that will not free, and leaves every
+# leftover where it is. The container is not on this host, so the stop's one
+# call to systemctl is the record of its own order.
+hold_whole 5
+T_ENV=("${T_ENV[@]}" CONTAINERS=)
+gh_labels tehas:running
+began=$(date +%s)
+t_run "$stop_cmd 5"
+kill "$(cat "$T/holder-keep" 2>/dev/null)" 2>/dev/null
+t_eq "$t_rc" 1
+t_contains "$t_out" "stopped tehas-cycle@5.service"
+t_contains "$t_out" "the cycle for #5 still holds its lock"
+t_contains "$t_out" "nothing was removed"
+# The marker of a cycle that was not cleared stays with its lock, and holds the
+# two fields libexec/cycle reads: the seconds, then the account. The account is
+# what the host says it is, so it is read back rather than compared with the
+# name of the shell that runs the case.
+if ! read -r marker_at marker_by <"$state/5.stopped" 2>/dev/null; then
+  t_bad "the stop left no marker: $(ls "$state")"
+else
+  [[ $marker_at =~ ^[0-9]{1,10}$ ]] || t_bad "the marker's time is not seconds: '$marker_at'"
+  [[ $marker_by =~ ^[A-Za-z0-9._-]{1,64}$ ]] ||
+    t_bad "the marker names no single account: '$marker_by'"
+  [ "$marker_by" = "$whoami_here" ] ||
+    t_bad "the marker names '$marker_by', not $whoami_here"
+  [ "$((marker_at - began))" -ge -5 ] && [ "$((marker_at - began))" -le 30 ] ||
+    t_bad "the marker's time $marker_at is not the stop's, which began at $began"
+fi
+# The marker went before the ask: the unit is asked for once, and only after
+# the name had been written.
+calls=$(t_calls systemctl)
+[ "$(sed -n '/ stop /p' <<<"$calls" | wc -l)" = 1 ] || t_bad "the unit was not stopped once: $calls"
+# And a cycle left whole keeps every leftover it had but the one name of the
+# write this stop made and moved into the marker.
+t_eq "$(leftovers 5 | wc -w)" "$((LEFTOVERS_N - 1))"
+
+t_case "the marker of a stop goes with the leftovers of the cycle it ended"
+reset
+# The cycle whose unit the stub ends: its report is over, its lock is free, and
+# what the stop wrote goes with everything else it left, so a cycle started
+# later on this issue reads none of an earlier stop as its own.
+cycle_files 5
+hold 5
+systemctl_live
+T_ENV=(CONTAINERS=)
+gh_labels tehas:running
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "stopped tehas-cycle@5.service"
+t_contains "$t_out" "removed state/cycles/5.stopped"
+t_eq "$(stopped_marker 5)" ""
+t_eq "$(leftovers 5)" ""
+
+t_case "a container with no unit and no lock behind it is removed, and no marker is written for it"
+reset
+# The marker says a person ended a cycle. A leftover container whose cycle left
+# this host long ago is no cycle, so this run asks for no stop and writes none.
+cycle_files 5
+systemctl_idle
+T_ENV=(CONTAINERS=tehas-work-5)
+gh_labels tehas:running
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed the container tehas-work-5"
+t_eq "$(stopped_marker 5)" ""
+t_eq "$(leftovers 5)" ""
+
+t_case "a marker left by an earlier stop is said as a leftover, and goes"
+reset
+cycle_files 5
+rm -f "$state/5.stopped.new"
+systemctl_idle
+T_ENV=(CONTAINERS=tehas-work-5)
+began=$(date +%s)
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_eq "$(stopped_marker 5)" ""
+t_contains "$t_out" "removed state/cycles/5.stopped"
+
+t_case "a run that stops nothing writes no marker, and takes one that is there"
+reset
+# No unit, no lock: this run asks for no stop, so it writes no marker of its
+# own. A marker an earlier stop left still goes, as every leftover does.
+systemctl_idle
+T_ENV=(CONTAINERS=)
+mkdir -p "$state"
+printf '%s %s\n' "$(date +%s)" "$whoami_here" >"$state/5.stopped"
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed state/cycles/5.stopped"
+t_eq "$(stopped_marker 5)" ""
+t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 0
+
+t_case "a run that finds nothing at all says so, and writes and removes no marker"
+reset
+# Nothing live, nothing left: one line and no call made on this host beyond
+# what reads it.
+systemctl_idle
+T_ENV=(CONTAINERS=)
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 <<<"$t_out")" "nothing to stop for #5"
+t_eq "$(stopped_marker 5)" ""
+
+t_case "a marker that cannot be written is said, and the stop goes through all the same"
+reset
+cycle_files 5
+# The marker of the cycle goes here, and the directory below stands in its
+# place: the write of the stop is made through the name beside it and moved
+# onto a name that is a directory, which no move can replace.
+rm -f "$state/5.stopped"
+mkdir -p "$state"
+# A cycle whose lock the stubbed stop frees and whose unit it stops: the holder
+# is the process the stop's kill ends, so the run stops the unit, finds the lock
+# free, and clears the host.
+( exec 9>"$state/5.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
+echo "$!" >"$T/holder"
+systemctl_live
+mkdir "$state/5.stopped"
+T_ENV=(UNIT_STATE=active CONTAINERS=)
+gh_labels tehas:running
+began=$(date +%s)
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "state/cycles/5.stopped could not be written"
+t_contains "$t_out" "stopped tehas-cycle@5.service"
+t_contains "$t_out" "removed tehas:running from #5"
+t_eq "$(t_calls systemctl | sed -n '/ stop /p' | wc -l)" 1
+# The cycle was stopped and its host cleared all the same. The name that could
+# not be written is taken, and its sibling name is taken too: a marker of this
+# issue is the one name, and no part of a write is left for a later cycle. The
+# count of what a stop takes is the one of every other case: this one made the
+# marker's name a directory before the run, so it is not a file to count.
+t_eq "$([ -e "$state/5.stopped" ] && echo kept)" ""
+t_eq "$([ -e "$state/5.stopped.new" ] && echo kept)" ""
 
 t_case "stopping #5 touches nothing of #51 or #55, and its label is the only one gh is asked about"
 reset
@@ -224,16 +405,21 @@ t_eq "$(gh_edits)" "issue edit 5 --repo acme/widget --remove-label tehas:running
 t_case "a cycle that still holds its lock after the stop is left whole, and said, with no label changed"
 reset
 cycle_files 5
+# The cycle's own marker stays, and this stop writes none of its own: its lock
+# is held by a process the stop's kill does not name, so the marker beside it is
+# neither written nor taken.
 mkdir -p "$state"
-( exec 9>"$state/5.lock"; flock -n 9 || exit 1; exec sleep 30 ) &
-echo "$!" >"$T/holder-keep"
 systemctl_live
-T_ENV=(UNIT_STATE=active CONTAINERS=tehas-work-5)
+hold_whole 5
+# Its container is on this host, and is not taken while the lock is held.
+T_ENV=("${T_ENV[@]}" CONTAINERS=tehas-work-5)
 began=$(date +%s)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 kill "$(cat "$T/holder-keep" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+# Every leftover of the cycle is where it was, the marker of this stop among
+# them, and the name of its write is gone into that marker.
+t_eq "$(leftovers 5 | wc -w)" "$((LEFTOVERS_N - 1))"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(removed_containers)" ""
 t_eq "$([ -e "$works/widget-5" ] && echo kept)" "kept"
@@ -245,12 +431,13 @@ t_eq "$(t_calls gh)" ""
 t_case "a cycle that holds its lock with no unit behind it is left whole too, at once"
 reset
 cycle_files 5
-hold 5
+# As above: the lock is held, so nothing is cleared.
+hold_whole 5
 T_ENV=(CONTAINERS=)
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
-kill "$(cat "$T/holder" 2>/dev/null)" 2>/dev/null
-t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+kill "$(cat "$T/holder-keep" 2>/dev/null)" 2>/dev/null
+t_eq "$(leftovers 5 | wc -w)" "$((LEFTOVERS_N - 1))"
 t_contains "$t_out" "still holds its lock"
 t_eq "$(t_calls gh)" ""
 

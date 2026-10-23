@@ -343,13 +343,97 @@ t_contains "$(t_calls gh)" "It ran past its time limit of 360 min at step \`deve
 t_contains "$(t_calls gh)" "--add-label needs-human-attention"
 t_eq "$(find "$state/7.timed" 2>/dev/null | wc -l)" 0
 
-t_case "a stall file that is not digits is ignored"
+# The marker tehas stop leaves: one line of seconds and an account, read as the
+# two files of tehas work are read, and said wherever the end of the cycle is
+# said. No new cap: the stop is no end tehas work gives a cap or a status for.
+t_case "a cycle a person stopped is on record with the stop in its reason, and no cap of its own"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted develop - deadline
+echo '{"reason": "waiting on the fence"}' >"$fx/progress.json"
+at=$(date +%s)
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo "'"$at"' alice" >"$TEHAS_HOME/state/cycles/7.stopped"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+# The cap of the runner is kept: a person's stop is not a cap, so nothing here
+# replaces the end the cycle itself named.
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["interrupted","develop","deadline"]'
+t_contains "$(t_calls gh)" 'A person stopped it with `tehas stop` (alice, at '
+t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `deadline`.'
+t_contains "$(t_calls gh)" 'A person stopped it with `tehas stop` (alice, at '
+# The marker is this cycle's name: it is read once and gone.
+t_eq "$(find "$state/7.stopped" 2>/dev/null | wc -l)" 0
+
+t_case "a person's stop with no cap of its own says the stop in the reason and leaves the cap empty"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted develop
+# A cycle a person stopped: the record names no cap of its own, and its
+# reason says who asked and when. The marker is written from a file of the
+# case, so no quoting of the case reaches the bytes the cycle reads.
+at=$(date +%s)
+printf '%s %s\n' "$at" bob.smith_1-2 >"$fx/marker-line"
+printf '%s\n' 'cat "$T/fx/marker-line" >"$TEHAS_HOME/state/cycles/7.stopped"; echo '{}' >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 137' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["interrupted","develop",null]'
+t_eq "$(jq -r .capReason "$rec")" "tehas stop ended the cycle, run by bob.smith_1-2 at $(date -u -d "@$at" +%FT%TZ), step develop in flight"
+t_eq "$(find "$state/7.stopped" 2>/dev/null | wc -l)" 0
+
+t_case "the marker says nothing beside a time limit or a stall: tehas's own cap stands"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended running develop -
+echo '{}' >"$fx/progress.json"
+at=$(date +%s)
+printf "%s\n" 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; echo "'"$at"' alice" >"$TEHAS_HOME/state/cycles/7.stopped"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_eq "$(jq -c '[.status, .cap]' "$rec")" '["timeout","wall-clock"]'
+t_contains "$(jq -r .capReason "$rec")" "tehas work stopped the container at the time limit of 21600s"
+t_lacks "$(jq -r .capReason "$rec")" "tehas stop ended the cycle"
+
+t_case "a marker that holds no line, or one of the two fields, is no marker, and is gone"
 reset
 ended running develop
-echo 'echo "60; rm -rf /" >"$TEHAS_HOME/state/cycles/7.stalled"; exit 2' >"$fx/work.sh"
+mkdir -p "$state"
+for bad in '' 'not-a-time alice' '1792000000' '   ' '1792000000 alice extra'; do
+  printf '%s\n' "$bad" >"$state/7.stopped"
+  t_run "$cycle 7"
+  t_lacks "$(t_calls gh)" "A person stopped it"
+  t_eq "$(find "$state/7.stopped" 2>/dev/null | wc -l)" 0
+done
+
+t_case "a marker that is a directory, or a link, is not read, and the cycle is reported as it is"
+reset
+ended interrupted develop
+mkdir -p "$state/7.stopped"
 t_run "$cycle 7"
-t_contains "$t_out" "status=running"
-t_lacks "$(t_calls gh)" "None of its logs changed"
+t_lacks "$(t_calls gh)" "A person stopped it"
+t_contains "$t_out" "status=interrupted"
+rmdir "$state/7.stopped"
+echo "$(date +%s) alice" >"$T/elsewhere"
+ln -sf "$T/elsewhere" "$state/7.stopped"
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "A person stopped it"
+t_eq "$([ -e "$T/elsewhere" ] && echo kept)" "kept"
+
+t_case "a name that is not one a comment can carry is cut, and the stop is still said"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended interrupted develop
+# A name of no account: the marker holds one word, and the cycle says the
+# stop without a name rather than saying none, so the record still tells a
+# reader that a person ended the cycle. The marker is written from a file of
+# the case, so no quoting of the case reaches the bytes the cycle reads.
+at=$(date +%s)
+printf '%s\n' "$at" >"$fx/marker-line"
+printf '%s\n' 'cat "$T/fx/marker-line" >"$TEHAS_HOME/state/cycles/7.stopped"; echo '{}' >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
+t_contains "$(jq -r .capReason "$rec")" "tehas stop ended the cycle, run by name not recorded at "
+t_contains "$(t_calls gh)" "A person stopped it with \`tehas stop\` (name not recorded, at "
+t_eq "$(find "$state/7.stopped" 2>/dev/null | wc -l)" 0
 
 t_case "a stall file left by an earlier cycle is not this cycle's"
 reset
