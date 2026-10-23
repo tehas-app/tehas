@@ -193,11 +193,75 @@ systemctl_stub='case "$1 $2" in
 esac'
 t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
-  info) cat "$T/fx/docker.info" ;;
+  info) case "$*" in
+      # The two questions the host asks Docker, both answered from
+      # $T/fx/docker.info: lib/slice.sh wants the cgroup driver and version,
+      # the first line, and the disk hold wants the directory of the images,
+      # the second line when a case wrote one. With $T/fx/docker-down the
+      # question is not answered at all, which is a host without Docker: df is
+      # then pointed at the default, /var/lib/docker, and a figure is still
+      # read or not read from there.
+      *DockerRootDir*)
+        [ ! -e "$T/fx/docker-down" ] || exit 1
+        [ -e "$T/fx/docker-dir" ] || sed -n 2p <"$T/fx/docker.info" 2>/dev/null ;;
+      *) cat "$T/fx/docker.info" ;;
+    esac ;;
   image) [ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label" ;;
   rm) [ ! -e "$T/fx/orphan-$3" ] || echo "$3" ;;
   run) [ -e "$T/fx/caps.json" ] || exit 1; cat "$T/fx/caps.json" ;;
 esac'
+# The free kilobytes of the host, as the disk hold reads it through
+# lib/disk.sh, whose df and docker info calls run under timeout. The file
+# system asked about answers with the kilobytes named for it: those of Docker's
+# own come from $T/fx/free-docker and the ones of every other path from
+# $T/fx/free, so a case can tell the two file systems from each other. With
+# none of them written there is 40 GB free everywhere. A case makes a reading
+# fail with $T/fx/df-fails, which takes both file systems with it, names an
+# unreadable one in $T/fx/df-fails-of, asks that Docker not answer the
+# directory question at all in $T/fx/docker-down, or puts a word that is no
+# number in a file: a figure that is not a number is no reading either, and
+# neither is one that does not fit a 64-bit number. docker info answers from
+# $T/fx/docker.info: one line with Docker's cgroup driver and version, or a
+# second line with the directory of its images. A figure is checked with a
+# pattern match rather than a case pattern, because t_stub expands the body as
+# it writes the stub and would eat the quotes an empty pattern needs.
+kb() { # <gibibytes>: the kilobytes of that many GiB
+  printf '%s\n' "$((10#${1} * 1048576))"
+}
+# One df of the file system named by its second argument.
+t_stub df '
+[ ! -e "$T/fx/df-fails" ] || exit 1
+[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(cat "$T/fx/df-fails-of")" ] || exit 1
+docker_dir=$(sed -n 2p <"$T/fx/docker.info" 2>/dev/null)
+if [ -e "$T/fx/docker-dir" ]; then docker_dir=""; fi
+answer=$(cat "$T/fx/free" 2>/dev/null || echo 41943040)
+if [ -n "$docker_dir" ] && [ "${2%/}" = "$docker_dir" ]; then
+  answer=$(cat "$T/fx/free-docker" 2>/dev/null)
+fi
+[[ $answer =~ ^(0|[1-9][0-9]{0,17})$ ]] || exit 1
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/x 60000000 1 $answer 1% /"'
+df_reset() {
+  rm -f "$fx/free" "$fx/free-docker" "$fx/df-fails" "$fx/df-fails-of" "$fx/docker-dir" "$fx/docker-down"
+  # The directory of the images goes back with the figures: a case that names
+  # one with df_free_of leaves it to no later case.
+  echo "systemd 2" >"$fx/docker.info"
+}
+df_free() { # <gibibytes>: the same figure on every file system
+  df_reset
+  kb "$1" >"$fx/free"
+}
+# df_free_of <gibibytes of ~/tehas> <gibibytes of Docker's data>: the two file
+# systems asked about answer differently. The lesser of them is the one that
+# holds a cycle back. Docker names the directory of its images and df is then
+# pointed at it, /srv/docker, which puts the two on file systems of their own:
+# an answer that is no figure is no reading for either of them.
+df_free_of() {
+  df_reset
+  printf '%s\n' "systemd 2" /srv/docker >"$fx/docker.info"
+  kb "$1" >"$fx/free"
+  kb "$2" >"$fx/free-docker"
+}
 gib=1073741824
 slice_env=TEHAS_CGROUP_ROOT=$T_CGROUP
 slice_show() { # <MemoryMax> [<ActiveState>]: a slice loaded from its file
@@ -221,6 +285,7 @@ reset() {
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
   echo "systemd 2" >"$fx/docker.info"
+  df_reset
   slice_state 0.00
   echo '[]' >"$fx/asking.json"
   echo '[]' >"$fx/plans.json"
@@ -237,7 +302,7 @@ reset() {
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
-  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
+  T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start TEHAS_DISK_WAIT=1 "$slice_env")
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.

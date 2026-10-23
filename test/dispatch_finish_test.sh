@@ -19,7 +19,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/disk.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # Runs the unit's command at once, after its own options.
@@ -42,7 +42,10 @@ t_eq "$(t_calls systemctl)" "show tehas.slice -p FragmentPath -p ActiveState -p 
 --user show -p LoadState --value tehas-cycle@7.service
 --user show -p ActiveState --value tehas-index.service
 --user start tehas-cycle@7.service"
-t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}"
+# The disk hold comes after the slice's, so the poll asks Docker twice: for the
+# cgroup driver and version, and for the directory of the images.
+t_eq "$(t_calls docker)" "info --format {{.CgroupDriver}} {{.CgroupVersion}}
+info --format {{.DockerRootDir}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c"
 t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 0

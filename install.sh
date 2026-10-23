@@ -392,6 +392,8 @@ files=(
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
+  # The free disk of the host, read by the dispatcher's hold and the previews'.
+  "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
   "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"

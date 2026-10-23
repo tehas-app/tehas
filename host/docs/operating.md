@@ -770,6 +770,18 @@ recording, and both commands then say so and exit 69.
   [Limit and drain](#limit-and-drain).
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room.
+- No new cycle while the host runs short of disk: less than
+  `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
+  or on the one Docker keeps its images on, whichever has less. The poll reads
+  both with `df`; space it cannot read is held on as well, and the log says
+  `holding: <n> GiB free on the disk, under TEHAS_CYCLE_MIN_FREE=<value>: no
+  cycle starts` or `holding: the free disk space could not be read: no cycle
+  starts`. Neither figure is ever taken for the other: when `df` answers
+  nothing for one of the two file systems, the poll holds rather than guess.
+  Running cycles are not touched, and a planning turn is not held, so
+  what the host already works on finishes; only new cycles wait. On 2026-10-20
+  a host's disk filled and every running cycle died, which is why the check is
+  there. Previews have their own, lower, bound in `TEHAS_PREVIEW_MIN_FREE`.
 - Room in `tehas.slice`, the systemd slice every sandbox container runs in.
   A cycle starts only while the slice's memory limit, less what every
   container in it is promised or uses, leaves one more `TEHAS_CYCLE_RESERVE`

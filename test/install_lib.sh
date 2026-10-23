@@ -88,6 +88,7 @@ files="./.bashrc
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
 ./tehas/lib/describe.sh
+./tehas/lib/disk.sh
 ./tehas/lib/edge.sh
 ./tehas/lib/fixer.sh
 ./tehas/lib/headless.sh

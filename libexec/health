@@ -20,7 +20,9 @@
 #                  not answer the last polls), or it is paused (the pause flag
 #                  tehas pause writes on this host, or tehas:pause on the control
 #                  issue), or the dispatcher holds everything because tehas.slice is missing
-#                  or cannot be read, or there are no resources (the model
+#                  or cannot be read, because the free disk is under
+#                  TEHAS_CYCLE_MIN_FREE or could not be read
+#                  (live/dispatch.json, from the last poll), or there are no resources (the model
 #                  endpoint does not answer or does not offer the model, as
 #                  the last poll found), or the host is too low on disk to build
 #                  previews, or its free space could not be read
@@ -167,9 +169,12 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
   | $v.last as $last
   | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
      and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
-  # Nothing starts on a slice that is missing or cannot be read. The other
+  # Nothing starts on a slice that is missing or cannot be read, nor on a host
+  # whose free disk is under TEHAS_CYCLE_MIN_FREE or unreadable: those three
+  # hold every start, and a monitor should hear about any of them. The other
   # holds pass by themselves.
   | ($slice != null and ($slice.why | IN("slice", "unreadable"))) as $no_slice
+  | ($slice != null and $slice.why == "disk") as $no_disk
   | ($slice != null and $slice.why == "resources") as $no_resources
   # A fix merged for the factory runs only after tehas update. A day behind
   # is long enough to be news and short enough to matter.
@@ -188,6 +193,7 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
      elif $paused then "warn"
      elif $limit_holds then "warn"
      elif $no_slice then "warn"
+     elif $no_disk then "warn"
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
      elif $behind then "warn"
@@ -204,6 +210,7 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
                  (if $limit.state == "expired" then "Nothing starts: the limit expired at \($limit.until). Set it again or clear it (tehas limit)."
                   else "Nothing starts: the limit cannot be read. Set it again or clear it (tehas limit)." end)
                elif $no_slice then ($slice.hold // "holding")
+               elif $no_disk then ($slice.hold // "holding")
                elif $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")
                elif $disk != null and $disk.low then
                  (if $disk.freeBytes == null then "The host\u0027s free disk space could not be read: previews are not being built."

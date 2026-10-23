@@ -329,6 +329,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
+# shellcheck source=lib/disk.sh
+. "$here/../lib/disk.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/fixer.sh
@@ -2220,11 +2222,32 @@ count_waiting() {
   done
 }
 
+# The free kilobytes of the host for this poll, read by disk_check and empty
+# when there is no figure. disk_read says the read has been made: the poll
+# asks once, whoever comes first of the two arms below.
+disk_free=""
+disk_read=""
+# disk_check: the free disk of the host for this poll, in $disk_free. It is the
+# one df of ~/tehas, the one docker info and the one df of Docker's own a poll
+# makes (tehas_free_kb in lib/disk.sh), each bounded, so a Docker or a mount
+# that does not answer leaves no figure and a hold rather than a poll that
+# waits for it. The read is made once and its answer kept, also when it is
+# nothing: a poll that reads nothing pays for the read once, and the next poll
+# asks again so a host whose df recovers is not held on by the reading that
+# failed. It is asked only after the slice and the endpoint had their say,
+# which is why the arms below ask it and take the decision from what it left.
+disk_check() {
+  [ -n "$disk_read" ] || {
+    disk_read=1
+    disk_free=$(tehas_free_kb "$TEHAS_HOME") || disk_free=""
+  }
+}
+
 # 3. Do not pile up unreviewed work, and do not promise memory the slice does
 # not have. A running cycle is a pull request on its way, so it counts:
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
-# $why is the one word for it: slice, unreadable, resources, limit, red,
+# $why is the one word for it: slice, unreadable, disk, resources, limit, red,
 # count, awaiting, pressure, room or full, the first that applies. resources is a model
 # endpoint that does not answer or does not offer the model: it holds
 # planning turns and retries as well.
@@ -2270,6 +2293,18 @@ elif [ "$mem_why" = unreadable ]; then
 elif [ -n "$mesh_hold" ]; then
   why=resources
   hold=$mesh_hold
+elif disk_check && [ -n "$disk_free" ] &&
+  [ "$disk_free" -lt $((TEHAS_CYCLE_MIN_FREE_MB * 1024)) ]; then
+  # Before the count: on a host whose slots are all taken a full disk is
+  # still what stops the next cycle, and tehas status says so. Running
+  # cycles are left alone; only new ones wait.
+  why=disk
+  hold="holding: $(gib $((disk_free * 1024))) free on the disk, under TEHAS_CYCLE_MIN_FREE=$TEHAS_CYCLE_MIN_FREE: no cycle starts"
+elif disk_check && [ -z "$disk_free" ]; then
+  # Read and answered nothing. The same word as a low figure, because both hold
+  # every start and neither names a number a person can fix.
+  why=disk
+  hold="holding: the free disk space could not be read: no cycle starts"
 elif [ "$limit_state" = expired ]; then
   why=limit
   hold="holding: the limit expired at $(jq -r .until <<<"$limit"): nothing starts until it is set again or cleared"
