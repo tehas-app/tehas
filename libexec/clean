@@ -501,20 +501,25 @@ clean_base_image() {
   # name is a tag of, and no repository that is not the base's is ever named.
   repo=${pulled%%@*}
   repo=${repo%:*}
-  # The bases and the sandbox image in one listing: the `sha-` tags of the
-  # base's repository are what this step may take, and the tags of the sandbox
-  # image are the proof of what a container holds and what a kept release stands
-  # on. One listing asks both names, so the answer carries both repositories and
-  # each line says which of them it belongs to; nothing of a repository the pins
-  # do not name is ever read from it. A docker that could not list is not a
-  # docker that listed nothing: the first is an unknown and the second is a fact,
-  # and only the fact is logged as one. An operator reading the log when the
-  # cleaner frees nothing must not be told no base was pulled when docker would
-  # not say.
-  if ! tags=$(timeout -k 30 600 docker image ls --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}' "$repo" "$sandbox_image" 2>/dev/null); then
+  # The bases and the sandbox image, one listing each, as `docker image ls`
+  # takes at most one name: the `sha-` tags of the base's repository are what
+  # this step may take, and the tags of the sandbox image are the proof of what
+  # a container holds and what a kept release stands on. Each line says which
+  # repository it belongs to; nothing of a repository the pins do not name is
+  # ever read from them. A docker that could not list is not a docker that
+  # listed nothing: the first is an unknown and the second is a fact, and only
+  # the fact is logged as one. An operator reading the log when the cleaner
+  # frees nothing must not be told no base was pulled when docker would not say.
+  local held
+  if ! tags=$(timeout -k 30 600 docker image ls --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}' "$repo" 2>/dev/null); then
     warn "docker gave no list of its base tags of $repo"
     return 1
   fi
+  if ! held=$(timeout -k 30 600 docker image ls --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}' "$sandbox_image" 2>/dev/null); then
+    warn "docker gave no list of the tags of $sandbox_image"
+    return 1
+  fi
+  tags+=$'\n'"$held"
   # Only the lines of the repository this step may take, which is what a
   # listing asked for one name answers. A line of another repository is not
   # this step's to remove, and one that carries no tag docker can name is an

@@ -25,7 +25,8 @@ mkdir -p "$fx"
 # way into the run's environment: DOCKER_RC makes the pruning of the build
 # cache fail, IMAGE_LS_RC the listing of the sandbox image's tags, PS_RC the
 # listing of containers, INSPECT_RC what those containers were made from,
-# BASE_LS_RC the listing of the base image's tags, PRUNE_RC the removal of a
+# BASE_LS_RC the listing of the base image's tags, HELD_LS_RC the listing of
+# the sandbox image's tags that step 5 asks, PRUNE_RC the removal of a
 # base, RMI_FAILS the removal of one name. The image steps answer five more
 # things from files under
 # $fx that a case writes: the tags of the sandbox image ($fx/images, "<tag>
@@ -47,22 +48,33 @@ t_stub docker 'case "$1" in
     case "$2" in
     ls)
       [ -z "${IMAGE_LS_RC:-}" ] || exit "$IMAGE_LS_RC"
-      # Two listings, told apart by the names they ask for. Step 4 asks the
-      # sandbox image by its own name and is answered by $fx/images. Step 5 asks
-      # the repository of the base and that image in one call, and is answered
-      # by both fixtures together, so its answer carries both repositories. No
+      # As docker does, a listing takes at most one name. The repository of the base
+      # is answered by $fx/base-images, any other name by $fx/images. No
       # listing is asked with -q: the step names to docker only the names the
       # listings gave it, so a run that asked for the untagged of a name would
       # reach here with no answer at all. BASE_LS_RC is the docker that will not
       # answer for the base at all.
-      want=$T/fx/images
-      for a in "$@"; do
-        if [ "$a" = "${BASE_NAME:-none}" ]; then want="$T/fx/base-images $T/fx/images"; fi
+      names=()
+      shift 2
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+        --format) fmt=$2; shift ;;
+        -*) ;;
+        *) names+=("$1") ;;
+        esac
+        shift
       done
-      if [ "${want#"$T/fx/base-images"}" != "$want" ]; then
-        [ -z "${BASE_LS_RC:-}" ] || exit "$BASE_LS_RC"
+      if [ "${#names[@]}" -gt 1 ]; then
+        echo "docker: docker image ls requires at most 1 argument" >&2
+        exit 1
       fi
-      for f in $want; do cat "$f" 2>/dev/null; done
+      if [ "${names[0]:-}" = "${BASE_NAME:-none}" ]; then
+        [ -z "${BASE_LS_RC:-}" ] || exit "$BASE_LS_RC"
+        cat "$T/fx/base-images" 2>/dev/null
+      else
+        if [ -n "${HELD_LS_RC:-}" ] && [[ ${fmt:-} == *Repository* ]]; then exit "$HELD_LS_RC"; fi
+        cat "$T/fx/images" 2>/dev/null
+      fi
       exit 0 ;;
     inspect)
       # One image, asked for its age or its size, the format string naming
@@ -111,7 +123,8 @@ reset() {
   t_instance "${T_MINIMAL[@]}"
   after_hours=24
   # The knob is turned by a case that leaves the names reset set, and adds to
-  # them: PS_RC, INSPECT_RC, BASE_LS_RC, PRUNE_RC, RMI_FAILS, DOCKER_RC.
+  # them: PS_RC, INSPECT_RC, BASE_LS_RC, HELD_LS_RC, PRUNE_RC, RMI_FAILS,
+  # DOCKER_RC.
   T_ENV=("BASE_NAME=$base_repo")
 }
 
@@ -571,7 +584,8 @@ date -u +%Y-%m-%dT%H:%M:%S.000000000Z >"$fx/created-sha256:6"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
 t_run "$clean"
 t_eq "$t_rc" 0
-t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $image_name"
 t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
 t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
 t_lacks "$(t_calls docker)" "rmi $base_repo:sha-aaaaaaaaaaaa"
@@ -761,12 +775,27 @@ t_contains "$t_out" "WARN: clean: docker gave no list of its base tags of $base_
 t_lacks "$t_out" "no image of $base_repo is on the host"
 t_lacks "$(t_calls docker)" "image prune"
 
+t_case "a docker that lists the bases but not the sandbox image removes nothing"
+reset
+base_tags
+old_base "$sha_old1" "$sha_old2"
+no_containers
+# Without the sandbox image's tags there is no proof of what a kept release
+# stands on, so no base may go.
+T_ENV=("BASE_NAME=$base_repo" HELD_LS_RC=1)
+t_run "$clean"
+T_ENV=("BASE_NAME=$base_repo")
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: clean: docker gave no list of the tags of $image_name"
+t_lacks "$(t_calls docker)" "rmi $base_repo"
+t_lacks "$t_out" "no image of $base_repo is on the host"
+
 t_case "a host that follows no commit names no base, and asks docker nothing of it"
 reset
 rm -f "$th/versions.env"
 t_run "$clean"
 t_eq "$t_rc" 0
-t_lacks "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
+t_lacks "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo"
 t_lacks "$(t_calls docker)" "image prune"
 t_contains "$t_out" "WARN: clean: kept the base: the host's pins name no base to prune"
 
@@ -802,7 +831,8 @@ base_tags
 old_base "$sha_old1" "$sha_old2"
 no_containers
 t_run "$clean"
-t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo $image_name"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $base_repo"
+t_contains "$(t_calls docker)" "image ls --no-trunc --format {{.Repository}} {{.Tag}} {{.ID}} $image_name"
 t_contains "$(t_calls docker)" "rmi $base_repo:sha-bbbbbbbbbbbb"
 t_contains "$(t_calls docker)" "rmi $base_repo:sha-cccccccccccc"
 
