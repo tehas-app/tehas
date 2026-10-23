@@ -3,7 +3,13 @@ Description=Tehas: remove what the host can make again
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean >> %h/tehas/logs/clean.log 2>&1"
+# No redirect: libexec/clean is the one writer of logs/clean.log and prints
+# each line as well, so a redirect into that file would write every line of a
+# run twice. A refusal before the log is opened (settings, the lock, an
+# unmade state directory) is printed only, so it reaches the journal and not
+# the log: journalctl --user -u tehas-clean. The same rule for a unit and its
+# command is asserted in test/units_test.sh.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean"
 # Three steps: a walk of the kept workspaces, one docker prune, and the scratch
 # under tmp/. A host with a full disk is the slow case, and it is still minutes.
 TimeoutStartSec=30min

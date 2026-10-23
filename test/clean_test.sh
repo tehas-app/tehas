@@ -969,4 +969,25 @@ t_run "$clean"
 t_eq "$t_rc" 78
 t_eq "$(t_calls docker)" ""
 
+t_case "what a timer run prints also goes to the log a person reads"
+# The unit for the cleaner adds no sink of its own (test/units_test.sh), so
+# clean.log is the only file a removal is written to and the journal the only
+# other place the same line is read. Both halves matter here: the lines that
+# reach clean.log are printed as well, so a run by hand shows them too. A WARN
+# is pinned with them, since warn() reaches the file by a different path from
+# log().
+reset
+workspace
+T_ENV=(DOCKER_RC=1)
+t_run "$clean"
+T_ENV=()
+t_eq "$t_rc" 1
+# $logfile names the file from this shell's environment; the run has none of
+# it, so the assertions read the path out of the scratch home t_run gives.
+log_file=$th/logs/clean.log
+t_contains "$t_out" "WARN: clean: docker builder prune failed"
+t_contains "$(cat "$log_file")" "WARN: clean: docker builder prune failed"
+t_contains "$t_out" "removed $workdir-7/target: build output of #7"
+t_eq "$(grep -c "removed $workdir-7/target: build output of #7" "$log_file")" 1
+
 t_done

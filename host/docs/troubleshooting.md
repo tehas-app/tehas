@@ -19,6 +19,7 @@ description: "What each stop in a tehas cycle means, and what to do about it."
 | What did the improvement loop do? | `~/tehas/logs/improve.log`, one line per run                           |
 | Is a cycle running?              | `systemctl --user status 'tehas-cycle@*'`, or `docker ps --filter name=tehas-work` |
 | What did the previews do?        | `~/tehas/logs/preview.log`, and `~/tehas/logs/preview-<pr>.log` for one build |
+| What did the cleaner do?         | `~/tehas/logs/clean.log`; `journalctl --user -u tehas-clean` for a run that wrote nothing there |
 | What state is a preview in?      | `jq . ~/tehas/preview/<pr>/state.json`, or "Previews" on the [dashboard](/dashboard) |
 
 The driver's notices, one per line:
@@ -962,8 +963,11 @@ name what you mean:
 and an `--all` of it any image no container names, which is wider than the
 cleaner ever goes. A preview that lost its tag is among what a bare prune takes.
 `install.sh` copies `tehas-clean.timer`; check `systemctl --user list-timers
-tehas-clean.timer` when it is not running, and `tail ~/tehas/logs/clean.log`
-for what it freed. `docker builder prune` does the same at once, and the next
+tehas-clean.timer` when it is not running, `tail ~/tehas/logs/clean.log` for
+what it freed, and `journalctl --user -u tehas-clean` for a run that left
+nothing in that file: a refusal of the settings, of the lock another run holds,
+or of a state directory it could not make is said before the log is opened and
+reaches the journal only. `docker builder prune` does the same at once, and the next
 build of the sandbox image is then slower.
 
 **The default branch's preview** (`main` in the list, `uat-main.<domain>`)

@@ -1039,9 +1039,13 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   to take one away.
 
 One line per removal and a closing line with the bytes freed go to
-`~/tehas/logs/clean.log`. The command starts no work, so the pause label does
-not hold it. A step that fails is logged as a warning, the other steps still
-run, and the exit status is non-zero.
+`~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
+shows them in the terminal. A timer run prints to the journal: what it refuses
+to do before it can open the log - settings it will not accept, another run
+holding its lock, a state directory it could not make - is in
+`journalctl --user -u tehas-clean` and in no log file. The command starts no
+work, so the pause label does not hold it. A step that fails is logged as a
+warning, the other steps still run, and the exit status is non-zero.
 
 **To turn it on**, enable the timer, which `install.sh` and `tehas update`
 install but do not start:
@@ -1049,6 +1053,7 @@ install but do not start:
 ```
 systemctl --user enable --now tehas-clean.timer
 tail ~/tehas/logs/clean.log
+journalctl --user -u tehas-clean
 ```
 
 Run it once by hand with `tehasbot clean`, or with `tehasbot clean --dry-run`
