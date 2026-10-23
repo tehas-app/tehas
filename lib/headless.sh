@@ -21,7 +21,11 @@
 #       lib/polyfill-<feature>.sh, `off` otherwise. Every check of a pi-rukas
 #       feature asks this, so a polyfill is used only until the image has the
 #       feature, and scripts/polyfills.sh can tell when to remove it. Returns 1
-#       and says `off` when <feature> is not a feature name.
+#       and says `off` when <feature> is not a feature name. Returns 1 and says
+#       `error` when <caps> is no answer that can be read: not a JSON object, or
+#       a `features` that is not an object. An object with no `features` key is
+#       the answer of an image that has none, and is answered `polyfill` or
+#       `off`.
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
@@ -120,6 +124,10 @@ tehas_headless_lib=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 tehas_headless_mode() { # <caps> <feature>
   [[ $2 =~ ^[a-z][A-Za-z0-9]{0,63}$ ]] || { echo off; return 1; }
+  # A failed probe reads as no feature of any kind, so it is said as one: only
+  # an object whose features, if it has them, are an object can be read.
+  jq -e 'type == "object" and ((has("features") | not) or (.features | type) == "object")' \
+    >/dev/null 2>&1 <<<"$1" || { echo error; return 1; }
   if jq -e --arg f "$2" 'type == "object" and (.features | type) == "object" and .features[$f] == true' \
     >/dev/null 2>&1 <<<"$1"; then
     echo native

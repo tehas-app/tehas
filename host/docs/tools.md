@@ -3244,18 +3244,24 @@ feature and a pull request that builds it. A feature with no pull request
 upstream gets no polyfill; it is asked for upstream first. Each check of a pi-rukas feature asks one function,
 `tehas_headless_mode <caps> <feature>` in `lib/headless.sh`, where `<feature>`
 is a key of `features` in the runner's `--capabilities` answer. It says one of
-three things:
+four things:
 
 | Answer     | When                                                    |
 | ---------- | ------------------------------------------------------- |
 | `native`   | the answer sets the feature to `true`                    |
 | `polyfill` | it does not, and tehas carries `lib/polyfill-<feature>.sh` |
 | `off`      | neither                                                 |
+| `error`    | the answer could not be read: not a JSON object, or a `features` that is not an object. Status 1 |
 
 `native` wins, so a host stops using a polyfill the moment its sandbox image
 has the feature, before the code is removed. The refresh (`continuePr`), the
 planning turns (`planTurns`) and the cycle deadline (`cycleDeadlineHandoffAllowance`)
 are read this way. None of them has a polyfill.
+
+An answer that cannot be read is `error`, never `polyfill`, so a probe that
+failed cannot read as a feature tehas should supply. An object with no
+`features` key is the answer of an image that has none, and is answered
+`polyfill` or `off`.
 
 A polyfill of the feature `<f>` is three things, and nothing else may use it:
 
