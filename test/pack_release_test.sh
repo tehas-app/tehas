@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The tests of scripts/pack-release.sh: that the tarball holds what install.sh
-# reads, that VERSION and the two pin lines say what the arguments said, that
+# reads, that VERSION, COMMIT and the two pin lines say what the arguments said, that
 # the .sha256 checks with sha256sum -c, that a tree holding a link out of itself
 # is refused, and what a bad argument costs. The console is a stub file in every
 # case: the pack script builds nothing and needs no cargo. The tree it packs is
@@ -195,6 +195,36 @@ t_eq "$t_rc" 64
 t_run "\"$pack\" v9.9.9 '$dist' --console '$stub' --mcp"
 t_eq "$t_rc" 64
 t_contains "$t_out" "--mcp needs a path"
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+
+t_case "the store is packed when given, executable, and --commit is written to COMMIT"
+t_pack_reset
+printf 'store of this release\n' >"$build/store"
+chmod 755 "$build/store"
+t_pack --store "'$build/store'" --commit "${commit^^}"
+t_eq "$t_rc" 0
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(cat "$T/tehas-v9.9.9/libexec/store")" "store of this release"
+t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/store")" 755
+# Lower case, the shape install.sh accepts.
+t_eq "$(cat "$T/tehas-v9.9.9/COMMIT")" "$commit"
+t_pack_reset
+t_pack
+t_eq "$(tar -tzf "$dist/$tar_gz" | grep -c '^tehas-v9.9.9/COMMIT$')" 0
+
+t_case "a --store that is not a program or a --commit of another shape writes nothing"
+t_pack_reset
+chmod 644 "$build/store"
+t_pack --store "'$build/store'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "not a program the pack can run"
+t_pack --commit deadbeef
+t_eq "$t_rc" 1
+t_contains "$t_out" "--commit must be 40 hex digits"
+t_run "\"$pack\" v9.9.9 '$dist' --console '$stub' --commit"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--commit needs a commit"
 t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
 
 t_case "the tarball holds CHANGELOG.md, the checkout's own"

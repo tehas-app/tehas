@@ -3131,12 +3131,20 @@ thin wrapper around the same arguments:
 
 ```
 TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
-  --analytics <path> --mcp <path> --rukas-commit <40 hex> --rukas-digest <64 hex>
+  --analytics <path> --mcp <path> --store <path> --commit <40 hex> \
+  --rukas-commit <40 hex> --rukas-digest <64 hex>
 ```
 
-`--analytics` and `--mcp` are the other two programs `install.sh` puts in
-`libexec`, packed as `libexec/analytics` and `libexec/tehas-mcp`. Each is
-optional, and a tarball packed without one has none.
+`--analytics`, `--mcp` and `--store` are the other three programs `install.sh`
+puts in `libexec`, packed as `libexec/analytics`, `libexec/tehas-mcp` and
+`libexec/store`. Each is optional, and a tarball packed without one has none.
+`install.sh` makes and migrates the host's database with the store, so a
+tarball without it installs only on a host that has one.
+
+`--commit` is the commit of tehas the tree is, written to a `COMMIT` file. A
+tree with no git has no other way to say it, the store records it in the
+database, and `install.sh` refuses a tree whose commit it cannot read. It is
+optional to the pack script, and the workflow always gives it.
 
 The two pins are given together or not at all, so a release that does not pin
 pi-rukas leaves both off. The digest is written as `sha256:` and 64 hex digits.
@@ -3160,8 +3168,9 @@ beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
 `bin/`, `libexec/`, `lib/` and `host/`, the top-level files an install needs,
-`instances/example/`, the console as `libexec/console` and the other two
-programs when they were given, a `VERSION` file with the tag, `CHANGELOG.md`,
+`instances/example/`, the console as `libexec/console` and the other three
+programs when they were given, a `VERSION` file with the tag, a `COMMIT` file
+with the commit when it was given, `CHANGELOG.md`,
 and `host/versions.env`. `install.sh` run from such a tree has no `console/` to
 build from: it installs the programs the release carries as they are, with
 `release <sha256>` as the stamp, asks cargo nothing, and keeps the installed
@@ -3250,8 +3259,8 @@ with no such tag it is shown every release.
 
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
 organisation's own runner as the gate does. It builds the console, the
-analytics program and the MCP server (static, musl) with `cargo build
---release --locked`, checks each is an x86_64 program, resolves the pins, runs
+analytics program, the store and the MCP server (static, musl) with `cargo
+build --release --locked`, checks each is an x86_64 program, resolves the pins, runs
 the pack command above, signs the tarball and `host/release/install` (when the
 tag has one) with minisign, checks both signatures against
 `host/release/minisign.pub`, and publishes the release with the tarball named

@@ -19,8 +19,13 @@
 #                                    target's directory when given --target;
 #                                    CARGO_OFFLINE is what a build that asked
 #                                    for --offline answers: miss, noise or fail
-#   t_console_source DIR             copy the source of the console and of
-#                                    analytics into a scratch checkout
+#   t_console_source DIR             copy the source of the console, analytics,
+#                                    the MCP server and the store into a scratch
+#                                    checkout, and name its commit (t_tree_commit)
+#   t_tree_commit DIR                write COMMIT, as a release tree carries it
+#   t_store                          build the real store once per run, in
+#                                    $T_STORE; 1 when it cannot (t_store_why)
+#   t_store_db HOME                  a fresh database in HOME/state/tehas.db
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
@@ -145,16 +150,72 @@ if [ "${CARGO_FAIL:-}" = "$pkg" ]; then echo "error: could not compile $pkg" >&2
 if [ "${CARGO_OFFLINE:-}" = fail ]; then echo "error: could not compile $pkg after fetching" >&2; exit 101; fi
 [ -z "${NO_CONSOLE:-}" ] || exit 0
 mkdir -p "${CARGO_TARGET_DIR:?}/${triple}release"
+if [ "$pkg" = store ]; then
+  out=$CARGO_TARGET_DIR/${triple}release/store
+  if [ -n "${STORE_BIN:-}" ]; then cp "$STORE_BIN" "$out"; exit 0; fi
+  { cat "$T/store-stand-in"; echo "# a store built from ${CONSOLE_BUILD:-source}"; } >"$out"
+  chmod 755 "$out"
+  exit 0
+fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
+  # The store is run by install.sh, so what the stub builds for it is a program:
+  # it records each call in t_calls store and answers as the store does, or
+  # fails with the store's own word when STORE_RC is set. STORE_BIN names a real
+  # store to hand over instead (t_store).
+  cat >"$T/store-stand-in" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$T/calls/store"
+if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
+case $1 in
+  init) echo '{"api":1,"verb":"init","ok":true,"schema":1,"created":true}' ;;
+  migrate) printf '{"api":1,"verb":"migrate","ok":true,"from":1,"to":1,"backup":"%s/tehas-1-0.db"}\n' "$3" ;;
+esac
+EOF
 }
 # The source of the console and of analytics without what a build here left
 # beside it.
 t_console_source() {
-  mkdir -p "$1/console/analytics" "$1/console/mcp"
+  mkdir -p "$1/console/analytics" "$1/console/mcp" "$1/console/store"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
   cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
   cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
+  cp -R "$T_ROOT/console/store/Cargo.toml" "$T_ROOT/console/store/src" "$1/console/store/"
+  t_tree_commit "$1"
+}
+# A scratch tree is no git checkout, so it names its commit as a release does,
+# in COMMIT: install.sh refuses a tree whose commit it cannot read.
+T_COMMIT=0123456789abcdef0123456789abcdef01234567
+t_tree_commit() { printf '%s\n' "$T_COMMIT" >"$1/COMMIT"; }
+
+# t_store: the store program of this checkout, built once per run of the tests
+# and kept in $T_STORE. cargo builds it offline into the workspace's own target
+# directory, where the gate's cargo test builds the same crates. Returns 1 with
+# the reason in $t_store_why when there is no cargo or the build fails, and the
+# case then says t_skip.
+T_STORE=$T/store-bin
+t_store_why=""
+t_store() {
+  [ -x "$T_STORE" ] && return 0
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_store_why="cargo is not installed"
+    return 1
+  fi
+  local target=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$target" -p store >"$T/store-build.log" 2>&1; then
+    t_store_why="the store did not build offline: $(tail -n 1 "$T/store-build.log")"
+    return 1
+  fi
+  cp "$target/debug/store" "$T_STORE"
+}
+# t_store_db <home>: a fresh database, made by the store's own init, in
+# <home>/state/tehas.db. Needs t_store first.
+t_store_db() {
+  rm -f "$1/state/tehas.db" "$1/state/tehas.db-wal" "$1/state/tehas.db-shm"
+  mkdir -p "$1"
+  TEHAS_HOME=$1 "$T_STORE" init --version v0.0.0 --commit "$T_COMMIT" --instance instance \
+    --repo acme/widget >/dev/null
 }
 
 # A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses

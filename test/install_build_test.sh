@@ -16,7 +16,9 @@ instance
 t_stub cargo 'env >>"$T/cargo.env"
 dir=$CARGO_TARGET_DIR/release
 [[ " $* " != *" --target "* ]] || dir=$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release
-mkdir -p "$dir" && echo built >"$dir/${*: -1}"'
+mkdir -p "$dir" && echo built >"$dir/${*: -1}"
+# install.sh runs the store, so the store has to be a program.
+[ "${*: -1}" != store ] || { cp "$T/store-stand-in" "$dir/store"; chmod 755 "$dir/store"; }'
 t_env GH_TOKEN=hidden-token DEPLOY_SECRET=hidden-secret DB_PASSWORD=hidden-word SOME_API_KEY=hidden-key PLAIN=kept
 t_run "$install"
 t_eq "$t_rc" 0
@@ -62,10 +64,11 @@ t_env PATH="$T/bin:/usr/bin:/bin"
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "cargo is not installed"
-t_eq "$(t_calls cargo | wc -l)" 3
+t_eq "$(t_calls cargo | wc -l)" 4
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
+t_contains "$(cat "$th/libexec/store")" "a store built from source"
 t_stub_cargo
 t_env
 
@@ -129,6 +132,7 @@ bare=$T/bare
 rm -rf "$bare"
 mkdir -p "$bare"
 cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" "$T_ROOT/libexec" "$bare/"
+t_tree_commit "$bare"
 t_run "$bare/install.sh"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$bare/console is missing from this checkout"
@@ -193,6 +197,22 @@ t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
 t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
 t_eq "$(cut -d' ' -f2 "$th/libexec/tehas-mcp.stamp")" "$(sha256sum <"$th/libexec/tehas-mcp" | cut -d' ' -f1)"
 
+t_case "a change to the store alone builds the store alone, and its tests build nothing"
+rm -f "$T/calls/cargo"
+echo "// changed" >>"$part/console/store/src/main.rs"
+t_run "$part/install.sh --check"
+t_contains "$t_out" "differs: $th/libexec/store"
+t_lacks "$t_out" "differs: $th/libexec/console"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p store"
+t_eq "$(stat -c %a "$th/libexec/store")" 755
+t_eq "$(cut -d' ' -f2 "$th/libexec/store.stamp")" "$(sha256sum <"$th/libexec/store" | cut -d' ' -f1)"
+rm -f "$T/calls/cargo"
+echo "// changed" >>"$part/console/store/src/tests.rs"
+t_run "$part/install.sh"
+t_eq "$(t_calls cargo)" ""
+
 t_case "the mask the three share builds all three"
 echo "// changed" >>"$part/console/src/mask.rs"
 rm -f "$T/calls/cargo"
@@ -215,16 +235,16 @@ t_env CARGO_OFFLINE=miss
 # "next:", which update reads as steps: the note is not one of them.
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo | wc -l)" 6
+t_eq "$(t_calls cargo | wc -l)" 8
 t_contains "$(t_calls cargo | head -n 1)" "--offline"
 t_lacks "$(t_calls cargo | tail -n 1)" "--offline"
 t_contains "$t_out" "cargo's cache has no crate for"
-t_eq "$(printf '%s\n' "$t_out" | sed -n '/^note: cargo.s cache has no crate/{s/^note: /STEP/;p}' | wc -l)" 3
+t_eq "$(printf '%s\n' "$t_out" | sed -n '/^note: cargo.s cache has no crate/{s/^note: /STEP/;p}' | wc -l)" 4
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_run "$part/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
-t_eq "$(t_calls cargo | wc -l)" 6
+t_eq "$(t_calls cargo | wc -l)" 8
 t_env
 
 # The retry is reported from both attempts: the offline miss is not lost behind
@@ -292,7 +312,7 @@ rm -f "$T/calls/cargo"
 t_env CARGO_OFFLINE=fetch_miss
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo | wc -l)" 6
+t_eq "$(t_calls cargo | wc -l)" 8
 t_contains "$(t_calls cargo)" "--offline"
 t_contains "$t_out" "cargo's cache has no crate for"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"

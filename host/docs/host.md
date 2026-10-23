@@ -43,6 +43,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
+| `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
@@ -170,6 +171,8 @@ What an unattended run refuses to get past, and what each one means:
 | `tehas: no slice file on this host`            | `sudo ./bootstrap.sh slice`, which is root's, and `--check` stays red until it has run |
 | a tool directory named as writable by everyone or not owned by the user | One of the directories the tools live in (`~/.cargo/bin` among them). The run builds nothing until its mode is fixed (`chmod o-w`), because what cargo builds there is installed where every cycle runs it |
 | a model key finding                            | `~/.config/tehas/env` does not hold a `TEHAS_MODEL_KEY_<NAME>` that `models.json` names |
+| `tehas: the commit of <tree> is not known…`    | The tree is neither a git checkout with a commit nor a release with a `COMMIT` file. Nothing is installed. See [The state store](#the-state-store) |
+| `tehas: the store could not init…` or `…migrate…`, exit 1 | The store's line above it says why: `corrupt`, `unreadable`, `future` or `busy`. The files are installed and the database is not changed. See [The state store](#the-state-store) |
 
 `--check` exits 0 only when the instance loads, the slice file is the one this
 checkout ships, the installed files match it, and no follow-up is still owed.
@@ -429,19 +432,24 @@ One file is written, not copied: `version.txt`, beside the pages in
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every page shows it. `--check` does not look at it.
 
-Two installed files are compiled, not copied: the console of a running cycle
-and the analytics program, Rust programs in the Cargo workspace `console/`
-(analytics is in `console/analytics/`). A real run builds each with `cargo`
-in the checkout and installs them as `~/tehas/libexec/console` and
-`~/tehas/libexec/analytics`. A host installed from a release tarball has neither
-`cargo` nor `console/`: its console, analytics program and MCP server are the
-ones the release packed
-([Releases](/tools#releases)). Beside each, `<name>.stamp` holds two checksums:
+Four installed files are compiled, not copied: the console of a running cycle,
+the analytics program, the MCP server and the state store, Rust programs in the
+Cargo workspace `console/` (the others are in `console/analytics/`,
+`console/mcp/` and `console/store/`). A real run builds each with `cargo` in
+the checkout and installs them as `~/tehas/libexec/console`,
+`~/tehas/libexec/analytics`, `~/tehas/libexec/tehas-mcp` and
+`~/tehas/libexec/store`. A host installed from a release tarball has neither
+`cargo` nor `console/`: its programs are the ones the release packed
+([Releases](/tools#releases)), and a release without a store installs only on a
+host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
+line rather than as drift. Beside each, `<name>.stamp` holds two checksums:
 of the source it was built from and of the program. A program is built again
 only when its source has changed or the program on the host is not the one
 that was installed. The console's source is `console/` without its tests and
-without `console/analytics/`, so a change to analytics alone builds analytics
-alone. The analytics source is `console/analytics/` without its tests, the
+without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
+to one of those alone builds that program alone. The store's source is
+`console/store/` without its tests, and the workspace's `Cargo.toml` and
+`Cargo.lock`. The analytics source is `console/analytics/` without its tests, the
 workspace's `Cargo.toml` and `Cargo.lock`, and the console's mask
 (`console/src/mask.rs`), which it shares. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
@@ -555,6 +563,90 @@ steps you have to work through yourself. Run by hand, they are:
 They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
 reports them, until `tehas update --pending` or a `tehas update` runs them. When a fixed release is out,
 remove the hold and run `tehas update`.
+
+### The state store
+
+`~/tehas/state/tehas.db` is the state store's database: an SQLite file, mode
+600, in `state/`, which is kept mode 700. With WAL on, its `-wal` and `-shm`
+files beside it hold rows too, so a readable `state/` would be a readable copy.
+No container is given it. Only one program writes it: the store,
+`~/tehas/libexec/store`, which `install.sh` builds and installs with the
+console, or takes from the release.
+
+What is in it today: the schema, version 1 (`PRAGMA user_version`), and one
+table with rows, `meta`, which says when the database was made, by which version
+and commit of tehas, and for which instance and repository. The other tables
+are there and empty: no command writes them yet. The host's records are still
+the files of `state/` until the commands are moved to the store one by one.
+
+`install.sh` makes and migrates it on every real run, under
+`state/update.lock`:
+
+- When there is no `state/tehas.db`, it runs `store init`.
+- Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
+  first copies the database into `state/backup/tehas-<version>-<time>.db`, mode
+  600, with SQLite's `VACUUM INTO`, and then brings the schema forward. A copy
+  that cannot be made changes nothing. A database already at the version the
+  store writes is still copied, so every install leaves one copy. Nothing
+  removes old copies yet; remove them by hand when there are too many.
+
+The store is told the version and commit of the tree `install.sh` runs from,
+the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from
+git; a release carries it in its `COMMIT` file. `install.sh --check` does not
+run the store and writes nothing.
+
+A store that fails stops the install with exit 1 and its own line, which starts
+with one of these words:
+
+| Word         | What it means                                                         |
+| ------------ | --------------------------------------------------------------------- |
+| `corrupt`    | The file is not an SQLite database, or fails its check                 |
+| `unreadable` | The file or its directory cannot be read or written, or a backup cannot be made |
+| `future`     | The database has a newer schema than this store knows, as after going back to an older release |
+| `busy`       | Another program held the database for more than five seconds          |
+
+The store never moves a damaged file aside. Read what the database holds with:
+
+```
+TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+```
+
+It prints the schema version, SQLite's integrity check and the rows in each
+table, and writes nothing.
+
+**Backing it up.** Copy the file with SQLite, not with `cp`, while tehas runs:
+`cp` of a WAL database can take the file without the rows still in its `-wal`.
+The copies in `state/backup/` are made that way. For one more, run
+`./install.sh` (`~/tehas/current/install.sh` on a host on releases), or, with
+`sqlite3` installed:
+
+```
+sqlite3 ~/tehas/state/tehas.db "VACUUM INTO '/path/to/tehas-copy.db'"
+```
+
+Keep the copy mode 600: it holds what the database holds.
+
+**Restoring it.** Pause the factory and let running cycles end, so nothing
+writes the database while it is replaced. Then put the copy in place, remove
+the old database's `-wal` and `-shm`, and run the install again, which migrates
+the copy to the schema of the installed store:
+
+```
+tehas pause
+cp ~/tehas/state/backup/tehas-1-<time>.db ~/tehas/state/tehas.db.new
+chmod 600 ~/tehas/state/tehas.db.new
+rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
+mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db
+./install.sh            # or ~/tehas/current/install.sh on a host on releases
+TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+tehas resume
+```
+
+After going back to an older release, the install stops with `future` when the
+newer release had migrated the database. Restore the copy that migration made
+first: a migration that changes the schema leaves the database as it was under
+two names, `tehas-<old>-<time>.db` and `tehas-<new>-<time>.db`, and either is
+the one to restore.
 
 ## Models
 

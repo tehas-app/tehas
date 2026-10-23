@@ -761,6 +761,60 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
 }
 
 #[test]
+fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
+    // state/backup/ is the store's own: the verb makes it when it is not there,
+    // keeps it 0700 when it is, and writes the copy into it rather than beside
+    // the store.
+    let home = scratch("migrate-backup-dir");
+    init(&home, false).unwrap();
+    let own = home.join("state").join("backup");
+    let line = migrate(&home, &own).unwrap();
+    let copy = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(copy.parent().unwrap(), own, "{line}");
+    assert_eq!(mode(&own), 0o700);
+    assert_eq!(mode(&copy), 0o600);
+    assert!(db::is_database(&copy));
+    fs::set_permissions(&own, fs::Permissions::from_mode(0o755)).unwrap();
+    migrate_at(&home, &own, 1_792_000_060).unwrap();
+    assert_eq!(mode(&own), 0o700, "a state/backup/ at 0755 is settled");
+
+    // A link at that name is answered as the directory it points at, which is
+    // not the store's.
+    let home = scratch("migrate-backup-link");
+    init(&home, false).unwrap();
+    let elsewhere = scratch("migrate-backup-elsewhere");
+    std::os::unix::fs::symlink(&elsewhere, home.join("state").join("backup")).unwrap();
+    let (code, err) = migrate(&home, &home.join("state").join("backup")).unwrap_err();
+    assert_eq!(code, 78, "{err}");
+    assert!(err.starts_with("unreadable "), "{err}");
+    assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
+}
+
+#[test]
+fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
+    // A TEHAS_HOME whose path goes through a link, as a home moved to another
+    // disk is: the store's own state/ and state/backup/ are still its own.
+    let real = scratch("linked-home-real");
+    let home = scratch("linked-home").join("tehas");
+    std::os::unix::fs::symlink(&real, &home).unwrap();
+    init(&home, false).unwrap();
+    let own = home.join("state").join("backup");
+    let line = migrate(&home, &own).unwrap();
+    let copy = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&line).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(copy.parent().unwrap(), real.join("state").join("backup"));
+    assert_eq!(mode(&real.join("state").join("backup")), 0o700);
+    migrate_at(&home, &home.join("state"), 1_792_000_060).unwrap();
+}
+
+#[test]
 fn migrate_brings_an_empty_file_to_schema_1_and_the_rows_it_lacks() {
     // An empty file is SQLite's own shape for nothing: no header, no tables and
     // a user_version of 0. `init` would make one at 1, so this is the state the

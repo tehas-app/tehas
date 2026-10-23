@@ -13,11 +13,20 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `install.sh` builds and installs the state store, `~/tehas/libexec/store`,
+  and gives it its database: `store init` makes `~/tehas/state/tehas.db` when
+  there is none, and every later install runs `store migrate`, which first
+  copies the database into `state/backup/`. `state/` is kept mode 700. A
+  store that fails stops the install with exit 1. Nothing reads the database
+  yet.
+- A release carries the store and a `COMMIT` file with the commit it was
+  built from. `install.sh` refuses a tree whose commit it cannot read.
 
 ### Adopter action
 
-- None.
+- None. The first install after this release makes the database. Old copies
+  in `~/tehas/state/backup/` are not removed; remove them by hand when there
+  are too many.
 
 ## v0.10.5 (2026-10-23)
 
