@@ -15,15 +15,21 @@ export const STALE_QUEUE = 10 * 60; // seconds, as the factory floor counts it
 export const FLIP_EVERY = 7; // seconds between waves of the line's cards
 
 // The line, left to right. `from` is the list in status.json; `search` the
-// GitHub query for the stage's "all" link.
+// GitHub query for the stage's "all" link; `total` the field of status.json
+// whose figure the stage shows when the file has a usable one, counted by the
+// search its `search` names (see lineView).
 export const STAGES = [
   { key: "proto", label: "Prototypes", first: "Latest", later: "Prototype", none: "No prototypes." },
   { key: "line", label: "In line", from: "queued", first: "Next up", later: "In line", search: "is:open label:tehas:ready", none: "Nothing in line." },
   { key: "build", label: "Building", from: "running", first: "In work", later: "In work", search: "is:open label:tehas:running", none: "Nothing building." },
   { key: "review", label: "Review", from: "awaiting", first: "Needs review", later: "Needs review", search: "is:open label:tehas:awaiting-merge", none: "Nothing to review." },
   { key: "stop", label: "Stopped", from: "stopped", first: "Needs a human", later: "Needs a human", search: "is:open label:needs-human-attention", none: "Nothing stopped." },
-  { key: "ship", label: "Shipped", from: "completed", first: "Latest", later: "Shipped", search: "is:closed", none: "Nothing shipped yet." },
+  { key: "ship", label: "Shipped", from: "completed", total: "completedCount", first: "Latest", later: "Shipped", search: "is:closed", none: "Nothing shipped yet." },
 ];
+// The figure of a stage that names a `total`: the field of the untrusted file,
+// its own and a whole number of issues above 0, as libexec/status publishes it.
+const countOf = (s, name) => (Object.prototype.hasOwnProperty.call(s, name)
+  && Number.isSafeInteger(s[name]) && s[name] > 0 ? s[name] : 0);
 const MORE = { proto: "in Protolab", line: "in line", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
 
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -92,11 +98,16 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
   }
   const stages = STAGES.map((st) => {
     const these = items[st.key];
+    // Shipped is the label's total, not the list's length: status.json counts
+    // every closed issue that carries tehas:shipped, while the list holds only
+    // the latest fifty. Without a count, as on an older host, the length of the
+    // list is the best answer, and it keeps the stage's "all" link.
+    const count = (st.total ? countOf(s || {}, st.total) : 0) || these.length;
     const href = st.key === "proto" ? base
       : repo ? `https://github.com/${repo}/issues?q=${encodeURIComponent(st.search)}` : null;
-    const text = st.key === "stop" ? "See what stopped" : `All ${these.length} ${MORE[st.key]}`;
-    return { key: st.key, label: st.label, count: these.length, items: these, first: st.first, later: st.later, none: st.none,
-      more: these.length && href ? { text, href } : null };
+    const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;
+    return { key: st.key, label: st.label, count, items: these, first: st.first, later: st.later, none: st.none,
+      more: (count || these.length) && href ? { text, href } : null };
   });
   return {
     source,

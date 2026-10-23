@@ -12,6 +12,16 @@ summary="$T_ROOT/libexec/summary"
 live=$T/home/tehas/live
 
 t_stub gh '
+# One answer per search. The count is the only call that asks for a total and
+# no nodes, so that shape tells the two apart; the count of the label under
+# test is never the thing that routes the answer.
+gh_graphql() {
+  case "$1" in
+    *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
+      cat "$T/count.json" ;;
+    *) cat "$T/shipped.json" ;;
+  esac
+}
 [ ! -e "$T/gh-down" ] || exit 1
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
@@ -23,7 +33,7 @@ case "$*" in
   # gh is signed in, which is how the releases of a private repository are read.
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
-  "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; cat "$T/shipped.json" ;;
+  "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
   # The published releases of the platform, for the platform line of a release
   # host; nothing until a case puts the answer there.
   "api repos/"*"/releases"*) [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
@@ -41,14 +51,24 @@ shipped() { # closed issues, as the GraphQL answer
   local IFS=,
   printf '{"data":{"search":{"nodes":[%s]}}}' "$*" >"$T/shipped.json"
 }
+shipped_count() { # total of the closed issues labelled tehas:shipped, as GraphQL answers it
+  printf '{"data":{"search":{"issueCount":%s}}}' "$1" >"$T/count.json"
+}
+# The state the count cases share: one closed issue a merged pull request closed,
+# and the count answer of reset still saying 0.
+one_shipped() {
+  reset
+  shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+}
 issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/control-down" "$T/allhands" "$live" \
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$live" \
     "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
   echo "[]" >"$T/all.json"
   shipped
+  shipped_count 0
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
@@ -207,8 +227,73 @@ t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[21,20]"
 t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","number","title","updatedAt","url"]'
 t_contains "$(jq -r .links.completed "$live/status.json")" "label%3Atehas%3Ashipped"
 t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc"
+# The count comes from the search for the label, whose answer says 0 here.
+t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed label:tehas:shipped"
+t_contains "$(t_calls gh)" "first: 0) { issueCount }"
+t_eq "$(jq -r .completedCount "$live/status.json")" 0
+
+t_case "completedCount is every closed issue labelled tehas:shipped, though the list holds only the latest fifty"
+reset
+jq -n '{data: {search: {nodes: [range(50) | {number: (. + 100), title: "t",
+  url: "u", updatedAt: "2026-01-02T00:00:00Z", closedAt: "2026-01-02T00:00:00Z",
+  labels: {nodes: []}, timelineItems: {nodes: [{closer: {merged: true}}]}}]}}}' >"$T/shipped.json"
+shipped_count 138
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.completed | length' "$live/status.json")" 50
+t_eq "$(jq -r .completedCount "$live/status.json")" 138
+t_eq "$(t_calls gh | grep -c 'api graphql')" 2
+
+# The figure is published as a whole number of issues, or no key at all: an
+# answer that is not one is dropped rather than published for a reader to judge,
+# and 0 is a published answer, not an absent one. The bounds are the ones
+# host/fun/business-view.js accepts, so both sides of the pair are pinned here.
+t_case "completedCount is published only as a whole number of issues"
+one_shipped
+for answer in 0 1 9007199254740991; do
+  shipped_count "$answer"
+  t_run "$status"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r '.completedCount | type' "$live/status.json")" number
+  t_eq "$(jq -r .completedCount "$live/status.json")" "$answer"
+done
+# -138 and 1e400 are numbers GitHub could answer and no reader can use.
+for answer in -138 -0.5 1e400 1E+999 9007199254740992; do
+  shipped_count "$answer"
+  t_run "$status"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
+done
+
+# A gh that fails the call outright, with an answer that would read well above
+# every bound: the figure is left out as if the search had given no number.
+t_case "a count call that fails leaves the field out"
+one_shipped
+shipped_count 138
+: >"$T/count-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'has("completedCount") ' "$live/status.json")" false
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+
+t_case "a count that cannot be read leaves the field out, and the rest of the snapshot is written"
+one_shipped
+# The count that cannot be read, however gh answers: the snapshot is written as
+# it was before the field, and the list stands as it is.
+for answer in '' 'not json' '{"errors": [{"message": "rate limited"}]}' '{"data": {}}' \
+  '{"data": {"search": {}}}' '{"data": {"search": {"issueCount": null}}}' \
+  '{"data": {"search": {"issueCount": "138"}}}' '{"data": {"search": {"nodes": []}}}'; do
+  printf '%s\n' "$answer" >"$T/count.json"
+  t_run "$status"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
+  t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+  t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
+done
 
 t_case "a shipped issue without the label is given it, once"
+one_shipped
+t_run "$status"
 t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 
@@ -217,6 +302,7 @@ reset
 echo "[$(issue 5 tehas:awaiting-merge CLOSED)]" >"$T/issues.json"
 t_run "$status"
 t_eq "$(jq -c '.completed' "$live/status.json")" "[]"
+t_eq "$(jq -r .completedCount "$live/status.json")" 0
 
 t_case "a label that cannot be given leaves the snapshot written"
 reset

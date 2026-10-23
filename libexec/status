@@ -4,7 +4,7 @@
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
 # worked on, waiting for a human, stopped, completed), whether the last poll
 # found no resources (live/dispatch.json), and the words of the breakroom game.
-# Deterministic, no model, four GitHub calls. The dispatcher runs it at every
+# Deterministic, no model, five GitHub calls. The dispatcher runs it at every
 # poll, and a cycle when it ends.
 #
 # The words are counted over the titles and labels of every issue of the
@@ -38,6 +38,13 @@
 #
 # `planning` is how many open issues carry tehas:plan or tehas:planning: the
 # work being planned, a count only. The same search as the lists finds them.
+#
+# `completedCount` is how many closed issues carry tehas:shipped, counted by a
+# search of its own, so it keeps rising past the fifty the `completed` list
+# holds. It is the whole number the search answered, or no key at all when the
+# search gave no such number, in which case the page counts the list. The one
+# statement of the bound is the select below; host/docs/tools.md names the same
+# contract for a reader outside this repository.
 #
 # It writes live/analytics.json, the ten-day report of the factory's
 # analytics (analytics_report below), at every run, the runs that end early
@@ -270,6 +277,24 @@ shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:upda
       closer { ... on PullRequest { merged } } } } } } } } }' 2>/dev/null) || exit 0
 shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineItems.nodes[0].closer.merged == true)
   | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
+# The figure of the Shipped stage: every closed issue with the label, not the
+# fifty this script reads. The query is written once here and shared with
+# links.completed below, so the figure and the list's "all" link cannot drift
+# apart.
+shipped_query="is:issue is:closed label:tehas:shipped"
+# The same limit the platform reads go under: a search that hangs costs the run
+# this many seconds and is then a figure with no key, as a search that answered
+# nothing is. first: 0 asks for the total and no nodes.
+search_wait=$fetch_limit
+# shellcheck disable=SC2016  # $q is a GraphQL variable
+completed_raw=$(timeout -k 1 "$search_wait" gh api graphql -f q="repo:$repo $shipped_query" -f query='
+  query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }' 2>/dev/null) || completed_raw=""
+# The figure is published only as a whole number of issues: nothing negative,
+# fractional or beyond what a JavaScript number holds exactly, 2^53 - 1 the
+# largest. The reader, host/fun/business-view.js, shows what this publishes and
+# rejects the rest, so the bound is stated once.
+completed_count=$(jq -ce '.data.search.issueCount
+  | select(type == "number" and . >= 0 and . == floor and . < 9007199254740992)' <<<"$completed_raw" 2>/dev/null) || completed_count=""
 # The control issue's labels, read once for both of its switches.
 control_read=true
 control_labels=" $(gh issue view "$control" --repo "$repo" --json labels \
@@ -350,7 +375,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
   --slurpfile everything <(printf '%s' "$everything") --argjson paused "$paused" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" --argjson allHands "$all_hands" \
-  --arg control "$control" \
+  --argjson completedCount "${completed_count:-null}" --arg shippedQuery "$shipped_query" --arg control "$control" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
   | def has($l): (.labels | map(.name) | index($l)) != null;
@@ -373,14 +398,16 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
       stopped: ($open | map(select(has("needs-human-attention") and (has("tehas:running") | not)) | slim)),
       planning: ($open | map(select(has("tehas:plan") or has("tehas:planning"))) | length),
       completed: ($shipped | map(slim) | sort_by(.closedAt) | reverse),
+      completedCount: $completedCount,
       links: {
         queued: listurl("is:issue is:open label:tehas:ready"),
         awaiting: listurl("is:issue is:open label:tehas:awaiting-merge"),
         stopped: listurl("is:issue is:open label:needs-human-attention"),
-        completed: listurl("is:issue is:closed label:tehas:shipped"),
+        completed: listurl($shippedQuery),
         all: "https://github.com/\($repo)/issues"
       }
     }
+  | with_entries(select(.key != "completedCount" or .value != null))
   + (if $everything == null then {} else {
       buzzwords: ([$everything[] | objects
                    | ([.title | strings] + [.labels[]?.name? | strings] | join(" ") | ascii_downcase)
