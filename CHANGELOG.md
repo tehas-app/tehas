@@ -21,6 +21,9 @@ empty one above it.
   yet.
 - A release carries the store and a `COMMIT` file with the commit it was
   built from. `install.sh` refuses a tree whose commit it cannot read.
+- `tehasbot top --every` reads the clock from bash instead of starting
+  `date` between snapshots. A `date` stopped mid-write printed "Broken pipe"
+  into the unit's log, and made a test fail now and then.
 
 ### Adopter action
 

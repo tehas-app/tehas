@@ -12,11 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn scratch(name: &str) -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "store-test-{}-{}-{name}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::SeqCst)
-    ));
+    let dir = crate::verbs_tests::scratch_root()
+        .join(format!("test-{}-{name}", N.fetch_add(1, Ordering::SeqCst)));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -1283,7 +1280,7 @@ fn an_unknown_verb_or_argument_is_64() {
         &[][..],
         &["migrate"][..],
         &["state-audit"][..],
-        &["cycle-start", "12"][..],
+        &["cycle-heartbeat", "12"][..],
         &["check", "--json", "--json"][..],
         &["check", "--force"][..],
         &["init", "--json", "--json"][..],

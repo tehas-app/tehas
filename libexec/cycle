@@ -137,7 +137,10 @@
 # next poll finds it.
 #
 # The cap that ended a cycle and the failure before it go into the record and
-# into state/cycles/<issue>.park whenever the issue is parked. A provider
+# into state/cycles/<issue>.park whenever the issue is parked. The park carries
+# too the sha256 of the body the start was approved on, from the approval
+# record: the dispatcher holds a fresh tehas:ready while the issue still
+# carries that text. A provider
 # outage is said as one, and the park file asks the dispatcher to start the
 # issue again once, unless this cycle was that start. An outage is a result
 # whose failure kind is "provider". For an image whose result has no failure
@@ -1045,8 +1048,15 @@ park() {
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
     park_marker=""
+  # The body this cycle was approved on, when the start left a record of it.
+  # The dispatcher holds a relabelled start while the issue still carries that
+  # text: a second attempt at nothing is what it costs to leave it out.
+  local park_sum
+  park_sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' \
+    "$cycles/$issue.approved.json" 2>/dev/null) || park_sum=""
   jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
-    --argjson retry "$retry" --argjson started "$started" '{$cap, $reason, $provider, $retry, $started}' \
+    --argjson retry "$retry" --argjson started "$started" --arg body_sha256 "$park_sum" \
+    '{$cap, $reason, $provider, $retry, $started} + (if $body_sha256 == "" then {} else {$body_sha256} end)' \
     >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
   jq -n --arg text "$parked${handoff:+
 

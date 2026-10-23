@@ -253,7 +253,8 @@ which `tehasbot status` fetches at most once an hour, and `/health` says
 
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
-asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
+asks for by name (`units`, `sandbox`, `docs`, `edge`, `labels`: see
+[Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
 settings against the required list in `lib/config.sh`, the same one install.sh
 checks, before it calls git. It changes nothing when the checkout has local
@@ -559,6 +560,7 @@ steps you have to work through yourself. Run by hand, they are:
 | `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
 | `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
 | `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+| `labels`  | `~/tehas/bin/tehas labels`                                                          |
 
 They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
 reports them, until `tehas update --pending` or a `tehas update` runs them. When a fixed release is out,

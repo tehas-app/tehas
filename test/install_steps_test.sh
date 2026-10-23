@@ -72,7 +72,7 @@ t_stub systemctl
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" \
-  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml)"
+  "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env edge/docs.compose.yaml edge/router.compose.yaml libexec/labels)"
 # Steps, not shell text for a person to paste.
 t_lacks "$t_out" "docker compose -f"
 t_lacks "$t_out" "systemctl --user enable"
