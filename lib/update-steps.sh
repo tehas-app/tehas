@@ -15,6 +15,7 @@
 #   tehas_step_ids            every step id this file defines, one per line
 #   tehas_steps_for <src>...  the steps these changed sources call for, in the
 #                             order they run, one per line
+#   tehas_steps_into <src>... the same, into the array tehas_steps
 #   tehas_sort_steps <line>.. the same step lines in the order they run
 #   tehas_step_id <token>       the id this file defines for that token: the
 #                               Protolab's old name reads as the edge step
@@ -63,31 +64,40 @@ tehas_step_ids() { printf '%s\n' units sandbox docs edge; }
 # first, because a unit file is not in effect until it is reloaded and its unit
 # restarted, and the containers last.
 tehas_steps_for() { # changed source paths -> one step per line
+  tehas_steps_into "$@"
+  if [ "${#tehas_steps[@]}" != 0 ]; then printf '%s\n' "${tehas_steps[@]}"; fi
+  return 0
+}
+
+# The same answer in the array tehas_steps, with no subshell: install.sh asks
+# once for every file it copies.
+tehas_steps_into() { # changed source paths -> tehas_steps
   local list=" $* "
   local units
+  tehas_steps=()
   case "$list" in
     # bin/tehas-energy is the sampler of the layout before bin/tehas. A running
     # one is that file calling itself, and it moves on only when restarted. A
     # running service keeps the environment env.sh gave it at its start.
     *" systemd/"* | *" bin/tehas-energy "* | *" env.sh "*)
       units=$(tehas_units | tr '\n' ' ')
-      echo "units ${units% }"
+      tehas_steps+=("units ${units% }")
       ;;
     # The MCP server's container mounts its binary: a new one reaches it only
     # when the unit starts the container again.
-    *" libexec/mcp "* | *"/tehas-mcp "*) echo "units tehas-mcp.service" ;;
+    *" libexec/mcp "* | *"/tehas-mcp "*) tehas_steps+=("units tehas-mcp.service") ;;
   esac
   case "$list" in
-    *" sandbox/"* | *" versions.env "*) echo sandbox ;;
+    *" sandbox/"* | *" versions.env "*) tehas_steps+=(sandbox) ;;
   esac
   case "$list" in
     # Both compose servers take --force-recreate: their service definition is
     # what changed only when the file they mount did, and docker compose leaves
     # a running container with an unchanged definition exactly as it was.
-    *" edge/docs."*) echo "docs --force-recreate" ;;
+    *" edge/docs."*) tehas_steps+=("docs --force-recreate") ;;
   esac
   case "$list" in
-    *" edge/router."* | *" edge/protolab."*) echo "edge --force-recreate" ;;
+    *" edge/router."* | *" edge/protolab."*) tehas_steps+=("edge --force-recreate") ;;
   esac
   return 0
 }

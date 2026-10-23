@@ -50,5 +50,13 @@ jobs:
       - name: names in commit messages and the branch
         if: github.event_name == 'pull_request'
         run: scripts/check-generic.sh --messages "origin/$GITHUB_BASE_REF..HEAD"
+      - name: the cargo build kept between runs
+        run: |
+          # The checkout's git clean removes console/target, so it lives outside
+          # the workspace: one per runner instance, so two jobs never wait on
+          # each other's cargo lock.
+          dir=$HOME/.cache/tehas-target/$RUNNER_NAME
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
       - name: scripts/verify.sh
         run: scripts/verify.sh

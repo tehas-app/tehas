@@ -13,7 +13,9 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `install.sh` starts fewer processes for each file it copies, so an install
+  or `tehas update` takes about half the time it did. What it installs and the
+  follow-ups it records are unchanged.
 
 ### Adopter action
 

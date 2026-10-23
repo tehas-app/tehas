@@ -480,11 +480,12 @@ changed=()
 report=()
 note() { if [ "$check" = 1 ]; then report+=("$1"); else echo "$1"; fi; }
 
+# source_of <src>: the file of this checkout that a table entry names, in from.
 source_of() {
   case "$1" in
-    /*) printf '%s\n' "$1" ;;
-    bin/* | libexec/* | lib/*) printf '%s\n' "$root/$1" ;;
-    *) printf '%s\n' "$host/$1" ;;
+    /*) from=$1 ;;
+    bin/* | libexec/* | lib/*) from=$root/$1 ;;
+    *) from=$host/$1 ;;
   esac
 }
 
@@ -492,7 +493,7 @@ source_of() {
 put() {
   local src to mode from on_disk
   IFS='|' read -r src to mode <<<"$1"
-  from=$(source_of "$src")
+  source_of "$src"
   [ -f "$from" ] || { echo "tehas: $from is missing from this checkout" >&2; exit 1; }
   if [ -f "$to" ] && cmp -s "$from" "$to"; then
     # Content alone is not enough: a command that matches but is not executable,
@@ -524,7 +525,7 @@ put() {
   # a record of what the copies so far asked for. tehas update finishes the
   # record and clears it; install.sh --check reports it while any of it is left.
   record_step "$src"
-  mkdir -p "$(dirname "$to")"
+  [ -d "${to%/*}" ] || mkdir -p "${to%/*}"
   [ -f "$to" ] && cp -p "$to" "$to.prev"
   # Copied beside it and renamed over it, so a cycle that starts meanwhile finds
   # the old file or the new one, never a part of one.
@@ -606,13 +607,12 @@ if [ "$(versions_build_changed)" = 1 ]; then versions_owed=1; fi
 # The step this source calls for, added to the record of steps owed. One call per
 # copied file, so the record is never behind what the host has already been given.
 record_step() { # one source path from the file table
-  local step steps=()
   # versions.env calls for the build only for the lines the image reads; a change
   # to the host's own pins calls for nothing here. The file is still copied, and
   # still counted as drift for --check and for its later: line below.
   if [ "$1" = versions.env ] && [ "$versions_owed" != 1 ]; then return 0; fi
-  while IFS= read -r step; do steps+=("$step"); done < <(tehas_steps_for "$1")
-  if [ "${#steps[@]}" != 0 ]; then tehas_record_steps "${steps[@]}" || exit 1; fi
+  tehas_steps_into "$1"
+  if [ "${#tehas_steps[@]}" != 0 ]; then tehas_record_steps "${tehas_steps[@]}" || exit 1; fi
 }
 
 # --- 2b. The command root installed for the other accounts ------------------
@@ -914,7 +914,7 @@ for e in "${files[@]}"; do put "$e"; done
 sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
   local name=$1 from to
   for from in "$host/$name"/*; do
-    put "$name/$(basename "$from")|$TEHAS_HOME/$name/$(basename "$from")|644"
+    put "$name/${from##*/}|$TEHAS_HOME/$name/${from##*/}|644"
   done
   [ -d "$TEHAS_HOME/$name" ] || return 0
   for to in "$TEHAS_HOME/$name"/*; do
@@ -923,14 +923,14 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
     # rename over. It is removed with the rest, and a --check names it.
     case "$to" in
       *.new)
-        changed+=("$name/$(basename "$to")")
+        changed+=("$name/${to##*/}")
         if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" && echo "removed: $to"; fi
         continue
         ;;
     esac
     case "$to" in *.prev | */version.txt) continue ;; esac
-    [ -e "$host/$name/$(basename "$to")" ] && continue
-    changed+=("$name/$(basename "$to")")
+    [ -e "$host/$name/${to##*/}" ] && continue
+    changed+=("$name/${to##*/}")
     if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
   done
 }
