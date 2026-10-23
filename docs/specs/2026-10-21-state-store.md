@@ -362,8 +362,9 @@ ADR 0003 under *What stays a file*.
 - The version is `PRAGMA user_version`. It is 1 for this schema. Migrations run
   forward only, from install or update under `state/update.lock`, after a
   `VACUUM INTO` backup.
-- WAL, `busy_timeout` 5000 ms, `synchronous=FULL`, `foreign_keys=ON`. Writes
-  stay under one a second, so durability costs nothing worth saving.
+- WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
+  `synchronous=FULL`, `foreign_keys=ON`. Writes stay under one a second, so
+  durability costs nothing worth saving.
 - **`PRAGMA foreign_keys` is per-connection, not stored in the file.** Every
   program that opens this database sets it to `ON` on that connection, at the
   same place it sets the journal mode and the busy timeout; the section-5 rule
@@ -969,8 +970,11 @@ Common rules:
   | 1 | a call failed, an answer could not be read, or a precondition the verb states was not met. Nothing was committed |
   | 5 | (verbs of section 5 only) the action was journaled and not settled; the next poll settles it. State is consistent, so this is not a failure of the write |
 
-- `PRAGMA busy_timeout=5000`, then a busy database is exit 1 with the word
-  `busy` on stderr and **never exit 0 with no line** (D4).
+- A busy wait of 5000 ms, then a busy database is exit 1 with the word
+  `busy` on stderr and **never exit 0 with no line** (D4). The store sets its
+  own busy handler for those 5000 ms, asking again every millisecond, in place
+  of `PRAGMA busy_timeout`. A verb that only reads, such as `check`, waits at
+  most 1 s.
 - Writes are one transaction. A verb that fails midway commits nothing, and the
   log line names the verb and the reason.
 

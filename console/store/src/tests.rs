@@ -555,14 +555,91 @@ fn a_locked_database_is_exit_1_and_the_word_busy() {
         .unwrap();
     tx.execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
         .unwrap();
+    let asked = std::time::Instant::now();
     let err = db::open_write(&db::path(&home)).unwrap_err();
     assert_eq!(err, db::DbError::Busy, "{err:?}");
     assert_eq!(err.word(), "busy");
+    assert!(asked.elapsed() >= db::BUSY_TIMEOUT, "{:?}", asked.elapsed());
     drop(tx);
     // Once the lock is gone the same call answers, so the word is the lock's
     // and not the file's.
     assert!(db::open_write(&db::path(&home)).is_ok());
     assert!(check(&home).is_ok());
+}
+
+#[test]
+fn a_reader_waits_a_second_for_a_lock_and_not_the_writers_five() {
+    // A writer's lock does not stop a reader in WAL mode, so the holder takes
+    // the one lock that does: the whole file, as locking_mode EXCLUSIVE keeps
+    // it after a write.
+    let home = scratch("read-wait");
+    init(&home, false).unwrap();
+    let holder = Connection::open(db::path(&home)).unwrap();
+    holder
+        .pragma_update(None, "locking_mode", "EXCLUSIVE")
+        .unwrap();
+    holder
+        .execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
+        .unwrap();
+    let asked = std::time::Instant::now();
+    let err = db::open_read_only(&db::path(&home)).unwrap_err();
+    let waited = asked.elapsed();
+    assert_eq!(err, db::DbError::Busy, "{err:?}");
+    assert!(
+        waited >= db::READ_WAIT && waited < db::BUSY_TIMEOUT,
+        "{waited:?}"
+    );
+    drop(holder);
+    assert!(check(&home).is_ok());
+}
+
+#[test]
+fn a_store_connection_waits_with_its_own_handler_not_sqlite_s_timeout() {
+    // Setting a busy handler clears SQLite's busy_timeout, so a connection that
+    // still reports 5000 or 1000 waits with SQLite's backoff of up to 100 ms.
+    let home = scratch("handler");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    let write = db::open(&file, db::Purpose::Write).unwrap();
+    assert_eq!(one::<i64>(&write, "PRAGMA busy_timeout"), 0);
+    let read = db::open_read_only(&file).unwrap();
+    assert_eq!(one::<i64>(&read, "PRAGMA busy_timeout"), 0);
+}
+
+#[test]
+fn the_busy_handler_polls_until_its_limit_and_restarts_with_each_wait() {
+    use std::time::{Duration, Instant};
+    let limit = Duration::from_millis(50);
+    let asked = Instant::now();
+    assert!(db::busy_wait(0, limit));
+    assert!(db::busy_wait(1, limit));
+    // Two tries at BUSY_POLL each, well inside SQLite's own 100 ms steps.
+    assert!(
+        asked.elapsed() < Duration::from_millis(40),
+        "{:?}",
+        asked.elapsed()
+    );
+    std::thread::sleep(limit);
+    assert!(!db::busy_wait(2, limit));
+    // A new wait starts a new clock.
+    assert!(db::busy_wait(0, limit));
+    assert!(db::busy_wait(1, limit));
+}
+
+#[test]
+fn check_can_leave_the_wal_and_shm_beside_the_file_at_its_mode() {
+    let home = scratch("check-sides");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    for suffix in ["-wal", "-shm"] {
+        assert!(!side(&file, suffix).exists(), "{suffix} before check");
+    }
+    check(&home).unwrap();
+    for suffix in ["-wal", "-shm"] {
+        let sibling = side(&file, suffix);
+        assert!(sibling.exists(), "{suffix} after check");
+        assert_eq!(mode(&sibling), 0o600, "{suffix}");
+    }
 }
 
 #[test]
