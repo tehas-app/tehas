@@ -21,12 +21,6 @@ dev_bin=$T/usr-local-bin
 # shellcheck disable=SC2120  # the parts pass it variables, this file does not
 t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "$@"); }
 t_env
-# The lock is waited for, not refused at once, so a case that holds it and
-# expects a refusal names the wait: 0 means refuse at once. It is exported
-# rather than merely assigned, because t_run builds the snippet's environment
-# with env -i: a shell variable of the snippet would not reach install.sh, which
-# would then wait the default for a refusal that was meant to come at once.
-no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 
 # The previews' network as install.sh wants to find it, and how it asks.
 net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'

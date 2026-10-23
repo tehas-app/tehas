@@ -154,16 +154,21 @@
 set -uo pipefail
 
 # How long to wait for state/update.lock before saying another update is
-# running. Read here, before lib/config.sh is sourced: tehas_load below unsets
-# every TEHAS_* it does not know, and this is not one of them - it is a knob for
-# the tests and for one impatient person, not a setting of an instance, so it is
-# deliberately not in lib/config.sh's list of settings. A run that stops partway
-# can leave the lock held a moment by a child that outlived it, and a person who
+# running. The name is read by tehas_update_lock_wait, which lib/update-steps.sh
+# owns, and that call is made here - before lib/config.sh is sourced below -
+# because tehas_load unsets every TEHAS_* it does not know, and this is not one of
+# them: it is a knob for the tests and for an operator who does not want to wait,
+# not a setting of an instance, so it is deliberately not in lib/config.sh's list
+# of settings and is named in the manual instead. A run that stops partway can
+# leave the lock held a moment by a child that outlived it, and a person who
 # runs the command again right after such a stop would read that as another
 # update running, so the lock is waited for rather than refused at once: long
 # enough for a child on a loaded host to be reaped, short enough that a real
 # second run is refused soon.
-lock_wait=${TEHAS_UPDATE_LOCK_WAIT:-10}
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/update-steps.sh
+. "$here/../lib/update-steps.sh"
+lock_wait=$(tehas_update_lock_wait)
 
 # Timeouts for the calls outside this command. Each is generous next to the work
 # it bounds; its job is to turn a daemon or a remote that stopped answering into
@@ -274,19 +279,8 @@ if [ "$mode" = update ]; then
     echo "tehas update: cannot open $update_lock; nothing was changed" >&2
     exit 1
   fi
-  # A whole number of seconds, 0 (refuse at once) through 300; anything else is
-  # the default. The length is checked before the value, as lib/config.sh does
-  # for its own waits: a number no comparison can hold would make the test fail
-  # instead of the wait. A bare 0 is the refuse-at-once value, so the pattern for
-  # a leading zero asks for a digit after it: lib/config.sh's _tehas_is_count
-  # rejects 0 outright because none of its waits may be zero, which would be
-  # wrong here.
-  case $lock_wait in
-  '' | *[!0-9]* | 0[0-9]*) lock_wait=10 ;;
-  esac
-  { [ "${#lock_wait}" -le 3 ] && [ "$lock_wait" -le 300 ]; } || lock_wait=10
   if ! flock -w "$lock_wait" 7; then
-    echo "tehas update: another update is running ($update_lock); nothing was changed" >&2
+    echo "tehas update: another update is running ($update_lock), still held after ${lock_wait}s; nothing was changed" >&2
     exit 1
   fi
   export TEHAS_UPDATE_LOCK_FD=7

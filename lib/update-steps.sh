@@ -27,6 +27,9 @@
 #   tehas_record_steps <line>.. add these steps to that record (it writes)
 #   tehas_pending_file        where the steps a run asked for and did not finish
 #                             are kept until each one has run
+#   tehas_update_lock_wait    the seconds tehas update and install.sh wait for
+#                             state/update.lock, read from the environment here
+#                             because tehas_load drops what it does not know
 #
 # Steps, and what they mean to the command that runs them:
 #   units <unit>...   systemd reloads its unit files, then restarts these units,
@@ -175,6 +178,34 @@ tehas_valid_step() { # <step line>
 # this file a run that stopped partway would leave the host half updated and the
 # next run would find nothing to do. Printing a path makes no change.
 tehas_pending_file() { printf '%s\n' "${TEHAS_HOME:-$HOME/tehas}/state/update-pending"; }
+
+# The two defaults of the update lock's wait, in the one place both commands read
+# them: the default, and the ceiling past which a wait is a mistyped number rather
+# than a wait. A refusal must stay instant for the tests that time it, so the
+# default is small and the ceiling only keeps a mistake from hanging an operator.
+tehas_update_lock_wait_default=10
+tehas_update_lock_wait_max=300
+
+# The seconds one of the two commands waits for state/update.lock before it says
+# another update is running: TEHAS_UPDATE_LOCK_WAIT, or 10. Called before
+# tehas_load, which unsets every TEHAS_* it does not know and does not name this
+# one - the knob is not a setting of an instance. The name is read here and
+# nowhere else, so the two commands cannot drift apart.
+#
+# 0 is the refuse-at-once value, so a leading zero has to be asked for a digit
+# after it: lib/config.sh's _tehas_is_count drops 0 outright because none of its
+# own waits may be zero, which would be wrong here. The length is read before the
+# value, as lib/config.sh does for its waits, so a number no comparison can hold
+# is refused by its length instead of by a failing comparison.
+tehas_update_lock_wait() {
+  local v=${TEHAS_UPDATE_LOCK_WAIT:-}
+  case $v in
+  '' | *[!0-9]* | 0[0-9]*) v=$tehas_update_lock_wait_default ;;
+  esac
+  { [ "${#v}" -le 3 ] && [ "$v" -le "$tehas_update_lock_wait_max" ]; } ||
+    v=$tehas_update_lock_wait_default
+  printf '%s\n' "$v"
+}
 
 # The lines of that record, without blank ones. No record is an empty answer,
 # not a failure. A record that exists but cannot be read is the other case: it

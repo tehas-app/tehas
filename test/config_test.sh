@@ -761,6 +761,24 @@ t_run '. "$T_ROOT/lib/config.sh"; tehas_load; echo "$TEHAS_INDEX_START_CMD $TEHA
 t_eq "$t_out" "fake-index-start 1"
 T_ENV=()
 
+# The wait for the update lock is read before tehas_load by install.sh and
+# tehas update, because tehas_load unsets every TEHAS_* it does not know and does
+# not name this one: the value the early read took is what the command then uses.
+# Two halves, because the loader sourcing instance.env is what would turn the
+# knob into a setting, and the two orders of reading it answer differently.
+t_case "the environment's update lock wait is used, and the loader drops the name"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_UPDATE_LOCK_WAIT=3)
+t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=$(tehas_update_lock_wait); printf "before=%s after=%s\n" "$a" "$b"'
+t_eq "$t_out" "before=3 after=10"
+T_ENV=()
+# tehas_load sources instance.env, so a line there reaches the environment, but
+# only after the two commands have read the wait: the instance does not set it.
+t_case "instance.env does not set the update lock's wait"
+t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_LOCK_WAIT=3
+t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/update-steps.sh"; a=$(tehas_update_lock_wait); tehas_load >/dev/null 2>&1; b=${TEHAS_UPDATE_LOCK_WAIT:-}; printf "read=%s instance_line=%s\n" "$a" "$b"'
+t_eq "$t_out" "read=10 instance_line=3"
+
 # The host's CPU count is read with nproc; a stub makes the default the same
 # on every machine.
 t_stub nproc 'echo 8'

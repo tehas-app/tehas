@@ -2867,11 +2867,16 @@ how a host is kept on an older release: see
 
 One update runs at a time. A real run holds `$TEHAS_HOME/state/update.lock`,
 and so does a real run of `install.sh`; a second one started while the first
-holds it waits up to 10 seconds for it, and if it is still held prints
-`another update is running` and exits 1 before git, install.sh, Docker or
-systemd is called. The update hands the lock to the install.sh it runs; the
-wait covers a run started right after one that failed and left the lock held a
-moment by something it had started. `--check` takes no lock.
+holds it waits for it, and if it is still held prints
+`another update is running`, naming the seconds it waited, and exits 1 before
+git, install.sh, Docker or systemd is called. The wait is
+`TEHAS_UPDATE_LOCK_WAIT` - a whole number of seconds, 10 by default, 0 to
+refuse at once, at most 300; anything else is the default. It is read from the
+environment, not from `instance.env`, and the rule for it is
+`tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
+The update hands the lock to the install.sh it runs; the wait covers a run
+started right after one that failed and left the lock held a moment by
+something it had started. `--check` takes no lock.
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
@@ -3009,9 +3014,10 @@ cd ~/tehas/platform
 ```
 
 Exit 0 when done or nothing to report, 1 when `--check` found something, a
-step failed or another update is still holding the lock after the 10 seconds
-the run waits for it, 78 when the instance settings are invalid or the home is
-not provably tehas's (nothing was changed).
+step failed or another update is still holding the lock after the
+`TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for it (10 by default), 78 when
+the instance settings are invalid or the home is not provably tehas's (nothing
+was changed).
 `Home: REFUSED` is what `--check` says for the last of those: one line for the
 home, the reason under it, and `not checked` for what a home cannot be asked.
 `Slice: MISSING` and `Slice: DIFFERS` are something found: `--check` exits 1

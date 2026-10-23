@@ -57,7 +57,7 @@ lock=$th/state/update.lock
 # steps that cost seconds before it gets to the lock, so it is not.
 t_run "$no_wait exec 8>>'$lock'; flock -n 8 || exit 9; '$install'"
 t_eq "$t_rc" 1
-t_contains "$t_out" "tehas: another update is running ($lock); nothing was installed"
+t_contains "$t_out" "tehas: another update is running ($lock), still held after 0s; nothing was installed"
 t_eq "$(core_files)" ""
 t_eq "$(t_calls cargo)" ""
 
@@ -72,17 +72,45 @@ instance
 mkdir -p "$th/state"
 # Timed with the same bound as the case in test/update_test.sh: the refusal is
 # meant to come at once and the default wait is 10 seconds, so a knob that does
-# not reach install.sh is red here. See test/install_lib.sh for what no_wait is.
-start=$(date +%s%N)
+# not reach install.sh is red here. no_wait is named beside t_run in test/lib.sh.
+t_start
 t_run "$no_wait ( exec 6>>'$lock'; flock -n 6 && : >'$T/held' && exec sleep 20 ) &
 while [ ! -e '$T/held' ]; do sleep 0.1; done
 exec 8>>'$lock'; TEHAS_UPDATE_LOCK_FD=8 '$install'; rc=\$?; kill \$!; wait; exit \$rc"
-elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
 rm -f "$T/held"
 t_eq "$t_rc" 1
-t_eq "$([ "$elapsed" -lt 5000 ] && echo fast || echo "slow: ${elapsed}ms")" fast
+t_fast 5000
 t_contains "$t_out" "another update is running"
 t_eq "$(core_files)" ""
+
+# The other half of the wait: a run that follows one which stopped partway finds
+# the lock held for a moment and gets in once it is let go. The wait is longer
+# than the hold and the case is timed, so a wait that was not taken - a -n
+# restored on either branch, or a wait that never reached the script - is a red
+# case rather than a green one that refused at once. It runs on a home of its
+# own: an install that finished would leave the home below matching this
+# checkout, and the --check after it has nothing left to find.
+t_case "an install that finds the lock held waits for it and installs when it is let go"
+mkdir -p "$th/state"
+lock=$th/state/update.lock
+late=$T/home/late/tehas
+( exec 6>>"$lock"; flock -n 6; sleep 1 ) & holder=$!
+t_start
+t_run "export TEHAS_UPDATE_LOCK_WAIT=5; TEHAS_HOME='$late' '$install'"
+wait "$holder"
+# Under the 10s default: install.sh waited, rather than refusing at once.
+t_fast 9000
+t_eq "$t_rc" 0
+t_lacks "$t_out" "another update is running"
+# The files of a fresh install, asked of the second home: the wait was taken,
+# and the install ran. The units go where $HOME puts them, so they are not part
+# of a home; the state directory, the manual and the front page, and the marker
+# that says the home is tehas's, are each asked about by a case of their own.
+# Compared against the expected list rather than the home above, which an earlier
+# case has left with the <name>.prev files of the copies it replaced.
+t_eq "$(cd "$late" && find . -type f ! -path './state/*' ! -path './docs/*' ! -path './fun/*' ! -name '.tehas-home' | LC_ALL=C sort)" \
+  "$(printf '%s\n' "${files[@]}" | grep -v -e '^\./\.bashrc$' -e '^\./\.config/' -e '^\./\.pi/' -e '^\./tehas/docs/' -e '^\./tehas/fun/' -e '^\./tehas/state/' -e "^\./tehas/$install_marker$" | sed 's|^\./tehas/|./|' | LC_ALL=C sort)"
+t_eq "$([ -f "$late/.tehas-home" ] && echo there)" "there"
 
 t_case "--check runs while an update holds the lock"
 t_run "exec 8>>'$lock'; flock -n 8 || exit 9; '$install' --check"

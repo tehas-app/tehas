@@ -12,6 +12,8 @@
 #   t_stub_analytics ['<bash body>'] a stub of the analytics program where the
 #                                    commands look for it, in the scratch
 #                                    TEHAS_HOME; t_calls analytics
+#   t_fast <ms>                      the last t_run took under <ms> milliseconds;
+#                                    call t_start before it
 #   t_stub_cargo                     a cargo that compiles nothing and leaves the
 #                                    package it was asked for (-p), under its
 #                                    target's directory when given --target;
@@ -194,6 +196,7 @@ slice_id() { printf "$1%.0s" {1..64}; echo; }
 # Run a snippet with a known environment: the stubs first on PATH, scratch
 # HOME and TEHAS_HOME, and only the variables named in T_ENV carried over.
 T_ENV=()
+t_started=0
 t_run() {
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" \
@@ -201,6 +204,25 @@ t_run() {
     bash -c "$1" 2>&1)
   t_rc=$?
 }
+
+# A wall-clock bound, in the one place the two timed cases and the one of the
+# measure share it. t_start before the run, t_fast after it: the bound is read
+# off t_start, not off a start of the case's own, so no case invents its own
+# failure message. A slow run says how slow it was.
+t_start() { t_started=$(date +%s%N); }
+t_fast() { # <milliseconds>
+  local elapsed
+  elapsed=$((($(date +%s%N) - t_started) / 1000000))
+  t_eq "$([ "$elapsed" -lt "$1" ] && echo fast || echo "slow: ${elapsed}ms")" fast
+}
+
+# A command that holds the update lock and expects a refusal names the wait: 0
+# means refuse at once, so the case is not timed against the default of 10
+# seconds. It is exported inside the snippet rather than passed in T_ENV, because
+# t_run builds the snippet's environment with env -i: a shell variable of the
+# snippet would not reach the command, which would then wait the default for a
+# refusal that was meant to come at once.
+no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 
 t_done() {
   local line

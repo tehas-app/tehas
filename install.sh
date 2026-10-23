@@ -124,8 +124,11 @@ tests=0
 suite=${TEHAS_TEST_SUITE:-}
 # Read before tehas_load, which drops it from the environment.
 update_fd=${TEHAS_UPDATE_LOCK_FD:-}
-# Also read before tehas_load, which drops every TEHAS_* it does not know.
-lock_wait=${TEHAS_UPDATE_LOCK_WAIT:-10}
+# Read before tehas_load, which drops every TEHAS_* it does not know: the one
+# rule for it is tehas_update_lock_wait, taken with lib/update-steps.sh below,
+# where tehas update takes it too. Set here so the file is defined before that
+# call reads it.
+lock_wait=
 # The model endpoints' tokens, from the file env.sh reads them from. The shell
 # that runs this may not have them: a first install has no env.sh yet, and an
 # update runs under the loader of the version before, which may drop them.
@@ -146,6 +149,8 @@ fi
 . "$root/lib/config.sh"
 # shellcheck source=lib/update-steps.sh
 . "$root/lib/update-steps.sh"
+# The wait for the update lock, read before tehas_load below drops it.
+lock_wait=$(tehas_update_lock_wait)
 # shellcheck source=lib/edge.sh
 . "$root/lib/edge.sh"
 # shellcheck source=lib/cycles.sh
@@ -326,28 +331,20 @@ fi
 # other run takes the lock itself. --check changes nothing and takes no lock.
 #
 # The lock is waited for, not refused at once: a run that stopped partway can
-# leave it held a moment by a child that outlived it. The wait is read the same
-# way as tehas update reads it, so the two say the same thing at the same time.
+# leave it held a moment by a child that outlived it. Both branches wait, the
+# handed-over descriptor included, so the two commands ask the same question of
+# the same lock.
 if [ "$check" != 1 ]; then
   update_lock=$TEHAS_HOME/state/update.lock
   # The state directory the lock is in is made here: a home with nothing in it
   # yet has none, and a run that has not been given the lock by tehas update
   # opens the file itself.
   mkdir -p "$TEHAS_HOME/state"
-  # A whole number of seconds, 0 (refuse at once) through 300; anything else is
-  # the default. Read before tehas_load, which drops it. The length is checked
-  # before the value, as lib/config.sh does for its own waits. A bare 0 is the
-  # refuse-at-once value, so the pattern for a leading zero asks for a digit
-  # after it: 00 and 05 are not numbers a person meant.
-  case $lock_wait in
-  '' | *[!0-9]* | 0[0-9]*) lock_wait=10 ;;
-  esac
-  { [ "${#lock_wait}" -le 3 ] && [ "$lock_wait" -le 300 ]; } || lock_wait=10
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
-    flock -w "$lock_wait" "$update_fd" || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+    flock -w "$lock_wait" "$update_fd" || { echo "tehas: another update is running ($update_lock), still held after ${lock_wait}s; nothing was installed" >&2; exit 1; }
   else
     exec 7>>"$update_lock"
-    flock -w "$lock_wait" 7 || { echo "tehas: another update is running ($update_lock); nothing was installed" >&2; exit 1; }
+    flock -w "$lock_wait" 7 || { echo "tehas: another update is running ($update_lock), still held after ${lock_wait}s; nothing was installed" >&2; exit 1; }
   fi
 fi
 

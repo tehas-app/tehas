@@ -32,12 +32,6 @@ dev_etc=$T/etc
 dev_bin=$T/usr-local-bin
 # T_IN_TEST: install.sh skips its dependency check and its own test run here.
 T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
-# The lock is waited for, not refused at once, so a case that holds it and
-# expects a refusal names the wait: 0 means refuse at once. It is exported
-# rather than merely assigned, because t_run builds the snippet's environment
-# with env -i: a shell variable of the snippet would not reach the command it
-# runs, which would then wait the default for a refusal meant to come at once.
-no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 
 # The host's normal answers: containers running, every unit active, and a
 # timeout that records what it bounds and then runs the real one. platform()
@@ -368,20 +362,17 @@ instance
 platform 2 "$ASK"
 before=$(state)
 mkdir -p "$th/state"
-# A run waits this long for an update that holds the lock before it says
-# another update is running; the cases that hold the lock here expect a refusal,
-# so they ask to be refused at once. See test/install_lib.sh, which does the
-# same for the tests of install.sh.
-start=$(date +%s%N)
-t_run "$no_wait exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update'"
-elapsed=$(( ($(date +%s%N) - start) / 1000000 ))
+# The cases that hold the lock here expect a refusal, so they ask to be refused
+# at once: no_wait is the knob for that, named beside t_run in test/lib.sh.
 # The default wait is 10 seconds, so the bound below is the timing that makes
-# this case mean something: a knob that never reaches the command, or a 0 that
-# the validator throws away, waits the default and is red here instead of green
-# after 10 seconds of waiting for a refusal that was meant to come at once.
+# this case mean something: a knob that never reaches the command, or a 0 the
+# rule throws away, waits the default and is red here instead of green after 10
+# seconds of waiting for a refusal that was meant to come at once.
+t_start
+t_run "$no_wait exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update'"
 t_eq "$t_rc" 1
-t_eq "$([ "$elapsed" -lt 5000 ] && echo fast || echo "slow: ${elapsed}ms")" fast
-t_contains "$t_out" "tehas update: another update is running ($th/state/update.lock); nothing was changed"
+t_fast 5000
+t_contains "$t_out" "tehas update: another update is running ($th/state/update.lock), still held after 0s; nothing was changed"
 t_eq "$(state)" "$before"
 t_eq "$(t_calls install)" ""
 t_eq "$(t_calls build)" ""
@@ -395,23 +386,73 @@ t_eq "$(t_calls install)" "install --check"
 
 # The lock is waited for, not refused at once, so a run that follows one which
 # stopped partway can still get in: the holder below lets go after a second and
-# the update runs. The wait is longer than the hold on purpose, so the case is
-# red if the wait is not taken. The wait is named in the snippet rather than in
-# T_ENV, which t_run passes as positional arguments.
+# the update runs. The wait is longer than the hold on purpose, and the case is
+# timed, so a wait that was not taken shows as a slow run rather than passing.
+# The wait is exported in the snippet, where t_run's env -i carries it to the
+# command: see test/lib.sh for the same reason no_wait is exported.
 t_case "an update that finds the lock held waits for it and runs when it is let go"
 platform 0
 # platform 0 clears the home, so the state directory it makes is made here.
 mkdir -p "$th/state"
 ( exec 8>>"$th/state/update.lock"; flock -n 8; sleep 1 ) & holder=$!
-sleep 0.2
-# Exported, not just assigned: t_run builds the snippet's environment with
-# env -i, so a shell variable of the snippet would not reach the update and the
-# case would wait the default 10 seconds instead of the 5 named here.
+t_start
 t_run "export TEHAS_UPDATE_LOCK_WAIT=5; '$update'"
 wait "$holder"
 t_eq "$t_rc" 0
+# Under the 10s default and over the second the holder keeps it: the wait the
+# case names is the one that ran, not the default and not a refusal.
+t_fast 9000
 t_lacks "$t_out" "another update is running"
 t_eq "$(t_calls install)" "install "
+
+# The rule a held lock is measured by, read from the one place both commands get
+# it: what each form of the knob becomes, the default for the shapes it refuses,
+# and the ceiling both commands share. Asked of the rule itself, in one run, so
+# the range is asserted and not only inferred from a timing bound. libexec/update
+# reads the value through this same function, so the answers below are the wait
+# its flock -w gets.
+lock_default=$(sed -n 's/^tehas_update_lock_wait_default=//p' "$T_ROOT/lib/update-steps.sh")
+lock_max=$(sed -n 's/^tehas_update_lock_wait_max=//p' "$T_ROOT/lib/update-steps.sh")
+[ -n "$lock_default" ] && [ -n "$lock_max" ] ||
+  t_bad "lib/update-steps.sh names neither the default nor the ceiling of the wait"
+# Every value is asked in one snippet, each on its own line, so no earlier form
+# can leave the variable set for the next one.
+asks=()
+answers=''
+for asked in 0 1 5 45 "$lock_max" "$((lock_max + 1))" 9999 999999999999999999999 00 05 0000000009 -1 1.5 1e3 soon ''; do
+  # A whole number, no leading zero, of at most three digits and no more than
+  # the ceiling. Anything else is the default.
+  answer=$lock_default
+  case $asked in
+  0)
+    answer=0
+    ;;
+  [1-9] | [1-9][0-9] | [1-9][0-9][0-9])
+    [ "$asked" -le "$lock_max" ] && answer=$asked
+    ;;
+  esac
+  asks+=("$asked")
+  answers="$answers$answer
+"
+done
+t_case "the wait rule takes 0 through $lock_max and the $lock_default-second default"
+# Unset first: an inherited value of that name would answer for the empty one.
+# Each value is quoted on the child's command line, so a form the rule turns
+# into the default - or into nothing - is still one value asked, and none of them
+# is taken as shell text by the snippet.
+quoted=''
+for v in "${asks[@]}"; do quoted="$quoted '$v'"; done
+t_run "unset TEHAS_UPDATE_LOCK_WAIT; . '$T_ROOT/lib/update-steps.sh'
+for v in$quoted; do TEHAS_UPDATE_LOCK_WAIT=\$v tehas_update_lock_wait; done"
+# One answer a line, in the order asked: a rule that always answered the default
+# could not pass the assertions on the two ends of the range below.
+lines=$(printf '%s\n' "$t_out" | sed '/^$/d')
+t_eq "$lines" "${answers%$'\n'}"
+# The two ends of the range, so a rule that only ever answered the default could
+# not pass: 0 is the refuse-at-once value and the ceiling is still a wait.
+t_contains "$lines" "0"
+t_contains "$lines" "$lock_max"
+t_lacks "$lines" "$((lock_max + 1))"
 
 t_case "install.sh is handed the lock the update holds"
 instance
