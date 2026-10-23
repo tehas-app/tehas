@@ -158,12 +158,16 @@ import { analyticsView, dueToRead as dueAnalytics } from "/fun/analytics-data.js
     ul.replaceChildren();
     if (!p.previews.length) { ul.append(el("li", "empty", "No pull request is open.")); return; }
     for (const it of p.previews) {
-      if (!it || !Number.isSafeInteger(it.number)) continue;
+      // The default branch's preview is listed first and has the name "main"
+      // where a pull request has a number.
+      const isMain = !!it && it.name === "main";
+      if (!it || (!isMain && !Number.isSafeInteger(it.number))) continue;
       const li = el("li");
-      const title = typeof it.title === "string" && it.title ? it.title : "pull request " + it.number;
-      li.append(el("span", "num", "#" + it.number));
+      const title = isMain ? "default branch"
+        : typeof it.title === "string" && it.title ? it.title : "pull request " + it.number;
+      li.append(el("span", "num", isMain ? "main" : "#" + it.number));
       if (it.state === "serving" && typeof it.address === "string"
-          && /^https:\/\/uat-[1-9][0-9]{0,8}\.[a-z0-9.-]+\/$/.test(it.address)) {
+          && /^https:\/\/uat-([1-9][0-9]{0,8}|main)\.[a-z0-9.-]+\/$/.test(it.address)) {
         const a = el("a", null, title);
         a.href = it.address;
         a.target = "_blank";

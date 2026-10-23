@@ -5,6 +5,8 @@
 # It picks by the first label of the Host header, so no domain is written here:
 #   uat-<number>.   the preview of that pull request, a container named
 #                   tehas-preview-<number> that `tehasbot preview` runs
+#   uat-main.       the preview of the default branch, a container named
+#                   tehas-preview-main that the same command runs
 #   lab-<number>.   that ticket's page in the Protolab and its files, as
 #                   `tehasbot protolab` wrote them
 #   anything else   the Protolab by path: the list at /, a ticket at /<number>/
@@ -23,6 +25,7 @@
     header X-Content-Type-Options "nosniff"
 
     @preview header_regexp preview Host ^uat-([1-9][0-9]{0,8})\.
+    @main header_regexp main Host ^uat-main\.
     @ticket header_regexp ticket Host ^lab-([1-9][0-9]{0,8})\.
     # A uat- or lab- name that is neither of the above: no number, or one
     # that starts with a zero.
@@ -37,6 +40,13 @@
         # sniffing is dropped: this server has already said it.
         handle @preview {
             reverse_proxy tehas-preview-{re.preview.1}:8080 {
+                header_down -X-Robots-Tag
+                header_down -X-Content-Type-Options
+            }
+        }
+
+        handle @main {
+            reverse_proxy tehas-preview-main:8080 {
                 header_down -X-Robots-Tag
                 header_down -X-Content-Type-Options
             }
@@ -96,7 +106,7 @@
     handle_errors {
         # No container of that name, or one that does not answer.
         @nopreview expression `{err.status_code} in [502, 503, 504]`
-        respond @nopreview "No preview is running at this address. One is built within five minutes of a push to a pull request, and removed when the pull request is closed." 404
+        respond @nopreview "No preview is running at this address. One is built within five minutes of a push to a pull request or to the default branch. A pull request's is removed when it is closed." 404
         respond "{err.status_code} {err.status_text}" {err.status_code}
     }
 }

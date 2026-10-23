@@ -378,6 +378,9 @@ domain need. The product's part is one file:
 
 - The product adds `preview/Dockerfile`. A repository without it gets no
   previews, and a pull request whose commit does not have it gets none.
+  The head of the default branch is previewed the same way, from its own
+  recipe, at `uat-main.<domain>`. It stands beside the pull requests'
+  previews and shows what is merged and not yet released.
 - It is built with the commit as its context: the files of that commit as
   git has them, and nothing else. The file is read from the pull request's
   own commit, so a pull request that changes how the product is served is

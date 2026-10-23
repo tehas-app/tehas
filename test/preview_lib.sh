@@ -21,8 +21,18 @@ t_stub gh '
 if [ "$1 $2" = "api repos/acme/widget" ]; then
   [ ! -e "$T/fx/repo-fails" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
   [ ! -e "$T/fx/repo-body" ] || { cat "$T/fx/repo-body"; exit 0; }
-  echo "{\"full_name\":\"Acme/Widget\"}"; exit 0
+  # fx/default-branch names the default branch; without it the answer has none,
+  # and the run has no main preview to speak of.
+  jq -cn --arg b "$(cat "$T/fx/default-branch" 2>/dev/null)" "{full_name: \"Acme/Widget\"} + (if \$b == \"\" then {} else {default_branch: \$b} end)"
+  exit 0
 fi
+# The head of a branch is what the upstream has for it. fx/branch-fails is a call
+# that fails.
+case "$1 $2" in "api repos/acme/widget/branches/"*)
+  [ ! -e "$T/fx/branch-fails" ] || { echo "gh: connection refused" >&2; exit 1; }
+  jq -cn --arg s "$(git -C "$T/upstream" rev-parse --verify "refs/heads/${2#repos/acme/widget/branches/}")" "{commit: {sha: \$s}}"
+  exit 0 ;;
+esac
 [ ! -e "$T/fx/gh-down" ] || { echo "gh: connection refused" >&2; exit 1; }
 # fx/slow holds a call about one pull request until fx/go is there, ten seconds
 # at most, so that a test can stop the command while it works.
@@ -77,7 +87,7 @@ esac'
 
 # docker keeps what it was told in $T/fx/docker: container-<n> holds the
 # commit of a running preview, image-<n> the id of its image. The id of the
-# container of <n> is ab<n>. fx/extra-containers has more lines of a listing,
+# container of <n> is ab<n>, and abcafe for main. fx/extra-containers has more lines of a listing,
 # fx/names-<n> is what Docker calls the container of <n> when that is not its
 # one name, an id in fx/rm-fails is a container Docker does not remove, and
 # fx/label-repo is how the tehas.repo label of the containers is written.
@@ -134,6 +144,7 @@ case "$1" in
       ! grep -q -x -e "$a" "$T/fx/rm-fails" 2>/dev/null || exit 1
       case "$a" in
         tehas-preview-*) rm -f "$d/container-${a#tehas-preview-}" ;;
+        abcafe) rm -f "$d/container-main" ;;
         ab[0-9]*) rm -f "$d/container-${a#ab}" ;;
         -*) ;;
         *) [ ! -f "$T/fx/extra-containers" ] || sed -i "/^$a /d" "$T/fx/extra-containers" ;;
@@ -142,7 +153,7 @@ case "$1" in
   ps)
     case "$*" in
       *--quiet*)
-        n=$(printf "%s" "$*" | sed -n "s/.*name=\^tehas-preview-\([0-9]*\)\\$.*/\1/p")
+        n=$(printf "%s" "$*" | sed -n "s/.*name=\^tehas-preview-\([0-9a-z]*\)\\$.*/\1/p")
         sha=$(printf "%s" "$*" | sed -n "s/.*label=tehas\.sha=\([0-9a-f]*\).*/\1/p")
         # With no commit asked for, any container of that name is listed.
         case "$*" in
@@ -154,7 +165,8 @@ case "$1" in
           [ -f "$f" ] || continue
           n=${f##*/container-}; name=tehas-preview-$n
           [ ! -f "$T/fx/names-$n" ] || name=$(cat "$T/fx/names-$n")
-          echo "ab$n $n $(cat "$T/fx/label-repo" 2>/dev/null || echo acme/widget) $name"
+          id=ab$n; [ "$n" != main ] || id=abcafe
+          echo "$id $n $(cat "$T/fx/label-repo" 2>/dev/null || echo acme/widget) $name"
         done
         cat "$T/fx/extra-containers" 2>/dev/null ;;
     esac ;;
