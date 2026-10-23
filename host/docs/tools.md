@@ -1400,7 +1400,10 @@ that reached a log does not reach the copy; only a file the mask itself will not
 read is copied as it is, and one over 32 MiB is left out. The mask catches
 accidents and cannot stop what no pattern knows, so an export is still a copy of
 what a cycle wrote. An export is never written under the factory's home, not
-even through a link. See
+even through a link. The dispatcher's 7-day sweep removes
+`~/.pi/agent/ensemble-runs/issue-<issue>` with the issue's workspace, so an
+export of an issue the sweep has taken has no transcripts: its records, logs and
+Protolab page are still copied. See
 [the factory API](/api#tehas-export).
 
 ## tehas pause
@@ -1760,7 +1763,20 @@ approval record of such a start is removed with the report.
 A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule.
 The dispatcher removes a kept workspace once no cycle has run on its issue for
-7 days. A
+7 days, three issues a poll at most. With the workspace go what a cycle leaves
+outside it: the agents' transcripts in
+`~/.pi/agent/ensemble-runs/issue-<issue>`, the console
+`~/tehas/live/console-<issue>.txt`, and a planning session's transcripts in
+`~/.pi/agent/ensemble-runs/plan-<issue>`, all of them the names `tehas stop`
+removes. An issue whose workspace is already gone loses those three on their
+own: the sweep looks for them whether or not the issue still has a workspace.
+The two guards of `tehas stop` and `tehasbot clean` hold for all of it: the
+issue's lock has to be a lock file, and every name it goes by has to be one the
+poll can date. Each name is built from the issue number, so the sweep of 5 touches nothing of
+51, and the dated directories of `~/.pi/agent/ensemble-runs` are the runner's
+and stay for a person. `tehas export` reads `~/.pi/agent/ensemble-runs/issue-
+<issue>`, so an export made after the sweep has no transcripts of that issue.
+A
 stopped unit stops the container and is reported as a cycle that ended without
 a pull request. The report of a stopped cycle tries each call to GitHub once,
 cuts it after 20 seconds and does not refresh the status, so it ends within

@@ -502,7 +502,19 @@ attempt is kept: a second retry replaces it, unless the attempt before cloned
 no workspace, which leaves the older copy beside the new one. Recover what you
 need from a stopped cycle before you retry twice. Nothing is kept for ever: the
 dispatcher's poll removes an issue's kept workspaces once no cycle has run on
-it for 7 days, three issues a poll at most, and logs each removal.
+it for 7 days, three issues a poll at most, and logs each removal. With them go
+what the cycle left outside its workspace: the agents' transcripts in
+`~/.pi/agent/ensemble-runs/issue-<issue>`, the console
+`~/tehas/live/console-<issue>.txt`, and the transcripts of the issue's planning
+session, `~/.pi/agent/ensemble-runs/plan-<issue>`. An issue whose workspace is
+already gone loses those three on their own, on the same rule: the issue's lock
+free and none of them touched for 7 days. The lock has to be a lock file: as
+with `tehas stop`, one that is a link or a directory says nothing about the
+issue, and the poll removes nothing of it and says so. An issue the poll cannot
+date is kept too, as `tehasbot clean` keeps what it cannot date, and is tried
+again on a later poll. Only the names of that one issue go, and the dated
+directories of `~/.pi/agent/ensemble-runs` are the runner's, not tehas's, so the
+sweep leaves them for a person.
 
 A label or a tick approves the text of the issue as it was at that moment. If
 someone other than an allowed labeller changes the title or the body
