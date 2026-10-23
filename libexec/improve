@@ -36,7 +36,12 @@
 #   issues     each filed issue names the product's issues its cycles worked,
 #              and says what working on it means: a finding about the factory
 #              is built where it is filed, one about pi-rukas is fixed in
-#              pi-rukas and never worked around in another repository
+#              pi-rukas and never worked around in another repository. The
+#              line names the other repository when the finding speaks of
+#              issues of one, so a person reading it sees which repository
+#              holds the fix. A filed issue whose text names a repository
+#              other than the one it is filed in also carries cross-project,
+#              which is what the dispatcher holds a cycle back for
 #   rechecked  when one of those issues is worked on again, the analyst says
 #              whether the problem came back, and that is a comment on the
 #              filed issue with the pi-rukas commit the new cycle ran; at most
@@ -97,6 +102,9 @@ rukas=${TEHAS_IMPROVE_RUKAS_REPO:-$repo}
 repos=("$repo")
 [ "$rukas" = "$repo" ] || repos+=("$rukas")
 label=tehas:improvement
+# Not "cross": bash reads an assignment to a name of an arithmetic operator as
+# arithmetic, and shellcheck says so.
+cross_label=cross-project
 tag=tehas-improve-logs
 max_run=3
 max_open=$TEHAS_IMPROVE_MAX_OPEN
@@ -363,6 +371,30 @@ check='
     and (.evidence | type == "string" and length <= 3000 and clean([9, 10, 13]))
     and (.cycles | type == "array" and length >= 1 and all(.[]; type == "string" and IN($cycles[])))
     and (.duplicate_of == null or (.duplicate_of | IN($numbers[])));
+  # The stack repositories a finding speaks of: named as owner/name: anywhere in
+  # its text, or named by an issue of the stack that cites one of its cycles and
+  # is filed in a repository beside the one the finding is filed in. That
+  # citation is the strongest tell there is, since the finding rests on a cycle
+  # whose issue is open there, and the loop writes it itself on the Cycles line,
+  # so a model cannot word a finding into it or out of it.
+  def speaks($f; $repos; $cited):
+    [ $repos[] | . as $r
+      | select(([$f.title, $f.body, $f.evidence,
+                 (if ($f | has("factory_part")) then $f.factory_part else "" end),
+                 (if ($f | has("rukas_part")) then $f.rukas_part else "" end)]
+                | join("\n") | contains("\($r):"))
+              or
+              ([$f.cycles[]] | any(. as $c | any($cited[]; .r == $r and .c == $c)))) ];
+  # Every pair of a stack repository and a cycle its issues cite, as the issue
+  # itself carries them: the Cycles line of its body, read by stack_of above.
+  # A repository the host names but holds no issue in is a stack repository
+  # still, so the pairs are not the test of it. The repository is cut out of the
+  # pair here, in $r, so the test of a name in the text of a finding and the
+  # test of the citation share it; jq reads a filter that cannot be reached as
+  # written, and the two are joined by or.
+  def cited_by($issues): [ $issues[]
+    | select((.repo | type) == "string") | . as $i | (.cycles // [])[]
+    | select(type == "string") | {r: $i.repo, c: .} ] | unique;
   def rechecked($issues):
     type == "object"
     and (.repo | type == "string") and (.number | type == "number")
@@ -389,11 +421,27 @@ check='
       | if .left >= ($to | length) and all($to[] as $r | .room[$r]; . > 0)
         then reduce $to[] as $r (.; .room[$r] -= 1) | .left -= ($to | length) | .file += [$f] else . end)
     | .file) as $file
+  # The repositories of the stack, as the host read them: a text that names one
+  # of them is the tell of where the fix of a finding lives, so it needs no name
+  # the model typed and no url it could invent. Every repository the loop files
+  # in is a stack repository whether or not TEHAS_IMPROVE_RUKAS_REPO names it,
+  # so a finding about pi-rukas in a host that files it with the rest is read
+  # the same way. The repository for pi-rukas is a stack repository of its own
+  # even where its findings are not filed, since the text of a finding names it
+  # all the same and the label is about where the fix lives, not where an issue
+  # about it went.
+  | (($issues | map(.repo) | map(select(type == "string"))) + [$repo, $rukas]
+     | unique) as $stack_repos
+  # Each finding of $file with the stack repositories it speaks of beside it, as
+  # others. Beside the finding and not in it: the shape of a finding is what the
+  # analyst was asked for and is checked exactly as it was given.
+  | [ $file[] | . as $f | . + {others: speaks($f; $stack_repos; cited_by($issues))} ] as $filed
   | {found: ($all | length), invalid: (($all | length) - ($valid | length)),
      skipped: (($valid | length) - ($good | length)),
      duplicates: (($good | length) - ($keep | length)),
      of: ([$good[] | .duplicate_of | select(. != null) | "#\(.)"] | unique | join(",")),
-     over: (($keep | length) - ($file | length)), file: $file,
+     over: (($keep | length) - ($file | length)),
+     file: $filed,
      recheck: ([(.followups | if type == "array" then .[] else empty end) | select(rechecked($issues))
        | {repo, number, cycle, seen, note}] | unique_by([.repo, .number, .cycle]) | .[0:$max_recheck])}'
 cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
@@ -466,7 +514,13 @@ upload() { # <record>
 body='
   def defuse: gsub("@(?=[A-Za-z0-9])"; "@\u200b") | gsub("<!--"; "&lt;!--");
   "_Filed by the tehas improvement loop, read by the model `\($model)`. It is a proposal: nothing works on it until a person labels it._",
-  "", "**Category:** \(.category)", "", "**Working on it:** \($does)", "",
+  "", "**Category:** \(.category)", "", "**Working on it:** \($does)",
+  # Where else the fix lives, when the finding speaks of a repository of the
+  # stack beside the one this issue is filed in. A person reads it before
+  # labelling; the dispatcher holds a cycle back on the label that goes with it.
+  # The list is given in, and not read from the finding: it is the loop that
+  # reads the stack, and what the loop read is what a person can trust.
+  (if $others == "" then empty else "", "**Names:** \($others)" end), "",
   "**Issues:** \([.cycles[] | "\($product)#\(split("-")[0])"] | unique | join(", "))", "", (.body | defuse), "",
   (if .category != "boundary" then empty
    elif $half == "both" then "**The factory\u0027s half**", "", (.factory_part | defuse), "",
@@ -479,7 +533,6 @@ body='
 
 filed=()
 failed=0
-cross="cross-project"
 n=$(jq '.file | length' <<<"$plan")
 if [ "$n" -gt 0 ]; then
   # It fails when the label is there already, which is fine.
@@ -488,20 +541,30 @@ if [ "$n" -gt 0 ]; then
       --description "Tehas: filed by the improvement loop, a proposal" >/dev/null 2>&1 || true
   done
 fi
-if jq -e '[.file[] | select(.category == "boundary")] | length > 0' <<<"$plan" >/dev/null; then
+# The label that says a cycle here cannot make the change on its own is created
+# wherever an issue of this run carries it: beside the loop's own label on the
+# two halves of a boundary finding, and on any other finding whose text names a
+# repository the loop knows of besides the one the issue is filed in.
+if jq -e '[.file[] | select((.category == "boundary") or (((.others // []) | map(select(type == "string"))) | length > 0))]
+  | length > 0' <<<"$plan" >/dev/null; then
   for r in "${repos[@]}"; do
-    gh label create "$cross" --repo "$r" --color 0e8a16 \
+    gh label create "$cross_label" --repo "$r" --color 0e8a16 \
       --description "Needs a change on both sides of the factory and pi-rukas" >/dev/null 2>&1 || true
   done
 fi
 # open_issue <repository> <working on it> <half> <other repository> <other url> <label>...
 # Open one issue of the finding $f; its url is left in $url.
 open_issue() {
-  local to=$1 does=$2 half=$3 other_repo=$4 other=$5 opts=() l
+  local to=$1 does=$2 half=$3 other_repo=$4 other=$5 opts=() l others
   shift 5
   for l in "$@"; do opts+=(--label "$l"); done
+  # The stack repositories the finding speaks of, none of them this one. A
+  # comma-separated list is what the body wants, so they are joined here; the
+  # plan always carries the list, never a bare repository name.
+  others=$(jq -r --arg to "$to" '[(.others // [])[] | select(type == "string") | select(. != $to)] | join(", ")' <<<"$f") || return 1
   jq -r --arg links "$links" --arg model "$PI_ENSEMBLE_SUBAGENT_MODEL" --arg product "$TEHAS_REPO" \
     --arg does "$does" --arg half "$half" --arg other_repo "$other_repo" --arg other "$other" \
+    --arg others "$others" \
     "$body" <<<"$f" >"$run/body.md" || return 1
   url=$(gh issue create --repo "$to" --title "$(jq -r .title <<<"$f")" --body-file "$run/body.md" "${opts[@]}") ||
     return 1
@@ -517,16 +580,28 @@ for ((i = 0; i < n; i++)); do
   done < <(jq -r '.cycles | unique | .[]' <<<"$f")
   # The body is what a cycle is given as its task, so it says whose fix it is.
   category=$(jq -r .category <<<"$f")
+  # A finding that speaks of a repository besides the one its issue is filed in
+  # carries cross-project beside the loop's own label, whether or not its
+  # category chose two repositories already. The label is the dispatcher's tell
+  # that one cycle here cannot make the change on its own; the body names the
+  # repository it has to make it in.
+  cross_opts=()
+  [ "$category" = boundary ] && cross_opts+=("$cross_label")
+  to=$repo
+  [ "$category" != pi-rukas ] || to=$rukas
+  if [ "$(jq -r --arg to "$to" '[(.others // [])[] | select(type == "string") | select(. != $to)] | length > 0' <<<"$f")" = true ]; then
+    cross_opts+=("$cross_label")
+  fi
   if [ "$category" = boundary ] && [ "$rukas" != "$repo" ]; then
     # One issue a side, each naming its own half; the second links the first
     # in its body, the first is told of the second in a comment. When the
     # second is refused, the first says so: its title keeps a later run from
     # filing the pair again, so a person files the other half.
     open_issue "$repo" "This is the factory's half of a problem at the boundary with pi-rukas. Only that half is fixed in this repository, once a person applies \`tehas:ready\`. The half for pi-rukas is filed in $rukas and is not worked around here." \
-      factory "$rukas" "" "$label" "$cross" || { failed=1; break; }
+      factory "$rukas" "" "$label" "${cross_opts[@]}" || { failed=1; break; }
     first=$url
     if ! open_issue "$rukas" "This is the half for pi-rukas of a problem at the boundary with the factory that runs it. Only that half is fixed here; the factory's half is filed in $repo. Nothing starts until a person applies \`tehas:ready\`." \
-      rukas "$repo" "$first" "$label" "$cross"; then
+      rukas "$repo" "$first" "$label" "${cross_opts[@]}"; then
       gh issue comment "${first##*/}" --repo "$repo" --body "GitHub refused the half for pi-rukas, so it is not filed in $rukas, and the loop will not file it again. Until a person files it there from the text above, this issue stands alone." >/dev/null 2>&1 ||
         notes+=("not-corrected=#${first##*/}")
       notes+=("half-filed=#${first##*/}")
@@ -539,7 +614,7 @@ for ((i = 0; i < n; i++)); do
   fi
   if [ "$category" = boundary ]; then
     open_issue "$repo" "This is a problem at the boundary between the factory and pi-rukas, and this repository is not pi-rukas. A cycle here fixes only the factory's half, once a person applies \`tehas:ready\`; for the half for pi-rukas it changes no code and writes down what has to change there." \
-      both "" "" "$label" "$cross" || { failed=1; break; }
+      both "" "" "$label" "${cross_opts[@]}" || { failed=1; break; }
     continue
   fi
   to=$repo
@@ -550,7 +625,7 @@ for ((i = 0; i < n; i++)); do
     [ "$to" != "$repo" ] ||
       does="This is a problem in pi-rukas, and this repository is not pi-rukas. A cycle here cannot fix it and must not work around it: it changes no code, writes down what has to change in pi-rukas, and hands off."
   fi
-  open_issue "$to" "$does" "" "" "" "$label" || { failed=1; break; }
+  open_issue "$to" "$does" "" "" "" "$label" "${cross_opts[@]}" || { failed=1; break; }
 done
 issues=none
 [ "${#filed[@]}" = 0 ] || issues=$(IFS=,; echo "${filed[*]}")

@@ -261,4 +261,77 @@ t_contains "$t_out" "filed=1"
 t_lacks "$(cat "$T/calls/body-101")" stray
 t_lacks "$(t_calls gh)" cross-project
 
+# --- A finding that names another repository ---------------------------------
+# The label the dispatcher holds a cycle back on goes on an issue of any
+# category, when the text of its finding names a repository of the stack that
+# is not the one the issue is filed in, or when an issue of the stack cites one
+# of its cycles there.
+named_finding() { finding "$1" '{"body":"The gate ran twice, and acme/rukas: the driver drops the path there.\n\n## Done when\n\n- test/gate_test.sh covers the second run."}'; }
+
+t_case "a finding of another category that names the repository for pi-rukas carries cross-project"
+ready
+with_rukas
+findings "$(named_finding "The gate runs twice")"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue create --repo acme/factory"
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label tehas:improvement --label cross-project')" 1
+t_contains "$(cat "$T/calls/body-101")" "**Names:** acme/rukas"
+t_contains "$(t_calls gh)" "label create cross-project --repo acme/factory"
+
+t_case "a finding that names only its own repository carries no cross-project"
+ready
+with_rukas
+findings "$(finding "The gate runs twice" '{"body":"The gate ran twice, and acme/factory: the gate is the one to fix.\n\n## Done when\n\n- test/gate_test.sh covers the second run."}')"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_lacks "$(t_calls gh | grep '^issue create')" cross-project
+t_lacks "$(cat "$T/calls/body-101")" "**Names:**"
+
+t_case "a finding that names nothing of the stack carries no cross-project"
+ready
+with_rukas
+findings "$(finding "The gate runs twice")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_lacks "$(t_calls gh | grep '^issue create')" cross-project
+
+t_case "a finding whose cycle is cited by an issue of the repository for pi-rukas carries cross-project"
+ready
+with_rukas
+jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: []}' | jq -s . >"$fx/rukas-open.json"
+findings "$(finding "The gate runs twice")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label tehas:improvement --label cross-project')" 1
+t_contains "$(cat "$T/calls/body-101")" "**Names:** acme/rukas"
+
+t_case "the cycle of an issue of its own repository is no other repository"
+ready
+with_rukas
+jq -n -c --arg rec "$REC" '{number: 4, title: "Pause and resume", state: "OPEN", body: "**Cycles:** \($rec)", labels: []}' | jq -s . >"$fx/open.json"
+findings "$(finding "The gate runs twice")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_lacks "$(t_calls gh | grep '^issue create')" cross-project
+t_lacks "$(cat "$T/calls/body-101")" "**Names:**"
+
+t_case "a pi-rukas finding named in its own repository carries cross-project there too"
+ready
+with_rukas
+findings "$(finding "The driver drops a path" '{"category":"pi-rukas","body":"It is in acme/factory: the gate is measured there.\n\n## Done when\n\n- a test covers it."}')"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=acme/rukas#101"
+t_eq "$(t_calls gh | grep '^issue create' | grep -c -e '--label tehas:improvement --label cross-project')" 1
+t_contains "$(cat "$T/calls/body-101")" "**Names:** acme/factory"
+
+t_case "a name that is not a repository of the stack is no cross-project"
+ready
+with_rukas
+findings "$(finding "The gate runs twice" '{"body":"The gate ran twice, and acme/other: a repository the host does not read.\n\n## Done when\n\n- test/gate_test.sh covers the second run."}')"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_lacks "$(t_calls gh | grep '^issue create')" cross-project
+t_lacks "$(cat "$T/calls/body-101")" "**Names:**"
+
 t_done
