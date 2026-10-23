@@ -969,4 +969,15 @@ t_run "$clean"
 t_eq "$t_rc" 78
 t_eq "$(t_calls docker)" ""
 
+t_case "the clean unit does not redirect into the log the cleaner writes"
+# log() and warn() in libexec/clean append each line to clean.log and print it
+# as well, so a unit that redirects the run into that file writes every line of
+# a timer run twice. The other units keep their redirect: their commands print
+# to stdout only.
+unit=$T_ROOT/host/systemd/tehas-clean.service
+exec_line=$(grep '^ExecStart=' "$unit")
+t_contains "$exec_line" "bin/tehasbot clean"
+t_lacks "$exec_line" "clean.log"
+t_lacks "$exec_line" ">>"
+
 t_done

@@ -3,7 +3,10 @@ Description=Tehas: remove what the host can make again
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean >> %h/tehas/logs/clean.log 2>&1"
+# No redirect: libexec/clean is the one writer of logs/clean.log and it prints
+# each line as well, so a redirect into that file would write every line twice.
+# The run's own output goes to the journal: journalctl --user -u tehas-clean.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot clean"
 # Three steps: a walk of the kept workspaces, one docker prune, and the scratch
 # under tmp/. A host with a full disk is the slow case, and it is still minutes.
 TimeoutStartSec=30min
