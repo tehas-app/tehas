@@ -42,11 +42,36 @@
 //!     check answers with "integrity" naming what failed and exit 1; it is
 //!     never moved aside.
 //!
-//! This part of the store is the schema, the two housekeeping verbs and
-//! migrate. The verbs of the 13 groups, state-audit and the journal are later
-//! parts of epic #244; an argument this command does not know is exit 64. A
-//! build with debug assertions also has `test-write`, the writer its own tests
-//! run (src/exercise.rs); a release build does not.
+//! This part of the store is the schema, the two housekeeping verbs, migrate,
+//! and the record verbs of cycles, parks, questions, approvals and planning
+//! (src/verbs.rs and the files it names):
+//!
+//!   store cycle-start <issue> [--rukas <commit>] [--by-hand]
+//!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
+//!   store cycle-end <issue> --attempt N --status <word> [...] | --refused | --stopped
+//!   store cycle-show <issue> | --running
+//!   store cycle-note <issue> --kind quiet --said-for <key>
+//!   store cycle-stop-asked <issue> [--said-only]
+//!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
+//!                [--comment-id <id> --body-sha <sha256>]
+//!   store park-show <issue> | --automatic
+//!   store park-retry <issue>
+//!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
+//!   store question-known <issue> --id <id>
+//!   store question-answered <issue> --id <id> --by <account> | --withdraw
+//!   store approval-record <issue> --at <unix> --by <account> --how <how> ... | --undo --at <unix>
+//!   store approval-current <issue>
+//!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> | --undo
+//!   store plan-answer <issue> --turn N --by <account> [--fixer] | --turn N --undo
+//!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
+//!   store plan-show <issue> | --open
+//!
+//! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
+//! verb that refuses says `store: usage <verb>: ...` (64) or
+//! `store: <word> #<issue>: ...` (1). The rest of the 13 groups, state-audit
+//! and the journal are later parts of epic #244; an argument this command does
+//! not know is exit 64. A build with debug assertions also has `test-write`,
+//! the writer its own tests run (src/exercise.rs); a release build does not.
 //!
 //! The database is $TEHAS_HOME/state/tehas.db, mode 0600, made so before
 //! SQLite opens it, in WAL mode with synchronous=FULL and foreign_keys ON on
@@ -71,12 +96,30 @@
 //! 1 a call failed or a precondition was not met, or the database was locked
 //! past the busy timeout, which says `busy`.
 
+mod approval;
+mod cycle;
 mod db;
 #[cfg(debug_assertions)]
 mod exercise;
+mod lock;
+mod park;
+mod plan;
+mod verbs;
 
 #[cfg(test)]
+mod approval_tests;
+#[cfg(test)]
+mod cycle_tests;
+#[cfg(test)]
+mod lock_tests;
+#[cfg(test)]
+mod park_tests;
+#[cfg(test)]
+mod plan_tests;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod verbs_tests;
 
 #[cfg(test)]
 /// The tests call what main() calls: the verbs, the classification of an error,
@@ -101,7 +144,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json]";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-show";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -111,6 +154,10 @@ const MAX_COMMIT: usize = 40;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(Err(why)) = verbs::parse(&args) {
+        eprintln!("store: {why}");
+        return ExitCode::from(64);
+    }
     let Some(verb) = parse(&args) else {
         eprintln!("{USAGE}");
         return ExitCode::from(64);
@@ -150,6 +197,7 @@ pub enum Verb {
     Check,
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
+    Record(verbs::Call),
 }
 
 /// What `init` and `migrate` were given about the installation: the four
@@ -161,6 +209,9 @@ pub enum Verb {
 pub use db::Settings;
 
 fn parse(args: &[String]) -> Option<Verb> {
+    if let Some(call) = verbs::parse(args) {
+        return call.ok().map(Verb::Record);
+    }
     match args {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
@@ -331,6 +382,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
+        Verb::Record(call) => verbs::run(home, call, now),
     }
 }
 

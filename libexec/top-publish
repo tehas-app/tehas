@@ -62,7 +62,7 @@ case "${1:-}" in
         78) exit 78 ;;
         *) ;; # a snapshot or a write that failed: the next mark tries again
       esac
-      sleep $((period - $(date +%s) % period))
+      sleep $((period - EPOCHSECONDS % period))
     done ;;
   *) echo "usage: tehasbot top [--every]" >&2; exit 64 ;;
 esac
