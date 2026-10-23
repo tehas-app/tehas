@@ -111,7 +111,8 @@ test("shipped counts what the label says, not the fifty the list holds", () => {
 test("without the count the shipped figure is the length of the list, as on an older host", () => {
   const shipOf = (extra) => lineView({ status: status(extra), nowMs: NOW }).stages.find((s) => s.key === "ship");
   for (const missing of [{}, { completedCount: null }, { completedCount: "138" },
-    { completedCount: 1.5 }, { completedCount: -3 }, { completedCount: NaN }]) {
+    { completedCount: 1.5 }, { completedCount: -3 }, { completedCount: NaN },
+    { completedCount: Infinity }, { completedCount: -Infinity }]) {
     const ship = shipOf({ completed: [issue(83)], ...missing });
     assert.equal(ship.count, 1, JSON.stringify(missing));
     assert.deepEqual(ship.more, { text: "All 1 shipped",

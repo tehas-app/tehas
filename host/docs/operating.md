@@ -302,10 +302,9 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 person chooses, such as `tehas:urgent` and `tehas:next`.
 
 The pages' **Shipped** figure counts the closed issues that carry
-`tehas:shipped`, the same set its "all shipped" link opens, and not the
-hundred-odd most recent items of its list: an issue a person closes as
-completed without a merged pull request does not carry the label and is not
-counted.
+`tehas:shipped`, and not the hundred-odd most recent items of its list: an
+issue a person closes as completed without a merged pull request does not carry
+the label and is not counted.
 
 When the cycle starts and when it ends, the bot comments on the issue. The token
 usage per agent role is posted on the pull request.

@@ -4,7 +4,7 @@
 # One snapshot of the queue as GitHub sees it (which issues are in line, being
 # worked on, waiting for a human, stopped, completed), whether the last poll
 # found no resources (live/dispatch.json), and the words of the breakroom game.
-# Deterministic, no model, four GitHub calls. The dispatcher runs it at every
+# Deterministic, no model, five GitHub calls. The dispatcher runs it at every
 # poll, and a cycle when it ends.
 #
 # The words are counted over the titles and labels of every issue of the
@@ -39,10 +39,10 @@
 # `planning` is how many open issues carry tehas:plan or tehas:planning: the
 # work being planned, a count only. The same search as the lists finds them.
 #
-# `completedCount` is how many closed issues carry tehas:shipped, which is the
-# set the page's "all shipped" link opens: a count from its own search, so it
-# keeps rising past the fifty the `completed` list holds. Without an answer to
-# that call the snapshot is written with no count, as the words are.
+# `completedCount` is how many closed issues carry tehas:shipped, counted by a
+# search of its own, so it keeps rising past the fifty the `completed` list
+# holds: a whole number from 0 up, or no key at all when the search gave no
+# such number. host/fun/business-view.js says what the page does with it.
 #
 # It writes live/analytics.json, the ten-day report of the factory's
 # analytics (analytics_report below), at every run, the runs that end early
@@ -276,13 +276,19 @@ shipped=$(gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:upda
 shipped=$(jq -ce '.data.search.nodes | map(select(.number != null and .timelineItems.nodes[0].closer.merged == true)
   | {number, title, url, updatedAt, closedAt, labels: [.labels.nodes[].name]})' <<<"$shipped" 2>/dev/null) || exit 0
 # The count the page shows: every closed issue with the label, not the fifty
-# this script reads. A count of the same set as the list's "all" link, so the
-# figure and the link agree. first: 0 asks for the total and no nodes.
+# this script reads. The query is written once here and used for the figure and
+# for the list's "all" link below, so the two cannot drift apart. first: 0 asks
+# for the total and no nodes. A call that answers nothing writes the snapshot
+# with no figure, as the words of the breakroom do; the page then counts the
+# list, as a host without the field does.
+shipped_query="is:issue is:closed label:tehas:shipped"
 # shellcheck disable=SC2016  # $q is a GraphQL variable
-shipped_count=$(gh api graphql -f q="repo:$repo is:issue is:closed label:tehas:shipped" -f query='
-  query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }' 2>/dev/null) || shipped_count=""
-shipped_count=$(jq -ce '.data.search.issueCount | select(type == "number")' <<<"$shipped_count" 2>/dev/null) || shipped_count=""
-completed_count=$shipped_count
+completed_raw=$(gh api graphql -f q="repo:$repo $shipped_query" -f query='
+  query($q: String!) { search(type: ISSUE, query: $q, first: 0) { issueCount } }' 2>/dev/null) || completed_raw=""
+# Only a whole number of issues is published: nothing negative, fractional or
+# beyond what a JavaScript number holds exactly, so the file never carries a
+# figure a reader has to reject.
+completed_count=$(jq -ce '.data.search.issueCount | select(type == "number" and . >= 0 and . == floor and . < 9007199254740992)' <<<"$completed_raw" 2>/dev/null) || completed_count=""
 # The control issue's labels, read once for both of its switches.
 control_read=true
 control_labels=" $(gh issue view "$control" --repo "$repo" --json labels \
@@ -363,15 +369,12 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
   --slurpfile everything <(printf '%s' "$everything") --argjson paused "$paused" \
   --argjson noResources "${no_resources:-false}" --argjson pauseFlag "$pause_flag" --argjson flagPaused "$flag_paused" \
   --argjson lifted "$lifted" --argjson allHands "$all_hands" \
-  --arg completedCount "$completed_count" --arg control "$control" \
+  --arg completedCount "$completed_count" --arg shippedQuery "$shipped_query" --arg control "$control" \
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
   | def has($l): (.labels | map(.name) | index($l)) != null;
   def slim: {number, title, url, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
-  # The count of everything labelled tehas:shipped, from its own search. No
-  # number from that search, no key: the page falls back to the length of the
-  # list below, as it does for a host that has no field at all.
   # The control issue holds the pause label and no outcome. It is not work, so
   # it is never counted in line, being worked on, waiting for a human or waiting
   # to be merged, whatever label someone gives it. The dispatcher starts nothing
@@ -394,11 +397,11 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
         queued: listurl("is:issue is:open label:tehas:ready"),
         awaiting: listurl("is:issue is:open label:tehas:awaiting-merge"),
         stopped: listurl("is:issue is:open label:needs-human-attention"),
-        completed: listurl("is:issue is:closed label:tehas:shipped"),
+        completed: listurl($shippedQuery),
         all: "https://github.com/\($repo)/issues"
       }
     }
-  | with_entries(select(.value != null))
+  | del(if $completedCount == "" then .completedCount else empty end)
   + (if $everything == null then {} else {
       buzzwords: ([$everything[] | objects
                    | ([.title | strings] + [.labels[]?.name? | strings] | join(" ") | ascii_downcase)

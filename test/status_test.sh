@@ -12,6 +12,15 @@ summary="$T_ROOT/libexec/summary"
 live=$T/home/tehas/live
 
 t_stub gh '
+# One answer per search. The query of the count is the only one with the label
+# term: the other asks for merged work, so that term tells the two apart.
+gh_graphql() {
+  case "$1" in
+    *"label:tehas:shipped"*) [ ! -e "$T/count-down" ] || exit 1
+      cat "$T/count.json" ;;
+    *) cat "$T/shipped.json" ;;
+  esac
+}
 [ ! -e "$T/gh-down" ] || exit 1
 case "$*" in
   "issue list"*--search*) cat "$T/issues.json" ;;
@@ -23,10 +32,7 @@ case "$*" in
   # gh is signed in, which is how the releases of a private repository are read.
   "auth status") exit "${GH_AUTH:-0}" ;;
   "api repos/acme/widget/issues/"*"/events"*) cat "$T/events.json" 2>/dev/null || exit 1 ;;
-  "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1
-    # One answer per search: the count asks for no nodes, the list asks for
-    # fifty of them. An answer of one is no answer to the other.
-    case "$*" in *"first: 0"*) [ ! -e "$T/count-down" ] || exit 1; cat "$T/count.json" ;; *) cat "$T/shipped.json" ;; esac ;;
+  "api graphql"*) [ ! -e "$T/shipped-down" ] || exit 1; gh_graphql "$*" ;;
   # The published releases of the platform, for the platform line of a release
   # host; nothing until a case puts the answer there.
   "api repos/"*"/releases"*) [ ! -e "$T/rel.json" ] || cat "$T/rel.json" ;;
@@ -216,6 +222,7 @@ t_contains "$(jq -r .links.completed "$live/status.json")" "label%3Atehas%3Aship
 t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc"
 # The count comes from the search for the label, whose answer says 0 here.
 t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed label:tehas:shipped"
+t_contains "$(t_calls gh)" "first: 0) { issueCount }"
 t_eq "$(jq -r .completedCount "$live/status.json")" 0
 
 t_case "completedCount is every closed issue labelled tehas:shipped, though the list holds only the latest fifty"
@@ -230,17 +237,46 @@ t_eq "$(jq -r '.completed | length' "$live/status.json")" 50
 t_eq "$(jq -r .completedCount "$live/status.json")" 138
 t_eq "$(t_calls gh | grep -c 'api graphql')" 2
 
+# The figure is published as a whole number of issues, or no key at all. An
+# answer that is not one is dropped rather than published for a reader to judge.
+t_case "completedCount is published only as a whole number of issues"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+shipped_count 0
+t_run "$status"
+t_eq "$(jq -r .completedCount "$live/status.json")" 0
+for answer in -0.5 1e400 1E+999 9007199254740992; do
+  shipped_count "$answer"
+  t_run "$status"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
+done
+# The largest count a JavaScript number holds exactly is kept as it is.
+shipped_count 9007199254740991
+t_run "$status"
+t_eq "$(jq -r .completedCount "$live/status.json")" 9007199254740991
+
+# The call failing outright, with an answer that would read well above it.
+t_case "a count call that fails leaves the field out"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
+shipped_count 138
+: >"$T/count-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r 'has("completedCount") ' "$live/status.json")" false
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+
 t_case "a count that cannot be read leaves the field out, and the rest of the snapshot is written"
 reset
 shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
 # The count that cannot be read, however gh answers: the snapshot is written as
-# it was before the field, and the list stands as it is. One of the answers is
-# a gh that fails the count's call outright.
+# it was before the field, and the list stands as it is. A gh that fails the
+# call outright is the case above.
 for answer in '' 'not json' '{"errors": [{"message": "rate limited"}]}' '{"data": {}}' \
   '{"data": {"search": {}}}' '{"data": {"search": {"issueCount": null}}}' \
   '{"data": {"search": {"issueCount": "138"}}}' '{"data": {"search": {"nodes": []}}}'; do
   printf '%s\n' "$answer" >"$T/count.json"
-  rm -f "$T/count-down"
   t_run "$status"
   t_eq "$t_rc" 0
   t_eq "$(jq -r 'has("completedCount")' "$live/status.json")" false
