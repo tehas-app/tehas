@@ -1,0 +1,882 @@
+//! The store against scratch homes: the mode of the file, the refusals that
+//! come before SQLite is asked anything, the four classes of failure, and what
+//! `init` and `check` answer.
+
+use crate::db;
+use crate::{execute, parse, Settings, Verb};
+use rusqlite::Connection;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+fn scratch(name: &str) -> PathBuf {
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "store-test-{}-{}-{name}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::SeqCst)
+    ));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn settings() -> Settings {
+    Settings {
+        version: "v0.10.2".to_string(),
+        commit: "cb6912a".to_string(),
+        instance: "tehas-tehas".to_string(),
+        repo: "example-owner/example-product".to_string(),
+    }
+}
+
+fn init(home: &Path, force: bool) -> Result<String, (u8, String)> {
+    execute(
+        home,
+        &Verb::Init {
+            force,
+            settings: settings(),
+        },
+        1_792_000_000,
+    )
+}
+
+fn check(home: &Path) -> Result<String, (u8, String)> {
+    execute(home, &Verb::Check, 1_792_000_000)
+}
+
+fn one<T: rusqlite::types::FromSql>(conn: &Connection, sql: &str) -> T {
+    conn.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+fn mode(path: &Path) -> u32 {
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[test]
+fn init_makes_a_0600_file_in_a_0700_state_with_its_side_files() {
+    let home = scratch("mode");
+    // The umask of the process is what state/ would take without the store's
+    // own chmod, so the file is only 0700 because the command said so.
+    let line = init(&home, false).unwrap();
+    assert!(line.contains("\"created\":true"), "{line}");
+    let file = db::path(&home);
+    assert_eq!(mode(&file), 0o600);
+    // state/ is 0700 whatever the umask of the caller was: the store made the
+    // directory itself and set the mode on it.
+    assert_eq!(mode(&home.join("state")), 0o700);
+    // The two siblings SQLite makes beside the file are the store's data until
+    // the next checkpoint, so they carry the file's mode too. A database with
+    // no rows to checkpoint has no -wal and no -shm at all once its last
+    // reader has gone, so the mode of the siblings is asked of one that has
+    // them, in the test of the same name below.
+    let conn = Connection::open(&file).unwrap();
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(one::<String>(&conn, "PRAGMA journal_mode"), "wal");
+    // synchronous and foreign_keys answer as integers: 2 is FULL and 1 is ON.
+    assert_eq!(one::<i64>(&conn, "PRAGMA synchronous"), 2);
+    assert_eq!(one::<i64>(&conn, "PRAGMA foreign_keys"), 1);
+}
+
+#[test]
+fn the_wal_and_shm_siblings_take_the_file_s_mode() {
+    let home = scratch("sides");
+    init(&home, false).unwrap();
+    // Rows, so the write goes through the -wal and it is still there for the
+    // next reader to see. The connection is held to the end of the test: when
+    // the last one closes, SQLite checkpoints and removes both siblings, and
+    // then there is no sibling left to ask the mode of.
+    let _held = seed(&home);
+    let file = db::path(&home);
+    for suffix in ["-wal", "-shm"] {
+        let sibling = side(&file, suffix);
+        assert!(sibling.exists(), "{suffix} was not made");
+        assert_eq!(mode(&sibling), 0o600, "{suffix}");
+    }
+}
+
+#[test]
+fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
+    let home = scratch("meta");
+    init(&home, false).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    let got = one::<String>(
+        &conn,
+        "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)",
+    );
+    let mut want = [
+        "created_at=1792000000",
+        "instance=tehas-tehas",
+        "repo=example-owner/example-product",
+        "schema=1",
+        "tehas_commit=cb6912a",
+        "tehas_version=v0.10.2",
+    ]
+    .to_vec();
+    want.sort_unstable();
+    assert_eq!(got.split(' ').collect::<Vec<_>>(), want);
+}
+
+#[test]
+fn init_refuses_an_existing_file_and_writes_nothing() {
+    let home = scratch("exists");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    let before = fs::read(&file).unwrap();
+    // The refusal is the verb's precondition, not the database's, so it is
+    // exit 1 and the word names the file the caller must decide about.
+    let err = init(&home, false).unwrap_err();
+    assert_eq!(err.0, 1, "{}", err.1);
+    assert!(
+        err.1.starts_with("the database exists already"),
+        "{}",
+        err.1
+    );
+    assert_eq!(fs::read(&file).unwrap(), before);
+    // Nothing was added beside it either.
+    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+}
+
+#[test]
+fn force_replaces_an_empty_file_and_refuses_one_with_rows() {
+    let home = scratch("force");
+    let file = db::path(&home);
+    fs::create_dir_all(home.join("state")).unwrap();
+    // An empty file is the store's to fill.
+    fs::write(&file, b"").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+    let line = init(&home, true).unwrap();
+    assert!(line.contains("\"created\":false"), "{line}");
+    assert_eq!(mode(&file), 0o600);
+    // The fill went through the log, so the log and its shared-memory sibling
+    // hold the schema until the next checkpoint and carry the file's mode: the
+    // umask of the caller is not allowed to decide that of them.
+    let _held = seed(&home);
+    for suffix in ["-wal", "-shm"] {
+        let sibling = side(&file, suffix);
+        assert!(sibling.exists(), "{suffix} was not made");
+        assert_eq!(mode(&sibling), 0o600, "{suffix} of a file --force filled");
+    }
+    drop(_held);
+    // A file with rows in it is not.
+    let (code, err) = init(&home, true).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(err.contains("holds tables"), "{err}");
+    let before = fs::read(&file).unwrap();
+    assert!(init(&home, false).is_err());
+    assert_eq!(fs::read(&file).unwrap(), before);
+}
+
+#[test]
+fn force_refuses_a_file_that_is_not_a_database_and_keeps_it() {
+    let home = scratch("force-garbage");
+    let file = db::path(&home);
+    fs::create_dir_all(home.join("state")).unwrap();
+    let garbage = b"not a database, and long enough to be read as a header. ".repeat(20);
+    fs::write(&file, &garbage).unwrap();
+    let (code, err) = init(&home, true).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("corrupt "), "{err}");
+    // ADR 0003: the damaged file stays exactly where a person can read it.
+    assert_eq!(fs::read(&file).unwrap(), garbage);
+    assert!(!home.join("state/tehas.db.broken").exists());
+    assert!(!home.join("state/tehas.db.schema-1").exists());
+    assert_eq!(fs::read_dir(home.join("state")).unwrap().count(), 1);
+}
+
+#[test]
+fn a_link_at_the_path_is_refused_and_its_target_untouched() {
+    let home = scratch("link");
+    let elsewhere = scratch("link-target");
+    let real = elsewhere.join("elsewhere.db");
+    fs::write(&real, b"somebody else's file").unwrap();
+    fs::create_dir_all(home.join("state")).unwrap();
+    std::os::unix::fs::symlink(&real, db::path(&home)).unwrap();
+    for force in [false, true] {
+        let (code, err) = init(&home, force).unwrap_err();
+        assert_eq!(code, 78, "a link is refused, not followed");
+        assert!(err.starts_with("corrupt "), "{err}");
+        assert!(err.contains("is a link"), "{err}");
+    }
+    assert_eq!(fs::read(&real).unwrap(), b"somebody else's file");
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("corrupt "), "{err}");
+    // A link for state/ itself moves the store outside the home.
+    let moved = scratch("link-dir");
+    let elsewhere = scratch("link-dir-target");
+    std::os::unix::fs::symlink(&elsewhere, moved.join("state")).unwrap();
+    let (code, err) = init(&moved, true).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("unreadable "), "{err}");
+    assert!(err.contains("is a link"), "{err}");
+    assert!(!elsewhere.join("tehas.db").exists());
+}
+
+/// Checks that a path outside the home is refused before SQLite is asked
+/// anything, and says which tree it sits in.
+fn guard_path(home: &Path, rel: &str, said: &str) {
+    let file = home.join(rel).join("tehas.db");
+    let err = db::open(&file, db::Purpose::Read).unwrap_err();
+    assert_eq!(err, db::DbError::Unreadable(said.to_string()));
+    assert!(!file.exists());
+}
+
+#[test]
+fn a_path_under_live_or_state_index_is_refused() {
+    let served = scratch("under-live");
+    fs::create_dir_all(served.join("live")).unwrap();
+    guard_path(
+        &served,
+        "live",
+        "the path is under live/, which Caddy serves",
+    );
+    let indexed = scratch("under-index");
+    fs::create_dir_all(indexed.join("state/index")).unwrap();
+    guard_path(
+        &indexed,
+        "state/index",
+        "the path is under state/index, which the indexing container writes",
+    );
+    // A directory that merely has the name is not the tree the rule is about.
+    let named = scratch("named-live");
+    fs::create_dir_all(named.join("state/livelier")).unwrap();
+    assert_eq!(
+        db::open(&named.join("state/livelier/tehas.db"), db::Purpose::Read).unwrap_err(),
+        db::DbError::Missing
+    );
+}
+
+#[test]
+fn each_of_the_four_classes_exits_78_with_its_word() {
+    // missing: no file at all.
+    let home = scratch("missing");
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78);
+    assert_eq!(err, "missing state/tehas.db");
+
+    // corrupt: a file whose bytes are not a database.
+    let home = scratch("corrupt");
+    fs::create_dir_all(home.join("state")).unwrap();
+    fs::write(
+        db::path(&home),
+        b"not a database, and long enough to be read as a header. ".repeat(20),
+    )
+    .unwrap();
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("corrupt the database"), "{err}");
+
+    // corrupt: a good database cut short by one whole page, so the count at its
+    // front names a page the bytes of the file do not reach. SQLite calls that
+    // a malformed image and the spec's table calls it `corrupt`. A cut that
+    // only shortens the last page is not the same case: the count stays honest
+    // about what can still be read and the checks answer ok.
+    let home = scratch("truncated");
+    init(&home, false).unwrap();
+    drop(seed(&home));
+    let file = db::path(&home);
+    checkpoint(&file);
+    let bytes = fs::read(&file).unwrap();
+    assert!(bytes.len() > 4 * 4096, "the seeded file has pages to lose");
+    fs::write(&file, &bytes[..bytes.len() - 4096]).unwrap();
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78, "a truncated file is corrupt");
+    assert!(err.starts_with("corrupt "), "{err}");
+
+    // unreadable: there, but no permission on it.
+    let home = scratch("unreadable");
+    init(&home, false).unwrap();
+    checkpoint(&db::path(&home));
+    fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o000)).unwrap();
+    let (code, err) = check(&home).unwrap_err();
+    fs::set_permissions(db::path(&home), fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("unreadable the database"), "{err}");
+
+    // unreadable: a directory where the file should be.
+    let home = scratch("directory");
+    fs::create_dir_all(home.join("state/tehas.db")).unwrap();
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("unreadable the database"), "{err}");
+
+    // future: user_version ahead of what this binary writes.
+    let home = scratch("future");
+    init(&home, false).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    conn.pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
+        .unwrap();
+    drop(conn);
+    checkpoint(&db::path(&home));
+    let (code, err) = check(&home).unwrap_err();
+    assert_eq!(code, 78);
+    assert!(err.starts_with("future the database"), "{err}");
+    assert!(err.contains("schema 2"), "{err}");
+}
+
+#[test]
+fn the_four_words_are_the_ones_the_spec_names() {
+    let cases: [(db::DbError, &str); 5] = [
+        (db::DbError::Missing, "missing"),
+        (db::DbError::Corrupt("x".into()), "corrupt"),
+        (db::DbError::Unreadable("x".into()), "unreadable"),
+        (db::DbError::Future(2), "future"),
+        (db::DbError::Busy, "busy"),
+    ];
+    for (err, word) in cases {
+        assert_eq!(err.word(), word);
+    }
+}
+
+#[test]
+fn check_reports_schema_1_and_an_integrity_of_ok() {
+    let home = scratch("check");
+    init(&home, false).unwrap();
+    let line = check(&home).unwrap();
+    assert!(
+        line.starts_with("{\"api\":1,\"verb\":\"check\",\"ok\":true"),
+        "{line}"
+    );
+    assert!(line.contains("\"schema\":1"), "{line}");
+    assert!(line.contains("\"integrity\":\"ok\""), "{line}");
+    assert!(line.contains("\"meta\":6"), "{line}");
+    assert!(line.contains("\"issues\":0"), "{line}");
+    assert!(line.ends_with('}'), "{line}");
+    // One object on stdout, one line, valid JSON.
+    assert_eq!(line.lines().count(), 1);
+    let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(value["api"], 1);
+    assert_eq!(value["verb"], "check");
+    assert_eq!(value["ok"], true);
+    let rows = value["rows"].as_object().unwrap();
+    assert_eq!(rows.len(), db::COUNTED_TABLES.len());
+    for table in db::COUNTED_TABLES {
+        assert!(rows.contains_key(table), "{table} is not counted");
+    }
+}
+
+#[test]
+fn every_counted_table_exists_and_every_table_of_the_schema_is_counted() {
+    let home = scratch("tables");
+    init(&home, false).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    let mut q = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap();
+    let names: Vec<String> = q
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    let mut counted: Vec<&str> = db::COUNTED_TABLES.to_vec();
+    counted.sort_unstable();
+    let mut counted: Vec<String> = counted.iter().map(|s| s.to_string()).collect();
+    counted.sort_unstable();
+    assert_eq!(names, counted, "the schema and the counts have diverged");
+    assert_eq!(
+        counted.len(),
+        db::COUNTED_TABLES.len(),
+        "a table is counted twice"
+    );
+    // The indexes by name too, so the test that damages one of them names a
+    // page that exists.
+    let mut q = conn
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap();
+    let names: Vec<String> = q
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    let mut counted: Vec<String> = db::COUNTED_INDEXES.iter().map(|s| s.to_string()).collect();
+    counted.sort_unstable();
+    assert_eq!(
+        names, counted,
+        "the schema and the named indexes have diverged"
+    );
+    assert_eq!(
+        counted.len(),
+        db::COUNTED_INDEXES.len(),
+        "an index is named twice"
+    );
+}
+
+#[test]
+fn check_says_what_failed_and_exits_1_without_moving_the_file() {
+    let home = scratch("integrity");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    checkpoint(&file);
+    // Rows of its own, filled to the width of a title a host really holds: the
+    // seed of the other tests is shorter, and at its width the pages pack so
+    // thin that the first leaf the walk below reaches holds no rows at all.
+    {
+        let conn = db::open(&file, db::Purpose::Write).unwrap();
+        for n in 0..500 {
+            conn.execute(
+                "INSERT INTO issues (issue, kind, kind_at, title, checked_at) VALUES (?1, 'issue', ?2, ?3, ?2)",
+                rusqlite::params![n, 1_792_000_000_i64, format!("row {n} padded out to make pages")],
+            )
+            .unwrap();
+        }
+    }
+    checkpoint(&file);
+    // What is damaged is one entry of the cell pointer array at the end of a
+    // leaf: 13 is the page type that holds rows themselves, and the pointer of
+    // the last cell sits at the very last two bytes of the page. Set to an
+    // offset the page has no bytes at, that row is gone from the table and its
+    // entries in issues_checked remain -- the one disagreement quick_check does
+    // not compare and integrity_check does. The file then opens, answers, and
+    // is ill, and no byte of it reads as malformed: the case the exit of 1 is
+    // for, as distinct from the 78 of a file no open gets through. Most leaves
+    // of the file answer for their own damage at the quick_check of every open
+    // -- a fragment or a freeblock the page never counted, which is the shape
+    // of the file and the word `corrupt` -- so each leaf is asked in turn and
+    // the file is left with the first whose fault only integrity_check reports.
+    // The store reports it and leaves the file exactly where it is.
+    let page_len =
+        usize::try_from(db::pages::file_page_size(&file).expect("the file states its page size"))
+            .unwrap();
+    let base = fs::read(&file).unwrap();
+    let mut bytes = base.clone();
+    // The pages of the other tables are passed over: their own damage is a
+    // fragment or a freeblock the checks of every open read first, and those
+    // are the shape of the file and the word `corrupt`. The walk asks each leaf
+    // of the file in turn, and the first one whose damage only integrity_check
+    // reports is the one the file is left with.
+    let mut damaged = None;
+    for page in 1.. {
+        let offset = match db::pages::page_offset(&file, page) {
+            Some(o) => usize::try_from(o).unwrap(),
+            None => break,
+        };
+        if base[offset] != 0x0d {
+            continue;
+        }
+        // More than a few cells, so the page is one that really holds rows and
+        // the pointer at its end is a row's and not SQLite's own.
+        if db::pages::cell_count(&file, page).unwrap_or(0) <= 3 {
+            continue;
+        }
+        let entry = offset + page_len - 2;
+        let mut tried = base.clone();
+        tried[entry] = 0x01;
+        tried[entry + 1] = 0x01;
+        fs::write(&file, &tried).unwrap();
+        match check(&home) {
+            Err((1, err)) => {
+                assert!(err.starts_with("integrity "), "{err}");
+                assert_ne!(err, "integrity ok", "{err}");
+                bytes = tried;
+                damaged = Some(page);
+                break;
+            }
+            // Some other structure of the page answered first, or nothing did:
+            // put the page back as it was and ask the next one.
+            Err((78, _)) | Ok(_) => fs::write(&file, &base).unwrap(),
+            Err((code, err)) => panic!("unexpected {code}: {err}"),
+        }
+    }
+    assert!(
+        damaged.is_some(),
+        "no leaf of the file holds a row whose loss only integrity_check sees"
+    );
+    // The bytes of the winner are back in the file: the loop left them there,
+    // and this writes them once more so that what the check below reads is the
+    // file and not a lucky leftover of the search.
+    fs::write(&file, &bytes).unwrap();
+    match check(&home) {
+        Err((1, err)) => {
+            assert!(err.starts_with("integrity "), "{err}");
+            assert_ne!(err, "integrity ok", "{err}");
+        }
+        Err((code, err)) => panic!("unexpected {code}: {err}"),
+        Ok(line) => panic!("the damage went unnoticed: {line}"),
+    }
+    assert_eq!(fs::read(&file).unwrap(), bytes);
+    // Nothing moved aside and nothing quarantined: the store of ADR 0003 keeps
+    // the file exactly where it is. Only the two names SQLite gives a database
+    // with a log are allowed beside it, and no third -- a `.broken` of the
+    // analytics program's habit would be one, and so is any copy of the file
+    // under another name.
+    let mut kept = fs::read_dir(home.join("state"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect::<Vec<_>>();
+    kept.sort();
+    let allowed = ["tehas.db", "tehas.db-shm", "tehas.db-wal"];
+    let allowed: Vec<std::ffi::OsString> = allowed.iter().map(std::ffi::OsString::from).collect();
+    for name in &kept {
+        assert!(
+            allowed.contains(name),
+            "state/ holds {name:?}, which the verb put there"
+        );
+    }
+    assert!(
+        kept.contains(&std::ffi::OsString::from("tehas.db")),
+        "the file is gone"
+    );
+}
+
+#[test]
+fn a_page_of_an_empty_table_holds_nothing_to_damage() {
+    // Why the test above damages a page with rows on it: a byte of the page of
+    // a table with none is SQLite's own header, and changing it answers the
+    // same as leaving it.
+    let home = scratch("empty-page");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+    checkpoint(&file);
+    let conn = db::open_read_only(&file).unwrap();
+    let page = db::pages::page_of(&conn, "issues").unwrap();
+    drop(conn);
+    let offset = db::pages::page_offset(&file, page).unwrap() as usize;
+    let mut bytes = fs::read(&file).unwrap();
+    bytes[offset + 0x20] ^= 0xff;
+    fs::write(&file, &bytes).unwrap();
+    assert_eq!(fs::read(&file).unwrap(), bytes);
+    assert!(check(&home).is_ok());
+}
+
+#[test]
+fn a_locked_database_is_exit_1_and_the_word_busy() {
+    let home = scratch("busy");
+    init(&home, false).unwrap();
+    // A second connection holds the write lock, and the store is made to want
+    // it: opening a database reads no page, so the contention has to be asked
+    // for rather than hoped for. The holder waits for nothing, so the store
+    // cannot win the race and must report it.
+    let mut holder = Connection::open(db::path(&home)).unwrap();
+    holder.pragma_update(None, "busy_timeout", 0).unwrap();
+    let tx = holder
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .unwrap();
+    tx.execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
+        .unwrap();
+    let err = db::open_write(&db::path(&home)).unwrap_err();
+    assert_eq!(err, db::DbError::Busy, "{err:?}");
+    assert_eq!(err.word(), "busy");
+    drop(tx);
+    // Once the lock is gone the same call answers, so the word is the lock's
+    // and not the file's.
+    assert!(db::open_write(&db::path(&home)).is_ok());
+    assert!(check(&home).is_ok());
+}
+
+#[test]
+fn an_unknown_verb_or_argument_is_64() {
+    let home = scratch("usage");
+    for args in [
+        &[][..],
+        &["migrate"][..],
+        &["state-audit"][..],
+        &["cycle-start", "12"][..],
+        &["check", "--json", "--json"][..],
+        &["check", "--force"][..],
+        &["init", "--json", "--json"][..],
+        &["init", "--force", "--force"][..],
+        &["init", "--version"][..],
+        &["init", "--repo", "not a repo"][..],
+        &["init", "--repo", "two/slashes/here"][..],
+        &["init", "--commit", "zzzzzzz"][..],
+        &["init", "--instance", ""][..],
+        &["init", "extra"][..],
+        &["--json"][..],
+    ] {
+        assert_eq!(
+            parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+            None,
+            "{args:?}"
+        );
+    }
+    // Nothing was written by a call that stopped at its arguments.
+    assert!(!home.join("state").exists());
+}
+
+/// The arguments of init, with these settings.
+fn init_args(extra: &[&str]) -> Vec<String> {
+    let mut v = vec!["init".to_string()];
+    v.extend(extra.iter().map(|s| s.to_string()));
+    v
+}
+
+#[test]
+fn the_arguments_init_accepts_are_the_ones_it_states() {
+    let _home = scratch("accepted");
+    assert_eq!(parse(&init_args(&[])), None, "the settings are required");
+    assert!(
+        parse(&init_args(&["--repo", "a/b"])).is_none(),
+        "one setting is not enough"
+    );
+    let full: &[&str] = &[
+        "--version",
+        "v0.10.2",
+        "--commit",
+        "cb6912a",
+        "--instance",
+        "tehas-tehas",
+        "--repo",
+        "example-owner/example-product",
+    ];
+    assert_eq!(
+        parse(&init_args(full)),
+        Some(Verb::Init {
+            force: false,
+            settings: settings()
+        })
+    );
+    let mut forced = vec!["--force", "--json"];
+    forced.extend_from_slice(full);
+    assert_eq!(
+        parse(&init_args(&forced)),
+        Some(Verb::Init {
+            force: true,
+            settings: settings()
+        })
+    );
+    assert_eq!(parse(&init_args(&["--json"])), None);
+    assert_eq!(
+        parse(&["check".to_string(), "--json".to_string()]),
+        Some(Verb::Check)
+    );
+}
+
+#[test]
+fn the_schema_holds_every_table_of_the_spec_with_its_checks() {
+    let home = scratch("schema");
+    init(&home, false).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    // A value outside a CHECK is refused rather than stored.
+    for (sql, what) in [
+        (
+            "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (1, 'thing', 1, 1)",
+            "issues.kind",
+        ),
+        (
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (1, 1, 'a', 'because')",
+            "cycles.how",
+        ),
+        (
+            "INSERT INTO questions (id, issue, attempt, kind, posted_at) VALUES (1, 1, 1, 'blockers', 1)",
+            "questions.kind",
+        ),
+        (
+            "INSERT INTO improve_cap (id, cap, set_at) VALUES (1, 9, 1)",
+            "improve_cap.cap",
+        ),
+        (
+            "INSERT INTO pause_flag (id, at, reason, by_account) VALUES (2, 1, 'r', 'a')",
+            "pause_flag holds at most one row",
+        ),
+    ] {
+        assert!(conn.execute(sql, []).is_err(), "{what} accepted a bad row");
+    }
+    // foreign_keys is on for the connection, so a cycle with no issue goes no
+    // further than the key.
+    assert!(conn
+        .execute(
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+            []
+        )
+        .is_err());
+    conn.execute(
+        "INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (7, 1, 'a', 'label')",
+        [],
+    )
+    .unwrap();
+    // Deleting the issue takes the cycle's row with it, which is what the keys
+    // of section 3 mean.
+    conn.execute("DELETE FROM issues WHERE issue = 7", [])
+        .unwrap();
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM cycles WHERE issue = 7"),
+        0
+    );
+}
+
+#[test]
+fn the_open_connections_carry_the_pragmas_a_reader_must_not_forget() {
+    // foreign_keys is per-connection and never stored in the file, so a
+    // connection the store opened has it set and a bare one does not.
+    let home = scratch("pragmas");
+    init(&home, false).unwrap();
+    let store = db::open(&db::path(&home), db::Purpose::Read).unwrap();
+    assert_eq!(one::<i64>(&store, "PRAGMA foreign_keys"), 1);
+    assert_eq!(one::<i64>(&store, "PRAGMA synchronous"), 2);
+    // The other half of the same fact: the pragma is the store's to set and
+    // nobody else's, so what a connection it did not open would see is
+    // settled by the file's own bytes rather than by a live connection. A new
+    // connection of a database that still has a -wal is handed the state the
+    // last one left there, which would answer for the store rather than for
+    // the file.
+    let bytes = fs::read(db::path(&home)).unwrap();
+    assert!(
+        !bytes.windows(13).any(|w| w == b"foreign_keys="),
+        "the pragma belongs to the connection, not to the file"
+    );
+    // And what the key buys: through the store's own connection a cycle with no
+    // issue of its own is refused, so the line in prepare is not decoration.
+    let store = db::open(&db::path(&home), db::Purpose::Write).unwrap();
+    assert!(store
+        .execute(
+            "INSERT INTO cycles (issue, started_at, started_by, how) VALUES (4242, 1, 'a', 'label')",
+            []
+        )
+        .is_err());
+}
+
+#[test]
+fn an_open_refuses_a_file_that_is_not_a_database_at_all() {
+    // The check every open runs is what turns SQLite's answer into the word
+    // `corrupt`: a file that is not a database is refused before any verb reads
+    // a byte of it, and is left where it is.
+    let home = scratch("not-a-database");
+    fs::create_dir_all(home.join("state")).unwrap();
+    let file = db::path(&home);
+    fs::write(&file, b"#!/bin/sh\necho not a database\n".repeat(60)).unwrap();
+    for purpose in [db::Purpose::Read, db::Purpose::Write] {
+        let err = db::open(&file, purpose).unwrap_err();
+        assert_eq!(err.word(), "corrupt", "{err:?}");
+    }
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        b"#!/bin/sh\necho not a database\n".repeat(60),
+        "the refused file is not touched"
+    );
+}
+
+#[test]
+fn every_way_into_the_store_refuses_a_malformed_image() {
+    // missing, corrupt, unreadable and future are the answer of every way in,
+    // not of `check` alone: an open is what reads the file, so a verb cannot
+    // get further than it. The truncated file stands for the malformed image.
+    let home = scratch("all-opens-refuse");
+    init(&home, false).unwrap();
+    drop(seed(&home));
+    let file = db::path(&home);
+    checkpoint(&file);
+    let bytes = fs::read(&file).unwrap();
+    fs::write(&file, &bytes[..bytes.len() - 4096]).unwrap();
+    for purpose in [db::Purpose::Read, db::Purpose::Write] {
+        let err = db::open(&file, purpose).unwrap_err();
+        assert_eq!(err.word(), "corrupt", "{err:?}");
+    }
+    let err = db::open_read_only(&file).unwrap_err();
+    assert_eq!(err.word(), "corrupt", "{err:?}");
+    assert_eq!(
+        fs::read(&file).unwrap().len(),
+        bytes.len() - 4096,
+        "the file is not repaired or moved"
+    );
+}
+
+#[test]
+fn the_command_s_exit_and_its_line_carry_the_class_of_the_failure() {
+    // The unit tests above call the verbs; this is the shape of what a caller
+    // gets: the word as the first word of the line on standard error, the exit
+    // the spec's table gives it, and one object on standard output for a verb
+    // that answered. It is what line() builds, so it is tested here rather than
+    // by watching a process.
+    let home = scratch("exit-codes");
+    init(&home, false).unwrap();
+    let file = db::path(&home);
+
+    // The success of check, and the object's first field.
+    let ok = check(&home).unwrap();
+    assert!(ok.starts_with("{\"api\":1,\"verb\":\"check\""), "{ok}");
+    assert_eq!(ok.lines().count(), 1, "one object is one line");
+
+    // The four classes, each with its word first and 78 behind it.
+    let cases: [(db::DbError, u8, &str); 4] = [
+        (db::DbError::Missing, 78, "missing state/tehas.db"),
+        (
+            db::DbError::Corrupt("disk image".into()),
+            78,
+            "corrupt the database: disk image",
+        ),
+        (
+            db::DbError::Unreadable("no permission".into()),
+            78,
+            "unreadable the database: no permission",
+        ),
+        (
+            db::DbError::Future(2),
+            78,
+            "future the database: the database has schema 2",
+        ),
+    ];
+    for (err, code, want) in cases {
+        assert_eq!(crate::line(err), (code, want.to_string()));
+    }
+    // A lock is not one of the four: it is exit 1 with its own word.
+    let (code, msg) = crate::line(db::DbError::Busy);
+    assert_eq!(code, 1);
+    assert!(msg.starts_with("busy "), "{msg}");
+
+    // The same words through the verbs themselves, at files that are really so.
+    let missing = scratch("no-file");
+    let (code, err) = check(&missing).unwrap_err();
+    assert_eq!((code, err.as_str()), (78, "missing state/tehas.db"));
+    drop(file);
+}
+
+// The WAL siblings are named by appending to the database's name.
+fn side(file: &Path, suffix: &str) -> PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Rows enough that the file has pages of its own to damage or truncate: at a
+/// few dozen the whole table still sits inside the single page it is reached
+/// from, and a file with nothing in it but its schema has no page of a table at
+/// all. The connection is returned rather than dropped, because SQLite removes
+/// the -wal and -shm only when the last connection closes and the rows are the
+/// file's data until the next checkpoint.
+const SEED_ROWS: i64 = 1000;
+
+fn seed(home: &Path) -> Connection {
+    let conn = db::open(&db::path(home), db::Purpose::Write).unwrap();
+    for n in 0..SEED_ROWS {
+        conn.execute(
+            "INSERT INTO issues (issue, kind, kind_at, title, checked_at) VALUES (?1, 'issue', ?2, ?3, ?2)",
+            rusqlite::params![n, 1_792_000_000_i64, format!("the issue number {n} and its title")],
+        )
+        .unwrap();
+    }
+    conn
+}
+
+/// Puts the rows in the file proper, so what is on disk is what a reader meets.
+/// A file the store will not open -- the one of the future case, whose
+/// user_version is ahead of this binary -- is asked in the plain way instead,
+/// which is enough: the caller has already decided what is wrong with it and
+/// only wants the bytes of it on disk rather than in a log beside it.
+fn checkpoint(file: &Path) {
+    match db::open(file, db::Purpose::Write) {
+        Ok(conn) => conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .unwrap(),
+        Err(_) => {
+            let conn = Connection::open(file).unwrap();
+            conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+                .unwrap();
+        }
+    }
+    // When the last connection to a database closes with nothing in its log,
+    // SQLite checkpoints and removes both siblings itself; there is nothing
+    // left to take away, so this only clears what is still there.
+    for suffix in ["-wal", "-shm"] {
+        let sibling = side(file, suffix);
+        if sibling.exists() {
+            fs::remove_file(&sibling).unwrap();
+        }
+    }
+}
