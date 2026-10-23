@@ -114,16 +114,20 @@ fi
 hits=0
 shown() { printf '%s' "${1//$'\n'/\\n}"; }
 report() { # <path> <matching lines>
-  printf '%s\n' "$2" | sed "s|^|$(shown "$1"):|"
-  hits=$((hits + $(printf '%s\n' "$2" | wc -l)))
+  local prefix line
+  prefix=$(shown "$1")
+  while IFS= read -r line; do
+    printf '%s:%s\n' "$prefix" "$line"
+    hits=$((hits + 1))
+  done <<<"$2"
 }
 while IFS= read -r -d '' path; do
   [ -f "$path" ] || continue
   [ "$path" = scripts/check-generic.names ] && continue
-  if [ "$names_only" -eq 0 ] && out=$(grep -n -a -i -E "$addresses" "$path"); then report "$path" "$out"; fi
+  if [ "$names_only" -eq 0 ] && out=$(grep -n -a -i -E -e "$addresses" -- "$path"); then report "$path" "$out"; fi
   [ -n "$names" ] || continue
   excluded "$path" && continue
-  printf '%s\n' "$path" | grep -q -i -E "$names"
+  printf '%s\n' "$path" | grep -q -i -E -e "$names"
   case $? in
     0)
       echo "$(shown "$path"): path names a listed name"
@@ -132,7 +136,7 @@ while IFS= read -r -d '' path; do
     1) ;;
     *) echo "check-generic: invalid name expression in scripts/check-generic.names" >&2; exit 1 ;;
   esac
-  if out=$(grep -n -I -i -E "$names" "$path"); then
+  if out=$(grep -n -I -i -E -e "$names" -- "$path"); then
     report "$path" "$out"
   else
     rc=$?
@@ -145,11 +149,11 @@ if [ -n "$range" ] && [ -n "$names" ]; then
     echo "check-generic: cannot read the commits in $range" >&2
     exit 2
   fi
-  if out=$(printf '%s\n' "$log" | grep -n -i -E "$names"); then
+  if out=$(printf '%s\n' "$log" | grep -n -i -E -e "$names"); then
     report "commit messages" "$out"
   fi
   branch=${GITHUB_HEAD_REF:-$(git symbolic-ref -q --short HEAD)}
-  if printf '%s\n' "$branch" | grep -q -i -E "$names"; then
+  if printf '%s\n' "$branch" | grep -q -i -E -e "$names"; then
     echo "branch: $branch"
     hits=$((hits + 1))
   fi
