@@ -140,6 +140,13 @@ stopping at the first step that fails, it:
 A second run changes nothing that is right. A setting that is there and
 differs is not replaced without `--force`. See [tehas setup](/tools#tehas-setup).
 
+A program that brings a host current without a terminal runs `install.sh` and
+then `tehas update --pending`: the copies, then the follow-ups `install.sh`
+recorded in `~/tehas/state/update-pending`. `--pending` runs no git command and
+no `install.sh`, so it finishes an install on a host whose checkout is at a
+release tag or whose remote is not reachable, where `tehas update` stops. See
+[tehas update](/tools#tehas-update).
+
 ### 4. The product's files
 
 ```
@@ -280,7 +287,10 @@ default, and holds fewer than four containers. A host with less than about 11 Gi
 All settings are on the [commands page](/tools).
 
 After a change to the instance, run `~/tehas/current/install.sh --check`, then
-`tehas update`, which runs `install.sh` and the follow-ups it asks for.
+`tehas update`, which runs `install.sh` and the follow-ups it asks for. Where the
+checkout cannot be moved - it is at a release tag, or its remote does not answer -
+`tehas update --pending` runs the follow-ups `install.sh` recorded and no git
+command; see [tehas update](/tools#tehas-update).
 
 ## Optional parts
 

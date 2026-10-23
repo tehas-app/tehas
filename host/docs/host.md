@@ -240,6 +240,7 @@ host:
 tehas update --check     # report what would change; changes no file of the
                          # checkout or of the host (origin/ refs do move)
 tehas update             # pull, install, run the follow-ups that apply
+tehas update --pending   # run only the follow-ups the record lists: no git
 ```
 
 You do not have to remember to look. `tehas status` has a `platform` line
@@ -264,6 +265,14 @@ than report a changed unit as applied. A step that fails leaves the ones before 
 applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
 until it has run, so the next update finishes it instead of calling the host
 current.
+
+The third form is for the host that cannot do the first two: `--pending` runs the
+steps `update-pending` lists and calls no git command and no `install.sh`. A
+checkout at a release tag, or a remote that is a local path which stopped
+answering, stops a plain update at its first step and leaves the follow-ups of
+the install it did run owed; `--pending` finishes them. `install.sh` and then
+`tehas update --pending` is what a program runs to bring a host current without
+moving the checkout. See [tehas update](/tools#tehas-update).
 
 One update runs at a time. `tehas update` and a real run of `install.sh` hold
 `~/tehas/state/update.lock`; a second one started meanwhile waits
@@ -348,6 +357,15 @@ holds steps that were asked for and never ran. While it does, `--check`
 exits 1, because a host with files matching and a step unapplied is not current.
 Running `tehas update` runs them and clears the record
 ([Troubleshooting](/troubleshooting) has the case in full).
+
+The record is also the way to finish an install on a host that cannot run an
+update. A checkout at a release tag has no branch to fast-forward, and a remote
+that is a local path can stop answering, while the copies `install.sh` made are
+already in place. `tehas update --pending` reads that record, runs the steps it
+lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
+A program finishes an install with `install.sh` and then that command; see
+[tehas update](/tools#tehas-update).
 
 One file of a host is not tehas's to install. `sudo ./bootstrap.sh dev` puts
 `host/login/tehas` at `/usr/local/bin/tehas` as root, and an update can change
@@ -523,7 +541,9 @@ git reset --hard <commit>
 `git checkout <tag>` does not do: `tehas update` refuses a detached checkout.
 While `~/tehas/state/update-hold` exists, `tehas update` exits 1 naming the
 file and changes nothing, and `tehas update --check` says the hold is there.
-So the `next:` lines `install.sh` prints are run by hand:
+`tehas update --pending` runs with the hold there and from a detached checkout,
+because it moves nothing: the `next:` lines `install.sh` printed are its, not
+steps you have to work through yourself. Run by hand, they are:
 
 | Step      | By hand                                                                          |
 | --------- | -------------------------------------------------------------------------------- |
@@ -533,7 +553,7 @@ So the `next:` lines `install.sh` prints are run by hand:
 | `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
 
 They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
-reports them, until a `tehas update` runs them. When a fixed release is out,
+reports them, until `tehas update --pending` or a `tehas update` runs them. When a fixed release is out,
 remove the hold and run `tehas update`.
 
 ## Models

@@ -187,6 +187,15 @@ owed_steps() { cat "$owed_file" 2>/dev/null || true; }
 
 instance() { t_instance "${T_MINIMAL[@]}"; }
 
+# The record of steps owed, written as install.sh writes it. --pending takes the
+# record as its whole work list, so a case names the lines it wants run rather
+# than the sources an install stub would have changed. platform() wipes the host,
+# so the state directory it would hold the record in is made here.
+record() {
+  mkdir -p "${owed_file%/*}"
+  printf '%s\n' "$@" >"$owed_file"
+}
+
 # The tehas.rukas label of the sandbox image, as `docker image inspect` answers
 # it. The rest of docker keeps answering what platform() gave it: the ps of the
 # two compose projects, and the capabilities of a build. "none" is an image with
