@@ -51,6 +51,17 @@ t_lacks "$(t_calls gh)" "acme/rukas"
 t_contains "$(cat "$T/calls/body-101")" "A cycle here cannot fix it and must not work around it: it changes no code"
 t_lacks "$(cat "$T/calls/body-101")" "a cycle builds the fix"
 
+t_case "with TEHAS_IMPROVE_RUKAS_SKIP=1 a pi-rukas finding is not filed anywhere, and is counted"
+ready
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_SKIP=1
+findings "$(finding "The gate runs twice")" "$(rukas_finding "The driver drops a path")" "$(finding Bad '{"category":"other"}')"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/filed-in")" "acme/factory"
+t_eq "$(titles)" "The gate runs twice"
+t_contains "$t_out" "findings=3 invalid=1 duplicates=0"
+t_contains "$t_out" "filed=1 issues=#101 rechecked=0 skipped=1"
+
 t_case "a title open in either repository is not filed again"
 for where in open rukas-open; do
   ready
@@ -232,6 +243,15 @@ t_contains "$body" "**The half for pi-rukas**
 
 Size the gate from the cgroup."
 t_contains "$(t_calls gh)" "--label cross-project"
+
+t_case "with TEHAS_IMPROVE_RUKAS_SKIP=1 a boundary finding is still one issue with both halves"
+ready
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_SKIP=1
+findings "$(boundary_finding "Gates time out")"
+t_run "$improve"
+t_contains "$t_out" "filed=1 issues=#101"
+t_lacks "$t_out" "skipped="
+t_contains "$(cat "$T/calls/body-101")" "**The half for pi-rukas**"
 
 t_case "the halves of a finding of another category are left out"
 ready

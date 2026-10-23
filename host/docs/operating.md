@@ -929,6 +929,11 @@ stack is filed as an issue of its own in that repository.
   has the limit of 10 open issues to itself, so one that is full does not
   hold the other back. How a fix then reaches the host is
   under [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
+- **Or none at all.** With `TEHAS_IMPROVE_RUKAS_SKIP=1` a finding of the
+  category `pi-rukas` is not filed anywhere, and the run line counts it as
+  `skipped`. This is for a host whose pi-rukas developers read its cycles
+  themselves, through the [MCP server](/mcp-server). It cannot be set with
+  `TEHAS_IMPROVE_RUKAS_REPO`, and no issue there is checked again.
 - **A finding at the boundary is two issues.** The category `boundary` is
   for a problem with a half in the factory and a half in pi-rukas, or a
   shape the two have to agree on. Each half is filed in its own repository,
@@ -997,7 +1002,8 @@ than the limits allow and are dropped. `filed` and `issues` are what was
 opened. An issue in the repository for pi-rukas is written with its
 repository, as `acme/rukas#12`. `rechecked` is how many comments were posted
 on issues that were worked on again; one GitHub refused follows as
-`not-commented=acme/rukas#12`. A run reads at most five cycles, the oldest
+`not-commented=acme/rukas#12`. `skipped=2` says two findings about pi-rukas
+were not filed. A run reads at most five cycles, the oldest
 first; `left=2` at the end says two wait for the next run. `stopped=124
 returned=2` says the analyst hit its bound of 60 minutes: what it had written
 was filed, and the two cycles it named nowhere wait for a later run.
