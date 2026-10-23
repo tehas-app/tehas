@@ -30,28 +30,48 @@
 # tehas itself (host tehas-tehas); those names are allowed. Addresses in
 # examples come from the documentation ranges (192.0.2.0/24 and the like).
 #
-# Usage: scripts/check-generic.sh [--messages <rev-range>]
+# File paths are checked against the names too, tracked or not and ignored
+# files aside: a path that matches is reported as "<path>: path names a listed
+# name". An allow line exempts a path from this as from the content check.
+#
+# With --names-only the address rule is skipped, for an infrastructure
+# repository that must hold addresses. Names in content, paths and, with
+# --messages, commit messages and the branch are still checked. Without a names
+# list it says so and exits 0. The flags combine in either order.
+#
+# Usage: scripts/check-generic.sh [--names-only] [--messages <rev-range>]
 # Exit 0 clean, 1 with the offending lines, 2 on a bad argument.
 set -uo pipefail
 
+usage="usage: scripts/check-generic.sh [--names-only] [--messages <rev-range>]"
 range=""
-case "${1:-}" in
-  '') ;;
-  --messages)
-    range=${2:-}
-    if [ -z "$range" ] || [ $# -gt 2 ]; then
-      echo "usage: scripts/check-generic.sh [--messages <rev-range>]" >&2
+names_only=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --names-only) names_only=1 ;;
+    --messages)
+      range=${2:-}
+      if [ -z "$range" ] || [ "${range#-}" != "$range" ]; then
+        echo "$usage" >&2
+        exit 2
+      fi
+      shift
+      ;;
+    *)
+      echo "$usage" >&2
       exit 2
-    fi
-    ;;
-  *)
-    echo "usage: scripts/check-generic.sh [--messages <rev-range>]" >&2
-    exit 2
-    ;;
-esac
+      ;;
+  esac
+  shift
+done
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
+
+if [ -n "$range" ] && ! git rev-list --end-of-options "$range" >/dev/null 2>&1; then
+  echo "check-generic: cannot read the commits in $range" >&2
+  exit 2
+fi
 
 # A private address or name. An IPv4 address counts only when it does not
 # continue a longer number.
@@ -86,29 +106,42 @@ excluded() {
   return 1
 }
 
-[ "$have_list" -eq 1 ] || echo "check-generic: no names list, names not checked"
+if [ "$have_list" -eq 0 ]; then
+  echo "check-generic: no names list, names not checked"
+  [ "$names_only" -eq 0 ] || exit 0
+fi
 
 hits=0
+shown() { printf '%s' "${1//$'\n'/\\n}"; }
 report() { # <path> <matching lines>
-  printf '%s\n' "$2" | sed "s|^|$1:|"
+  printf '%s\n' "$2" | sed "s|^|$(shown "$1"):|"
   hits=$((hits + $(printf '%s\n' "$2" | wc -l)))
 }
-while IFS= read -r path; do
+while IFS= read -r -d '' path; do
   [ -f "$path" ] || continue
   [ "$path" = scripts/check-generic.names ] && continue
-  if out=$(grep -n -a -i -E "$addresses" "$path"); then report "$path" "$out"; fi
+  if [ "$names_only" -eq 0 ] && out=$(grep -n -a -i -E "$addresses" "$path"); then report "$path" "$out"; fi
   [ -n "$names" ] || continue
   excluded "$path" && continue
+  printf '%s\n' "$path" | grep -q -i -E "$names"
+  case $? in
+    0)
+      echo "$(shown "$path"): path names a listed name"
+      hits=$((hits + 1))
+      ;;
+    1) ;;
+    *) echo "check-generic: invalid name expression in scripts/check-generic.names" >&2; exit 1 ;;
+  esac
   if out=$(grep -n -I -i -E "$names" "$path"); then
     report "$path" "$out"
   else
     rc=$?
     [ "$rc" -le 1 ] || { echo "check-generic: invalid name expression in scripts/check-generic.names" >&2; exit 1; }
   fi
-done < <(git ls-files --cached --others --exclude-standard)
+done < <(git ls-files -z --cached --others --exclude-standard)
 
 if [ -n "$range" ] && [ -n "$names" ]; then
-  if ! log=$(git log --format=%B "$range"); then
+  if ! log=$(git log --format=%B --end-of-options "$range"); then
     echo "check-generic: cannot read the commits in $range" >&2
     exit 2
   fi
