@@ -135,6 +135,19 @@ pub fn path(home: &Path) -> PathBuf {
     home.join("state").join("tehas.db")
 }
 
+/// What the caller said about the installation, for the rows of `meta` that a
+/// migration from schema 0 writes. Each value arrives from the command that
+/// loaded the instance's settings, which is the shape the verb states: the rules
+/// of a valid setting stay in lib/config.sh, and `write_schema` refuses a value
+/// that came empty rather than writing a row that says nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Settings {
+    pub version: String,
+    pub commit: String,
+    pub instance: String,
+    pub repo: String,
+}
+
 /// The checks that run before anything opens the file, so a bad path stops the
 /// command before SQLite is given it: the file and its directory must be real,
 /// not links, and the path must not sit under a tree a container writes.
@@ -324,16 +337,36 @@ pub fn open(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
     Ok(conn)
 }
 
-/// The write path of `open`, with the write lock taken at once: a verb that
-/// writes wants to meet a lock before it has read anything and decided, and
-/// SQLite will not answer SQLITE_BUSY for a read-only open. Every write verb
-/// opens the store this way, so `busy` is the answer a contended host gets
-/// rather than a transaction that fails halfway.
+/// The write lock, taken and handed back: a verb that writes wants to meet a
+/// lock before it has read anything and decided, and SQLite will not answer
+/// SQLITE_BUSY for a read-only open. The lock is given back before the
+/// connection is returned, so the caller holds the store's attention and not
+/// its write lock: SQLite will not copy or vacuum a database that one is open
+/// on, so a verb that locks, reads, copies and then writes has to be between
+/// the two statements rather than inside a transaction. `lock` is what a verb
+/// that only writes takes, and holds.
 #[cfg(test)]
 pub fn open_write(file: &Path) -> Result<Connection, DbError> {
+    let conn = lock(file)?;
+    settle(&conn)?;
+    Ok(conn)
+}
+
+/// `open` for a verb that writes, with the write lock left held. A verb that
+/// takes the lock and never ends it holds a write lock with no transaction,
+/// which the next caller's busy timeout then pays for: `settle` below, or the
+/// commit of a step, is the statement that ends it.
+pub fn lock(file: &Path) -> Result<Connection, DbError> {
     let conn = open(file, Purpose::Write)?;
     conn.execute("BEGIN IMMEDIATE", []).map_err(classify)?;
     Ok(conn)
+}
+
+/// The statement that gives the write lock back, for the verb that looked at
+/// the store and has nothing to write: nothing was changed, so there is nothing
+/// to commit, and SQLite asks for the word all the same.
+pub fn settle(conn: &Connection) -> Result<(), DbError> {
+    conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
 /// The same checks and the same connection as `open`, for the reader that must
@@ -362,7 +395,10 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
     if file.exists() {
         // The mode is put on the file before SQLite is given it, as `open`
         // would have: a file that came from elsewhere with 0644 on it is the
-        // store's file now.
+        // store's file now. The verb that reaches here with a file that is
+        // already there is `init --force` over an empty one and a migration of
+        // one the host made with `touch`: either is filled with the store's
+        // rows, so neither keeps the mode it arrived with.
         set_mode(file, 0o600)?;
     } else if let Some(dir) = file.parent() {
         // state/ is made 0700 and kept that way: with WAL on, a readable
@@ -370,7 +406,7 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
         // says, and today ordinary mkdir leaves it at the umask.
         fs::create_dir_all(dir)
             .map_err(|e| DbError::Unreadable(format!("cannot make {}: {e}", dir.display())))?;
-        set_mode(dir, 0o700)?;
+        settle_state_dir(dir)?;
         // Made mode 0600 before SQLite sees it, so the -wal and -shm siblings
         // it makes beside it take the same mode. O_EXCL: `init` has already
         // refused a file that exists, so one that appears here is another
@@ -442,9 +478,44 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     Ok(())
 }
 
+/// The mode of the store's own file: 0600, before SQLite is given it. Named for
+/// the verbs that write and did not make the file -- `create` sets it on the one
+/// it made, and `migrate` sets it on the empty one a host made with `touch`
+/// before calling the verb.
+pub fn set_file_mode(file: &Path) -> Result<(), DbError> {
+    set_mode(file, 0o600)
+}
+
+/// The directory of the store, settled to the mode the store's own data needs:
+/// 0700, whatever made the directory or what mode it was made with. `create`
+/// calls it for the directory it made and every verb that writes calls it for
+/// the one it was handed, because a `state/` that `libexec/update` made with
+/// `mkdir -p` is at the umask and holds the store, its `-wal` and every backup
+/// the store ever wrote.
+///
+/// A directory that is not there yet is left alone: making it is `create`'s
+/// work and the verbs that only read the store must not leave a directory
+/// behind, and one that turns out to be something else is what `guard` answers
+/// for, not this.
+pub fn settle_state_dir(dir: &Path) -> Result<(), DbError> {
+    match fs::symlink_metadata(dir) {
+        Ok(m) if m.is_dir() => set_mode(dir, 0o700),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(DbError::Unreadable(format!("{}: {e}", dir.display()))),
+    }
+}
+
 fn set_mode(path: &Path, mode: u32) -> Result<(), DbError> {
     fs::set_permissions(path, fs::Permissions::from_mode(mode))
         .map_err(|e| DbError::Unreadable(format!("cannot set the mode of {}: {e}", path.display())))
+}
+
+// SQLite names a database's side files by appending to its name.
+pub fn side_file(file: &Path, side: &str) -> PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(side);
+    PathBuf::from(name)
 }
 
 /// SQLite says what is wrong in its own words; the four classes say what the
@@ -550,6 +621,147 @@ pub fn write_schema(
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(classify)?;
     tx.commit().map_err(classify)
+}
+
+/// The one migration this binary holds: from schema 0, an SQLite file with no
+/// tables and a `user_version` of 0 (what SQLite makes of an empty file), to
+/// schema 1. `write_schema` is the whole of it: it lays schema.sql, writes the
+/// rows of `meta` -- `schema` among them -- and sets `user_version`, all in one
+/// transaction, so the version and the `meta` row move together. A database
+/// `init` made is already at 1 and has nothing to run. A later part of the epic
+/// adds a step for each version above 1.
+///
+/// `file` is named for the refusal alone, so that the line the caller reads
+/// carries the path of the database the step gave up on.
+pub fn migrate(
+    conn: &mut Connection,
+    file: &Path,
+    from: i64,
+    now: i64,
+    settings: &Settings,
+) -> Result<(), DbError> {
+    match from {
+        // Already what this binary writes: the verb reports it and runs
+        // nothing, so a migration is safe to call on a database that does not
+        // need one -- which is what a person does next, because `init` made
+        // this file at 1 and nothing in the world of schema 1 moves it.
+        v if v == SCHEMA_VERSION => return Ok(()),
+        0 => {}
+        v => {
+            return Err(DbError::Corrupt(format!(
+                "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
+                file.display()
+            )))
+        }
+    }
+    // The step is `write_schema`'s own transaction: a failure in it commits
+    // nothing and leaves the file as empty as it was. It is asked for outside
+    // any transaction of the caller's, which is why `migrate` gives its own lock
+    // back before it comes here -- SQLite will not run `VACUUM INTO` from within
+    // one, and the two would not nest.
+    write_schema(
+        conn,
+        now,
+        &settings.version,
+        &settings.commit,
+        &settings.instance,
+        &settings.repo,
+    )
+}
+
+/// The name of a backup this verb writes, given the version it came from and
+/// the instant it was asked for.
+pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
+    dir.join(format!("tehas-{from}-{now}.db"))
+}
+
+/// A consistent copy of the database, mode 0600, written by SQLite itself.
+///
+/// This is the whole of what `migrate` does before it changes a byte of the
+/// store: the copy is made first, and when it cannot be made the verb stops and
+/// the database is as it was. The analytics program's `export` is the precedent
+/// for the shape: the path is refused before the file is made, the file is made
+/// 0600 and never replaces one that is there, and a `VACUUM INTO` that fails
+/// partway leaves no half-written copy behind.
+///
+/// `state` is `state/` of the home the command was pointed at, settled by
+/// `backup_dir` below: a directory the store may write a copy of itself into.
+///
+/// The caller holds the write lock and has ended the transaction it was taken
+/// in: SQLite will not copy a database that a transaction is open on, so a verb
+/// that locks and copies asks for the lock and gives it back before it asks for
+/// the copy. Nothing else is writing while it does, because a verb of the store
+/// that changes rows takes the same lock in its own transaction and the busy
+/// timeout is what another waits.
+pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<PathBuf, DbError> {
+    let copy = backup_name(state, from, now);
+    let name = copy.to_str().ok_or_else(|| {
+        DbError::Unreadable(format!("the backup path {} is not UTF-8", copy.display()))
+    })?;
+    // Made here, with its mode, because SQLite's VACUUM INTO wants a file that
+    // is there and empty, and takes the mode of one it makes itself from the
+    // umask. `create_new` is what makes a name that exists an error rather than
+    // an overwrite.
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&copy)
+        .map(|_| ())
+        .map_err(|e| {
+            DbError::Unreadable(format!("cannot make the backup {}: {e}", copy.display()))
+        })?;
+    conn.execute("VACUUM INTO ?1", [name]).map_err(|e| {
+        // SQLite may have filled part of the file before it gave up, and a
+        // reader cannot tell that copy from a good one. The name is taken away
+        // so that the only backup the directory holds is one that finished.
+        let _ = fs::remove_file(&copy);
+        classify(e)
+    })?;
+    set_mode(&copy, 0o600)?;
+    Ok(copy)
+}
+
+/// The directory `migrate --backup` was given, settled to the one place the
+/// verb may write: `state/` of the home the command was pointed at, resolved.
+///
+/// A backup is a copy of the store, so it is readable by nobody but the tehas
+/// user, and the mode that buys is the one on the directory: `state/` is 0700
+/// and is the store's own directory, made so by `create`. A `<dir>` off the
+/// command line is a person's -- it could be a link, it could walk out of the
+/// home with a `..`, it could be 0755 and hold a copy of every approval the host
+/// ever recorded -- and the store was never given leave to write one there. The
+/// resolution comes first so that a link is answered as the directory it is,
+/// and the comparison of the two comes before the name: the verb asks once.
+pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
+    let state = dir
+        .canonicalize()
+        .map_err(|e| DbError::Unreadable(format!("the backup directory {}: {e}", dir.display())))?;
+    if state != home.join("state") {
+        return Err(DbError::Unreadable(format!(
+            "the backup goes in the state/ of the store's home, not {}",
+            state.display()
+        )));
+    }
+    home_of_state_dir(&state)?;
+    Ok(state)
+}
+
+/// The home above a directory named `state`: the store's home, checked against
+/// what `open` and `create` were told. The name is what is compared, not the
+/// whole path, because the caller has already settled which directory it means
+/// and this answers whether that one belongs to this store.
+fn home_of_state_dir(state: &Path) -> Result<PathBuf, DbError> {
+    if state.file_name().and_then(|n| n.to_str()) != Some("state") {
+        return Err(DbError::Unreadable(format!(
+            "{} is not the state/ of the store's home",
+            state.display()
+        )));
+    }
+    state
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| DbError::Unreadable(format!("{} has no home", state.display())))
 }
 
 /// What `check` answers: the schema version, the integrity check, and the rows
