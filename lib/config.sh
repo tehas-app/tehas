@@ -45,7 +45,8 @@
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
-#     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it.
+#     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it, and is not set
+#     with TEHAS_IMPROVE_RUKAS_SKIP=1.
 #   - TEHAS_FIXER_LOGIN names the fixer: an account whose tehas:ready the
 #     dispatcher takes, and whose answer to a planning question it takes,
 #     within a narrower grant than a person's (lib/fixer.sh). Unset is valid and means there is none. It is never
@@ -159,7 +160,7 @@ _tehas_valid() {
     TEHAS_LAYOUT)
       case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     # Both end up in an HTML attribute of every page, so no quote, space or
@@ -477,6 +478,9 @@ tehas_load() {
   # Where the loop files what only a change in pi-rukas can fix. Unset, those
   # findings go with the rest.
   export TEHAS_IMPROVE_RUKAS_REPO=${TEHAS_IMPROVE_RUKAS_REPO:-}
+  # 1 files no finding about pi-rukas at all, for a host whose pi-rukas
+  # developers read its cycles themselves.
+  export TEHAS_IMPROVE_RUKAS_SKIP=${TEHAS_IMPROVE_RUKAS_SKIP:-0}
   # How many of the loop's issues may be open in one repository before it
   # files no more there. What it files is a model's reading of text anyone
   # may have written, so nobody reading must not mean an endless stack.
@@ -581,7 +585,7 @@ tehas_load() {
   # The settings an instance may write, each with the rule for its value. An
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -617,6 +621,10 @@ tehas_load() {
   fi
   if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ -z "$TEHAS_IMPROVE_REPO" ]; then
     tehas_err "TEHAS_IMPROVE_REPO is not set and TEHAS_IMPROVE_RUKAS_REPO is (see $file)"
+    return 78
+  fi
+  if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ "$TEHAS_IMPROVE_RUKAS_SKIP" = 1 ]; then
+    tehas_err "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see $file)"
     return 78
   fi
   case " ${TEHAS_ALLOWED_LABELERS:-} " in
