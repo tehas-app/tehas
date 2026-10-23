@@ -428,4 +428,34 @@ t_contains "$(t_calls gh)" "No approval of this start is recorded on this host: 
 t_contains "$(t_calls gh)" "--add-label needs-human-attention"
 t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 1
 
+# The park carries the body its cycle was approved on, so the dispatcher can
+# tell a relabelled start of the same text from one that came after a change.
+t_case "the park carries the body of the approval record it started on"
+reset
+mkdir -p "$state"
+jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label",
+  body_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", links: []}' \
+  >"$state/7.approved.json"
+echo 30 >"$fx/rc"
+t_run "$cycle 7"
+t_eq "$(jq -r .body_sha256 "$state/7.park")" \
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+t_case "a park of a cycle that started with no body on record names none"
+reset
+mkdir -p "$state"
+jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", links: []}' >"$state/7.approved.json"
+echo 30 >"$fx/rc"
+t_run "$cycle 7"
+t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
+
+t_case "and a body that is no hash is not carried into the park"
+reset
+mkdir -p "$state"
+jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "not-a-hash", links: []}' \
+  >"$state/7.approved.json"
+echo 30 >"$fx/rc"
+t_run "$cycle 7"
+t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
+
 t_done

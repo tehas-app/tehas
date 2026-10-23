@@ -446,6 +446,17 @@ have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
+A new `tehas:ready` on an issue whose last cycle parked asks for nothing while
+the issue still carries the body that cycle ran on. The dispatcher compares the
+park's hash of that body with the issue's text now, and when they are equal and
+the park was not a provider outage it starts no cycle, leaves the park and the
+labels as they are, and says so in the poll's log. Once per park it also posts
+one comment: edit the body, or tick `Retry from a clean start`. The tick is the
+park's own ask and is never held, so a retry on the same text starts as it
+did, and so does a start after any change to the body. A park of a provider
+outage is held by its own rule instead, and a park left by a cycle that ended
+before the hash existed holds nothing.
+
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
 

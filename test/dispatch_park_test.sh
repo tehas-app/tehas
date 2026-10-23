@@ -433,4 +433,156 @@ comments 7 "$(swapped ' ' x)" alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 
+
+# --- A relabelled start of an issue whose last cycle parked --------------------
+# The text the poll reads for #7, in the one answer that carries the edit
+# record: unchanged_since keeps the body from it for the approval record, and
+# park_holds compares the hash of it with the park's.
+issue_body() { # <body>
+  jq -cn --arg b "$1" '{data: {repository: {issue: {lastEditedAt: null, editor: null,
+    body: $b}}}}' >"$fx/edit-7.json"
+}
+
+# The park of the cycle that just stopped, as tehasbot cycle writes it: the
+# body that start was approved on, the cap it stopped on, and nothing to say it
+# was an outage. Issue 7 carries tehas:ready again, by alice.
+parked_again() { # <body of the issue> [<park as jq with $SUM>, or nothing for the one of that body>]
+  local s
+  parked
+  # The endpoint answers: the hold of no resources is asked at rule 3, before a
+  # candidate is read, so without it no start is weighed at all. curl is asked
+  # for real unless mesh_curl stands in for it, and models.json is the host's
+  # own file, so this follows parked, which resets the instance.
+  mesh '{"data":[{"id":"test-model"}]}'
+  mesh_curl
+  comments 7 "$(park_body ' ' ' ')" ""
+  # The body and the title come in the same answer as the edit record, so this
+  # fixture is the text the poll reads. An answer with no title binds none.
+  issue_body "$1"
+  jq -cn --arg b "$1" '{number: 7, state: "open", body: $b,
+    labels: [{name: "needs-human-attention"}, {name: "tehas:question"}, {name: "tehas:ready"}]}' \
+    >"$fx/work-7.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
+    >"$fx/ready.json"
+  mkdir -p "$cycles_dir"
+  s=$(printf '%s' "$1" | sha256sum | cut -d' ' -f1)
+  if [ -n "${2:-}" ]; then
+    jq -cn --arg SUM "$s" "$2" >"$cycles_dir/7.park"
+  else
+    jq -cn --arg SUM "$s" \
+      '{cap: "intent-park", reason: "already-implemented", provider: false, retry: false,
+        started: 1767225600, body_sha256: $SUM}' >"$cycles_dir/7.park"
+  fi
+}
+
+# What a poll decided, from the poll that starts here. t_calls reads one file
+# per stub that every t_run of the case appends to, so a second poll of one
+# case reads the first poll's calls too: the lines of each poll are cut off with
+# this before the call that reads them.
+new_poll() { rm -f "$T"/calls/*; }
+
+# A park that holds keeps the labels, the park and the tick of its boxes.
+holds() { # <body>: one poll on an issue parked on that text
+  new_poll
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit 7"
+  t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 1
+}
+
+t_case "a relabelled start on the body its last cycle parked on is held, said once on the issue"
+parked_again "Words."
+holds "Words."
+t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on \`intent-park\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
+t_eq "$(jq -r .held "$cycles_dir/7.park")" "true"
+t_eq "$(grep -c '^issue comment 7' <<<"$(t_calls gh)")" 1
+
+t_case "and the next poll of the same park only logs, with no comment"
+parked_again "Words."
+holds "Words."
+holds "Words."
+t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
+t_case "a dry run of the hold says it and changes nothing, not its park"
+parked_again "Words."
+new_poll
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "issue comment 7"
+t_lacks "$(t_calls gh)" "api -X"
+t_eq "$(jq -r '.held | type' "$cycles_dir/7.park")" "null"
+
+# The same hold asks nothing of an urgent or tehas:next issue either: the hold
+# is of the poll, where its kind is settled, not of the kind itself.
+t_case "an urgent issue parked on its own body is held too"
+parked_again "Words."
+label_events 7 "tehas:urgent=alice"
+holds "Words."
+
+t_case "a changed body starts, and the park of the held go goes with the start"
+parked_again "Words, and more." '{cap: "intent-park", provider: false, retry: false,
+  started: 1767225600, body_sha256: "0000000000000000000000000000000000000000000000000000000000000000"}'
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+
+t_case "a ticked retry on the body its last cycle parked on starts all the same"
+parked_again "Words."
+comments 7 "$(park_body x ' ')" alice
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
+t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+
+t_case "a park of a provider outage is retried as today, on its own body"
+# Rule 4a's own path, on an issue whose park names its body: the hold of 4c is
+# what would refuse this start, and provider true is what leaves it to 4a. The
+# start rests on the account that started the parked cycle, kept beside the
+# park, and the issue carries no tehas:ready for the label's path.
+parked_again "Words." '{cap: "step-failed:adversarial", reason: "Connection error.",
+  provider: true, retry: true, started: 1767225600, body_sha256: $SUM}'
+echo alice >"$cycles_dir/7.by"
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
+  >"$fx/ready.json"
+echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
+t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+
+t_case "a park of a cycle that named no body starts as today"
+# A park that says nothing of its body is no reason to hold: this issue's cycle
+# ended before the field existed, and its start rests on the label.
+parked_again "Words." '{cap: "intent-park", provider: false, retry: false, started: 1767225600}'
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
+t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
+
+t_case "and so does a park whose body is no hash"
+parked_again "Words." '{cap: "intent-park", provider: false, retry: false, started: 1767225600,
+  body_sha256: "not-a-hash"}'
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
+
 t_done
