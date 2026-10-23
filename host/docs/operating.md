@@ -1018,8 +1018,12 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   toolchain names listed in [Commands](/tools), and `<name>-<issue>.state/cache`,
   the cycle's copy of the code index. The trees beside the workspace are walked
   as roots of their own: `<name>-<issue>.before-retry`, the workspace a retry
-  moved aside, and each worktree directly under `.worktrees` of either. A cycle
-  makes its worktrees in the workspace it was given, under that dot-name, and
+  moved aside, and the worktrees of a cycle under either. The runner of this host
+  makes them in a directory of its own inside the workspace, two levels under its
+  root, and that depth is the reach of the listing: a runner that nested them a
+  level deeper would leave their build output where it stands, with the log still
+  reporting the issue walked. A cycle
+  makes its worktrees in the workspace it was given, under a dot-name, and
   leaves them with a clone of their own and that clone's build output under them,
   so the walk of the workspace, which enters no dot-name, reaches none of them.
   An issue kept only by the tree a retry moved aside - the workspace of the cycle
@@ -1062,11 +1066,21 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
-shows them in the terminal. An issue is left alone for one of two reasons, and
-the line says which: `kept the build output of #<issue>: no lock to hold, so
-nothing of it was removed` when something was there to remove and the lock was
-not, and `nothing to remove in
-#<issue>` when none of its trees held build output at all. A timer run prints to
+shows them in the terminal. When the age rule passes, an issue is left alone for
+one of two reasons, and the line says which: `kept the build output of #<issue>:
+no lock to hold, so
+nothing of it was removed` when something was there to remove and no lock was
+there to hold it, and `nothing to remove in
+#<issue>` when none of its trees held build output at all. Two other lines each
+name a reason of their own, one before the age is asked and one because it could
+not be answered: `kept the build output of #<issue>: its lock is held`, for an
+issue a cycle is running, and `kept the build output of #<issue>: git could not
+name the gitdir of one of its worktrees`, for a worktree whose record git no
+longer answers for - a stale worktree, a moved clone, or a `.git` file that names
+nothing. The second is why a worktree record that went stale keeps an issue's
+build output on the disk: the cleaner takes what it dated, and a tree it could
+not date is not taken. [Commands](/tools#tehasbot-clean) carries the wording of
+all four. A timer run prints to
 the journal: what it refuses
 to do before it can open the log - settings it will not accept, another run
 holding its lock, a state directory it could not make - is in

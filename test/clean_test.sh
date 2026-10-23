@@ -745,13 +745,16 @@ t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_lacks "$t_out" "removed $wt/console/target"
 t_contains "$t_out" "younger than $after_hours hours"
 
-t_case "a directory whose .git file only claims a gitdir is no root, and git is not asked of it"
+t_case "a directory whose .git file only claims a gitdir is no root, and the issue says so"
 reset
 # The bytes of a .git file are container-writable, so a plain directory that
 # carries one of them is not a worktree of anything: git is asked of the tree,
-# gets no gitdir, and the run leaves the whole issue rather than walk a tree it
+# answers nothing, and the run leaves the whole issue rather than walk a tree it
 # cannot date. Nothing of the issue is taken, which is what keeping it whole
-# means: the forged tree and the tree the forged gitdir names both stay.
+# means: the forged tree and the tree the forged gitdir names both stay. The line
+# is its own, and not the young one: a record git cannot answer for is no write
+# of a cycle, and an operator reading the young line would go looking for a run
+# that is not there.
 workspace
 mkdir -p "$workdir-7/$worktrees_dir/forged/target"
 printf 'gitdir: %s\n' "$th/dev/someone.state" >"$workdir-7/$worktrees_dir/forged/.git"
@@ -767,11 +770,90 @@ t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/$worktrees_dir/forged/target" ] && echo there)" "there"
 t_eq "$([ -e "$th/dev/someone.state/target/app" ] && echo there)" "there"
-# The forged tree is a root the age rule could not date, so the issue is left
-# whole: no removal is asked of any of its trees, which is the shape a young issue
-# already has and the line that reports it.
-t_contains "$t_out" "younger than"
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: git could not name the gitdir of one of its worktrees"
+t_lacks "$t_out" "younger than"
 t_lacks "$t_out" "clean: removed"
+
+# A worktree of the fixture whose tree is gone: `git worktree remove` takes the
+# tree and leaves the clone's record of it, which is the ordinary state the
+# cleaner meets on a host after a person or a runner has cleared a worktree away.
+
+t_case "an idle issue whose lock file is gone is left whole and says so"
+reset
+# The age rule passes and the trees hold build output, but there is no lock file
+# to hold a removal: the cleaner takes nothing and says which of its two reasons
+# this is. The line is the one the manual quotes, and the issue is not reported as
+# a tree with nothing in it, which would send the operator looking for a build
+# that was never there.
+workspace
+rm -f "$cycles/7.lock"
+# The age rule reads the lock's own age, and a lock of no cycle is no lock of
+# this issue: the case wants the rule to pass, so the trees are dated once the
+# lock is gone. Without this the issue is kept for its age, not for the lock, and
+# says nothing of a removal it was never asked.
+age "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache"
+for aged_dir in target node_modules sub sub/target nested nested/target; do
+  age "$workdir-7/$aged_dir"
+done
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: no lock to hold, so nothing of it was removed"
+t_lacks "$t_out" "nothing to remove in #7"
+
+t_case "a worktree whose tree is gone is named in the log, and nothing of the issue goes"
+reset
+# git answers nothing for a tree that is no longer there, and the age rule cannot
+# date the issue. The failure is the least privileged one a cycle can cause - a
+# .git file of its own making - so the run neither takes the build output of the
+# trees it could date nor tells the operator a cycle is at work.
+workspace
+worktree >/dev/null 2>&1
+# `git worktree remove` takes the tree and its record together, which is the
+# trouble a person leaves behind by hand. What a cycle leaves, and the shape the
+# cleaner must refuse to walk, is a `.git` file whose gitdir is no longer there:
+# the tree is taken and the name it was at is aged, so the age rule reads it as
+# old and only git can say what it is.
+rm -rf "$workdir-7/$worktrees_dir/issue-7-default/.git"
+printf 'gitdir: %s\n' \
+  "$workdir-7/.worktrees/issue-7-default/gone" >"$workdir-7/$worktrees_dir/issue-7-default/.git"
+age "$workdir-7" "$workdir-7/$worktrees_dir" \
+  "$workdir-7/$worktrees_dir/issue-7-default" \
+  "$workdir-7/$worktrees_dir/issue-7-default/.git"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: git could not name the gitdir of one of its worktrees"
+t_lacks "$t_out" "younger than"
+t_lacks "$t_out" "clean: removed"
+
+t_case "a helper a worktree's config names is not run, and its build output still goes"
+reset
+# The bytes of a .git file are container-writable, so the config of the tree is
+# too: a worktree that names a program for git to run is the shape this call must
+# not honour. `rev-parse` takes a hook of its own, `core.fsmonitor`, and the
+# answer of the other is what makes the tree dateable: the cleaner names git and
+# the bound by absolute path under a cleared environment that reads no config
+# file, so neither helper runs and the gitdir it does answer dates the issue as
+# it did before the config was planted.
+workspace
+wt=$(worktree 2>/dev/null)
+# The gitdir of the tree, which is where git reads the config of a worktree.
+gd=$(git -C "$wt" rev-parse --absolute-git-dir)
+git -C "$gd" config core.fsmonitor "touch $T/ran-fsmonitor; false"
+git -C "$gd" config core.sshCommand "touch $T/ran-ssh"
+age "$gd"
+age "$workdir-7"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$T/ran-fsmonitor" ] && echo ran)" ""
+t_eq "$([ -e "$T/ran-ssh" ] && echo ran)" ""
+t_eq "$([ -e "$wt/console/target" ] && echo there)" ""
+t_lacks "$t_out" "git could not name the gitdir"
+t_contains "$t_out" "removed $wt/console/target: build output of #7"
 
 t_case "the dry run names the new roots it would take and removes none of them"
 reset
