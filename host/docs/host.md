@@ -33,7 +33,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
-| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts and code index, and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
+| `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools#tehas-dev)), and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
 | `~/tehas/sandbox/`, `versions.env`   | Sandbox image definition, build script, the Playwright npm pin, and the pinned tool versions |
@@ -64,7 +64,10 @@ command in a workspace, follows no symlink, and enters no dot-name, which is wha
 keeps those trees out of the removal. It holds the issue's lock while it removes,
 so no cycle starts under it, and it removes nothing for an issue whose lock file
 is not there to hold. The 7-day sweep of the dispatcher still takes the workspace
-itself.
+itself. The build output of a manual session, `~/tehas/dev/<name>.state/target`,
+is the one build output the cleaner never takes: it walks no directory under
+`~/tehas/dev` for build-output names, and that tree is a person's call (see
+[tehas dev](/tools#tehas-dev)).
 
 The same run prunes Docker's build cache of that age with `docker builder prune`.
 That is the build cache of the whole host's Docker daemon, not only tehas's:
@@ -1463,6 +1466,7 @@ for it with these differences:
 | The tree it works in        | `~/tehas/dev/<name>`, kept between sessions, where a cycle gets a fresh clone                                       |
 | git identity                | The stored author of that clone, else the bot's. A label: it is not checked against anything                       |
 | What else enters            | A terminal, and `TERM` and `COLORTERM` from the shell. Nothing else of the host environment, and not `~/.config/gh` |
+| Where its build output goes | `~/tehas/dev/<name>.state/target`, mounted read-write and named by `CARGO_TARGET_DIR`. A session's build output is kept with its clone and the cleaner walks nothing under `<name>.state`; [tehas dev](/tools#tehas-dev) says what that costs and who clears it |
 | What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
 
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands

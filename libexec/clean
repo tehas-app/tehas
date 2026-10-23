@@ -30,6 +30,11 @@
 #                                        It walks the tree with find -P and
 #                                        -xdev, follows no symlink, and does
 #                                        not go into .git.
+#                                        Nothing under $TEHAS_HOME/dev is in
+#                                        this step: the build output of a
+#                                        manual session, <name>.state/target,
+#                                        is walked for no build-output name and
+#                                        is a person's call (see tehas dev).
 #   2. Docker's build cache              `docker builder prune -f --filter
 #                                        until=<N>h`. That is the build cache
 #                                        of the whole host's Docker daemon:
@@ -40,7 +45,9 @@
 #                                        and $TEHAS_HOME/tmp/tehas-test.*
 #                                        directories, that old. Nothing
 #                                        elsewhere under $TEHAS_HOME, and
-#                                        nothing outside it.
+#                                        nothing outside it: not $TEHAS_HOME/dev,
+#                                        so no directory under a session's
+#                                        <name>.state is walked.
 #   4. old sandbox images                dated tags of the sandbox image whose
 #                                        image is older than that, except the
 #                                        newest dated tag and any tag a
