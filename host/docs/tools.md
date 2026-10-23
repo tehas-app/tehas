@@ -3264,6 +3264,10 @@ A polyfill gives the container nothing a cycle does not already get: the
 mounts and variables of `tehas work` stay as `test/work_test.sh` pins them.
 What cannot be done that way is not a polyfill; it waits for pi-rukas.
 
+`install.sh` installs every `lib/polyfill-*.sh` of the tree it runs from into
+`~/tehas/lib/`, beside the libraries it names one by one, so a host answers the
+way the checkout does. A tree that carries none installs none.
+
 `scripts/polyfills.sh` reads a tree and a `--capabilities` answer and nothing
 else:
 

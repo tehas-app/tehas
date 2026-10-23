@@ -93,6 +93,64 @@ t_stub systemctl
 t_run "$install"
 t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 
+# A tree may carry a polyfill of a pi-rukas feature (scripts/polyfills.sh);
+# install.sh has no name for one, so a case makes the tree rather than the
+# repository holding one: the same tree twice, once with the file in its lib/
+# and once without. Nothing under $T_ROOT is written, and the checkout's lib/
+# is a copy, so the polyfill is never sourced from the tree that has it.
+make_checkout() { # <dir> <polyfill?>
+  local d=$1 with=${2:-}
+  rm -rf "$d"
+  mkdir -p "$d"
+  cp -R "$T_ROOT/install.sh" "$T_ROOT/lib" "$T_ROOT/host" "$T_ROOT/bin" \
+    "$T_ROOT/libexec" "$d/"
+  # An install of a checkout reads the instance's models.json before it copies
+  # anything, so the copy carries the file this file's instance() writes.
+  cp "$TEHAS_INSTANCE_DIR/models.json" "$d/host/"
+  t_console_source "$d"
+  [ -z "$with" ] || echo '# polyfill of a feature the image lacks' >"$d/lib/polyfill-demo.sh"
+}
+
+t_case "a polyfill the tree carries is installed beside the other libraries"
+# The host of the cases above is the one the real run of this file made, and it
+# keeps what an install puts; clear it so neither case sees the other's lib/.
+fresh
+instance
+# install.sh reads its own directory, so the tree is a copy of this checkout
+# with the polyfill added to its lib/.
+checkout=$T/checkout
+make_checkout "$checkout" demo
+t_run "cd '$checkout' && ./install.sh"
+t_eq "$t_rc" 0
+t_contains "$t_out" "installed: $th/lib/polyfill-demo.sh"
+t_eq "$([ -f "$th/lib/polyfill-demo.sh" ] && echo there)" "there"
+t_eq "$(stat -L -c %a "$th/lib/polyfill-demo.sh")" "644"
+# The host answers the way the checkout does: a feature the image lacks and the
+# tree carries is `polyfill`, not `off`. The file the function reads for it is
+# the one beside the headless.sh it was sourced from, so the checkout's answer
+# is read from a copy of the checkout's own file: sourced from $T_ROOT/lib it
+# would look for the polyfill beside that headless.sh, and the rule of these
+# cases is that the repository carries none.
+t_run ". '$th/lib/headless.sh' && tehas_headless_mode '{}' demo"
+t_eq "$t_out" "polyfill"
+t_run "cp '$T_ROOT/lib/headless.sh' '$checkout/lib/headless.sh' && . '$checkout/lib/headless.sh' && tehas_headless_mode '{}' demo"
+t_eq "$t_out" "polyfill"
+# The host the install just made is current, apart from the follow-ups its own
+# copies asked for, which no run of this file has taken.
+t_run "rm -f '$th/state/update-pending'; cd '$checkout' && ./install.sh --check"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "polyfill-demo.sh"
+
+t_case "a tree with no polyfill installs no polyfill file"
+fresh
+instance
+make_checkout "$checkout"
+t_run "cd '$checkout' && ./install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cd "$th/lib" && find . -name 'polyfill-*' | tr '\n' ' ')" ""
+t_run ". '$th/lib/headless.sh' && tehas_headless_mode '{}' demo"
+t_eq "$t_out" "off"
+
 t_case "an old command that cannot be removed fails the install"
 old_layout
 chmod a-w "$th/bin"
