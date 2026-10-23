@@ -54,7 +54,7 @@ t_eq "$(cat "$fx/docker/container-main")" "$m2"
 t_contains "$(t_calls docker)" "image rm $old"
 
 t_case "a failed build keeps the old preview serving, and is not tried again for that commit"
-m3=$(commit main)
+commit main >/dev/null
 : >"$fx/build-fails"
 t_run "$preview"
 t_eq "$(state_of main)" "build-failed"
