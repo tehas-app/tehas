@@ -1455,6 +1455,12 @@ Then it removes what says a cycle runs, owes something, or is parked:
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
 
+Before it asks the unit to stop, it writes `state/cycles/12.stopped`: the time
+and the account that ran it. The cycle's record then says "A person stopped it
+with `tehas stop` (<account>, at <UTC time>)", and its status stays
+`interrupted`. When the file cannot be written, the stop goes through and says
+so on stderr.
+
 It keeps the cycle's record and every log: `state/cycles/12.json`,
 `.history.jsonl`, `.by`, `.settings`, `.manifest.json`, `.approved.json`,
 `.rukas`, `.runner_exit` and `.status`, and everything under `~/tehas/logs/`. A

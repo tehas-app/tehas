@@ -16,11 +16,17 @@
 #   state/cycles/<issue>.lock .taken .cid .park .requeued .done .stalled
 #                  .timed .quiet .oom .forks .branch .image .nostart
 #                  .nostart.new .progress.json .result.json
+#   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
 #   state/park-<issue>.id
 #   live/console-<issue>.txt
 #   ~/.pi/agent/ensemble-runs/issue-<issue>
 #   work/<repo>-<issue>, with its .state, .before-retry and .images beside it,
 #                  unless --keep-workspace
+#
+# Before the unit is asked to stop, one line goes to state/cycles/<issue>.stopped:
+# the time and the account. tehasbot cycle reads it and says in the record that
+# a person stopped the cycle. When it cannot be written, the stop goes through
+# and says so on stderr.
 #
 # What stays is the cycle's record and every log: state/cycles/<issue>.json,
 # .history.jsonl, .by, .settings, .manifest.json, .approved.json, .rukas,
@@ -105,7 +111,7 @@ runs=$HOME/.pi/agent/ensemble-runs/issue-$n
 # The one sibling name belongs here too: a write of a note is made beside it and
 # moved into place, and a stop that takes the note takes the name of a write
 # that never finished, as libexec/work's own clear of these files does.
-notes=(lock taken cid park requeued "done" stalled timed quiet oom forks branch image nostart nostart.new progress.json result.json)
+notes=(lock taken cid park requeued "done" stalled timed stopped quiet oom forks branch image nostart nostart.new progress.json result.json)
 
 # said <path>: one line for a thing that went, in the shape a person types.
 said() {
@@ -148,6 +154,39 @@ if [ "$unit_live" = 0 ] && [ "$container_live" = 0 ] && [ "$lock_held" = 0 ] &&
   [ "${#present[@]}" = 0 ]; then
   printf 'nothing to stop for #%s\n' "$n"
   exit 0
+fi
+
+# The marker of this stop: the epoch seconds and the account, written before
+# the unit is asked to stop, since the cycle may report as soon as it stops.
+# It goes through a temporary name and is read back; when it cannot be written
+# or read back, that is said on stderr and the stop goes through all the same.
+# A run that only clears leftovers writes none.
+asked_to_stop=0
+marker_this=1
+stopped_marker=$state/$n.stopped
+if [ "$unit_live" = 1 ] || [ "$lock_held" = 1 ]; then
+  asked_to_stop=1
+  mkdir -p "$state" 2>/dev/null
+  # Read back: a name the move could not replace, such as a directory, keeps
+  # what it held.
+  if ! printf '%s %s\n' "$(date +%s)" "$(id -un)" >"$stopped_marker.new" 2>/dev/null ||
+    ! mv -f -- "$stopped_marker.new" "$stopped_marker" 2>/dev/null ||
+    ! read -r marker_at marker_by _ <"$stopped_marker" 2>/dev/null ||
+    [[ ! $marker_at =~ ^(0|[1-9][0-9]{0,9})$ ]] ||
+    [[ ! $marker_by =~ ^[A-Za-z0-9._-]{1,64}$ ]]; then
+    rm -f -- "$stopped_marker.new" 2>/dev/null
+    printf 'tehas stop: %s could not be written, so nothing says a person stopped this cycle\n' \
+      "${stopped_marker#"$TEHAS_HOME"/}" >&2
+    marker_this=0
+  fi
+fi
+
+# A marker this run did not write, or wrote and could not read back, goes with
+# the leftovers.
+if [ "$asked_to_stop" = 0 ] || [ "$marker_this" = 0 ]; then
+  for f in "$stopped_marker" "$stopped_marker.new"; do
+    [ -e "$f" ] && present+=("$f")
+  done
 fi
 
 rc=0
