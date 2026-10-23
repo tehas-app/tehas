@@ -76,6 +76,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_CYCLE_MIN_FREE`          | `10g`                                    | Free disk space below which no cycle starts: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read holds too. Running cycles are not touched (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A size such as `512m` or `10g`, else every command stops with 78 |
 | `TEHAS_IMPROVE_REPO`            | empty                                    | Optional. `owner/name` of the repository the [improvement loop](#tehasbot-improve) files its findings in. Empty: no loop |
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
+| `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_FIXER_LOGIN`             | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no fixer |
 | `TEHAS_FIXER_MAX_RETRIES`       | `2`                                      | How many cycles the fixer may start on one issue since a person last approved it |
@@ -2851,6 +2852,7 @@ tehas update                  # the newest release, or pull the checkout;
                               # install, run the follow-ups that apply
 tehas update --to v0.8.1      # that release, an older one too
 tehas update --check          # report what would change; change nothing
+tehas update --pending        # run the follow-ups the record lists, no git
 tehas update --help           # print the usage of the command, touch nothing
 ```
 
@@ -3026,6 +3028,22 @@ what its files changed: when they all match it says `tehas is up to date` even w
 steps still in the record, so `install.sh --check`, or `tehas update --check`, is
 what names them. There is no command that marks a follow-up done by hand; running
 `tehas update` runs it again and clears it.
+
+**`--pending`.** `tehas update --pending` runs the lines that record holds and
+nothing else: it takes the update lock, reads `$TEHAS_HOME/state/update-pending`,
+runs each step in the order `lib/update-steps.sh` gives them, drops each line as
+it runs, and calls no git command and no `install.sh`. That is the half of an
+install a program can finish on a host the other three forms refuse: a checkout
+at a release tag has no branch to fast-forward, and a remote that is a local path
+can stop answering, while the copies `install.sh` made are already in place. It
+asks nothing of the checkout or of a remote, so it needs neither: a host with no
+`~/tehas/platform` and no `~/tehas/current` runs it, where a plain update would
+stop with 78 naming `TEHAS_UPDATE_FROM`. A hold does not stop it, because it
+moves nothing. An empty record prints `update: nothing is owed` and exits 0; a
+step that fails leaves its line in the record and the run exits 1, so the next
+run has the same work list; a line no version here knows is named in a `WARN:`,
+stays recorded, and exits 1. `--pending` with `--check` or with `--to` is refused
+with 64, before the settings are read.
 
 Every call outside the command has a limit, and hitting it fails saying how long:
 120s for the fetch, 1800s for install.sh (copies, dependency check and its one
@@ -3504,8 +3522,12 @@ of every file, and the names of particular installations out of every file,
 `docs/` included. The names come from `scripts/check-generic.names`, a list
 each working machine keeps for itself: git ignores it and it is read as data.
 An `allow <path prefix>` line in the list exempts paths from the names, not
-from the address rule. Without the list the lint says `check-generic: no names
-list, names not checked` and checks addresses only. With `--messages
+from the address rule. The names are matched against file paths too, and a
+match is reported as `<path>: path names a listed name`. Without the list the
+lint says `check-generic: no names list, names not checked` and checks
+addresses only. With `--names-only` the address rule is skipped, for an
+infrastructure repository that must hold addresses; names are still checked,
+and without a list it exits 0 after saying so. With `--messages
 <rev-range>` it also checks the commit messages of the range and the branch
 name (`GITHUB_HEAD_REF`, else the current branch) against the names. The
 verify workflow writes the list from the `GENERIC_NAMES` secret when it has

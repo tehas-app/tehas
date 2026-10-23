@@ -114,7 +114,7 @@ nm="acme"
 
 t_case "a name in docs/ is reported"
 fresh
-echo $nm >"$repo/scripts/check-generic.names"
+echo "$nm" >"$repo/scripts/check-generic.names"
 echo "$nm" >"$repo/docs/note.md"
 t_run "$lint"
 t_eq "$t_rc" 1
@@ -175,10 +175,122 @@ msgs "fix a thing"
 t_run "${messages}GITHUB_HEAD_REF=feature/x $msgcmd"
 t_eq "$t_rc" 0
 
+t_case "--messages with a bad range exits 2, even without a names list"
+fresh
+t_run "cd '$repo' && scripts/check-generic.sh --messages bogus..HEAD"
+t_eq "$t_rc" 2
+
+t_case "--messages with a range that is an option is refused and not run"
+fresh
+t_run "cd '$repo' && scripts/check-generic.sh --messages --output=x"
+t_eq "$t_rc" 2
+t_eq "$(find "$repo" -maxdepth 1 -name x | wc -l)" 0
+
 t_case "--messages without a range is refused"
 fresh
 t_run "cd '$repo' && scripts/check-generic.sh --messages"
 t_eq "$t_rc" 2
+
+t_case "a file whose path names a listed name is reported, whatever its content"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "clean" >"$repo/docs/$nm-notes.md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/$nm-notes.md: path names a listed name"
+
+t_case "an allow line exempts a path from the path check"
+fresh
+printf '%s\n' "$nm" "allow docs/" >"$repo/scripts/check-generic.names"
+echo "clean" >"$repo/docs/$nm-notes.md"
+t_run "$lint"
+t_eq "$t_rc" 0
+
+t_case "a path that names nothing listed passes"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "clean" >"$repo/docs/other.md"
+t_run "$lint"
+t_eq "$t_rc" 0
+
+t_case "--names-only lets a private address pass, and without it the address fails"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "ADDR=$addr" >"$repo/bin/tool"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_run "$lint --names-only"
+t_eq "$t_rc" 0
+t_contains "$t_out" "check-generic: ok"
+
+t_case "--names-only still reports a listed name in content and in a path"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "see $nm" >"$repo/bin/tool"
+t_run "$lint --names-only"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bin/tool:1:see $nm"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo clean >"$repo/bin/$nm-x"
+t_run "$lint --names-only"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bin/$nm-x: path names a listed name"
+
+t_case "--names-only without a names list says so and exits 0, addresses and all"
+fresh
+echo "ADDR=$addr" >"$repo/bin/tool"
+t_run "$lint --names-only"
+t_eq "$t_rc" 0
+t_contains "$t_out" "check-generic: no names list, names not checked"
+
+t_case "--names-only combines with --messages in either order"
+msgs "fix $nm thing"
+echo "ADDR=$addr" >"$repo/bin/tool"
+t_run "${messages}$msgcmd --names-only"
+t_eq "$t_rc" 1
+t_contains "$t_out" "fix $nm thing"
+t_lacks "$t_out" "$addr"
+t_run "${messages}scripts/check-generic.sh --names-only --messages base..HEAD"
+t_eq "$t_rc" 1
+t_contains "$t_out" "fix $nm thing"
+msgs "fix a thing"
+echo "ADDR=$addr" >"$repo/bin/tool"
+t_run "${messages}GITHUB_HEAD_REF=feature/x scripts/check-generic.sh --names-only --messages base..HEAD"
+t_eq "$t_rc" 0
+t_run "${messages}GITHUB_HEAD_REF=feature/x $msgcmd --names-only"
+t_eq "$t_rc" 0
+
+t_case "an unknown flag exits 2"
+fresh
+t_run "$lint --bogus"
+t_eq "$t_rc" 2
+t_run "$lint --names-only --bogus"
+t_eq "$t_rc" 2
+
+t_case "a path with non-ASCII bytes or a newline is still checked, path and content"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo clean >"$repo/docs/caf$(printf '\303\251')-$nm.md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "path names a listed name"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo clean >"$repo/docs/a"$'\n'"$nm"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs/a\\n$nm: path names a listed name"
+fresh
+echo "$nm" >"$repo/scripts/check-generic.names"
+echo "see $nm" >"$repo/docs/caf$(printf '\303\251').md"
+t_run "$lint"
+t_eq "$t_rc" 1
+t_contains "$t_out" ":1:see $nm"
+fresh
+echo "ADDR=$addr" >"$repo/docs/caf$(printf '\303\251').md"
+t_run "$lint"
+t_eq "$t_rc" 1
 
 t_case "the list of names is ignored by git in this repository"
 t_eq "$(git -C "$T_ROOT" check-ignore -q scripts/check-generic.names && echo ignored)" ignored

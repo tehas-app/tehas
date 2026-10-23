@@ -13,13 +13,42 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.10.5 (2026-10-23)
+
+### Changes
+
+- The dispatcher starts no cycle while the disk of `~/tehas`, or the one
+  Docker keeps its images on, has less than `TEHAS_CYCLE_MIN_FREE` free (10g
+  by default). Running cycles and planning turns are not held.
+- `tehas stop` leaves a marker, and the cycle's record names who stopped it
+  and when.
+- The workspace sweep also removes what a cycle left outside its workspace:
+  the agents' transcripts, the console file and the planning session's
+  transcripts of that issue, on the same 7 day rule.
+- A second `tehas update` waits for a running one, `TEHAS_UPDATE_LOCK_WAIT`
+  seconds (10 by default), before it says another update is running.
+- `tehasbot clean` prints what it logs, so a timer run's output is in
+  `journalctl --user -u tehas-clean` too. Each line was written to
+  `clean.log` twice.
+- The front page's Shipped figure counts every closed issue with
+  `tehas:shipped`, not the fifty newest.
+- `tehas_headless_mode` answers `error` for an answer it cannot read, never
+  `polyfill`.
+- The console's state store backs itself up before it migrates.
 - `install.sh` starts fewer processes for each file it copies, so an install
   or `tehas update` takes about half the time it did. What it installs and the
   follow-ups it records are unchanged.
 
 ### Adopter action
 
-- None.
+- A host with less than 10 GiB free starts no new cycle after the update. Free
+  space, or set `TEHAS_CYCLE_MIN_FREE` in the instance's `instance.env`.
 
 ## v0.10.4 (2026-10-23)
 

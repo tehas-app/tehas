@@ -30,7 +30,9 @@
 #              naming its own half, linked both ways and labelled
 #              cross-project too; with no repository for pi-rukas, one issue
 #              with both halves. Both repositories are read for duplicates,
-#              and each has that limit to itself
+#              and each has that limit to itself. With
+#              TEHAS_IMPROVE_RUKAS_SKIP=1 a finding of the category pi-rukas
+#              is dropped and counted as skipped
 #   issues     each filed issue names the product's issues its cycles worked,
 #              and says what working on it means: a finding about the factory
 #              is built where it is filed, one about pi-rukas is fixed in
@@ -61,7 +63,8 @@
 #
 # Instance settings: TEHAS_IMPROVE_REPO, the repository issues are filed in.
 # Unset, the loop is off. TEHAS_IMPROVE_RUKAS_REPO, optional, the repository
-# for what only a change in pi-rukas can fix. TEHAS_IMPROVE_MAX_OPEN, how many
+# for what only a change in pi-rukas can fix. TEHAS_IMPROVE_RUKAS_SKIP, 1 to
+# file no such finding at all. TEHAS_IMPROVE_MAX_OPEN, how many
 # of the loop's issues may be open in one repository. TEHAS_REPO, the product a cycle
 # worked on. PI_ENSEMBLE_SUBAGENT_MODEL and
 # PI_ENSEMBLE_SUBAGENT_PROVIDER, the model that reads.
@@ -374,7 +377,8 @@ check='
   | ($issues | map(select(.state == "OPEN") | .title | norm)) as $open
   | ($issues | map(.number)) as $numbers
   | .findings as $all
-  | [$all[] | select(valid($numbers))] as $good
+  | [$all[] | select(valid($numbers))] as $valid
+  | [$valid[] | select($skip_rukas == "0" or .category != "pi-rukas")] as $good
   | (reduce ($good[] | select(.duplicate_of == null)) as $f ({seen: $open, keep: []};
       ($f.title | norm) as $t
       | if (.seen | index($t)) != null then . else {seen: (.seen + [$t]), keep: (.keep + [$f])} end)
@@ -385,7 +389,8 @@ check='
       | if .left >= ($to | length) and all($to[] as $r | .room[$r]; . > 0)
         then reduce $to[] as $r (.; .room[$r] -= 1) | .left -= ($to | length) | .file += [$f] else . end)
     | .file) as $file
-  | {found: ($all | length), invalid: (($all | length) - ($good | length)),
+  | {found: ($all | length), invalid: (($all | length) - ($valid | length)),
+     skipped: (($valid | length) - ($good | length)),
      duplicates: (($good | length) - ($keep | length)),
      of: ([$good[] | .duplicate_of | select(. != null) | "#\(.)"] | unique | join(",")),
      over: (($keep | length) - ($file | length)), file: $file,
@@ -393,9 +398,11 @@ check='
        | {repo, number, cycle, seen, note}] | unique_by([.repo, .number, .cycle]) | .[0:$max_recheck])}'
 cycles=$(printf '%s\n' "${recs[@]}" | jq -R . | jq -s -c .)
 plan=$(jq -c --argjson cycles "$cycles" --argjson rooms "$rooms" --argjson max_run "$max_run" \
-  --arg repo "$repo" --arg rukas "$rukas" --arg label "$label" \
+  --arg repo "$repo" --arg rukas "$rukas" --arg label "$label" --arg skip_rukas "$TEHAS_IMPROVE_RUKAS_SKIP" \
   --argjson max_recheck "$max_recheck" --slurpfile stack "$run/in/issues.json" \
   "$check" "$found" 2>/dev/null) || blame "${why}findings.json is not the shape asked for"
+skipped=$(jq .skipped <<<"$plan")
+[ "$skipped" = 0 ] || notes+=("skipped=$skipped")
 
 # Of a stopped analyst, a record that a finding or a followup names, valid or
 # not, was read; the rest may not have been and go back for a later run.

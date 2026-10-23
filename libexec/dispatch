@@ -78,6 +78,15 @@
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
 #      account that started the parked one. A second such park waits.
+#   4c. A fresh tehas:ready on an issue whose last cycle parked asks for nothing
+#      while the issue still carries the body that cycle ran on. The park names
+#      it as body_sha256, copied from the approval record of that start; when
+#      the two are equal and the park was no provider outage the poll starts no
+#      cycle, leaves the park and the labels where they are, and logs why. It
+#      says so on the issue once for that park and keeps its word in the park as
+#      held; later polls only log. A body that changed, a tick of "Retry from a
+#      clean start", the retry rule 4a makes and a park that names no
+#      body_sha256 all start as they did.
 #   4b. A refresh request, state/refresh/<issue>.json from tehasbot refresh,
 #      starts a cycle that merges the branch into the bot's pull request of
 #      that issue and pushes to the same branch, on the word of the person
@@ -1723,6 +1732,47 @@ refresh_ok() {
   [[ $have != *" tehas:ready "* ]] || drop[$n]+=" --remove-label tehas:ready"
 }
 
+# park_holds <issue>: does this issue's park hold a fresh tehas:ready back?
+# The park of its last cycle names the body that cycle ran on, copied from the
+# approval record of that start by tehasbot cycle. The same text now, on a park
+# that was no provider outage, is the same ask the cycle already spent, so the
+# poll starts nothing and says the reason in its log. A park of an outage is
+# held by rule 4a's own rules, not here; a park that names no body, or one that
+# is no hash, holds nothing, so an issue whose cycle ended before this field
+# existed starts as it did. The comment is the one thing kept off the loop of
+# polls: the park then says it has told, and the log carries the hold after it.
+# Called once an issue is picked, where the text of the issue is the answer
+# unchanged_since passed it, so no read of GitHub is spent on an issue this
+# would hold in any case. The park's "held" is written in place and read by no
+# other command: lib/cycles.sh names the file's two other tellers, park_id and
+# the retry of rule 4a, and this is the third. Returns 0 when the issue is held.
+park_holds() {
+  local n=$1 pf=$TEHAS_HOME/state/cycles/$1.park sum held cap now
+  [ -f "$pf" ] && [ ! -L "$pf" ] || return 1
+  sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' "$pf" 2>/dev/null) || sum=""
+  [ -n "$sum" ] || return 1
+  [ "$(jq -r '.provider' "$pf" 2>/dev/null)" != true ] || return 1
+  [ -n "${text_of[$n]:-}" ] || return 1
+  now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
+  [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
+  [ "$now" = "$sum" ] || return 1
+  cap=$(jq -r '.cap | strings' "$pf" 2>/dev/null) || cap=""
+  held=$(jq -r '.held' "$pf" 2>/dev/null) || held=""
+  if [ "$held" != true ] && [ "$dry" = 0 ]; then
+    say "$n" "Not started: the last cycle parked on \`${cap:-nothing}\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
+    # The record of the tell follows the comment: a park nobody was told about
+    # has not told, and the next poll tells it. With no record the poll tells it
+    # again, once more than the once asked for, and says so.
+    if jq -c '.held = true' "$pf" >"$pf.new" 2>/dev/null && mv "$pf.new" "$pf" 2>/dev/null; then
+      held=true
+    else
+      log "WARN: could not record the hold on the park of #$n"
+    fi
+  fi
+  log "hold #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since"
+  return 0
+}
+
 # report_demand: write live/demand.json for tehas status, {time, waiting,
 # oldest}: how many open issues would start if there were room, and when the
 # oldest of them was accepted. That is a tehas:ready applied last by an
@@ -3039,6 +3089,10 @@ while read -r kind n; do
   # that says a file goes there and links nothing waits for its owner instead
   # of spending a cycle on a premise it cannot see.
   image_missing_ok "$n" || continue
+  # A relabelled start of an issue whose last cycle parked on this very text
+  # asks for the attempt that cycle already spent: it goes no further than the
+  # log, once, until the body changes or the tick of the park asks for it.
+  park_holds "$n" && continue
   # The gate of rule 7, asked for the first issue of the lowest kind that
   # reached this point: an issue that waits for another reason asks nothing.
   if [ "$kind" = x ] && ! low_gate "$n"; then continue; fi

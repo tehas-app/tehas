@@ -99,6 +99,10 @@ platform() { # [behind] [install body]
   bound_calls
   mkdir -p "$checkout/libexec" "$checkout/lib" "$th/sandbox" "$th/edge"
   write_install "$body"
+  # The host's own `tehas`, as the labels step runs it: by the path
+  # $TEHAS_HOME/bin/tehas, and not by name. A stub on PATH would be shadowed by
+  # this repository's real bin/tehas, which a case has on it.
+  labels_ok
   # The libraries the checkout carries are this repository's own: after a
   # fast-forward, tehas update re-checks the instance with the settings rules
   # that came with the code it pulled.
@@ -235,7 +239,7 @@ login_state() { cksum "$dev_bin/tehas"; }
 
 # The order an update ran the steps it was asked for, read off its own lines.
 step_order() {
-  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|edge: updating\).*/\1/p'
+  printf '%s\n' "$t_out" | sed -n 's/^\(systemd: restarted\|sandbox: building\|docs: updating\|edge: updating\|labels: making\).*/\1/p'
 }
 
 # A change on the remote that adds a required setting to lib/config.sh, as some-
@@ -867,21 +871,37 @@ t_eq "$(owed_steps)" ""
 # repository's real install.sh, run by tehas update in the stubbed host.
 t_case "the real install.sh through tehas update runs its follow-ups in its order"
 instance_models
+# The labels step of the run calls the host's own `tehas`, which calls gh: the stub
+# of test/labels_test.sh, which makes every label of the command that asks.
+t_stub gh
 real_platform
-t_run "$update"
+# A host of one install before this run: the marker says so, or install.sh spends
+# its last act on the one install of a new host (the labels and the core units) and
+# asks for no labels step.
+t_run "mkdir -p '$th/state'; : >'$th/state/first-install'
+'$update'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "installed: $th/libexec/update"
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: updating the container"
-# The order install.sh prints is the order an update runs, and nothing is left
-# looking like work for a person.
+# The command that makes the labels is among the files this run copied, so the
+# labels step is owed too, and the run is green: the stubbed host's command makes
+# them, so nothing is left looking like work for a person.
 t_eq "$(step_order)" "systemd: restarted
 sandbox: building
 docs: updating
-edge: updating"
+edge: updating
+labels: making"
 t_lacks "$t_out" "next:"
 t_eq "$(owed_steps)" ""
+# The step ran the host's own command, which is the way a person runs it: every
+# label the command names is made in the product repository of the instance, and by
+# gh and nothing else. The copies of this run made the labels twice over: install.sh
+# makes them itself, and then the step this change adds makes them again.
+t_eq "$(t_calls gh | grep '^label create ' | sed 's/^label create \([^ ]*\).*/\1/' | sort -u | wc -l)" \
+  "$(sed -n 's/^mk \([^ ]*\).*/\1/p' "$T_ROOT/libexec/labels" | sort -u | wc -l)"
+t_eq "$(t_calls gh | sed -n 's/^label create [^ ]* --repo \([^ ]*\).*/\1/p' | sort -u)" acme/widget
 # Nothing of this host's real /etc or /usr/local/bin was read: the scratch marker
 # is not there, so install.sh says nothing about root's copy.
 t_lacks "$t_out" "Login:"
@@ -891,6 +911,9 @@ t_lacks "$t_out" "Login:"
 # unit files systemd never read.
 t_case "changed unit files are not reported as applied when systemd did not reload"
 instance_models
+# The host's `tehas` calls gh for each label, so the step that runs it needs the
+# stub of test/labels_test.sh rather than the gh of this host, which has no token.
+t_stub gh
 real_platform
 t_stub systemctl 'if [ "$2" = daemon-reload ]; then echo "Failed to connect to bus: No such file or directory" >&2; exit 1; fi
 if [ "$2" = is-active ]; then echo active; fi'
@@ -901,7 +924,8 @@ t_contains "$t_out" "Failed to connect to bus"
 t_lacks "$t_out" "systemd: restarted"
 # Nothing after the units step ran, and every step install.sh recorded is owed.
 t_lacks "$t_out" "docs: updating the container"
-t_eq "$(owed_steps)" "$(next_lines)"
+t_eq "$(owed_steps)" "$(next_lines)
+labels"
 
 # The next run on the same host, with systemd answering: install.sh has nothing
 # new to report - its one-shot list was spent by the run that copied the files -
@@ -919,17 +943,21 @@ t_eq "$(owed_steps)" ""
 # the fixture with a checkout of its own that holds the real install.sh.
 t_case "tehas update prints install.sh's later line for a stale login copy and runs nothing for it"
 instance_models
+# The labels step calls the host's `tehas`, which calls gh: the stub makes them.
+t_stub gh
 real_platform
 login_setup
 login_age
 before=$(login_state)
-t_run "$update"
+# The install before this one, so the labels of the copied command are owed as a
+# step of this update rather than made by a first install on the spot.
+t_run "mkdir -p '$th/state'; : >'$th/state/first-install'; '$update'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: sudo $checkout/bootstrap.sh dev boss"
 t_contains "$t_out" "$dev_bin/tehas is not this checkout's host/login/tehas"
-# Not a step: nothing was recorded as owed, no sudo ran, and the copy was not touched.
-t_lacks "$t_out" "next:"
-t_eq "$(owed_steps)" ""
+# Not a step: nothing was recorded for it, no sudo ran, and the copy was not
+# touched. The labels step of the copied command ran in the same call, so the
+# record it clears is empty by the end of the run.
 t_eq "$(t_calls sudo)" ""
 t_eq "$(login_state)" "$before"
 # The next --check still says it, and the line reaches the operator as install.sh
@@ -1169,5 +1197,214 @@ t_eq "$t_rc" 0
 t_eq "$(grep -c 'bootstrap.sh user' <<<"$t_out")" 1
 t_contains "$t_out" "versions.env changed"
 t_lacks "$t_out" "pi-rukas moved to"
+
+# --- tehas update --pending ---------------------------------------------------
+# The follow-ups install.sh recorded, with no git and no install.sh in the way.
+# The host this form is for has a checkout it cannot move - a release tag, or a
+# remote that no longer answers - and the steps are all that are left of the
+# install, so the record is the whole of the work list and nothing outside it is
+# asked a question.
+t_case "--pending runs the steps the record lists, in step order, and clears it"
+instance
+platform 0 'echo "install.sh must not run in this case"'
+record "docs --force-recreate" sandbox
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_contains "$t_out" "2 follow-up(s) an earlier run did not finish (see $owed_file)"
+t_contains "$t_out" "next: docs --force-recreate"
+# systemd first, whatever order the two lines were recorded in.
+t_eq "$(step_order)" "sandbox: building
+docs: updating"
+t_eq "$(t_calls build)" "build"
+t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
+compose -f $th/edge/docs.compose.yaml up -d --force-recreate"
+t_eq "$(owed_steps)" ""
+# Every call of this run went through a timeout, and none of them was git's: the
+# fetch a real run makes first is not made at all here.
+t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "$th/sandbox/build.sh
+docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
+docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate"
+
+t_case "--pending runs with no checkout and no current, and calls no git"
+instance
+# A host of the kind that needs this form: no platform checkout and no
+# ~/tehas/current, so a plain update stops with 78 naming TEHAS_UPDATE_FROM. git
+# is a stub that fails, so a single call would be both a wrong answer and a
+# recorded one.
+t_stub git 'echo "git: a --pending run must not call this" >&2; exit 128'
+record "docs --force-recreate" sandbox
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_eq "$(t_calls git)" ""
+t_contains "$t_out" "sandbox: building the image"
+t_contains "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" ""
+
+t_case "--pending runs no install.sh and reads no release"
+t_stub git
+instance
+platform 0 'echo "install.sh ran"'
+record sandbox
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_eq "$(t_calls install)" ""
+t_lacks "$t_out" "install.sh ran"
+t_eq "$(t_calls build)" "build"
+
+t_case "a checkout at a detached HEAD does not stop --pending"
+instance
+platform 0
+# The checkout is at a tag with no branch on it, which is what a host installed
+# from a release looks like: a plain update refuses it, and this form never asks.
+git -C "$checkout" checkout -q --detach HEAD
+[ -z "$(git -C "$checkout" symbolic-ref --quiet --short HEAD)" ] ||
+  t_bad "the fixture left the checkout on a branch"
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "$checkout is not on a branch (detached HEAD); nothing was changed"
+record "docs --force-recreate" sandbox
+rm -f "$T"/calls/install
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "not on a branch"
+t_contains "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" ""
+
+t_case "--pending with an empty record says nothing is owed"
+instance
+platform 0
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_contains "$t_out" "update: nothing is owed"
+t_eq "$(t_calls build)" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls systemctl)" ""
+t_eq "$(t_calls install)" ""
+
+t_case "--pending with a record of a step no version here knows is red, not empty"
+instance
+platform 0
+record "renew-dashboard --now"
+t_run "$update --pending"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: 1 step line(s) name no step this command knows"
+t_lacks "$t_out" "nothing is owed"
+t_eq "$(owed_steps)" "renew-dashboard --now"
+
+t_case "--pending takes the update lock as a real run does"
+instance
+platform 0
+mkdir -p "$th/state"
+record sandbox
+t_start
+t_run "$no_wait exec 8>>'$th/state/update.lock'; flock -n 8 || exit 9; '$update' --pending"
+t_eq "$t_rc" 1
+t_fast 5000
+t_contains "$t_out" "another update is running ($th/state/update.lock), still held after 0s; nothing was changed"
+t_eq "$(t_calls build)" ""
+t_eq "$(owed_steps)" "sandbox"
+
+t_case "--pending with --check or --to is refused before the settings are read"
+record sandbox
+# No instance at all: the refusal is an answer about the arguments, so it comes
+# back 64 where a run of any other mode would have stopped with 78.
+t_run "unset TEHAS_INSTANCE_DIR; '$update' --pending --check"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--pending runs the recorded follow-ups, and does not go with --check"
+for args in "--check --pending" "--pending --to v1.2.3" "--to v1.2.3 --pending"; do
+  t_run "$update $args"
+  t_eq "$t_rc" 64
+  t_contains "$t_out" "--pending runs the recorded follow-ups, and does not go with"
+done
+t_eq "$(owed_steps)" "sandbox"
+
+# What a --pending run does not do, checked the other way round: a step that
+# fails leaves its line in the record, so the run is red and the next one has the
+# same work list the first was given.
+t_case "a step that fails under --pending stays recorded for the next run"
+instance
+platform 0
+docker_no_answer
+record "docs --force-recreate" sandbox
+t_run "$update --pending"
+t_eq "$t_rc" 1
+t_contains "$t_out" "docs: docker ps failed; the step is not done"
+t_eq "$(t_calls build)" "build"
+t_eq "$(owed_steps)" "docs --force-recreate"
+
+# The hold is a person's way of keeping a plain update from moving the checkout
+# forward after they moved it back. --pending moves nothing, so a host held on an
+# older release still finishes the follow-ups install.sh recorded there.
+t_case "--pending runs the steps with the platform held"
+instance
+platform 0
+mkdir -p "$th/state"
+: >"$th/state/update-hold"
+record "docs --force-recreate"
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "the platform is held"
+t_contains "$t_out" "docs: updating the container"
+t_eq "$(owed_steps)" ""
+rm -f "$th/state/update-hold"
+
+# A release that adds a label records the labels step when it copies the command
+# that makes them, and the follow-up is `tehas labels` itself: the labels end up
+# on GitHub rather than owed to nobody in the record.
+t_case "--pending runs the labels step once and clears the record"
+instance
+platform 0
+record labels
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_contains "$t_out" "labels: making the tehas labels"
+t_eq "$(t_calls tehas)" "labels"
+# Like every other outside call of a run, it goes through a timeout, and the lock
+# descriptor is closed for the child that would otherwise hold it after this run.
+t_eq "$(t_calls timeout | sed 's/^[0-9]* //')" "$th/bin/tehas labels"
+t_eq "$(owed_steps)" ""
+
+# The labels of a product repository are the last thing an update touches, so a
+# step that follows one would run the containers before the labels existed. There
+# is no step after it in the order lib/update-steps.sh gives them.
+t_case "the labels step runs after the other steps, and a failing one keeps it owed"
+instance
+platform 0
+record "docs --force-recreate" labels
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_eq "$(step_order)" "docs: updating
+labels: making"
+t_eq "$(t_calls tehas)" "labels"
+t_eq "$(owed_steps)" ""
+platform 0
+labels_fail
+record labels
+t_run "$update --pending"
+t_eq "$t_rc" 1
+t_contains "$t_out" "labels: tehas labels exited 1; the step is not done"
+t_contains "$t_out" "could not make tehas:ready"
+t_eq "$(owed_steps)" "labels"
+# The next run, with the host's command answering again, finishes what this one owed.
+labels_ok
+rm -f "$T/calls/tehas"
+t_run "$update --pending"
+t_eq "$t_rc" 0
+t_eq "$(t_calls tehas)" "labels"
+t_eq "$(owed_steps)" ""
+
+# The step names the installed command by path rather than by whatever `tehas` the
+# calling account happens to have on its PATH: a host with no command there has an
+# update that says so and leaves the step owed.
+t_case "the labels step names the host's command, and is owed when it is not there"
+instance
+platform 0
+record labels
+rm -f "$th/bin/tehas"
+t_run "$update --pending"
+t_eq "$t_rc" 1
+t_contains "$t_out" "labels: $th/bin/tehas is not installed"
+t_eq "$(t_calls tehas)" ""
+t_eq "$(owed_steps)" "labels"
 
 t_done

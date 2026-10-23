@@ -29,9 +29,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/platform`                   | Checkout of this repository; `install.sh` runs from it and `tehas update` pulls it |
 | `~/tehas/repos/tehas`                | The product checkout, on the default branch. Cycles are cloned from it; no container is given it |
-| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a
-cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
-| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
+| `~/tehas/work/tehas-<issue>`         | The cycle's workspace: a fresh clone made for each cycle. Removed after a cycle that merged or left a pull request, otherwise kept, and moved to `tehas-<issue>.before-retry` when that issue is retried. A start that stopped before the container ran keeps the clone it made, as does the one it moved aside. A kept workspace, its `.before-retry` and what else is left beside it go once no cycle has run on the issue for 7 days. Its build output goes sooner: `tehasbot clean` removes what it names as build output once nothing of the issue has been touched for `TEHAS_CLEAN_AFTER` hours, in this tree, in the one a retry moved aside, and in the worktrees of a cycle under either at the depth the runner lays them out, and the 7-day sweep still takes the rest. `~/tehas/work/tehas` is only its path inside the container |
+| `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools#tehas-dev)), and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
@@ -264,6 +263,7 @@ host:
 tehas update --check     # report what would change; changes no file of the
                          # checkout or of the host (origin/ refs do move)
 tehas update             # pull, install, run the follow-ups that apply
+tehas update --pending   # run only the follow-ups the record lists: no git
 ```
 
 You do not have to remember to look. `tehas status` has a `platform` line
@@ -273,7 +273,8 @@ which `tehasbot status` fetches at most once an hour, and `/health` says
 
 `tehas update` is the three steps that took hand work before: fast-forward
 `~/tehas/platform` from its remote, run `install.sh`, then run each follow-up it
-asks for by name (`units`, `sandbox`, `docs`, `edge`: see [Commands](/tools)).
+asks for by name (`units`, `sandbox`, `docs`, `edge`, `labels`: see
+[Commands](/tools)).
 One line per step, and it stops at the first failure. It checks the instance
 settings against the required list in `lib/config.sh`, the same one install.sh
 checks, before it calls git. It changes nothing when the checkout has local
@@ -288,6 +289,14 @@ than report a changed unit as applied. A step that fails leaves the ones before 
 applied, and what is still owed is kept in `~/tehas/state/` (`update-pending`)
 until it has run, so the next update finishes it instead of calling the host
 current.
+
+The third form is for the host that cannot do the first two: `--pending` runs the
+steps `update-pending` lists and calls no git command and no `install.sh`. A
+checkout at a release tag, or a remote that is a local path which stopped
+answering, stops a plain update at its first step and leaves the follow-ups of
+the install it did run owed; `--pending` finishes them. `install.sh` and then
+`tehas update --pending` is what a program runs to bring a host current without
+moving the checkout. See [tehas update](/tools#tehas-update).
 
 One update runs at a time. `tehas update` and a real run of `install.sh` hold
 `~/tehas/state/update.lock`; a second one started meanwhile waits
@@ -372,6 +381,15 @@ holds steps that were asked for and never ran. While it does, `--check`
 exits 1, because a host with files matching and a step unapplied is not current.
 Running `tehas update` runs them and clears the record
 ([Troubleshooting](/troubleshooting) has the case in full).
+
+The record is also the way to finish an install on a host that cannot run an
+update. A checkout at a release tag has no branch to fast-forward, and a remote
+that is a local path can stop answering, while the copies `install.sh` made are
+already in place. `tehas update --pending` reads that record, runs the steps it
+lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
+A program finishes an install with `install.sh` and then that command; see
+[tehas update](/tools#tehas-update).
 
 One file of a host is not tehas's to install. `sudo ./bootstrap.sh dev` puts
 `host/login/tehas` at `/usr/local/bin/tehas` as root, and an update can change
@@ -547,7 +565,9 @@ git reset --hard <commit>
 `git checkout <tag>` does not do: `tehas update` refuses a detached checkout.
 While `~/tehas/state/update-hold` exists, `tehas update` exits 1 naming the
 file and changes nothing, and `tehas update --check` says the hold is there.
-So the `next:` lines `install.sh` prints are run by hand:
+`tehas update --pending` runs with the hold there and from a detached checkout,
+because it moves nothing: the `next:` lines `install.sh` printed are its, not
+steps you have to work through yourself. Run by hand, they are:
 
 | Step      | By hand                                                                          |
 | --------- | -------------------------------------------------------------------------------- |
@@ -555,9 +575,10 @@ So the `next:` lines `install.sh` prints are run by hand:
 | `sandbox` | `~/tehas/sandbox/build.sh`, or put an older image back by its date tag, as in [Rolling back pi-rukas](#rolling-back-pi-rukas) |
 | `docs`    | `docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`         |
 | `edge`    | `docker compose -f ~/tehas/edge/router.compose.yaml up -d --force-recreate`       |
+| `labels`  | `~/tehas/bin/tehas labels`                                                          |
 
 They stay recorded in `~/tehas/state/update-pending`, and `install.sh --check`
-reports them, until a `tehas update` runs them. When a fixed release is out,
+reports them, until `tehas update --pending` or a `tehas update` runs them. When a fixed release is out,
 remove the hold and run `tehas update`.
 
 ## Models
