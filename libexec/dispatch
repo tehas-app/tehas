@@ -2159,33 +2159,112 @@ for pr in $refreshing; do
 done
 
 # A parked cycle keeps its workspace for a person to read, and the one before
-# it as .before-retry. Those of an issue go together once no cycle has used
-# any of them, or taken the issue's lock, for 7 days. The issue's lock is held
-# while they are removed, so a cycle cannot start in them. Three issues a poll
-# at most, so a poll stays short. Only under the directory tehas work marked.
+# it as .before-retry. Those of an issue go together once no cycle has used any
+# of them, or taken the issue's lock, for 7 days. With the workspace go what a
+# cycle leaves outside it, the same names tehas stop removes: the agents'
+# transcripts in ~/.pi/agent/ensemble-runs/issue-<issue>, the console in
+# live/console-<issue>.txt, and the transcripts of the issue's planning session
+# in ~/.pi/agent/ensemble-runs/plan-<issue>. An issue whose workspace is gone
+# loses those three on their own, on the same rule. The issue's lock is taken
+# for the removals, so no cycle starts while they go. Three issues a poll at
+# most, so a poll stays short. A workspace goes only under the directory tehas
+# work marked; the other three are looked for wherever the issue has them.
+#
+# Each name is built from the number the way libexec/stop builds it, never from
+# a glob of what is there: the sweep of #5 touches nothing of #51, and the
+# dated directories of ensemble-runs are the runner's, not tehas's, and stay for
+# a person.
 sweep_workspaces() {
-  local works=${TEHAS_WORK_DIR%/*} base=${TEHAS_WORK_DIR##*/} p n lock done=0
+  local works=${TEHAS_WORK_DIR%/*} base=${TEHAS_WORK_DIR##*/} p n lock e said
   local -A seen=()
-  [ -f "$works/.tehas-workspaces" ] || return 0
-  for p in "$works/$base"-*; do
-    [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})(\.before-retry|\.images|\.state)?$ ]] || continue
-    n=${BASH_REMATCH[1]}
+  local -a list=() files=()
+  local count=0 marked=0 young out
+  # The workspaces go only where tehas work marked the directory as its own, as
+  # they always have. The three a cycle leaves outside them are looked for
+  # wherever the issue has them, so an orphan goes with no marker to ask for.
+  marked=0
+  [ -f "$works/.tehas-workspaces" ] && marked=1
+  # The issues this host knows: those with a workspace of their own, and those
+  # with a name in ensemble-runs or a console file. A name is matched whole, the
+  # way libexec/stop builds it, so #5 reads nothing of #51 and a dated directory
+  # of the runner is no issue's.
+  if [ "$marked" = 1 ]; then
+    for p in "$works/$base"-*; do
+      [[ ${p##*/} =~ ^"$base"-([1-9][0-9]{0,9})(\.before-retry|\.images|\.state)?$ ]] || continue
+      list+=("${BASH_REMATCH[1]}")
+    done
+  fi
+  for p in "$HOME"/.pi/agent/ensemble-runs/issue-* "$HOME"/.pi/agent/ensemble-runs/plan-*; do
+    [[ ${p##*/} =~ ^(issue|plan)-([1-9][0-9]{0,9})$ ]] || continue
+    list+=("${BASH_REMATCH[2]}")
+  done
+  for p in "$TEHAS_HOME"/live/console-*.txt; do
+    [[ ${p##*/} =~ ^console-([1-9][0-9]{0,9})\.txt$ ]] || continue
+    list+=("${BASH_REMATCH[1]}")
+  done
+  for n in "${list[@]}"; do
     [ -z "${seen[$n]+set}" ] || continue
     seen[$n]=1
-    [ "$done" -lt 3 ] || return 0
+    # Three issues a poll at most, counting the ones it only would take.
+    [ "$count" -lt 3 ] || return 0
     lock=$TEHAS_HOME/state/cycles/$n.lock
     ! tehas_cycle_running "$n" || continue
-    [ -z "$(find "$lock" "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} \
-      -maxdepth 0 -newermt "-7 days" 2>/dev/null)" ] || continue
-    done=$((done + 1))
+    # What this issue has on this host. A name that is no file is as untouched
+    # as one that has not been used, so find is not asked about it.
+    files=()
+    [ "$marked" = 1 ] && files+=("$works/$base-$n" "$works/$base-$n".{before-retry,images,state})
+    files+=("$HOME/.pi/agent/ensemble-runs/issue-$n" "$HOME/.pi/agent/ensemble-runs/plan-$n" \
+      "$TEHAS_HOME/live/console-$n.txt")
+    # The lock is asked about before anything is removed, as tehasbot clean asks
+    # it: a lock that is no lock file is no proof of anything about the issue, and
+    # taking it would write through it. It is asked of too, because a cycle can
+    # take a lock between the two probes and the removals hold it. The whole set
+    # is kept and the next poll tries again, so a name kept by one rule costs no
+    # candidate of another: the refusal is said, as the lock that could not be
+    # taken below is.
+    if ! tehas_cycle_lock_free "$n"; then
+      log "WARN: the lock of #$n is no lock file, so nothing of it was removed"
+      continue
+    fi
+    # The age rule of tehasbot clean: young means this issue is kept, and so does
+    # a name the poll cannot date, because an issue it cannot date is an issue it
+    # does not touch. One find over all of them is not enough: it prints nothing
+    # for a name it could not read and still ends 0, which would read as aged out.
+    young=""
+    for e in "$lock" "${files[@]}"; do
+      [ -e "$e" ] || [ -L "$e" ] || continue
+      out=$(find "$e" -maxdepth 0 -newermt "-7 days" 2>/dev/null) || { young=$e; break; }
+      [ -n "$out" ] && { young=$e; break; }
+    done
+    [ -z "$young" ] || continue
+    count=$((count + 1))
     if [ "$dry" = 1 ]; then
-      log "would remove the kept workspace of #$n: no cycle has run on it for 7 days"
-    elif flock -n "$lock" rm -rf -- "$works/$base-$n" "$works/$base-$n".{before-retry,images,state} 8>&-; then
-      log "removed the kept workspace of #$n: no cycle has run on it for 7 days"
-    else
-      log "WARN: could not remove the kept workspace of #$n"
+      log "would remove what #$n left on this host: no cycle has run on it for 7 days"
+      continue
+    fi
+    # The lock is taken for the removals and goes with them, as tehas stop does.
+    # One a cycle holds cannot be taken: then nothing of the issue is touched
+    # and the next poll tries again.
+    if ! flock -n "$lock" true; then
+      log "WARN: could not take the lock of #$n, so nothing of it was removed"
+      continue
+    fi
+    said=0
+    for e in "${files[@]}"; do
+      [ -e "$e" ] || [ -L "$e" ] || continue
+      if flock -n "$lock" rm -rf -- "$e" 8>&-; then
+        said=1
+      else
+        log "WARN: could not remove ${e#"$TEHAS_HOME"/} of #$n"
+        said=0
+        break
+      fi
+    done
+    if [ "$said" = 1 ]; then
+      log "removed what #$n left on this host: no cycle has run on it for 7 days"
     fi
   done
+  return 0
 }
 sweep_workspaces
 
