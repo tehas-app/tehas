@@ -20,6 +20,17 @@ empty one above it.
   store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
   of the files are unchanged. `status.json`, `platform.json` and
   `energy.json` are written through temporary names of their own.
+
+### Adopter action
+
+- Drain before you install (`tehas drain`): a cycle started by the earlier
+  `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
+  owns. `install.sh` takes the store to schema 3.
+
+## v0.12.0 (2026-10-24)
+
+### Changes
+
 - The state store's schema is version 2. `install.sh` migrates a version 1
   `state/tehas.db` in place, after its backup, and keeps every row: the step
   only adds columns and one table. The store gains the verbs `history-show`,
