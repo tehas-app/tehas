@@ -18,7 +18,7 @@
 #   - scripts/test.sh, scripts/verify.sh, this file and test/lib.sh: full.
 #   - A test file: itself.
 #   - console/: cargo, and the shell tests that name console/ or build the
-#     store (t_store).
+#     store or the attachment checker (t_store, t_attach).
 #   - A helper under test/ or a fixture under test/fixtures/<name>/: the test
 #     files that name it.
 #   - Any other path: the test files that name its file name as a word, or its
@@ -127,7 +127,7 @@ for p in "$@"; do
       ;;
     console/*)
       cargo=1
-      mapfile -t hit < <(grep -lF -e "console/" -e "t_store" -- "${tests[@]}" 2>/dev/null)
+      mapfile -t hit < <(grep -lF -e "console/" -e "t_store" -e "t_attach" -- "${tests[@]}" 2>/dev/null)
       pick "${hit[@]}"
       continue
       ;;

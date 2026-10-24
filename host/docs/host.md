@@ -465,14 +465,18 @@ One file is written, not copied: `version.txt`, beside the pages in
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
 footer of every page shows it. `--check` does not look at it.
 
-Four installed files are compiled, not copied: the console of a running cycle,
-the analytics program, the MCP server and the state store, Rust programs in the
-Cargo workspace `console/` (the others are in `console/analytics/`,
-`console/mcp/` and `console/store/`, and the library all four share is in
-`console/core/`). A real run builds each with `cargo` in
-the checkout and installs them as `~/tehas/libexec/console`,
-`~/tehas/libexec/analytics`, `~/tehas/libexec/tehas-mcp` and
-`~/tehas/libexec/store`. A host installed from a release tarball has neither
+Five installed files are compiled, not copied: the console of a running cycle,
+the analytics program, the MCP server, the state store and the attachment
+checker, Rust programs in the Cargo workspace `console/` (the others are in
+`console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
+and the library all but the attachment checker share is in `console/core/`).
+A real run builds each with `cargo` in the checkout and installs them as
+`~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
+`~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
+`~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
+fetched for an issue and unpacks its zips (see [Tools](/tools)); without it a
+cycle given an issue's attachments does not start, and the Protolab leaves a
+zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`

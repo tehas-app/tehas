@@ -27,7 +27,7 @@ elf_aarch64='\177ELF\000\000\000\000\000\000\000\000\000\000\000\000\000\000\267
 # A release's programs, as the pack is given them: the header, then what the
 # host does with the file. The three that are only installed carry their text,
 # which an assertion quotes back from the host's copy.
-for p in console analytics mcp; do
+for p in console analytics mcp attach; do
   { printf '%b' "$elf_x86_64"; printf '%s of the release\n' "$p"; } >"$build/$p"
   chmod 755 "$build/$p"
 done
@@ -82,7 +82,7 @@ pack_tree() { # [pack arguments]
 tree=$T/rel/tehas-v9.9.9
 
 t_case "a release's programs are installed as they are, and cargo is not asked"
-pack_tree --analytics "$build/analytics" --mcp "$build/mcp" --store "$build/store"
+pack_tree --analytics "$build/analytics" --mcp "$build/mcp" --store "$build/store" --attach "$build/attach"
 fresh
 instance
 t_run "'$tree/install.sh'"
@@ -90,6 +90,7 @@ t_eq "$t_rc" 0
 t_eq "$(cmp -s "$build/console" "$th/libexec/console" && echo same)" same
 t_eq "$(cmp -s "$build/analytics" "$th/libexec/analytics" && echo same)" same
 t_eq "$(cmp -s "$build/mcp" "$th/libexec/tehas-mcp" && echo same)" same
+t_eq "$(cmp -s "$build/attach" "$th/libexec/attach" && echo same)" same
 t_eq "$(cmp -s "$T/bin/store" "$th/libexec/store" && echo same)" same
 # The store is run with what the release says it is: the tag, and the commit
 # from its COMMIT file, and then imports what an older tehas left, which it
