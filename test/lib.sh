@@ -234,12 +234,13 @@ case $pkg in analytics) art=an ;; *) art=a ;; esac
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and answers as the store does, or
-  # fails with the store's own word when STORE_RC is set. STORE_BIN names a real
+  # fails with the store's own word when STORE_RC is set, at every verb but the
+  # dry run install.sh asks before its copies. STORE_BIN names a real
   # store to hand over instead (t_store).
   cat >"$T/store-stand-in" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/store"
-if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
+if [ "${STORE_RC:-0}" != 0 ] && [ "$*" != "import --dry-run" ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
 case $1 in
   init) echo '{"api":1,"verb":"init","ok":true,"schema":1,"created":true}' ;;
   migrate) printf '{"api":1,"verb":"migrate","ok":true,"from":1,"to":1,"backup":"%s/tehas-1-0.db"}\n' "$3" ;;

@@ -61,15 +61,16 @@ instance
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "store: imported"
-# No marker before the copies: the dry run is not asked, the import after init is.
-t_eq "$(t_calls store | cut -d' ' -f1 | tr '\n' ' ')" "init import "
+# The marker is written before the copies, so even a fresh home is judged.
+t_eq "$(t_calls store | cut -d' ' -f1 | tr '\n' ' ')" "import init import "
+t_eq "$(cat "$th/.tehas-home")" "tehas"
 t_eq "$(flock -n "$th/state/dispatch.lock" true && echo free)" "free"
 
 t_case "a host with a marker has its old records judged before the copies"
 t_run "$install"
 t_eq "$t_rc" 0
 # The stand-in store makes no database, so the second run makes it again.
-t_eq "$(t_calls store | cut -d' ' -f1-2 | tr '\n' ' ')" "init --version import import --dry-run init --version import "
+t_eq "$(t_calls store | cut -d' ' -f1-2 | tr '\n' ' ')" "import --dry-run init --version import import --dry-run init --version import "
 
 if real_store "old records are imported, moved to state/imported-<day>/ and counted"; then
   t_env STORE_BIN="$T_STORE"
@@ -118,6 +119,39 @@ if real_store "a cycle that runs while old records are there stops the run befor
   t_eq "$t_rc" 0
   t_eq "$([ -e "$th/bin/tehas" ] && echo there)" "there"
 fi
+
+if real_store "a home from before the marker has its old records judged before the copies"; then
+  installed
+  old_records
+  # A host installed before the marker came in: env.sh and libexec/dispatch prove it.
+  rm -f "$th/.tehas-home" "$th/bin/tehas"
+  hold "$th/state/plan-8.json.lock"
+  t_run "$install"
+  unhold
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "runs (#8)"
+  t_contains "$t_out" "nothing was installed"
+  t_eq "$([ -e "$th/bin/tehas" ] || echo gone)" "gone"
+  t_eq "$([ -f "$th/state/plan-8.json" ] && echo there)" "there"
+fi
+
+t_case "a poll that holds the dispatcher's lock is waited for past the update lock's wait"
+installed
+bash -c 'exec 8>>"$1"; flock 8; exec sleep 2' _ "$th/state/dispatch.lock" &
+poll=$!
+for _ in $(seq 50); do flock -n "$th/state/dispatch.lock" true || break; sleep 0.1; done
+t_run "${no_wait}'$install'"
+wait "$poll" 2>/dev/null
+t_eq "$t_rc" 0
+
+t_case "TEHAS_DISPATCH_LOCK_WAIT bounds the wait for a poll"
+hold "$th/state/dispatch.lock"
+rm -f "$th/bin/tehas"
+t_run "export TEHAS_DISPATCH_LOCK_WAIT=0; '$install'"
+unhold
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas: a poll is running ($th/state/dispatch.lock still held after 0s); nothing was installed"
+t_eq "$([ -e "$th/bin/tehas" ] || echo gone)" "gone"
 
 if real_store "a held cycle lock with no old record refuses nothing"; then
   installed

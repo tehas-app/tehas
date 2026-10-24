@@ -230,6 +230,22 @@ tehas_update_lock_wait() {
   printf '%s\n' "$v"
 }
 
+# The seconds install.sh waits for state/dispatch.lock, which a poll holds for
+# its whole run: TEHAS_DISPATCH_LOCK_WAIT, or 900. A poll's own bounds (the
+# fetch, the low gate, a wait for each start, the GitHub calls) add up to
+# minutes, so the update lock's 10 would refuse an install whenever the timer's
+# poll is running. 0 refuses at once; more than 3600 or anything else is the
+# default. Read from the environment, like the update lock's wait.
+tehas_dispatch_lock_wait_default=900
+tehas_dispatch_lock_wait() {
+  local v=${TEHAS_DISPATCH_LOCK_WAIT:-}
+  case $v in
+  '' | *[!0-9]* | 0[0-9]*) v=$tehas_dispatch_lock_wait_default ;;
+  esac
+  { [ "${#v}" -le 4 ] && [ "$v" -le 3600 ]; } || v=$tehas_dispatch_lock_wait_default
+  printf '%s\n' "$v"
+}
+
 # The lines of that record, without blank ones. No record is an empty answer,
 # not a failure. A record that exists but cannot be read is the other case: it
 # holds steps somebody owed, and answering "nothing is owed" would let the next
