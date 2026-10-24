@@ -169,8 +169,10 @@ fi
 . "$root/lib/config.sh"
 # shellcheck source=lib/update-steps.sh
 . "$root/lib/update-steps.sh"
-# The wait for the update lock, read before tehas_load below drops it.
+# The waits for the update lock and the dispatcher's, read before tehas_load
+# below drops them.
 lock_wait=$(tehas_update_lock_wait)
+dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/edge.sh
 . "$root/lib/edge.sh"
 # shellcheck source=lib/cycles.sh
@@ -936,24 +938,27 @@ fi
 # The store keeps the host's records; an older tehas kept them as files under
 # state/, and store_db below imports them (store import). From here until after
 # that import this run holds state/dispatch.lock, so no poll starts a cycle or a
-# planning turn in between. A poll that holds it now is waited for as long as
-# the update lock is (TEHAS_UPDATE_LOCK_WAIT), then nothing is installed.
+# planning turn in between. A poll that holds it now is waited for up to
+# TEHAS_DISPATCH_LOCK_WAIT seconds (900), then nothing is installed.
 #
 # Before the first copy the store this run installs judges the old files with
 # a dry run, which reads files only. A cycle or planning turn that runs while
 # old files are there would write more of them after the import, so it stops
 # the install; so does a file the import would hold (a link, too large, or
-# unreadable). A home without the marker has none of this tehas's records to
-# judge: its import runs after the marker is written, in store_db.
+# unreadable). home_refusal has proved the home by now, so a home installed
+# before the marker came in gets it here, and its old records are judged too.
 dispatch_held=0
 store_gate() {
   local out
   exec 9>>"$TEHAS_HOME/state/dispatch.lock"
-  if ! flock -w "$lock_wait" 9; then
-    echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${lock_wait}s); nothing was installed" >&2
+  if ! flock -w "$dispatch_wait" 9; then
+    echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${dispatch_wait}s); nothing was installed" >&2
     exit 1
   fi
   dispatch_held=1
+  if [ ! -e "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ]; then
+    printf 'tehas\n' | write_file "$TEHAS_HOME/$home_marker"
+  fi
   [ -f "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ] || return 0
   if [ ! -x "$gate_store" ]; then
     echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2

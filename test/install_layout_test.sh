@@ -62,7 +62,7 @@ bash -c 'exec 8>"$1"; flock 8; exec sleep 60' _ "$lock" &
 holder=$!
 for _ in $(seq 50); do flock -n "$lock" true || break; sleep 0.1; done
 rm -f "$th/bin/tehas"
-t_run "${no_wait}$install"
+t_run "export TEHAS_DISPATCH_LOCK_WAIT=0; $install"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas: a poll is running ($lock still held after 0s); nothing was installed"
 t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"

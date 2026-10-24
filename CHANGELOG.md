@@ -26,7 +26,8 @@ empty one above it.
   imported. Each `state/plan-<n>.json.keep` moves to
   `$TEHAS_WORK_DIR-plan-<n>.keep`.
 - `install.sh` no longer leaves the commands of the earlier layout for a later
-  run while a poll holds the dispatcher's lock: it waits for the lock instead.
+  run while a poll holds the dispatcher's lock: it waits for the lock instead,
+  up to `TEHAS_DISPATCH_LOCK_WAIT` seconds (900 by default).
 
 ### Adopter action
 

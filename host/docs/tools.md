@@ -3133,10 +3133,14 @@ systemd has reloaded the units that name them. See [The host](/host).
 
 **The records of an older tehas.** A real run holds `state/dispatch.lock` from
 before its first copy until after the store has imported the old records, so no
-poll starts a cycle or a planning turn in between. A poll that holds the lock
-longer than the `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for the update
-lock stops the run with exit 1 and `a poll is running ...; nothing was
-installed`. Before the first copy the store the run installs judges the record
+poll starts a cycle or a planning turn in between. A poll holds that lock for
+its whole run, so the run waits for it up to `TEHAS_DISPATCH_LOCK_WAIT` seconds:
+a whole number, 900 by default, 0 to refuse at once, at most 3600; anything else
+is the default. It is read from the environment, and the rule for it is
+`tehas_dispatch_lock_wait` in `lib/update-steps.sh`. A poll that holds the lock
+longer stops the run with exit 1 and `a poll is running ...; nothing was
+installed`. A home installed before the marker `.tehas-home` came in gets it
+here, so its old records are judged too. Before the first copy the store the run installs judges the record
 files an older tehas kept under `state/` (`store import --dry-run`, which reads
 the files only), and the run stops with exit 1 and `nothing was installed` when:
 
@@ -3149,8 +3153,8 @@ the files only), and the run stops with exit 1 and `nothing was installed` when:
   each one out of `state/` or mend it, then run again.
 
 After the database is made or migrated, `store import` makes the files rows and
-moves each one to `state/imported-<YYYYMMDD>/`, under its path in `state/`, once
-its rows read back; nothing is deleted. The run prints `store: imported <table>
+moves them to `state/imported-<YYYYMMDD>/`, under their paths in `state/`, an
+issue's files together once all their rows read back; nothing is deleted. The run prints `store: imported <table>
 <rows>, ...; moved <n> files to ...` when it moved any. An import that fails
 stops the run with exit 1: the files are installed, the database holds what was
 imported, and running `install.sh` again finishes it. Each

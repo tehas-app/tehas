@@ -207,9 +207,10 @@ fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
-# A fresh home has no marker before the copies, so there is no dry run: the
-# import after init finds nothing.
-t_eq "$(t_calls store)" "init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget
+# A fresh home gets its marker before the copies, so the dry run is asked too;
+# the import after init finds nothing.
+t_eq "$(t_calls store)" "import --dry-run
+init --version $(git -C "$T_ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/$/+/')$(git -C "$T_ROOT" rev-parse --short=7 HEAD) --commit $(git -C "$T_ROOT" rev-parse HEAD) --instance instance --repo acme/widget
 import"
 t_contains "$t_out" "store: made $th/state/tehas.db"
 t_eq "$(stat -c %a "$th/state")" 700
