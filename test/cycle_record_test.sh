@@ -461,6 +461,22 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
 
+t_case "an end the store will not take is an ERROR with its arguments, the cycle is still reported, and the next start replaces the open row"
+reset
+ended handoff commit-pr feature/x
+t_store_answers cycle-end 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ERROR: the end of #7 is not on record (busy: store: busy #7: the database is locked): cycle-end 7 --attempt 1 --status handoff"
+t_eq "$(t_calls store | grep -c '^cycle-end')" 5
+t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.ended_at] | tostring')" '[1,null]'
+rm -f "$T/home/tehas/libexec/store"
+cp "$T_STORE" "$T/home/tehas/libexec/store"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[2,true]'
+
 t_case "the end of a cycle starts one poll of the dispatcher, and leaves the request for the path unit"
 reset
 rm -f "$T/home/tehas/state/dispatch.again"

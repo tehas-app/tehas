@@ -44,6 +44,21 @@ for answer in '{"number":7,"state":"closed"}' '{"number":7,"state":"CLOSED"}'; d
   t_eq "$(t_row history-show 7 -- '.rows | length')" 0
 done
 
+t_case "a refused start whose end the store will not take is an ERROR, and the next start replaces its row"
+reset
+printf '%s' '{"number":7,"state":"closed"}' >"$fx/issue-7.json"
+t_store_answers cycle-end 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 65
+t_contains "$t_out" "ERROR: the refused start of #7 is not on record (busy): cycle-end 7 --attempt 1 --refused"
+t_eq "$(t_calls store | grep -c '^cycle-end')" 5
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.ended_at] | tostring')" '[1,null]'
+rm -f "$T/home/tehas/libexec/store" "$fx/issue-7.json"
+cp "$T_STORE" "$T/home/tehas/libexec/store"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 2
+
 t_case "the number of a pull request is refused, open, merged or closed"
 for answer in '{"number":9,"state":"open","pull_request":{"url":"u"}}' '{"number":9,"state":"closed","pull_request":{"url":"u"}}'; do
   reset
