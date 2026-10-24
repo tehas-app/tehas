@@ -1329,7 +1329,11 @@ that moves records into the state store refuses while a cycle or a planning turn
 runs and records of the older tehas are there, and installs nothing: drain first
 with `tehas drain --wait 3600`, let planning turns end, update, then
 `tehas limit clear` (see [tehas drain](/tools#tehas-drain), and `install.sh` in
-[the tools](/tools)). How it works is in
+[the tools](/tools)). The update moves each old record file it imported to
+`~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
+While a record file of the older tehas is still in `state/`, every poll stops
+with exit 78 and logs `ERROR: records of an older tehas at <path>; run
+install.sh again`: run `install.sh` again, and it imports what is left. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).
