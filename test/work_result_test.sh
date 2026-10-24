@@ -164,6 +164,28 @@ tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
 t_lacks "$(cat "$cycle_log.err")" "holds nothing"
 t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
 
+t_case "a cycle the runner aborted with no cap leaves the abort in its error file"
+fresh
+container "progress '[pi-rukas] cancelled (abort signal) · last output: tool_execution_update 610s before the kill, after 249 line(s)'
+says aborted; exit 20"
+t_run "$work 7"
+t_eq "$t_rc" 20
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended as aborted with no cap
+[pi-rukas] cancelled (abort signal) · last output: tool_execution_update 610s before the kill, after 249 line(s)
+tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
+
+t_case "an aborted cycle whose stream holds no driver line still names the stream"
+fresh
+container "progress 'not a driver line'
+says aborted; exit 20"
+t_run "$work 7"
+t_eq "$t_rc" 20
+cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
+t_eq "$(cat "$cycle_log.err")" "tehas work: issue 7 ended as aborted with no cap
+tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
+t_eq "$(wc -c <"$cycle_log.err")" 120
+
 t_case "only the last 20 [pi-rukas] lines of the stream are copied"
 fresh
 lines=""
