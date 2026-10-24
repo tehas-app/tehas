@@ -453,9 +453,8 @@ done
 # a merge is not closed: the search for completed work lags, and its merged
 # comes when it catches up. A run with no snapshot before it records only the
 # merged and closed, which carry their own time. Nothing older than ten days,
-# the report's window. No call starts after three calls' time
-# limits, so a database that hangs delays the run by four at most (about 21
-# seconds). An event whose call fails or runs out of time is lost: the next
+# the report's window. No call starts after three calls' time limits, so a
+# database that hangs delays the run by four at most (about 21 seconds). An event whose call fails or runs out of time is lost: the next
 # run compares with this snapshot and does not try it again.
 record_events() {
   local list n event at stop
@@ -477,10 +476,11 @@ record_events() {
         | select(.state == "CLOSED" and (.number | tostring) != $control and ($done | any(. == $i.number) | not))
         | select($before == null or ($was | any(. == $i.number)))
         | "\(.number) closed \(recent)")' "$live/status.json" 2>/dev/null) || return 0
-  stop=$((SECONDS + 3 * $(tehas_analytics_wait)))
+  # In microseconds: whole seconds would start the count up to one second late.
+  stop=$((${EPOCHREALTIME/[.,]/} + 3 * $(tehas_analytics_wait) * 1000000))
   while read -r n event at; do
     [ -n "$n" ] || continue
-    if [ "$SECONDS" -ge "$stop" ]; then
+    if [ "${EPOCHREALTIME/[.,]/}" -ge "$stop" ]; then
       log "WARN analytics: out of time, the other events of this run are left out"
       break
     fi
