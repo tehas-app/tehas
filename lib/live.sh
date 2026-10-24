@@ -26,7 +26,7 @@
 
 tehas_live_assemble() {
   local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock prev endings
-  now=$(date +%s)
+  now=$EPOCHSECONDS
   for f in "$live"/cycles/*.json; do
     [ -e "$f" ] || continue
     # A cycle writes every ten seconds. Two minutes of silence is a cycle

@@ -65,7 +65,7 @@ if ! tehas_health_readable "$file"; then
   exit 1
 fi
 
-now=$(date +%s)
+now=$EPOCHSECONDS
 stale=false
 tehas_health_stale "$file" "$now" || stale=true
 

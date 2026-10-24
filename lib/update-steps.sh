@@ -67,6 +67,14 @@ tehas_units() { printf '%s\n' tehas-dispatch.timer tehas-energy.service tehas-to
 
 tehas_step_ids() { printf '%s\n' units sandbox docs edge labels; }
 
+# The units of tehas_units on one line, space separated, asked once per process:
+# install.sh asks for every file it copies. Sourcing this file again, a newer
+# copy of it, asks again.
+_tehas_units_line=""
+tehas_units_line() {
+  [ -n "${_tehas_units_line:-}" ] || _tehas_units_line=$(tehas_units | tr '\n' ' ')
+}
+
 # The steps these changed sources call for, in the order they run: systemd
 # first, because a unit file is not in effect until it is reloaded and its unit
 # restarted, and the containers last.
@@ -80,15 +88,14 @@ tehas_steps_for() { # changed source paths -> one step per line
 # once for every file it copies.
 tehas_steps_into() { # changed source paths -> tehas_steps
   local list=" $* "
-  local units
   tehas_steps=()
   case "$list" in
     # bin/tehas-energy is the sampler of the layout before bin/tehas. A running
     # one is that file calling itself, and it moves on only when restarted. A
     # running service keeps the environment env.sh gave it at its start.
     *" systemd/"* | *" bin/tehas-energy "* | *" env.sh "*)
-      units=$(tehas_units | tr '\n' ' ')
-      tehas_steps+=("units ${units% }")
+      tehas_units_line
+      tehas_steps+=("units ${_tehas_units_line% }")
       ;;
     # The MCP server's container mounts its binary: a new one reaches it only
     # when the unit starts the container again.
@@ -119,9 +126,14 @@ tehas_steps_into() { # changed source paths -> tehas_steps
 # the edge step. One function says that, and everything that reads a step line
 # asks it rather than spelling the alias out.
 tehas_step_id() { # <id token> -> the id this file defines for it
+  tehas_step_id_into "$1"
+  printf '%s\n' "$tehas_step_id_out"
+}
+# The same answer in tehas_step_id_out, with no subshell.
+tehas_step_id_into() {
   case "$1" in
-    protolab) printf 'edge\n' ;;
-    *) printf '%s\n' "$1" ;;
+    protolab) tehas_step_id_out=edge ;;
+    *) tehas_step_id_out=$1 ;;
   esac
 }
 
@@ -130,16 +142,18 @@ tehas_step_id() { # <id token> -> the id this file defines for it
 # them, but they stay visible. Sorting here rather than in each command keeps one
 # answer to "what runs first" for install.sh's record and tehas update's run.
 tehas_sort_steps() { # step lines -> the same lines, ordered
-  local id line known
+  local id line known tehas_step_id_out
   known=" $(tehas_step_ids | tr '\n' ' ') "
   for id in $known; do
     for line in "$@"; do
-      if [ "$(tehas_step_id "${line%% *}")" = "$id" ]; then printf '%s\n' "$line"; fi
+      tehas_step_id_into "${line%% *}"
+      if [ "$tehas_step_id_out" = "$id" ]; then printf '%s\n' "$line"; fi
     done
   done
   for line in "$@"; do
+    tehas_step_id_into "${line%% *}"
     case "$known" in
-      *" $(tehas_step_id "${line%% *}") "*) ;;
+      *" $tehas_step_id_out "*) ;;
       *) printf '%s\n' "$line" ;;
     esac
   done
@@ -169,7 +183,8 @@ tehas_valid_step() { # <step line>
         tehas_is_unit "$token" || return 1
         # And only the units this version of tehas installs. A step line is not a
         # way to name some other unit of the host's for an update to restart.
-        case " $(tehas_units | tr '\n' ' ') " in
+        tehas_units_line
+        case " $_tehas_units_line " in
           *" $token "*) ;;
           *) return 1 ;;
         esac
@@ -264,8 +279,8 @@ tehas_read_steps() {
 tehas_write_steps() { # one step line per argument; none means remove the record
   local file tmp
   file=$(tehas_pending_file)
-  if ! mkdir -p "$(dirname "$file")"; then
-    echo "tehas: could not create $(dirname "$file")" >&2
+  if ! mkdir -p "${file%/*}"; then
+    echo "tehas: could not create ${file%/*}" >&2
     return 1
   fi
   if [ "$#" = 0 ]; then
@@ -327,6 +342,7 @@ tehas_record_steps() { # one step line per argument
   # Sorted as whole lines: a units step carries spaces, so it is read back one
   # line at a time rather than word-split.
   while IFS= read -r line; do sorted+=("$line"); done < <(tehas_sort_steps "${merged[@]}")
-  merged=("${sorted[@]}")
-  tehas_write_steps "${merged[@]}"
+  # A record that already holds these lines in this order is left as it is.
+  [ "$(printf '%s\n' "${sorted[@]}")" != "$record" ] || return 0
+  tehas_write_steps "${sorted[@]}"
 }

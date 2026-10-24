@@ -111,7 +111,7 @@ tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
   local want=${1:-16} live now health factory queue cycle units energy console host
   local name issue ended file lines was reading later
   live=$TEHAS_HOME/live
-  now=$(date +%s)
+  now=$EPOCHSECONDS
 
   # Factory and queue counts: the health file, with the rule tehas status uses.
   health=null

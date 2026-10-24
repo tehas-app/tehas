@@ -225,6 +225,29 @@ t_eq "$t_out" "units tehas-dispatch.timer
 sandbox
 docs --force-recreate"
 
+t_case "a record that already holds the steps is left as it is, one that does not is rewritten"
+T_ENV=("TEHAS_HOME=$T/home/record-same")
+t_run '. "$T_ROOT/lib/update-steps.sh"
+f=$(tehas_pending_file)
+tehas_record_steps "units tehas-dispatch.timer" sandbox
+a=$(stat -c %i "$f")
+tehas_record_steps sandbox "units tehas-dispatch.timer"
+b=$(stat -c %i "$f")
+tehas_record_steps "docs --force-recreate"
+c=$(stat -c %i "$f")
+printf "sandbox\nunits tehas-dispatch.timer\n" >"$f"
+d=$(stat -c %i "$f")
+tehas_record_steps sandbox
+e=$(stat -c %i "$f")
+[ "$a" = "$b" ] && echo kept; [ "$b" != "$c" ] && echo added; [ "$d" != "$e" ] && echo sorted
+tehas_read_steps'
+t_eq "$t_rc" 0
+t_eq "$t_out" "kept
+added
+sorted
+units tehas-dispatch.timer
+sandbox"
+
 t_case "a units step another one covers is not recorded twice"
 T_ENV=("TEHAS_HOME=$T/home/record-units")
 t_run '. "$T_ROOT/lib/update-steps.sh"

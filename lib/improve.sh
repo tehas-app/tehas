@@ -95,7 +95,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   fi
   retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
-    --argjson ended "$(date +%s)" --arg status "$status" --arg step "$step" --arg pr "$pr" \
+    --argjson ended "$EPOCHSECONDS" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
     --arg cap "$cap" --arg reason "$reason" --arg build "$build" --argjson settings "$settings" --arg retry "$retry" '
       {issue: $issue, started: $started, seconds: ($ended - $started), status: $status,
