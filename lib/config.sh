@@ -324,6 +324,15 @@ _tehas_valid() {
   return 0
 }
 
+# _tehas_why <name> <value>: 0 when _tehas_valid accepts it, else 1 with its
+# reason in the caller's $reason. The check runs in this shell and the reason
+# is asked for only when there is one: every load checks some forty settings.
+_tehas_why() {
+  _tehas_valid "$1" "$2" >/dev/null && return 0
+  reason=$(_tehas_valid "$1" "$2")
+  return 1
+}
+
 # The roles an instance may give a model of their own, as the suffix of
 # PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>, checked when the
 # settings load, before any image is asked. They are the members pi-rukas
@@ -361,7 +370,7 @@ _tehas_role_models() { # <instance.env>
       unset "$v"
       continue
     fi
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for role in $roles; do
     m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
@@ -610,25 +619,25 @@ tehas_load() {
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # The bound install.sh puts on one cargo build. Its default belongs to
   # install.sh, so an instance that leaves it out is checked only when it wrote
   # one.
   if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
-    reason=$(_tehas_valid TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT") ||
+    _tehas_why TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT" ||
       { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
   fi
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
-    reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
+    _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES; do
     [ -n "${!v:-}" ] || continue
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_BOT_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
     [ -n "${!v}" ] || continue
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # An entry for a setting the instance no longer has is a workaround removed
   # by half.
@@ -723,7 +732,7 @@ tehas_require() {
   for name in "$@"; do
     # Only spaces counts as not set.
     [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
-    reason=$(_tehas_valid "$name" "${!name}") || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
+    _tehas_why "$name" "${!name}" || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
   done
 }
 
