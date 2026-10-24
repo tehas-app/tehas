@@ -1,0 +1,8 @@
+# Fast tier for pi-rukas. With this file the developer runs this command, not
+# .pi/verify-cmd; the driver runs this and then .pi/verify-cmd wherever it
+# gates. Only what the change since origin/main can affect: the name lint,
+# shellcheck and the tests of the changed files, the workspace's tests when
+# console/ changed. The heavy integration files (install_*, update_*,
+# pack_release, bootstrap) are left to the full gate unless the change touches
+# what they test. scripts/select-tests.sh says how paths map.
+bash scripts/verify.sh --changed

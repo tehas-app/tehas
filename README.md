@@ -135,8 +135,9 @@ more than one repository from one host.
 ## Working on tehas
 
 ```
-scripts/verify.sh          # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --changed  # only what the change can affect; the gate a cycle's developer runs
+scripts/verify.sh            # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
 The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs

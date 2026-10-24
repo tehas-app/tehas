@@ -91,12 +91,16 @@ when a person pulls and runs `install.sh` there.
 ## Verify
 
 ```
-scripts/verify.sh          # fast gate: lint, shellcheck, shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --changed  # what your change can affect: the lint, shellcheck and tests of the changed files
+scripts/verify.sh            # the whole gate: lint, shellcheck, every shell test, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
-Both print one line per step and exit non-zero on failure. Run the fast gate
-before you say a change is done, and quote its output.
+Each prints one line per step and exits non-zero on failure. In a work cycle,
+run `scripts/verify.sh --changed` before you say a change is done, and quote
+its output. Do not run the whole gate yourself: the driver runs it on your
+work when you finish, and in a cycle's container it takes many minutes.
+Working by hand, run the whole gate once on the final state.
 
 ## Commits
 
