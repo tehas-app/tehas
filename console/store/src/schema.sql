@@ -1,8 +1,12 @@
--- The schema of state/tehas.db, schema v2: every table, column, key and
+-- The schema of state/tehas.db, schema v3: every table, column, key and
 -- index of the state store spec, section 3.1 to 3.13. Its version is
 -- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
--- migrated from v1 (db::migrate) and one init made hold the same columns.
+-- migrated from v1 or v2 (db::migrate) and one init made hold the same
+-- columns. A CHECK that changes cannot be changed in place in SQLite, so
+-- approvals and planning_notes are written as the rebuilt table of
+-- db::STEP_3 leaves them: same columns in the same order, one word more in
+-- each list.
 -- Within one version columns are only added; a change of meaning raises the
 -- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
@@ -111,6 +115,8 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 -- start still owed. by_account is the actor of the labelled event, and
 -- body_sha256 is the text the approval binds to. input_json (v2) is what the
 -- cycle is given with it: links, comment_links, retry_context, refresh_of.
+-- 'millwright' (v3) is the new name of the role 'fixer' was; both are accepted
+-- until the verbs write only the new one.
 CREATE TABLE approvals (
   issue        INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   at           INTEGER NOT NULL,
@@ -151,11 +157,13 @@ CREATE TABLE planning (
   ended_at      INTEGER
 );
 -- text (v2) is the reply the turn answers, as the person wrote it.
+-- millwright (v3) is planning_answers.fixer renamed: ALTER TABLE RENAME COLUMN
+-- keeps its rows and its position, so it is the last column of v2's table.
 CREATE TABLE planning_answers (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
   turn  INTEGER NOT NULL,
   by_account TEXT NOT NULL,
-  fixer      INTEGER NOT NULL DEFAULT 0,
+  millwright   INTEGER NOT NULL DEFAULT 0,
   text       TEXT,
   PRIMARY KEY (issue, turn)
 );
@@ -167,12 +175,13 @@ CREATE TABLE planning_filed (
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, url)
 );
--- (v2) The comments the poll spoke about once in this session: a fixer's
+-- (v2) The comments the poll spoke about once in this session: a millwright's
 -- reply it refused, and a question whose tick it held. They go with the
--- session.
+-- session. 'millwright-refused' (v3) is the new name of 'fixer-refused'; both
+-- are accepted until the verbs write only the new one.
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
   comment_id INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)

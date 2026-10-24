@@ -361,10 +361,12 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
     p.insert(3, ("options", options.to_string()));
     let mut q = c
         .prepare(
-            "SELECT turn, by_account, fixer FROM planning_answers WHERE issue = ?1 ORDER BY turn",
+            "SELECT turn, by_account, millwright FROM planning_answers WHERE issue = ?1 ORDER BY turn",
         )
         .q()?;
     let answers: Vec<String> = q
+        // The column is `millwright` since schema 3; the key stays `fixer` until
+        // the verbs speak the new word (#686).
         .query_map([issue], |r| row_json(r, &["turn", "by", "fixer?"]))
         .q()?
         .map(|r| r.map(|p| obj(&p)))
@@ -579,7 +581,7 @@ fn answer(
             ));
         }
         c.execute(
-            "INSERT INTO planning_answers (issue, turn, by_account, fixer, text)
+            "INSERT INTO planning_answers (issue, turn, by_account, millwright, text)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![issue, turn, by, fixer, text],
         )

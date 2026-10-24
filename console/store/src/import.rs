@@ -1083,13 +1083,30 @@ impl Op {
                 )
                 .q()?
             }
-            Op::Answer(issue, turn, by, fixer, text) => c
-                .execute(
-                    "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, fixer, text)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+            Op::Answer(issue, turn, by, fixer, text) => {
+                // The column of an answer is `millwright` from schema 3, renamed
+                // by the step in db::STEP_3. The INSERT keeps the old name until
+                // the verbs speak the new one (#686), so the name is asked of the
+                // store first and the answer of an older file is still written
+                // into the one column it can go: `millwright`, which is `fixer`
+                // under 2 and keeps its rows, its default and its place. Below 3
+                // the old name is used, so a store that has not been brought
+                // forward is written as it always was. Part 2 (#686) writes the
+                // new name only and drops the ask.
+                let column = if answer_column_fixer(c)? {
+                    "fixer"
+                } else {
+                    "millwright"
+                };
+                c.execute(
+                    &format!(
+                        "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, {column}, text)
+                     VALUES (?1, ?2, ?3, ?4, ?5)"
+                    ),
                     params![issue, turn, by, fixer, text],
                 )
-                .q()?,
+                .q()?
+            }
             Op::Filed(issue, url, filed, at) => c
                 .execute(
                     "INSERT OR IGNORE INTO planning_filed (issue, url, filed_issue, at)
@@ -1191,6 +1208,10 @@ impl Op {
                 &[issue, &r.p.turns, &r.p.by, &r.p.label, &r.p.started_at],
             ),
             Op::Answer(issue, turn, by, ..) => yes(
+                // The issue and the turn are the key of the row, so the column
+                // of the answer is not named: from schema 3 it answers to
+                // `millwright` (db::STEP_3) and the read-back keeps working on
+                // either store. Part 2 (#686) renames what import writes.
                 "planning_answers WHERE issue = ?1 AND turn = ?2 AND by_account = ?3",
                 &[issue, turn, by],
             ),
@@ -1847,6 +1868,22 @@ fn move_file(home: &Path, it: &Item, day: &str) -> Result<(), String> {
         }
     }
     Err("cannot be moved: every name under imported/ is taken".to_string())
+}
+
+/// Whether the store's `planning_answers` still answers to the old name of the
+/// column of an answer, `fixer`: true up to schema 2, false from 3, where the
+/// step of db::STEP_3 renamed it to `millwright`. Asked of `pragma_table_info`
+/// on the connection the group's write already holds, so it is one read per
+/// group and travels with the lock that write took. Part 2 (#686) drops it.
+fn answer_column_fixer(c: &Connection) -> Result<bool, Fail> {
+    let n: i64 = c
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('planning_answers') WHERE name = 'fixer'",
+            [],
+            |r| r.get(0),
+        )
+        .q()?;
+    Ok(n > 0)
 }
 
 pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {

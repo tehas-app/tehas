@@ -16,13 +16,15 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The step from schema 1 to 2: columns and a table added, nothing changed or
 /// removed, so no row of a v1 store can be lost. Each column comes last in its
-/// table in schema.sql too, so the two ways to schema 2 agree.
-const STEP_2: &str = "
+/// table in schema.sql too, so the two ways to schema 2 agree. The tests that
+/// need a store at 2 lay this over the fixture of schema 1, so a step and its
+/// own test of the store it starts from cannot drift apart.
+pub const STEP_2: &str = "
 ALTER TABLE approvals ADD COLUMN input_json TEXT;
 ALTER TABLE parks ADD COLUMN told_at INTEGER;
 ALTER TABLE planning_answers ADD COLUMN text TEXT;
@@ -33,6 +35,63 @@ CREATE TABLE planning_notes (
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)
 );
+";
+
+/// The step from schema 2 to 3: one word added to each of two CHECK lists and
+/// one column renamed, so no row of a v2 store can be lost and every `fixer`
+/// value is kept as it was. SQLite cannot change a CHECK in place, so
+/// `approvals` and `planning_notes` are rebuilt the way the docs tell a person
+/// to: create the table as schema.sql now writes it, copy every row, drop the
+/// old one, rename, and recreate the one index the first of the two has. The
+/// column list of each INSERT names the columns, so a copy cannot line rows up
+/// by position. A CHECK that is only a PRIMARY KEY (`approvals`) survives the
+/// rebuild in its own `sqlite_autoindex` row, which is why no index of either
+/// table is dropped first: it belongs to the table that goes, not to a name a
+/// later CREATE INDEX would answer to.
+///
+/// The order is the step's own. The rename comes first: `fixer` would be the
+/// last column of v2's `planning_answers` and `millwright` is the last of the
+/// same table in schema.sql, so a rename keeps the two ways to schema 3 in
+/// step. The rebuilds are asked before it, so the rename's own rename of
+/// `planning_answers`'s foreign key is the last thing the transaction does to
+/// the schema.
+pub const STEP_3: &str = "
+CREATE TABLE approvals_new (
+  issue        INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
+  at           INTEGER NOT NULL,
+  by_account   TEXT NOT NULL,
+  how          TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  body_sha256  TEXT NOT NULL,
+  title_sha256 TEXT,
+  comment_id   INTEGER,
+  refresh_pr   INTEGER,
+  refresh_head TEXT,
+  used_at      INTEGER,
+  used_by      INTEGER,
+  input_json   TEXT,
+  PRIMARY KEY (issue, at)
+);
+INSERT INTO approvals_new (issue, at, by_account, how, label, body_sha256, title_sha256,
+  comment_id, refresh_pr, refresh_head, used_at, used_by, input_json)
+  SELECT issue, at, by_account, how, label, body_sha256, title_sha256,
+    comment_id, refresh_pr, refresh_head, used_at, used_by, input_json
+  FROM approvals;
+DROP TABLE approvals;
+ALTER TABLE approvals_new RENAME TO approvals;
+CREATE INDEX approvals_open ON approvals (issue, used_at);
+CREATE TABLE planning_notes_new (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
+);
+INSERT INTO planning_notes_new (issue, kind, comment_id, at)
+  SELECT issue, kind, comment_id, at FROM planning_notes;
+DROP TABLE planning_notes;
+ALTER TABLE planning_notes_new RENAME TO planning_notes;
+ALTER TABLE planning_answers RENAME COLUMN fixer TO millwright;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -427,6 +486,32 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
     conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
+/// `open` for the test that writes a row or two and asks what a constraint
+/// answers: a write connection with no transaction of its own. `open` already
+/// leaves a connection outside any transaction, and `lock` leaves one inside;
+/// a statement asked of the second is answered by the transaction that is open
+/// rather than by the table it names, which is the difference a test of a CHECK
+/// cannot afford to miss. No verb asks for this -- each takes the lock in its
+/// own transaction and commits what it wrote -- so it is built for the tests.
+#[cfg(test)]
+pub fn write_rows(file: &Path) -> Result<Connection, DbError> {
+    open(file, Purpose::Write)
+}
+
+/// A connection of the store's own making that may write, for the test that
+/// asks a CHECK what it answers. `open_read_only` is the reader `check` is and
+/// cannot write a row at all; `lock` is the writer and answers a statement from
+/// the transaction it holds open. This is neither: every pragma of `prepare`,
+/// no transaction, and the leave to write that a CHECK needs in order to say
+/// anything. Tests only.
+#[cfg(test)]
+pub fn write_ask(file: &Path) -> Result<Connection, DbError> {
+    guard_result(file)?;
+    let conn = Connection::open(file).map_err(classify)?;
+    prepare(&conn, Purpose::Read)?;
+    Ok(conn)
+}
+
 /// The same checks and the same connection as `open`, for the reader that must
 /// not disturb a writer's lock at all: read-only, so it waits at most READ_WAIT
 /// and writes no row. It can still make the -wal and -shm beside the file when
@@ -697,8 +782,9 @@ pub fn write_schema(
 /// and a `user_version` of 0 (what SQLite makes of an empty file),
 /// `write_schema` is the whole of it: it lays schema.sql at the version this
 /// binary writes, writes the rows of `meta` -- `schema` among them -- and sets
-/// `user_version`, all in one transaction. From schema 1 it is `step_2`. A
-/// database already at SCHEMA_VERSION has nothing to run.
+/// `user_version`, all in one transaction. From schema 1 it is `step_2` and then
+/// `step_3`; from schema 2 it is `step_3` alone. A database already at
+/// SCHEMA_VERSION has nothing to run.
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
@@ -726,7 +812,8 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        1 => step_2(conn),
+        1 => step_2(conn).and_then(|()| step_3(conn)),
+        2 => step_3(conn),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -759,6 +846,38 @@ fn step_2(conn: &mut Connection) -> Result<(), DbError> {
         ));
     }
     tx.pragma_update(None, "user_version", 2)
+        .map_err(classify)?;
+    tx.commit().map_err(classify)
+}
+
+/// Schema 2 to 3 in one transaction with `meta.schema` and `user_version`: a
+/// failure commits nothing and leaves the store at 2 with every row, the old
+/// CHECKs still in place and `fixer` still its column's name. Asked for on its
+/// own from 2, and after `step_2` from 1, so a store at 1 is brought forward by
+/// two transactions and each one either commits wholly or not at all.
+fn step_3(conn: &mut Connection) -> Result<(), DbError> {
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    // Read again under the lock: another migrate may have run in between.
+    let held: i64 = tx
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(classify)?;
+    if held != 2 {
+        return Err(DbError::Corrupt(format!(
+            "the step from schema 2 found schema {held}"
+        )));
+    }
+    tx.execute_batch(STEP_3).map_err(classify)?;
+    let n = tx
+        .execute("UPDATE meta SET value = '3' WHERE key = 'schema'", [])
+        .map_err(classify)?;
+    if n != 1 {
+        return Err(DbError::Corrupt(
+            "the store at schema 2 has no schema row in meta".to_string(),
+        ));
+    }
+    tx.pragma_update(None, "user_version", 3)
         .map_err(classify)?;
     tx.commit().map_err(classify)
 }

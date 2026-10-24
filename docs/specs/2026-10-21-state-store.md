@@ -359,11 +359,15 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 2 for this schema. Schema 1 was
+- The version is `PRAGMA user_version`. It is 3 for this schema. Schema 1 was
   the first on main; the step to 2 only adds columns and one table
   (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
-  `planning_notes`; the verbs spec's D29). An added column comes last in its
-  table, where `ALTER TABLE` puts it. Migrations run forward only, from install
+  `planning_notes`; the verbs spec's D29). The step to 3 accepts the word
+  `millwright` beside `fixer` in `approvals.how` and in `planning_notes.kind`,
+  and renames `planning_answers.fixer` to `millwright` with
+  `ALTER TABLE ... RENAME COLUMN`, so its rows and its place last in the table
+  are kept. An added column comes last in its table, where `ALTER TABLE` puts
+  it. Migrations run forward only, from install
   or update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
   `synchronous=FULL`, `foreign_keys=ON`. Writes stay under one a second, so
@@ -441,7 +445,9 @@ CREATE TABLE cycles (
   attempt        INTEGER NOT NULL DEFAULT 1,
   started_at     INTEGER NOT NULL,        -- was: the mtime of cycles/<n>.taken
   started_by     TEXT NOT NULL,           -- was: cycles/<n>.by  (F6)
-  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer')),
+  -- v3: 'millwright' is the new name of 'fixer'; both are accepted until the
+  -- verbs write only the new one (#686).
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand')),
   requeued       INTEGER NOT NULL DEFAULT 0,
   rukas_commit   TEXT,                    -- was: cycles/<n>.rukas (B7)
   image          TEXT,                    -- was: cycles/<n>.image (B7)
@@ -573,7 +579,7 @@ CREATE TABLE planning_answers (           -- was: the `answers` array
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
   turn  INTEGER NOT NULL,
   by_account TEXT NOT NULL,
-  fixer      INTEGER NOT NULL DEFAULT 0,
+  millwright   INTEGER NOT NULL DEFAULT 0, -- v3: was `fixer`, renamed in place
   text       TEXT,                        -- v2: was <record>.answer
   PRIMARY KEY (issue, turn)
 );
@@ -585,9 +591,11 @@ CREATE TABLE planning_filed (             -- was: the `filed` array
   PRIMARY KEY (issue, url)
 );
 -- v2: was the record's fixer_refused and held lists. They go with the session.
+-- v3: 'millwright-refused' is the new name of 'fixer-refused'; both are accepted
+-- until the verbs write only the new one (#686).
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
-  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
   comment_id INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)
