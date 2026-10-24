@@ -476,6 +476,8 @@ t_old_state=(
   'state/cycles/*.approved.json' 'state/cycles/*.approved.json.new' 'state/cycles/[1-9]*.history.jsonl'
   # The park, its question and the body of the question posted.
   'state/cycles/*.park' 'state/cycles/*.park.new' 'state/park-*.id' 'state/park-*.json'
+  # The quiet-cycle episode.
+  'state/cycles/*.quiet'
 )
 t_no_old_state() { # <home>
   local t_glob t_file

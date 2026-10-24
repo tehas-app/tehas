@@ -60,6 +60,9 @@ forbid 'tehas_cycle_history_add\b' 'tehas_cycle_history_add "$issue" "$line"'
 forbid "$f"'\.park\b' 'pf=$TEHAS_HOME/state/cycles/$1.park'
 forbid 'state/park-' 'printf x >"$TEHAS_HOME/state/park-$issue.json"'
 forbid '\bpark_id\b' 'qid=$(cat "$(park_id "$n")")'
+# The quiet-cycle episode: what the poll last asked of a stuck cycle's unit.
+forbid "$f"'\.quiet\b' 'note=$TEHAS_HOME/state/cycles/$n.quiet'
+forbid 'tehas_cycle_note_files\b' 'for f in $(tehas_cycle_note_files quiet); do'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
   'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
   "work tells the cycle how the runner ended"
@@ -161,7 +164,8 @@ t_case "no forbidden pattern takes a JSON field, a label or a kept name for a fi
 for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/state/dispatch.taken"' \
   'tehas_plan_history_add "$n"' 'state/cycles/plan-$1.history.jsonl' '$images/.taken' '.images.md' \
   'tehas_cycle_history "$1"' "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
-  'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->'; do
+  'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->' \
+  'systemd-run --user --quiet --collect' 'quiet_running=$(tehas_cycles_running)' '.cycle.quiet'; do
   for re in "${forbidden[@]}"; do
     grep -qE -- "$re" <<<"$line" && t_bad "the pattern $re finds: $line"
   done
