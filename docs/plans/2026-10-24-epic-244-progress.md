@@ -38,7 +38,14 @@ stacked on the one before:
 | 8 | `store-callers-old-paths` (old-path guard, manual) | done, reviewed, fixed, pushed (carries the importer commits) |
 | - | `store-import` (from main: `store import`, install.sh runs it) | done, reviewed, pushed |
 
-Final check against #250 and #251 Done-when: running.
+Final check against #250 and #251 Done-when (2026-10-24 21:40): every item met, with
+evidence; fast gate rc 0 in both worktrees. One fix from it: 4211af7 (the manual names
+every command that stops at 78 without the store). The workflow ran 50 agents.
+
+Next: branch `epic-244` = `store-callers-old-paths` + origin/main (merge in progress,
+conflicts in features.md, tools.md, lib/config.sh, libexec/dispatch,
+test/dispatch_plan_test.sh). Then a draft PR for #250/#251 from `epic-244`, then
+#252 and #257 stacked on `epic-244`.
 
 Work happens in `~/work/tehas-244-finish` (the caller chain) and
 `~/work/tehas-250-import` (the importer). Each unit: build, then three
