@@ -114,13 +114,14 @@ files="./.bashrc
 ./tehas/lib/store.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
-./tehas/lib/unzip.sh
 ./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/analytics-cmd
 ./tehas/libexec/api
+./tehas/libexec/attach
+./tehas/libexec/attach.stamp
 ./tehas/libexec/check-product
 ./tehas/libexec/clean
 ./tehas/libexec/console

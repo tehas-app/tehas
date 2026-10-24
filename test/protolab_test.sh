@@ -85,6 +85,8 @@ issues() { printf '%s\n' "$@" | jq -s . >"$fx/issues.json"; }
 reset() {
   rm -rf "$fx" "$T/home/tehas" "$T"/calls/*
   mkdir -p "$fx/net"
+  # A zip is unpacked by the real attachment checker.
+  t_attach_home "$T/home/tehas"
   T_ENV=(GH_TOKEN=sekret-token)
   t_instance "${T_MINIMAL[@]}"
 }
@@ -557,8 +559,6 @@ t_lacks "$page" "e201.txt"
 
 t_case "small files of a zip together are held to what is left, and unpacking stops there"
 reset
-real_unzip=$(command -v unzip)
-t_stub unzip "exec $real_unzip \"\$@\""
 net_file "$F/15/sizes.zip" "$zips/sizes.zip"
 issues "$(issue 51 'Sizes' "[sizes.zip]($F/15/sizes.zip)")"
 t_run "$protolab"
@@ -566,18 +566,25 @@ page=$(cat "$site/51/index.html")
 t_eq "$(files_of 51)" "./sizes/a.txt ./sizes/b.txt "
 t_contains "$page" "$(left_out sizes/c.txt 'Over the 10 MB limit of a ticket.')"
 t_contains "$page" "$(left_out sizes/d.txt 'Over the 10 MB limit of a ticket.')"
-t_eq "$(t_calls unzip | wc -l)" 3
-rm -f "$T/bin/unzip"
+t_eq "$(find "$site/51" -name 'c.txt' -o -name 'd.txt' | wc -l)" 0
 
-t_case "a line of the zip's listing that is not an entry is left out and said"
+t_case "a zip whose directory is cut short is not read at all"
 reset
-t_stub zipinfo 'printf "%s\n" "Archive:  x.zip" "Zip file size: 1 bytes, number of entries: 1" "this is not an entry" "1 file, 1 bytes uncompressed, 1 bytes compressed:  0.0%"'
-net_file "$F/16/good.zip" "$zips/good.zip"
-issues "$(issue 52 'Odd listing' "[good.zip]($F/16/good.zip)")"
+head -c "$(($(stat -c %s "$zips/good.zip") - 10))" "$zips/good.zip" >"$T/cut.zip"
+net_file "$F/16/good.zip" "$T/cut.zip"
+issues "$(issue 52 'Cut short' "[good.zip]($F/16/good.zip)")"
 t_run "$protolab"
-t_contains "$(cat "$site/52/index.html")" "$(left_out 'good/this is not an entry' 'Not an entry the lab can read.')"
-t_eq "$(files_of 52)" ""
-rm -f "$T/bin/zipinfo"
+t_contains "$(cat "$site/52/index.html")" "$(left_out good.zip 'Not a zip the lab can read.')"
+t_eq "$(find "$site/52/files" -type f | wc -l)" 0
+
+t_case "without the attachment checker a zip is left out with the host's reason"
+reset
+rm -f "$T/home/tehas/libexec/attach"
+net_file "$F/17/good.zip" "$zips/good.zip"
+issues "$(issue 53 'No checker' "[good.zip]($F/17/good.zip)")"
+t_run "$protolab"
+t_contains "$(cat "$site/53/index.html")" "$(left_out good.zip 'This host cannot unpack a zip.')"
+t_contains "$t_out" "attach: absent"
 
 t_case "a name with no slash keeps the same address as before"
 reset

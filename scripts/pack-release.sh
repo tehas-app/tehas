@@ -25,7 +25,8 @@
 # Usage: scripts/pack-release.sh <tag> <out dir> --console <path>
 #                               [--arch x86_64|aarch64]
 #                               [--analytics <path>] [--mcp <path>]
-#                               [--store <path>] [--commit <40 hex>]
+#                               [--store <path>] [--attach <path>]
+#                               [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
 #   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
@@ -42,6 +43,9 @@
 #   --store      the built state store, copied to libexec/store. install.sh
 #                makes and migrates the host's database with it, so a release
 #                packed without it installs only on a host that has one
+#   --attach     the built attachment checker, copied to libexec/attach. A
+#                cycle given an issue's attachments reads their bytes with it,
+#                so a host that has none fails a cycle that is given any
 #   --commit     the commit of tehas the tree is, 40 hex digits, written to
 #                COMMIT. A tree with no git has no other way to say it, and
 #                install.sh refuses a tree whose commit it cannot read
@@ -64,7 +68,7 @@
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z, --arch names neither
 #       architecture, --console is missing, is not a file or is the tree's own
-#       build, --analytics, --mcp or --store names no program, only one of the
+#       build, --analytics, --mcp, --store or --attach names no program, only one of the
 #       two pins is given, the tree does not answer to TEHAS_PACK_ROOT, or an
 #       out dir cannot be made or already holds that tarball); 1 the tree is
 #       missing something install.sh reads, one of the programs given is no ELF
@@ -78,6 +82,7 @@ console=""
 analytics=""
 mcp=""
 store=""
+attach=""
 arch=x86_64
 tree_commit=""
 rukas_commit=""
@@ -90,11 +95,12 @@ while [ "$#" -gt 0 ]; do
       console=$2
       shift
       ;;
-    --analytics | --mcp | --store)
+    --analytics | --mcp | --store | --attach)
       [ "$#" -ge 2 ] || { echo "pack-release: $1 needs a path" >&2; exit 64; }
       case $1 in
         --mcp) mcp=$2 ;;
         --store) store=$2 ;;
+        --attach) attach=$2 ;;
         *) analytics=$2 ;;
       esac
       shift
@@ -156,7 +162,7 @@ if [ ! -x "$console" ]; then
   echo "pack-release: the console is not executable: $console" >&2
   exit 64
 fi
-for program in "$analytics" "$mcp" "$store"; do
+for program in "$analytics" "$mcp" "$store" "$attach"; do
   [ -n "$program" ] || continue
   if [ ! -f "$program" ] || [ ! -x "$program" ]; then
     echo "pack-release: not a program the pack can run: $program" >&2
@@ -274,7 +280,7 @@ check_program() { # check_program <path>: an ELF built for --arch
   fi
 }
 # Before the stage, the copy or the tarball exist: a refusal writes nothing.
-for program in "$console" "$analytics" "$mcp" "$store"; do
+for program in "$console" "$analytics" "$mcp" "$store" "$attach"; do
   [ -n "$program" ] || continue
   check_program "$program" || exit 1
 done
@@ -335,7 +341,7 @@ chmod 755 "$stage_dir/libexec/console" || {
   echo "pack-release: cannot make the console executable" >&2
   exit 1
 }
-for pair in "analytics:$analytics" "tehas-mcp:$mcp" "store:$store"; do
+for pair in "analytics:$analytics" "tehas-mcp:$mcp" "store:$store" "attach:$attach"; do
   [ -n "${pair#*:}" ] || continue
   if ! cp "${pair#*:}" "$stage_dir/libexec/${pair%%:*}" || ! chmod 755 "$stage_dir/libexec/${pair%%:*}"; then
     echo "pack-release: cannot copy ${pair#*:}" >&2

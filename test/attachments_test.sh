@@ -10,6 +10,8 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 lib=". $T_ROOT/lib/attachments.sh"
+# The bytes of what is fetched are read by the real attachment checker.
+t_attach_home "$T/home/tehas" || exit 1
 fx=$T/fx
 mkdir -p "$fx/net"
 # The png a link with no bytes of its own is answered with, written here so the
@@ -252,9 +254,18 @@ printf 'caf\xc3\xa9\n' >"$T/ok.txt"
 printf 'caf\xe9\n' >"$T/latin1.txt"
 printf 'a\x00b' >"$T/nul.txt"
 : >"$T/empty.txt"
-t_run "$lib; for f in ok latin1 nul empty; do tehas_text_ok $T/\$f.txt && echo \$f; done"
+t_run "$lib; for f in ok latin1 nul empty; do tehas_attach_sniff $T/\$f.txt && [ \$sniff_text = true ] && echo \$f; done"
 t_eq "$t_out" "ok
 empty"
+
+t_case "the sniff says the size, the sha256 and the image of a file"
+t_run "$lib; tehas_attach_sniff $T/png && echo \"\$sniff_bytes \$sniff_image \$sniff_zip \$sniff_text \$sniff_sha256\""
+t_eq "$t_out" "15 png false false $(sha256sum <"$T/png" | cut -d' ' -f1)"
+t_run "$lib; tehas_attach_sniff $T/no-such-file || echo \"\$tehas_attach_word \$tehas_attach_why\""
+t_contains "$t_out" "unreadable attach: sniff exited 1: attach: unreadable: $T/no-such-file"
+# Without the program nothing is said of the bytes: the caller stops.
+t_run "TEHAS_HOME=$T/nowhere; $lib; tehas_attach_sniff $T/png || echo \"no: \$tehas_attach_why\""
+t_eq "$t_out" "no: attach: absent: $T/nowhere/libexec/attach is not an executable file"
 
 t_case "the comment names images and files apart, and the hash of each"
 mkdir -p "$T/both"
@@ -424,35 +435,13 @@ ls_imgs() { (cd "$1" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' '); }
 t_case "a zip is known by its first bytes, and a file named .zip that is not one is not"
 printf 'not a zip at all\n' >"$T/fake.zip"
 for f in "$zips/good.zip" "$zips/big.zip" "$zips/evil.zip"; do
-  t_run "$lib; tehas_zip_type '$f' && echo yes || echo no"
-  t_eq "$f $t_out" "$f yes"
+  t_run "$lib; tehas_attach_sniff '$f' && echo \$sniff_zip"
+  t_eq "$f $t_out" "$f true"
 done
-for f in "$T/fake.zip" "$T/png" "$T/no-such-file"; do
-  t_run "$lib; tehas_zip_type '$f' && echo yes || echo no"
-  t_eq "$f $t_out" "$f no"
+for f in "$T/fake.zip" "$T/png"; do
+  t_run "$lib; tehas_attach_sniff '$f' && echo \$sniff_zip"
+  t_eq "$f $t_out" "$f false"
 done
-
-t_case "the name of a file an archive did not give keeps the characters a taken name would, cut at 200 bytes"
-t_run "$lib; tehas_path_clean 'a/../b.txt'"
-t_eq "$t_out" "a/../b.txt"
-t_run "$lib; tehas_path_clean 'img/x[1].txt'"
-t_eq "$t_out" "img/x-1-.txt"
-# 300 letters in 150 parts of 2 bytes: the whole keeps its first 200 bytes, and
-# never its beginning cut short at the 80 of one part, which is what an IFS left
-# over from a caller would give.
-t_run "$lib; tehas_path_clean \"\$(printf 'a,%.0s' {1..150})\" | wc -c"
-t_eq "$t_out" "200"
-# Each part of a path is kept in full to the 200 bytes of the whole, so a
-# manifest says the path an archive gave and not only its last name.
-t_run "$lib; tehas_path_clean 'deep/down/inside/the/archive/name.txt'"
-t_eq "$t_out" "deep/down/inside/the/archive/name.txt"
-# A path of 1000 bytes keeps the 200 first of the cleaned one, so what is said
-# of it is only ever the beginning of it.
-t_run "$lib; tehas_path_clean \"\$(printf 'ab-%.0s' {1..500} | sed 's/.\$//')\" | wc -c"
-t_eq "$t_out" "200"
-# Each folder of a path keeps its own 80 bytes, so a deep one still reads.
-t_run "$lib; tehas_path_clean \"\$(printf 'ab-%.0s' {1..20} | sed 's/.\$//')/name.txt\" | wc -c"
-t_eq "$t_out" "68"
 
 t_case "a cycle given an archive gets its image and its file, each saying the archive and the path"
 NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
@@ -510,6 +499,62 @@ t_eq "$(jq -c '[.files[] | .file]' "$zipdir/manifest.json")" \
 t_eq "$(jq -c '[.leftOut[] | [.path, .reason]]' "$zipdir/manifest.json")" \
   "[[\"e.txt\",\"Over the 1 MB limit of a file.\"]]"
 t_eq "$(find "$zipdir" -name '.unzip-*' -o -name '.part' | wc -l)" 0
+
+t_case "the kinds an archive's files are unpacked as are those of tehas_attachment_kind, and md"
+exts=(png jpg jpeg gif webp svg avif mp4 webm mov html htm css js mjs json txt md zip pdf csv yaml)
+python3 -I - "$T/kinds.zip" "${exts[@]}" <<'PY2'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    for ext in sys.argv[2:]:
+        z.writestr("x." + ext, "x")
+PY2
+rm -rf "$T/kinds"
+t_run "$lib; tehas_unzip_into '$T/kinds.zip' '$T/kinds' 1048576 100"
+got=$(jq -r 'if .name then "\(.name | sub("^x[.]"; "")):\(.kind)" else "\(.skip | sub("^x[.]"; "")):-" end' <<<"$t_out" | tr '\n' ' ')
+want=""
+for ext in "${exts[@]}"; do
+  k=$(bash -c ". $T_ROOT/lib/attachments.sh; tehas_attachment_kind $ext") || k=-
+  [ "$ext" != md ] || k=part
+  want+="$ext:$k "
+done
+t_eq "$got" "$want"
+
+t_case "without the attachment checker a cycle given an issue's files does not start"
+mv "$T/home/tehas/libexec/attach" "$T/attach.away"
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" "FAILED $anyzip could not be checked (attach: absent: $T/home/tehas/libexec/attach is not an executable file)"
+mv "$T/attach.away" "$T/home/tehas/libexec/attach"
+
+# attach_answers <rc>: the installed program exits <rc> for unpack and is the
+# real one for every other verb.
+attach_answers() {
+  mv "$T/home/tehas/libexec/attach" "$T/attach.real"
+  printf '#!/usr/bin/env bash\n[ "$1" != unpack ] || exit %s\nexec %q "$@"\n' "$1" "$T/attach.real" >"$T/home/tehas/libexec/attach"
+  chmod 755 "$T/home/tehas/libexec/attach"
+}
+attach_back() { mv "$T/attach.real" "$T/home/tehas/libexec/attach"; }
+
+t_case "an archive that runs out the time to unpack it is left out, and the cycle starts"
+attach_answers 124
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$anyzip\",\"An archive that took more than 60 seconds to unpack.\"]]"
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+attach_back
+
+t_case "an archive the program panics on is left out, and the cycle starts"
+attach_answers 101
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" "[[\"$anyzip\",\"Not a zip archive.\"]]"
+attach_back
+
+t_case "a program that fails in another way stops the cycle"
+attach_answers 64
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_contains "$t_out" "FAILED $anyzip could not be unpacked (attach: unpack exited 64"
+attach_back
 
 t_case "with the setting off a zip the issue links is left out as before, and never unpacked"
 NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body" TEHAS_WORK_ZIPS=0

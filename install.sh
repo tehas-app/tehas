@@ -19,19 +19,20 @@
 # improvement loop and the manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
-# It copies files, and compiles four: the console of a running cycle, the
-# analytics program, the MCP server and the state store, Rust programs in the
-# Cargo workspace console/ (the other three in console/analytics, console/mcp
-# and console/store). A real run builds each with cargo in this checkout
-# (console/target, which git ignores) and installs them as libexec/console,
-# libexec/analytics, libexec/tehas-mcp and libexec/store; the MCP server is
+# It copies files, and compiles five: the console of a running cycle, the
+# analytics program, the MCP server, the state store and the attachment
+# checker, Rust programs in the Cargo workspace console/ (the other four in
+# console/analytics, console/mcp, console/store and console/attach). A real run
+# builds each with cargo in this checkout (console/target, which git ignores)
+# and installs them as libexec/console, libexec/analytics, libexec/tehas-mcp,
+# libexec/store and libexec/attach; the MCP server is
 # built static (musl), because it runs in a container that has none of the
 # host's libraries. Beside each, <name>.stamp holds two checksums: of the
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the build that fetches the crates from the network is the
 # first one on a host that has never fetched. The console's source leaves out
-# console/analytics, console/mcp and console/store, so a change there builds
+# console/analytics, console/mcp, console/store and console/attach, so a change there builds
 # that program alone. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
 #
@@ -436,7 +437,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
-  "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
   "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
@@ -716,8 +716,9 @@ fi
 program_puts=()
 program_stamps=()
 gate_store=$TEHAS_HOME/libexec/store
-# The compiled programs first, the console, analytics, the MCP server and the
-# store, the members of the Cargo workspace in console/: a build that fails must
+# The compiled programs first, the console, analytics, the MCP server, the
+# store and the attachment checker, the members of the Cargo workspace in
+# console/: a build that fails must
 # leave the host as it was, so every program that is due is built before any is
 # installed. What is
 # installed is judged without building: by the checksum of every file the
@@ -740,7 +741,7 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
   fi
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
-  for prog in console analytics tehas-mcp store; do
+  for prog in console analytics tehas-mcp store attach; do
     from=$root/libexec/$prog
     to=$TEHAS_HOME/libexec/$prog
     if [ ! -x "$from" ]; then
@@ -766,11 +767,13 @@ else
     (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
       LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
   }
-  # The console's source is all of console/ but its tests, analytics/, mcp/ and
-  # store/, so a change to one of those alone does not build the console again.
+  # The console's source is all of console/ but its tests, analytics/, mcp/,
+  # store/ and attach/, so a change to one of those alone does not build the
+  # console again.
   # analytics reads its own directory, the workspace's manifest and lock, and the
   # console's mask, and so does the MCP server.
-  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*') ||
+  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*' \
+    ! -path './attach/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
@@ -782,6 +785,11 @@ else
   store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
+  # The attachment checker reads its own directory and the workspace's manifest
+  # and lock.
+  attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
+    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.
   program_label() {
@@ -789,6 +797,7 @@ else
       console) echo "the console" ;;
       tehas-mcp) echo "the MCP server" ;;
       store) echo "the store" ;;
+      attach) echo "the attachment checker" ;;
       *) echo "the $1 program" ;;
     esac
   }
@@ -863,7 +872,7 @@ else
 
   due=()
   for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
-    "store $store_source"; do
+    "store $store_source" "attach $attach_source"; do
     read -r prog sum <<<"$entry"
     to=$TEHAS_HOME/libexec/$prog
     [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
