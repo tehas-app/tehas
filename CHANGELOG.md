@@ -50,6 +50,10 @@ release.
 - The installer and `tehas update` fetch the release asset for the machine's
   architecture (`uname -m`), and stop before downloading on one they do not
   know.
+- `tehas setup` takes a GitHub App in place of a token: `--app-id`,
+  `--app-installation` and `--app-key-file`, all three or none. It checks the
+  app's permissions and that it reaches the repository before it writes
+  anything, then installs the key and writes the three settings.
 - Fewer processes per command, for the same results. Loading the settings
   checks each value in the shell, the commands read the clock from the shell,
   and `install.sh` leaves the record of steps owed as it is when a copy adds
