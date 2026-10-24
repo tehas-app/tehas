@@ -225,6 +225,23 @@ t_contains "$recipe" 'codebase-memory-mcp is ${found:-not there}, versions.env n
 t_contains "$(cat "$build")" '--build-arg CBM_VERSION="$CBM_VERSION"'
 t_contains "$(cat "$build")" '--build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256"'
 
+# The read-back is the only thing that says which codebase-memory-mcp the image
+# ended with. With the error of the command thrown away, a binary that died
+# printing why answered "not there", and the build said nothing about the
+# failure. The error is read for a version and reaches the build's output.
+t_case "the version read back from the code indexer keeps what the command printed"
+cbm_read=$(grep -E 'codebase-memory-mcp --version' "$dockerfile")
+t_eq "$(grep -c -- '--version 2>/dev/null' <<<"$cbm_read")" 0
+t_contains "$cbm_read" 'codebase-memory-mcp --version 2>&1'
+# Every download is bounded: a build with no route to the publisher would hang
+# on a curl that neither gave up nor said anything.
+t_case "every download of the sandbox image is bounded"
+curls=$(grep -E 'curl -fsSL' "$dockerfile")
+t_eq "$(wc -l <<<"$curls")" 4
+for opt in --connect-timeout --max-time --retry; do
+  t_eq "$(grep -c -- "$opt" <<<"$curls")" 4
+done
+
 t_case "the image carries vipune's embedding model, pinned, and proves vipune reads it offline"
 t_eq "$(grep -cE '^VIPUNE_MODEL=[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$' "$versions")" 1
 t_eq "$(grep -cE '^VIPUNE_MODEL_REVISION=[0-9a-f]{40}$' "$versions")" 1
@@ -263,6 +280,17 @@ for tool in file python3 rg git jq curl gh node cargo shellcheck codebase-memory
 done
 t_lacks " $gate " ' wigolo '
 t_contains "$recipe" 'is not in this image'
+
+# The gate checks what a cycle can run, so it runs as the cycle's user: a tool
+# only root could execute passed the gate and failed in the cycle. The image is
+# left as root, since the steps after the gate are root's.
+t_case "the tool gate runs as the cycle's user and hands root back"
+before=$(grep -n 'RUN for tool in ' "$dockerfile" | head -n 1 | cut -d: -f1)
+[ -n "$before" ] || before=1
+prev=$(sed -n "$((before - 1))p" "$dockerfile")
+t_eq "$prev" "USER vscode"
+rest=$(sed -n "${before},\$p" "$dockerfile" | grep -n '^USER ' | head -n 1)
+t_eq "${rest##*:}" "USER root"
 
 # The container of each unit in <dir>, as one record per docker run:
 # <unit>TAB<line>TAB<image>TAB<command>, or <unit>TAB<line>TABunplacedTABTAB<why>
