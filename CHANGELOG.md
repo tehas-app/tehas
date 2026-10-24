@@ -20,6 +20,14 @@ empty one above it.
   store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
   of the files are unchanged. `status.json`, `platform.json` and
   `energy.json` are written through temporary names of their own.
+- `tehasbot clean` keeps the host's state in bounds (#257): it removes the
+  logs of cycles, planning turns and index runs older than 7 days whether or
+  not the improvement loop is on, makes a copy of the state store once a day
+  (`store backup`, `state/backup/tehas-<YYYYMMDD>.db`, 7 kept) and removes
+  rows older than 90 days (`store prune`). The poll's sweep removes the lock
+  file of an issue nothing has used for 30 days (`store sweep-locks`).
+  `tehasbot health` warns when the newest backup is missing or more than two
+  days old (`checks.backup`). The manual has a restore procedure.
 
 ### Adopter action
 

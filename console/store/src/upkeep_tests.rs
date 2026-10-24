@@ -56,6 +56,12 @@ fn backup_makes_one_copy_a_day_that_reads_as_the_store() {
         })
         .unwrap();
     assert_eq!(n, 1);
+    // A copy the store opens as it is, once restored over it.
+    let journal: String = c
+        .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(journal, "wal");
+    drop(c);
     // The same day again: the copy is kept as it is.
     let v = ok_at(&home, NOW + 60, &["backup"]);
     assert_eq!(v["made"], false);

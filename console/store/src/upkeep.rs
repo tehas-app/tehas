@@ -157,6 +157,12 @@ fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
     let mut removed = Vec::new();
     for old in copies(&dir)?.into_iter().skip(KEEP) {
         fs::remove_file(&old).map_err(|e| (1, format!("write {}: {e}", old.display())))?;
+        // What a person's look at the copy left beside it goes with it.
+        for side in ["-wal", "-shm"] {
+            let mut p = old.clone().into_os_string();
+            p.push(side);
+            let _ = fs::remove_file(p);
+        }
         removed.push(j(old.to_string_lossy().as_ref()));
     }
     Ok(line(

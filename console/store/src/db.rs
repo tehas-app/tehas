@@ -830,6 +830,22 @@ pub fn backup_to(conn: &Connection, copy: &Path) -> Result<(), DbError> {
         let _ = fs::remove_file(copy);
         classify(e)
     })?;
+    // The copy is written in the rollback journal mode, which the store's
+    // readers cannot open: a copy restored over the store must be one the
+    // store opens as it is.
+    let wal = Connection::open(copy)
+        .and_then(|c| c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)))
+        .map_err(|e| {
+            let _ = fs::remove_file(copy);
+            classify(e)
+        })?;
+    if wal != "wal" {
+        let _ = fs::remove_file(copy);
+        return Err(DbError::Unreadable(format!(
+            "the backup {} took journal mode {wal}",
+            copy.display()
+        )));
+    }
     set_mode(copy, 0o600)
 }
 

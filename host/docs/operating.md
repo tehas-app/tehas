@@ -1116,6 +1116,13 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   list, or nothing
   about the host's containers, removes no image: an unknown is never a reason
   to take one away.
+- the logs of cycles, planning turns, index runs and the improvement loop's
+  analyst in `~/tehas/logs` older than 7 days, whether or not the improvement
+  loop is on. Long-lived logs such as `dispatch.log` and `clean.log` stay.
+- the state store's upkeep: a copy a day (see below), and rows past 90 days
+  removed with `store prune --days 90`: cycle endings, settled actions of the
+  journal, and old heartbeats of cycles that have ended. A cycle's own record
+  stays.
 
 One line per removal and a closing line with the bytes freed go to
 `~/tehas/logs/clean.log`, and the same lines are printed, so a run by hand
@@ -1155,6 +1162,37 @@ to see what it would remove. **To turn it off**,
 `systemctl --user disable --now tehas-clean.timer`; a toolchain the cleaner does
 not know about is added to `TEHAS_CLEAN_DIRS` in `instance.env` rather than left
 unmanaged.
+
+The poll's sweep also removes the lock file of an issue nothing has used for 30
+days, three a poll: one no cycle holds, whose last cycle on record ended 30
+days ago, or that has no cycle on record and is that old.
+
+### Backups and restore
+
+A plain copy of `~/tehas/state/tehas.db` is not a backup: the store runs in WAL
+mode, and the newest rows can be in `tehas.db-wal`. The cleaner makes a
+consistent copy once a day with `store backup`, as
+`~/tehas/state/backup/tehas-<YYYYMMDD>.db` (mode 0600), and keeps the newest
+seven. `tehasbot health` warns (`checks.backup`) when there is none or the
+newest is more than two days old. The copies `install.sh` makes before a
+migration, `tehas-<schema>-<time>.db`, are kept beside them and never removed.
+
+**To restore** a copy:
+
+```
+tehas drain --wait 3600         # start nothing, wait for the running cycles
+systemctl --user stop tehas-dispatch.timer tehas-dispatch.path tehas-clean.timer tehas-refresh.timer
+cd ~/tehas/state
+mv tehas.db tehas.db.broken; rm -f tehas.db-wal tehas.db-shm
+cp backup/tehas-<YYYYMMDD>.db tehas.db && chmod 600 tehas.db
+~/tehas/libexec/store check
+systemctl --user start tehas-dispatch.timer tehas-dispatch.path tehas-clean.timer tehas-refresh.timer
+tehas limit clear
+```
+
+`store check` must say `"integrity":"ok"`. The next poll reconciles the labels
+on GitHub against what the copy holds; a cycle that ran after the copy was
+made is not in it.
 
 ## The fixer's grant
 

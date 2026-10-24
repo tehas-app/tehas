@@ -76,6 +76,14 @@
 #                                        any other shape is offered, and
 #                                        nothing without a tag of its own is
 #                                        given to docker: no `image prune`.
+#   6. logs and the state store          the logs of cycles, planning turns,
+#                                        index runs and the improvement loop's
+#                                        analyst under $TEHAS_HOME/logs older
+#                                        than 7 days, whatever the improvement
+#                                        loop does; then `store backup` (one
+#                                        copy a day, 7 kept) and `store prune
+#                                        --days 90`. A dry run names the logs
+#                                        and leaves the store alone.
 #
 # Docker volumes are never touched, a person's call (see the host manual).
 #
@@ -137,6 +145,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # this run takes build output early (see build_after below).
 # shellcheck source=lib/disk.sh
 . "$here/../lib/disk.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
 
@@ -921,12 +931,46 @@ clean_base_image() {
   return "$failed"
 }
 
+# 6. The logs of cycles, planning turns, index runs and the improvement loop's
+# analyst older than 7 days, and the state store's upkeep: a copy a day under
+# state/backup (store backup) and rows past their 90 days (store prune).
+clean_upkeep() {
+  local failed=0 f
+  while IFS= read -r -d '' f; do
+    if [ "$dry" = 1 ]; then
+      log "would remove ${f#"$TEHAS_HOME"/}: a log 7 days old"
+    elif rm -f -- "$f"; then
+      log "removed ${f#"$TEHAS_HOME"/}: a log 7 days old"
+    else
+      warn "could not remove ${f#"$TEHAS_HOME"/}"
+      failed=1
+    fi
+  done < <(find "$logs" -maxdepth 1 -type f \( -name 'work-*' -o -name 'dispatch-work-*' -o -name 'index-*' \
+    -o -name 'improve-analyst*.log' -o -name 'plan-*.jsonl' -o -name 'dispatch-plan-*.log' \) -mmin +10080 -print0)
+  [ "$dry" = 0 ] || return "$failed"
+  if ! tehas_store_ready; then
+    warn "the state store is not installed, so it was not backed up or pruned"
+    return 1
+  fi
+  for f in backup "prune --days 90"; do
+    # shellcheck disable=SC2086  # the verb and its flags, as words
+    if tehas_store $f; then
+      log "store $f: $tehas_store_out"
+    else
+      warn "store $f failed ($tehas_store_word): $tehas_store_line"
+      failed=1
+    fi
+  done
+  return "$failed"
+}
+
 # Every step runs, whatever the ones before it did.
 clean_workspaces || rc=1
 clean_build_cache || rc=1
 clean_scratch || rc=1
 clean_sandbox_images || rc=1
 clean_base_image || rc=1
+clean_upkeep || rc=1
 
 log "freed $freed bytes"
 exit "$rc"
