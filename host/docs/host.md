@@ -613,8 +613,9 @@ with its brief, its answers, the issues it filed, its open question and the
 last 50 lines of history of its turns (the dispatcher). What a planning turn
 carries between turns is a directory beside its workspace,
 `~/tehas/work/<name>-plan-<issue>.keep`. The commands run the store through `~/tehas/lib/store.sh`;
-`tehas dispatch`, `tehasbot cycle`, `tehas stop` and `tehas history` stop with
-exit 78 before anything else when it is not installed.
+`tehas dispatch`, `tehasbot cycle`, `tehas work`, `tehas stop`, `tehas history`,
+`tehas export` and `tehasbot health` stop with exit 78 before anything else
+when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`:
