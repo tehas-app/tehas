@@ -28,6 +28,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "attach"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
