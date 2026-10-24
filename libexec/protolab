@@ -273,7 +273,7 @@ build() {
     rm -f "$dir/.part"
     if [ "$rc" != 0 ]; then
       rm -rf "${dir:?}/files/$base"
-      skip "$name" "Not a zip the lab can read."
+      if [ "$rc" = 3 ]; then skip "$name" "This host cannot unpack a zip."; else skip "$name" "Not a zip the lab can read."; fi
       return 0
     fi
     rmdir "$dir/files/$base" 2>/dev/null

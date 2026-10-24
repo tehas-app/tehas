@@ -926,8 +926,12 @@ unpacked into a scratch directory beside the others by `~/tehas/libexec/attach`
 central directory first and refuses an archive it cannot read whole (a zip64
 or a split one among them), and of its entries an absolute path, a `..` part,
 a backslash, a link, a locked file, a method other than stored or deflated, a
-damaged file and more than 200 entries. It counts what it writes, never what
-the archive claims. Every file it writes then goes through the checks of a
+damaged file and more than 200 entries. It counts what it inflates, never what
+the archive claims, and a damaged entry's bytes count too; an entry that
+inflates past the size it claims, or shares its data with another entry, is
+damaged. An archive it does not unpack within 60 seconds, or that makes it
+fail, is left out with a reason; a program that is missing or fails in any
+other way stops the cycle. Every file it writes then goes through the checks of a
 file the issue links: an image by its first bytes, a text file by its
 extension and by being valid UTF-8 with no NUL byte. The same program reads
 the bytes of every linked file, its size, its sha256, its image type and

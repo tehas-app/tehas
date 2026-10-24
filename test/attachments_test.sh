@@ -525,6 +525,37 @@ NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
 t_eq "$t_out" "FAILED $anyzip could not be checked (attach: absent: $T/home/tehas/libexec/attach is not an executable file)"
 mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
+# attach_answers <rc>: the installed program exits <rc> for unpack and is the
+# real one for every other verb.
+attach_answers() {
+  mv "$T/home/tehas/libexec/attach" "$T/attach.real"
+  printf '#!/usr/bin/env bash\n[ "$1" != unpack ] || exit %s\nexec %q "$@"\n' "$1" "$T/attach.real" >"$T/home/tehas/libexec/attach"
+  chmod 755 "$T/home/tehas/libexec/attach"
+}
+attach_back() { mv "$T/attach.real" "$T/home/tehas/libexec/attach"; }
+
+t_case "an archive that runs out the time to unpack it is left out, and the cycle starts"
+attach_answers 124
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" \
+  "[[\"$anyzip\",\"An archive that took more than 60 seconds to unpack.\"]]"
+t_eq "$(ls_imgs "$zipdir")" "./image-1.png ./manifest.json "
+attach_back
+
+t_case "an archive the program panics on is left out, and the cycle starts"
+attach_answers 101
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_eq "$t_out" ""
+t_eq "$(jq -c '[.leftOut[] | [.link, .reason]]' "$zipdir/manifest.json")" "[[\"$anyzip\",\"Not a zip archive.\"]]"
+attach_back
+
+t_case "a program that fails in another way stops the cycle"
+attach_answers 64
+NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
+t_contains "$t_out" "FAILED $anyzip could not be unpacked (attach: unpack exited 64"
+attach_back
+
 t_case "with the setting off a zip the issue links is left out as before, and never unpacked"
 NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body" TEHAS_WORK_ZIPS=0
 t_eq "$t_out" ""
