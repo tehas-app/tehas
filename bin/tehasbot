@@ -16,6 +16,7 @@
 #   tehasbot refresh              find the pull requests to refresh (the timer)
 #   tehasbot clean                remove what the host can make again (the timer)
 #   tehasbot mcp serve            the read-only MCP server (the service)
+#   tehasbot github-token [--check]  the GitHub App's token (the gh shim)
 #   tehasbot help                 this text
 #
 # Each command is a script in ../libexec, and this only chooses one and runs
@@ -38,7 +39,7 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | clean | mcp)
+  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | clean | mcp | github-token)
     file=$libexec/$1
     shift
     exec "$file" "$@"
