@@ -12,10 +12,27 @@
 installer=$T_ROOT/host/release/install
 rel=$T/release
 bob=$T/home/bob
-name=tehas-v1.0.0-linux-x86_64.tar.gz
 
-make_release() {
-  local src=$T/src/tehas-v1.0.0
+# The asset name the installer of a machine asks for, the same choice the script
+# makes. A case names the machine; a case that names none means this host's own.
+asset_for() { # [machine]
+  printf 'tehas-v1.0.0-linux-%s.tar.gz\n' "$(arch_of "${1:-$(uname -m)}")" || return 1
+}
+
+# The architecture words of host/release/install, the same choice as
+# tehas_release_arch of lib/update-release.sh. The installer is a standalone
+# script, so the test names them too rather than sourcing either.
+arch_of() { # <machine>
+  case "$1" in
+    x86_64 | amd64) printf 'x86_64\n' ;;
+    aarch64 | arm64) printf 'aarch64\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+make_release() { # [machine]
+  local src=$T/src/tehas-v1.0.0 name
+  name=$(asset_for "${1:-$(uname -m)}") || return 1
   rm -rf "$T/src" "$rel"
   mkdir -p "$src/bin" "$rel"
   echo v1.0.0 >"$src/VERSION"
@@ -27,9 +44,10 @@ make_release() {
   echo signed >"$rel/$name.minisig"
 }
 
-stubs() {
+stubs() { # [machine, as uname -m answers it]
   rm -rf "$bob" "$T/calls"/*
   mkdir -p "$bob"
+  t_stub uname "echo ${1:-$(uname -m)}"
   t_stub id 'case "$1" in -u) echo "${UID_IS:-0}" ;; -gn) echo staff ;; esac'
   t_stub getent "echo \"bob:x:1001:1001::$bob:/bin/bash\""
   t_stub chown
@@ -63,6 +81,7 @@ t_eq "$(t_calls bootstrap)" ""
 t_eq "$(readlink "$bob/tehas/current")" versions/v1.0.0
 
 t_case "a bad signature puts nothing in the home and runs no bootstrap.sh"
+name=$(asset_for)
 stubs
 echo forged >"$rel/$name.minisig"
 t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
@@ -73,6 +92,7 @@ t_eq "$(ls -A "$bob")" ""
 
 t_case "a tarball that does not match its .sha256 is refused"
 make_release
+name=$(asset_for)
 stubs
 echo tampered >>"$rel/$name"
 t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
@@ -102,5 +122,28 @@ t_run "sh '$installer' --version latest bob"
 t_eq "$t_rc" 64
 t_run "sh '$installer' --from '$rel' --version v1.0.0 root"
 t_eq "$t_rc" 64
+
+# The asset of the machine this host is: each of the three cases makes the
+# release of that machine and hands over the directory holding it, so a run that
+# asked for another name would find no file there and say so.
+for machine in x86_64 aarch64 arm64; do
+  t_case "on a machine whose uname -m says $machine, the installer takes that asset"
+  make_release "$machine"
+  stubs "$machine"
+  t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "$(asset_for "$machine") matches its .sha256 and its signature"
+  t_eq "$(readlink "$bob/tehas/current")" versions/v1.0.0
+done
+
+t_case "a machine no release is published for stops before the download"
+make_release
+stubs riscv64
+t_run "sh '$installer' --from '$rel' --version v1.0.0 bob"
+t_eq "$t_rc" 1
+t_contains "$t_out" "releases are published for x86_64 and aarch64, and uname -m says riscv64"
+t_lacks "$t_out" "matches its .sha256"
+t_eq "$(t_calls bootstrap)" ""
+t_eq "$(ls -A "$bob")" ""
 
 t_done

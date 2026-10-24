@@ -10,16 +10,47 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The library this file checks beside the command. It is sourced for the cases
+# that call tehas_release_arch and tehas_release_tarball directly, and tehas_err
+# is defined with it because those cases run outside libexec/update, which gets
+# the message helper from lib/config.sh.
+# shellcheck source=lib/update-release.sh
+. "$T_ROOT/lib/update-release.sh"
+tehas_err() { echo "tehas: $*" >&2; }
+
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 rel=$T/releases
 T_ENV=(T_IN_TEST=1)
 
+# The asset name the release of a machine answers with, the same words
+# tehas_release_arch of lib/update-release.sh answers with. The cases stub
+# uname; where they do not, this run's own machine decides, as it does on a host.
+arch_of() { # [machine]
+  local machine=${1:-$(uname -m)}
+  case "$machine" in
+    x86_64 | amd64) printf 'x86_64\n' ;;
+    aarch64 | arm64) printf 'aarch64\n' ;;
+    # Nothing is printed and the call fails for a machine no release is packed
+    # for, so a caller cannot build an asset name out of it.
+    *) return 1 ;;
+  esac
+}
+
+# The asset of the release of a tag, named the way the host names it: the asset
+# of this run's own machine, unless make_release was given another. The cases
+# that tamper with a tarball read it back from here rather than from the x86_64
+# name, which a host of another architecture does not carry.
+asset_of() { # <tag>
+  printf 'tehas-%s-linux-%s.tar.gz\n' "$1" "$(arch_of)"
+}
+
 # A release as pack-release.sh makes it, small: the real lib/ (the target's
 # rules are what is checked), the example instance, a VERSION and an install.sh
 # that records it ran. Then its .sha256 and a signature the minisign stub takes.
-make_release() { # <tag> [<body>]
-  local tag=$1 body=${2:-} src=$T/src/tehas-$1 out=$rel/$1 name=tehas-$1-linux-x86_64.tar.gz
+make_release() { # <tag> [<body>] [<machine>]
+  local tag=$1 body=${2:-} src=$T/src/tehas-$1 out=$rel/$1 machine=${3:-$(uname -m)} name
+  name=tehas-$tag-linux-$(arch_of "$machine").tar.gz || return 1
   rm -rf "$src" "$out"
   mkdir -p "$src/instances" "$src/host/release" "$out"
   cp -R "$T_ROOT/lib" "$src/lib"
@@ -40,13 +71,15 @@ None.}" '{tag_name: $t, body: $b, draft: false, prerelease: false}' >"$out/relea
 
 # The host: a home installed from a release at <tag>, the installed key and
 # versions.env, and an instance that updates from releases.
-host_at() { # <tag>
+host_at() { # <tag> [machine]
+  local machine=${2:-$(uname -m)} name
+  name=tehas-$1-linux-$(arch_of "$machine").tar.gz || return 1
   rm -rf "$th" "$T/calls"/* "$T/src"
   mkdir -p "$th/versions" "$th/release" "$th/state"
   : >"$th/.tehas-home"
   cp "$T_ROOT/host/release/minisign.pub" "$th/release/"
   cp "$T_ROOT/host/versions.env" "$th/versions.env"
-  tar -xzf "$rel/$1/tehas-$1-linux-x86_64.tar.gz" -C "$th/versions"
+  tar -xzf "$rel/$1/$name" -C "$th/versions"
   mv "$th/versions/tehas-$1" "$th/versions/$1"
   ln -s "versions/$1" "$th/current"
   echo "$1" >"$th/state/release-history"
@@ -72,6 +105,38 @@ tag_checkout() { # <tag>
   git -C "$th/platform" commit -qm first
   git -C "$th/platform" tag "$1"
 }
+
+# A release directory and a host for a machine whose uname -m answers <machine>,
+# at v1.0.0, ready for an update that would go on to v1.2.0. The asset keeps the
+# name of the machine the release was packed for, so a case about a machine no
+# release exists for still has a host to run on: the x86_64 one, whose asset is
+# the only thing on that host a download could be asked for.
+host_at_arch() { # <machine>
+  local machine=$1 asset
+  # The releases carry the asset of this machine, unless none exists for it, in
+  # which case the host is the x86_64 one: nothing is downloaded on such a host
+  # in the case that uses it, so the asset it holds is beside the point.
+  asset=$(arch_of "$machine" 2>/dev/null) || asset=x86_64
+  make_release v1.0.0 "" "$asset"
+  make_release v1.2.0 "" "$asset"
+  host_at v1.0.0 "$asset"
+}
+
+# The release of the run's own machine, the fixture every other case starts from.
+releases_at_home() {
+  make_release v1.0.0
+  make_release v1.1.0 '### Changes
+- the dispatcher names its reason
+### Adopter action
+Set TEHAS_EXAMPLE_KNOB in instance.env.'
+  make_release v1.2.0
+}
+
+# A machine no release is published for, as the stub of uname answers it. A
+# function of its own, so a case that takes uname away from the command keeps
+# the other tools of this host's PATH: the command reads the machine through
+# tehas_release_machine, which is the only thing that asks uname.
+no_machine() { t_stub uname 'exit 127'; }
 
 instance() { t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_FROM=release "$@"; }
 
@@ -99,12 +164,7 @@ for a in "$@"; do [ "$prev" != -x ] || x=$a; prev=$a; done
 }
 
 rm -rf "$rel"
-make_release v1.0.0
-make_release v1.1.0 '### Changes
-- the dispatcher names its reason
-### Adopter action
-Set TEHAS_EXAMPLE_KNOB in instance.env.'
-make_release v1.2.0
+releases_at_home
 
 t_case "--check names the installed and the newest version and the notes between, and changes nothing"
 stubs
@@ -149,7 +209,7 @@ stubs
 instance
 host_at v1.0.0
 cp -R "$rel/v1.2.0" "$T/good"
-echo tampered >>"$rel/v1.2.0/tehas-v1.2.0-linux-x86_64.tar.gz"
+echo tampered >>"$rel/v1.2.0/$(asset_of v1.2.0)"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "does not match its .sha256"
@@ -163,7 +223,7 @@ t_case "a tarball the installed key did not sign is not unpacked"
 stubs
 instance
 host_at v1.0.0
-echo forged >"$rel/v1.2.0/tehas-v1.2.0-linux-x86_64.tar.gz.minisig"
+echo forged >"$rel/v1.2.0/$(asset_of v1.2.0).minisig"
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "is not signed by the key in $th/release/minisign.pub"
@@ -171,7 +231,7 @@ t_eq "$(readlink "$th/current")" versions/v1.0.0
 t_eq "$(ls "$th/versions")" v1.0.0
 # The key checked with is the host's, not one in the download.
 t_contains "$(t_calls minisign)" "-p $th/release/minisign.pub"
-echo signed >"$rel/v1.2.0/tehas-v1.2.0-linux-x86_64.tar.gz.minisig"
+echo signed >"$rel/v1.2.0/$(asset_of v1.2.0).minisig"
 
 t_case "with no minisign the download is refused, not taken on its .sha256 alone"
 stubs
@@ -193,8 +253,8 @@ make_release v1.3.0
 sed -i 's/^  tehas_require TEHAS_REPO /  tehas_require TEHAS_NEW_KNOB TEHAS_REPO /' "$T/src/tehas-v1.3.0/lib/config.sh"
 mkdir -p "$T/src/tehas-v1.3.0/instances/example"
 echo 'TEHAS_NEW_KNOB=42' >>"$T/src/tehas-v1.3.0/instances/example/instance.env"
-(cd "$T/src" && tar -czf "$rel/v1.3.0/tehas-v1.3.0-linux-x86_64.tar.gz" tehas-v1.3.0)
-(cd "$rel/v1.3.0" && sha256sum tehas-v1.3.0-linux-x86_64.tar.gz >tehas-v1.3.0-linux-x86_64.tar.gz.sha256)
+(cd "$T/src" && tar -czf "$rel/v1.3.0/$(asset_of v1.3.0)" tehas-v1.3.0)
+(cd "$rel/v1.3.0" && sha256sum "$(asset_of v1.3.0)" >"$(asset_of v1.3.0).sha256")
 instance
 host_at v1.0.0
 t_run "$update"
@@ -298,7 +358,7 @@ host_at v1.0.0
 t_run "GH_AUTH=1 $update"
 t_eq "$t_rc" 0
 t_contains "$(t_calls curl)" "https://api.github.com/repos/tehas-app/tehas/releases?per_page=100"
-t_contains "$(t_calls curl)" "https://github.com/tehas-app/tehas/releases/download/v1.2.0/tehas-v1.2.0-linux-x86_64.tar.gz.minisig"
+t_contains "$(t_calls curl)" "https://github.com/tehas-app/tehas/releases/download/v1.2.0/$(asset_of v1.2.0).minisig"
 t_eq "$(readlink "$th/current")" versions/v1.2.0
 
 t_case "TEHAS_RELEASE_REPO in the instance names where releases come from"
@@ -369,8 +429,69 @@ t_eq "$(readlink "$th/current")" versions/v1.2.0
 t_contains "$(t_calls gh)" "release download v1.2.0"
 t_eq "$(t_calls install)" "install v1.2.0 "
 
+t_case "an unsupported architecture stops before the download, and names what uname -m said"
+stubs
+instance
+host_at_arch riscv64
+t_stub uname 'echo riscv64'
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "uname -m says riscv64"
+t_lacks "$t_out" "downloaded, checked"
+t_lacks "$t_out" "$th/tmp"   # no directory to download into was made
+t_lacks "$(t_calls gh)" "release download"
+t_lacks "$(t_calls curl)" "releases/download"
+t_eq "$(t_calls install)" ""
+t_eq "$(readlink "$th/current")" versions/v1.0.0
+t_eq "$(ls "$th/versions")" v1.0.0
+
+# The three machines a release exists for: the asset asked for is the one of
+# that machine, so an aarch64 host is never served the x86_64 tarball.
+for machine in x86_64 aarch64 arm64; do
+  t_case "on a machine whose uname -m says $machine, the download is of that asset"
+  stubs
+  instance
+  host_at_arch "$machine"
+  t_stub uname "echo $machine"
+  t_run "$update"
+  t_eq "$t_rc" 0
+  t_contains "$(t_calls gh)" "release download v1.2.0 --repo tehas-app/tehas"
+  t_contains "$(t_calls gh)" "tehas-v1.2.0-linux-$(arch_of "$machine").tar.gz"
+  t_eq "$(readlink "$th/current")" versions/v1.2.0
+  t_eq "$(cat "$th/versions/v1.2.0/VERSION")" v1.2.0
+done
+
+t_case "a machine whose uname answers nothing asks for nothing and stops with the reason"
+stubs
+instance
+host_at_arch riscv64
+no_machine
+t_run "$update"
+t_eq "$t_rc" 1
+t_contains "$t_out" "uname -m says nothing"
+t_lacks "$(t_calls gh)" "release download"
+t_eq "$(readlink "$th/current")" versions/v1.0.0
+
+t_case "the asset name of each machine, and nothing for one that has no release"
+t_eq "$(tehas_release_arch x86_64)" x86_64
+t_eq "$(tehas_release_arch amd64)" x86_64
+t_eq "$(tehas_release_arch aarch64)" aarch64
+t_eq "$(tehas_release_arch arm64)" aarch64
+t_eq "$(tehas_release_tarball v1.2.0 aarch64)" tehas-v1.2.0-linux-aarch64.tar.gz
+# The words a caller of either sees: tehas_err, so on the command's stderr.
+t_eq "$(tehas_release_arch riscv64 2>&1 >/dev/null)" \
+  "tehas: this machine has no tehas release to download: releases are published for x86_64 and aarch64, and uname -m says riscv64"
+t_eq "$(tehas_release_arch riscv64 2>/dev/null)" ""
+t_eq "$(tehas_release_arch riscv64 >/dev/null 2>&1; echo $?)" 1
+t_eq "$(tehas_release_tarball v1.2.0 riscv64 >/dev/null 2>&1; echo $?)" 1
+
+# The host left by the case above: its uname is a stub of a machine no release
+# is published for, and every later case wants a host of this one.
+uname_home() { t_stub uname "echo $(arch_of)"; }
+
 t_case "the version current names and the two switched to before it stay; older ones go"
 stubs
+uname_home
 instance
 host_at v1.0.0
 make_release v1.3.0
@@ -386,12 +507,13 @@ rm -rf "$rel/v1.3.0" "$rel/v1.4.0" && jq -s '.' "$rel"/*/release.json >"$rel/lis
 
 t_case "a tarball holding a member outside its top directory is refused"
 stubs
+uname_home
 instance
 host_at v1.0.0
 mkdir -p "$T/evil/tehas-v1.2.0" && echo v1.2.0 >"$T/evil/tehas-v1.2.0/VERSION" && echo x >"$T/evil/outside"
 cp -R "$rel/v1.2.0" "$T/good"
-(cd "$T/evil" && tar -czf "$rel/v1.2.0/tehas-v1.2.0-linux-x86_64.tar.gz" tehas-v1.2.0 outside)
-(cd "$rel/v1.2.0" && sha256sum tehas-v1.2.0-linux-x86_64.tar.gz >tehas-v1.2.0-linux-x86_64.tar.gz.sha256)
+(cd "$T/evil" && tar -czf "$rel/v1.2.0/$(asset_of v1.2.0)" tehas-v1.2.0 outside)
+(cd "$rel/v1.2.0" && sha256sum "$(asset_of v1.2.0)" >"$(asset_of v1.2.0).sha256")
 t_run "$update"
 t_eq "$t_rc" 1
 t_contains "$t_out" "holds what a release does not: outside"

@@ -2930,8 +2930,12 @@ version to move to.
 
 `tehas update` and `tehas update --to vX.Y.Z` then:
 
-1. download `tehas-<version>-linux-x86_64.tar.gz`, its `.sha256` and its
-   `.minisig`, unless that version is still on the host;
+1. download `tehas-<version>-linux-<arch>.tar.gz`, its `.sha256` and its
+   `.minisig`, unless that version is still on the host. `<arch>` is the
+   architecture `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and
+   `arm64` read as those. A machine whose `uname -m` says anything else has no
+   release to download and stops with the words it answered, before anything is
+   fetched;
 2. check the tarball against the `.sha256` and the signature against
    `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
    in the download. A download that fails either check is not unpacked. With
@@ -3357,7 +3361,11 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`), checks the `.sha256`
+It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
+asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
+`uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
+those. A machine whose `uname -m` says anything else stops before anything is
+downloaded, with the words it answered. It checks the `.sha256`
 and the signature with the key written into the script, which
 `test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
 unpacks it. It installs `minisign` with apt-get when the host has none. It runs
