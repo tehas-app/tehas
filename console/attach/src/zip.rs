@@ -34,6 +34,8 @@ pub struct Entry {
     compressed: u64,
     size: u64,
     local_offset: u64,
+    // Its data shares bytes with another entry's: never read.
+    overlaps: bool,
 }
 
 impl Entry {
@@ -110,6 +112,7 @@ impl<'a> Archive<'a> {
             entries.push(entry);
             at = next;
         }
+        mark_overlaps(data, &mut entries);
         Ok(Archive {
             data,
             entries,
@@ -117,10 +120,18 @@ impl<'a> Archive<'a> {
         })
     }
 
-    /// Write the bytes of `entry` to `out`, at most `limit` of them. Returns
-    /// how many were written. The checksum is checked at the end.
-    pub fn read(&self, entry: &Entry, limit: u64, out: &mut dyn Write) -> Result<u64, ReadError> {
-        if entry.encrypted {
+    /// Write the bytes of `entry` to `out`, at most `limit` of them and never
+    /// more than the entry says it holds. Returns how many were written. The
+    /// checksum is checked at the end. `inflated` counts every byte made,
+    /// also of an entry that fails, so a caller can charge it.
+    pub fn read(
+        &self,
+        entry: &Entry,
+        limit: u64,
+        out: &mut dyn Write,
+        inflated: &mut u64,
+    ) -> Result<u64, ReadError> {
+        if entry.encrypted || entry.overlaps {
             return Err(ReadError::Bad);
         }
         let local = usize::try_from(entry.local_offset).map_err(|_| ReadError::Bad)?;
@@ -138,10 +149,44 @@ impl<'a> Archive<'a> {
                 if entry.compressed != entry.size {
                     return Err(ReadError::Bad);
                 }
-                copy(packed, entry, limit, out)
+                copy(packed, entry, limit, out, inflated)
             }
-            8 => copy(DeflateDecoder::new(packed), entry, limit, out),
+            8 => copy(DeflateDecoder::new(packed), entry, limit, out, inflated),
             _ => Err(ReadError::Bad),
+        }
+    }
+}
+
+/// Mark every entry whose local record and data share a byte with another's.
+/// One stream named by many entries would otherwise be inflated once each.
+fn mark_overlaps(data: &[u8], entries: &mut [Entry]) {
+    let span = |e: &Entry| -> (u64, u64) {
+        let at = e.local_offset;
+        let head = usize::try_from(at)
+            .ok()
+            .and_then(|l| Some(u16_at(data, l + 26)? as u64 + u16_at(data, l + 28)? as u64))
+            .unwrap_or(0);
+        (at, at + LOCAL_LEN as u64 + head + e.compressed)
+    };
+    let mut spans: Vec<(u64, u64, usize)> = entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let (a, b) = span(e);
+            (a, b, i)
+        })
+        .collect();
+    spans.sort_unstable();
+    let mut reach: Option<(u64, usize)> = None;
+    for &(start, end, i) in &spans {
+        if let Some((far, j)) = reach {
+            if start < far {
+                entries[i].overlaps = true;
+                entries[j].overlaps = true;
+            }
+        }
+        if reach.is_none_or(|(far, _)| end > far) {
+            reach = Some((end, i));
         }
     }
 }
@@ -192,6 +237,7 @@ fn central_entry(dir: &[u8], at: usize) -> Option<(Entry, usize)> {
             compressed: compressed as u64,
             size: size as u64,
             local_offset: local_offset as u64,
+            overlaps: false,
         },
         next,
     ))
@@ -202,6 +248,7 @@ fn copy(
     entry: &Entry,
     limit: u64,
     out: &mut dyn Write,
+    inflated: &mut u64,
 ) -> Result<u64, ReadError> {
     let mut crc = Crc::new();
     let mut buf = [0u8; 64 * 1024];
@@ -214,6 +261,10 @@ fn copy(
             Err(_) => return Err(ReadError::Bad),
         };
         total += n as u64;
+        *inflated += n as u64;
+        if total > entry.size {
+            return Err(ReadError::Bad);
+        }
         if total > limit {
             return Err(ReadError::Over);
         }

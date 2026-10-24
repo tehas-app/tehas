@@ -662,3 +662,104 @@ fn every_cut_and_every_flipped_byte_of_an_archive_is_read_without_a_panic() {
         }
     }
 }
+
+// One deflate stream of 10 MiB of zeros with a wrong checksum, named by `n`
+// central records that all point at the one local record.
+fn shared_bomb(n: usize) -> Vec<u8> {
+    let mut bomb = e("a000.txt", "");
+    bomb.data = vec![0u8; 10 * MB as usize];
+    bomb.deflate = true;
+    bomb.bad_crc = true;
+    let one = zip_of(&[bomb]);
+    let cd = one.windows(4).rposition(|w| w == b"PK\x01\x02").unwrap();
+    let eocd = one.len() - 22;
+    let record = &one[cd..eocd];
+    let mut out = one[..cd].to_vec();
+    let mut dir = Vec::new();
+    for i in 0..n {
+        let mut r = record.to_vec();
+        let name = format!("a{i:03}.txt");
+        r[46..46 + 8].copy_from_slice(name.as_bytes());
+        dir.extend_from_slice(&r);
+    }
+    let at = out.len() as u32;
+    out.extend_from_slice(&dir);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&(n as u16).to_le_bytes());
+    out.extend_from_slice(&(n as u16).to_le_bytes());
+    out.extend_from_slice(&(dir.len() as u32).to_le_bytes());
+    out.extend_from_slice(&at.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+#[test]
+fn entries_that_share_one_stream_are_damaged_and_never_inflated() {
+    let zip = shared_bomb(200);
+    assert!(zip.len() < 64 * 1024);
+    let archive = Archive::open(&zip).unwrap();
+    let s = Scratch::new();
+    let out = unpack(&archive, &s.0, 10 * MB, 50).unwrap();
+    assert!(names(&out).is_empty());
+    assert_eq!(skips(&out).len(), 200);
+    assert!(skips(&out)
+        .iter()
+        .all(|(_, r)| r == "Could not be unpacked."));
+    let mut sink = Vec::new();
+    let mut inflated = 0;
+    for entry in &archive.entries {
+        assert!(archive
+            .read(entry, 10 * MB, &mut sink, &mut inflated)
+            .is_err());
+    }
+    assert_eq!(inflated, 0);
+}
+
+#[test]
+fn damaged_entries_are_charged_what_they_inflated() {
+    // Two streams of their own, each 10 MiB with a wrong checksum: the first
+    // spends the room and the second is not inflated past it.
+    let mut a = e("a.txt", "");
+    a.data = vec![0u8; 10 * MB as usize];
+    a.deflate = true;
+    a.bad_crc = true;
+    let mut b = e("b.txt", "");
+    b.data = a.data.clone();
+    b.deflate = true;
+    b.bad_crc = true;
+    let s = Scratch::new();
+    let out = run(&zip_of(&[a, b, e("c.txt", "c")]), &s.0, 10 * MB, 50);
+    assert_eq!(
+        skips(&out),
+        [
+            ("a.txt".to_string(), "Could not be unpacked.".to_string()),
+            (
+                "b.txt".to_string(),
+                "Over the 10 MB limit of a ticket.".to_string()
+            ),
+            (
+                "c.txt".to_string(),
+                "Over the 10 MB limit of a ticket.".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn an_entry_that_inflates_past_its_size_stops_there() {
+    let mut big = e("big.txt", "");
+    big.data = vec![0u8; MB as usize];
+    big.deflate = true;
+    let mut zip = zip_of(&[big]);
+    // The central record says 10 bytes.
+    let cd = zip.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+    zip[cd + 24..cd + 28].copy_from_slice(&10u32.to_le_bytes());
+    let archive = Archive::open(&zip).unwrap();
+    let mut sink = Vec::new();
+    let mut inflated = 0;
+    assert!(archive
+        .read(&archive.entries[0], 10 * MB, &mut sink, &mut inflated)
+        .is_err());
+    assert!(inflated <= 64 * 1024, "inflated {inflated}");
+}
