@@ -1181,16 +1181,20 @@ migration, `tehas-<schema>-<time>.db`, are kept beside them and never removed.
 
 ```
 tehas drain --wait 3600         # start nothing, wait for the running cycles
-systemctl --user stop tehas-dispatch.timer tehas-dispatch.path tehas-clean.timer tehas-refresh.timer
+systemctl --user stop 'tehas-*.timer' 'tehas-*.path' tehas-energy.service tehas-mcp.service
+systemctl --user list-units 'tehas-*' --state=active   # wait until no service is listed
 cd ~/tehas/state
 mv tehas.db tehas.db.broken; rm -f tehas.db-wal tehas.db-shm
 cp backup/tehas-<YYYYMMDD>.db tehas.db && chmod 600 tehas.db
-~/tehas/libexec/store check
-systemctl --user start tehas-dispatch.timer tehas-dispatch.path tehas-clean.timer tehas-refresh.timer
+TEHAS_HOME=~/tehas ~/tehas/libexec/store check
+systemctl --user start tehas-energy.service tehas-mcp.service
+systemctl --user start $(systemctl --user list-unit-files 'tehas-*.timer' 'tehas-*.path' --state=enabled --no-legend | cut -d' ' -f1)
 tehas limit clear
 ```
 
-`store check` must say `"integrity":"ok"`. The next poll reconciles the labels
+Every unit that reads or writes the store is stopped first: one left running
+keeps the old file open and goes on writing to it. `store check` must say
+`"integrity":"ok"`. The next poll reconciles the labels
 on GitHub against what the copy holds; a cycle that ran after the copy was
 made is not in it.
 

@@ -499,6 +499,7 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
         vec!["backup", "--show"],
         vec!["prune", "--days", "90"],
         vec!["sweep-locks"],
+        vec!["upkeep"],
         vec!["history-show", "1", "--kind", "cycle", "--how", "label"],
     ];
     raw.into_iter().map(|v| strings(&v)).collect()

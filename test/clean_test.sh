@@ -1798,8 +1798,7 @@ reset
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$(find "$th/state/backup" -name 'tehas-[0-9]*.db' | wc -l)" 1
-t_contains "$t_out" "clean: store backup: "
-t_contains "$t_out" "clean: store prune --days 90: "
+t_contains "$t_out" "clean: store upkeep: "
 t_run "$clean"
 t_eq "$(find "$th/state/backup" -name 'tehas-[0-9]*.db' | wc -l)" 1
 
@@ -1808,7 +1807,7 @@ reset
 rm -f "$th/libexec/store"
 t_run "$clean"
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: clean: the state store is not installed, so it was not backed up or pruned"
+t_contains "$t_out" "WARN: clean: the state store is not installed: no logs removed, no backup"
 t_contains "$t_out" "clean: freed "
 
 t_done

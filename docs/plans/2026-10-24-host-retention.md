@@ -39,6 +39,9 @@ lock files no one needs:
 - the issue's cycle on record ended more than 30 days ago, or there is no cycle
   on record and the lock file is older than 30 days (mtime)
 - at most `--max` a call
+- the file was not touched in the last minute: `tehasbot cycle` opens its lock
+  with `exec 9>` before it waits for it, and removing a file a waiter has open
+  would let two cycles hold "the" lock
 
 "Closed for more than 30 days" in the issue is not something the host knows
 yet: nothing writes `issues.kind` until #253's snapshot. The cycle's end is the
@@ -59,9 +62,13 @@ runs every hour on every host. The files are the same: `work-*`,
 (`dispatch.log`, `clean.log`, ...) are left as they are; a size bound for them
 is a separate change.
 
-D7. **`tehasbot clean` runs the store's upkeep**: `backup` (once a day in
-effect, since the verb keeps one copy a day), then `prune --days 90`. A
-failure is a warning in `clean.log`, like its other steps.
+D7. **`tehasbot clean` runs the store's upkeep** with one call, `store upkeep
+[--dry-run]`: the old logs of D6, `backup` (once a day in effect, since the
+verb keeps one copy a day), then `prune --days 90`. The logic is in the store
+because the bash is at its ceiling. A failure is a warning in `clean.log`,
+like its other steps. A copy is written as `.part` and renamed, so a run
+killed partway leaves no copy of the day, and every copy is switched to WAL so
+it opens once restored. `prune` also bounds `sweep_log`.
 
 D8. **Restore.** `host/docs/operating.md` gets the procedure: stop the timers,
 copy a backup over `state/tehas.db` (and remove `-wal` and `-shm`), run

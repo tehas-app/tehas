@@ -2814,8 +2814,9 @@ starting cycles:
    analyst (`improve-analyst*.log`) older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
    kept seven days, and `store prune --days 90` (see [Backups and
-   restore](/operating#backups-and-restore)). Each says one line:
-   `clean: store backup: <answer>`. A dry run names the logs and leaves the
+   restore](/operating#backups-and-restore)). All of it is one call,
+   `store upkeep`, and says one line per log removed and then
+   `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.
 
 Preview images are `tehasbot preview`'s and no step here touches them. Docker

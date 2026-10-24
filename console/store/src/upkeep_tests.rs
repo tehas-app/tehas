@@ -181,6 +181,9 @@ fn ended(home: &Path, issue: i64, ago: i64) {
             "merged",
         ],
     );
+    // The file as old as its cycle: one touched in the last minute may have a
+    // waiter on it.
+    aged(&home.join(format!("state/cycles/{issue}.lock")), NOW - ago);
 }
 
 #[test]
@@ -223,4 +226,63 @@ fn sweep_locks_takes_at_most_its_max() {
     assert_eq!(v["removed"].as_array().unwrap().len(), 3);
     let v = ok(&home, &["sweep-locks"]);
     assert_eq!(v["removed"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn sweep_locks_leaves_a_lock_touched_in_the_last_minute() {
+    let home = home("sweep-touched");
+    ended(&home, 1, 40 * DAY);
+    // tehasbot cycle opens its lock with `exec 9>` before it waits for it.
+    File::create(home.join("state/cycles/1.lock")).unwrap();
+    let v = ok(&home, &["sweep-locks"]);
+    assert_eq!(v["removed"], serde_json::json!([]));
+    assert_eq!(v["kept"], serde_json::json!([1]));
+    assert!(home.join("state/cycles/1.lock").exists());
+}
+
+#[test]
+fn a_copy_cut_short_is_no_copy_of_the_day() {
+    let home = home("backup-part");
+    let dir = home.join("state/backup");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("tehas-20261014.db.part"), b"half").unwrap();
+    let v = ok(&home, &["backup"]);
+    assert_eq!(v["made"], true);
+    assert_eq!(names(&dir), vec!["tehas-20261014.db"]);
+}
+
+#[test]
+fn upkeep_removes_old_logs_backs_up_and_prunes() {
+    let home = home("upkeep");
+    let logs = home.join("logs");
+    fs::create_dir_all(&logs).unwrap();
+    for name in [
+        "work-3-261001-000000.jsonl",
+        "work-3-261001-000000.jsonl.err",
+        "dispatch-work-3.log",
+        "index-261001-000000.log",
+        "improve-analyst-261001-000000.log",
+        "plan-4-261001-000000.jsonl",
+        "dispatch-plan-4.log",
+        "dispatch.log",
+        "clean.log",
+        "work-5-261013-000000.jsonl",
+    ] {
+        fs::write(logs.join(name), b"x").unwrap();
+        aged(&logs.join(name), NOW - 8 * DAY);
+    }
+    aged(&logs.join("work-5-261013-000000.jsonl"), NOW - DAY);
+    let v = ok(&home, &["upkeep", "--dry-run"]);
+    assert_eq!(v["logs"].as_array().unwrap().len(), 7);
+    assert_eq!(v.get("backup"), None);
+    assert_eq!(names(&logs).len(), 10);
+    assert!(!home.join("state/backup").exists());
+    let v = ok(&home, &["upkeep"]);
+    assert_eq!(v["logs"].as_array().unwrap().len(), 7);
+    assert_eq!(v["backup"]["made"], true);
+    assert_eq!(v["prune"]["before"], NOW - 90 * DAY);
+    assert_eq!(
+        names(&logs),
+        vec!["clean.log", "dispatch.log", "work-5-261013-000000.jsonl"]
+    );
 }

@@ -11,6 +11,11 @@
 //!                     nothing has used the issue for N days: its cycle on
 //!                     record ended that long ago, or none is on record and the
 //!                     file is that old. Each removal is a sweep_log row
+//!   upkeep [--dry-run]
+//!                     what tehasbot clean asks once an hour: the logs of
+//!                     cycles, planning turns, index runs and the analyst
+//!                     older than 7 days, then backup and prune --days 90. A
+//!                     dry run names the logs and touches nothing
 
 use crate::db;
 use crate::lock;
@@ -19,12 +24,14 @@ use rusqlite::{params, OptionalExtension};
 use std::fs::{self, File, TryLockError};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
     Backup { show: bool },
     Prune { days: i64 },
     SweepLocks { days: i64, max: i64, dry_run: bool },
+    Upkeep { dry_run: bool },
 }
 
 /// The daily copies kept.
@@ -60,6 +67,11 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 dry_run: a.has("--dry-run"),
             })
         }),
+        "upkeep" => Args::parse("upkeep", rest, &[("--dry-run", Kind::Switch)], false).map(|a| {
+            Call::Upkeep {
+                dry_run: a.has("--dry-run"),
+            }
+        }),
         _ => return None,
     })
 }
@@ -77,6 +89,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Backup { show } => backup(home, *show, now),
         Call::Prune { days } => prune(home, *days, now),
         Call::SweepLocks { days, max, dry_run } => sweep_locks(home, *days, *max, *dry_run, now),
+        Call::Upkeep { dry_run } => upkeep(home, *dry_run, now),
     }
 }
 
@@ -145,14 +158,33 @@ fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
     if show {
         return Ok(line("backup", &[("newest", newest(&dir, now)?)]));
     }
-    let dir = db::backup_dir(home, &dir).map_err(crate::line)?;
+    let (made, removed, newest) = make_backup(home, now)?;
+    Ok(line(
+        "backup",
+        &[
+            ("made", j(made)),
+            ("removed", list(&removed)),
+            ("newest", newest),
+        ],
+    ))
+}
+
+/// Today's copy when there is none, and the old ones removed: whether it was
+/// made, what was removed and the newest.
+fn make_backup(home: &Path, now: i64) -> Result<(bool, Vec<String>, String), Fail> {
+    let dir = db::backup_dir(home, &home.join("state").join("backup")).map_err(crate::line)?;
     let copy = dir.join(format!("tehas-{}.db", date(now)));
     let made = !copy.exists();
     if made {
+        // Written under a name no reader takes for a copy and renamed once
+        // whole: a run killed partway leaves no copy of today behind.
+        let part = dir.join(format!("tehas-{}.db.part", date(now)));
+        let _ = fs::remove_file(&part);
         // VACUUM INTO reads a snapshot and runs outside any transaction, so a
         // reader's connection is enough and no writer waits for it.
         let conn = db::open_look(&db::path(home)).map_err(crate::line)?;
-        db::backup_to(&conn, &copy).map_err(crate::line)?;
+        db::backup_to(&conn, &part).map_err(crate::line)?;
+        fs::rename(&part, &copy).map_err(|e| (1, format!("write {}: {e}", copy.display())))?;
     }
     let mut removed = Vec::new();
     for old in copies(&dir)?.into_iter().skip(KEEP) {
@@ -165,19 +197,16 @@ fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {
         }
         removed.push(j(old.to_string_lossy().as_ref()));
     }
-    Ok(line(
-        "backup",
-        &[
-            ("made", j(made)),
-            ("removed", list(&removed)),
-            ("newest", newest(&dir, now)?),
-        ],
-    ))
+    Ok((made, removed, newest(&dir, now)?))
 }
 
 // --- prune --------------------------------------------------------------------
 
 fn prune(home: &Path, days: i64, now: i64) -> Result<String, Fail> {
+    Ok(line("prune", &pruned(home, days, now)?))
+}
+
+fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)>, Fail> {
     let before = now - days * DAY;
     verbs::write(home, |c| {
         let endings = c
@@ -204,16 +233,17 @@ fn prune(home: &Path, days: i64, now: i64) -> Result<String, Fail> {
                 [before],
             )
             .q()?;
-        Ok(line(
-            "prune",
-            &[
-                ("before", j(before)),
-                ("endings", j(endings)),
-                ("actions", j(actions)),
-                ("journal", j(journal)),
-                ("heartbeats", j(heartbeats)),
-            ],
-        ))
+        let sweep_log = c
+            .execute("DELETE FROM sweep_log WHERE at < ?1", [before])
+            .q()?;
+        Ok(vec![
+            ("before", j(before)),
+            ("endings", j(endings)),
+            ("actions", j(actions)),
+            ("journal", j(journal)),
+            ("heartbeats", j(heartbeats)),
+            ("sweep_log", j(sweep_log)),
+        ])
     })
 }
 
@@ -238,7 +268,10 @@ fn unused(c: &rusqlite::Connection, file: &Path, issue: i64, before: i64) -> Res
 }
 
 /// Removes the lock file while holding it, when it is still the file that was
-/// probed. False when someone holds it or it changed.
+/// probed. False when someone holds it or it changed. tehasbot cycle opens its
+/// lock with `exec 9>`, which touches the file before it waits for the lock:
+/// a file touched in the last minute may have a waiter on it, and removing it
+/// would leave that waiter holding a lock no one else can see.
 fn remove_held(file: &Path) -> Result<bool, String> {
     let before = fs::symlink_metadata(file).map_err(|e| e.to_string())?;
     if !before.file_type().is_file() {
@@ -252,6 +285,10 @@ fn remove_held(file: &Path) -> Result<bool, String> {
     }
     let m = f.metadata().map_err(|e| e.to_string())?;
     if m.dev() != before.dev() || m.ino() != before.ino() {
+        return Ok(false);
+    }
+    let touched = m.modified().map_err(|e| e.to_string())?;
+    if touched + Duration::from_secs(60) > SystemTime::now() {
         return Ok(false);
     }
     fs::remove_file(file).map_err(|e| e.to_string())?;
@@ -312,4 +349,62 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
             ("kept", ids(&kept)),
         ],
     ))
+}
+
+// --- upkeep -------------------------------------------------------------------
+
+/// The logs upkeep removes: a cycle's, a planning turn's, an index run's and
+/// the analyst's. Long-lived logs such as dispatch.log are not among them.
+fn old_log(name: &str) -> bool {
+    name.starts_with("work-")
+        || name.starts_with("dispatch-work-")
+        || name.starts_with("index-")
+        || (name.starts_with("improve-analyst") && name.ends_with(".log"))
+        || (name.starts_with("plan-") && name.ends_with(".jsonl"))
+        || (name.starts_with("dispatch-plan-") && name.ends_with(".log"))
+}
+
+const LOG_DAYS: i64 = 7;
+const PRUNE_DAYS: i64 = 90;
+
+fn upkeep(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
+    verbs::look(home, |_| Ok(()))?;
+    let logs = home.join("logs");
+    let mut gone = Vec::new();
+    let mut names: Vec<(String, PathBuf)> = match fs::read_dir(&logs) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+            .filter(|(n, _)| old_log(n))
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err((1, format!("unreadable logs: {e}"))),
+    };
+    names.sort();
+    for (name, path) in names {
+        let Ok(m) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !m.file_type().is_file() || m.mtime() >= now - LOG_DAYS * DAY {
+            continue;
+        }
+        if !dry_run {
+            fs::remove_file(&path).map_err(|e| (1, format!("write logs/{name}: {e}")))?;
+        }
+        gone.push(j(name));
+    }
+    let mut pairs = vec![("dry_run", j(dry_run)), ("logs", list(&gone))];
+    if !dry_run {
+        let (made, removed, newest) = make_backup(home, now)?;
+        pairs.push((
+            "backup",
+            obj(&[
+                ("made", j(made)),
+                ("removed", list(&removed)),
+                ("newest", newest),
+            ]),
+        ));
+        pairs.push(("prune", obj(&pruned(home, PRUNE_DAYS, now)?)));
+    }
+    Ok(line("upkeep", &pairs))
 }

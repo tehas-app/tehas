@@ -90,6 +90,7 @@
 //!   store backup [--show]
 //!   store prune --days N
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
+//!   store upkeep [--dry-run]
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
@@ -184,7 +185,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | upkeep";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.

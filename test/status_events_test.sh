@@ -36,8 +36,10 @@ reset() {
   rm -rf "$T"/calls/* "$live" "$T/home/tehas/state" "$T/home/tehas/libexec"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
-  # The state store the health file reads the planning turns from.
+  # The state store the health file reads the planning turns from, with
+  # today's backup.
   t_store_home "$T/home/tehas"
+  TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null || t_bad "reset: the store made no backup"
   issues "$(issue 3 tehas:ready)" "$(issue 5 tehas:awaiting-merge)"
   shipped
   t_stub_analytics '[ "$1" != report ] || echo "{\"report\":1}"

@@ -750,6 +750,8 @@ ended_days_ago() { # <n> <days>
   release
   t_at "$(($(date +%s) - $2 * 86400))" cycle-end "$1" --attempt 1 --status merged >/dev/null ||
     t_bad "the store did not end the record of #$1"
+  # As old as its cycle: a lock touched in the last minute may have a waiter.
+  touch -d "$2 days ago" "$T/home/tehas/state/cycles/$1.lock"
 }
 
 t_case "the lock of an issue nothing has used for 30 days goes, and one used lately stays"
