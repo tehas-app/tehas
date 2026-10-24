@@ -112,8 +112,68 @@ t_stub docker 'case "$1" in
   inspect) [ -z "${INSPECT_RC:-}" ] || exit "$INSPECT_RC"
     [ ! -s "$T/fx/containers" ] && exit 0
     cut -d" " -f2 "$T/fx/containers" ;;
+  # The two questions the low-disk reading of lib/disk.sh asks. The directory of
+  # the images is answered from the second line of $fx/docker.info when a case
+  # wrote one, and by nothing at all with $fx/docker-dir, which is a host that
+  # does not say: df is then pointed at /var/lib/docker, the default of a host
+  # without Docker. With $fx/docker-down Docker answers neither question, which
+  # leaves the cleaner no figure at all.
+  info) case "$*" in
+      *DockerRootDir*)
+        [ ! -e "$T/fx/docker-down" ] || exit 1
+        [ -e "$T/fx/docker-dir" ] || sed -n 2p <"$T/fx/docker.info" 2>/dev/null ;;
+      *) cat "$T/fx/docker.info" ;;
+    esac ;;
   *) exit 1 ;;
 esac'
+
+# The free disk the cleaner reads through lib/disk.sh before it decides the two
+# ages of a run: the one df of ~/tehas, the one docker info above and the one df
+# of Docker's own. The figure of Docker's file system comes from $fx/free-docker
+# and that of every other path from $fx/free, so a case tells the two apart; with
+# neither written there is 40 GB free everywhere. A case makes the whole reading
+# fail with $fx/df-fails, makes one file system unreadable with $fx/df-fails-of,
+# asks Docker to say nothing of its directory with $fx/docker-dir, asks that it
+# answer nothing at all with $fx/docker-down, or puts a word that is no number in
+# a file, which is no reading either. The figures are checked with a pattern match
+# rather than a case pattern because t_stub expands the body as it writes the
+# stub, and would eat the quotes an empty pattern needs.
+kb() { # <gibibytes>: the kilobytes of that many GiB
+  printf '%s\n' "$((10#${1} * 1048576))"
+}
+t_stub df '
+[ ! -e "$T/fx/df-fails" ] || exit 1
+[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(cat "$T/fx/df-fails-of")" ] || exit 1
+docker_dir=$(sed -n 2p <"$T/fx/docker.info" 2>/dev/null)
+if [ -e "$T/fx/docker-dir" ]; then docker_dir=""; fi
+answer=$(cat "$T/fx/free" 2>/dev/null || echo 41943040)
+if [ -n "$docker_dir" ] && [ "${2%/}" = "$docker_dir" ]; then
+  answer=$(cat "$T/fx/free-docker" 2>/dev/null)
+fi
+[[ $answer =~ ^(0|[1-9][0-9]{0,17})$ ]] || exit 1
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/x 60000000 1 $answer 1% /"'
+# Every figure back to the default of 40 GB everywhere, and the directory of the
+# images with them: a case that named one with df_free_of leaves it to no later
+# case. reset calls it, so the fixtures of the image steps keep their own files.
+df_reset() {
+  rm -f "$fx/free" "$fx/free-docker" "$fx/df-fails" "$fx/df-fails-of" "$fx/docker-dir" "$fx/docker-down"
+  echo "systemd 2" >"$fx/docker.info"
+}
+df_free() { # <gibibytes>: the same figure on every file system
+  df_reset
+  kb "$1" >"$fx/free"
+}
+# df_free_of <gibibytes of ~/tehas> <gibibytes of Docker's data>: the two file
+# systems asked about answer differently. The lesser of them is what decides a
+# run; Docker names the directory of its images, /srv/docker, so the two stand on
+# file systems of their own.
+df_free_of() {
+  df_reset
+  printf '%s\n' "systemd 2" /srv/docker >"$fx/docker.info"
+  kb "$1" >"$fx/free"
+  kb "$2" >"$fx/free-docker"
+}
 
 reset() {
   rm -rf "$T"/calls/* "$T"/fx/* "$th"
@@ -122,10 +182,11 @@ reset() {
   printf '%s\n' "${pins[@]}" >"$th/versions.env"
   t_instance "${T_MINIMAL[@]}"
   after_hours=24
+  df_reset
   # The knob is turned by a case that leaves the names reset set, and adds to
   # them: PS_RC, INSPECT_RC, BASE_LS_RC, HELD_LS_RC, PRUNE_RC, RMI_FAILS,
   # DOCKER_RC.
-  T_ENV=("BASE_NAME=$base_repo")
+  T_ENV=("BASE_NAME=$base_repo" TEHAS_DISK_WAIT=1)
 }
 
 # An issue's kept workspace and the two directories beside it, all three days
@@ -1451,5 +1512,143 @@ t_contains "$t_out" "WARN: clean: docker builder prune failed"
 t_contains "$(cat "$log_file")" "WARN: clean: docker builder prune failed"
 t_contains "$t_out" "removed $workdir-7/target: build output of #7"
 t_eq "$(grep -c "removed $workdir-7/target: build output of #7" "$log_file")" 1
+
+# --- The low-disk run ------------------------------------------------------
+# Below TEHAS_CLEAN_MIN_FREE of free disk the cleaner stops waiting for the
+# age: build output and Docker's build cache go whatever their age. Host scratch
+# keeps its age, and a lock a cycle holds keeps its tree either way.
+
+# A workspace every path of which was written a minute ago: only a run that
+# takes build output whatever its age removes anything of it.
+young_workspace() { # [issue]
+  workspace "${1:-7}"
+  touch "$workdir-7" "$workdir-7/target" "$workdir-7/node_modules" "$workdir-7/sub" \
+    "$workdir-7/sub/target" "$workdir-7/nested" "$workdir-7/nested/target" \
+    "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+}
+
+t_case "under the minimum, build output younger than the age goes and the cache is asked for until=0h"
+reset
+young_workspace
+df_free 20
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_eq "$([ -e "$workdir-7/node_modules" ] && echo there)" ""
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" ""
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+t_contains "$t_out" "low on disk: 20.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g: build output and build cache go whatever their age"
+t_contains "$(cat "$th/logs/clean.log")" "low on disk: 20.0 GiB free"
+
+t_case "under the minimum, host scratch younger than the age stays"
+reset
+young_workspace
+echo new >"$tmp/dl/tool.tar.gz"
+df_free 20
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
+
+t_case "the lesser of the two file systems is what makes the run the low-disk one"
+reset
+young_workspace
+# ~/tehas has plenty and Docker's own has little: the reading is the smaller of
+# the two, so this run is a low-disk one.
+df_free_of 40 5
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+t_contains "$t_out" "low on disk: 5.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g"
+
+t_case "at the minimum the run goes by the age alone"
+reset
+young_workspace
+# The rule is under the minimum: a figure of exactly TEHAS_CLEAN_MIN_FREE is
+# not under it, and nothing of the young tree is taken.
+df_free 30
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+t_case "above the minimum the run behaves as it always did"
+reset
+young_workspace
+df_free 40
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+t_case "the instance's own minimum is the one the run compares with"
+reset
+young_workspace
+# 40 GB is under this instance's 50g and above the default, so the setting is
+# what decides it, and the line names the instance's value. The age rule reads
+# the age a directory had when the instance was written, so the fixture is dated
+# afterwards.
+df_free 40
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_MIN_FREE=50g
+age "$workdir-7" "$workdir-7/target" "$workdir-7/node_modules" "$workdir-7/sub" \
+  "$workdir-7/sub/target" "$workdir-7/nested" "$workdir-7/nested/target" \
+  "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+t_contains "$t_out" "under TEHAS_CLEAN_MIN_FREE=50g"
+
+t_case "a lock a cycle holds keeps its build output on a low-disk run"
+reset
+young_workspace
+df_free 20
+flock -n "$cycles/7.lock" sleep 5 &
+sleep 0.3
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: its lock is held"
+wait
+
+t_case "a df that fails changes nothing: the run goes by the age"
+reset
+young_workspace
+df_free 1
+touch "$fx/df-fails"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+t_case "a df that answers a word that is no number changes nothing"
+reset
+young_workspace
+df_reset
+echo plenty >"$fx/free"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+t_case "a low-disk run that removes nothing at all logs no low-disk line of its own"
+# The line is one removal's worth of log: it is written with the same log()
+# every other line goes through, so it reaches the file the run writes and not
+# only the terminal. A run with no build output to take says nothing besides it.
+reset
+workspace 7 --no-build-output
+df_free 20
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$t_out" "low on disk: 20.0 GiB free"
+t_eq "$(grep -c 'low on disk' "$th/logs/clean.log")" 1
 
 t_done

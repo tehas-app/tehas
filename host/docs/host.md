@@ -96,7 +96,14 @@ is the one build output the cleaner never takes: it walks no directory under
 The same run prunes Docker's build cache of that age with `docker builder prune`.
 That is the build cache of the whole host's Docker daemon, not only tehas's:
 tehas is one project on one host, and the cache of anything else on it is made
-again too.
+again too. When less than `TEHAS_CLEAN_MIN_FREE` (30g unless the instance says
+otherwise) of free disk is left, read as the dispatcher reads it, these two
+steps go whatever the age - the build output of a kept workspace and Docker's
+build cache are what the next build makes again - and the log says `low on
+disk: <n> GiB free, under TEHAS_CLEAN_MIN_FREE=<value>: build output and build
+cache go whatever their age`; host scratch and the image steps keep their age,
+a lock a cycle holds keeps its tree either way, and a figure that cannot be read
+changes nothing.
 
 It removes images in two steps, and no volume. The first takes the dated tags of
 the sandbox image whose image is older than `TEHAS_CLEAN_AFTER` hours, keeping
