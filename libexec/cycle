@@ -875,23 +875,23 @@ build=$(jq -r '.buildCommit // ""' <<<"$outcome")
 # applies no label. Its first line is pi-rukas's marker, which goes back on top
 # of the comment, so a reader can tell it posted the handoff.
 handoff=$(jq -r '.handoffBody // "" | sub("^<!-- pi-rukas:handoff [^\n]*-->\n*"; "")' <<<"$outcome" 2>/dev/null)
-park_reason=$(jq -r '.parkReason // ""' <<<"$outcome" | tr -cd 'a-z-' | head -c 40)
+park_reason=$(jq -r '.parkReason // "" | tostring | gsub("[^a-z-]"; "") | .[0:40]' <<<"$outcome")
 # A stable cap-hit that ended the review on its round cap and sent the cycle on
 # to ci: the pull request has review findings no round answered.
-review_held=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.reviewHeld == true' 2>/dev/null)
 # The cap that ended the cycle, from the result's published vocabulary, and
 # why: the result's failure, or for an image without one what tehas work could
 # read of the progress. Reduced and cut short as the other fields are.
-cap=$(jq -r '.cap // ""' <<<"$outcome" | tr -cd 'A-Za-z0-9_.:-' | head -c 80)
-reason=$(head -c 1000000 "$progress" 2>/dev/null | jq -j '.reason // "" | strings' 2>/dev/null |
-  tr '\n' ' ' | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
-failure_from=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.from.failure // "" | strings' 2>/dev/null)
-failure_kind=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.kind // "" | strings' 2>/dev/null |
-  tr -cd 'a-z-' | head -c 40)
-failure_role=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.role // "" | strings' 2>/dev/null |
-  tr -cd 'A-Za-z0-9_.-' | head -c 40)
-failure_cause=$(head -c 1000000 "$progress" 2>/dev/null | jq -r '.failure.cause // "" | strings' 2>/dev/null |
-  tr -cd 'A-Za-z0-9_.:-' | head -c 60)
+cap=$(jq -r '.cap // "" | tostring | gsub("[^A-Za-z0-9_.:-]"; "") | .[0:80]' <<<"$outcome")
+# The progress, read once: each field ended by a NUL, one that is not text empty.
+mapfile -d '' -t got < <(head -c 1000000 "$progress" 2>/dev/null | jq -n -j 'input
+  | def kept($set; $most): if type == "string" then gsub("[^" + $set + "]"; "") | .[0:$most] else "" end;
+  def text: if type == "string" then gsub("\u0000"; "") else "" end;
+  (.reviewHeld == true | tostring), (.reason // "" | if type == "string" then gsub("\n"; " ") else . end
+  | kept("A-Za-z0-9 _.,:;/()=+-"; 200)), (.from.failure // "" | text),
+  (.failure.kind // "" | kept("a-z-"; 40)), (.failure.role // "" | kept("A-Za-z0-9_.-"; 40)),
+  (.failure.cause // "" | kept("A-Za-z0-9_.:-"; 60)) | . + "\u0000"' 2>/dev/null)
+review_held=${got[0]:-} reason=${got[1]:-} failure_from=${got[2]:-} failure_kind=${got[3]:-}
+failure_role=${got[4]:-} failure_cause=${got[5]:-}
 provider=0
 if [ "$failure_from" = result ]; then
   [ "$failure_kind" != provider ] || provider=1
