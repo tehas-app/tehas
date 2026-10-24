@@ -1522,30 +1522,32 @@ park_unask() {
     park_unasked[$1]=$q
     return 0
   fi
-  [ "$tehas_store_word" = unknown ]
-}
-
-# park_spend <issue>: before a start is marked, the issue's current park asks
-# for nothing more: its question is taken off the record (park_unask), and its
-# one retry is spent, so a start whose unit never comes up leaves no retry
-# behind (park-retry). Returns 1 when the store could not do it, with its word;
-# the start is then given up.
-park_spend() {
-  local rc word line
-  park_unask "$1" || return 1
-  [ "$park_now" = true ] || return 0
-  tehas_store park-retry "$1" && return 0
-  [ "$tehas_store_word" = unparked ] && return 0
-  rc=$tehas_store_rc word=$tehas_store_word line=$tehas_store_line
-  park_reask "$1"
-  # What the caller says is why the retry was not spent.
+  [ "$tehas_store_word" = unknown ] && return 0
+  local rc=$tehas_store_rc word=$tehas_store_word line=$tehas_store_line
+  # A withdraw that timed out may have been done all the same: the question
+  # goes back, which changes nothing when it never left.
+  if [ "$word" = timeout ]; then
+    park_unasked[$1]=$q
+    park_reask "$1"
+  fi
   tehas_store_said "$rc" "$word" "$line"
   return 1
 }
 
-# park_reask <issue>: a start given up after park_spend puts the question it
+# park_spend <issue>: once a start is marked, and before its unit is started,
+# the one retry of the issue's current park is spent, so a unit that never
+# comes up leaves no retry behind. A mark that fails spends nothing: the next
+# poll still owes the retry. A store that does not spend it is a warning: the
+# cycle's start makes a new attempt, and the old park is no longer current.
+park_spend() {
+  [ "$park_now" = true ] || return 0
+  tehas_store_try 3 park-retry "$1" && return 0
+  [ "$tehas_store_word" = unparked ] && return 0
+  log "WARN: #$1: the retry of its park could not be spent ($tehas_store_word)"
+}
+
+# park_reask <issue>: a start given up after park_unask puts the question it
 # took back on the record, so the tick in it still counts on the next poll.
-# The spent retry stays spent.
 park_reask() {
   local q=${park_unasked[$1]:-}
   [ -n "$q" ] || return 0
@@ -1746,10 +1748,10 @@ start_cycles() {
       continue
     fi
     before=$tehas_cycle_attempt_is
-    # The park this start answers, before the label: a park whose question
-    # still counted, or whose retry was still owed, would start the issue again.
-    if ! park_spend "$n"; then
-      log "ERROR: #$n: the park on record could not be used up ($tehas_store_word), not starting a cycle"
+    # The question of the park this start answers goes before the label: a
+    # tick in it would start the issue again.
+    if ! park_unask "$n"; then
+      log "ERROR: #$n: the question of its park could not be taken off the record ($tehas_store_word), not starting a cycle"
       restore_record "$n"
       failed=1
       continue
@@ -1774,6 +1776,7 @@ start_cycles() {
       continue
     fi
     done_any=1
+    park_spend "$n"
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
     if [ -n "${refresh_pr[$n]:-}" ]; then
       say "$n" "Tehas refresh started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC: ${refresh_url[$n]} conflicts with \`$(jq -r .branch <<<"${refresh_of[$n]}")\`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @${starter[$n]}'s ${how[$n]}. This issue is owned by the cycle until \`tehas:running\` is removed."

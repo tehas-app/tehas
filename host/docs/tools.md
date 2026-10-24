@@ -402,8 +402,10 @@ came after it: it must still be allowed, the issue must still be open and
 parked, and nobody else may have changed its text since that cycle began.
 Otherwise the log says `skip #N: its retry after a provider outage is not
 started; it waits for a person` and the retry is spent on record (`park-retry`).
-Any start of the issue spends it too, before the issue is marked, so a start
-whose unit never comes up leaves no retry behind, and so does `tehas stop`. An
+Any start of the issue spends it too, once the issue is marked and before its
+unit is started, so a start whose unit never comes up leaves no retry behind.
+A start whose mark fails spends nothing: the next poll still owes the retry.
+`tehas stop` spends it as well. An
 issue that carries `tehas:ready` is left to that label. If the retry's own
 cycle is parked by an outage again, it waits for a person, and so does a cycle
 started by hand: its comment says so. A list of parks that cannot be read ends

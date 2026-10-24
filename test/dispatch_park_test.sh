@@ -284,20 +284,51 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "WARN: could not untick the retry on #7; its question is no longer on record, so it starts nothing more"
 t_eq "$(park_q)" none
 
-t_case "a start whose park cannot be used up starts nothing, and its tick and question stay"
+t_case "a start whose question cannot be taken off the record starts nothing, and its tick and question stay"
+parked
+comments 7 "$(park_body x ' ')" alice
+store_refuses "question-answered 7 --id 4001 --withdraw" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: #7: the question of its park could not be taken off the record (busy), not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(park_q)" 4001
+t_eq "$(t_row approval-current 7 -- '.approval')" null
+
+t_case "a withdraw that timed out after it was done puts the question back, and the next poll starts the retry"
+parked
+comments 7 "$(park_body x ' ')" alice
+bin=$T/home/tehas/libexec/store
+rm -f "$bin"
+printf '%s\n' '#!/usr/bin/env bash' \
+  "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+  'if [ "${1:-}" = question-answered ]; then' \
+  "  $(t_q "$T_STORE") \"\$@\" >/dev/null 2>&1; exit 124" \
+  'fi' \
+  "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+chmod 755 "$bin"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not be taken off the record (timeout)"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(park_q)" 4001
+rm -f "$bin" "$T"/calls/*
+cp "$T_STORE" "$bin"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a retry the store would not spend once the issue is marked is a warning, and the cycle starts"
 parked
 comments 7 "$(park_body x ' ')" alice
 store_refuses "park-retry 7" 1 'store: busy #7: the database is locked'
 t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: #7: the park on record could not be used up (busy), not starting a cycle"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit 7"
-t_lacks "$(t_calls gh)" "api -X PATCH"
-# The question went back on the record, and the approval came off it.
-t_eq "$(park_q)" 4001
-t_eq "$(approval '.by')" alice
-t_eq "$(t_row approval-current 7 -- '.approval')" null
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: #7: the retry of its park could not be spent (busy)"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(park_q)" none
 
 t_case "a retry ticked on an issue that is not parked starts nothing"
 for have in "tehas:question" "needs-human-attention tehas:question tehas:running" "needs-human-attention tehas:question tehas:awaiting-merge"; do
@@ -724,6 +755,21 @@ rm -f "$fx/start-fails"
 new_poll
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
+
+t_case "a retry after an outage whose issue cannot be marked is still owed, and the next poll starts it"
+outage_parked
+printf '%s' '--add-label tehas:running' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not mark #7 as running, not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(park_of '[.retries, .automatic]')" '[0,true]'
+rm -f "$fx/edit-fails-on" "$T"/calls/*
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(park_of)" null
 
 t_case "a busy store keeps the retry after an outage for the next poll: nothing starts, the park stays"
 outage_parked
