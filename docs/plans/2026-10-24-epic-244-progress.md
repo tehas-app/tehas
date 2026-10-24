@@ -45,28 +45,22 @@ Adopter action.
 must be a schema 3 migration that still accepts `fixer` rows. The backlog session
 splits it and was told it can start now that #683 is merged.
 
-## Now: #252, then #257
+## Now: #252 and #257 are PRs
 
 Workflow `wf_f24ccaaa-d4e` died about a minute after it started, when its
-session ended (2026-10-24 22:19 local). It was still on the design step and
-left nothing. The owner chose to build both issues by hand in one session
-instead of running it again.
+session ended (2026-10-24 22:19 local), and left nothing. The owner chose to
+build both by hand in one session.
 
-**#252** is in `~/work/tehas-252` on branch `publish-live` (pushed):
-
-- Plan: `docs/plans/2026-10-24-publish-live.md`. Its D7 needs the owner's
-  sign-off: `dispatch.json` and `health.json` go through the one publisher, but
-  their commands still compute them.
-- Done and pushed: the plan and fixtures, then the store side (schema 3,
-  `cycle-heartbeat`, `publish`, `heard_at`), then the fixes from its review.
-- Being finished: the shell callers (`work`, `cycle`, `health`, `dispatch`,
-  `status`, `energy`), their tests, the manual and the changelog.
-- Then: one PR to main, merged once CI is green.
-- Schema 3 is taken by #252. #676 (millwright) must take schema 4 if it lands
-  later.
-
-**#257** comes next, in `~/work/tehas-257` on branch `host-retention`, built
-the same way.
+- **#252: PR #702** (branch `publish-live`, `~/work/tehas-252`). CI green.
+  Auto mode refuses `gh pr merge`, so the owner merges it. Sign-off asked: D7
+  (dispatch.json and health.json go through the publisher but are still
+  computed by their commands). Schema 3 is taken here; #676 needs schema 4.
+- **#257: PR #711** (branch `host-retention`, `~/work/tehas-257`), stacked on
+  #702: merge #702 first, then merge main into `host-retention`. Sign-off
+  asked: D4 (unused for 30 days, as the host's evidence, in place of "closed").
+  Left open: a size bound for long-lived logs, and pruning the poll tables once
+  #253 and #254 write them.
+- Both add an Unreleased changelog entry with a drain in Adopter action.
 
 ## Left after that, in order
 
