@@ -172,7 +172,7 @@ t_eq "$(after --memory-swap)" "2048m"
 t_eq "$(after --memory-reservation)" "2g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
-t_eq "$(after --cpus)" "3.75"
+t_eq "$(after --cpus)" "15.00"
 t_eq "$(session_args | security_line)" "$security_opts "
 t_eq "$(session_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"

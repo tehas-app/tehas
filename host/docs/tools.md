@@ -96,7 +96,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's CPU quota is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most 4. Lower it when the model backends cannot serve this many cycles; nothing measures that |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most 4; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
@@ -573,7 +573,7 @@ Four inputs are this command's, whatever the instance says:
 | `PI_ENSEMBLE_HANDOFF_CHANNEL` | `host` | pi-rukas posts no handoff comment and applies no label. `tehasbot cycle` posts the one comment of the park from the result's handoff, and labels the issue |
 | `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS` | `480000`, 8 minutes | The handoff allowance: the time the cycle's handoff may take. It is the one allowance tehas and pi-rukas share. The deadline's margin holds it, so the handoff is written before the container is stopped, not as it is stopped |
 | `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. When the image's `--capabilities` answer has the feature `cycleDeadlineHandoffAllowance`, its runner bounds every step by the deadline, and the margin is the handoff allowance alone: with the default limit the deadline is 5 h 52 min in. Otherwise the margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and the handoff allowance when that is longer: a step that started before the deadline may run past it, and the handoff comes after that step. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
-| `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's quota and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
+| `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's share and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
@@ -654,8 +654,8 @@ file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
-swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of its share of the
-host's CPUs, a pids limit that follows the quota, a CPU weight and an init, and
+swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of the host's CPUs less
+one, a pids limit that follows its share of them, a CPU weight and an init, and
 no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves

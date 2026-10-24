@@ -867,13 +867,13 @@ seven limits, fourteen words on the `docker run` line:
 | `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while four containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
-| `--cpus` | the host's CPUs less one, divided by `TEHAS_TICKET_CONCURRENCY` counted at most 4, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
-| `--pids-limit` | 1024 for each CPU of the quota, rounded up, from `2048` to `4096` | The most processes and threads in the container |
+| `--cpus` | the host's CPUs less one, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
+| `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_TICKET_CONCURRENCY`, counted at most 4 | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
 On a host with 16 CPUs and `TEHAS_TICKET_CONCURRENCY=4` a container gets
-`--cpus 3.75 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
-`--cpus 1.75 --pids-limit 2048`.
+`--cpus 15.00 --pids-limit 4096`; with 8 CPUs and the default ceiling of 7,
+`--cpus 7.00 --pids-limit 2048`.
 
 Every sandbox container also runs with `--init`: a cycle, a planning turn, a
 dev session, the indexer and the analyst. Docker's init is the first process
@@ -885,19 +885,21 @@ counts against `--pids-limit` until the container ends. One pass of this
 repository's shell tests leaves about 950 that way, so a cycle reached the
 limit at its fifth pass and could start no process after that.
 
-The quota is a ceiling, not CPUs held for the container: what one container
-leaves idle the others may use, and several busy ones share by weight, about
-equally. The weight is also what makes the kernel share CPU inside the slice
-at all, so every container carries it. Without the quota one container's gate
-could take every CPU of the host, the model backends' among them. The cycles
-are counted at their ceiling, not as they run, so a cycle that starts first
-gets no more than one that starts later. At most four containers are in the
-slice at once (see [Limits that hold work back](/operating#limits-that-hold-work-back)),
-which is why the ceiling counts at most 4.
+The quota is a ceiling, not CPUs held for the container: a container may use
+every CPU of the host but one, and several busy ones share by weight, about
+equally. A gate that runs while the other cycles wait for the model gets the
+whole host; four gates at once get about a quarter each. The weight is also
+what makes the kernel share CPU inside the slice at all, so every container
+carries it. The quota leaves one CPU to the host, its own services and the
+model backends among them. Every container has the same quota, so a cycle that
+starts first gets no more than one that starts later.
 
-The pids limit follows the quota because a container's processes are mostly
-what its gate runs side by side, and a gate sized by its CPUs runs fewer on
-fewer. Measured on this repository's shell tests with an init: at most 108
+The pids limit follows the share, the quota divided by the cycles side by
+side, because a container's processes are mostly what its gate runs side by
+side, and on a busy host a gate gets its share of the CPUs, not the quota. At
+most four containers are in the slice at once (see
+[Limits that hold work back](/operating#limits-that-hold-work-back)), which is
+why the share counts at most 4. Measured on this repository's shell tests with an init: at most 108
 processes at once with 16 test files side by side, 38 with 4. The floor of
 2048 is for the agents, their tools and git around the gate.
 
@@ -906,9 +908,9 @@ does not change it. A gate that runs its tests side by side should size
 itself from `/sys/fs/cgroup/cpu.max`, as this repository's `scripts/test.sh`
 does, or it starts more than the quota can run.
 
-The quota also sets how many runs of the gate pi-rukas makes at once inside the
+The share also sets how many runs of the gate pi-rukas makes at once inside the
 cycle: `tehas work` passes `PI_ENSEMBLE_VERIFY_CONCURRENCY`, one for each two
-whole CPUs of the quota and each 2 GiB of the memory ceiling, the lower, at
+whole CPUs of the share and each 2 GiB of the memory ceiling, the lower, at
 least 1. That is pi-rukas's own rule for a host, applied to the container. A
 run that waits for another does not count its wait against
 `TEHAS_VERIFY_TIMEOUT`.
@@ -1084,8 +1086,8 @@ for longer than half an hour says so once in the log, as
 in a cycle, a container and a workspace of its own. It defaults to the host's
 CPUs minus one, at least 1, and a value above the host's CPUs is accepted. It
 is a ceiling: the dispatcher starts fewer while the slice has no room. A
-container's CPU quota and pids limit follow it (see above); its memory does
-not. There is no CPU or memory budget to set; an instance that still sets
+container's pids limit and its runs of the gate at once follow it (see
+above); its CPU quota and its memory do not. There is no CPU or memory budget to set; an instance that still sets
 `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is refused with 78 and one line naming
 the slice file.
 

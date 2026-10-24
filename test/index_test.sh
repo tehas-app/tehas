@@ -241,7 +241,7 @@ t_eq "$(after --memory-reservation)" "1g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --network)" none
-t_eq "$(after --cpus)" "3.75"
+t_eq "$(after --cpus)" "15.00"
 t_lacks "$(run_args)" "--cidfile"
 t_eq "$(run_args | unknown_options "$image" "--name --network $limits --user -e -w -v --entrypoint" "--rm --init")" ""
 t_instance "${T_MINIMAL[@]}"

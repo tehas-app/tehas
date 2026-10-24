@@ -31,18 +31,19 @@
 #                        are what tehas_slice_cpus prints.
 #   tehas_slice_cpus     after tehas_slice_ok. No call. Prints the CPU quota
 #                        and the pids limit of one container: "<c> <p>".
-#                        <c> is the host's CPUs less one, shared by the
-#                        cycles that may run at once (TEHAS_TICKET_CONCURRENCY,
-#                        and TEHAS_REFRESH_SLOTS more with
+#                        <c> is the host's CPUs less one, never below one
+#                        CPU, as docker writes it (15.00). <p> is 1024 for
+#                        each CPU of the container's share, rounded up, from
+#                        2048 to 4096. The share is <c> over the cycles that
+#                        may run at once (TEHAS_TICKET_CONCURRENCY, and
+#                        TEHAS_REFRESH_SLOTS more with
 #                        TEHAS_REFRESH_CONFLICTS=1, at most the four the
-#                        slice holds), never below one
-#                        CPU, as docker writes it (3.75). <p> is 1024 for
-#                        each CPU of <c>, rounded up, from 2048 to 4096.
+#                        slice holds), never below one CPU.
 #                        Returns 1 with nothing printed without a probe or
 #                        with a concurrency that is not a number.
 #   tehas_slice_verify   after tehas_slice_limits. No call. Prints how many
 #                        runs of the product's gate one container runs at
-#                        once: one for each two whole CPUs of its quota and
+#                        once: one for each two whole CPUs of its share and
 #                        each 2 GiB of its memory ceiling, the lower, at least
 #                        one. The rule pi-rukas applies to a host, applied to
 #                        the container. Returns 1 with nothing printed when
@@ -184,27 +185,35 @@ tehas_slice_ok() {
   return 0
 }
 
-# The quota is a ceiling, not a share that is held: an idle container leaves
-# its CPUs to the others, and the weight shares them when all are busy. Without
-# one, a single container's gate could take every CPU of the host, the host's
-# own services and the model backends among them. One CPU is left to the host.
-# The cycles side by side are counted at their ceiling, not as they run, so a
-# container's quota does not depend on when it started.
-#
-# The pids limit follows the quota: a container's processes are mostly what
-# its gate runs side by side, and a gate sized by its CPUs runs fewer on fewer.
-# 2048 at least, for the agents, their tools and git around the gate.
-tehas_slice_cpus() {
-  local cpus=${TEHAS_SLICE_CPUS:-} cycles=${TEHAS_TICKET_CONCURRENCY:-} spare quota pids
+# One cycle's share of the host's CPUs less one, in hundredths, never below
+# one CPU: the CPUs it gets when every cycle side by side is busy.
+_tehas_slice_share() {
+  local cpus=${TEHAS_SLICE_CPUS:-} cycles=${TEHAS_TICKET_CONCURRENCY:-} spare share
   _tehas_slice_num "$cpus" && [ "$cpus" -gt 0 ] || return 1
   _tehas_slice_num "$cycles" && [ "$cycles" -gt 0 ] || return 1
   [ "${TEHAS_REFRESH_CONFLICTS:-}" != 1 ] || ! _tehas_slice_num "${TEHAS_REFRESH_SLOTS:-}" ||
     cycles=$((cycles + TEHAS_REFRESH_SLOTS))
   [ "$cycles" -le 4 ] || cycles=4
   spare=$((cpus > 1 ? cpus - 1 : 1))
-  quota=$((spare * 100 / cycles))
-  [ "$quota" -ge 100 ] || quota=100
-  pids=$(((quota + 99) / 100))
+  share=$((spare * 100 / cycles))
+  [ "$share" -ge 100 ] || share=100
+  echo "$share"
+}
+
+# The quota is a ceiling, not a share that is held: a container may use every
+# CPU but one, and the weight splits them when several are busy. A gate run
+# alone gets the whole host, not a fixed part of it. One CPU is left to the
+# host for its own services and the model backends.
+#
+# The pids limit follows the share, not the quota: a container's processes are
+# mostly what its gate runs side by side, and a gate sized by its quota on a
+# busy host gets its share of CPU, not more processes' worth of it. 2048 at
+# least, for the agents, their tools and git around the gate.
+tehas_slice_cpus() {
+  local cpus=${TEHAS_SLICE_CPUS:-} share quota pids
+  share=$(_tehas_slice_share) || return 1
+  quota=$((cpus > 1 ? (cpus - 1) * 100 : 100))
+  pids=$(((share + 99) / 100))
   pids=$((pids * 1024))
   [ "$pids" -ge 2048 ] || pids=2048
   [ "$pids" -le 4096 ] || pids=4096
@@ -224,7 +233,7 @@ tehas_slice_limits() {
 }
 
 tehas_slice_verify() {
-  local i cpus="" mb="" n
+  local i cpus="" mb="" n share
   for ((i = 0; i + 1 < ${#TEHAS_SLICE_LIMITS[@]}; i++)); do
     case "${TEHAS_SLICE_LIMITS[i]}" in
       --cpus) cpus=${TEHAS_SLICE_LIMITS[i + 1]%%.*} ;;
@@ -232,6 +241,11 @@ tehas_slice_verify() {
     esac
   done
   _tehas_slice_num "$cpus" && _tehas_slice_num "$mb" || return 1
+  # Each run is sized for the share: the quota is the whole host less one, and
+  # every cycle side by side may be running its gate.
+  if share=$(_tehas_slice_share) && [ $((share / 100)) -lt "$cpus" ]; then
+    cpus=$((share / 100))
+  fi
   n=$((cpus / 2))
   [ $((mb / 2048)) -ge "$n" ] || n=$((mb / 2048))
   [ "$n" -ge 1 ] || n=1
