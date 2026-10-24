@@ -1,5 +1,5 @@
-//! The park and question verbs: park, park-show, park-retry, question-asked,
-//! question-known and question-answered.
+//! The park and question verbs: park, park-show, park-retry, park-told,
+//! question-asked, question-known and question-answered.
 //!
 //! The current park of an issue is its `parks` row of the cycle's attempt. The
 //! question on record is the one comment a tick may count in: for a park the
@@ -28,6 +28,9 @@ pub enum Call {
         issue: Option<i64>,
     },
     Retry {
+        issue: i64,
+    },
+    Told {
         issue: i64,
     },
     Asked {
@@ -60,6 +63,8 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
             }),
         "park-retry" => Args::parse("park-retry", rest, &[], true)
             .and_then(|a| Ok(Call::Retry { issue: a.issue()? })),
+        "park-told" => Args::parse("park-told", rest, &[], true)
+            .and_then(|a| Ok(Call::Told { issue: a.issue()? })),
         "question-asked" => asked_args(rest),
         "question-known" => Args::parse("question-known", rest, &[("--id", Kind::Value)], true)
             .and_then(|a| {
@@ -166,6 +171,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Park { .. } => park(home, call, now),
         Call::Show { issue } => show(home, *issue),
         Call::Retry { issue } => retry(home, *issue),
+        Call::Told { issue } => told(home, *issue, now),
         Call::Asked {
             issue,
             id,
@@ -179,16 +185,20 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 }
 
 /// The SELECT of a current park: the cycle's attempt joined in, `automatic`
-/// derived, and the park question on record.
+/// derived, the park question on record, when the hold was told, and the body
+/// the parked attempt's approval bound (null for a run with none).
 const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.pr, p.retries,
     c.started_at, c.started_by,
     (p.reason = 'provider-outage' AND p.retries = 0 AND c.requeued = 0 AND c.how <> 'hand'
       AND c.started_by IS NOT NULL),
     (SELECT q.id FROM questions q WHERE q.issue = p.issue AND q.kind = 'park'
-      AND q.answered_at IS NULL AND q.attempt = c.attempt ORDER BY q.posted_at DESC, q.id DESC LIMIT 1)
+      AND q.answered_at IS NULL AND q.attempt = c.attempt ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
+    p.told_at,
+    (SELECT a.body_sha256 FROM approvals a WHERE a.issue = p.issue AND a.used_by = p.attempt
+      ORDER BY a.used_at DESC, a.at DESC LIMIT 1)
   FROM parks p JOIN cycles c ON c.issue = p.issue AND c.attempt = p.attempt";
 
-const PARK_NAMES: [&str; 11] = [
+const PARK_NAMES: [&str; 13] = [
     "issue",
     "attempt",
     "at",
@@ -200,6 +210,8 @@ const PARK_NAMES: [&str; 11] = [
     "started_by",
     "automatic?",
     "question",
+    "told_at",
+    "body_sha256",
 ];
 
 fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
@@ -382,6 +394,24 @@ fn retry(home: &Path, issue: i64) -> Result<String, Fail> {
         Ok(line(
             "park-retry",
             &[("retries", j(retries + 1)), ("automatic", j(automatic))],
+        ))
+    })
+}
+
+/// `park-told`: the hold of the current park said once.
+fn told(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
+    verbs::write(home, |c| {
+        current(c, issue)?.ok_or_else(|| refuse("nopark", issue, "no current park"))?;
+        let n = c
+            .execute(
+                "UPDATE parks SET told_at = ?2 WHERE issue = ?1 AND told_at IS NULL
+                   AND attempt = (SELECT attempt FROM cycles WHERE issue = ?1)",
+                params![issue, now],
+            )
+            .q()?;
+        Ok(line(
+            "park-told",
+            &[("said", j(n > 0)), ("park", park_json(c, issue)?)],
         ))
     })
 }

@@ -5,8 +5,8 @@
 //!
 //!   store init [--force] [--version <v>] [--commit <sha>] [--instance <name>]
 //!                [--repo <owner/name>] [--json]
-//!     Makes the database: schema v1 in an empty file and PRAGMA
-//!     user_version 1, and the row of meta that says when it was made, by
+//!     Makes the database: schema v2 in an empty file and PRAGMA
+//!     user_version 2, and the row of meta that says when it was made, by
 //!     which version and commit of tehas, and for which instance and
 //!     repository. The four are required: the command that runs the store has
 //!     loaded them, and the store refuses a call that arrived without one (64)
@@ -15,7 +15,7 @@
 //!     that holds nothing and refuses one that holds tables, because a
 //!     database with rows in it is not the store's to discard (ADR 0003).
 //!     Answers
-//!     {"api":1,"verb":"init","ok":true,"schema":1,"created":true}, or
+//!     {"api":1,"verb":"init","ok":true,"schema":2,"created":true}, or
 //!     "created":false with --force over a file the store then filled.
 //!   store migrate --backup <dir> [--json]
 //!     Backs the database up and then brings it forward, in that order: a
@@ -24,28 +24,29 @@
 //!     changed, and a backup that cannot be made migrates nothing. The copy the
 //!     answer names is that one, so no step runs without the copy a caller is
 //!     told to open already being on disk; a step that runs also leaves a second
-//!     copy under the version the file came with. With schema 1 the only step is
-//!     from 0 to 1: an SQLite file with no tables and user_version 0 (what an
-//!     empty file is) is given the schema, the rows of meta and the version, in
-//!     one transaction. A database init made is already at 1, and says "from":1,
-//!     "to":1 and still writes its backup, the one copy of the two. <dir> is the
+//!     copy under the version the file came with. From 0, an SQLite file with no
+//!     tables and user_version 0 (what an empty file is), the schema, the rows of
+//!     meta and the version are written in one transaction. From 1, the step to 2
+//!     adds columns and a table, also in one transaction, and keeps every row. A
+//!     database init made is already at 2, and says "from":2, "to":2 and still
+//!     writes its backup, the one copy of the two. <dir> is the
 //!     state/ of this instance's home, or state/backup/ below it, which the verb
 //!     makes 0700 when it is not there; the copy takes the 0700 of the directory
 //!     and the 0600 of the file. Another directory is refused, because the store
 //!     was not given leave to write a copy of itself in a person's.
 //!     Answers
-//!     {"api":1,"verb":"migrate","ok":true,"from":1,"to":1,
+//!     {"api":1,"verb":"migrate","ok":true,"from":1,"to":2,
 //!     "backup":"..."}.
 //!   store check [--json]
 //!     Reads only: the schema version, PRAGMA integrity_check, and the rows of
-//!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":1,
+//!     every table. Answers {"api":1,"verb":"check","ok":true,"schema":2,
 //!     "integrity":"ok","rows":{...}}. A database that fails its integrity
 //!     check answers with "integrity" naming what failed and exit 1; it is
 //!     never moved aside.
 //!
 //! This part of the store is the schema, the two housekeeping verbs, migrate,
-//! and the record verbs of cycles, parks, questions, approvals and planning
-//! (src/verbs.rs and the files it names):
+//! the record verbs of cycles, parks, questions, approvals and planning, and
+//! the history (src/verbs.rs and the files it names):
 //!
 //!   store cycle-start <issue> [--rukas <commit>] [--by-hand]
 //!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
@@ -57,22 +58,28 @@
 //!                [--comment-id <id> --body-sha <sha256>]
 //!   store park-show <issue> | --automatic
 //!   store park-retry <issue>
+//!   store park-told <issue>
 //!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
 //!   store question-known <issue> --id <id>
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
-//!   store approval-record <issue> --at <unix> --by <account> --how <how> ... | --undo --at <unix>
+//!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
+//!                [--input-file <file>] | --undo --at <unix>
 //!   store approval-current <issue>
 //!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> | --undo
-//!   store plan-answer <issue> --turn N --by <account> [--fixer] | --turn N --undo
+//!   store plan-answer <issue> --turn N --by <account> [--fixer] [--text-file <file>]
+//!                | --turn N --undo
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
+//!   store plan-note <issue> --kind fixer-refused|held --id <id>
 //!   store plan-show <issue> | --open
+//!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
 //! `store: <word> #<issue>: ...` (1). The rest of the 13 groups, state-audit
 //! and the journal are later parts of epic #244; an argument this command does
 //! not know is exit 64. A build with debug assertions also has `test-write`,
-//! the writer its own tests run (src/exercise.rs); a release build does not.
+//! the writer its own tests run (src/exercise.rs), and reads its clock from
+//! TEHAS_STORE_TEST_NOW when that is set; a release build has neither.
 //!
 //! The database is $TEHAS_HOME/state/tehas.db, mode 0600, made so before
 //! SQLite opens it, in WAL mode with synchronous=FULL and foreign_keys ON on
@@ -102,6 +109,7 @@ mod cycle;
 mod db;
 #[cfg(debug_assertions)]
 mod exercise;
+mod history;
 mod lock;
 mod park;
 mod plan;
@@ -112,11 +120,15 @@ mod approval_tests;
 #[cfg(test)]
 mod cycle_tests;
 #[cfg(test)]
+mod history_tests;
+#[cfg(test)]
 mod lock_tests;
 #[cfg(test)]
 mod park_tests;
 #[cfg(test)]
 mod plan_tests;
+#[cfg(test)]
+mod schema_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -145,7 +157,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-show";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -170,7 +182,14 @@ fn main() -> ExitCode {
             return ExitCode::from(78);
         }
     };
-    match execute(&home, &verb, now()) {
+    let now = match now() {
+        Ok(t) => t,
+        Err(why) => {
+            eprintln!("store: {why}");
+            return ExitCode::from(78);
+        }
+    };
+    match execute(&home, &verb, now) {
         Ok(line) => {
             println!("{line}");
             ExitCode::SUCCESS
@@ -342,10 +361,34 @@ fn settings(given: BTreeMap<&str, &str>) -> Option<Settings> {
     })
 }
 
-fn now() -> i64 {
-    SystemTime::now()
+fn now() -> Result<i64, String> {
+    #[cfg(debug_assertions)]
+    if let Some(t) = test_clock(std::env::var_os(TEST_NOW).as_deref())? {
+        return Ok(t);
+    }
+    Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
+        .map_or(0, |d| d.as_secs() as i64))
+}
+
+/// The shell tests' clock: a build with debug assertions takes the time from
+/// this variable when it is set. install.sh builds --release, which never
+/// reads it.
+#[cfg(debug_assertions)]
+pub const TEST_NOW: &str = "TEHAS_STORE_TEST_NOW";
+
+/// The time the variable gives, None when it is not set. A value that is not
+/// a Unix time stops the command rather than fall back to the real clock.
+#[cfg(debug_assertions)]
+pub fn test_clock(given: Option<&std::ffi::OsStr>) -> Result<Option<i64>, String> {
+    let Some(given) = given else {
+        return Ok(None);
+    };
+    given
+        .to_str()
+        .and_then(verbs::unix)
+        .map(Some)
+        .ok_or_else(|| format!("{TEST_NOW} is not a Unix time"))
 }
 
 /// Runs one verb and returns the line it prints. The error is the exit status
@@ -499,7 +542,7 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
     ))
 }
 
-/// `init [--force]`: schema v1 in a file of the store's own making.
+/// `init [--force]`: the schema in a file of the store's own making.
 ///
 /// Three cases, and the difference between the last two is the rule of ADR
 /// 0003: a file that is not there is made; a file that is there is refused

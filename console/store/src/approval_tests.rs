@@ -2,7 +2,7 @@
 
 use crate::verbs_tests::*;
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
     let (n, a) = (issue.to_string(), at.to_string());
@@ -64,7 +64,7 @@ fn approval_record_stores_every_field() {
         v["approval"],
         json!({"issue":10,"at":1791000000,"by":"alice","how":"label","label":"tehas:ready",
                "body_sha256":SHA,"title_sha256":SHA_B,"comment_id":123456,"refresh_pr":null,
-               "refresh_head":null,"used_at":null,"used_by":null})
+               "refresh_head":null,"used_at":null,"used_by":null,"input":null})
     );
     let v = record(&home, 11, 5, "bob", "refresh");
     assert_eq!(v["approval"]["refresh_pr"], 40);
@@ -375,4 +375,159 @@ fn approvals_keep_only_the_base_and_its_starts() {
     drop(l);
     let (_l, _) = start_by(&home, 27, "fixerbot", "fixer", NOW);
     assert_eq!(count(&home, "approvals WHERE issue = 27"), 1);
+}
+
+// --- inputs ----------------------------------------------------------------------
+
+const INPUT: &str = r#"{"links":["https://github.com/user-attachments/assets/1"],"comment_links":[{"link":"https://example.test/a","source":"comment:5","by":"alice"}],"retry_context":[{"source":"pr-comment:9","text":"fix the test"}],"refresh_of":{"pr":40,"head_sha":"0123456789abcdef0123456789abcdef01234567","base_sha":"89abcdef0123456789abcdef0123456789abcdef","branch":"feature/issue-30"}}"#;
+
+fn record_with(home: &Path, issue: i64, at: i64, input: &Path) -> Result<Value, (u8, String)> {
+    call(
+        home,
+        &[
+            "approval-record",
+            &issue.to_string(),
+            "--at",
+            &at.to_string(),
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA,
+            "--input-file",
+            input.to_str().unwrap(),
+        ],
+    )
+}
+
+#[test]
+fn approval_record_keeps_its_inputs_and_current_returns_them() {
+    let home = home("approval-input");
+    let file = write_file(&home, "input.json", INPUT.as_bytes());
+    let want: Value = serde_json::from_str(INPUT).unwrap();
+    let v = record_with(&home, 30, 5, &file).unwrap();
+    assert_eq!(v["approval"]["input"], want);
+    let v = current(&home, 30);
+    assert_eq!(v["approval"]["input"], want);
+    let _lock = hold(&home, 30);
+    ok(&home, &["cycle-start", "30"]);
+    let v = current(&home, 30);
+    assert_eq!(v["approval"], Value::Null);
+    assert_eq!(v["current"]["input"], want);
+    // An approval given without inputs has none, and the next one replaces
+    // the unused row with its own.
+    let v = record(&home, 30, 6, "bob", "label");
+    assert_eq!(v["approval"]["input"], Value::Null);
+    assert_eq!(current(&home, 30)["current"]["input"], want);
+    // A record made again at the same time takes the inputs it is given now.
+    record_with(&home, 31, 7, &file).unwrap();
+    assert_eq!(
+        record(&home, 31, 7, "alice", "label")["approval"]["input"],
+        Value::Null
+    );
+    let empty = write_file(&home, "empty.json", b"{}");
+    assert_eq!(
+        record_with(&home, 32, 7, &empty).unwrap()["approval"]["input"],
+        json!({})
+    );
+}
+
+#[test]
+fn approval_record_refuses_an_input_file_it_cannot_take() {
+    let home = home("approval-input-refused");
+    let good = write_file(&home, "good.json", INPUT.as_bytes());
+    let link = home.join("link.json");
+    std::os::unix::fs::symlink(&good, &link).unwrap();
+    let big = home.join("big.json");
+    // Within the bound by whitespace alone, then one byte over it.
+    let mut text = br#"{"links":[]}"#.to_vec();
+    text.resize(1 << 20, b' ');
+    std::fs::write(&big, &text).unwrap();
+    assert!(record_with(&home, 40, 5, &big).is_ok());
+    text.push(b' ');
+    std::fs::write(&big, &text).unwrap();
+    let cases: Vec<(PathBuf, &str)> = vec![
+        (link, "not a regular file"),
+        (home.join("none.json"), "not a regular file"),
+        (home.clone(), "not a regular file"),
+        (big, "over 1 MiB"),
+        (write_file(&home, "bytes.json", &[0xff, 0xfe]), "not UTF-8"),
+        (write_file(&home, "text.json", b"links"), "not JSON"),
+        (write_file(&home, "list.json", b"[]"), "not a JSON object"),
+        (
+            write_file(&home, "key.json", br#"{"links":[],"branch":"main"}"#),
+            "holds a key it may not: \"branch\"",
+        ),
+        (
+            write_file(&home, "type.json", br#"{"links":"a"}"#),
+            "holds links of another type",
+        ),
+        (
+            write_file(&home, "of.json", br#"{"refresh_of":[]}"#),
+            "holds refresh_of of another type",
+        ),
+    ];
+    for (file, says) in cases {
+        let (code, line) = record_with(&home, 41, 5, &file).unwrap_err();
+        assert_eq!(code, 1, "{}: {line}", file.display());
+        assert!(line.starts_with("input #41: "), "{line}");
+        assert!(line.contains(says), "{}: {line}", file.display());
+    }
+    assert_eq!(count(&home, "approvals WHERE issue = 41"), 0);
+    assert_eq!(count(&home, "issues WHERE issue = 41"), 0);
+    let null_of = write_file(&home, "null.json", br#"{"refresh_of":null}"#);
+    assert!(record_with(&home, 41, 5, &null_of).is_ok());
+}
+
+#[test]
+fn approval_record_input_file_usage() {
+    let base = [
+        "approval-record",
+        "1",
+        "--at",
+        "5",
+        "--by",
+        "a",
+        "--how",
+        "label",
+        "--label",
+        "tehas:ready",
+        "--body-sha",
+        SHA,
+    ];
+    let with = |extra: &[&str]| {
+        let mut v = base.to_vec();
+        v.extend(extra);
+        usage(&v)
+    };
+    assert!(with(&["--input-file", "input.json"]).contains("--input-file is not an absolute path"));
+    assert!(
+        with(&["--input-file", "/a", "--input-file", "/b"]).contains("--input-file given twice")
+    );
+    assert!(with(&["--input-file"]).contains("--input-file needs a value"));
+    assert!(usage(&[
+        "approval-record",
+        "1",
+        "--undo",
+        "--at",
+        "5",
+        "--input-file",
+        "/a"
+    ])
+    .contains("--input-file is not taken with --undo"));
+}
+
+#[test]
+fn approval_undo_removes_the_inputs_with_the_row() {
+    let home = home("approval-input-undo");
+    let file = write_file(&home, "input.json", INPUT.as_bytes());
+    record_with(&home, 42, 5, &file).unwrap();
+    assert_eq!(count(&home, "approvals WHERE input_json IS NOT NULL"), 1);
+    let v = ok(&home, &["approval-record", "42", "--undo", "--at", "5"]);
+    assert_eq!(v["undone"], true);
+    assert_eq!(count(&home, "approvals"), 0);
+    assert_eq!(current(&home, 42)["approval"], Value::Null);
 }

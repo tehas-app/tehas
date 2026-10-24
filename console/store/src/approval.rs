@@ -5,7 +5,8 @@
 
 use crate::verbs::{self, j, line, obj, refuse, row_json, stub, Args, Fail, Kind, Q};
 use rusqlite::{params, Connection, OptionalExtension};
-use std::path::Path;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
@@ -25,9 +26,16 @@ pub struct Record {
     pub title_sha: Option<String>,
     pub comment_id: Option<i64>,
     pub refresh: Option<(i64, String)>,
+    pub input: Option<PathBuf>,
 }
 
 pub const HOWS: [&str; 5] = ["label", "refresh", "retry-tick", "outage-retry", "fixer"];
+
+/// The keys `--input-file` may hold: what the cycle is given with the
+/// approval. Each list is a JSON array and `refresh_of` an object or null; the
+/// readers check the entries.
+const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
+const INPUT_BOUND: u64 = 1 << 20;
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
@@ -66,6 +74,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
             ("--comment-id", Kind::Value),
             ("--refresh-pr", Kind::Value),
             ("--refresh-head", Kind::Value),
+            ("--input-file", Kind::Value),
             ("--undo", Kind::Switch),
         ],
         true,
@@ -84,6 +93,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
     let comment_id = a.strict("--comment-id", "a comment id", verbs::comment_id)?;
     let pr = a.strict("--refresh-pr", "a number", verbs::number)?;
     let head = a.strict("--refresh-head", "a head sha", verbs::head_sha)?;
+    let input = a.path("--input-file")?;
     let refresh = match (pr, head) {
         (Some(pr), Some(head)) => Some((pr, head)),
         (None, None) => None,
@@ -122,7 +132,35 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
         title_sha,
         comment_id,
         refresh,
+        input,
     })))
+}
+
+/// The inputs as stored: the file's JSON object, with only the four keys and
+/// each of its type, written again compactly.
+fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
+    let text = verbs::read_text(path, INPUT_BOUND, "1 MiB", issue, "input", "the input")?;
+    let bad = |why: &str| refuse("input", issue, &format!("the input {why}"));
+    let v: Value = serde_json::from_str(&text).map_err(|_| bad("is not JSON"))?;
+    let Value::Object(map) = &v else {
+        return Err(bad("is not a JSON object"));
+    };
+    for (key, value) in map {
+        let fits = if INPUT_LISTS.contains(&key.as_str()) {
+            value.is_array()
+        } else if key == "refresh_of" {
+            value.is_object() || value.is_null()
+        } else {
+            return Err(bad(&format!(
+                "holds a key it may not: {}",
+                verbs::shown(key)
+            )));
+        };
+        if !fits {
+            return Err(bad(&format!("holds {key} of another type")));
+        }
+    }
+    Ok(v.to_string())
 }
 
 pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
@@ -134,7 +172,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
 }
 
 const COLUMNS: &str = "issue, at, by_account, how, label, body_sha256, title_sha256, comment_id,
-  refresh_pr, refresh_head, used_at, used_by";
+  refresh_pr, refresh_head, used_at, used_by, input_json";
 const NAMES: [&str; 12] = [
     "issue",
     "at",
@@ -156,13 +194,38 @@ fn approval_json(
     args: impl rusqlite::Params,
 ) -> Result<String, Fail> {
     let sql = format!("SELECT {COLUMNS} FROM approvals WHERE {filter} LIMIT 1");
-    Ok(c.query_row(&sql, args, |r| row_json(r, &NAMES))
+    let row = c
+        .query_row(&sql, args, |r| {
+            Ok((
+                row_json(r, &NAMES)?,
+                r.get::<_, Option<String>>(NAMES.len())?,
+            ))
+        })
         .optional()
-        .q()?
-        .map_or("null".to_string(), |p| obj(&p)))
+        .q()?;
+    let Some((mut p, input)) = row else {
+        return Ok("null".to_string());
+    };
+    // Written by this store as JSON; one that does not parse is damage.
+    let input = match input {
+        None => "null".to_string(),
+        Some(t) => serde_json::from_str::<Value>(&t)
+            .map_err(|_| {
+                crate::line(crate::db::DbError::Corrupt(
+                    "an approval's input_json is not JSON".to_string(),
+                ))
+            })?
+            .to_string(),
+    };
+    p.push(("input", input));
+    Ok(obj(&p))
 }
 
 fn record(home: &Path, r: &Record) -> Result<String, Fail> {
+    let input = match &r.input {
+        Some(p) => Some(read_input(p, r.issue)?),
+        None => None,
+    };
     verbs::write(home, |c| {
         stub(c, r.issue)?;
         let used: bool = c
@@ -190,13 +253,13 @@ fn record(home: &Path, r: &Record) -> Result<String, Fail> {
         };
         c.execute(
             "INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, title_sha256,
-               comment_id, refresh_pr, refresh_head, used_at, used_by)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL)
+               comment_id, refresh_pr, refresh_head, used_at, used_by, input_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11)
              ON CONFLICT (issue, at) DO UPDATE SET by_account = excluded.by_account,
                how = excluded.how, label = excluded.label, body_sha256 = excluded.body_sha256,
                title_sha256 = excluded.title_sha256, comment_id = excluded.comment_id,
                refresh_pr = excluded.refresh_pr, refresh_head = excluded.refresh_head,
-               used_at = NULL, used_by = NULL",
+               used_at = NULL, used_by = NULL, input_json = excluded.input_json",
             params![
                 r.issue,
                 r.at,
@@ -207,7 +270,8 @@ fn record(home: &Path, r: &Record) -> Result<String, Fail> {
                 r.title_sha,
                 r.comment_id,
                 pr,
-                head
+                head,
+                input
             ],
         )
         .q()?;

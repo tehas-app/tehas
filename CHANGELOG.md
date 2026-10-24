@@ -13,7 +13,11 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The state store's schema is version 2. `install.sh` migrates a version 1
+  `state/tehas.db` in place, after its backup, and keeps every row: the step
+  only adds columns and one table. The store gains the verbs `history-show`,
+  `park-told` and `plan-note`, and `approval-record --input-file` and
+  `plan-answer --text-file`. Nothing calls them yet.
 
 ### Adopter action
 

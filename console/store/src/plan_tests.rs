@@ -74,7 +74,8 @@ fn plan_begin_opens_a_running_first_turn() {
         json!({"issue":10,"session":null,"turns":0,"options":[],"pending":false,"pending_outcome":null,
                "failed":false,"running":true,"started_at":NOW,"comment_id":null,"lost":false,
                "by":"alice","label":"tehas:plan","brief":"the brief","turn_rc":null,"opened_at":NOW,
-               "ended_at":null,"answers":[],"filed":[]})
+               "ended_at":null,"answers":[],"filed":[],"answer":null,
+               "notes":{"fixer_refused":[],"held":[]}})
     );
     assert_eq!(count(&home, "issues WHERE issue = 10"), 1);
 }
@@ -838,4 +839,234 @@ fn plan_show_open_lists_only_open_sessions() {
     for args in [&["plan-show"][..], &["plan-show", "1", "--open"][..]] {
         assert!(usage(args).starts_with("usage plan-show: "), "{args:?}");
     }
+}
+
+// --- plan-note ---------------------------------------------------------------------
+
+fn note(home: &Path, issue: i64, kind: &str, id: i64) -> Result<Value, (u8, String)> {
+    call(
+        home,
+        &[
+            "plan-note",
+            &issue.to_string(),
+            "--kind",
+            kind,
+            "--id",
+            &id.to_string(),
+        ],
+    )
+}
+
+#[test]
+fn plan_note_says_once_and_plan_show_lists_the_notes() {
+    let home = home("plan-note");
+    begin(&home, 60);
+    finished(&home, 60, 1);
+    let v = note(&home, 60, "held", 900).unwrap();
+    assert_eq!(v["said"], true);
+    assert_eq!(
+        v["planning"]["notes"],
+        json!({"fixer_refused":[],"held":[900]})
+    );
+    assert_eq!(note(&home, 60, "held", 900).unwrap()["said"], false);
+    note(&home, 60, "fixer-refused", 902).unwrap();
+    note(&home, 60, "fixer-refused", 901).unwrap();
+    // The same id under the other kind is another note.
+    assert_eq!(note(&home, 60, "fixer-refused", 900).unwrap()["said"], true);
+    assert_eq!(
+        show(&home, 60)["notes"],
+        json!({"fixer_refused":[902,901,900],"held":[900]})
+    );
+    let open = ok(&home, &["plan-show", "--open"]);
+    assert_eq!(open["sessions"][0]["notes"]["held"], json!([900]));
+}
+
+#[test]
+fn plan_note_needs_an_open_session() {
+    let home = home("plan-note-open");
+    assert_eq!(
+        note(&home, 61, "held", 5).unwrap_err().1.split(' ').next(),
+        Some("noplan")
+    );
+    begin(&home, 61);
+    ok(&home, &["plan-end", "61", "--close"]);
+    let (code, line) = note(&home, 61, "held", 5).unwrap_err();
+    assert_eq!(code, 1);
+    assert!(line.starts_with("noplan #61"), "{line}");
+    assert_eq!(count(&home, "planning_notes"), 0);
+}
+
+#[test]
+fn plan_notes_go_with_the_session() {
+    let home = home("plan-note-cascade");
+    // Replaced: plan-begin over an open session that is not running.
+    begin(&home, 62);
+    finished(&home, 62, 1);
+    note(&home, 62, "held", 1).unwrap();
+    begin(&home, 62);
+    assert_eq!(count(&home, "planning_notes"), 0);
+    assert_eq!(
+        show(&home, 62)["notes"],
+        json!({"fixer_refused":[],"held":[]})
+    );
+    // Closed.
+    finished(&home, 62, 1);
+    note(&home, 62, "fixer-refused", 2).unwrap();
+    ok(&home, &["plan-end", "62", "--close"]);
+    assert_eq!(count(&home, "planning_notes"), 0);
+    // Ended by a turn that left no session.
+    begin(&home, 63);
+    note(&home, 63, "held", 3).unwrap();
+    turn_end(&home, 63, 1, &["--outcome", "not-started"]).unwrap();
+    assert!(show(&home, 63)["ended_at"].is_number());
+    assert_eq!(count(&home, "planning_notes"), 0);
+    // Undone in its first turn.
+    begin(&home, 64);
+    note(&home, 64, "held", 4).unwrap();
+    ok(&home, &["plan-begin", "64", "--undo"]);
+    assert_eq!(count(&home, "planning_notes"), 0);
+}
+
+#[test]
+fn plan_note_usage() {
+    for (args, says) in [
+        (
+            &["plan-note", "1", "--kind", "seen", "--id", "5"][..],
+            "--kind is not one of fixer-refused, held: \"seen\"",
+        ),
+        (&["plan-note", "1", "--id", "5"][..], "--kind is required"),
+        (
+            &["plan-note", "1", "--kind", "held"][..],
+            "--id is required",
+        ),
+        (
+            &["plan-note", "1", "--kind", "held", "--id", "0"][..],
+            "--id is not a comment id",
+        ),
+        (
+            &["plan-note", "--kind", "held", "--id", "5"][..],
+            "<issue> is required",
+        ),
+        (
+            &["plan-note", "1", "--kind", "held", "--id", "5", "--by", "a"][..],
+            "unknown flag",
+        ),
+    ] {
+        let why = usage(args);
+        assert!(why.starts_with("usage plan-note: "), "{args:?}: {why}");
+        assert!(why.contains(says), "{args:?}: {why}");
+    }
+}
+
+// --- the answer text -------------------------------------------------------------------
+
+fn answer_with(home: &Path, issue: i64, turn: i64, text: &Path) -> Result<Value, (u8, String)> {
+    call(
+        home,
+        &[
+            "plan-answer",
+            &issue.to_string(),
+            "--turn",
+            &turn.to_string(),
+            "--by",
+            "bob",
+            "--text-file",
+            text.to_str().unwrap(),
+        ],
+    )
+}
+
+#[test]
+fn plan_answer_keeps_its_text_and_plan_show_returns_it() {
+    let home = home("plan-answer-text");
+    begin(&home, 65);
+    // The first turn answers nothing.
+    assert_eq!(show(&home, 65)["answer"], Value::Null);
+    finished(&home, 65, 1);
+    assert_eq!(show(&home, 65)["answer"], Value::Null);
+    let text = write_file(
+        &home,
+        "answer.md",
+        "Use the second option, ünïcode.\n".as_bytes(),
+    );
+    let v = answer_with(&home, 65, 2, &text).unwrap();
+    assert_eq!(v["planning"]["answer"], "Use the second option, ünïcode.\n");
+    // Running, then pending: the answer of that turn.
+    assert_eq!(
+        show(&home, 65)["answer"],
+        "Use the second option, ünïcode.\n"
+    );
+    finished(&home, 65, 2);
+    assert_eq!(
+        show(&home, 65)["answer"],
+        "Use the second option, ünïcode.\n"
+    );
+    // Posted: no turn is running or pending.
+    ok(&home, &["plan-end", "65", "--posted"]);
+    assert_eq!(show(&home, 65)["answer"], Value::Null);
+    // An answer given without a text has none.
+    answer(&home, 65, 3, "bob").unwrap();
+    assert_eq!(show(&home, 65)["answer"], Value::Null);
+}
+
+#[test]
+fn plan_answer_undo_takes_the_text_with_it() {
+    let home = home("plan-answer-text-undo");
+    begin(&home, 66);
+    finished(&home, 66, 1);
+    let text = write_file(&home, "answer.md", b"yes");
+    answer_with(&home, 66, 2, &text).unwrap();
+    ok(&home, &["plan-answer", "66", "--turn", "2", "--undo"]);
+    assert_eq!(count(&home, "planning_answers"), 0);
+    assert_eq!(show(&home, 66)["answer"], Value::Null);
+}
+
+#[test]
+fn plan_answer_refuses_a_text_file_it_cannot_take() {
+    let home = home("plan-answer-text-refused");
+    begin(&home, 67);
+    finished(&home, 67, 1);
+    let good = write_file(&home, "good.md", b"yes");
+    let link = home.join("link.md");
+    std::os::unix::fs::symlink(&good, &link).unwrap();
+    let big = home.join("big.md");
+    std::fs::write(&big, vec![b'a'; (64 << 10) + 1]).unwrap();
+    for (file, says) in [
+        (link, "not a regular file"),
+        (home.join("none.md"), "not a regular file"),
+        (big.clone(), "over 64 KiB"),
+        (write_file(&home, "bytes.md", &[0xff, 0xfe]), "not UTF-8"),
+    ] {
+        let (code, line) = answer_with(&home, 67, 2, &file).unwrap_err();
+        assert_eq!(code, 1, "{line}");
+        assert!(line.starts_with("answer #67: "), "{line}");
+        assert!(line.contains(says), "{line}");
+    }
+    assert_eq!(count(&home, "planning_answers"), 0);
+    assert_eq!(show(&home, 67)["running"], false);
+    std::fs::write(&big, vec![b'a'; 64 << 10]).unwrap();
+    let v = answer_with(&home, 67, 2, &big).unwrap();
+    assert_eq!(v["planning"]["answer"].as_str().unwrap().len(), 64 << 10);
+}
+
+#[test]
+fn plan_answer_text_file_usage() {
+    let base = ["plan-answer", "1", "--turn", "2", "--by", "bob"];
+    let with = |extra: &[&str]| {
+        let mut v = base.to_vec();
+        v.extend(extra);
+        usage(&v)
+    };
+    assert!(with(&["--text-file", "answer.md"]).contains("--text-file is not an absolute path"));
+    assert!(with(&["--text-file", "/a", "--text-file", "/b"]).contains("--text-file given twice"));
+    assert!(usage(&[
+        "plan-answer",
+        "1",
+        "--turn",
+        "2",
+        "--undo",
+        "--text-file",
+        "/a"
+    ])
+    .contains("--text-file is not taken with --undo"));
 }
