@@ -25,10 +25,11 @@ New code goes in new files, so the #595 change to `src/tests.rs` merges cleanly:
 | `src/verbs.rs` | argument parsing, value grammars and cleaning, the output line, the store open for data verbs, the issues stub, the error mapping |
 | `src/lock.rs` | the cycle lock probe |
 | `src/cycle.rs` | `cycle-start`, `cycle-image`, `cycle-end`, `cycle-show`, `cycle-note`, `cycle-stop-asked` |
-| `src/park.rs` | `park`, `park-show`, `park-retry`, `question-asked`, `question-known`, `question-answered` |
+| `src/park.rs` | `park`, `park-show`, `park-retry`, `park-told`, `question-asked`, `question-known`, `question-answered` |
 | `src/approval.rs` | `approval-record`, `approval-current` |
-| `src/plan.rs` | `plan-begin`, `plan-answer`, `plan-end`, `plan-show` |
-| `src/verbs_tests.rs`, `src/lock_tests.rs`, `src/cycle_tests.rs`, `src/park_tests.rs`, `src/approval_tests.rs`, `src/plan_tests.rs` | the tests, `#[cfg(test)] mod` from main.rs |
+| `src/plan.rs` | `plan-begin`, `plan-answer`, `plan-end`, `plan-note`, `plan-show` |
+| `src/history.rs` | `history-show` |
+| `src/verbs_tests.rs`, `src/lock_tests.rs`, `src/cycle_tests.rs`, `src/park_tests.rs`, `src/approval_tests.rs`, `src/plan_tests.rs`, `src/history_tests.rs`, `src/schema_tests.rs` | the tests, `#[cfg(test)] mod` from main.rs |
 
 `main.rs` changes only: the `mod` lines, one `Verb::Record(verbs::Call)`
 variant, `parse` falls through to `verbs::parse(args)` for a verb name it does
@@ -48,9 +49,11 @@ refused, and `started_by = 'a'`, still allowed).
 `std::fs::File::try_lock` (stable in 1.89; the host pin is 1.99). No new crate.
 No `unsafe`, no `libc`.
 
-`schema.sql`: still `user_version` 1, because no host has a `tehas.db` yet
-(`install.sh` does not run the store). Changes, each mirrored in spec section 3
-in the same PR (section 7):
+`schema.sql`: `user_version` 2. `install.sh` runs `store init` or
+`store migrate`, and `db::migrate` steps a store at 1 to 2 (D29). The changes
+below were made to schema 1 in the first unit, before any host had a
+`tehas.db`; D29's additions are the step to 2. Each is mirrored in spec
+section 3 in the same PR (section 7):
 
 - `cycles.how` CHECK gains `'hand'`; `cycles.started_by` loses NOT NULL (D12).
 - `cycle_history` gains `started_at INTEGER, rc INTEGER, cap TEXT, park_reason TEXT, failure_kind TEXT, failure_cause TEXT, provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0` (D1).
@@ -134,7 +137,7 @@ rule 5).
   refused), open, `metadata()` of the open file must have the same dev and
   inode, size within the bound, read at most bound + 1 bytes. Bounds: result
   16 MiB, progress 1 MiB, settings 64 KiB (`lib/improve.sh:88`), brief 1 MiB,
-  approval inputs 1 MiB, answer text 64 KiB (D30, D34). How a refused file
+  approval inputs 1 MiB, answer text 1 MiB (D30, D34). How a refused file
   ends is stated per verb.
 - **Writers:** `db::lock(file)` (BEGIN IMMEDIATE, busy timeout 5 s), every
   read and write of the verb, the issues stub first where the verb has one,
@@ -750,7 +753,7 @@ The begin of a later turn, which is an answer (`plan_turn ... next`,
 `planning.sh:374-380`). One write today, one transaction here (D7).
 
 - 64: grammars; `--undo` with `--by`, `--fixer` or `--text-file`.
-- Preconditions (exit 1): `answer` the `--text-file` is refused, over 64 KiB
+- Preconditions (exit 1): `answer` the `--text-file` is refused, over 1 MiB
   or not UTF-8 (read before the lock); `noplan` no open session; `turn` N is
   not `turns + 1`, or the session is running, or `session` is NULL, or `lost`
   is 1.
@@ -1174,7 +1177,8 @@ in section 4.
 
 **D34. The answer text is a row (sign-off).** Replaces D27: #251 says "the
 answer and the brief are rows". `plan-answer --text-file` stores the reply in
-`planning_answers.text` (64 KiB), and `plan-show` returns the answer of the
+`planning_answers.text` (1 MiB: a GitHub comment is up to 65,536 characters
+of up to four bytes each, plus the caller's prefix), and `plan-show` returns the answer of the
 running or pending turn. The `.answer` file goes when #251's caller moves.
 **Spec change:** 3.5's DDL.
 

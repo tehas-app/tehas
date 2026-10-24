@@ -73,7 +73,8 @@ pub const OUTCOMES: [&str; 6] = [
 ];
 
 const BRIEF_BOUND: u64 = 1 << 20;
-const TEXT_BOUND: u64 = 64 << 10;
+// A GitHub comment is up to 65,536 characters of up to four bytes each.
+const TEXT_BOUND: u64 = 1 << 20;
 
 /// The kinds of `plan-note`, and the keys plan-show lists them under.
 const NOTES: [(&str, &str); 2] = [("fixer-refused", "fixer_refused"), ("held", "held")];
@@ -551,7 +552,7 @@ fn answer(
         Some(p) => Some(verbs::read_text(
             p,
             TEXT_BOUND,
-            "64 KiB",
+            "1 MiB",
             issue,
             "answer",
             "the answer",

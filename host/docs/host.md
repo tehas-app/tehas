@@ -598,7 +598,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 1 (`PRAGMA user_version`), and one
+What is in it today: the schema, version 2 (`PRAGMA user_version`), and one
 table with rows, `meta`, which says when the database was made, by which version
 and commit of tehas, and for which instance and repository. The other tables
 are there and empty: no command writes them yet. The host's records are still
@@ -613,7 +613,10 @@ the files of `state/` until the commands are moved to the store one by one.
   600, with SQLite's `VACUUM INTO`, and then brings the schema forward. A copy
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
-  removes old copies yet; remove them by hand when there are too many.
+  removes old copies yet; remove them by hand when there are too many. A
+  store at version 1 is migrated to 2 in place, and the install keeps the
+  database as it was under both names, `tehas-1-<time>.db` and
+  `tehas-2-<time>.db`.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from
@@ -658,7 +661,7 @@ the copy to the schema of the installed store:
 
 ```
 tehas pause
-cp ~/tehas/state/backup/tehas-1-<time>.db ~/tehas/state/tehas.db.new
+cp ~/tehas/state/backup/tehas-<version>-<time>.db ~/tehas/state/tehas.db.new
 chmod 600 ~/tehas/state/tehas.db.new
 rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
 mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db

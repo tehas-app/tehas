@@ -326,6 +326,7 @@ fn a_store_above_2_is_future() {
     assert!(line.starts_with("future "), "{line}");
 }
 
+#[cfg(debug_assertions)]
 #[test]
 fn the_test_clock_is_read_from_its_variable() {
     use crate::test_clock;

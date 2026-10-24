@@ -1030,11 +1030,11 @@ fn plan_answer_refuses_a_text_file_it_cannot_take() {
     let link = home.join("link.md");
     std::os::unix::fs::symlink(&good, &link).unwrap();
     let big = home.join("big.md");
-    std::fs::write(&big, vec![b'a'; (64 << 10) + 1]).unwrap();
+    std::fs::write(&big, vec![b'a'; (1 << 20) + 1]).unwrap();
     for (file, says) in [
         (link, "not a regular file"),
         (home.join("none.md"), "not a regular file"),
-        (big.clone(), "over 64 KiB"),
+        (big.clone(), "over 1 MiB"),
         (write_file(&home, "bytes.md", &[0xff, 0xfe]), "not UTF-8"),
     ] {
         let (code, line) = answer_with(&home, 67, 2, &file).unwrap_err();
@@ -1044,9 +1044,24 @@ fn plan_answer_refuses_a_text_file_it_cannot_take() {
     }
     assert_eq!(count(&home, "planning_answers"), 0);
     assert_eq!(show(&home, 67)["running"], false);
-    std::fs::write(&big, vec![b'a'; 64 << 10]).unwrap();
+    std::fs::write(&big, vec![b'a'; 1 << 20]).unwrap();
     let v = answer_with(&home, 67, 2, &big).unwrap();
-    assert_eq!(v["planning"]["answer"].as_str().unwrap().len(), 64 << 10);
+    assert_eq!(v["planning"]["answer"].as_str().unwrap().len(), 1 << 20);
+}
+
+#[test]
+fn plan_answer_takes_the_longest_reply_github_allows() {
+    let home = home("plan-answer-text-github");
+    begin(&home, 68);
+    finished(&home, 68, 1);
+    // 65,536 characters of four bytes each, with the prefix the caller adds.
+    let text = format!(
+        "The operator replied on the issue:\n\n{}",
+        "\u{1F600}".repeat(65_536)
+    );
+    let file = write_file(&home, "long.md", text.as_bytes());
+    let v = answer_with(&home, 68, 2, &file).unwrap();
+    assert_eq!(v["planning"]["answer"].as_str().unwrap(), text);
 }
 
 #[test]
