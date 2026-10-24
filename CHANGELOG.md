@@ -13,7 +13,11 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- Fewer processes per command, for the same results. Loading the settings
+  checks each value in the shell, the commands read the clock from the shell,
+  and `install.sh` leaves the record of steps owed as it is when a copy adds
+  nothing to it. The tests of `install.sh`, the status, the update, planning
+  and the cycle record fork 15 to 44% fewer processes.
 
 ### Adopter action
 
