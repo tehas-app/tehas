@@ -24,14 +24,9 @@ reset() {
 # work <issue> <epoch of the end> [fields]: one end of a cycle on the state
 # store, as tehasbot cycle records it (t_history_end).
 work() { t_history_end "$home" "$@"; }
-# plan <issue> <epoch of the end> [fields]: one line of a planning turn's
-# history, as lib/planning.sh writes it.
-plan() {
-  local n=$1 e=$2 extra=${3-}
-  [ -n "$extra" ] || extra='{}'
-  mkdir -p "$cycles"
-  jq -cn --arg at "$(iso "$e")" --argjson x "$extra" '$x + {at: $at}' >"$cycles/plan-$n.history.jsonl"
-}
+# plan <issue> <epoch of the end> [fields]: the end of a first planning turn
+# on the state store, as the dispatcher records it (t_plan_end).
+plan() { t_plan_end "$home" "$@"; }
 # run_json [args]: tehas history --json with the arguments given. Each argument
 # is one word of the command line, so a cursor reaches the command whole.
 run_json() {
@@ -128,53 +123,35 @@ t_eq "$t_rc" 64
 
 t_case "a planning turn is listed the same way, with kind plan"
 reset
-plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":3,"by":"alice"}'
+plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice"}'
 run_json
-t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700300-7\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":3,\"by\":\"alice\"}"
+t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700300-7\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:plan\"}"
 t_eq "$(jq -r .next <<<"$t_out")" 1760700300-7
 
 t_case "a refining turn names its label and the issues it filed, as JSON and as text"
 reset
-plan 7 "$((T0 + 300))" '{"kind":"plan","rc":0,"status":"finished","turn":2,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41","not an issue"]}'
+plan 7 "$((T0 + 300))" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","filed":["https://github.com/acme/widget/issues/41","not an issue"]}'
 run_json
 t_eq "$(jq -c '.cycles[0] | [.label, .filed]' <<<"$t_out")" '["tehas:refine",["https://github.com/acme/widget/issues/41"]]'
 t_run "$history"
-t_contains "$t_out" "plan  #7  finished  turn 2  refine  filed https://github.com/acme/widget/issues/41"
+t_contains "$t_out" "plan  #7  finished  turn 1  refine  filed https://github.com/acme/widget/issues/41"
 
 t_case "both kinds together, and a turn whose unit left no readable status"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
-plan 12 "$T0" '{"kind":"plan","rc":"not started","status":"not-started","turn":1,"by":"alice"}'
+plan 12 "$T0" '{"kind":"plan","status":"not-started","turn":1,"by":"alice"}'
 run_json
 t_eq "$(jq -r '[.cycles[] | "\(.kind) \(.outcome) \(.status // "none")"] | @tsv' <<<"$t_out")" "plan not-started none	work merged 0"
 # The two ended in one second and the issue is the same, so the pair orders
 # them by kind only as far as the cursor goes; both are listed once.
 t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 2
 
-t_case "a planning line this release cannot read is left out, and the rest is listed"
-reset
-mkdir -p "$cycles"
-{
-  printf '%s\n' '[1,2,3]'
-  printf '%s\n' '"a string"'
-  printf '%s\n' '{"rc":0,"status":"finished"}'
-  printf '%s\n' '{"kind":"plan","at":"not a time","rc":0,"status":"finished"}'
-  printf '%s\n' '{"kind":"other","at":"2025-10-17T11:20:00Z","rc":0,"status":"finished"}'
-  jq -cn --arg at "$(iso "$T0")" '{kind: "plan", at: $at, rc: 0, status: "finished"}'
-} >"$cycles/plan-5.history.jsonl"
-run_json
-t_eq "$(jq -r '[.cycles[] | "\(.kind):\(.cursor)"] | @tsv' <<<"$t_out")" "plan:1760700000-5"
-
-t_case "a planning file that is a link, or a name that is no issue's, is not read; nor the old path of one"
+t_case "the files the planning history was kept in before the store are not read"
 reset
 mkdir -p "$cycles" "$home/state"
 jq -cn --arg at "$(iso "$T0")" '{kind: "plan", at: $at, rc: 0, status: "finished"}' >"$T/planted.jsonl"
-ln -s "$T/planted.jsonl" "$cycles/plan-9.history.jsonl"
-cp "$T/planted.jsonl" "$cycles/plan-x.history.jsonl"
-mkdir -p "$cycles/plan-8.history.jsonl"
-cp "$T/planted.jsonl" "$cycles/plan-.history.jsonl"
+cp "$T/planted.jsonl" "$cycles/plan-9.history.jsonl"
 cp "$T/planted.jsonl" "$home/state/plan-6.history.jsonl"
-cp "$T/planted.jsonl" "$cycles/6.history.jsonl"
 run_json
 t_eq "$(jq -c '.cycles' <<<"$t_out")" "[]"
 t_eq "$(jq -r .next <<<"$t_out")" null
@@ -194,10 +171,10 @@ t_eq "$(jq -s length <<<"$t_out")" 1
 t_case "without --json, one line each, oldest first, and the plan's turn"
 reset
 work 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
-plan 12 "$((T0 - 60))" '{"kind":"plan","rc":0,"status":"finished","turn":2}'
+plan 12 "$((T0 - 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 t_run "$history"
 t_eq "$t_rc" 0
-t_eq "$t_out" "1760699940-12  plan  #12  finished  turn 2
+t_eq "$t_out" "1760699940-12  plan  #12  finished  turn 1
 1760700000-12  work  #12  handoff  rc 10  step review  parked  pr https://github.com/acme/widget/pull/9"
 t_case "a factory with no history of its own says nothing and exits 0"
 reset

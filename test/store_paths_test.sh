@@ -40,9 +40,11 @@ n='\$\{?(issue|n|1)(:\?)?\}?'
 # The analytics program still reads some of these files itself.
 an=console/analytics/src
 # A cycle's file as the code names it: after its issue, after <issue> in a
-# comment, or in a glob. Not after "plan-": the planning turns' history stays a
-# file until its own group moves.
+# comment, or in a glob. Not after "plan-": those are the planning session's.
 f='(^|[^-])(\$\{?(issue|n|1|owner)(:\?)?\}?|<issue>|<n>|\*)'
+# A planning session's file as the code names it: plan- and its issue, as a
+# variable, <issue>, <n> or a glob.
+p='plan-(\$\{?(issue|n|1|plan_n)(:\?)?\}?|<issue>|<n>|\*)'
 
 # The cycle's records: its start, the approval it used, its image and
 # settings, its branch and its history.
@@ -63,6 +65,17 @@ forbid '\bpark_id\b' 'qid=$(cat "$(park_id "$n")")'
 # The quiet-cycle episode: what the poll last asked of a stuck cycle's unit.
 forbid "$f"'\.quiet\b' 'note=$TEHAS_HOME/state/cycles/$n.quiet'
 forbid 'tehas_cycle_note_files\b' 'for f in $(tehas_cycle_note_files quiet); do'
+# The planning session: its record, read or written whole, its brief, its
+# answer, the copy of it a turn left, the directory it kept in state/, its
+# history and the helpers that read and wrote them. The files a turn's unit
+# passes on keep their names after the record's (.out, .rc, .lock).
+forbid "$p"'\.json($|[^.a-z])' 'for st in "$TEHAS_HOME"/state/plan-*.json; do'
+forbid '"\$\{?st\}?(\.new)?"' 'jq -c '"'"'.pending = false'"'"' "$st" >"$st.new"'
+forbid '\$\{?st\}?\.(brief|answer|turn|keep)\b|\.json\.(brief|answer|keep)\b' 'printf x >"$st.answer.new"'
+forbid "$p"'\.turn\b' 'copy_in "$TEHAS_HOME/state/plan-$issue.turn" "$out" plan.json'
+forbid "$p"'\.history\.jsonl\b' 'files=("$TEHAS_HOME/state/cycles/plan-$issue.history.jsonl")'
+forbid '\bplan_record_number\b' 'plan_record_number "$st" || continue'
+forbid '\btehas_plan_history_add\b' 'tehas_plan_history_add "$n" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
   'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
   "work tells the cycle how the runner ended"
@@ -108,18 +121,18 @@ carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"'
 carrier '\.retry-context\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.retry-context.md"' \
   'libexec/work' \
   "what a reviewer said before a retry, mounted into the container"
-carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
-  "lib/planning.sh libexec/dispatch $an/plan.rs $an/tests.rs" \
-  "a planning container's output"
+carrier '-plan-%s\.keep\b' 'plan_keep() { printf '"'"'%s-plan-%s.keep\n'"'"' "$TEHAS_WORK_DIR" "$1"; }' \
+  'lib/planning.sh' \
+  "the directory a planning container keeps its session in, beside the workspace"
 carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
-  'lib/planning.sh libexec/dispatch libexec/health' \
+  'lib/planning.sh libexec/health' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
   'lib/planning.sh libexec/dispatch libexec/health' \
   "the lock a planning turn holds while it runs"
-carrier '\$\{?st\}?\.keep\b|\.json\.keep\b' 'rm -rf "$st.keep"' \
-  'lib/planning.sh libexec/dispatch' \
-  "the directory a planning container keeps its session in"
+carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
+  "lib/planning.sh $an/plan.rs $an/tests.rs" \
+  "a planning container's output"
 carrier 'refined\.jsonl\b' 'ledger=$TEHAS_HOME/state/refined.jsonl' \
   "lib/planning.sh $an/main.rs $an/report.rs $an/sessions.rs $an/tests.rs" \
   "the ledger of refined issues, which the store does not hold"
@@ -162,7 +175,9 @@ done
 
 t_case "no forbidden pattern takes a JSON field, a label or a kept name for a file"
 for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/state/dispatch.taken"' \
-  'tehas_plan_history_add "$n"' 'state/cycles/plan-$1.history.jsonl' '$images/.taken' '.images.md' \
+  '$images/.taken' '.images.md' '"$st.out"' '"$st.rc"' '"$st.lock"' 'state/plan-<issue>.json.out' \
+  'plan_state() { printf '"'"'%s/state/plan-%s.json\n'"'"' "$TEHAS_HOME" "$1"; }' '.planning.answer // ""' \
+  '.planning.brief' "tehas_store_get '.planning.turn'" '"$keep/answer.md"' '"$(plan_state "$n").rc"' \
   'tehas_cycle_history "$1"' "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
   'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->' \
   'systemd-run --user --quiet --collect' 'quiet_running=$(tehas_cycles_running)' '.cycle.quiet'; do

@@ -10,8 +10,8 @@ t_case "a plan label from an allowed account starts a session from the issue's t
 to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_eq "$(cat "$record.brief")" '# Faster search
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
+t_eq "$(rec_brief)" '# Faster search
 
 Make it fast.'
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan"
@@ -19,8 +19,10 @@ t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_contains "$(t_calls gh)" "- [ ] Adopt all"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
+t_eq "$(rec | jq -c 'del(.startedAt)')" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":false,"comment":4002,"by":"alice","label":"tehas:plan","answers":[]}'
 t_eq "$([ -e "$record.out" ] && echo left)" ""
+# The brief was the turn's until it ended; the record keeps the text.
+t_eq "$(find "$T/home/tehas/tmp" -name 'plan-7.brief.*' | wc -l)" 0
 t_eq "$(t_calls fake-start)" ""
 
 t_case "an issue with no body is planned from its title"
@@ -28,28 +30,28 @@ to_plan
 echo '{"title":"Faster search","body":null}' >"$fx/issue-7.json"
 t_run "$dispatch"
 t_contains "$(plan_calls)" "--brief"
-t_eq "$(head -n 1 "$record.brief")" "# Faster search"
+t_eq "$(rec_brief | head -n 1)" "# Faster search"
 
 t_case "a refine label from an allowed account starts a session with the refine brief after the issue's text"
 to_refine
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_eq "$(head -n 3 "$record.brief")" '# Faster search
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
+t_eq "$(rec_brief | head -n 3)" '# Faster search
 
 Make it fast.'
-t_contains "$(cat "$record.brief")" "---
+t_contains "$(rec_brief)" "---
 
 $(cat "$T_ROOT/lib/refine-brief.md")"
-t_eq "$(tail -n 1 "$record.brief")" "This request is issue #7 itself. The issue you file replaces #7: #7 is not a duplicate of this plan."
+t_eq "$(rec_brief | tail -n 1)" "This request is issue #7 itself. The issue you file replaces #7: #7 is not a duplicate of this plan."
 t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine"
 t_lacks "$(t_calls gh)" "--remove-label tehas:plan "
 t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:refine\` label"
 
 t_case "a refining session keeps its label on record, in each line of history, and in the analytics how"
-t_eq "$(jq -r .label "$record")" "tehas:refine"
-t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
+t_eq "$(rec | jq -r .label)" "tehas:refine"
+t_eq "$(t_row history-show 7 --kind plan -- '.rows[-1].label')" "tehas:refine"
 
 # A person who applies the label to a parked issue asks for a session, as
 # tehas:ready there starts a cycle. tehas:question is no bar to the ask, and
@@ -58,8 +60,8 @@ t_case "tehas:refine on a parked issue starts a session with the refine brief an
 parked_plan refine
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_contains "$(cat "$record.brief")" "---
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
+t_contains "$(rec_brief)" "---
 
 $(cat "$T_ROOT/lib/refine-brief.md")"
 t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
@@ -67,18 +69,18 @@ t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:pl
 # A retry that was not ticked answers for nothing, and the park's id goes with
 # the label: the boxes of the old park must not answer for the new session.
 t_eq "$(park_q)" none
-t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
+t_eq "$(t_row history-show 7 --kind plan -- '.rows[-1].label')" "tehas:refine"
 
 t_case "tehas:plan on a parked issue starts a session from the issue's text, and needs-human-attention is the cycle's to clear"
 parked_plan plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --brief $record.brief"
-t_eq "$(head -n 3 "$record.brief")" '# Faster search
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
+t_eq "$(rec_brief | head -n 3)" '# Faster search
 
 Make it fast.'
-t_lacks "$(cat "$record.brief")" "$(head -c 40 "$T_ROOT/lib/refine-brief.md")"
-t_lacks "$(cat "$record.brief")" "is not a duplicate of this plan"
+t_lacks "$(rec_brief)" "$(head -c 40 "$T_ROOT/lib/refine-brief.md")"
+t_lacks "$(rec_brief)" "is not a duplicate of this plan"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
 t_eq "$(park_q)" none
@@ -92,12 +94,13 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
 t_eq "$(park_q)" 4001
 
-t_case "a session whose park question cannot be taken off the record does not start"
+t_case "a session whose start the store will not take does not start, and its park's question stays"
 parked_plan refine
-store_refuses "question-answered 7" 1 'store: busy #7: the database is locked'
+store_refuses "plan-begin 7" 1 'store: busy #7: the database is locked'
 t_run "$dispatch"
-t_eq "$t_rc" 0
-t_contains "$t_out" "skip #7: the question of its park could not be taken off the record (busy)"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not write the record of #7, not starting a turn (busy)"
+t_eq "$(find "$T/home/tehas/tmp" -name 'plan-7.brief.*' | wc -l)" 0
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_eq "$(park_q)" 4001
@@ -143,14 +146,14 @@ plan_files https://github.com/acme/widget/issues/41
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.source, .filed, .url]' "$T/home/tehas/state/refined.jsonl")" '[7,41,"https://github.com/acme/widget/issues/41"]'
-t_eq "$(jq -c '.filed' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" '["https://github.com/acme/widget/issues/41"]'
+t_eq "$(t_row history-show 7 --kind plan -- '.rows[-1].filed | tostring')" '["https://github.com/acme/widget/issues/41"]'
 rm -f "$T/home/tehas/state/refined.jsonl"
 to_plan
 plan_files https://github.com/acme/widget/issues/42
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$T/home/tehas/state/refined.jsonl" ] && echo written)" ""
-t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:plan"
+t_eq "$(t_row history-show 7 --kind plan -- '.rows[-1].label')" "tehas:plan"
 
 t_case "the ledger of refined issues keeps its last 500 lines, as the ledger of sizes does"
 to_refine
@@ -192,8 +195,8 @@ echo '[{"number":7,"labels":[{"name":"tehas:plan"},{"name":"tehas:refine"}]}]' >
 echo '[{"event":"labeled","label":{"name":"tehas:plan"},"actor":{"login":"alice"}},{"event":"labeled","label":{"name":"tehas:refine"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$(plan_calls | grep -c -e '--brief')" 1
-t_lacks "$(cat "$record.brief")" "tehas refine"
-t_lacks "$(cat "$record.brief")" "is not a duplicate of this plan"
+t_lacks "$(rec_brief)" "tehas refine"
+t_lacks "$(rec_brief)" "is not a duplicate of this plan"
 t_contains "$(t_calls gh)" "--remove-label tehas:plan"
 
 t_case "without the refine brief on the host no session starts, and it is logged"
@@ -263,124 +266,119 @@ t_eq "$t_rc" 1
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue comment"
 t_contains "$t_out" "ERROR: could not mark #7 as planning, not starting a turn"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec)" null
+t_eq "$(find "$T/home/tehas/tmp" -name 'plan-7.brief.*' | wc -l)" 0
 rm -f "$fx/edit-fails"
 
 t_case "the turn is on record as running before the issue is marked"
 to_plan
 t_run "$dispatch"
-t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-mark")" '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true,"by":"alice","label":"tehas:plan"}'
-t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-mark")" true
+t_eq "$(jq -c '.planning | [.session, .turns, .options, .pending, .failed, .running, .by, .label, .comment_id]' "$T/calls/record.at-mark")" '[null,0,[],false,false,true,"alice","tehas:plan",null]'
+t_eq "$(jq -r '.planning.started_at | type' "$T/calls/record.at-mark")" number
 
 t_case "a session does not start when its record cannot be written, and the issue is not marked"
-to_plan
-mkdir -p "$record.new"
-t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: could not write the record of #7, not starting a turn"
-t_eq "$(plan_calls)" ""
-t_lacks "$(t_calls gh)" "issue edit"
-t_lacks "$(t_calls gh)" "issue comment"
-rm -rf "$record.new"
+for answer in "1 store: busy #7: the database is locked" "78 store: corrupt: the file is not a database"; do
+  to_plan
+  store_refuses "plan-begin 7" "${answer%% *}" "${answer#* }"
+  t_run "$dispatch"
+  t_eq "$t_rc" "${answer%% *}"
+  case ${answer%% *} in
+    1) t_contains "$t_out" "ERROR: could not write the record of #7, not starting a turn (busy)" ;;
+    *) t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt" ;;
+  esac
+  t_eq "$(plan_calls)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "issue comment"
+done
 
 t_case "a later turn that cannot be marked leaves the record as it was, still answerable"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
-before=$(cat "$record")
+before=$(rec | jq -c 'del(.startedAt)')
 : >"$fx/edit-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_eq "$(plan_calls)" ""
-t_eq "$(cat "$record")" "$before"
-t_eq "$(jq -r .running "$T/calls/record.at-mark")" true
+t_eq "$(rec | jq -c 'del(.startedAt)')" "$before"
+t_eq "$(jq -r .planning.running "$T/calls/record.at-mark")" true
+# The question is open again: the answer it had is taken back.
+t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .answered] | tostring')" '[true,false]'
 rm -f "$T"/calls/* "$fx/edit-fails"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --session abc-123 --answer $keep/answer.md"
 
 t_case "while a later turn runs the record names no question"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_eq "$(jq -c 'del(.startedAt)' "$T/calls/record.at-turn")" '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"running":true,"answers":[{"turn":2,"by":"alice","fixer":false}]}'
-t_eq "$(jq -r '.startedAt | test("^[0-9-]+T[0-9:]+Z$")' "$T/calls/record.at-turn")" true
+t_eq "$(jq -c '.planning | [.session, .turns, .options, .pending, .failed, .running, .comment_id, .answers]' "$T/calls/record.at-turn")" '["abc-123",1,["Adopt all","Change some"],false,false,true,null,[{"turn":2,"by":"alice","fixer":false}]]'
+t_eq "$(jq -r '.planning.started_at | type' "$T/calls/record.at-turn")" number
+# The question answered is answered on record by whoever answered it.
+t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .answered] | tostring')" '[false,true]'
 
 t_case "who started a session and who answered each turn stay on record after the turn"
 planning
-jq '.by = "alice" | .answers = [{"turn": 1, "by": "bob", "fixer": false}]' "$record" >"$record.new" && mv "$record.new" "$record"
-comments 7 "$(plan_body ' ' x ' ')" alice
+t_plan "$T/home/tehas" 7 '{"by":"alice","turns":2,"options":["Adopt all","Change some"],"comment":4001,"answers":[{"turn":2,"by":"bob","fixer":false}]}'
+comments 7 "$(plan_body ' ' x ' ' 2)" alice
 t_run "$dispatch"
-t_eq "$(jq -c '[.turns, .by, .answers]' "$record")" '[2,"alice",[{"turn":1,"by":"bob","fixer":false},{"turn":2,"by":"alice","fixer":false}]]'
+t_eq "$(rec | jq -c '[.turns, .by, .answers]')" '[3,"alice",[{"turn":2,"by":"bob","fixer":false},{"turn":3,"by":"alice","fixer":false}]]'
 
 t_case "a turn that fails keeps them too"
 planning
-jq '.by = "alice"' "$record" >"$record.new" && mv "$record.new" "$record"
 comments 7 "$(plan_body ' ' x ' ')" alice
-: >"$fx/plan-fails"
 echo '{"session":"abc-123"}' >"$fx/plan-fails"
 t_run "$dispatch"
-t_eq "$(jq -c '[.failed, .by, .answers]' "$record")" '[true,"alice",[{"turn":2,"by":"alice","fixer":false}]]'
+t_eq "$(rec | jq -c '[.failed, .by, .answers]')" '[true,"alice",[{"turn":2,"by":"alice","fixer":false}]]'
 rm -f "$fx/plan-fails"
-
-t_case "answers on record that are not a list stay as they are"
-planning
-jq '.answers = "lots"' "$record" >"$record.new" && mv "$record.new" "$record"
-comments 7 "$(plan_body ' ' x ' ')" alice
-t_run "$dispatch"
-t_contains "$(plan_calls)" "--answer $record.answer"
-t_eq "$(jq -c .answers "$record")" '"lots"'
 
 t_case "a turn cut off before the issue was marked is reported like any cut-off turn"
 planning
-jq '.running = true | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true}'
 # The mark never happened: the issue still asks, and the old answer is there.
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "This planning turn did not finish: it was cut off"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":2,"options":[],"pending":false,"failed":true,"running":false,"comment":4002}'
+t_eq "$(rec | jq -c '[.session, .turns, .options, .pending, .failed, .running, .comment]')" '["abc-123",2,[],false,true,false,4002]'
 t_eq "$(plan_calls)" ""
 
 t_case "a first turn cut off before the issue was marked ends visibly and takes the plan label off"
 to_plan
-mkdir -p "$T/home/tehas/state"
-echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+t_plan "$T/home/tehas" 7 '{"turns":0,"running":true}'
 # What GitHub answers once the label is off.
 echo '[]' >"$fx/plans.json"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "could not start"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
 t_eq "$(plan_calls)" ""
 
-t_case "a first turn that fails parks the issue and keeps no record"
+t_case "a first turn that fails parks the issue and leaves no session open"
 to_plan
 : >"$fx/plan-fails"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "could not start"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
+t_eq "$([ -e "$keep" ] && echo left)" ""
 
-# The record goes, and with it the session file a person's export of this turn
-# would read. lib/planning.sh leaves a copy of the record as the turn left it,
-# under a name of its own, so the archive of a turn that made no session is not
-# the line of history alone. tehas export_test.sh checks what tehas export does
-# with that name; here is the turn that leaves it.
-t_case "a first turn that fails leaves the copy of the record an export reads"
+# The session ends, but stays readable until the next tehas:plan of the issue,
+# so the archive of a turn that made no session is not the line of history
+# alone. export_test.sh checks what tehas export does with it.
+t_case "a first turn that fails leaves its ended session readable for an export"
 to_plan
 : >"$fx/plan-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '{session,turns,running}' "$T/home/tehas/state/plan-7.turn")" '{"session":"","turns":0,"running":true}'
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(t_row plan-show 7 -- '.planning | [.session, .turns, .running, (.ended_at | type), .brief != null] | tostring')" '[null,1,false,"number",true]'
+t_eq "$(t_row history-show 7 --kind plan -- '[.rows[] | [.turn, .outcome, .rc]] | tostring')" '[[1,"failed",2]]'
 
-# A turn of a session that went on leaves no copy of its own: the live record is
-# the whole session, so there is nothing else to take.
-t_case "a turn of a session that went on leaves no copy of the record"
+t_case "a turn of a session that went on keeps the session open on record"
 to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$T/home/tehas/state/plan-7.turn" ] && echo left)" ""
-t_eq "$(jq -r .session "$record")" abc-123
+t_eq "$(rec | jq -r .session)" abc-123
+t_eq "$(rec_open)" open
 
 t_case "a first turn that fails after its session came into being keeps the session"
 to_plan
@@ -390,7 +388,7 @@ t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with st
 t_contains "$(t_calls gh)" "Reply in a comment to run the turn again"
 t_lacks "$(t_calls gh)" "could not start"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -c . "$record")" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"by":"alice","label":"tehas:plan","comment":4002}'
+t_eq "$(rec | jq -c 'del(.startedAt)')" '{"session":"abc-123","turns":1,"options":[],"pending":false,"failed":true,"running":false,"comment":4002,"by":"alice","label":"tehas:plan","answers":[]}'
 
 t_case "and a reply runs the turn again in that session"
 rm -f "$T"/calls/* "$fx/plan-fails"
@@ -401,14 +399,17 @@ jq -n '{data: {repository: {issue: {comments: {nodes: [
    body: "This planning turn did not finish.\n\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->"},
   {databaseId: 4003, author: {login: "alice"}, body: "go on", createdAt: "2026-01-01T02:00:00Z"}]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --session abc-123 --answer $keep/answer.md --comment 4003"
+t_eq "$(cat "$keep/answer.md")" "The operator replied on the issue:
+
+go on"
 
 t_case "a session id that is not a string in a failed turn's file is no session"
 to_plan
 echo '{"session":{"a":1}}' >"$fx/plan-fails"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "could not start"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
 
 t_case "an answered question is served before a new plan label and before a ready issue"
 planning
@@ -425,13 +426,13 @@ t_case "tehas:ready on an issue with an open planning session starts no cycle"
 planning
 comments 7 "$(plan_body ' ' ' ' ' ')" ""
 echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]}]' >"$fx/ready.json"
-before=$(cat "$record")
+before=$(rec)
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
-t_eq "$(cat "$record")" "$before"
+t_eq "$(rec)" "$before"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
 t_lacks "$t_out" "would run a cycle"
@@ -468,8 +469,8 @@ plan_analytics
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(plan_analytics_calls)" "plan 7 --rc 0"
-t_eq "$(jq -c '[.running, .turns, (.startedAt | type)]' "$T/calls/record.at-analytics")" '[true,0,"string"]'
-t_eq "$(jq -c .turns "$record")" 1
+t_eq "$(jq -c '[.running, .turns, (.startedAt | type), .by, .label]' "$T/calls/record.at-analytics")" '[true,0,"string","alice","tehas:plan"]'
+t_eq "$(rec | jq -c .turns)" 1
 
 t_case "with the pi-rukas commit of the image's label"
 to_plan
@@ -487,7 +488,7 @@ t_run "$dispatch"
 t_eq "$(plan_analytics_calls)" "plan 7 --rc 2"
 rm -f "$fx/plan-fails"
 planning
-jq '.running = true | .startedAt = "2026-01-01T00:00:00Z" | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true,"startedAt":"2026-01-01T00:00:00Z"}'
 plan_analytics
 t_run "$dispatch"
 t_eq "$(plan_analytics_calls)" "plan 7 --rc interrupted"
@@ -505,7 +506,7 @@ t_case "a failing or hanging analytics changes nothing in the turn"
 to_plan
 t_run "$dispatch"
 without_gh=$(t_calls gh)
-without_record=$(jq -c . "$record")
+without_record=$(rec | jq -c 'del(.startedAt)')
 for body in 'exit 70' 'exec sleep 30'; do
   to_plan
   plan_analytics "[ \"\$1\" != plan ] || $body"
@@ -514,7 +515,7 @@ for body in 'exit 70' 'exec sleep 30'; do
   t_eq "$t_rc" 0
   t_contains "$t_out" "WARN analytics plan: exit"
   t_eq "$(t_calls gh)" "$without_gh"
-  t_eq "$(jq -c . "$record")" "$without_record"
+  t_eq "$(rec | jq -c 'del(.startedAt)')" "$without_record"
 done
 
 t_done

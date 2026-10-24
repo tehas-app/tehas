@@ -141,46 +141,48 @@ t_eq "$(approval 'has("retry_context")')" false
 # Issue 7 has a planning question open in a session alice started, on an
 # instance with a fixer.
 fmark='<!-- tehas:fixer issue=7 action=answer -->'
-fixer_planning() { # [<answers on record as JSON>]
+# The session has had as many turns as the last answer on record names.
+fixer_planning() { # [<answers on record as JSON> [<who started the session>]]
   planning
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
-  jq --argjson a "${1:-[]}" '.by = "alice" | .answers = $a' "$record" >"$record.new" && mv "$record.new" "$record"
+  t_plan "$T/home/tehas" 7 "$(jq -nc --argjson a "${1:-[]}" --arg by "${2:-alice}" \
+    '{by: $by, turns: ([1] + [$a[].turn] | max), options: ["Adopt all", "Change some"], comment: 4001, answers: $a}')"
 }
 freply() { # <body> [<id>]: one comment by the fixer, as JSON for comments
   jq -nc --arg b "$1" --argjson id "${2:-4003}" '[{databaseId: $id, author: {login: "tehas-fixer"}, body: $b, createdAt: "2026-01-01T02:00:00Z"}]'
 }
 
 t_case "a marked reply of the fixer's runs the turn, and the record says the fixer answered"
-fixer_planning '[{"turn":1,"by":"tehas-fixer","fixer":true},{"turn":2,"by":"alice","fixer":false}]'
+fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true},{"turn":3,"by":"alice","fixer":false}]'
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all, as alice chose in #12.')"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "--answer $record.answer --comment 4003"
-t_eq "$(cat "$record.answer")" 'The fixer replied on the issue:
+t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
+t_eq "$(cat "$keep/answer.md")" 'The fixer replied on the issue:
 
 Adopt all, as alice chose in #12.'
 t_contains "$t_out" "planning #7 continues (answer from tehas-fixer, the fixer)"
-t_eq "$(jq -c '.answers[-1]' "$record")" '{"turn":2,"by":"tehas-fixer","fixer":true}'
+t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":4,"by":"tehas-fixer","fixer":true}'
 
 t_case "a box the fixer ticked runs the turn as its choice"
 fixer_planning
 comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
 t_run "$dispatch"
-t_eq "$(cat "$record.answer")" "The fixer chose: Change some"
+t_eq "$(cat "$keep/answer.md")" "The fixer chose: Change some"
 t_lacks "$(plan_calls)" "--comment"
-t_eq "$(jq -c '.answers' "$record")" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+t_eq "$(rec | jq -c '.answers')" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
 
 t_case "a person's reply wins over a newer reply of the fixer's, and a person's tick wins too"
 fixer_planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(jq -c '[{databaseId: 4003, author: {login: "alice"}, body: "mine", createdAt: "2026-01-01T01:30:00Z"}] + .' <<<"$(freply "$fmark"$'\nAdopt all.' 4004)")"
 t_run "$dispatch"
-t_eq "$(cat "$record.answer")" 'The operator replied on the issue:
+t_eq "$(cat "$keep/answer.md")" 'The operator replied on the issue:
 
 mine'
-t_eq "$(jq -c '.answers' "$record")" '[{"turn":2,"by":"alice","fixer":false}]'
+t_eq "$(rec | jq -c '.answers')" '[{"turn":2,"by":"alice","fixer":false}]'
 fixer_planning
 comments 7 "$(plan_body ' ' x ' ')" alice "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
-t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once"
 fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
@@ -190,7 +192,7 @@ t_eq "$(plan_calls)" ""
 t_contains "$t_out" "skip #7: the fixer's answer runs no turn: the fixer answered the question before this one; a person answers this one"
 t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
 t_contains "$(t_calls gh)" "Tehas did not take the fixer's reply as an answer"
-t_eq "$(jq -c '.fixer_refused' "$record")" '[4003]'
+t_eq "$(rec | jq -c '.fixer_refused')" '[4003]'
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -215,7 +217,7 @@ t_case "a larger limit lets it answer again"
 comments 7 "$(plan_body x ' ' ' ')" tehas-fixer
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_PLAN_ANSWERS=4
 t_run "$dispatch"
-t_eq "$(cat "$record.answer")" "The fixer chose: Adopt all"
+t_eq "$(cat "$keep/answer.md")" "The fixer chose: Adopt all"
 
 t_case "the fixer may not end a session: its tick on the way out is undone and the session goes on"
 fixer_planning
@@ -225,7 +227,7 @@ t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "Planning session ended"
 t_contains "$t_out" "it ticked End this planning session, which only a person may"
 t_contains "$(t_calls gh)" "api -X PATCH"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 
 t_case "the fixer cannot end a session with an empty marked reply beside its tick on the way out"
 fixer_planning
@@ -235,7 +237,7 @@ t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "Planning session ended"
 t_lacks "$(t_calls gh)" "--remove-label tehas:plan"
 t_contains "$t_out" "it ticked End this planning session, which only a person may"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 
 t_case "nor with a marked reply that says something beside that tick"
 fixer_planning
@@ -243,7 +245,7 @@ comments 7 "$(plan_body ' ' ' ' x)" tehas-fixer "$(freply "$fmark"$'\nDone, end 
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "it ticked End this planning session, which only a person may"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 
 t_case "a tick the fixer saved after alice edited the question is held for a person, not unticked"
 fixer_planning
@@ -256,7 +258,7 @@ t_lacks "$(t_calls gh)" "api -X PATCH"
 t_contains "$t_out" "skip #7: the fixer saved the question after another account did, so who ticked it is not known"
 t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
 t_contains "$(t_calls gh)" "A person ticks the box again or replies"
-t_eq "$(jq -c .held "$record")" '[4001]'
+t_eq "$(rec | jq -c .held)" '[4001]'
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -265,7 +267,7 @@ t_lacks "$(t_calls gh)" "issue comment"
 t_case "and alice's tick saved again runs the turn as hers"
 jq '.data.repository.issue.comments.nodes[0].editor.login = "alice"' "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
 t_run "$dispatch"
-t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "a held tick on a parked cycle's question starts nothing and stays"
 parked
@@ -284,24 +286,21 @@ t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$t_out" "its reply does not start with <!-- tehas:fixer issue=7 action=answer -->"
 
-t_case "in a session with no starter on record, or one started by an account no longer allowed, the fixer answers nothing"
-for rec in 'del(.by)' '.by = "mallory"'; do
-  fixer_planning
-  jq "$rec" "$record" >"$record.new" && mv "$record.new" "$record"
-  comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
-  t_run "$dispatch"
-  t_eq "$(plan_calls)" ""
-  t_contains "$t_out" "no person's tehas:plan started this session"
-done
+t_case "in a session started by an account no longer allowed, the fixer answers nothing"
+fixer_planning '[]' mallory
+comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
+t_run "$dispatch"
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "no person's tehas:plan started this session"
 
 t_case "a dry run says the fixer's reply would be refused and changes nothing"
 fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
-before=$(cat "$record")
+before=$(rec)
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: the fixer's answer runs no turn"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$(cat "$record")" "$before"
+t_eq "$(rec)" "$before"
 
 t_case "with no fixer on the instance, its account's tick and reply are an outsider's"
 fixer_planning

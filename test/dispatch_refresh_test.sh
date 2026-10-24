@@ -216,6 +216,15 @@ t_lacks "$(t_calls gh)" "pr edit"
 t_contains "$t_out" "could not mark pull request #50 as refreshing"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
+t_case "a planning session open on the issue drops the refresh (A13)"
+refresh_setup
+# The session waits on its question, which nobody has answered.
+t_plan "$T/home/tehas" 7 '{"turns":1,"comment":4001}'
+echo '[{"number":7}]' >"$fx/asking.json"
+comments 7 "$(plan_body ' ' ' ' ' ')" ""
+t_run "$dispatch"
+refresh_dropped "a planning session is open on it"
+
 t_case "with the setting off a request starts nothing"
 refresh_setup
 slots 2

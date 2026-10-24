@@ -665,6 +665,29 @@ t_eq "$(cat "$T/calls/sessions.given")" "./abc-123/session.json"
 t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
 
+# #251: the start of a turn removes $tree.state, the turn's own state beside the
+# workspace, and the workspace itself. pi-rukas keeps the session in the
+# clone's git directory, which the turn carries out to the keep directory the
+# dispatcher gives, outside state/. So the next turn resumes it.
+t_case "turn 2 resumes the session turn 1 kept, in the keep directory the dispatcher gives"
+reset
+keep=$T/home/tehas/work/widget-plan-7.keep
+rm -rf "$keep"
+runner_keeps '{"turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(find "$tree" "$tree.state" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(cat "$keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+rm -f "$fx/keeps" "$T"/calls/*
+printf 'Adopt all\n' >"$keep/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $keep --session abc-123 --answer $keep/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --answer $ws/.tehas/answer.md "
+t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
+t_eq "$(cat "$T/calls/answer.seen")" "Adopt all"
+t_eq "$(find "$T/home/tehas/state" -name 'plan-*' 2>/dev/null | wc -l)" 0
+rm -rf "$keep"
+
 t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
 first_turn_ran
 for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do

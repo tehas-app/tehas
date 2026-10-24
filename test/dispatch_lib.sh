@@ -117,8 +117,9 @@ case "$1 $2" in
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
-    # What the host had on record at the moment an issue was marked as planning.
-    case "$*" in *"--add-label tehas:planning"*) cat "$T/home/tehas/state/plan-$3.json" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
+    # What the host had on record at the moment an issue was marked as planning:
+    # the session as the store gives it.
+    case "$*" in *"--add-label tehas:planning"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$3" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
     # And the approval on record at the moment an issue was marked as running,
     # as tehas_approval_view shapes it: .approval the one waiting, .current the
     # one of the last start.
@@ -165,7 +166,7 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # Writes a recorded outcome where the dispatcher asked for it. A failing turn
 # leaves what the file plan-fails holds, if anything.
-t_stub fake-plan 'cat "$T/home/tehas/state/plan-$1.json" >"$T/calls/record.at-turn" 2>/dev/null
+t_stub fake-plan 'TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$1" >"$T/calls/record.at-turn" 2>/dev/null
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/plan.fd8"
 out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
@@ -289,7 +290,8 @@ t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
-  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
+  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" \
+    "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
   t_store_home "$T/home/tehas"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
@@ -367,6 +369,13 @@ comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
      lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
      editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
 }
+# comments_of <issue> <id> <question body> <editor or "">: the same, the bot's
+# question being the comment <id>, as a poll of this run posted it.
+comments_of() {
+  comments "$1" "$3" "$4"
+  jq --argjson id "$2" '.data.repository.issue.comments.nodes[0].databaseId = $id' "$fx/comments-$1.json" >"$fx/comments-$1.new" &&
+    mv "$fx/comments-$1.new" "$fx/comments-$1.json"
+}
 park_body() { # <retry box> <leave box>
   printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
 }
@@ -396,7 +405,19 @@ plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]
   printf 'Two ways.\n\nAdopt?\n\n%s- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=%s -->\n' \
     "$extra" "$1" "$2" "$3" "${4:-1}"
 }
+# The files a planning turn of issue 7 passes on are named after this; its
+# record is on the store.
 record=$T/home/tehas/state/plan-7.json
+# What the session carries from one turn to the next, beside the workspace.
+keep=$T/home/tehas/work/widget-plan-7.keep
+# rec: issue 7's session as the store has it, in the shape its record file
+# had (tehas_plan_shape); null when there is none. rec_open: "open" while one
+# is open, else "none".
+plan_shape=$(bash -c '. "$1"; printf "%s" "$tehas_plan_shape"' _ "$T_ROOT/lib/store.sh")
+rec() { t_row plan-show 7 -- "$plan_shape" | jq -c .; }
+rec_open() { t_row plan-show 7 -- 'if .planning != null and .planning.ended_at == null then "open" else "none" end'; }
+# The session's brief, and the answer the turn running was given, on record.
+rec_brief() { t_row plan-show 7 -- '.planning.brief // "" | rtrimstr("\n")'; }
 # Issue 7 is labelled for planning by alice and nothing else is queued.
 to_plan() {
   reset
@@ -441,8 +462,7 @@ planning() {
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7}]' >"$fx/asking.json"
-  mkdir -p "$T/home/tehas/state"
-  echo '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}' >"$record"
+  t_plan "$T/home/tehas" 7 '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}'
 }
 plan_calls() { t_calls fake-plan; }
 # What the fake runner writes for the turn it is asked to run: the agent's

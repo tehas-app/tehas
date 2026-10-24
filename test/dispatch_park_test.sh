@@ -724,6 +724,15 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
 t_eq "$(park_of '[.retries, .automatic]')" '[0,true]'
 
+t_case "an open planning session holds the retry after an outage, and spends it (A13)"
+outage_parked
+t_plan "$T/home/tehas" 7 '{"turns":1,"comment":4002}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+t_eq "$(park_of '[.retries, .automatic]')" '[1,false]'
+
 t_case "one retry after an outage, then a person: the retry's own outage park owes none"
 outage_parked
 t_run "$dispatch"

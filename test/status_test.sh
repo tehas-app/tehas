@@ -71,6 +71,8 @@ reset() {
   shipped_count 0
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+  # The state store the health file reads the planning turns from.
+  t_store_home "$T/home/tehas"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
   echo false >"$T/paused"
   echo '[]' >"$T/events.json"
@@ -529,14 +531,13 @@ t_contains "$t_out" "cycle     #12 running, step develop"
 t_contains "$t_out" "cycle     #14 running, step plan"
 t_eq "$(jq -c '[.checks.cycle.issue, (.checks.cycles | map(.issue))]' "$live/health.json")" "[12,[12,14]]"
 
-# A planning turn in flight: its record, and its lock held by this shell until
-# let_go, as the turn's unit holds it.
+# A planning turn in flight: its session running on the state store, and its
+# lock held by this shell until let_go, as the turn's unit holds it.
 turn_fd=""
 turn() { # <issue> <turns before> <started seconds ago>
   local st=$T/home/tehas/state/plan-$1.json
-  mkdir -p "${st%/*}"
-  jq -n --argjson t "$2" --arg at "$(date -u -d "-$3 seconds" +%FT%TZ)" \
-    '{session: "abc", turns: $t, options: [], pending: false, failed: false, running: true, startedAt: $at}' >"$st"
+  t_plan "$T/home/tehas" "$1" "$(jq -nc --argjson t "$2" --arg at "$(date -u -d "-$3 seconds" +%FT%TZ)" \
+    '{session: "abc", turns: $t, running: true, startedAt: $at}')"
   exec {turn_fd}>>"$st.lock"
   flock -n "$turn_fd"
 }
@@ -561,19 +562,38 @@ t_run "$status && $summary"
 t_lacks "$t_out" "plan      "
 t_run "$summary --json"
 t_eq "$(jq -c .planning <<<"$t_out")" "[]"
-turn 7 1 720
+hold_turn() { exec {turn_fd}>>"$T/home/tehas/state/plan-7.json.lock" && flock -n "$turn_fd"; }
+hold_turn
 echo 0 >"$T/home/tehas/state/plan-7.json.rc"
 t_run "$status && $summary"
 t_lacks "$t_out" "plan      "
 let_go
-jq '.running = false' "$T/home/tehas/state/plan-7.json" >"$T/home/tehas/state/plan-7.new" && mv "$T/home/tehas/state/plan-7.new" "$T/home/tehas/state/plan-7.json"
+# A session that runs no turn on record, whatever holds the lock.
+TEHAS_HOME=$T/home/tehas "$T_STORE" plan-end 7 --turn 2 --outcome finished --rc 0 --session abc >/dev/null
 rm -f "$T/home/tehas/state/plan-7.json.rc"
-turn_fd=""
-exec {turn_fd}>>"$T/home/tehas/state/plan-7.json.lock"
-flock -n "$turn_fd"
+hold_turn
 t_run "$status && $summary"
 t_lacks "$t_out" "plan      "
 let_go
+
+t_case "health: a store that cannot list the planning sessions writes no health file"
+reset
+t_run "$status"
+t_eq "$([ -e "$live/health.json" ] && echo written)" written
+rm -f "$live/health.json"
+t_store_answers plan-show 1 'store: busy #0: the database is locked'
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the planning sessions could not be read from the state store"
+t_eq "$([ -e "$live/health.json" ] && echo written)" ""
+t_store_answers plan-show 78 'store: corrupt: the file is not a database'
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_eq "$t_rc" 78
+t_eq "$([ -e "$live/health.json" ] && echo written)" ""
+rm -f "$T/home/tehas/libexec/store"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
@@ -792,6 +812,7 @@ release_setup() { # <installed> [<installed> ...]
     echo "$v" >"$T/home/tehas/versions/$v/VERSION"
   done
   ln -s "versions/$1" "$T/home/tehas/current"
+  t_store_db "$T/home/tehas"
 }
 # The published releases, newest first, as GitHub answers the list.
 releases() { # <tag> [...]

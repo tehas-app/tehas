@@ -73,6 +73,26 @@
 #                                    the cycle of issue N on record parked on
 #                                    REASON (park ARGS), with the park question
 #                                    QID on record when one is given
+#   t_plan HOME N JSON               on a fresh session of issue N, the planning
+#                                    session JSON describes in the shape its
+#                                    record file had (tehas_plan_shape): made
+#                                    by the planning verbs, as the dispatcher
+#                                    makes one. by [alice], label
+#                                    [tehas:plan], turns, session [abc-123],
+#                                    options and filed of the last turn,
+#                                    failed, pending, comment (the open
+#                                    question), running (a turn after the
+#                                    last), lost, answers (who answered each
+#                                    later turn, and whether the fixer did),
+#                                    fixer_refused and held; startedAt is when
+#                                    the turn that runs began
+#   t_plan_end HOME N END [FIELDS]   one end of a first planning turn of issue N
+#                                    on the store at END (epoch seconds), with
+#                                    FIELDS in the shape its line of history had
+#                                    (started [a minute before], rc, status, by
+#                                    [alice], label, filed); by hand of nobody
+#                                    else, and the session ended unless it was
+#                                    finished
 #   t_no_old_state HOME              a failure for each old record file in
 #                                    HOME that t_old_state names
 #   t_after                          a command run as each case ends, by
@@ -466,6 +486,79 @@ t_park() { # <home> <issue> <reason> [<question id>|-] [<park args>...]
     t_bad "t_park: the store refused the question $t_q of #$t_n"
 }
 
+t_plan() { # <home> <issue> <JSON>
+  local t_home=$1 t_n=$2 t_j=$3 t_turns t_t t_s t_at t_by t_brief=$T/plan-brief.md
+  local -a t_args
+  _t_s() { TEHAS_HOME=$t_home "$T_STORE" "$@" >/dev/null || t_bad "t_plan: the store refused $*"; }
+  # _t_when <epoch or empty> <verb...>: at that time, or now.
+  _t_when() {
+    local when=$1
+    shift
+    if [ -n "$when" ]; then TEHAS_HOME=$t_home TEHAS_STORE_TEST_NOW=$when "$T_STORE" "$@" >/dev/null || t_bad "t_plan: the store refused $*"
+    else _t_s "$@"; fi
+  }
+  t_turns=$(jq -r '.turns // 0' <<<"$t_j")
+  t_s=$(jq -r '.session // "" | if . == "" then "abc-123" else . end' <<<"$t_j")
+  t_at=""
+  [ "$(jq -r '.startedAt // ""' <<<"$t_j")" = "" ] || t_at=$(date -u -d "$(jq -r .startedAt <<<"$t_j")" +%s)
+  printf '# Faster search\n\nMake it fast.\n' >"$t_brief"
+  # Who answered turn <t>, as the dispatcher records it.
+  _t_answer() {
+    t_by=$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].by // "alice"' <<<"$t_j")
+    t_args=(plan-answer "$t_n" --turn "$1" --by "$t_by" --text-file "$t_brief")
+    [ "$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].fixer // false' <<<"$t_j")" != true ] ||
+      t_args+=(--fixer)
+    _t_when "${2:-}" "${t_args[@]}"
+  }
+  t_args=(plan-begin "$t_n" --by "$(jq -r '.by // "alice"' <<<"$t_j")" --label "$(jq -r '.label // "tehas:plan"' <<<"$t_j")" --brief-file "$t_brief")
+  if [ "$t_turns" = 0 ]; then _t_when "$t_at" "${t_args[@]}"; else _t_s "${t_args[@]}"; fi
+  for ((t_t = 1; t_t <= t_turns; t_t++)); do
+    [ "$t_t" = 1 ] || _t_answer "$t_t"
+    if [ "$t_t" -lt "$t_turns" ]; then
+      _t_s plan-end "$t_n" --turn "$t_t" --outcome finished --rc 0 --session "$t_s"
+      _t_s plan-end "$t_n" --posted
+    elif [ "$(jq -r '.failed // false' <<<"$t_j")" = true ]; then
+      _t_s plan-end "$t_n" --turn "$t_t" --outcome failed --rc 2 --session "$t_s"
+    else
+      t_args=(plan-end "$t_n" --turn "$t_t" --outcome finished --rc 0 --session "$t_s")
+      mapfile -t -O "${#t_args[@]}" t_args < <(jq -r '((.options // [])[] | "--option", .), ((.filed // [])[] | "--filed", .)' <<<"$t_j")
+      _t_s "${t_args[@]}"
+    fi
+  done
+  if [ "$t_turns" -gt 0 ]; then
+    [ "$(jq -r '.comment // ""' <<<"$t_j")" = "" ] ||
+      _t_s question-asked "$t_n" --id "$(jq -r .comment <<<"$t_j")" --kind plan
+    [ "$(jq -r '.pending // false' <<<"$t_j")" = true ] || _t_s plan-end "$t_n" --posted
+    [ "$(jq -r '.running // false' <<<"$t_j")" != true ] || _t_answer $((t_turns + 1)) "$t_at"
+  fi
+  [ "$(jq -r '.lost // false' <<<"$t_j")" != true ] ||
+    _t_s plan-end "$t_n" --turn $((t_turns + 1)) --outcome lost --rc 2
+  while read -r t_by; do
+    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind fixer-refused --id "$t_by"
+  done < <(jq -r '(.fixer_refused // [])[]' <<<"$t_j")
+  while read -r t_by; do
+    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind held --id "$t_by"
+  done < <(jq -r '(.held // [])[]' <<<"$t_j")
+}
+t_plan_end() { # <home> <issue> <epoch of the end> [<fields>]
+  local home=$1 n=$2 e=$3 x=${4:-'{}'} started outcome brief=$T/plan-brief.md
+  local -a t_end=()
+  started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
+  outcome=$(jq -r '.status // "finished"' <<<"$x")
+  printf '# Faster search\n' >"$brief"
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$started "$T_STORE" plan-begin "$n" --by "$(jq -r '.by // "alice"' <<<"$x")" \
+    --label "$(jq -r '.label // "tehas:plan"' <<<"$x")" --brief-file "$brief" >/dev/null ||
+    t_bad "t_plan_end: the store refused the begin of #$n"
+  t_end=(--outcome "$outcome")
+  case $outcome in
+    finished) t_end+=(--rc 0 --session abc-123) ;;
+    failed) t_end+=(--rc "$(jq -r '.rc // 2' <<<"$x")") ;;
+  esac
+  mapfile -t -O "${#t_end[@]}" t_end < <(jq -r '(.filed // [])[] | "--filed", .' <<<"$x")
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e "$T_STORE" plan-end "$n" --turn 1 "${t_end[@]}" >/dev/null ||
+    t_bad "t_plan_end: the store refused the end of #$n"
+}
+
 # The old record files a group moved onto the store no longer has, as globs
 # under a home. Each group that moves adds its own.
 t_old_state=(
@@ -478,6 +571,11 @@ t_old_state=(
   'state/cycles/*.park' 'state/cycles/*.park.new' 'state/park-*.id' 'state/park-*.json'
   # The quiet-cycle episode.
   'state/cycles/*.quiet'
+  # The planning session: its record, its brief and answer, the copy a turn
+  # left, the directory it kept in state/ and its history.
+  'state/plan-*.json' 'state/plan-*.json.new' 'state/plan-*.json.brief' 'state/plan-*.json.answer'
+  'state/plan-*.json.answer.new' 'state/plan-*.json.keep' 'state/plan-*.turn'
+  'state/cycles/plan-*.history.jsonl' 'state/plan-*.history.jsonl'
 )
 t_no_old_state() { # <home>
   local t_glob t_file

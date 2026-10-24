@@ -145,9 +145,10 @@ t_eq "$t_out" "2 its approvals on the state store could not be read"
 t_store_home "$home"
 
 # --- Planning answers --------------------------------------------------------
-# session <JSON>: the planning record of issue 7.
-session() { mkdir -p "$home/state"; printf '%s\n' "$1" >"$home/state/plan-7.json"; }
-answer() { lib "if tehas_fixer_answer \"\$TEHAS_HOME/state/plan-7.json\"; then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
+# session <JSON>: the planning session of issue 7, as plan_view writes it.
+view=$T/plan-view.json
+session() { printf '%s\n' "$1" >"$view"; }
+answer() { lib "if tehas_fixer_answer $(t_q "$view"); then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
 p=false
 f=true
 turns() { # fixer flags of the answers so far, oldest first
@@ -192,15 +193,15 @@ for bad in '"lots"' '[{"turn":2,"by":"alice"}]' '[1]' '{}'; do
   t_eq "$t_out" "no: its record does not say who answered its turns"
 done
 
-t_case "a record that is a link, or none, takes no fixer answer; nor does an instance with no fixer"
-rm -f "$home/state/plan-7.json"
+t_case "a session that is a link, or none, takes no fixer answer; nor does an instance with no fixer"
+rm -f "$view"
 answer
 t_contains "$t_out" "no: "
 echo '{"session":"s","turns":1,"by":"alice"}' >"$T/elsewhere-plan.json"
-ln -s "$T/elsewhere-plan.json" "$home/state/plan-7.json"
+ln -s "$T/elsewhere-plan.json" "$view"
 answer
 t_contains "$t_out" "no: "
-rm -f "$home/state/plan-7.json"
+rm -f "$view"
 session '{"session":"s","turns":1,"by":"alice"}'
 t_instance "${T_MINIMAL[@]}"
 answer
@@ -208,13 +209,6 @@ t_eq "$t_out" "no: there is no fixer"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
 # --- History -----------------------------------------------------------------
-t_case "a planning turn's history keeps one line per call, the last 50, and refuses what is not an object"
-rm -rf "$cycles"
-mkdir -p "$cycles"
-lib 'for i in $(seq 1 55); do tehas_plan_history_add 7 "{\"n\":$i}"; done; tehas_plan_history_add 7 "[1]" || echo refused; jq -s -c "[length, .[0].n, .[-1].n]" "$TEHAS_HOME/state/cycles/plan-7.history.jsonl"'
-t_eq "$t_out" "refused
-[50,6,55]"
-
 t_case "a cycle's history is the store's, in the shape of the lines it had: 51 ends keep 50"
 t_store_db "$home"
 for i in $(seq 1 51); do

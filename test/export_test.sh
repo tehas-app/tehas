@@ -58,15 +58,9 @@ cycle() {
   printf '%s\n' 'dispatched' >"$logs/dispatch-work-$n.log"
   printf '%s\n' 'a preflight notice' >"$logs/work-$n-1760.jsonl.preflight"
 }
-# turn <issue> <epoch of the end> [fields]: a planning turn that ended, with
-# the session record it leaves behind and no result file at all.
-turn() {
-  local n=$1 e=$2 extra=${3-}
-  [ -n "$extra" ] || extra='{}'
-  mkdir -p "$cycles"
-  jq -cn --arg at "$(iso "$e")" --argjson x "$extra" '$x + {at: $at}' >"$cycles/plan-$n.history.jsonl"
-  printf '%s\n' '{"issue":7,"outcome":"finished"}' >"$home/state/plan-$n.json"
-}
+# turn <issue> <epoch of the end> [fields]: a planning turn that ended, its
+# session on the state store, and no result file at all (t_plan_end).
+turn() { t_plan_end "$home" "$@"; }
 # run_export <args as words>: tehas export with these arguments. The command it
 # built is left in run_line, so a case can wrap it (flock, for one).
 run_export() {
@@ -133,56 +127,51 @@ cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parke
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$(jq -c . "$out/cycles/1760700000-12/history.json")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
 
-t_case "a planning turn brings its session record and no cycle files"
+t_case "a planning turn brings its session, as the store has it, and no cycle files"
 reset
-turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":2,"by":"alice"}'
+turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice"}'
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
 t_eq "$(listing 1760700000-7)" "history.json
 plan.json"
 t_eq "$(jq -r .kind "$out/cycles/1760700000-7/history.json")" plan
+t_eq "$(jq -c '[.issue, .session, .turns, .running, .by, .label, (.ended_at | type)]' "$out/cycles/1760700000-7/plan.json")" '[7,"abc-123",1,false,"alice","tehas:plan","null"]'
+t_eq "$(jq -r .brief "$out/cycles/1760700000-7/plan.json")" "# Faster search"
 
-# The copy of the record the turn leaves is the whole of a turn that made no
-# session, so it is what the archive of that turn holds, and it is read from the
-# name it is left under: state/plan-<issue>.turn, made by lib/planning.sh.
-t_case "a turn that left no session brings the copy of the record the turn made"
+# A turn that made no session ends it, and the session stays on record until
+# the next tehas:plan of the issue: the archive of that turn holds it.
+t_case "a turn that left no session brings the session it ended"
 reset
-turn 7 "$T0" '{"kind":"plan","rc":"not started","status":"not-started","turn":1,"by":"alice"}'
-printf '%s\n' '{"session":"","turns":1,"running":false}' >"$home/state/plan-7.turn"
+turn 7 "$T0" '{"kind":"plan","status":"not-started","turn":1,"by":"alice"}'
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
 t_eq "$(listing 1760700000-7)" "history.json
 plan.json"
-t_eq "$(jq -c . "$out/cycles/1760700000-7/plan.json")" '{"session":"","turns":1,"running":false}'
+t_eq "$(jq -c '[.session, .turns, .running, (.ended_at | type)]' "$out/cycles/1760700000-7/plan.json")" '[null,1,false,"number"]'
 
-# The live record is the session of a turn that went on, so it is what stands
-# when the turn left no copy of its own.
-t_case "with no copy of its own the turn brings the live record"
-reset
-turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice"}'
-printf '%s\n' '{"session":"abc-123","turns":1,"running":false}' >"$home/state/plan-7.json"
-run_export --json --after $((T0 - 1))-7 "$out"
-t_eq "$(jq -c . "$out/cycles/1760700000-7/plan.json")" '{"session":"abc-123","turns":1,"running":false}'
-
-t_case "a turn whose record is gone has no plan.json and is exported all the same"
+t_case "a turn whose session the store no longer has has no plan.json and is exported all the same"
 reset
 turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
-rm -f "$home/state/plan-7.json"
+# The history of an issue outlives its sessions: a later tehas:plan replaced
+# this one, and the store forgets the replaced one.
+printf '# Again\n' >"$T/brief-again.md"
+TEHAS_HOME=$home "$T_STORE" plan-begin 7 --by alice --label tehas:plan --brief-file "$T/brief-again.md" >/dev/null
+TEHAS_HOME=$home "$T_STORE" plan-begin 7 --undo >/dev/null
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
 t_eq "$(listing 1760700000-7)" "history.json"
 
-# The copy sits in the same directory the record does, and is named after the
-# issue, so it is a place a planted link could be left. It is not followed.
-t_case "the copy of a turn's record is not followed when it is a link"
+t_case "a planning turn whose session the store cannot give is not written, and the rest are"
 reset
-turn 7 "$T0" '{"kind":"plan","rc":"not started","status":"not-started","turn":1}'
-rm -f "$home/state/plan-7.json"
-printf '%s\n' 'secret elsewhere' >"$T/outside.turn"
-ln -s "$T/outside.turn" "$home/state/plan-7.turn"
-run_export --json --after $((T0 - 1))-7 "$out"
-t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-7)" "history.json"
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+turn 7 "$((T0 + 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
+t_store_answers plan-show 1 'store: busy #7: the database is locked'
+run_export --json --after $((T0 - 1))-1 "$out"
+t_eq "$t_rc" 1
+t_contains "$(t_calls store)" "plan-show 7"
+t_eq "$(listing 1760700000-12 | head -n 1)" "history.json"
+t_eq "$([ -e "$out/cycles/1760700060-7/plan.json" ] && echo written)" ""
+t_store_home "$home"
 
 t_case "the transcripts of the cycle are carried, and the Protolab page with its files"
 reset

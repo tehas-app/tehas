@@ -299,8 +299,7 @@ ready_at 7 mallory 2026-10-17T08:00:00Z
 ready_at 8 alice 2026-10-17T08:30:00Z
 ready_at 9 alice 2026-10-17T09:00:00Z
 ready_at 10 alice 2026-10-17T10:00:00Z
-mkdir -p "$T/home/tehas/state"
-echo '{"comment":1}' >"$T/home/tehas/state/plan-9.json"
+t_plan "$T/home/tehas" 9 '{"turns":1,"comment":1}'
 slots 2
 hold 8
 hold 5
