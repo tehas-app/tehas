@@ -16,7 +16,8 @@
 # this issue is already running; 64 the argument is not an issue number; 65 the
 # number is not work the factory takes: a pull request, a closed issue, or an
 # answer GitHub could not give after three tries; 75 the state store was busy
-# and did not start the cycle's record after three tries; 77 the state store
+# and did not start the cycle's record after three tries, or timed out on the
+# start (a start it took then is ended as refused); 77 the state store
 # refused the start: no approval of the dispatcher's is waiting for it, or the
 # lock is not held as the store sees it; 78 instance settings are missing or
 # malformed, or the state store cannot be used. 75, 77 and 78 come before any
@@ -274,8 +275,36 @@ start_args=("$issue")
 if [ "${TEHAS_CYCLE_FROM:-}" != unit ] && [ -z "${INVOCATION_ID:-}" ]; then
   start_args+=(--by-hand)
 fi
-tehas_store_try 3 cycle-start "${start_args[@]}"
-case $? in
+# A busy store committed nothing, so the start is asked again. A store that
+# timed out may have committed it: a start on record since this one began,
+# under this lock, is its own. It is ended as refused and nothing runs.
+start_t0=$(date +%s)
+for try in 1 2 3; do
+  tehas_store cycle-start "${start_args[@]}"
+  start_rc=$?
+  [ "$start_rc" = 1 ] || break
+  case $tehas_store_word in
+    busy) ;;
+    timeout)
+      start_said=$tehas_store_line
+      if ! tehas_store_try 3 cycle-show "$issue"; then
+        log "refuse #$issue: the state store did not answer the start in time, and whether it took it is not known ($tehas_store_word): $start_said"
+        exit 75
+      fi
+      took=$(tehas_store_get ".cycle | select(. != null and .ended_at == null and .started_at >= $start_t0) | .attempt")
+      if [[ $took =~ ^[1-9][0-9]{0,8}$ ]]; then
+        tehas_store_try 5 cycle-end "$issue" --attempt "$took" --refused ||
+          log "ERROR: the start of #$issue the store took late is not ended ($tehas_store_word): cycle-end $issue --attempt $took --refused"
+        log "refuse #$issue: the state store took the start only after it timed out: $start_said"
+        exit 75
+      fi
+      tehas_store_said 1 timeout "$start_said"
+      ;;
+    *) break ;;
+  esac
+  [ "$try" = 3 ] || sleep 1
+done
+case $start_rc in
   0) ;;
   1)
     case $tehas_store_word in

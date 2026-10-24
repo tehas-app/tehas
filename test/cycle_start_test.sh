@@ -205,6 +205,46 @@ t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 3
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
 t_eq "$(t_row approval-current 7 -- '[.approval.by, .current] | tostring')" '["alice",null]'
 
+# start_times_out <commit|none>: the store's first cycle-start ends as a
+# store killed at its bound does (124), after it committed the start or
+# before; every other call runs the real store.
+start_times_out() {
+  local bin=$T/home/tehas/libexec/store first
+  first="exit 124"
+  [ "$1" != commit ] || first="$(t_q "$T_STORE") \"\$@\" >/dev/null 2>&1; exit 124"
+  rm -f "$bin" "$T/start.n"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    'if [ "${1:-}" = cycle-start ] && [ ! -e '"$(t_q "$T/start.n")"' ]; then' \
+    "  : >$(t_q "$T/start.n")" \
+    "  $first" \
+    'fi' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
+
+t_case "a start the store took before it timed out is not asked again: it is ended as refused, exit 75"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+start_times_out commit
+t_run "$cycle 7"
+t_eq "$t_rc" 75
+t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 1
+t_contains "$t_out" "the state store took the start only after it timed out"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[1,true,null]'
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+
+t_case "a start that timed out before the store took it is asked again"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+start_times_out none
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 2
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+
 t_case "a store that cannot be used, or is not installed, stops the cycle at 78 before GitHub is asked"
 reset
 t_store_answers cycle-start 78 'store: corrupt: the file is not a database'

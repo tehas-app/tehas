@@ -218,7 +218,9 @@ Run `tehas dispatch --dry-run` and read what it prints.
   `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
   store refused the start` (exit 77) is a unit started with no approval
   waiting, such as one started by hand with `systemctl`; `the state store did
-  not take the start (busy)` (exit 75) is a store that stayed busy.
+  not take the start (busy)` (exit 75) is a store that stayed busy, and
+  `the state store took the start only after it timed out` (exit 75) is a
+  start the store recorded too late: it is ended as refused and nothing ran.
 - `skip #N: its approval of <time> started a cycle already`: the label event
   this poll read started a cycle already. A new `tehas:ready` asks for another.
 - `ERROR: the state store could not list the running cycles (busy)`: the poll
