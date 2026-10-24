@@ -458,4 +458,31 @@ echo 30 >"$fx/rc"
 t_run "$cycle 7"
 t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
 
+
+# --- A park the dispatcher may refine -----------------------------------------
+# An intent park whose reason says the issue is not yet one cycle's work is
+# marked for the dispatcher, which refines it once. Every other park is not.
+t_case "an intent park as underspecified or too large is marked to be refined"
+for r in underspecified too-large; do
+  reset
+  park_failed intent-park "$r"
+  t_run "$cycle 7"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r .refine "$state/7.park")" true
+  t_eq "$(jq -r .park_reason "$state/7.park")" "$r"
+done
+
+t_case "an intent park for another reason is not marked"
+for r in already-implemented contradicted-by-code premise-unsound blank-issue-body ""; do
+  reset
+  park_failed intent-park "$r"
+  t_run "$cycle 7"
+  t_eq "$(jq -r .refine "$state/7.park")" false
+done
+
+t_case "a park on another cap is not marked, whatever its reason"
+reset
+park_failed step-failed:develop underspecified
+t_run "$cycle 7"
+t_eq "$(jq -r .refine "$state/7.park")" false
 t_done

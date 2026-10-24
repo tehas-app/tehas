@@ -145,7 +145,9 @@
 # issue again once, unless this cycle was that start. An outage is a result
 # whose failure kind is "provider". For an image whose result has no failure
 # (v0.12.80) it is a step-failed:* or adversarial-infra-failure cap whose
-# reason names the provider, a timeout, a connection or a 5xx.
+# reason names the provider, a timeout, a connection or a 5xx. An intent park
+# as underspecified or too-large is marked refine: true, and the dispatcher
+# refines the issue once; park_reason says which.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
 # comment with boxes. The id of that comment goes on record in
@@ -1054,9 +1056,16 @@ park() {
   local park_sum
   park_sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' \
     "$cycles/$issue.approved.json" 2>/dev/null) || park_sum=""
+  # An issue explore could not resolve, or found too big for one cycle, is
+  # not yet one cycle's work: the dispatcher refines it once (rule 5a).
+  local refine=false
+  if [ "$cap" = intent-park ]; then
+    case "$park_reason" in underspecified | too-large) refine=true ;; esac
+  fi
   jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
-    --argjson retry "$retry" --argjson started "$started" --arg body_sha256 "$park_sum" \
-    '{$cap, $reason, $provider, $retry, $started} + (if $body_sha256 == "" then {} else {$body_sha256} end)' \
+    --argjson retry "$retry" --argjson refine "$refine" --argjson started "$started" --arg body_sha256 "$park_sum" \
+    --arg park_reason "$park_reason" \
+    '{$cap, $reason, $park_reason, $provider, $retry, $refine, $started} + (if $body_sha256 == "" then {} else {$body_sha256} end)' \
     >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
   jq -n --arg text "$parked${handoff:+
 
