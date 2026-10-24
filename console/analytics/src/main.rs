@@ -70,10 +70,6 @@
 //! history line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the export file
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
-#[path = "../../src/mask.rs"]
-#[allow(dead_code)] // the console's mask; this program uses mask() only
-mod mask;
-
 mod db;
 mod plan;
 mod report;
@@ -86,7 +82,8 @@ mod tests;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::grammar::{count, is_hex, is_image};
+use tehas_core::time::now;
 
 /// The rule one state ledger is read under, held once for both readers: bytes
 /// of the whole file, and bytes of one line. `report` and `sessions` read the
@@ -185,23 +182,17 @@ fn facts(v: &str) -> Option<PathBuf> {
 
 // The options of run, each at most once, --facts required.
 fn given(args: &[String]) -> Option<run::Given> {
-    let count = |s: &str| {
-        (s == "0" || (!s.starts_with('0') && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit())))
-            .then(|| s.parse::<i64>().ok())
-            .flatten()
-    };
     let mut g = run::Given::default();
     for pair in args.chunks(2) {
         let [flag, value] = pair else { return None };
         let v = value.as_str();
         match flag.as_str() {
             "--image" if g.image.is_none() => {
-                let hex = v.strip_prefix("sha256:")?;
-                run::is_hex(hex, 64, 64).then_some(())?;
+                is_image(v).then_some(())?;
                 g.image = Some(v.to_string());
             }
             "--rukas-image" if g.rukas_image.is_none() => {
-                run::is_hex(v, 7, 40).then_some(())?;
+                is_hex(v, 7, 40).then_some(())?;
                 g.rukas_image = Some(v.to_string());
             }
             "--oom" if g.oom.is_none() => g.oom = Some(count(v)?),
@@ -232,7 +223,7 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
                 rc = Some(v.to_string());
             }
             "--rukas-image" if g.rukas_image.is_none() => {
-                run::is_hex(v, 7, 40).then_some(())?;
+                is_hex(v, 7, 40).then_some(())?;
                 g.rukas_image = Some(v.to_string());
             }
             "--facts" if g.facts.is_none() => g.facts = Some(facts(v)?),
@@ -242,12 +233,6 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
     g.facts.as_ref()?;
     g.rc = rc?;
     Some(g)
-}
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {

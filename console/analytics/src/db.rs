@@ -5,6 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::file::side_file;
 
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 1;
@@ -27,10 +28,10 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
-/// is only ten days deep. A database of another schema version is moved,
-/// with its -wal and -shm, to analytics.db.schema-<version>, where a reader
-/// can still fetch it, and prune_aside deletes it ten days after its last
-/// write. Any other failure, a full disk, a file it may not write, a lock
+/// is at most RETENTION_DAYS deep. A database of another schema version is
+/// moved, with its -wal and -shm, to analytics.db.schema-<version>, where a
+/// reader can still fetch it, and prune_aside deletes it RETENTION_DAYS after
+/// its last write. Any other failure, a full disk, a file it may not write, a lock
 /// held too long, is an error and leaves the file as it is. The second value
 /// is where a file was moved, if one was.
 pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), String> {
@@ -60,13 +61,6 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), Stri
         Unusable::Failed(e) | Unusable::Broken(e) | Unusable::Foreign(_, e) => e,
     })?;
     Ok((conn, Some(to)))
-}
-
-// SQLite names a database's side files by appending to its name.
-fn side_file(file: &Path, side: &str) -> PathBuf {
-    let mut name = file.as_os_str().to_owned();
-    name.push(side);
-    PathBuf::from(name)
 }
 
 /// Deletes the databases of other schema versions, and their side files,

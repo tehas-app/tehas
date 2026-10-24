@@ -9,6 +9,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::Path;
+use tehas_core::time::iso;
 
 pub const SESSIONS_DAYS: i64 = 30;
 const DAY: i64 = 86_400;
@@ -127,28 +128,6 @@ fn object(
         o.insert((*key).to_string(), v);
     }
     Ok(o)
-}
-
-/// Unix seconds as 2026-10-15T18:38:44Z.
-pub fn iso(t: i64) -> String {
-    let days = t.div_euclid(DAY);
-    let rest = t.rem_euclid(DAY);
-    // Civil date from days (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rest / 3600,
-        rest % 3600 / 60,
-        rest % 60
-    )
 }
 
 /// The lines to print: the header, then the sessions of the last

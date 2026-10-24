@@ -5,6 +5,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::time::Duration;
+use tehas_core::time::iso;
 
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
@@ -477,25 +478,6 @@ fn every_method_and_tool_needs_a_key() {
     let (_, out) = s.raw(&post_raw("POST", "/other", None, &[], "{}"), wait);
     assert_refused(&out, "POST /other");
     s.stop();
-}
-
-fn iso(t: i64) -> String {
-    let (days, s) = (t.div_euclid(86400), t.rem_euclid(86400));
-    let z = days + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        s / 3600,
-        s / 60 % 60,
-        s % 60
-    )
 }
 
 // The text factory_log serves of a transcript that names a host, from a

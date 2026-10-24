@@ -792,6 +792,22 @@ fn migrate_writes_into_state_backup_made_0700_and_refuses_a_link_there() {
 }
 
 #[test]
+fn migrate_names_its_backup_in_json_whatever_its_path_holds() {
+    // A home with a control character, a quote and a letter outside ASCII in
+    // its path: JSON escapes the first two its own way, and Rust's Debug form
+    // is not JSON.
+    let home = scratch("migrate-odd-name").join("ho\u{1b}me \"x\" \u{e4}");
+    fs::create_dir(&home).unwrap();
+    init(&home, false).unwrap();
+    let state = home.join("state");
+    let line = migrate(&home, &state).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&line).expect(&line);
+    let copy = PathBuf::from(value["backup"].as_str().unwrap());
+    assert_eq!(copy.parent().unwrap(), state);
+    assert!(line.contains("\\u001b"), "{line}");
+}
+
+#[test]
 fn migrate_takes_a_backup_dir_in_a_home_reached_through_a_link() {
     // A TEHAS_HOME whose path goes through a link, as a home moved to another
     // disk is: the store's own state/ and state/backup/ are still its own.

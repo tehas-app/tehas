@@ -468,7 +468,8 @@ footer of every page shows it. `--check` does not look at it.
 Four installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server and the state store, Rust programs in the
 Cargo workspace `console/` (the others are in `console/analytics/`,
-`console/mcp/` and `console/store/`). A real run builds each with `cargo` in
+`console/mcp/` and `console/store/`, and the library all four share is in
+`console/core/`). A real run builds each with `cargo` in
 the checkout and installs them as `~/tehas/libexec/console`,
 `~/tehas/libexec/analytics`, `~/tehas/libexec/tehas-mcp` and
 `~/tehas/libexec/store`. A host installed from a release tarball has neither
@@ -481,10 +482,11 @@ only when its source has changed or the program on the host is not the one
 that was installed. The console's source is `console/` without its tests and
 without `console/analytics/`, `console/mcp/` and `console/store/`, so a change
 to one of those alone builds that program alone. The store's source is
-`console/store/` without its tests, and the workspace's `Cargo.toml` and
-`Cargo.lock`. The analytics source is `console/analytics/` without its tests, the
-workspace's `Cargo.toml` and `Cargo.lock`, and the console's mask
-(`console/src/mask.rs`), which it shares. Each build asks `cargo` for
+`console/store/` without its tests, the workspace's `Cargo.toml` and
+`Cargo.lock`, and `console/core/`. The analytics source and the MCP server's
+are their own directory without its tests, the workspace's `Cargo.toml` and
+`Cargo.lock`, and `console/core/`. So a change to `console/core/` builds all
+four. Each build asks `cargo` for
 `--offline` first, so a host that has fetched once installs with no network.
 The build that fetches is the slow one and takes a minute or two: analytics
 compiles SQLite. When cargo says a crate is missing from its cache the build
