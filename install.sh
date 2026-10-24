@@ -437,6 +437,7 @@ files=(
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
+  "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
@@ -492,7 +493,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a

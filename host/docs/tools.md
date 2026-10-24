@@ -79,6 +79,9 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_FIXER_LOGIN`             | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no fixer |
+| `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
+| `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
+| `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
 | `TEHAS_FIXER_MAX_RETRIES`       | `2`                                      | How many cycles the fixer may start on one issue since a person last approved it |
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
@@ -1724,6 +1727,7 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
+tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -2450,6 +2454,31 @@ time 15 minutes after boot. With `TEHAS_REFRESH_CONFLICTS` other than 1 it
 exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
 request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
+
+## tehasbot github-token
+
+```
+tehasbot github-token           # print the app's token
+tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS_REPO
+```
+
+Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`,
+`TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`. It signs a JSON Web
+Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
+given to a container), and exchanges it at GitHub for a token that lasts an
+hour. The token is kept in `~/tehas/state/github-token` (mode 600) and made
+again when fewer than 10 minutes are left; one command makes it at a time.
+Without `--check` it prints the token and nothing else. `--check` prints the
+app, the installation, the bot's login, when the token runs out and whether the
+installation reaches `TEHAS_REPO`, and never the token.
+
+Nothing else uses the app's token yet: the host's commands and the cycles still
+act with `GH_TOKEN` from `~/.config/tehas/env`
+([#639](https://github.com/tehas-app/tehas/issues/639) moves them over).
+
+Exit 0 a token or a check that passed; 1 no token could be had, or it does not
+reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
+missing, malformed or name no app.
 
 ## tehasbot clean
 
