@@ -20,6 +20,11 @@ empty one above it.
   store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
   of the files are unchanged. `status.json`, `platform.json` and
   `energy.json` are written through temporary names of their own.
+- The console, analytics, the MCP server and the store share one library,
+  `console/core`: the mask, the clock and dates, the bounded file read and two
+  argument grammars. A change there rebuilds all four programs.
+- `store migrate` writes the backup's path as JSON. A path with a control
+  character in it was written in a form no JSON reader takes.
 
 ### Adopter action
 
