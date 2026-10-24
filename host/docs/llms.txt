@@ -95,11 +95,12 @@ be ignored for a first install.
 2. In the product repository, add the contract tehas reads: `AGENTS.md`,
    `.pi/verify-cmd`, `.pi/settings.json` and the `.gitignore` entries, then the
    recommended gates. Prove the gates by hand in a clean checkout first.
-3. On the host, follow the guide step by step. Secrets, the bot account and the
+3. On the host, follow the guide step by step. Secrets, the GitHub App and the
    allow list are your human's decisions: ask, do not invent them.
 
 - [A new project]({{ $base }}/new-project.md): the contract, the host, the install
 - [Bootstrap a host]({{ $base }}/bootstrap.md): preparing the machine before the install
+- [A GitHub App for a factory]({{ $base }}/github-app.md): the identity the factory acts as on GitHub, made and installed
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
 - [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published

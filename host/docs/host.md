@@ -1543,7 +1543,11 @@ colour or a typeface of its own.
 
 ## Secrets and trust
 
-- `~/.config/tehas/env`: the bot's GitHub token (`GH_TOKEN`) and the model
+- `~/.config/tehas/github-app.pem`: the key of the factory's
+  [GitHub App](/github-app), mode 600. Never given to a container: it is given
+  the hour-long installation token from `~/tehas/state/github`, read-only.
+- `~/.config/tehas/env`: a GitHub token (`GH_TOKEN`) for a factory without an
+  app, dropped by `env.sh` when the instance names one, and the model
   endpoints' tokens (`TEHAS_MODEL_KEY_*`, see
   [A backup model endpoint](#a-backup-model-endpoint)), mode 600. The
   energy switches `TEHAS_ENERGY` and `TEHAS_ENERGY_URL` go here too
@@ -1564,7 +1568,7 @@ Both are outside the repository and the tehas tree.
 | What a planning container is given     | The same token, the same mounts and the same approve-everything mode as a work cycle's. The agent is asked to plan and file issues. Nothing in the container holds it to that |
 | What an agent can do as the bot        | Post comments, edit the bot's comments, edit the description of any pull request and apply labels, with the token. So a comment is the factory's question only if the host has its id on record in `~/tehas/state`, which no cycle or planning container is given, and an answer counts only by who gave it |
 | Where an agent's conversation is kept  | In the container's own sessions directory: `~/tehas/work/<name>-<issue>.state/sessions` for a cycle, `~/tehas/dev/<name>.state/sessions` for a manual session. No other container reads or writes it, and a cycle's goes with its workspace |
-| Does the token enter the cycle         | Yes, as `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
+| Does the token enter the cycle         | Yes. With a GitHub App, an installation token of at most an hour, read from `~/tehas/state/github` (read-only) and renewed by the host; without one, the bot's `GH_TOKEN`. pi-rukas pushes the branch and opens the pull request from inside. Agent code can do anything the token can. So do the model endpoints' tokens that `models.json` names, as `TEHAS_MODEL_KEY_*`: Pi sends them. Agent code can read them and call the endpoints with them |
 | What else enters the container         | `PI_ENSEMBLE_*` settings, the bot's git name and email, the host aliases. Not the rest of the host environment                          |
 | Host paths mounted                     | The cycle's own workspace, `~/tehas/work/<name>-<issue>`, at the same path in every container; its own transcripts, `~/.pi/agent/ensemble-runs/issue-<issue>`; its own state directory, `~/tehas/work/<name>-<issue>.state` (read-write); its own `models.json` from that directory, `mcp.json`, Pi's `settings.json` (read-only). Only the last two are the same host file in every container; nothing one container writes is mounted for another |
 | Not reachable from the container       | The Docker socket, SSH keys, `~/.config/tehas`, the platform checkout, the product checkout, the instance directory                     |
@@ -1585,10 +1589,9 @@ them off until its owner turns them on.
 
 Two recommendations follow from that table:
 
-- Give each instance its own bot account, a collaborator on its product only.
-  A bot account shared by two instances means a cycle on one product holds a
-  token that can write to the other. The example instance shares one for now;
-  it is listed as a known limit on the [features page](/features).
+- Give each instance its own [GitHub App](/github-app), installed on its
+  product only. An app or a bot account shared by two instances means a cycle
+  on one product holds a token that can write to the other.
 - Put a branch protection rule on the product's default branch that requires a
   person's review. That is what enforces "nothing merges on its own" on
   GitHub's side. Requiring one approval is not enough: the bot has write
