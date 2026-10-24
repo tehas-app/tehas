@@ -19,6 +19,21 @@ empty one above it.
 
 - None.
 
+## v0.11.1 (2026-10-24)
+
+The first published release of v0.11. The v0.11.0 tag has no release: its
+build failed on the aarch64 tarball. This release is v0.11.0 without it; see
+v0.11.0 below for what changed since v0.10.6.
+
+### Changes
+
+- A release has only the `linux-x86_64` tarball again. The aarch64 cross
+  build could not link, and no aarch64 host can run tehas yet.
+
+### Adopter action
+
+- As for v0.11.0.
+
 ## v0.11.0 (2026-10-24)
 
 From the default branch. It carries the GitHub App work of v0.10.6 and the
@@ -59,10 +74,6 @@ release.
   and `install.sh` leaves the record of steps owed as it is when a copy adds
   nothing to it. The tests of `install.sh`, the status, the update, planning
   and the cycle record fork 15 to 44% fewer processes.
-- A release has a `linux-aarch64` tarball beside the `linux-x86_64` one, with
-  its own `.sha256` and `.minisig`. Its programs are static, cross-built on
-  the x86_64 runner. A host on aarch64 cannot run tehas yet: `bootstrap.sh`
-  and the sandbox image are x86_64 only.
 - `install.sh` builds and installs the state store, `~/tehas/libexec/store`,
   and gives it its database: `store init` makes `~/tehas/state/tehas.db` when
   there is none, and every later install runs `store migrate`, which first
