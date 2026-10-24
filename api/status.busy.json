@@ -1,0 +1,59 @@
+{
+  "api": 1,
+  "time": "2026-10-17T13:59:40Z",
+  "age": 40,
+  "stale": false,
+  "state": "warn",
+  "reasons": [
+    "The factory is paused."
+  ],
+  "paused": {
+    "local": true,
+    "label": false
+  },
+  "allHands": true,
+  "limit": {
+    "state": "ok",
+    "cycles": 3,
+    "plan": true,
+    "until": "2026-10-17T15:00:00Z"
+  },
+  "running": [
+    {
+      "issue": 12,
+      "since": "2026-10-17T11:20:00Z",
+      "step": "review"
+    },
+    {
+      "issue": 15,
+      "since": "2026-10-17T13:59:00Z"
+    }
+  ],
+  "planning": [
+    {
+      "issue": 7,
+      "turn": 2,
+      "since": "2026-10-17T13:47:00Z"
+    },
+    {
+      "issue": 9,
+      "turn": 1
+    }
+  ],
+  "demand": {
+    "waiting": 2,
+    "oldestWait": 5440,
+    "refreshHold": "refreshes are off on this host"
+  },
+  "hold": {
+    "why": "pause",
+    "text": "paused by the flag tehas pause wrote: weekend"
+  },
+  "room": {
+    "cycles": 0,
+    "refreshes": 1,
+    "maxAwaiting": 1,
+    "slice": 2,
+    "limit": 1
+  }
+}

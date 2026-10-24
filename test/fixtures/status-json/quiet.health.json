@@ -1,0 +1,19 @@
+{
+  "status": "pass",
+  "time": "2026-10-17T13:59:40Z",
+  "output": "Idle, taking work.",
+  "checks": {
+    "queue": {"time": "2026-10-17T13:59:30Z", "paused": false, "inLine": 0, "building": 0, "review": 0, "stopped": 0},
+    "cycle": null,
+    "cycles": [],
+    "plans": [],
+    "failed": [],
+    "disk": null,
+    "slice": null,
+    "demand": null,
+    "limit": {"state": "none"},
+    "allHands": null,
+    "pause": {"flag": null, "label": false, "lifted": false},
+    "platform": null
+  }
+}

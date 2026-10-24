@@ -163,15 +163,21 @@ tehas status --json
 | `hold.why` | One word for what holds new cycles back: `pause`, `slice`, `unreadable`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`. Treat it as an open list: later releases add words |
 | `hold.text` | The same for a person. Do not parse it |
 | `hold` | `null` when nothing holds |
-| `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY` |
-| `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together; left out when the last poll did not need to read it |
+| `room.cycles` | Free slots under `TEHAS_TICKET_CONCURRENCY`. Below 0 when more cycles run than it allows, as after it was lowered |
+| `room.refreshes` | Free slots of the refresh lane, `TEHAS_REFRESH_SLOTS`; left out when the factory does not refresh its pull requests |
+| `room.maxAwaiting` | Room under `TEHAS_MAX_AWAITING`, the cycles running and pull requests waiting for review together. Below 0 when more wait than it allows. Left out when the last poll did not need to read it |
 | `room.slice` | Cycles `tehas.slice` has room for |
-| `room.limit` | Room under the limit: its `cycles` less the cycles running, 0 when the limit expired or cannot be read; left out without a limit. The other three never count the limit |
+| `room.limit` | Room under the limit: its `cycles` less the cycles running, 0 when the limit expired or cannot be read; left out without a limit. The others never count the limit |
 | `room` | `null` when no poll got as far as the room check in the last ten minutes, as while the factory is paused |
 
 `demand.waiting` is not the exact count of what would start: the poll still
 checks, at a start, that the text is unchanged since the label, that no open
 pull request closes the issue, and the fixer's grant.
+
+The source holds a JSON Schema of this object, `api/status.schema.json`, and
+two samples made by the code that prints it, `api/status.busy.json` and
+`api/status.quiet.json`. Its tests keep the three in step, and a program can
+copy the samples into its own tests.
 
 It reads `~/tehas/live/health.json` and nothing else: no network, no instance
 settings, and it writes nothing. Without a health file it prints nothing on
