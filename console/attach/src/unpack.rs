@@ -13,9 +13,11 @@
 //!      ends up empty leaves the entry out
 //!   4. only the types protolab hosts, and md
 //!   5. at most --max-files files
-//!   6. at most --max-bytes in all, counted on what is written and not on what
-//!      the archive says; after the first file over it, nothing more is
-//!      unpacked and the rest are left out for the same reason
+//!   6. at most --max-bytes in all, counted on what is inflated and not on
+//!      what the archive says, a damaged entry's bytes included; after the
+//!      first file over it, nothing more is unpacked and the rest are left out
+//!      for the same reason. An entry that inflates past the size it claims,
+//!      or whose data shares bytes with another entry's, is damaged
 //!   7. nothing written through a link: not when the directory is one, nor
 //!      when a part of the entry's path that already stands under it is one,
 //!      and no file over one already there
@@ -146,7 +148,8 @@ impl Write for Tee<'_> {
 enum Written {
     File(Value),
     Full,
-    Bad,
+    // What it inflated before it failed.
+    Bad(u64),
 }
 
 fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Written {
@@ -157,9 +160,10 @@ fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Writ
         .open(path)
     {
         Ok(f) => f,
-        Err(_) => return Written::Bad,
+        Err(_) => return Written::Bad(0),
     };
     let mut sniff = Sniffer::default();
+    let mut inflated = 0;
     let got = archive.read(
         entry,
         left,
@@ -167,6 +171,7 @@ fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Writ
             file: &mut file,
             sniff: &mut sniff,
         },
+        &mut inflated,
     );
     let ok = got.is_ok()
         && file.sync_all().is_ok()
@@ -188,7 +193,7 @@ fn write_entry(archive: &Archive, entry: &Entry, path: &Path, left: u64) -> Writ
         }
         _ => {
             let _ = fs::remove_file(path);
-            Written::Bad
+            Written::Bad(inflated)
         }
     }
 }
@@ -277,7 +282,12 @@ pub fn unpack(
                 full = true;
                 out.push(skip(&name, FULL));
             }
-            Written::Bad => out.push(skip(&name, "Could not be unpacked.")),
+            // A damaged entry is charged what it inflated, so damaged
+            // entries cannot cost more than the room given.
+            Written::Bad(inflated) => {
+                left -= inflated.min(left);
+                out.push(skip(&name, "Could not be unpacked."));
+            }
         }
     }
     if archive.more {
