@@ -45,31 +45,28 @@ Adopter action.
 must be a schema 3 migration that still accepts `fixer` rows. The backlog session
 splits it and was told it can start now that #683 is merged.
 
-## Running now: #252 and #257
+## Now: #252, then #257
 
-Workflow `wf_f24ccaaa-d4e`, started about 22:30 on 2026-10-24. Its script is
-`~/.claude/projects/-home-janit-work-tehas/9526b511-ba3a-4d83-9ae6-e061ca20ba60/workflows/scripts/epic-244-publish-retention-wf_f24ccaaa-d4e.js`.
-For each issue it does this:
+Workflow `wf_f24ccaaa-d4e` died about a minute after it started, when its
+session ended (2026-10-24 22:19 local). It was still on the design step and
+left nothing. The owner chose to build both issues by hand in one session
+instead of running it again.
 
-1. Two designs, then a plan committed to `docs/plans/2026-10-25-*.md`.
-2. Units built one after another, each on a branch stacked on the one before.
-3. Three reviewers per unit, then a fix pass.
-4. A final check against the issue's Done-when list.
+**#252** is in `~/work/tehas-252` on branch `publish-live` (pushed):
 
-| Issue | Worktree | Base branch | Unit branches |
-| --- | --- | --- | --- |
-| #252 one publisher for `live/` | `~/work/tehas-252` | `publish-live` (from 6a1e775) | `publish-live-<unit>` |
-| #257 retention, backups, log rotation | `~/work/tehas-257` | `host-retention` (from 6a1e775) | `host-retention-<unit>` |
+- Plan: `docs/plans/2026-10-24-publish-live.md`. Its D7 needs the owner's
+  sign-off: `dispatch.json` and `health.json` go through the one publisher, but
+  their commands still compute them.
+- Done and pushed: the plan and fixtures, then the store side (schema 3,
+  `cycle-heartbeat`, `publish`, `heard_at`), then the fixes from its review.
+- Being finished: the shell callers (`work`, `cycle`, `health`, `dispatch`,
+  `status`, `energy`), their tests, the manual and the changelog.
+- Then: one PR to main, merged once CI is green.
+- Schema 3 is taken by #252. #676 (millwright) must take schema 4 if it lands
+  later.
 
-The workflow only resumes inside the session that started it. If that session is
-gone:
-
-1. In each worktree, run `git log` and `git status`. The newest branch is the last
-   unit; uncommitted changes are the unit that was being built.
-2. Read the plan file there and finish that unit. Run the fast gate, commit,
-   then continue with the next unit.
-3. When an issue's units are done, open one PR from its last branch to main and
-   merge it once CI is green.
+**#257** comes next, in `~/work/tehas-257` on branch `host-retention`, built
+the same way.
 
 ## Left after that, in order
 
