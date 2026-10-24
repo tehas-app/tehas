@@ -438,5 +438,7 @@ has the other previews on it and leads nowhere else.
 - A private database copy per cycle or per preview.
 - More than one project per host. A second project needs its own Unix user, or
   better its own machine.
-- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only, and releases are built
-  for linux x86_64 only.
+- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only. Releases are built for
+  linux x86_64 and aarch64, but an aarch64 host stops in `bootstrap.sh`, and
+  the sandbox image and the tools pinned in `host/versions.env` have no arm64
+  builds yet.
