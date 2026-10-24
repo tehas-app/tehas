@@ -32,7 +32,7 @@ stacked on the one before:
 | 2 | `store-callers-wrapper` (`lib/store.sh`, test harness) | done, reviewed, pushed |
 | 3 | `store-callers-analytics-facts` | done, reviewed, pushed |
 | 4 | `store-callers-cycle-records` (approvals, start, image, end, history) | done, reviewed, fixed, pushed |
-| 5 | `store-callers-park-records` | built and pushed, in review |
+| 5 | `store-callers-park-records` | built, reviewed, fixing findings |
 | 6 | `store-callers-quiet-notes` | not started |
 | 7 | `store-callers-plan-records` (#251) | not started |
 | 8 | `store-callers-old-paths` (old-path guard, manual) | not started |
