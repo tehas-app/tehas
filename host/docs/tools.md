@@ -387,8 +387,8 @@ A cycle that a provider outage parked starts again once without a tick.
 `tehasbot cycle` asks for it in `~/tehas/state/cycles/<issue>.park`. When
 nothing holds cycles back, so the model endpoint answers and there is a slot,
 the poll starts the issue and says on it that it does so once. The start rests
-on the account that started the cycle that parked, kept in
-`~/tehas/state/cycles/<issue>.by`: it must still be allowed, the issue must
+on the account that started the cycle that parked, as that start is on record
+in the state store: it must still be allowed, the issue must
 still be open and parked, and nobody else may have changed its text since that
 cycle began. Otherwise the log says `skip #N: its retry after a provider
 outage is not started; it waits for a person` and the park file goes. An issue
@@ -471,23 +471,41 @@ says `wait #N: its cycle is still running`, and the issue is taken once that
 cycle has ended. Every list of issues is read up to 1000. A cycle starts only once the
 issue is marked `tehas:running`; if that label change fails, the poll stops.
 
-Before it marks an issue, the poll writes what the start rests on to
-`~/tehas/state/cycles/<issue>.approved.json`: `at` and `by`, when and by whom
-it was approved, `how` (`label`, `retry-tick`, or `outage-retry` for the one
-start after a provider outage, whose `at` is when the parked cycle began),
-`body_sha256`, the sha256 of the body that approval was checked against with
-carriage returns dropped, `title_sha256`, the sha256 of the issue's title held
-the same way (line ends dropped), and
-`links`, the links to GitHub's attachment storage in that body. The body, the
-title and the record of who last edited it come in the same call, so the record
-is the text the check passed. An answer that names no title records no
+Before it marks an issue, the poll records what the start rests on in the
+state store (`~/tehas/state/tehas.db`, through `libexec/store`
+`approval-record`): `at` and `by`, when and by whom it was approved, `how`
+(`label`, `retry-tick`, `fixer`, `refresh`, or `outage-retry` for the one start
+after a provider outage), `body_sha256`, the sha256 of the body that approval
+was checked against with carriage returns dropped, `title_sha256`, the sha256
+of the issue's title held the same way (line ends dropped), and as the start's
+inputs `links`, the links to GitHub's attachment storage in that body. `at` is
+the time GitHub gave the label or the tick; a refresh and the retry after an
+outage rest on an approval that started a cycle already, and are on record at
+the time the poll decided them. The body, the title and the record of who last
+edited it come in the same call, so the record is the text the check passed.
+An issue has one approval waiting at most, and an approval starts one cycle:
+the cycle's start uses it, and a poll that finds the same approval used says
+`skip #N: its approval of <at> started a cycle already` and starts nothing.
+The approval is taken off the record again when the start gives up after it:
+the label cannot be changed, the attempt on record cannot be read, or the
+unit does not come up. The poll reads the issue's attempt on record before
+the label, starts the unit, and waits up to `TEHAS_CYCLE_START_WAIT` seconds
+(30), by the clock, for a later attempt: the cycle starts its record once it
+holds its lock. A store that is busy is asked again within the wait. Without
+a later attempt by then, a cycle that holds the issue's lock is taken as
+started, with `WARN: the cycle for #N holds its lock but did not say so in
+30s; taking it as started`, and anything else is a start that did not happen.
+A state store that is not installed stops the poll before it asks GitHub
+anything: `ERROR: the state store is not installed (run install.sh)`, exit
+78. An answer that names no title records no
 `title_sha256`, and `tehas work` then checks the body alone. With `TEHAS_WORK_COMMENTS=1` the poll also lists the
 issue's comments and adds `comment_links`: the links of each comment an
 allowed account wrote whose `created_at` and `updated_at` are at or before
 `at`, in the order written, each as `{link, source, by}` with `source`
 `comment:<id>`. [tehas work](#tehas-work) fetches those links and no others.
-A record that cannot be written starts nothing: `ERROR: could not write the
-approval record of #N, not starting a cycle`, exit 1, and no label changes.
+An approval the store does not take starts nothing: `ERROR: could not write
+the approval record of #N (<the store's word>), not starting a cycle`, exit 1,
+and no label changes.
 Comments that cannot be read are logged as `ERROR: the comments of #N could
 not be read` and stop the start the same way. On a retry tick, with the
 setting on, the poll also lists the bot's pull requests that name the issue,
@@ -563,10 +581,15 @@ container left under the name `tehas-work-<issue>` is no cycle's: it is
 removed before the new one starts.
 
 Before it clones a workspace, and before it writes anything of its own, it
-compares the issue with what was approved. The
-dispatcher wrote that into `~/tehas/state/cycles/<issue>.approved.json` before
-it labelled the issue `tehas:running`; `tehas work` reads the issue once, whatever
-the instance gives the cycle, and holds its body to the record's `body_sha256`.
+compares the issue with what was approved. The dispatcher recorded that in the
+state store before it labelled the issue `tehas:running`. Under `tehasbot
+cycle`, which hands it the attempt of its start as `TEHAS_CYCLE_ATTEMPT`, only
+the approval that start used counts; a start the store has as one by hand is a
+run by hand, and anything else, a store that cannot be read among it, stops the
+start with exit 4 and is never taken for a run by hand. Run on its own, the
+approval of the issue's latest start counts, and with none the run is by hand.
+`tehas work` reads the issue once, whatever the instance gives the cycle, and
+holds its body to the approval's `body_sha256`.
 That one read is also the one its images and text files are fetched from, so a
 start asks GitHub for the issue once.
 The read may take `TEHAS_TEXT_WAIT` seconds (60), and every comment that names
@@ -718,12 +741,12 @@ instance sets it. The images are fetched before anything else is made:
   allowed account wrote and nobody edited after the approval: see below. Only
   when an allowed account approved the start,
   which approves the text with its links, or when the issue was opened by an
-  owner, member or collaborator of the repository. When the dispatcher left
-  its approval record, `~/tehas/state/cycles/<issue>.approved.json`, and it
-  is a file and not a link, the links are the record's and the approver is its
-  `by`. The body is read again and must have the record's hash: a body changed
-  since the approval starts nothing, exit 4, said on the issue. A record that
-  cannot be read stops the start the same way. Without a record, by hand, the
+  owner, member or collaborator of the repository. When the dispatcher
+  recorded its approval of the start, the links are the approval's and the
+  approver is its `by`. The body is read again and must have the approval's
+  hash: a body changed since the approval starts nothing, exit 4, said on the
+  issue. An approval that cannot be read stops the start the same way. Without
+  one, by hand, the
   links are the body's and the approver is who applied the last `tehas:ready`,
   read from the issue's events; when they cannot be read nothing starts,
   exit 4.
@@ -1378,9 +1401,12 @@ tehas history [--json] [--after CURSOR] [--issue N]
 ```
 
 What has ended, oldest first: one line for each cycle and each planning turn,
-with `kind` telling them apart. It reads the history files the units write, so
-it needs no network, takes no lock a running cycle holds, and writes nothing. A
-line it cannot read is left out, not an error.
+with `kind` telling them apart. It reads the cycles' history from the state
+store and the planning turns' from `~/tehas/state/cycles/plan-<issue>.history.jsonl`,
+so it needs no network, takes no lock a running cycle holds, and writes
+nothing. A line it cannot read is left out, not an error. A store that does not
+answer prints nothing, never a listing without the cycles: exit 1 when it was
+busy, 78 when it is not installed or cannot be used.
 
 `--after` takes the `next` the command printed before, so a program that keeps
 it reads each line once. `--issue` takes one issue's lines, its cycle and its
@@ -1457,9 +1483,9 @@ Ends a cycle by hand and clears what it left on this host. It asks
 `tehas-cycle@12.service` to stop, waits up to 10 seconds for the cycle to let go
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
-`~/tehas/state/cycles/12.lock` with `.taken`, `.cid`, `.park`, `.requeued`,
-`.done`, `.stalled`, `.timed`, `.quiet`, `.oom`, `.forks`, `.branch`, `.image`,
-`.progress.json` and `.result.json`, `~/tehas/state/park-12.id`,
+`~/tehas/state/cycles/12.lock` with `.cid`, `.park`, `.done`, `.stalled`,
+`.timed`, `.quiet`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
+`.result.json`, `~/tehas/state/park-12.id`,
 `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -1470,11 +1496,18 @@ with `tehas stop` (<account>, at <UTC time>)", and its status stays
 `interrupted`. When the file cannot be written, the stop goes through and says
 so on stderr.
 
-It keeps the cycle's record and every log: `state/cycles/12.json`,
-`.history.jsonl`, `.by`, `.settings`, `.manifest.json`, `.approved.json`,
-`.rukas`, `.runner_exit` and `.status`, and everything under `~/tehas/logs/`. A
-cycle stopped by hand did not end well, and nothing here records its pi-rukas as
-proven.
+A cycle killed outright never reports, so its record in the state store stays
+open. Once the unit is gone and the lock is free, `tehas stop` ends that record
+as stopped, before the lock file goes, and says `ended the record of the cycle
+of #12 as stopped`. An open record counts as something to stop. A record that
+cannot be read or ended leaves the lock file and everything else where it is,
+is said on stderr, and exits 1: run it again. A state store that is not
+installed changes nothing, exit 78.
+
+It keeps the cycle's record and every log: its record, history and approval in
+the state store, `state/cycles/12.json`, `.manifest.json`, `.runner_exit` and
+`.status`, and everything under `~/tehas/logs/`. A cycle stopped by hand did not
+end well, and nothing here records its pi-rukas as proven.
 
 It prints one line for each thing it stopped or removed, and
 `nothing to stop for #12` when there is nothing to do, so running it twice is
@@ -1506,9 +1539,11 @@ cycle too, as stopping any other cycle does.
 Exit 0 when the leftovers are gone or there was nothing to do, 1 when the cycle
 still holds its lock after the stop, something could not be removed,
 `tehas:running` could not be read or taken off the issue, or a cycle of that
-issue took its lock again before the label was read, 64 with no issue
-number, an issue that is not a positive number, or an argument it does not know,
-78 when the instance settings are missing or malformed, which changes nothing.
+issue took its lock again before the label was read, or the cycle's record
+could not be read or ended, 64 with no issue number, an issue that is not a
+positive number, or an argument it does not know, 78 when the instance
+settings are missing or malformed or the state store is not installed or
+cannot be used, which changes nothing.
 
 ## tehas status
 
@@ -1760,9 +1795,10 @@ the cycle are removed in every case. A runner that started no cycle (exit 4) is
 parked as a cycle that never ran: `tehas work` has already said on the issue which reason it was (an image
 or file it could not be given, or an issue whose text or title is not the approved one),
 and tehasbot cycle's own line names the exit status, who approved the start and
-when from `~/tehas/state/cycles/<issue>.approved.json`, and where the run log
-is, naming no status, step, duration or token usage as that cycle's. The
-approval record of such a start is removed with the report.
+when from the approval its start used, and where the run log is, naming no
+status, step, duration or token usage as that cycle's. The approval of such a
+start is taken off the record with the report: the fixer, a refresh and a later
+start never rest on an approval that started nothing.
 A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule.
 The dispatcher removes a kept workspace once no cycle has run on its issue for
@@ -1785,14 +1821,44 @@ a pull request. The report of a stopped cycle tries each call to GitHub once,
 cuts it after 20 seconds and does not refresh the status, so it ends within
 the unit's `TimeoutStopSec`. A hangup is taken as a stop too. It checks no authorisation:
 the dispatcher did that before it started the unit. It does check the number:
-it writes `state/cycles/<issue>.taken` once it holds its lock, then asks GitHub
-what the number is before a label is changed, a comment is posted or a
+once it holds its lock it starts its record in the state store, then asks
+GitHub what the number is before a label is changed, a comment is posted or a
 container starts, tried three times like its other calls, and refuses a closed
-issue and a pull request (exit 65) with one line in the log. A number GitHub
-could not answer for at all is refused the same way, with a line that says
-that. Because the marker was written first, the poll that started the unit
-takes such a cycle as one that came up: the issue keeps `tehas:running`, and
-the next poll clears it in silence.
+issue and a pull request (exit 65) with one line in the log, ending its record
+as refused. A number GitHub could not answer for at all is refused the same
+way, with a line that says that. Because the start was on record first, the
+poll that started the unit takes such a cycle as one that came up: the issue
+keeps `tehas:running`, and the next poll clears it in silence.
+
+**The start on record.** The record holds the attempt, when it started, the
+approval it used and who gave it, how (`label`, `retry-tick`, `fixer`,
+`refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
+outage, and the pi-rukas commit of the sandbox image. Started by
+`tehas-cycle@.service`, which sets `TEHAS_CYCLE_FROM=unit` (a unit file not
+refreshed yet is known by systemd's `INVOCATION_ID`), the start needs the
+approval the dispatcher recorded and uses it; without one it runs nothing.
+Typed by hand, with neither, the start is on record as one by hand: it uses no
+approval, and its history says `hand` and names no account. When the store
+will not start the record, the cycle exits before any label, comment or
+container: 75 when the store stayed busy through three tries, 77 when it
+refused the start (no approval waiting, or the issue's lock not held as the
+store sees it), 78 when the store is not installed or cannot be used. The
+dispatcher's wait then finds no new attempt, finds the lock free and gives the
+start up. `tehas work` is run with `TEHAS_CYCLE_ATTEMPT`, the attempt.
+
+**The end on record.** Once its comments and labels are done, the cycle ends
+its record: the status, step and exit, the runner's own exit, the counts of
+memory kills, refused starts, a stall and a time limit, the branch, the pull
+request by its number, the cap, park reason and failure, whether a provider
+outage stopped it and whether it parked, and the result and progress that
+`tehas work` left, each kept as a claim only when the store can read it (a
+link is refused, and progress older than the start is not kept). It writes one
+line of history per end, the last 50 of each issue. A store that does not take
+the end after five tries is `ERROR: the end of #N is not on record (...)` with
+every argument named; the record stays open, and the issue's next start
+replaces it. tehas work's files that carried these are read and removed as
+before, except the result and the progress, which stay until the next start for
+`tehas export`.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff`, with the
 runner's exit 10 or 11, has an open pull request of the bot that names the
@@ -1875,8 +1941,8 @@ says that the label could not be changed, and the issue stays `tehas:running`
 until the next poll of [tehas dispatch](#tehas-dispatch) finds it. A search
 for the pull request that GitHub refuses three times is not taken for a cycle
 that left none: the issue is parked with a comment that says the pull request
-could not be looked up and names the branch, and the branch stays in
-`~/tehas/state/cycles/<issue>.branch` until the issue's next cycle starts.
+could not be looked up and names the branch, and the branch stays on the
+cycle's record in the state store until the issue's next cycle starts.
 
 A parked cycle's cap, from the result, goes into
 `~/tehas/state/cycles/<issue>.park` with the failure before it (the reason
@@ -2370,9 +2436,9 @@ When a cycle ends, `tehasbot cycle` leaves a record of it in
 its word by word updates, the console and the error output. Its `cycle.json`
 names the image the cycle's container started from (`image`, its id) and the
 pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
-the container starts and leaves in `~/tehas/state/cycles/<issue>.image`. A
-rebuild while the cycle runs does not change them. Without that file the
-commit is the one the cycle noted at its start. A comment on an issue the loop
+the container starts and puts on the cycle's record in the state store. A
+rebuild while the cycle runs does not change them. Without an image on record
+the commit is the one the cycle noted at its start. A comment on an issue the loop
 filed, when the issue is worked on again, names both. When the cycle was given
 the issue's images or files, or given none though its issue linked some, the
 record also holds what `tehas work` kept of them in

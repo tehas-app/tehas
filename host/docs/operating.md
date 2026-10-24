@@ -956,8 +956,9 @@ stack is filed as an issue of its own in that repository.
 - **The model reads what each cycle ran with**: the `PI_ENSEMBLE_*`
   variables its container was given, the `TEHAS_*` settings that shape a
   cycle, how many cycles were running as its container started, and the
-  provider retry line of its preflight log. `tehas work` leaves the first
-  three in `~/tehas/state/cycles/<issue>.settings`. What the model reads may
+  provider retry line of its preflight log. `tehas work` puts the first
+  three on the cycle's record in the state store as the container starts.
+  What the model reads may
   reach a public issue, so only short plain values are written: numbers,
   booleans and words of letters, digits and `_.,:=-`. Any other value is
   `[withheld]`: every URL, host, path and address, anything that may be a
@@ -1190,14 +1191,14 @@ what the account may do, and this section is that.
   [What happens next](#3-what-happens-next)). Neither starts anything: an
   issue still needs a `tehas:ready` that counts. When to apply them, and how
   many, is the fixer's to decide, not the factory's.
-- **Each cycle's end leaves a line** in
-  `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
-  status, last step, cap, park reason, failure, whether a provider outage
-  stopped it, whether it parked, its pull request and who started it. A
+- **Each cycle's end leaves a line** of history in the state store
+  (`~/tehas/state/tehas.db`), the last 50 of each issue: when, its status,
+  last step, cap, park reason, failure, whether a provider outage stopped
+  it, whether it parked, its pull request, who started it and how. A
   planning turn leaves one of its own in
-  `~/tehas/state/plan-<issue>.history.jsonl`, with `kind` `plan`. `tehas
-  history` lists both, oldest first, and `tehas export` copies what a cycle
-  left behind. A fixer reads GitHub, not these files.
+  `~/tehas/state/cycles/plan-<issue>.history.jsonl`, with `kind` `plan`.
+  `tehas history` lists both, oldest first, and `tehas export` copies what a
+  cycle left behind. A fixer reads GitHub, not these records.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
@@ -1236,7 +1237,8 @@ to `~/tehas/logs/refresh.log`:
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
-rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
+rests on (the `by` of the approval of the issue's last start, or the person's
+approval it rests on after the fixer):
 
 - the issue is open, carries `tehas:awaiting-merge` and none of
   `tehas:running`, `tehas:question`, `tehas:fixer-escalated`, `tehas:plan`,

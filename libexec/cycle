@@ -15,14 +15,24 @@
 # Exit: 0 the cycle ran and was reported, whatever its outcome; 3 a cycle for
 # this issue is already running; 64 the argument is not an issue number; 65 the
 # number is not work the factory takes: a pull request, a closed issue, or an
-# answer GitHub could not give after three tries; 78 instance settings are
-# missing or malformed.
+# answer GitHub could not give after three tries; 75 the state store was busy
+# and did not start the cycle's record after three tries; 77 the state store
+# refused the start: no approval of the dispatcher's is waiting for it, or the
+# lock is not held as the store sees it; 78 instance settings are missing or
+# malformed, or the state store cannot be used. 75, 77 and 78 come before any
+# label, comment or container.
 #
 # It holds state/cycles/<issue>.lock for as long as it runs. The dispatcher
 # counts the held locks, so a cycle that dies frees its place. Once it holds
-# the lock it writes state/cycles/<issue>.taken, which is what the dispatcher
-# waits for. A cycle that then refuses its number leaves that file: the unit
-# did come up, and the issue keeps tehas:running until the next poll clears it.
+# the lock it starts the cycle's record on the state store (lib/store.sh,
+# cycle-start): the attempt, when it started, the approval it uses and the
+# pi-rukas commit of the sandbox image. The new attempt is what the dispatcher
+# waits for. Started by tehas-cycle@.service (TEHAS_CYCLE_FROM=unit, or the
+# INVOCATION_ID systemd sets) the start needs the approval the dispatcher
+# recorded, and is refused without one. Run by hand it is on record as a run
+# by hand and uses no approval. A cycle that then refuses its number ends its
+# record as refused: the unit did come up, and the issue keeps tehas:running
+# until the next poll clears it.
 #
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
 # cycle is then reported like any other that stopped without a pull request,
@@ -132,14 +142,14 @@
 # times, and so is the question about the pull request, and so is the call
 # that asks what the number is. A pull request that could not be looked up is
 # not taken for none: the issue is parked with a comment that says so and names
-# the branch, which stays in state/cycles/<issue>.branch. If GitHub still refuses it, or the cycle is
+# the branch, which stays on the cycle's record. If GitHub still refuses it, or the cycle is
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
 #
 # The cap that ended a cycle and the failure before it go into the record and
 # into state/cycles/<issue>.park whenever the issue is parked. The park carries
-# too the sha256 of the body the start was approved on, from the approval
-# record: the dispatcher holds a fresh tehas:ready while the issue still
+# too the sha256 of the body the start was approved on, from the approval on
+# the state store: the dispatcher holds a fresh tehas:ready while the issue still
 # carries that text. A provider
 # outage is said as one, and the park file asks the dispatcher to start the
 # issue again once, unless this cycle was that start. An outage is a result
@@ -152,12 +162,12 @@
 # state/park-<issue>.id: the dispatcher takes a tick only in the comment named
 # there.
 #
-# A refresh, a start whose approval record has how "refresh", put
+# A refresh, a start whose approval has how "refresh", put
 # tehas:refreshing on its pull request; it comes off when the cycle has been
 # reported, whatever the outcome.
 #
-# The pi-rukas commit of the sandbox image when the cycle starts goes to
-# state/cycles/<issue>.rukas.
+# The pi-rukas commit of the sandbox image when the cycle starts goes on the
+# cycle's record with its start.
 #
 # The dispatcher stops a cycle whose work is done, and says why first in
 # state/cycles/<issue>.done: closed (the issue was closed), merged or
@@ -172,20 +182,31 @@
 # running when the cycle ended. A file or start that fails is a warning: the
 # timer still runs the poll.
 #
-# After the history line it records the run and its end in the factory's
-# analytics, state/analytics.db, with `analytics run` and `analytics event
-# <issue> ended` (lib/analytics.sh). Each call has a time limit, and one that
-# fails or runs out of time is a WARN line: it changes nothing in the report.
+# Once the comments and labels are done it ends the cycle's record on the
+# state store (cycle-end): how it ended, the counts tehas work left, the
+# branch, the pull request, the result and the progress, and one line of
+# history. A store that does not take the end after five tries is an ERROR
+# line naming every argument; the record stays open and the next start of the
+# issue replaces it. A start that never ran (tehas work exit 4) takes its
+# approval off the record with it: an approval that started nothing is no
+# approval a later start can rest on.
+#
+# Then it records the run and its end in the factory's analytics,
+# state/analytics.db, with `analytics run` and `analytics event <issue> ended`
+# (lib/analytics.sh). Each call has a time limit, and one that fails or runs
+# out of time is a WARN line: it changes nothing in the report.
 # TEHAS_ANALYTICS=off makes no call.
 #
 # Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
 # the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
-# with the image and the pi-rukas commit tehas work left in
-# state/cycles/<issue>.image.
+# with the image and the pi-rukas commit tehas work put on the cycle's record
+# as the container started.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO,
 # TEHAS_ANALYTICS.
-# From the environment, for tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
+# From the environment: TEHAS_CYCLE_FROM=unit, which tehas-cycle@.service sets.
+# tehas work is run with TEHAS_CYCLE_ATTEMPT, the attempt of this start.
+# For tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
 # TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]) and
 # TEHAS_CYCLE_STOP_GH_WAIT (seconds a GitHub call may take after a stop [20]).
 set -uo pipefail
@@ -211,6 +232,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/fixer.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -220,6 +243,11 @@ stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
 [[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+
+if ! tehas_store_ready; then
+  log "ERROR: the state store is not installed (run install.sh)"
+  exit 78
+fi
 
 repo=$TEHAS_REPO
 # The cycle's workspace on the host; tehas work makes it under this name.
@@ -233,13 +261,52 @@ mkdir -p "$cycles" "$TEHAS_HOME/logs"
 # process is killed outright the place stays taken until they are gone too.
 exec 9>"$cycles/$issue.lock"
 flock -w 5 9 || { log "a cycle for #$issue is already running"; exit 3; }
-# The place is claimed with the lock. It is what the dispatcher waits for to
-# know its unit came up, and a cycle that goes on to refuse its number still
-# came up: leaving the file out would have the poll report a start that did
-# happen as one that did not.
+# The place is claimed with the lock, and the start goes on record under it.
+# The new attempt is what the dispatcher waits for to know its unit came up,
+# and a cycle that goes on to refuse its number still came up. From the unit
+# the start uses the approval the dispatcher recorded; a run by hand is on
+# record as one. A unit is never taken for a run by hand: a start the store
+# refuses runs nothing.
 rukas=$(tehas_rukas_commit)
-printf '%s\n' "$rukas" >"$cycles/$issue.rukas" || log "WARN: could not record the pi-rukas commit of #$issue"
-: >"$cycles/$issue.taken"
+[[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
+start_args=("$issue")
+[ -z "$rukas" ] || start_args+=(--rukas "$rukas")
+if [ "${TEHAS_CYCLE_FROM:-}" != unit ] && [ -z "${INVOCATION_ID:-}" ]; then
+  start_args+=(--by-hand)
+fi
+tehas_store_try 3 cycle-start "${start_args[@]}"
+case $? in
+  0) ;;
+  1)
+    case $tehas_store_word in
+      busy | timeout)
+        log "refuse #$issue: the state store did not take the start ($tehas_store_word): $tehas_store_line"
+        exit 75
+        ;;
+    esac
+    log "refuse #$issue: the state store refused the start: $tehas_store_line"
+    exit 77
+    ;;
+  *)
+    log "ERROR: #$issue: the state store cannot be used: $tehas_store_line"
+    exit 78
+    ;;
+esac
+attempt=$(tehas_store_get '.attempt')
+start_by=$(tehas_store_get '.started_by // "" | strings')
+start_how=$(tehas_store_get '.how // "" | strings')
+approval_at=$(tehas_store_get '.approval_at // "" | numbers')
+requeued=$(tehas_store_get 'if .requeued == true then 1 else 0 end')
+if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
+  log "ERROR: #$issue: the state store answered the start with no attempt"
+  exit 78
+fi
+# end_refused: a start that refuses its number ends its record, so the next
+# start of the issue is not one that replaces an open row.
+end_refused() {
+  tehas_store_try 5 cycle-end "$issue" --attempt "$attempt" --refused ||
+    log "ERROR: the refused start of #$issue is not on record ($tehas_store_word): cycle-end $issue --attempt $attempt --refused"
+}
 retry_wait=${TEHAS_CYCLE_RETRY_WAIT:-5}
 # Open issues only. GitHub is asked what the number is before a label is
 # changed, a comment is posted or a container starts. The dispatcher has often
@@ -254,6 +321,7 @@ for try in 1 2 3; do
 done
 if [ -z "$asked" ]; then
   log "refuse #$issue: GitHub could not be asked what the number is"
+  end_refused
   exit 65
 fi
 tehas_work_kind "$answer" || {
@@ -262,6 +330,7 @@ tehas_work_kind "$answer" || {
     closed) log "refuse #$issue: the issue is closed" ;;
     *) log "refuse #$issue: GitHub's answer for it could not be read" ;;
   esac
+  end_refused
   exit 65
 }
 
@@ -355,23 +424,20 @@ if jq -e '(.labels // []) | any(.name? == "needs-human-attention")' >/dev/null 2
   restart=--restart
 fi
 # A count of kills still here is an earlier cycle's, one that was killed
-# outright before it could report.
-# The dispatcher marks the one start it makes on its own after a provider
-# outage. That start's cycle, if an outage parks it again, waits for a person.
-requeued=0
-[ ! -e "$cycles/$issue.requeued" ] || requeued=1
+# outright before it could report. The one start the dispatcher makes on its
+# own after a provider outage is on record as requeued: that start's cycle, if
+# an outage parks it again, waits for a person.
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
   "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
   "${cycles:?}/${issue:?}.nostart" \
-  "${cycles:?}/${issue:?}.branch" "${cycles:?}/${issue:?}.image" \
-  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.requeued" "${cycles:?}/${issue:?}.done" \
+  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.done" \
   "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
 stopped=0
 trap 'stopped=1 signalled=1; [ -z "$wpid" ] || kill -TERM "$wpid" 2>/dev/null' TERM INT HUP
-"$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
+TEHAS_CYCLE_ATTEMPT=$attempt "$work" "$issue" ${restart:+"$restart"} >>"$TEHAS_HOME/logs/dispatch-work-$issue.log" 2>&1 &
 wpid=$!
 [ "$stopped" = 0 ] || kill -TERM "$wpid" 2>/dev/null
 wait "$wpid"
@@ -431,8 +497,8 @@ step=${step:--}
 # word of tehas work, the one that watched the container, stands in: it is the
 # only account of the end, and it names what it saw rather than what the report
 # would prefer. `killed` is the only word tehas work writes to that file.
+work_status=""
 if [ "$no_result" = 1 ]; then
-  work_status=""
   [ ! -f "${cycles:?}/${issue:?}.status" ] ||
     [ -L "${cycles:?}/${issue:?}.status" ] ||
     read -r work_status <"${cycles:?}/${issue:?}.status" 2>/dev/null
@@ -474,21 +540,6 @@ if [ -n "$nostart_file" ]; then
 fi
 [ -n "$nostart_rc" ] && nostart_seen=1
 rm -f "${cycles:?}/${issue:?}.nostart"
-# The branch tehas work wrote for this cycle, if it wrote one. Read before the
-# files of the cycle are cleared of the protocol's own, and never later: it is
-# what says whether the branch of a log is still wanted at all.
-host_branch=""
-[ ! -f "${cycles:?}/${issue:?}.branch" ] || [ -L "${cycles:?}/${issue:?}.branch" ] ||
-  read -r host_branch <"${cycles:?}/${issue:?}.branch" 2>/dev/null
-host_branch=${host_branch:-}
-# The one grammar decides whether the host named a branch: the branch of this
-# issue as tehas_branch_pattern makes it, or a name of the container's own
-# reduced to what GitHub can be asked about. Held to the same two arms as the
-# branch of the result below, so the answer to "is a branch already known" does
-# not depend on which of the two named it.
-host_branch_pattern=$(tehas_branch_pattern "$issue") || host_branch_pattern='^$'
-[[ $host_branch =~ $host_branch_pattern ]] ||
-  [[ $host_branch =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,79}$ ]] || host_branch=""
 # A step is read from the run log only where the cycle wrote no result at all:
 # there the runner died before it could name one, and the log's own
 # step-started lines are all there is. Where a result was written, that result
@@ -579,12 +630,11 @@ rm -f "$runner_exit_file" "${cycles:?}/${issue:?}.status"
 # step-started lines name the steps it reached. GitHub decides whether a pull
 # request exists; these names only say which branch to ask about, so no line of
 # a log can make this report a pull request there is none of. Only a cycle tehas
-# work watched has a log of its own, and the log is read only when one of the
-# two words is still wanted: the step, when nothing else named it, and the
-# branch, when the host named none. A branch of a log goes with the step of the
-# same run, so both come of the one pass.
+# work watched has a log of its own. It is read for the branch, which the host
+# never names, and for the step when nothing else named it. A branch of a log
+# goes with the step of the same run, so both come of the one pass.
 ran_log=""
-if [ "$read_log_steps" = 1 ] && { [ "$step_wanted" = 0 ] || [ -z "$host_branch" ]; }; then
+if [ "$read_log_steps" = 1 ]; then
   # The newest by its own name: tehas work names the file for the UTC time of
   # its start, so the newest cycle of this issue has the last name, and the
   # names of a directory sort in that order by themselves. Nothing read out of
@@ -704,15 +754,19 @@ rm -f "$stall_file"
 # it was written by tehas work, which watched this cycle, so it is tehas work's
 # own word for what it saw in flight.
 [ "$step" != - ] || [ -z "$stop_step" ] || { step=$stop_step; step_from=stalled; }
-# The image the container started from, as tehas work saw it, for the record.
+# The image the container started from, as tehas work put it on this
+# attempt's record, and the pi-rukas commit of its label. None when the record
+# cannot be read: the report goes on without them.
 image_id="" image_rukas=""
-image_file=${cycles:?}/${issue:?}.image
-if [ -f "$image_file" ] && [ ! -L "$image_file" ]; then
-  read -r image_id image_rukas _ < <(head -c 200 "$image_file" 2>/dev/null | head -n 1)
+if tehas_store cycle-show "$issue"; then
+  read -r image_id image_rukas < <(jq -r --argjson a "$attempt" \
+    '.cycle | select(. != null and .attempt == $a and .image != null) | "\(.image) \(.rukas_commit // "")"' \
+    <<<"$tehas_store_out" 2>/dev/null)
   [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || image_id=""
   [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+else
+  log "WARN: the record of #$issue could not be read for its image ($tehas_store_word)"
 fi
-rm -f "$image_file"
 if [ "$stalled" != 0 ]; then
   case "$status" in running | unknown | interrupted) status=stalled ;; esac
   killed="$killed None of its logs changed for $((stalled / 60)) min at step \`$step\`, so tehas stopped it before its time limit."
@@ -1013,6 +1067,20 @@ marker=""
 done_why=$(head -c 16 "$cycles/$issue.done" 2>/dev/null | head -n 1)
 case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
 rm -f "$cycles/$issue.done"
+# The approval this start used, read once for the report: the body it was
+# approved on, for the park, and the pull request a refresh marked. A start by
+# hand used none. An approval that cannot be read leaves both unknown: the park
+# then names no body, and the mark of a refresh is the dispatcher's to clear.
+used_body="" refreshed=""
+if tehas_store approval-current "$issue"; then
+  read -r used_body refreshed < <(jq -r --argjson a "$attempt" '.current | select(. != null and .used_by == $a)
+    | "\(.body_sha256 // "-") \(if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr // "") else "" end)"' \
+    <<<"$tehas_store_out" 2>/dev/null)
+else
+  log "WARN: the approval of #$issue could not be read for its report ($tehas_store_word)"
+fi
+[[ $used_body =~ ^[0-9a-f]{64}$ ]] || used_body=""
+[[ $refreshed =~ ^[1-9][0-9]{0,9}$ ]] || refreshed=""
 # park <text>: hand the issue to a human with the retry question.
 # The park on record for the dispatcher. retry is set only for a provider
 # outage on a cycle that was not itself the dispatcher's retry of one.
@@ -1048,12 +1116,10 @@ park() {
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
     park_marker=""
-  # The body this cycle was approved on, when the start left a record of it.
+  # The body this cycle was approved on, when its start used an approval.
   # The dispatcher holds a relabelled start while the issue still carries that
   # text: a second attempt at nothing is what it costs to leave it out.
-  local park_sum
-  park_sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' \
-    "$cycles/$issue.approved.json" 2>/dev/null) || park_sum=""
+  local park_sum=$used_body
   jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
     --argjson retry "$retry" --argjson started "$started" --arg body_sha256 "$park_sum" \
     '{$cap, $reason, $provider, $retry, $started} + (if $body_sha256 == "" then {} else {$body_sha256} end)' \
@@ -1130,9 +1196,7 @@ if [ -n "$merged_pr" ]; then
   pr=$merged_pr
 elif [ "$unread" = 1 ]; then
   # Whether the cycle left a pull request is not known. The branch stays on
-  # record for whoever looks again.
-  printf '%s\n' "$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")" >"$cycles/$issue.branch" ||
-    log "WARN: could not record the branch of #$issue"
+  # record, with the end, for whoever looks again.
   park "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` ($summary, runner exit $runner_rc). Look for one there before you retry. $kept; $log_where.$killed"
 elif [ "$rc" = 0 ] && [ "$status" = merged ]; then
   # A claim the container wrote. Without the merge to show for it the
@@ -1197,10 +1261,10 @@ else
     # is the dispatcher's record of the start it authorised, and the log tehas
     # work wrote its reason into.
     never_ran=1
-    approved_by=$(jq -r 'select((.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))) | .by' \
-      "$cycles/$issue.approved.json" 2>/dev/null) || approved_by=""
-    approved_at=$(jq -r 'select((.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))) | .at' \
-      "$cycles/$issue.approved.json" 2>/dev/null) || approved_at=""
+    approved_by=$start_by
+    [[ $approved_by =~ ^[A-Za-z0-9-]{1,39}$ ]] || approved_by=""
+    approved_at=""
+    [ -z "$approval_at" ] || approved_at=$(date -u -d "@$approval_at" +%FT%TZ 2>/dev/null) || approved_at=""
     never_ran_said=""
     if [ -n "$approved_by" ] && [ -n "$approved_at" ]; then
       never_ran_said=" @${approved_by} approved this start at ${approved_at}; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."
@@ -1223,7 +1287,6 @@ else
 fi
 # A refresh marked its pull request tehas:refreshing as it started. The mark
 # goes whatever the outcome; one that stays is the dispatcher's to clear.
-refreshed=$(jq -r 'select(.how == "refresh") | .refresh_of.pr | numbers' "$cycles/$issue.approved.json" 2>/dev/null) || refreshed=""
 if [ -n "$refreshed" ]; then
   for ((try = 1; try <= tries; try++)); do
     # The REST issues endpoint: `gh pr edit` asks GitHub a GraphQL question
@@ -1240,30 +1303,60 @@ if [ -n "$refreshed" ]; then
   done
 fi
 log "done #$issue rc=$rc status=$status step=$step minutes=$mins pr=${pr:-none} oom_kills=$kills forks_refused=$forks"
-# One line of history for each end, parked or not, in
-# state/cycles/<issue>.history.jsonl. A person closing the pull request is a
-# park too: it needs a person.
+# A person closing the pull request is a park too: it needs a person.
 [ -z "$closed_pr" ] || [ -n "$pr" ] || [ -n "$merged_pr" ] || [ "$status" = closed ] || parked_now=true
-tehas_cycle_history_add "$issue" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" --argjson started "$started" --argjson rc "$rc" \
+# The end on the cycle's record, with its one row of history, once the issue
+# has been told: what it says is what the comments said. The result and the
+# progress go as tehas work left them; the store keeps each only when it can
+# read it, and refuses a link. The pull request is kept by its number, and
+# only one of this repository's.
+end_args=("$issue" --attempt "$attempt" --status "$status" --step "$step" --rc "$rc" --oom "$kills" --forks "$forks")
+[ "$watched" != 1 ] || end_args+=(--runner-exit "$runner_rc")
+[ "$work_status" != killed ] || end_args+=(--host-saw killed)
+[ "$stalled" = 0 ] || end_args+=(--stalled "$stalled")
+[ "$timed" = 0 ] || end_args+=(--timed)
+[ -z "$branch" ] || end_args+=(--branch "$branch")
+case "${pr:-}" in
+  "https://github.com/$repo/pull/"*)
+    pr_number=${pr##*/}
+    [[ ! $pr_number =~ ^[1-9][0-9]{0,9}$ ]] || end_args+=(--pr "$pr_number")
+    ;;
+esac
+for f in result progress; do
+  [ ! -e "$cycles/$issue.$f.json" ] && [ ! -L "$cycles/$issue.$f.json" ] ||
+    end_args+=("--$f" "$cycles/$issue.$f.json")
+done
+[ -z "$cap" ] || end_args+=(--cap "$cap")
+[ -z "$park_reason" ] || end_args+=(--park-reason "$park_reason")
+[ -z "$failure_kind" ] || end_args+=(--failure-kind "$failure_kind")
+[ -z "$failure_cause" ] || end_args+=(--failure-cause "$failure_cause")
+[ "$provider" != 1 ] || end_args+=(--provider)
+[ "$parked_now" != true ] || end_args+=(--parked)
+# A start that never ran takes its approval with it: the fixer, a refresh and
+# a later start each read an approval as one whose cycle happened.
+[ "$never_ran" != 1 ] || end_args+=(--never-ran)
+if tehas_store_try 5 cycle-end "${end_args[@]}"; then
+  # What the store would not keep of what tehas work left: a link, a file over
+  # its bound or not JSON, and progress older than this start.
+  for f in result progress; do
+    kept=$(tehas_store_get ".$f | strings")
+    case "$kept" in refused | too-large | unreadable | stale) log "WARN: the $f of #$issue is not on record: $kept" ;; esac
+  done
+else
+  log "ERROR: the end of #$issue is not on record ($tehas_store_word: $tehas_store_line): cycle-end ${end_args[*]}"
+fi
+# The run and its end in the factory's analytics, from the line of history as
+# the cycle saw it and what the cycle's record holds (lib/analytics.sh); the
+# image and the counts were read above, so they are passed. A failure is a
+# warning.
+line=$(jq -n -c --arg at "$(date -u +%FT%TZ)" --argjson started "$started" --argjson rc "$rc" \
   --arg status "$status" --arg step "$step" --arg cap "$cap" --arg park_reason "$park_reason" \
   --arg failure_kind "$failure_kind" --arg failure_cause "$failure_cause" --argjson parked "$parked_now" \
   --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" --arg pr "${pr:-}" \
-  --arg by "$(head -c 64 "$cycles/$issue.by" 2>/dev/null | head -n 1 | tr -cd 'A-Za-z0-9-')" \
-  --arg how "$(jq -r '.how // "" | strings' "$cycles/$issue.approved.json" 2>/dev/null | tr -cd 'a-z-')" \
+  --arg by "$start_by" --arg how "$start_how" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
-   | with_entries(select(.value != ""))')" || log "WARN: no line of history of #$issue"
-# The record of a start that never ran goes with its report: the fixer, a
-# refresh and a run by hand each read a record as one whose cycle happened. Its
-# `how` is already in the line of history above, and its time is not read for a
-# run that never started.
-if [ "$never_ran" = 1 ]; then
-  rm -f "$cycles/$issue.approved.json"
-fi
-# The run and its end in the factory's analytics, from the history line and
-# what the cycle left in state/cycles, which lib/analytics.sh gives as facts;
-# the image and the counts were read and removed above, so they are passed. A
-# failure is a warning.
-tehas_analytics_run "$issue" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
+   | with_entries(select(.value != ""))') || line=null
+tehas_analytics_run "$issue" "$attempt" "$line" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
   ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
 tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported

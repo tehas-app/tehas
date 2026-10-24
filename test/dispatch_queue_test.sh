@@ -101,8 +101,8 @@ notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
 states 12=CLOSED
 t_run "$dispatch"
 t_eq "$(started)" "7 "
-t_eq "$(cat "$cycles_dir/7.by")" alice
-t_eq "$(jq -r '"\(.by) \(.at)"' "$approved_file")" "alice 2026-10-01T00:00:00Z"
+t_eq "$(t_row cycle-show 7 -- .cycle.started_by)" alice
+t_eq "$(approval '"\(.by) \(.at)"')" "alice 2026-10-01T00:00:00Z"
 t_lacks "$t_out" "authorized by @tehas-fixer"
 
 t_case "one open blocker of two holds the issue"

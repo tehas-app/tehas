@@ -6,7 +6,9 @@
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
-# cycle that died is never counted.
+# cycle that died is never counted. Whether a cycle runs is the lock's to say,
+# here; what a cycle is on record as (its attempt, when it started, its
+# approval, its end and history) is the state store's (lib/store.sh).
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
 #   tehas_cycle_lock_free <issue> 0 only when the poll can tell the lock is

@@ -119,7 +119,7 @@ echo 3 >"$fx/pr-fails-times"
 t_run "$cycle 7"
 t_contains "$t_out" "WARN: the pull requests of $BRANCH could not be read"
 t_contains "$(t_calls gh)" "its pull request could not be looked up"
-t_eq "$(cat "$state/7.branch")" "$BRANCH"
+t_eq "$(t_row cycle-show 7 -- .cycle.branch)" "$BRANCH"
 
 t_case "the step of a cycle with no log at all stays a dash"
 reset
@@ -180,8 +180,10 @@ t_run "$cycle 7"
 # The exit of tehas work is the one the line carries, as for every other end of
 # a cycle: tehas work exits 2 for a runner that died however it died, and what
 # the runner itself ended with is in the comment, not the line.
-t_eq "$(jq -c '[.status, .step, .rc, .pr, .parked]' "$state/7.history.jsonl")" \
-  "[\"handoff\",\"$BRANCH\",2,\"https://github.com/acme/widget/pull/347\",false]"
+# The step on record is cleaned as every step is, to [A-Za-z0-9_.-] and 40
+# bytes; the comment names it as the log does.
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.status, .step, .rc, .pr, .parked] | tostring')" \
+  "[\"handoff\",\"$(tr -cd 'A-Za-z0-9_.-' <<<"$BRANCH" | head -c 40)\",2,347,false]"
 
 t_case "the runner's own status file is not left for the next cycle of the issue"
 reset

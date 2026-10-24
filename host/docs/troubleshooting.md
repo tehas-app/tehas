@@ -207,6 +207,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cannot start units, so it changed no label. Run `install.sh` on the host so
   its units step installs the cycle unit. Run `tehas dispatch` in the tehas
   user's own session, not in a `sudo -iu` shell, which has no user bus.
+- `ERROR: the state store is not installed (run install.sh)`: the poll, a
+  cycle, `tehas stop` and `tehas history` need `~/tehas/libexec/store` and
+  `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
+  anything. Run `install.sh`, which builds the store and makes the database.
+- `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
+  on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
+  taken off the record and the issue gets `needs-human-attention`. Read
+  `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
+  store refused the start` (exit 77) is a unit started with no approval
+  waiting, such as one started by hand with `systemctl`; `the state store did
+  not take the start (busy)` (exit 75) is a store that stayed busy.
+- `skip #N: its approval of <time> started a cycle already`: the label event
+  this poll read started a cycle already. A new `tehas:ready` asks for another.
+- `ERROR: the state store could not list the running cycles (busy)`: the poll
+  ended before it acted on any cycle, exit 1. The next poll asks again.
 - `another poll holds the dispatcher's lock`: a poll is under way. Try again
   in a minute. A running cycle, a planning turn and an index run do not hold
   this lock.

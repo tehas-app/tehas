@@ -28,7 +28,7 @@ t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
 
 t_case "a retry tick writes the approval record with the tick's time, before the label changes"
-t_eq "$(jq -c '[.by, .how, .at]' "$T/calls/approved.at-mark" 2>&1)" '["alice","retry-tick","2026-01-01T01:00:00Z"]'
+t_eq "$(at_mark '[.by, .how, .at, .comment_id]')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'
 
 t_case "the question that was answered is used up by the start"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
@@ -553,7 +553,7 @@ t_case "a park of a provider outage is retried as today, on its own body"
 # park, and the issue carries no tehas:ready for the label's path.
 parked_again "Words." '{cap: "step-failed:adversarial", reason: "Connection error.",
   provider: true, retry: true, started: 1767225600, body_sha256: $SUM}'
-echo alice >"$cycles_dir/7.by"
+t_ended "$T/home/tehas" 7 alice label --provider --parked
 echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
   >"$fx/ready.json"
 echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"

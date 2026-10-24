@@ -26,7 +26,7 @@ reset
 # fake-order notes what the gh calls held when the start was asked for.
 t_stub fake-order 'grep -q -e "--add-label tehas:running" "$T/calls/gh" && : >"$T/calls/order.label"
 grep -q "^issue comment $1 " "$T/calls/gh" && : >"$T/calls/order.comment"
-: >"$TEHAS_HOME/state/cycles/$1.taken"'
+flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null'
 T_ENV=(TEHAS_CYCLE_START_CMD=fake-order TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -39,9 +39,8 @@ t_case "the poll does not wait for the cycle: it returns while the cycle lives, 
 reset
 # The cycle outlives the poll and holds its own lock. It must not hold the
 # poll's, so the next poll can run. Its output is detached from the test's pipe.
-t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec sleep 8 ) >/dev/null 2>&1 &
-echo $! >"$T/live.pid"
-: >"$TEHAS_HOME/state/cycles/$1.taken"'
+t_stub fake-live '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; "$T/store-bin" cycle-start "$1"; exec sleep 8 ) >/dev/null 2>&1 &
+echo $! >"$T/live.pid"'
 T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 alive=no
@@ -507,14 +506,25 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the cycle for #7 holds its lock but did not say so in 1s; taking it as started"
 t_lacks "$(t_calls gh)" "needs-human-attention"
 
-t_case "a start marker left by an earlier cycle does not count"
+t_case "the start of an earlier cycle on record does not count"
 reset
 : >"$fx/start-silent"
-mkdir -p "$T/home/tehas/state/cycles"
-: >"$T/home/tehas/state/cycles/7.taken"
+t_started "$T/home/tehas" 7 --by-hand
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: the cycle for #7 did not start"
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+# The approval this poll recorded is taken off again: a unit that comes up
+# late finds none to use.
+t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" "[null,null]"
+
+t_case "a cycle that refuses its number after its start still counts as started"
+reset
+: >"$fx/start-refused"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "did not start"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[1,true,null]'
 
 t_case "a cycle that ended at once still counts as started"
 reset
@@ -529,7 +539,7 @@ t_lacks "$t_out" "did not start"
 # how many times the status was refreshed.
 analytics_stub() { # [<bash body>]
   t_stub_analytics 'printf "%s:%s%s%s%s\n" "$*" \
-  "$([ -e "$TEHAS_HOME/state/cycles/7.approved.json" ] && echo " approved")" \
+  "$("$T/store-bin" approval-current 7 | jq -e ".approval != null or .current != null" >/dev/null && echo " approved")" \
   "$([ -e "$T/calls/fake-start" ] && echo " started")" \
   "$([ -e "$T/calls/fake-tidy" ] && echo " tidied")" \
   " status=$(wc -l <"$T/calls/fake-status" 2>/dev/null || echo 0)" >>"$T/calls/analytics.moment"
@@ -558,17 +568,18 @@ analytics_stub
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-01T00:00:00Z"}]' >"$fx/events-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(jq -r .at "$approved_file")" "2026-01-01T00:00:00Z"
+t_eq "$(approval .at)" "2026-01-01T00:00:00Z"
 t_eq "$(t_calls analytics)" "event 7 ready --at 1767225600
 event 7 started
 sample
 prune"
 
-t_case "an approval record with no time records ready without one"
+t_case "an approval GitHub gave no time for is on record at the poll's, and ready has none"
 reset
 analytics_stub
+before=$(date +%s)
 t_run "$dispatch"
-t_eq "$(jq -r .at "$approved_file")" ""
+t_eq "$(($(t_row approval-current 7 -- .current.at) >= before))" 1
 t_eq "$(t_calls analytics | head -n 1)" "event 7 ready"
 
 t_case "a cycle that does not start is ready and not started"
@@ -653,5 +664,102 @@ t_eq "$t_rc" 0
 t_eq "$(($(date +%s) - before < 20))" 1
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(grep -c "WARN analytics .*: exit 124" <<<"$t_out")" 4
+
+# --- The approval and the start on the state store ------------------------------
+t_case "a state store that is not installed stops the poll at 78 before any call to GitHub"
+reset
+rm -f "$T/home/tehas/libexec/store"
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
+t_eq "$(t_calls gh)" ""
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a label that cannot be changed takes the approval off the record again, and the last start's stays current (A2)"
+reset
+past 7 bob label 2026-01-01T00:00:00Z
+printf '%s\n' "--add-label tehas:running" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not mark #7 as running, not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_row approval-current 7 -- '[.approval, .current.by] | tostring')" '[null,"bob"]'
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+
+t_case "an attempt on record that cannot be read before the label changes no label (D2)"
+reset
+t_store_answers cycle-show 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: #7: the store could not say which attempt is on record (busy), not starting a cycle"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" '[null,null]'
+
+t_case "a running list that cannot be read ends the poll before it acts on any cycle (D2)"
+reset
+hold 9
+t_store_answers cycle-show 1 'store: busy #0: the database is locked'
+t_run "$dispatch"
+release
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: the state store could not list the running cycles (busy)"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "an approval starts one cycle: a second poll on the same label event starts nothing (A3)"
+reset
+queue 7
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: its approval of 2026-10-01T00:00:00Z started a cycle already"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+
+# A store at the installed path whose cycle-show of #7 answers busy while
+# $T/busy-left counts down, or takes 2 seconds while $T/slow is there, and
+# runs the real store for everything else.
+slow_store() {
+  rm -f "$T/home/tehas/libexec/store" "$T/busy-left" "$T/slow"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'if [ "$1 ${2:-}" = "cycle-show 7" ]; then' \
+    "  n=\$(cat $(t_q "$T/busy-left") 2>/dev/null || echo 0)" \
+    "  if [ \"\$n\" -gt 0 ]; then echo \$((n - 1)) >$(t_q "$T/busy-left"); echo 'store: busy #7: the database is locked' >&2; exit 1; fi" \
+    "  [ ! -e $(t_q "$T/slow") ] || $(t_q "$(command -pv sleep)") 2" \
+    'fi' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$T/home/tehas/libexec/store"
+  chmod 755 "$T/home/tehas/libexec/store"
+}
+
+t_case "a store that is busy during the wait still finds the start"
+reset
+slow_store
+# The store is busy for the first two looks after the unit is started.
+t_stub fake-start 'echo 2 >"$T/busy-left"
+flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null'
+t_run "$dispatch"
+default_start
+t_eq "$t_rc" 0
+t_lacks "$t_out" "did not start"
+t_lacks "$t_out" "taking it as started"
+t_eq "$(cat "$T/busy-left")" 0
+
+t_case "the wait is bounded by the clock, however long each look takes"
+reset
+slow_store
+: >"$fx/start-silent"
+t_stub fake-start ': >"$T/slow"'
+before=$(date +%s)
+t_run "$dispatch"
+default_start
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: the cycle for #7 did not start"
+# TEHAS_CYCLE_START_WAIT is 2: one look of 2 seconds and the end of the wait,
+# not a count of looks of 2 seconds each.
+t_eq "$(($(date +%s) - before < 8))" 1
 
 t_done

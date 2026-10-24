@@ -18,8 +18,8 @@ runs=$T/home/.pi/agent/ensemble-runs
 # lists are here so a case can pin both sides of the line. The sibling name of
 # the nostart note goes with the note: a write of it is made beside it and moved
 # into place, and tehas work clears both when a cycle starts.
-GO=(lock taken cid park requeued "done" stalled timed stopped stopped.new quiet oom forks branch image nostart nostart.new progress.json result.json)
-KEEP=(json history.jsonl by settings manifest.json approved.json rukas runner_exit status)
+GO=(lock cid park "done" stalled timed stopped stopped.new quiet oom forks nostart nostart.new progress.json result.json)
+KEEP=(json manifest.json runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
 # ends the process holding the issue's lock, as a unit that stopped does.
@@ -72,6 +72,8 @@ reset() {
   rm -rf "$th" "$runs" "$T"/calls/* "$T/holder" "$T/holder-keep" "$T/gone"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+  # The state store with nothing on record.
+  t_store_home "$th"
   systemctl_idle
   docker_stub
   gh_stub
@@ -142,7 +144,7 @@ leftovers() { # <issue>
 # The two names of the marker are the two last of them, and go on the same terms
 # as any other: the marker of a stop keeps the line it was written with, so a
 # case that means a marker of its own says the name here.
-LEFTOVERS_N=26
+LEFTOVERS_N=22
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext
@@ -172,12 +174,12 @@ t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 [ "$(($(date +%s) - began))" -lt 30 ] || t_bad "the stop took $(($(date +%s) - began))s"
 t_eq "$(leftovers 5)" ""
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_contains "$t_out" "stopped tehas-cycle@5.service"
 t_contains "$t_out" "removed the container tehas-work-5"
 t_contains "$t_out" "removed state/cycles/5.lock"
-t_contains "$t_out" "removed state/cycles/5.taken"
+t_contains "$t_out" "removed state/cycles/5.cid"
 t_contains "$t_out" "removed state/park-5.id"
 t_contains "$t_out" "removed live/console-5.txt"
 t_contains "$t_out" "removed ~/.pi/agent/ensemble-runs/issue-5"
@@ -530,7 +532,7 @@ systemctl_idle
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$works/widget-5x" ] && echo x) $([ -e "$state/5.5.lock" ] && echo dot)" "x dot"
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 
 t_case "tehas:running is on the issue: one read and one edit take it off, as the last step"
 reset
@@ -573,7 +575,7 @@ t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 t_contains "$t_out" "WARN: the labels of #5 could not be read"
 t_eq "$(leftovers 5)" ""
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_eq "$(gh_edits)" ""
 
@@ -621,7 +623,7 @@ t_eq "$(gh_views | wc -l)" 1
 t_eq "$(gh_edits)" ""
 # The host's half went clean; what is left is the new cycle's own lock.
 t_eq "$(leftovers 5)" "$state/5.lock"
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 release
 
 t_case "the read fits what gh really prints: gh's labels are an object, so a filter that indexes it as an array is a failure, not an empty answer"
@@ -631,5 +633,65 @@ t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".labels[].name"'
 t_eq "$t_out" "tehas:running"
 t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".[].name" >/dev/null 2>&1 || echo refused'
 t_eq "$t_out" "refused"
+
+# --- The cycle's record on the state store ------------------------------------
+# A store at the installed path that notes, for each call, whether the lock
+# file of #5 was there, and runs the real store.
+store_notes() {
+  rm -f "$th/libexec/store"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s lock=%s\\n' \"\$1\" \"\$([ -e $(t_q "$state/5.lock") ] && echo there || echo gone)\" >>$(t_q "$T/calls/store")" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$th/libexec/store"
+  chmod 755 "$th/libexec/store"
+}
+
+t_case "a cycle killed outright has its record ended as stopped, before its lock file goes"
+reset
+# Its start is on record and never reported: no unit, no lock held.
+t_started "$th" 5 --by-hand
+store_notes
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ended the record of the cycle of #5 as stopped"
+t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"stopped"]'
+t_eq "$(grep '^cycle-end' "$T/calls/store")" "cycle-end lock=there"
+t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
+# No history is written for it: tehas stop writes none.
+t_eq "$(t_row history-show 5 -- '.rows | length')" 0
+
+t_case "a second stop finds nothing to do and asks the store to end nothing"
+rm -f "$T"/calls/*
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_eq "$t_out" "nothing to stop for #5"
+t_eq "$(grep -c '^cycle-end' "$T/calls/store" 2>/dev/null)" 0
+
+t_case "a record that cannot be ended leaves the lock file and the rest, says so, and exits 1"
+reset
+t_started "$th" 5 --by-hand
+cycle_files 5
+rm -f "$state/5.stopped"
+t_store_answers cycle-end 1 'store: busy #5: the database is locked'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the record of #5 could not be ended as stopped (store: busy #5: the database is locked), so nothing was removed. Run this again."
+t_eq "$(find "$state/5.lock" | wc -l)" 1
+t_eq "$(find "$works/widget-5" -maxdepth 0 | wc -l)" 1
+t_eq "$(gh_edits)" ""
+t_eq "$(t_row cycle-show 5 -- .cycle.ended_at)" null
+
+t_case "a record that cannot be read changes nothing: 1 when the store is busy, 78 when it is not there"
+reset
+cycle_files 5
+t_store_answers cycle-show 1 'store: busy #5: the database is locked'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 1
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+rm -f "$th/libexec/store"
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+t_eq "$(t_calls systemctl | grep -c ' stop ')" 0
 
 t_done

@@ -23,6 +23,23 @@ empty one above it.
   `analytics plan` take them as facts in a file their caller writes
   (`--facts <file>`). The rows are the same. The file is
   `tmp/analytics-facts.*`; `tehasbot clean` removes one a killed call left.
+- A cycle's records are in the state store, no longer files of
+  `state/cycles/`: the approval the dispatcher records before the label (in
+  place of `<n>.approved.json`), the cycle's start and its account (`.taken`,
+  `.by`, `.requeued`, `.rukas`), the image and settings `tehas work` saw as the
+  container started (`.image`, `.settings`), the end with its branch (`.branch`)
+  and one line of history per end (`<n>.history.jsonl`). An approval starts one
+  cycle. A cycle started by `tehas-cycle@.service` needs the dispatcher's
+  approval and exits 77 without one, 75 when the store stays busy and 78 when
+  it cannot be used, before any label or comment; one typed by hand is on
+  record as `hand`. `tehas work` exits 4 when the approval of its start cannot
+  be read, and never takes that for a run by hand. `tehas stop` ends the record
+  of a cycle killed outright. `tehas dispatch`, `tehasbot cycle`, `tehas stop`,
+  `tehas history` and `tehas export` exit 78 when the store is not installed.
+  `tehas history` lists the cycles from the store, and a planning turn's lines
+  from `state/cycles/plan-<n>.history.jsonl`, where they are written; it read
+  `state/plan-<n>.history.jsonl` before, which nothing writes.
+- `host/systemd/tehas-cycle@.service` sets `TEHAS_CYCLE_FROM=unit`.
 
 ### Adopter action
 
@@ -32,6 +49,12 @@ empty one above it.
   refuses that with exit 64 (`WARN analytics run: exit 64` in the cycle's
   log), so that run or planning turn is missing from the analytics report.
   Nothing else about the run changes.
+- Run `install.sh` with its units step, so the cycle unit sets
+  `TEHAS_CYCLE_FROM=unit`; a unit file not refreshed is still known by
+  systemd's `INVOCATION_ID`. The records of cycles that ended before the update
+  stay in their files until the importer moves them: until then the fixer, a
+  refresh and an outage retry find no approval on record for those issues, and
+  wait for a person's `tehas:ready`.
 
 ## v0.11.0 (2026-10-23)
 

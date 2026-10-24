@@ -49,10 +49,11 @@
 #
 #   {"api": 1, "cycles": [...], "next": "1760700300-7", "to": "/home/boss/archive"}
 #
-# Exit: 0 copied, also when there was nothing to copy; 64 a bad argument, an
-# export into the factory's own home or a directory that cannot be made, which
-# copies nothing; 78 the instance settings are missing or malformed, which
-# copies nothing.
+# Exit: 0 copied, also when there was nothing to copy; 1 the state store did
+# not answer (busy) for the history, which copies nothing; 64 a bad argument,
+# an export into the factory's own home or a directory that cannot be made,
+# which copies nothing; 78 the instance settings are missing or malformed, or
+# the state store is not installed or cannot be used, which copies nothing.
 set -uo pipefail
 
 usage() {
@@ -92,7 +93,14 @@ done
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
+# The cycles to copy are the history's, on the state store.
+if ! tehas_store_ready; then
+  echo "tehas export: ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
 
 # Never an export into the factory's own home: it would put copies of logs
 # where the dashboard and the units look for the originals. $TEHAS_HOME is what

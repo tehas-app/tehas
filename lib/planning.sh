@@ -154,8 +154,8 @@ plan_post() {
 }
 
 # plan_history <issue> <rc> <turn> <kept> [<record>]: the line tehas history
-# lists for a planning turn, in state/plan-<issue>.history.jsonl, through the
-# same helper a cycle's end uses. status is the word tehasbot cycle would have
+# lists for a planning turn, in state/cycles/plan-<issue>.history.jsonl
+# (tehas_plan_history_add). status is the word tehasbot cycle would have
 # put there, and is what tehas history publishes as `outcome`; rc is the unit's
 # exit status, a number, or the word that says why there was none, and is what
 # it publishes as `status`. The empty fields are dropped. A line that cannot be
@@ -183,7 +183,7 @@ plan_history() {
   filed=$(jq -c '[(.filed // []) | if type == "array" then .[] else empty end | strings
       | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]' "$(plan_state "$n").out" 2>/dev/null) || filed="[]"
   [ -n "$filed" ] || filed="[]"
-  tehas_cycle_history_add "plan-$n" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" \
+  tehas_plan_history_add "$n" "$(jq -n -c --arg at "$(date -u +%FT%TZ)" \
     --arg started "$started" --arg rc "$rc" --arg status "$outcome" \
     --argjson turn "$turn" --arg by "$(jq -r 'if (.by | type) == "string" then .by else "" end' <<<"$kept" 2>/dev/null)" \
     --arg label "$label" --argjson filed "$filed" \

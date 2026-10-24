@@ -13,9 +13,8 @@
 #
 # What goes is only what says a cycle runs, is owed, or is parked:
 #
-#   state/cycles/<issue>.lock .taken .cid .park .requeued .done .stalled
-#                  .timed .quiet .oom .forks .branch .image .nostart
-#                  .nostart.new .progress.json .result.json
+#   state/cycles/<issue>.lock .cid .park .done .stalled .timed .quiet .oom
+#                  .forks .nostart .nostart.new .progress.json .result.json
 #   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
 #   state/park-<issue>.id
 #   live/console-<issue>.txt
@@ -28,8 +27,15 @@
 # a person stopped the cycle. When it cannot be written, the stop goes through
 # and says so on stderr.
 #
-# What stays is the cycle's record and every log: state/cycles/<issue>.json,
-# .history.jsonl, .by, .settings, .manifest.json, .approved.json, .rukas,
+# A cycle killed outright never reports, and its record on the state store
+# stays open. Once the unit is gone and the lock is free, this ends that record
+# as stopped (cycle-end --stopped), before the lock file goes: an open record
+# with no lock file reads as a cycle whose lock cannot be probed. A record that
+# cannot be ended leaves the lock file and everything else where it is, says
+# so, and exits 1: run it again. An open record counts as something to stop.
+#
+# What stays is the cycle's record and every log: its record, history and
+# approval on the state store, state/cycles/<issue>.json, .manifest.json,
 # .runner_exit and .status, and everything under logs/. A cycle stopped by hand
 # did not end well, and nothing here records its pi-rukas as proven.
 #
@@ -47,9 +53,11 @@
 # to do, which makes a second run safe; 1 the cycle still holds its lock after
 # the stop, or a stop or a removal failed, or tehas:running could not be read
 # off the issue or taken off it, or a cycle of that issue took its lock again
-# before the label was read; 64 no issue number, an issue that is not a
-# positive number, or an argument this does not know; 78 the instance settings
-# are missing or malformed, which changes nothing.
+# before the label was read, or the state store could not be read or did not
+# end the open record; 64 no issue number, an issue that is not a positive
+# number, or an argument this does not know; 78 the instance settings are
+# missing or malformed, or the state store is not installed or cannot be used,
+# which changes nothing.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, for the name libexec/work gives
 # the workspace and for the issue this reads its labels from and relabels.
@@ -95,8 +103,14 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
+if ! tehas_store_ready; then
+  echo "tehas stop: ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
 
 n=$issue
 unit=tehas-cycle@$n.service
@@ -111,7 +125,7 @@ runs=$HOME/.pi/agent/ensemble-runs/issue-$n
 # The one sibling name belongs here too: a write of a note is made beside it and
 # moved into place, and a stop that takes the note takes the name of a write
 # that never finished, as libexec/work's own clear of these files does.
-notes=(lock taken cid park requeued "done" stalled timed stopped quiet oom forks branch image nostart nostart.new progress.json result.json)
+notes=(lock cid park "done" stalled timed stopped quiet oom forks nostart nostart.new progress.json result.json)
 
 # said <path>: one line for a thing that went, in the shape a person types.
 said() {
@@ -123,8 +137,22 @@ said() {
   esac
 }
 
+# open_attempt <issue>: sets open_at to the attempt of the cycle's record when
+# it is open, empty when it has ended or there is none. Exits when the store
+# could not answer: nothing has changed yet, or the step after it waits.
+open_attempt() {
+  open_at=""
+  if ! tehas_store cycle-show "$1"; then
+    printf 'tehas stop: the record of #%s could not be read from the state store: %s\n' "$1" "$tehas_store_line" >&2
+    [ "$tehas_store_rc" = 1 ] && exit 1
+    exit 78
+  fi
+  open_at=$(tehas_store_get '.cycle | select(. != null and .ended_at == null) | .attempt')
+}
+
 # What is here, read before anything changes: a run that has nothing to do says
 # so and touches nothing, so running this twice is safe.
+open_attempt "$n"
 present=()
 for e in "${notes[@]}"; do
   [ -e "$state/$n.$e" ] && present+=("$state/$n.$e")
@@ -151,7 +179,7 @@ lock_held=0
 tehas_cycle_running "$n" && lock_held=1
 
 if [ "$unit_live" = 0 ] && [ "$container_live" = 0 ] && [ "$lock_held" = 0 ] &&
-  [ "${#present[@]}" = 0 ]; then
+  [ "${#present[@]}" = 0 ] && [ -z "$open_at" ]; then
   printf 'nothing to stop for #%s\n' "$n"
   exit 0
 fi
@@ -234,6 +262,22 @@ fi
 # before, which is why its line is said only when it was here to begin with.
 mkdir -p "$state" || { echo "tehas stop: $state could not be created" >&2; exit 1; }
 exec 9>"$lock"
+# The record of a cycle killed outright is ended now, while its lock file is
+# there and free: the cycle reported if it could, so a record still open is one
+# that never will.
+open_attempt "$n"
+if [ -n "$open_at" ]; then
+  if ! tehas_store_try 3 cycle-end "$n" --attempt "$open_at" --stopped; then
+    if [ "$tehas_store_word" = running ]; then
+      printf 'tehas stop: a cycle for #%s holds its lock, so nothing was removed.\n' "$n" >&2
+    else
+      printf 'tehas stop: the record of #%s could not be ended as stopped (%s), so nothing was removed. Run this again.\n' \
+        "$n" "$tehas_store_line" >&2
+    fi
+    exit 1
+  fi
+  printf 'ended the record of the cycle of #%s as stopped\n' "$n"
+fi
 if ! flock -n 9; then
   printf 'tehas stop: a cycle for #%s holds its lock, so nothing was removed.\n' "$n" >&2
   exit 1

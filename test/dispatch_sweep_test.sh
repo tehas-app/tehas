@@ -318,7 +318,9 @@ quiet_cycle() { # <age> <taken>
   hold 9
   mkdir -p "$T/home/tehas/live/cycles"
   printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
-  touch -d "@$(($(date +%s) - $2))" "$T/home/tehas/state/cycles/9.taken"
+  # Its start on record at that time, under the lock hold took.
+  TEHAS_HOME=$T/home/tehas TEHAS_STORE_TEST_NOW=$(($(date +%s) - $2)) "$T_STORE" cycle-start 9 --by-hand >/dev/null ||
+    t_bad "the store did not start the record of #9"
 }
 # The issues with a quiet note on record.
 notes() { find "$T/home/tehas/state/cycles" -maxdepth 1 -name '*.quiet' -printf '%f\n' 2>/dev/null | sed 's/\.quiet$//' | sort | tr '\n' ' '; }
@@ -397,8 +399,10 @@ quiet_cycle 1300 3600
 t_run "$dispatch"
 t_eq "$(notes)" "9 "
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
-# Neither the live file nor <issue>.taken: nothing is known about this cycle.
-rm -f "$T/home/tehas/live/cycles/9.json" "$T/home/tehas/state/cycles/9.taken"
+# Neither the live file nor an open start on record: nothing is known about
+# this cycle.
+rm -f "$T/home/tehas/live/cycles/9.json"
+TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 -- .cycle.attempt)" --refused >/dev/null
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
 t_eq "$(notes)" "9 "

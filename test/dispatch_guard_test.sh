@@ -460,8 +460,8 @@ refresh_request() {
       labels: {nodes: [{name: "tehas:awaiting-merge"}]},
       closedByPullRequestsReferences: {nodes: [{number: 50, state: "OPEN"}]}}]}}}}}' >"$fx/pull-50.json"
   echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}},"features":{"continuePr":true}}' >"$fx/caps.json"
-  jq -nc --arg sum "$WSUM" '{at: "2026-10-01T00:00:00Z", by: "alice", how: "label",
-    body_sha256: $sum, links: []}' >"$approved_file"
+  # alice's label started its last cycle, which ended at a merge to wait for.
+  t_ended "$T/home/tehas" 7 alice label --status handoff
 }
 
 t_case "a refresh of a wide issue starts: the hold is never asked of one"
@@ -530,7 +530,7 @@ mkdir -p "$cycles_dir"
 jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" \
   '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true,
     retry: true, started: $s}' >"$cycles_dir/7.park"
-echo alice >"$cycles_dir/7.by"
+t_ended "$T/home/tehas" 7 alice label --provider --parked
 echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
 jq -cn --arg b "$(wide_body 6)" '{number: 7, state: "OPEN", title: "Wide", body: $b,
   labels: [{name: "needs-human-attention"}]}' >"$fx/work-7.json"

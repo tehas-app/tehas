@@ -112,8 +112,8 @@ texts as \$ts
   [ -n "$attach_promise" ] || return 1
 }
 
-# The dispatcher's approval record, state/cycles/<issue>.approved.json, as the
-# readers here expect it. at, by and how are asserted by shape, not only by
+# The dispatcher's approval of a start, as tehas_approval_view (lib/store.sh)
+# writes it from the state store for the readers here. at, by and how are asserted by shape, not only by
 # type: they are printed to an operator and published in a cycle's record, and
 # a value with a newline in it moves the fields of a manifest read back by
 # line. tehas_retry_context asserts the same of the text it quotes.
@@ -127,8 +127,8 @@ tehas_approval_record() {
 }
 
 # tehas_record_is_file <path>: what counts as the dispatcher's approval record,
-# said once. Every reader of state/cycles/<issue>.approved.json asks the same
-# question, and a link or a directory at that path is read as no record.
+# said once. Every reader of an approval's view asks the same question, and a
+# link or a directory at that path is read as no record.
 tehas_record_is_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
 }

@@ -92,7 +92,20 @@ t_contains "$t_out" "WARN: the result of #7 is a link, it is not read"
 t_contains "$(t_calls gh)" 'status `unknown`'
 t_lacks "$(t_calls gh)" "pr list"
 t_lacks "$(t_calls gh)" "The change was merged"
+# The end is on record all the same, and the store keeps nothing through the
+# link (F7).
+t_contains "$t_out" "WARN: the result of #7 is not on record: refused"
+t_eq "$(t_row cycle-show 7 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"unknown"]'
+t_eq "$(t_row history-show 7 -- '.rows | length')" 1
 rm -rf "$T/elsewhere"
+
+t_case "a progress older than the cycle's start is not on record as its own (G3)"
+reset
+ended handoff commit-pr feature/x
+echo 'touch -d "@$(($(date +%s) - 3600))" "$TEHAS_HOME/state/cycles/7.progress.json"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: the progress of #7 is not on record: stale"
+t_lacks "$t_out" "the result of #7 is not on record"
 
 t_case "a state file the cycle left in its workspace is not read: only the runner's result is"
 reset

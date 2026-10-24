@@ -253,10 +253,11 @@ tehas history [--json] [--after CURSOR] [--issue N]
 
 What has ended, oldest first: one line for each cycle and each planning turn.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. It reads the history files the units write and nothing
-else: no network, no lock a running cycle holds, and it writes nothing. A line
-it cannot read is left out, not an error, so an older or a newer file breaks no
-listing.
+the two the same way. It reads the cycles' history from the state store and
+the planning turns' from their history files, and nothing else: no network, no
+lock a running cycle holds, and it writes nothing. A line it cannot read is left
+out, not an error, so an older or a newer file breaks no listing. A store that
+does not answer prints nothing: never a listing without the cycles.
 
 `cursor` is the seconds of the end and the issue, as `1760700000-12`. Keep
 `next` and pass it as `--after` to read what ended since: each line is then
@@ -269,7 +270,8 @@ takes one issue's lines, from its cycle and its planning turns together.
 `ended` and `started` are when the unit ran and ended. `status` is its exit
 status, `outcome` what it reported, and the rest are the fields of the line:
 the step and cap it stopped at, why it was parked, the failure the fixer named,
-whether its provider was asked, the pull request, and who asked for it and how.
+whether its provider was asked, the pull request, and who asked for it and how
+(`hand` for a cycle run by hand, which names no account).
 A planning turn has `turn`, its number in the issue, `label`, the label that
 started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
 the turn filed, when it filed any. A field the line does not have is left out,
@@ -277,8 +279,9 @@ never null.
 
 Without `--json`, one line each, oldest first.
 
-Exit 0 when it printed, also with nothing to list; 64 on a bad argument, which
-reads nothing; 78 without an instance.
+Exit 0 when it printed, also with nothing to list; 1 when the state store was
+busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
+without an instance or without a state store that can be used.
 
 ## tehas export
 

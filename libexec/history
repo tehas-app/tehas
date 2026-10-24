@@ -2,12 +2,15 @@
 # tehas history: the cycles and planning turns that ended, oldest first, for a
 # program to read.
 #
-# One line per end: state/cycles/<issue>.history.jsonl, which tehasbot cycle
-# writes when a cycle ends, and state/plan-<issue>.history.jsonl, which
-# lib/planning.sh writes when a planning turn ends. tehas history reads those
-# files, puts the lines in the order they ended, and prints the ones after a
-# cursor. It reads only: no network, no lock a cycle holds, and nothing under
-# $TEHAS_HOME is written. A line it cannot read is left out, not an error.
+# One line per end: the history of the cycles on the state store
+# (history-show), which tehasbot cycle writes when a cycle ends, and
+# state/cycles/plan-<issue>.history.jsonl, which lib/planning.sh writes when a
+# planning turn ends. tehas history reads both, puts the lines in the order
+# they ended, and prints the ones after a cursor. It reads only: no network, no
+# lock a cycle holds, and nothing under $TEHAS_HOME is written but what SQLite
+# keeps beside the store as it reads. A line it
+# cannot read is left out, not an error; a store that cannot be read is an
+# error, and nothing is printed: never a listing with the cycles missing.
 #
 # Usage: tehas history [--json] [--after CURSOR] [--issue N]
 #
@@ -48,9 +51,11 @@
 # ended after it, so a program that keeps "next" and asks again neither misses
 # a line nor reads one twice.
 #
-# Exit: 0 printed, also with nothing to list; 64 an argument this command does
-# not know, which reads nothing; 78 the instance settings are missing or
-# malformed, which reads nothing.
+# Exit: 0 printed, also with nothing to list; 1 the state store did not
+# answer (busy), which prints nothing; 64 an argument this command does not
+# know, which reads nothing; 78 the instance settings are missing or
+# malformed, or the state store is not installed or cannot be used, which
+# prints nothing.
 set -uo pipefail
 
 usage() {
@@ -90,20 +95,39 @@ done
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
-
-# A cycle's line does not name its issue, its file does; the issue is put on
-# each line as it is read.
-if [ -n "$issue" ]; then
-  files=("$TEHAS_HOME/state/cycles/$issue.history.jsonl" "$TEHAS_HOME/state/plan-$issue.history.jsonl")
-else
-  files=("$TEHAS_HOME"/state/cycles/*.history.jsonl "$TEHAS_HOME"/state/plan-*.history.jsonl)
+if ! tehas_store_ready; then
+  echo "ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
 fi
 
-# The lines that are wanted, one JSON object each. A cycle's line does not name
-# its issue, its file does, so each line is read with its issue put on it. The
-# loop is one command, not a pipeline: a function called on the left of a pipe
-# runs in a subshell and its output would be lost.
+# The cycles' lines from the store, each with its issue and the kind of line
+# it is, in the shape the lines had before the store (tehas_history_shape).
+store_args=(history-show)
+[ -z "$issue" ] || store_args+=("$issue")
+store_args+=(--kind cycle)
+if ! tehas_store "${store_args[@]}"; then
+  echo "ERROR: the history could not be read from the state store: $tehas_store_line" >&2
+  [ "$tehas_store_rc" = 1 ] && exit 1
+  exit 78
+fi
+# shellcheck disable=SC2154  # lib/store.sh sets the shape and the answer
+cycle_lines=$(jq -c --arg repo "${TEHAS_REPO:-}" "$tehas_history_line"' .rows[] | select(.kind == "cycle")
+  | {issue, kind: "work"} + history_line' <<<"$tehas_store_out" 2>/dev/null) || cycle_lines=""
+
+# A planning turn's line does not name its issue, its file does; the issue is
+# put on each line as it is read.
+if [ -n "$issue" ]; then
+  files=("$TEHAS_HOME/state/cycles/plan-$issue.history.jsonl")
+else
+  files=("$TEHAS_HOME"/state/cycles/plan-*.history.jsonl)
+fi
+
+# The lines that are wanted, one JSON object each. The loop is one command, not
+# a pipeline: a function called on the left of a pipe runs in a subshell and
+# its output would be lost.
 lines=$(  for f in "${files[@]}"; do
   [ -f "$f" ] && [ ! -L "$f" ] || continue
   n=${f##*/}
@@ -112,6 +136,7 @@ lines=$(  for f in "${files[@]}"; do
   [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || continue
   jq -c --argjson n "$n" 'select(type == "object") | . + {issue: $n}' "$f" 2>/dev/null || true
 done)
+[ -z "$cycle_lines" ] || lines=$cycle_lines${lines:+$'\n'$lines}
 
 # An empty cursor is JSON null: a program reads the absence of one, so no
 # special case for it is needed inside the program.

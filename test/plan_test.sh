@@ -338,6 +338,9 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
     | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
   features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
+# tehas work reads its approval from the state store: nothing on record, a run
+# by hand.
+t_store_home "$T/home/tehas"
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4

@@ -40,7 +40,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
@@ -599,13 +599,16 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 2 (`PRAGMA user_version`), and one
-table with rows, `meta`, which says when the database was made, by which version
-and commit of tehas, and for which instance and repository. The other tables
-are there and empty: no command writes them yet. The host's records are still
-the files of `state/` until the commands are moved to the store one by one.
-A command will run the store through `~/tehas/lib/store.sh`, which is
-installed and which no command sources yet.
+What is in it today: the schema, version 2 (`PRAGMA user_version`); `meta`,
+which says when the database was made, by which version and commit of tehas,
+and for which instance and repository; and the cycles' records: the approval
+each start rests on (the dispatcher's), each cycle's start and end with its
+image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
+`tehas stop`), and the last 50 lines of history of each issue. Parks, questions
+and planning sessions are still files of `state/` until their commands move to
+the store too. The commands run the store through `~/tehas/lib/store.sh`;
+`tehas dispatch`, `tehasbot cycle`, `tehas stop` and `tehas history` stop with
+exit 78 before anything else when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`:

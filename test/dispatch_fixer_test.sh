@@ -9,7 +9,8 @@
 # --- The fixer ---------------------------------------------------------------
 # Issue 7 is labelled by the fixer, its body is "Words.", and alice approved
 # its last cycle on that body.
-fixer_ready() { # [<approval record of the last start>]
+fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
+  local i
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
   echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"}]}]' >"$fx/ready.json"
@@ -17,7 +18,9 @@ fixer_ready() { # [<approval record of the last start>]
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
   echo '[]' >"$fx/icomments-7.json"
   mkdir -p "$T/home/tehas/state/cycles"
-  printf '%s\n' "${1:-{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$WSUM\",\"links\":[]\}}" >"$approved_file"
+  [ "${1:-0}" != - ] || return 0
+  past 7 alice label 2026-10-01T00:00:00Z
+  for ((i = 1; i <= ${1:-0}; i++)); do past 7 tehas-fixer fixer "2026-10-01T0$i:00:00Z"; done
 }
 
 t_case "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval"
@@ -25,7 +28,7 @@ fixer_ready
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]' "$approved_file")" \
+t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_on.how, (.rests_on.body_sha256 == .body_sha256)]')" \
   '["tehas-fixer","fixer",1,"alice","2026-10-01T00:00:00Z","label",true]'
 t_contains "$t_out" "start #7 (labelled by the fixer by tehas-fixer)"
 t_contains "$(t_calls gh)" "authorized by @tehas-fixer's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
@@ -34,13 +37,13 @@ t_case "the start takes tehas:fixer-escalated off with the rest of the earlier o
 t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:fixer-escalated"
 
 t_case "a second fixer start counts on from the first and keeps the person's approval"
-fixer_ready "$(jq -c '.' "$approved_file")"
+fixer_ready 1
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c '[.how, .fixer_starts, .rests_on.by]' "$approved_file")" '["fixer",2,"alice"]'
+t_eq "$(approval '[.how, .fixer_starts, .rests_on.by]')" '["fixer",2,"alice"]'
 
 t_case "at the limit the fixer's label comes off, and the issue says a person decides"
-fixer_ready "$(jq -c '.fixer_starts = 2' "$approved_file")"
+fixer_ready 2
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit"
@@ -49,8 +52,14 @@ t_contains "$(t_calls gh)" "The fixer applied it, and the fixer may not start th
 t_lacks "$t_out" "not an allowed account"
 
 t_case "no approval by a person before: the fixer's label starts nothing"
-fixer_ready
-rm -f "$approved_file"
+fixer_ready -
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "no person approved an earlier cycle of it"
+
+t_case "a person's approval whose start never ran is no base for the fixer"
+fixer_ready -
+past 7 alice label 2026-10-01T00:00:00Z --rc 4 --never-ran
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "no person approved an earlier cycle of it"
@@ -66,7 +75,7 @@ t_case "the fixer's label on the control issue starts nothing"
 fixer_ready
 echo '[{"number":1,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-1.json"
-cp "$approved_file" "$T/home/tehas/state/cycles/1.approved.json"
+past 1 alice label 2026-10-01T00:00:00Z
 cp "$fx/edit-7.json" "$fx/edit-1.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
@@ -102,9 +111,9 @@ fixer_ready
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c '.retry_context' "$approved_file")" \
-  '[{"source":"fixer:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]'
-t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false
+t_eq "$(approval '.retry_context')" \
+  "$(sorted '[{"source":"fixer:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]')"
+t_eq "$(approval 'has("comment_links")')" false
 
 t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
 fixer_ready
@@ -117,7 +126,7 @@ t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas
 t_case "without such a comment the record has no context"
 fixer_ready
 t_run "$dispatch"
-t_eq "$(jq -c 'has("retry_context")' "$approved_file")" false
+t_eq "$(approval 'has("retry_context")')" false
 
 # --- The fixer's planning answers --------------------------------------------
 # Issue 7 has a planning question open in a session alice started, on an

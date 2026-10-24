@@ -301,7 +301,7 @@ issue_is() {
     author_association: $who} + (if $title == "" then {} else {title: $title} end)' >"$fx/issue.json"
 }
 images_on() {
-  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+  rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/state/cycles/7.manifest.json"
   # The body of the container of the case before, if it named one: fresh clears
   # it too, and the two helpers clear the rest of the host in their own way.
   rm -f "$T/container.sh"
@@ -316,7 +316,7 @@ images_on() {
 # a start asks GitHub for, with attachments or without them, starts here.
 images_off() {
   rm -rf "$fx" "$T"/calls/* "$T/home/tehas/work" "$T/home/tehas/logs" \
-    "$T/home/tehas/state/cycles/7.manifest.json" "$T/home/tehas/state/cycles/7.approved.json"
+    "$T/home/tehas/state/cycles/7.manifest.json"
   # What the container of this cycle does is a file a case writes; it goes with
   # the rest of the host here, as fresh does for the cases that use it.
   rm -f "$T/container.sh"
@@ -343,25 +343,46 @@ labelled_by() {
   jq -n --arg who "$1" '[{event: "labeled", label: {name: "tehas:plan"}, actor: {login: "alice"}, created_at: "2026-10-12T00:00:00Z"},
     {event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-11T00:00:00Z"}]' >"$fx/events.json"
 }
-record=$T/home/tehas/state/cycles/7.approved.json
 kept=$T/home/tehas/state/cycles/7.manifest.json
-# record_is <by> <body it approved> <link>...: the record of a start. The hash
-# is tehas_body_sha256's own, the one the dispatcher records and tehas work
+# The approval of the start, as the dispatcher records it on the state store,
+# kept here in the shape tehas_approval_view gives it back (the shape the
+# record file had). record_put puts it on a fresh store with a start that used
+# it, so a run of tehas work on its own finds it as the latest start's. A
+# fixer's or a refresh's rests on an earlier start of the person's approval in
+# rests_on.
+record_json=""
+record_put() { t_record "$T/home/tehas" 7 "$record_json"; }
+# under_cycle: a run as tehasbot cycle makes it by hand: its start on record,
+# and tehas work given its attempt.
+under_cycle() {
+  local e t_keep=()
+  t_started "$T/home/tehas" 7 --by-hand
+  for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
+  T_ENV=("${t_keep[@]}" "TEHAS_CYCLE_ATTEMPT=$(t_row cycle-show 7 -- .cycle.attempt)")
+}
+# record_edit <jq filter> [<jq args>...]: change the approval and put it again.
+record_edit() {
+  record_json=$(jq -c "$@" <<<"$record_json") || t_bad "record_edit: $*"
+  record_put
+}
+# record_is <by> <body it approved> <link>...: the approval of a start. The
+# hash is tehas_body_sha256's own, the one the dispatcher records and tehas work
 # compares, so a body that differs only in line ends differs in nothing.
 record_is() {
   local by=$1 body=$2
   shift 2
-  mkdir -p "$(dirname "$record")"
-  jq -n --arg by "$by" --arg sum "$(jq -n --arg body "$body" '{body: $body}' | tehas_body_sha256)" '{at: "2026-10-14T00:00:00Z", by: $by,
-    how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@" >"$record"
+  record_json=$(jq -c -n --arg by "$by" --arg sum "$(jq -n --arg body "$body" '{body: $body}' | tehas_body_sha256)" '{at: "2026-10-14T00:00:00Z", by: $by,
+    how: "label", body_sha256: $sum, links: $ARGS.positional}' --args "$@")
+  record_put
 }
-# record_binds_title <title>: add the title's hash to the record record_is
-# wrote, as the dispatcher writes it next to the body's.
+# record_binds_title <title>: add the title's hash to the approval record_is
+# made, as the dispatcher records it next to the body's.
 record_binds_title() {
-  jq --arg sum "$(jq -n --arg t "$1" '{title: $t}' | tehas_title_sha256)" '.title_sha256 = $sum' \
-    "$record" >"$record.new" && mv "$record.new" "$record"
+  record_edit --arg sum "$(jq -n --arg t "$1" '{title: $t}' | tehas_title_sha256)" '.title_sha256 = $sum'
 }
 
-# Most cases run with this instance and environment.
+# Most cases run with this instance and environment, and the state store
+# with nothing on record.
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
+t_store_home "$T/home/tehas"

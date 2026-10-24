@@ -22,15 +22,16 @@
 #       nothing, where tehas_analytics would not call it: TEHAS_ANALYTICS is
 #       not on or the program is not installed.
 #
-#   tehas_analytics_run <issue> [<option>...]
+#   tehas_analytics_run <issue> <attempt> <line> [<option>...]
 #       tehas_analytics run <issue> --facts <file> [<option>...], the facts of
-#       the run that ended last written to <file> for the call and removed
-#       after it: {line, attempt, approval, settings, rukas}. From
-#       state/cycles as libexec/cycle and libexec/work leave them: the last
-#       line of <issue>.history.jsonl and how many lines it has, {at, how} of
-#       .approved.json, the .settings written since the run started, and the
-#       first line of .rukas. A file that is missing, a link, over its bound or
-#       not JSON is a null fact, as the program read it before.
+#       the run that ended written to <file> for the call and removed after
+#       it: {line, attempt, approval, settings, rukas}. <line> is the line of
+#       history libexec/cycle made of the end, a JSON object, and <attempt> the
+#       attempt the state store gave the start. The rest is from the state
+#       store (lib/store.sh, which the caller sources): {at, how} of the
+#       approval that attempt used, and the settings and the pi-rukas commit on
+#       its record. What the store cannot answer, or has none of, is a null
+#       fact, as is a line that is not an object.
 #
 #   tehas_analytics_plan <issue> [<option>...]
 #       tehas_analytics plan <issue> --facts <file> [<option>...], the facts
@@ -121,32 +122,32 @@ tehas_analytics_facts() {
 }
 
 tehas_analytics_run() {
-  local issue=$1 cycles=$TEHAS_HOME/state/cycles history approval=null settings=null rukas=null started mtime facts
-  shift
+  local issue=$1 attempt=$2 line=$3 approval=null settings=null rukas=null view facts
+  shift 3
   tehas_analytics_on || return 0
-  history=$(tehas_analytics_read "$cycles/$issue.history.jsonl" |
-    jq -R -s -c '[split("\n")[] | fromjson? | objects] | {line: last, attempt: length}' 2>/dev/null) ||
-    history=""
-  [ -n "$history" ] || history='{"line": null, "attempt": 0}'
-  approval=$(tehas_analytics_read "$cycles/$issue.approved.json" |
-    jq -s -c 'if length == 1 and (.[0] | type) == "object" then .[0] | {at, how} else null end' 2>/dev/null) ||
-    approval=null
-  # Only a snapshot of this run: libexec/work writes it as the run starts.
-  started=$(jq -r '.line.started | numbers' <<<"$history" 2>/dev/null)
-  mtime=$(stat -c %Y -- "$cycles/$issue.settings" 2>/dev/null) || mtime=""
-  if [[ $started =~ ^[0-9]+$ ]] && [[ $mtime =~ ^[0-9]+$ ]] && [ "$mtime" -ge $((started - 5)) ]; then
-    settings=$(tehas_analytics_read "$cycles/$issue.settings" |
-      jq -s -c 'if length == 1 and (.[0] | type) == "object" then .[0] | {container, host, concurrentCycles} else null end' 2>/dev/null) ||
-      settings=null
+  [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]] || attempt=null
+  line=$(jq -c 'objects' <<<"$line" 2>/dev/null) || line=""
+  [ -n "$line" ] || line=null
+  if [ "$attempt" != null ]; then
+    if view=$(tehas_approval_view "$issue" "$attempt"); then
+      approval=$(jq -c '{at, how}' "$view" 2>/dev/null) || approval=null
+      rm -f "$view"
+    fi
+    # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets these
+    if tehas_store cycle-show "$issue"; then
+      settings=$(jq -c --argjson a "$attempt" ".cycle | select(. != null and .attempt == \$a) | $tehas_settings_shape" \
+        <<<"$tehas_store_out" 2>/dev/null) || settings=null
+      rukas=$(jq -c --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .rukas_commit' \
+        <<<"$tehas_store_out" 2>/dev/null) || rukas=null
+    fi
   fi
-  rukas=$(tehas_analytics_read "$cycles/$issue.rukas" 4096 | jq -R -s -c 'split("\n")[0]' 2>/dev/null) || rukas=null
   [ -n "$approval" ] || approval=null
   [ -n "$settings" ] || settings=null
   [ -n "$rukas" ] || rukas=null
   # Through standard input: a history line may be longer than one argument
   # of a command may be.
-  facts=$(printf '%s\n' "$history" "$approval" "$settings" "$rukas" |
-    jq -s -c '{line: .[0].line, attempt: .[0].attempt, approval: .[1], settings: .[2], rukas: .[3]}' 2>/dev/null) ||
+  facts=$(printf '%s\n' "$line" "$attempt" "$approval" "$settings" "$rukas" |
+    jq -s -c '{line: .[0], attempt: .[1], approval: .[2], settings: .[3], rukas: .[4]}' 2>/dev/null) ||
     facts=""
   [ -n "$facts" ] || facts=null
   tehas_analytics_facts run "$issue" "$facts" "$@"

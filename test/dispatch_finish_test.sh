@@ -19,7 +19,7 @@ bare_tree() {
   rm -rf "$tree"
   mkdir -p "$tree/libexec" "$tree/lib"
   cp "$dispatch" "$tree/libexec/dispatch"
-  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/labels.sh" "$T_ROOT/lib/questions.sh" "$T_ROOT/lib/planning.sh" "$T_ROOT/lib/slice.sh" "$T_ROOT/lib/disk.sh" "$T_ROOT/lib/attachments.sh" "$tree/lib/"
+  cp "$T_ROOT"/lib/*.sh "$tree/lib/"
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # Runs the unit's command at once, after its own options.
@@ -34,7 +34,8 @@ t_stub systemctl 'case "$1 $2" in
   "show tehas.slice") cat "$T/fx/slice.show" ;;
   "--user show") echo loaded ;;
   "--user start") n=${3#tehas-cycle@}
-    : >"$TEHAS_HOME/state/cycles/${n%.service}.taken" ;;
+    n=${n%.service}
+    flock -w 5 "$TEHAS_HOME/state/cycles/$n.lock" "$T/store-bin" cycle-start "$n" >/dev/null ;;
 esac'
 t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 0
@@ -121,13 +122,15 @@ release
 # systemctl stop ends the unit. It took its lock now.
 hold_proc() { # <issue>
   mkdir -p "$T/home/tehas/state/cycles"
-  : >"$T/home/tehas/state/cycles/$1.taken"
   flock -o "$T/home/tehas/state/cycles/$1.lock" sleep 30 >/dev/null 2>&1 &
   echo "$!" >"$fx/holder-$1"
   for _ in $(seq 50); do
     flock -n "$T/home/tehas/state/cycles/$1.lock" true || break
     sleep 0.1
   done
+  # Its start on record, made under the lock the holder has.
+  TEHAS_HOME=$T/home/tehas "$T/store-bin" cycle-start "$1" --by-hand >/dev/null ||
+    t_bad "the store did not start the record of #$1"
 }
 stop_by_kill() {
   t_stub fake-stop 'kill "$(cat "$T/fx/holder-$1")"'
@@ -349,7 +352,8 @@ outage_parked() { # [<retry>]
   mkdir -p "$cycles_dir"
   jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" --argjson r "${1:-true}" \
     '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true, retry: $r, started: $s}' >"$cycles_dir/7.park"
-  echo alice >"$cycles_dir/7.by"
+  # alice's approval started the cycle that parked.
+  t_ended "$T/home/tehas" 7 alice label --provider --parked
   echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
 }
 
@@ -367,20 +371,22 @@ t_lacks "$(t_calls gh)" "api -X PATCH"
 
 t_case "the park is used up, and the start is marked as the retry for its cycle"
 t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
-t_eq "$(find "$cycles_dir/7.requeued" 2>/dev/null | wc -l)" 1
-t_eq "$(cat "$cycles_dir/7.by")" alice
+t_eq "$(t_row cycle-show 7 -- '"\(.cycle.attempt) \(.cycle.requeued) \(.cycle.started_by) \(.cycle.how)"')" "2 true alice outage-retry"
 t_eq "$([ -e "$park_id" ] && echo kept)" ""
-t_eq "$(jq -r '"\(.how) \(.by) \(.at)"' "$cycles_dir/7.approved.json")" "outage-retry alice 2026-01-01T02:00:00Z"
+# On record at the time the poll decided it, not at the time of the approval
+# it rests on, which started a cycle already.
+t_eq "$(approval '"\(.how) \(.by)"')" "outage-retry alice"
+t_eq "$(($(t_row approval-current 7 -- .current.at) > $(date -d 2026-01-01T02:00:00Z +%s)))" 1
 
 t_case "a start a person asked for is not the retry, and says who asked"
 reset
 mkdir -p "$cycles_dir"
-: >"$cycles_dir/7.requeued"
+t_ended "$T/home/tehas" 7 bob outage-retry
 echo '{"retry":true}' >"$cycles_dir/7.park"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
-t_eq "$(cat "$cycles_dir/7.by")" alice
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- '"\(.cycle.attempt) \(.cycle.requeued) \(.cycle.started_by)"')" "2 false alice"
 
 t_case "a park that asks for no retry starts nothing and stays"
 outage_parked false
@@ -416,8 +422,8 @@ t_case "no retry when its starter is no longer allowed, the text was changed by 
 for why in stranger edited closed unparked nobody; do
   outage_parked
   case "$why" in
-    stranger) echo mallory >"$cycles_dir/7.by" ;;
-    nobody) rm -f "$cycles_dir/7.by" ;;
+    stranger) t_ended "$T/home/tehas" 7 mallory label --provider --parked ;;
+    nobody) t_ended "$T/home/tehas" 7 - label --provider --parked ;;
     edited) echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json" ;;
     closed) echo '{"state":"CLOSED","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json" ;;
     unparked) echo '{"state":"OPEN","labels":[]}' >"$fx/issue-7.json" ;;
@@ -436,7 +442,8 @@ echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attenti
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "start #7 (labelled by alice)"
-t_eq "$(find "$cycles_dir/7.requeued" "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" false
 rm -f "$T/home/.pi/agent/models.json" "$fx/mesh.json"
 
 t_done

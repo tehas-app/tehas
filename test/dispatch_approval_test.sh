@@ -208,16 +208,18 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 sum=$(printf 'See ![a](%s/1111)\nand ![b](%s/2222) and again %s/1111, not https://example.com/c.png' "$A" "$A" "$A" | sha256sum | cut -d' ' -f1)
 tsum=$(printf '%s' "Faster search" | sha256sum | cut -d' ' -f1)
-t_eq "$(jq -c . "$T/calls/approved.at-mark" 2>&1)" \
-  "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"],\"title_sha256\":\"$tsum\"}"
-t_eq "$(cmp "$approved_file" "$T/calls/approved.at-mark" && echo same)" same
+t_eq "$(at_mark '{at, by, how, body_sha256, links, title_sha256}')" \
+  "$(sorted "{\"at\":\"2026-01-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$sum\",\"links\":[\"$A/1111\",\"$A/2222\"],\"title_sha256\":\"$tsum\"}")"
+# The start used the approval it found: the same one, now its readers'.
+t_eq "$(sorted "$(approval '{at, by, how, body_sha256, links, title_sha256}')")" "$(at_mark '{at, by, how, body_sha256, links, title_sha256}')"
+t_eq "$(at_mark .label)" tehas:ready
 
 t_case "the title's hash drops line ends as the body's does"
 reset
 jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: $body,
   title: "Faster\r\nsearch"}}}}' >"$fx/edit-7.json"
 t_run "$dispatch"
-t_eq "$(jq -r .title_sha256 "$approved_file")" "$(printf '%s' "Fastersearch" | sha256sum | cut -d' ' -f1)"
+t_eq "$(approval .title_sha256)" "$(printf '%s' "Fastersearch" | sha256sum | cut -d' ' -f1)"
 
 t_case "an answer that names no title records no title hash, the shape of a record written before titles were bound"
 reset
@@ -225,10 +227,10 @@ jq -n --arg body "Words." '{data: {repository: {issue: {lastEditedAt: null, edit
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c 'has("title_sha256")' "$approved_file")" false
+t_eq "$(approval 'has("title_sha256")')" false
 
 t_case "without the comments setting the record names no comment and none are read"
-t_eq "$(jq -c 'has("comment_links")' "$approved_file")" false
+t_eq "$(approval 'has("comment_links")')" false
 t_lacks "$(t_calls gh)" "comments?per_page"
 
 t_case "with comments on, the record takes the links of comments an allowed account wrote before the label"
@@ -252,13 +254,13 @@ jq -n --arg body "![a]($A/1111)" '{data: {repository: {issue: {lastEditedAt: nul
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c '[.links, .comment_links]' "$T/calls/approved.at-mark" 2>&1)" \
-  "[[\"$A/1111\"],[{\"link\":\"$A/4444\",\"source\":\"comment:51\",\"by\":\"alice\"},{\"link\":\"$A/5555\",\"source\":\"comment:52\",\"by\":\"alice\"},{\"link\":\"$A/1111\",\"source\":\"comment:52\",\"by\":\"alice\"}]]"
+t_eq "$(at_mark '[.links, .comment_links]')" \
+  "$(sorted "[[\"$A/1111\"],[{\"link\":\"$A/4444\",\"source\":\"comment:51\",\"by\":\"alice\"},{\"link\":\"$A/5555\",\"source\":\"comment:52\",\"by\":\"alice\"},{\"link\":\"$A/1111\",\"source\":\"comment:52\",\"by\":\"alice\"}]]")"
 
 t_case "an outsider's comment, one written after the label and one edited after it are not in the record"
-t_lacks "$(cat "$approved_file")" "$A/6666"
-t_lacks "$(cat "$approved_file")" "$A/7777"
-t_lacks "$(cat "$approved_file")" "$A/8888"
+t_lacks "$(approval)" "$A/6666"
+t_lacks "$(approval)" "$A/7777"
+t_lacks "$(approval)" "$A/8888"
 
 t_case "a retry tick's record takes the comments written before the tick"
 parked
@@ -273,7 +275,7 @@ comments 7 "$(park_body x ' ')" alice
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '[.how, (.comment_links | map(.source))]' "$T/calls/approved.at-mark" 2>&1)" '["retry-tick",["comment:61"]]'
+t_eq "$(at_mark '[.how, (.comment_links | map(.source))]')" '["retry-tick",["comment:61"]]'
 
 t_case "a retry tick takes what allowed accounts wrote on the cycle's pull request between the park and the tick"
 parked
@@ -298,14 +300,14 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHA
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(jq -c '.comment_links' "$T/calls/approved.at-mark" 2>&1)" "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]"
-t_eq "$(jq -c '.retry_context' "$T/calls/approved.at-mark" 2>&1)" \
-  "[{\"source\":\"pr-comment:71\",\"by\":\"alice\",\"at\":\"2026-01-01T00:20:00Z\",\"text\":\"The button goes here: ![shot]($A/7171)\"},{\"source\":\"pr-comment:91\",\"by\":\"bob\",\"at\":\"2026-01-01T00:40:00Z\",\"text\":\"second PR\"}]"
+t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
+t_eq "$(at_mark '.retry_context')" \
+  "$(sorted "[{\"source\":\"pr-comment:71\",\"by\":\"alice\",\"at\":\"2026-01-01T00:20:00Z\",\"text\":\"The button goes here: ![shot]($A/7171)\"},{\"source\":\"pr-comment:91\",\"by\":\"bob\",\"at\":\"2026-01-01T00:40:00Z\",\"text\":\"second PR\"}]")"
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
 
 t_case "an outsider's pull request comment, one before the park and one after the tick are not taken, nor another issue's pull request"
-for l in 7272 7373 7474 8181; do t_lacks "$(cat "$approved_file")" "$A/$l"; done
-t_lacks "$(cat "$approved_file")" "ignore all that"
+for l in 7272 7373 7474 8181; do t_lacks "$(approval)" "$A/$l"; done
+t_lacks "$(approval)" "ignore all that"
 t_lacks "$(t_calls gh)" "issues/31/comments"
 
 t_case "a start by label reads no pull request"
@@ -315,7 +317,7 @@ echo '[]' >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "pr list"
-t_eq "$(jq -c 'has("retry_context")' "$approved_file")" false
+t_eq "$(approval 'has("retry_context")')" false
 
 t_case "with comments off a retry tick reads no pull request"
 parked
@@ -323,7 +325,7 @@ comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "pr list"
-t_eq "$(jq -c '[has("comment_links"), has("retry_context")]' "$approved_file")" '[false,false]'
+t_eq "$(approval '[has("comment_links"), has("retry_context")]')" '[false,false]'
 
 t_case "pull requests that cannot be listed start no retry and change no label: exit 1"
 parked
@@ -354,22 +356,21 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_case "an issue with no body is approved with the hash of nothing and no links"
 reset
 t_run "$dispatch"
-t_eq "$(jq -c '[.body_sha256, .links]' "$approved_file")" "[\"$(printf '' | sha256sum | cut -d' ' -f1)\",[]]"
+t_eq "$(approval '[.body_sha256, .links]')" "[\"$(printf '' | sha256sum | cut -d' ' -f1)\",[]]"
 
 t_case "a dry run writes no record"
 reset
 t_run "$dispatch --dry-run"
-t_eq "$(find "$approved_file" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" "[null,null]"
 
-t_case "a record that cannot be written starts nothing and changes no label: exit 1"
+t_case "an approval the store does not take starts nothing and changes no label: exit 1"
 reset
-mkdir -p "$approved_file.new"
+t_store_answers approval-record 1 'store: busy #7: the database is locked'
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: could not write the approval record of #7, not starting a cycle"
+t_contains "$t_out" "ERROR: could not write the approval record of #7 (busy), not starting a cycle"
 t_lacks "$(t_calls gh)" "issue edit"
 t_eq "$(t_calls fake-start)" ""
-rmdir "$approved_file.new"
 
 # The seam between the two commands. A cycle the poll started can find its
 # issue closed when it asks, and refuse it. It claimed its place before it

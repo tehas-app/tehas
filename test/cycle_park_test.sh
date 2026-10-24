@@ -47,14 +47,15 @@ done
 t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
 reset
 capped step-failed:adversarial "$outage"
-mkdir -p "$state"
-: >"$state/7.requeued"
+# The dispatcher's own retry after an outage is the approval this start uses.
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice outage-retry
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
 t_contains "$(t_calls gh)" "It was the retry tehas made on its own after an outage, so it waits for a person."
 t_lacks "$(t_calls gh)" "starts it again once"
 t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,false]'
-t_eq "$(find "$state/7.requeued" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" true
 
 t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
 reset
@@ -163,7 +164,7 @@ park_markers() { t_calls gh | grep -E '^<!-- tehas:park ' || true; }
 park_sig() { park_markers | sed -E 's/.* sig=([0-9a-f]+) -->$/\1/'; }
 # The sig of the park in the history line, from its fields as recorded.
 history_sig() {
-  jq -j '[.step, .cap, .park_reason, .failure_kind, .failure_cause] | map(. // "") | join("|")' "$state/7.history.jsonl" |
+  printf '%s' "$(t_row history-show 7 -- '.rows[-1] | [.step, .cap, .park_reason, .failure_kind, .failure_cause] | map(. // "") | join("|")')" |
     sha256sum | cut -c1-64
 }
 
@@ -387,15 +388,19 @@ rm -rf "$workdir"
 # A runner that refused to start (tehas work exit 4): the park is for a cycle
 # that never ran, so it is said from the dispatcher's record of the start, and
 # the record goes with it.
-never_ran() { # [record as jq, none for no record]
+never_ran() { # [approved: alice's approval of the start is on record]
   reset
   echo 4 >"$fx/rc"
-  [ -z "${1:-}" ] || { mkdir -p "$state"; jq -c -n "$1" >"$state/7.approved.json"; }
+  [ -z "${1:-}" ] || approved_start
 }
-approved_start='{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "0", links: []}'
+# The unit's start on alice's label of 2026-01-01T00:00:00Z.
+approved_start() { # [<approval-record args>...]
+  T_ENV+=(TEHAS_CYCLE_FROM=unit)
+  t_approve "$T/home/tehas" 7 alice label "$(date -u -d 2026-01-01T00:00:00Z +%s)" "$@"
+}
 
 t_case "a start that never ran is parked as one that never ran, named from the record"
-never_ran "$approved_start"
+never_ran approved
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4)."
 t_contains "$(t_calls gh)" "alice approved this start at 2026-01-01T00:00:00Z"
@@ -406,19 +411,18 @@ t_lacks "$(t_calls gh)" "last step"
 t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["",false,false]'
 
 t_case "a start that never ran leaves no approval record, and its line of history still names how it was authorised"
-never_ran "$approved_start"
+never_ran approved
 t_run "$cycle 7"
-t_eq "$([ -e "$state/7.approved.json" ] && echo left)" ""
-t_eq "$(jq -c '[.rc, .status, .step, .how, .parked]' "$state/7.history.jsonl")" '[4,"unknown","-","label",true]'
+t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" '[null,null]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .parked] | tostring')" '[4,"unknown","-","label",true]'
 
 t_case "a cycle that ran keeps its approval record"
 reset
-mkdir -p "$state"
-jq -c -n "$approved_start" >"$state/7.approved.json"
+approved_start
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_eq "$([ -e "$state/7.approved.json" ] && echo left)" "left"
+t_eq "$(t_row approval-current 7 -- '[.current.by, .current.used_by] | tostring')" '["alice",1]'
 rm -rf "$workdir" "$fx/pr.txt"
 
 t_case "a start that never ran with no record on this host says so, and still asks for the label"
@@ -430,32 +434,20 @@ t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 1
 
 # The park carries the body its cycle was approved on, so the dispatcher can
 # tell a relabelled start of the same text from one that came after a change.
-t_case "the park carries the body of the approval record it started on"
+t_case "the park carries the body of the approval it started on"
 reset
-mkdir -p "$state"
-jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label",
-  body_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", links: []}' \
-  >"$state/7.approved.json"
+approved_start --body-sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 echo 30 >"$fx/rc"
 t_run "$cycle 7"
 t_eq "$(jq -r .body_sha256 "$state/7.park")" \
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
-t_case "a park of a cycle that started with no body on record names none"
-reset
-mkdir -p "$state"
-jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", links: []}' >"$state/7.approved.json"
-echo 30 >"$fx/rc"
+t_case "a park of a cycle started by hand names no body, not that of an earlier start"
+# The earlier start's approval is still the last one used, and not this one's.
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
 t_run "$cycle 7"
 t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
-
-t_case "and a body that is no hash is not carried into the park"
-reset
-mkdir -p "$state"
-jq -c -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "not-a-hash", links: []}' \
-  >"$state/7.approved.json"
-echo 30 >"$fx/rc"
-t_run "$cycle 7"
-t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.how] | tostring')" '[2,"hand"]'
 
 t_done

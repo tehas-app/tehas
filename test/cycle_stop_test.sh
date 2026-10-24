@@ -137,22 +137,23 @@ t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 
 t_case "the branch whose pull request could not be looked up stays on record"
-t_eq "$(cat "$state/7.branch")" feature/x
+t_eq "$(t_row cycle-show 7 -- .cycle.branch)" feature/x
 
-t_case "a list that was read leaves no branch on record, and one left by an earlier cycle goes"
-mkdir -p "$state"
-echo feature/old >"$state/7.branch"
-ended handoff commit-pr feature/x
+t_case "the branch is on record with every end, and an earlier cycle's is not the next one's"
+ended handoff commit-pr feature/y
 t_run "$cycle 7"
-t_eq "$(find "$state/7.branch" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.branch] | tostring')" '[2,"feature/y"]'
 t_contains "$(t_calls gh)" "Pull request waiting for a human"
+rm -f "$fx/result.json"
+t_run "$cycle 7"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.branch] | tostring')" '[3,null]'
 
 t_case "a branch name the container wrote is reduced before it is recorded"
 reset
 ended handoff commit-pr 'feature/x`;@y$z'
 echo 3 >"$fx/pr-fails-times"
 t_run "$cycle 7"
-t_eq "$(cat "$state/7.branch")" feature/xyz
+t_eq "$(t_row cycle-show 7 -- .cycle.branch)" feature/xyz
 t_contains "$(t_calls gh)" "the branch \`feature/xyz\`"
 
 t_case "when the label cannot be changed the comment says so"

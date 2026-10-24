@@ -227,11 +227,14 @@ caps_good
 # body it approved is the one the stub answers with, so the text check of a
 # start that carries a record is met.
 refresh_record() { # <how>
+  local -a pr=()
   mkdir -p "$fx/net" "$T/home/tehas/state/cycles"
   issue_is "" NONE
-  jq -n --arg how "$1" --arg sum "$(jq -n '{body: ""}' | tehas_body_sha256)" \
-    '{at: "2026-10-01T00:00:00Z", by: "alice", how: $how, body_sha256: $sum, links: []}' \
-    >"$T/home/tehas/state/cycles/7.approved.json"
+  t_store_db "$T/home/tehas"
+  [ "$1" != refresh ] || pr=(--refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})")
+  t_approve "$T/home/tehas" 7 alice "$1" "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
+    --body-sha "$(jq -n '{body: ""}' | tehas_body_sha256)" "${pr[@]}"
+  t_started "$T/home/tehas" 7
 }
 
 t_case "a refresh passes --continue-pr when the image takes it, with the same mounts and variables as any start"
@@ -249,7 +252,7 @@ t_eq "$(cycle_args | sed -n "/^$(printf '%s' "tehas/pi-rukas:uid$(id -u)" | sed 
   "tehas/pi-rukas:uid$(id -u) $runner work 7 --timeout 360 --json --continue-pr "
 t_eq "$(after -v | LC_ALL=C sort)" "$plain_v"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$plain_e"
-rm -f "$T/home/tehas/state/cycles/7.approved.json"
+t_store_db "$T/home/tehas"
 caps_good
 
 t_case "a refresh on an image that does not take --continue-pr starts nothing"
@@ -258,7 +261,7 @@ refresh_record refresh
 t_run "$work 7"
 caps_refused
 t_contains "$t_out" "the flag --continue-pr"
-rm -f "$T/home/tehas/state/cycles/7.approved.json"
+t_store_db "$T/home/tehas"
 
 for how in label retry-tick outage-retry fixer; do
   t_case "a start of how $how never passes --continue-pr, also when the image takes it"
@@ -268,7 +271,7 @@ for how in label retry-tick outage-retry fixer; do
   t_run "$work 7"
   t_eq "$t_rc" 2
   t_lacks "$(cycle_args | tr '\n' ' ')" "--continue-pr"
-  rm -f "$T/home/tehas/state/cycles/7.approved.json"
+  t_store_db "$T/home/tehas"
   caps_good
 done
 

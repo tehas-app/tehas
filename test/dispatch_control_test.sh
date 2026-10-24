@@ -103,7 +103,7 @@ reset
 echo '[]' >"$fx/ready.json"
 mkdir -p "$T/home/tehas/state/cycles"
 jq -cn '{retry: true, started: 1767225600}' >"$T/home/tehas/state/cycles/1.park"
-echo alice >"$T/home/tehas/state/cycles/1.by"
+t_ended "$T/home/tehas" 1 alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "--add-label tehas:running"

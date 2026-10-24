@@ -39,6 +39,7 @@ reset() {
   rm -rf "$T"/calls/* "$T/instance" "$home" "$out" "$T/home/.pi"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+  t_store_home "$home"
   # A case that takes the stub away leaves it away, so every case gets its own.
   t_stub console "$mask_stub"
 }
@@ -48,7 +49,7 @@ cycle() {
   local n=$1 e=$2 extra=${3-}
   [ -n "$extra" ] || extra='{}'
   mkdir -p "$cycles" "$logs"
-  jq -cn --arg at "$(iso "$e")" --argjson x "$extra" '$x + {at: $at}' >"$cycles/$n.history.jsonl"
+  t_history_end "$home" "$n" "$e" "$extra"
   printf '%s\n' '{"issue":12,"result":"merged"}' >"$cycles/$n.result.json"
   printf '%s\n' '{"step":"review"}' >"$cycles/$n.progress.json"
   printf 'plain text %s here\n' "$token" >"$logs/work-$n-1760.jsonl"
@@ -62,8 +63,8 @@ cycle() {
 turn() {
   local n=$1 e=$2 extra=${3-}
   [ -n "$extra" ] || extra='{}'
-  mkdir -p "$home/state"
-  jq -cn --arg at "$(iso "$e")" --argjson x "$extra" '$x + {at: $at}' >"$home/state/plan-$n.history.jsonl"
+  mkdir -p "$cycles"
+  jq -cn --arg at "$(iso "$e")" --argjson x "$extra" '$x + {at: $at}' >"$cycles/plan-$n.history.jsonl"
   printf '%s\n' '{"issue":7,"outcome":"finished"}' >"$home/state/plan-$n.json"
 }
 # run_export <args as words>: tehas export with these arguments. The command it
@@ -130,7 +131,7 @@ t_case "the cycle's own line of history is what tehas history says"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -c . "$out/cycles/1760700000-12/history.json")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\"}"
+t_eq "$(jq -c . "$out/cycles/1760700000-12/history.json")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
 
 t_case "a planning turn brings its session record and no cycle files"
 reset
@@ -199,8 +200,7 @@ t_eq "$(cat "$out/cycles/1760700000-12/protolab/files/note.md")" "a file with $m
 
 t_case "a cycle with no logs, no transcripts and no page is exported all the same"
 reset
-mkdir -p "$cycles"
-jq -cn --arg at "$(iso "$T0")" '{kind: "work", at: $at, rc: 0, status: "merged"}' >"$cycles/12.history.jsonl"
+t_history_end "$home" 12 "$T0" '{"rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
 t_eq "$(listing 1760700000-12)" "history.json"
@@ -226,6 +226,8 @@ reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$(jq -r .status "$out/cycles/1760700000-12/history.json")" 0
+# The same cycle, as it is on record now.
+t_store_db "$home"
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$(jq -r .status "$out/cycles/1760700000-12/history.json")" 10
@@ -298,11 +300,13 @@ cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 turn 7 "$((T0 + 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 mkdir -p "$T/home/.pi/agent/ensemble-runs/issue-12"
 printf '%s\n' '{"type":"assistant"}' >"$T/home/.pi/agent/ensemble-runs/issue-12/abc.jsonl"
-before=$(cd "$home" && find . | LC_ALL=C sort)
+# The store's own files of its log (-wal, -shm) are SQLite's, not a write.
+files() { (cd "$home" && find . ! -name 'tehas.db-wal' ! -name 'tehas.db-shm' | LC_ALL=C sort); }
+before=$(files)
 before_runs=$(cd "$T/home/.pi" && find . | LC_ALL=C sort)
 run_export --json --after $((T0 - 1))-1 "$out"
 t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 2
-t_eq "$(cd "$home" && find . | LC_ALL=C sort)" "$before"
+t_eq "$(files)" "$before"
 t_eq "$(cd "$T/home/.pi" && find . | LC_ALL=C sort)" "$before_runs"
 
 t_case "reading takes no lock a running cycle holds"

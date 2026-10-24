@@ -119,8 +119,10 @@ case "$1 $2" in
   "issue edit")
     # What the host had on record at the moment an issue was marked as planning.
     case "$*" in *"--add-label tehas:planning"*) cat "$T/home/tehas/state/plan-$3.json" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
-    # And the approval record at the moment an issue was marked as running.
-    case "$*" in *"--add-label tehas:running"*) cat "$T/home/tehas/state/cycles/$3.approved.json" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
+    # And the approval on record at the moment an issue was marked as running,
+    # as tehas_approval_view shapes it: .approval the one waiting, .current the
+    # one of the last start.
+    case "$*" in *"--add-label tehas:running"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "$3" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -140,12 +142,17 @@ case "$1 $2" in
     else echo "[]"; fi ;;
 esac'
 # Stands in for systemctl --user start tehas-cycle@<issue>.service. A real
-# cycle says it holds its lock by writing the .taken file. This one fails or
-# stays silent when a case asks it to.
+# cycle says it holds its lock by starting its record on the state store,
+# under the lock: this one does the same with the real store, and lets go.
+# It fails or stays silent when a case asks it to, and with start-refused
+# ends the record as a cycle that refused its number does.
 default_start() {
   t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
-[ -e "$T/fx/start-silent" ] || : >"$TEHAS_HOME/state/cycles/$1.taken"'
+[ ! -e "$T/fx/start-silent" ] || exit 0
+flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
+[ ! -e "$T/fx/start-refused" ] ||
+  flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1'
 }
 default_start
 t_stub fake-status
@@ -460,8 +467,37 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 
-# The approval record of a start on issue 7.
-approved_file=$T/home/tehas/state/cycles/7.approved.json
+# at_mark [<jq filter>]: the approval that waited on record when the issue was
+# marked running: its time as GitHub writes one, its fields and its inputs.
+# Keys sorted, as the store keeps the inputs: compare with sorted().
+at_mark() {
+  jq -crS "(.approval | if . == null then null else {at: (.at | todate), by, how, label, body_sha256, title_sha256,
+    comment_id, refresh_pr, refresh_head} + (.input // {}) end) | ${1:-.}" "$T/calls/approved.at-mark" 2>&1
+}
+# past <issue> <by> <how> <at> [<cycle-end args>...]: a cycle of the issue on
+# record that has ended, started on <by>'s approval of that how, given at the
+# time <at> (as GitHub writes one).
+past() {
+  local n=$1 by=$2 how=$3 at a home=$T/home/tehas
+  at=$(date -u -d "$4" +%s)
+  shift 4
+  a=$(t_row cycle-show "$n" -- '.cycle.attempt // 0')
+  t_approve "$home" "$n" "$by" "$how" "$at"
+  t_started "$home" "$n"
+  TEHAS_HOME=$home flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" --attempt $((a + 1)) \
+    --status "${PAST_STATUS:-handoff}" "$@" >/dev/null || t_bad "past: the store refused the end of #$n"
+}
+# sorted <json>: the same value with its keys sorted, on one line.
+sorted() { jq -cS . <<<"$1"; }
+# approval [<jq filter> [<issue>]]: what the store has of the approvals of
+# issue 7 [.current, the one its last start used], in the shape
+# tehas_approval_view gives the readers (at as a time, rests_on, the inputs).
+approval() {
+  local t_got
+  t_got=$(TEHAS_HOME=$T/home/tehas bash -c '. "$1"; f=$(tehas_approval_view "$2") && cat "$f" && rm -f "$f"' _ \
+    "$T_ROOT/lib/store.sh" "${2:-7}") || { echo none; return 0; }
+  jq -cr "${1:-.}" <<<"$t_got"
+}
 
 # icomment <id> <login> <created> <updated> <body>: one comment as REST lists it.
 icomment() {

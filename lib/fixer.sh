@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The fixer's grant, as the dispatcher reads it, and the history of a cycle's
 # ends. Sourced by libexec/dispatch, libexec/cycle and libexec/work. Needs
-# lib/labels.sh.
+# lib/labels.sh, and lib/store.sh for the grant and the history.
 #
 # The fixer is an account of its own, TEHAS_FIXER_LOGIN, that decides on
 # parked issues from outside this factory: whatever runs as that account, the
@@ -25,10 +25,14 @@
 #                                 refresh carried them on, else 0
 #   tehas_fixer_grant <issue> <body sha256>
 #                                 0 when a tehas:ready of the fixer's on the
-#                                 issue may start a cycle now. Sets
+#                                 issue may start a cycle now, by the approval
+#                                 of its latest start on the state store
+#                                 (tehas_approval_view). Sets
 #                                 $tehas_fixer_rests_on (JSON) and
 #                                 $tehas_fixer_count (the starts with this
-#                                 one). On 1, $tehas_fixer_why says why not.
+#                                 one). On 1, $tehas_fixer_why says why not;
+#                                 2 when the store could not answer, which
+#                                 decides nothing.
 #   tehas_fixer_answer <planning record>
 #                                 0 when the fixer may answer the open question
 #                                 of that session (lib/planning.sh): a person
@@ -37,11 +41,16 @@
 #                                 answers and not the last one. On 1,
 #                                 $tehas_fixer_why says why not. What the
 #                                 answer is, the caller checks.
-#   tehas_cycle_history_add <issue> <JSON object>
-#                                 append one line to
-#                                 state/cycles/<issue>.history.jsonl, keeping
-#                                 the last 50
-#   tehas_cycle_history <issue>   that file's lines that are JSON objects
+#   tehas_plan_history_add <issue> <JSON object>
+#                                 append one line to the planning turns'
+#                                 history of the issue,
+#                                 state/cycles/plan-<issue>.history.jsonl,
+#                                 keeping the last 50
+#   tehas_cycle_history <issue>   the issue's cycle history on the state store
+#                                 (history-show), one JSON object per line in
+#                                 the shape the lines had before the store
+#                                 (tehas_history_shape). Returns 1, printing
+#                                 nothing, when the store could not answer
 #   tehas_park_marker <issue> <step> <cap> <park reason> <failure kind>
 #                     <failure cause> <provider 0|1>
 #                                 the marker line of a park comment, for a
@@ -83,7 +92,7 @@ tehas_fixer_count=0
 tehas_fixer_why=""
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_fixer_grant() { # <issue> <body sha256>
-  local record=$TEHAS_HOME/state/cycles/$1.approved.json had
+  local record="" had rc
   tehas_fixer_rests_on=""
   tehas_fixer_count=0
   tehas_fixer_why=""
@@ -91,16 +100,24 @@ tehas_fixer_grant() { # <issue> <body sha256>
     tehas_fixer_why="it is the control issue"
     return 1
   fi
-  if ! tehas_fixer_rests_on=$(tehas_fixer_base "$record"); then
+  record=$(tehas_approval_view "$1")
+  rc=$?
+  if [ "$rc" = 2 ]; then
+    tehas_fixer_why="its approvals on the state store could not be read"
+    return 2
+  fi
+  if [ "$rc" != 0 ] || ! tehas_fixer_rests_on=$(tehas_fixer_base "$record"); then
+    rm -f "$record"
     tehas_fixer_rests_on=""
     tehas_fixer_why="no person approved an earlier cycle of it, so the fixer may not start one"
     return 1
   fi
+  had=$(tehas_fixer_starts "$record") || had=""
+  rm -f "$record"
   if [ "$2" != "$(jq -r .body_sha256 <<<"$tehas_fixer_rests_on")" ]; then
     tehas_fixer_why="its text is not the text $(jq -r .by <<<"$tehas_fixer_rests_on") approved"
     return 1
   fi
-  had=$(tehas_fixer_starts "$record") || had=""
   if ! [[ $had =~ ^[0-9]{1,6}$ ]]; then
     tehas_fixer_why="its approval record does not say how many cycles the fixer started"
     return 1
@@ -147,8 +164,8 @@ tehas_fixer_answer() { # <planning record>
   fi
 }
 
-tehas_cycle_history_add() { # <issue> <JSON object>
-  local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
+tehas_plan_history_add() { # <issue> <JSON object>
+  local file=$TEHAS_HOME/state/cycles/plan-$1.history.jsonl
   [ ! -L "$file" ] || return 1
   jq -ec 'objects' <<<"$2" >>"$file" 2>/dev/null || return 1
   [ "$(wc -l <"$file")" -le 50 ] && return 0
@@ -156,9 +173,9 @@ tehas_cycle_history_add() { # <issue> <JSON object>
 }
 
 tehas_cycle_history() { # <issue>
-  local file=$TEHAS_HOME/state/cycles/$1.history.jsonl
-  [ -f "$file" ] && [ ! -L "$file" ] || return 0
-  jq -cR 'fromjson? | objects' "$file" 2>/dev/null || true
+  tehas_store history-show "$1" --kind cycle || return 1
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets both
+  jq -c --arg repo "${TEHAS_REPO:-}" "$tehas_history_shape" <<<"$tehas_store_out" 2>/dev/null
 }
 
 # The free text is in the sig only, so nothing of it reaches the marker.

@@ -273,7 +273,7 @@ mkdir -p "$T/home/tehas/state/refresh" "$T/home/tehas/state/cycles"
 jq -nc '{at: "2026-10-17T09:00:00Z", pr: 50,
   head_sha: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
   base_sha: "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"}' >"$T/home/tehas/state/refresh/7.json"
-jq -nc --arg sum "$WSUM" '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: $sum, links: []}' >"$approved_file"
+past 7 alice label 2026-01-01T00:00:00Z
 queue 7
 echo '[]' >"$fx/ready.json"
 echo '[{"number":7,"labels":[{"name":"tehas:awaiting-merge"}]}]' >"$fx/awaiting.json"
