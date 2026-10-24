@@ -499,7 +499,7 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
     }
     let future = home("78-future");
     conn(&future)
-        .pragma_update(None, "user_version", 2)
+        .pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
         .unwrap();
     for (dir, word) in [
         (&missing, "missing"),

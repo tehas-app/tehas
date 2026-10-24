@@ -1,7 +1,10 @@
--- The schema of state/tehas.db, schema v1: every table, column, key and
+-- The schema of state/tehas.db, schema v2: every table, column, key and
 -- index of the state store spec, section 3.1 to 3.13. Its version is
--- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. Within one version
--- columns are only added; a change of meaning raises the version. Times are
+-- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
+-- later version comes last in its table, where ALTER TABLE puts it, so a store
+-- migrated from v1 (db::migrate) and one init made hold the same columns.
+-- Within one version columns are only added; a change of meaning raises the
+-- version. Times are
 -- UTC Unix seconds and durations are seconds, as integers: a column named
 -- *_at is an instant and *_seconds is a duration, never a file mtime
 -- (cycle_progress.written_at is the one exception).
@@ -106,7 +109,8 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 
 -- 3.4 approvals: one approval is one start. A used_at that is null is one
 -- start still owed. by_account is the actor of the labelled event, and
--- body_sha256 is the text the approval binds to.
+-- body_sha256 is the text the approval binds to. input_json (v2) is what the
+-- cycle is given with it: links, comment_links, retry_context, refresh_of.
 CREATE TABLE approvals (
   issue        INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   at           INTEGER NOT NULL,
@@ -120,6 +124,7 @@ CREATE TABLE approvals (
   refresh_head TEXT,
   used_at      INTEGER,
   used_by      INTEGER,
+  input_json   TEXT,
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);
@@ -145,11 +150,13 @@ CREATE TABLE planning (
   opened_at     INTEGER NOT NULL,
   ended_at      INTEGER
 );
+-- text (v2) is the reply the turn answers, as the person wrote it.
 CREATE TABLE planning_answers (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
   turn  INTEGER NOT NULL,
   by_account TEXT NOT NULL,
   fixer      INTEGER NOT NULL DEFAULT 0,
+  text       TEXT,
   PRIMARY KEY (issue, turn)
 );
 -- url is the filed issue's whole URL: it may be in another repository.
@@ -159,6 +166,16 @@ CREATE TABLE planning_filed (
   filed_issue INTEGER NOT NULL,
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, url)
+);
+-- (v2) The comments the poll spoke about once in this session: a fixer's
+-- reply it refused, and a question whose tick it held. They go with the
+-- session.
+CREATE TABLE planning_notes (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
 );
 
 -- 3.6 the settings, the notes said once, and what the runner answered. Both
@@ -200,7 +217,8 @@ CREATE TABLE cycle_progress (
 
 -- 3.7 parks and questions. questions is the only place a comment id is
 -- believed: a comment that is not in this table is not the factory's question.
--- A question the host withdrew is deleted.
+-- A question the host withdrew is deleted. told_at (v2) is when the poll said,
+-- once, that the park holds the issue.
 CREATE TABLE parks (
   issue    INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   attempt  INTEGER NOT NULL,
@@ -209,6 +227,7 @@ CREATE TABLE parks (
   step     TEXT,
   pr       INTEGER,
   retries  INTEGER NOT NULL DEFAULT 0,
+  told_at  INTEGER,
   PRIMARY KEY (issue, attempt)
 );
 CREATE TABLE questions (
