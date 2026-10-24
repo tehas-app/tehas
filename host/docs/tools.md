@@ -1992,7 +1992,8 @@ cycle's record in the state store until the issue's next cycle starts.
 
 A parked cycle's cap, from the result, goes into its history line and its
 park on the state store (the park's reason is `provider-outage` for an outage,
-else the cap, else the status), and with the failure before it (the reason
+else the cap, else the status; a cap or status that reads `provider-outage` is
+recorded as `cap:provider-outage`, as only tehas names an outage), and with the failure before it (the reason
 `tehas work` wrote to the progress file) into the
 record for the improvement loop as `cap` and `capReason`, reduced to plain
 characters. A cycle that ended at tehas's own bound gets tehas's cap:
@@ -2008,7 +2009,9 @@ with the cap and the reason. That is a result whose `failure.kind` is
 `step-failed:<step>` or `adversarial-infra-failure` whose reason names the
 provider, a timeout, a connection or a 5xx status. The
 park then owes the issue one retry by [tehas dispatch](#tehas-dispatch), unless
-the cycle was that retry or was started by hand; the comment says which.
+the cycle was that retry or was started by hand; the comment says which. An
+outage park the store would not take owes nothing, and its comment says it
+waits for a person.
 
 Once its history line is written, the cycle records the run in the factory's
 analytics, `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics run` with

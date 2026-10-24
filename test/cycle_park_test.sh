@@ -121,6 +121,22 @@ for k in process timeout verify cap something-new; do
   t_lacks "$t_out" "no reason was found"
 done
 
+t_case "a cap the result names provider-outage is no outage park: that word is tehas's own"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+failed provider-outage process "it said so"
+t_run "$cycle 7"
+t_eq "$(park_of '[.reason, .automatic]')" '["cap:provider-outage",false]'
+t_lacks "$(t_calls gh)" "starts it again once"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+ended provider-outage develop feature/issue-7-x -
+t_run "$cycle 7"
+t_lacks "$(park_of .reason)" '"provider-outage"'
+t_eq "$(park_of .automatic)" false
+
 t_case "the park comment names the result's failure, and not for a cap's own rule"
 reset
 failed step-failed:develop process "child exited 1"
@@ -298,6 +314,18 @@ t_contains "$t_out" "WARN: could not record the park of #7 (corrupt"
 t_lacks "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "To retry, apply \`tehas:ready\`."
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
+
+t_case "an outage park the store would not take does not say tehas starts it again"
+reset
+capped step-failed:adversarial "$outage"
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+t_store_answers park 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_lacks "$(t_calls gh)" "starts it again once"
+t_contains "$(t_calls gh)" "Its park could not be recorded, so it waits for a person."
+t_eq "$(park_of)" null
 
 t_case "a question the store would not take is posted, and the log says its boxes will not work"
 reset

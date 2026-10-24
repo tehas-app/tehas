@@ -1122,6 +1122,8 @@ fi
 # park_why is provider-outage only for the park of a provider outage; any
 # other park is on record by its cap, else its status.
 park_why=""
+# parked_auto: what an outage park says it does on its own, once it is on record.
+parked_auto=""
 parked_now=false
 # A runner that refused to start (tehas work exit 4): no clone, no container,
 # no step. Its report names only what the dispatcher recorded, and its approval
@@ -1149,12 +1151,16 @@ fi
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  local parked="$1$stuck" park_marker question="" on_record=0
+  local parked="$1" park_marker question="" on_record=0 why
   local -a park_args
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
     park_marker=""
-  park_args=("$issue" --attempt "$attempt" --reason "${park_why:-${cap:-${status:-unknown}}}")
+  # provider-outage is tehas's word alone: the store owes a retry for it. A
+  # cap or status is the container's, so it never takes that word.
+  why=${park_why:-${cap:-${status:-unknown}}}
+  [ -n "$park_why" ] || [ "$why" != provider-outage ] || why="cap:provider-outage"
+  park_args=("$issue" --attempt "$attempt" --reason "$why")
   [ -z "$step" ] || park_args+=(--step "$step")
   case "${pr:-}" in
     "https://github.com/$repo/pull/"*)
@@ -1168,6 +1174,14 @@ park() {
   else
     log "WARN: could not record the park of #$issue ($tehas_store_word: $tehas_store_line), so it asks no question"
   fi
+  if [ -n "$parked_auto" ]; then
+    if [ "$on_record" = 1 ]; then
+      parked+=$parked_auto
+    else
+      parked+=" Its park could not be recorded, so it waits for a person."
+    fi
+  fi
+  parked+=$stuck
   # The body q_render posts, in a file of its own that goes when it is posted.
   if [ "$on_record" = 1 ]; then
     [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
@@ -1345,7 +1359,8 @@ else
     elif [ "$start_how" = hand ] || [ -z "$start_by" ]; then
       parked="$parked It was started by hand, so it waits for a person."
     else
-      parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
+      # Said only of a park the store took: none on record owes a retry.
+      parked_auto=" Tehas starts it again once on its own, when the model endpoint answers."
     fi
   fi
   park "$parked"
