@@ -27,7 +27,7 @@ tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_HOME"; }
 
 tehas_limit_read() { # [<now epoch seconds>]
   local file now=${1:-} json
-  [ -n "$now" ] || now=$(date +%s)
+  [ -n "$now" ] || now=$EPOCHSECONDS
   file=$(tehas_limit_file)
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
     echo '{"state":"none"}'

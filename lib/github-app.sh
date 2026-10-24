@@ -43,7 +43,7 @@ _tehas_b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 # allows for a clock a little ahead of its own.
 _tehas_github_jwt() {
   local now head body sig
-  now=$(date +%s)
+  now=$EPOCHSECONDS
   head=$(printf '{"alg":"RS256","typ":"JWT"}' | _tehas_b64url) || return 1
   body=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 60)) $((now + 540)) "$TEHAS_GITHUB_APP_ID" | _tehas_b64url) || return 1
   sig=$(printf '%s.%s' "$head" "$body" | openssl dgst -sha256 -sign "$(tehas_github_app_key)" | _tehas_b64url) || return 1
@@ -57,7 +57,7 @@ _tehas_github_kept() {
   file=$(tehas_github_dir)/token
   until=$(cat "$file.expires" 2>/dev/null) || return 1
   [[ $until =~ ^[0-9]{1,12}$ ]] || return 1
-  [ "$until" -ge $(($(date +%s) + $1)) ] || return 1
+  [ "$until" -ge $((EPOCHSECONDS + $1)) ] || return 1
   token=$(cat "$file" 2>/dev/null) || return 1
   [ -n "$token" ] || return 1
   printf '%s\n' "$token"
@@ -85,7 +85,7 @@ tehas_github_token() {
     # date reads an empty string as today's midnight, so an expiry that is not
     # there, or not ahead, is no expiry.
     until=$([ -n "$expires" ] && date -u -d "$expires" +%s 2>/dev/null)
-    [ -n "$token" ] && [[ $until =~ ^[0-9]{1,12}$ ]] && [ "$until" -gt "$(date +%s)" ] ||
+    [ -n "$token" ] && [[ $until =~ ^[0-9]{1,12}$ ]] && [ "$until" -gt "$EPOCHSECONDS" ] ||
       { echo "tehas: GitHub's answer for the app's token held no token and expiry" >&2; exit 1; }
     # Written beside the old one and moved over it: a reader sees the old token
     # or the new one, never half of one.

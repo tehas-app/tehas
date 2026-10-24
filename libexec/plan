@@ -435,13 +435,13 @@ docker run --rm --init --name "$name" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" "${run[@]}" </dev/null >"$doc" 2>"$log" &
 pid=$!
-started=$(date +%s)
+started=$EPOCHSECONDS
 trap 'docker stop -t 10 "$name" >/dev/null 2>&1' TERM INT
 echo "tehas plan: issue $issue turn started, log $log"
 
 timed_out=0
 while kill -0 "$pid" 2>/dev/null; do
-  if [ $(($(date +%s) - started)) -ge "$limit" ]; then
+  if [ $((EPOCHSECONDS - started)) -ge "$limit" ]; then
     echo "tehas plan: time limit of ${limit}s passed"
     timed_out=1
     docker stop -t 20 "$name" >/dev/null 2>&1
@@ -520,4 +520,4 @@ if ! jq --arg session "$sid" '{session: $session, text, question} + (if .filed =
   echo "tehas plan: could not write $out" >&2
   exit 2
 fi
-echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$(($(date +%s) - started))"
+echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$((EPOCHSECONDS - started))"

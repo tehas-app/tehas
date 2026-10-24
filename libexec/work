@@ -478,7 +478,7 @@ else
   [ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + handoff)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + handoff))
 fi
 if [ "$margin" -lt "$limit" ]; then
-  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$((($(date +%s) + limit - margin) * 1000))")
+  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$(((EPOCHSECONDS + limit - margin) * 1000))")
   features+=" cycleDeadline"
 else
   echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"
@@ -805,7 +805,7 @@ docker run --rm --init --name "$name" \
   "$image" "$runner" work "$issue" "${run_flags[@]}" </dev/null >"$result_file" 2>"$log" &
 pid=$!
 
-started=$(date +%s)
+started=$EPOCHSECONDS
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and its own "now" file.
@@ -834,7 +834,7 @@ now_file() { # running? status
   [ -n "$step" ] || step=starting
   text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$step" \
-    --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
+    --arg text "$text" --argjson startedAt "$started" --argjson at "$EPOCHSECONDS" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
       startedAt: $startedAt, updatedAt: $at, console: "console-\($issue).txt"}' \
     >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
@@ -888,14 +888,14 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   oom_look
   now_file true running
   # The runner stops itself at its --timeout. This is for one that does not.
-  if [ $(($(date +%s) - started)) -ge $((limit + grace)) ]; then
+  if [ $((EPOCHSECONDS - started)) -ge $((limit + grace)) ]; then
     echo "tehas work: time limit of ${limit}s passed"
     timed=1
     break
   fi
   m=$(moved)
   [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$m
-  if [ $(($(date +%s) - last)) -ge "$stall" ]; then
+  if [ $((EPOCHSECONDS - last)) -ge "$stall" ]; then
     echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"
     stalled=1
     break
@@ -960,7 +960,7 @@ fi
 # limit ended the cycle as surely as a stop made here.
 ran_out=0
 if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" != 137 ] &&
-  [ $(($(date +%s) - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
+  [ $((EPOCHSECONDS - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
   case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
 fi
 inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
@@ -1052,7 +1052,7 @@ case "$status" in
   timeout) cap=wall-clock ;;
   stalled) cap=stall ;;
 esac
-echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$(($(date +%s) - started))"
+echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$((EPOCHSECONDS - started))"
 
 # The kill is what this command saw of the container. A runner that wrote its
 # result says how the cycle ended with its own exit status.

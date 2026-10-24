@@ -121,7 +121,7 @@ analytics_report() {
   fi
   [ "$rc" = 1 ] || log "WARN analytics report: not a report"
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
-  [ $(($(date +%s) - written)) -lt "$analytics_keep" ] || rm -f "$file"
+  [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
 # The private snapshot of the last thirty days of runs, mcp/sessions.jsonl,
 # for the MCP server. Never under live/, which is public. Kept, replaced and
@@ -146,7 +146,7 @@ analytics_sessions() {
   fi
   [ "$rc" = 1 ] || log "WARN analytics sessions: not a snapshot"
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
-  [ $(($(date +%s) - written)) -lt "$analytics_keep" ] || rm -f "$file"
+  [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
 # Whatever happens below, write the report, and refresh the health file
 # from what is on disk.
@@ -192,7 +192,7 @@ platform_newest_read() {
 platform_release() { # <installed version>
   local installed=$1 stamp=$TEHAS_HOME/state/platform-fetch newestfile=$TEHAS_HOME/state/platform-newest
   local last=0 now fetched="" newest=""
-  now=$(date +%s)
+  now=$EPOCHSECONDS
   read -r last fetched 2>/dev/null <"$stamp" || true
   [[ $last =~ ^[0-9]+$ ]] || last=0
   [[ $fetched =~ ^[0-9]+$ ]] || fetched=""
@@ -234,7 +234,7 @@ platform_release() { # <installed version>
 platform_checkout() {
   local co=$TEHAS_HOME/platform stamp=$TEHAS_HOME/state/platform-fetch last=0 now upstream head behind since fetched=""
   [ -e "$co/.git" ] || { rm -f "$live/platform.json"; return 0; }
-  now=$(date +%s)
+  now=$EPOCHSECONDS
   read -r last fetched 2>/dev/null <"$stamp" || true
   [[ $last =~ ^[0-9]+$ ]] || last=0
   [[ $fetched =~ ^[0-9]+$ ]] || fetched=""

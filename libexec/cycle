@@ -336,7 +336,7 @@ tidy() {
   fi
 }
 
-started=$(date +%s)
+started=$EPOCHSECONDS
 # When this cycle took its lock and started tehas work, in whole seconds. The
 # files tehas work leaves for a cycle it watched are this cycle's own only when
 # they are no older than this: they were removed before tehas work started, and
@@ -389,7 +389,7 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
-mins=$((($(date +%s) - started) / 60))
+mins=$(((EPOCHSECONDS - started) / 60))
 [ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
 # The cycle's own cache, memory and sessions, made by tehas work beside the

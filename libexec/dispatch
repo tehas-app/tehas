@@ -416,7 +416,7 @@ if ! flock -n 8; then
   at=$(head -c 16 "$taken" 2>/dev/null) || at=""
   at=${at%%$'\n'*}
   bound=1800
-  if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $(($(date +%s) - at)) -gt "$bound" ] &&
+  if [[ $at =~ ^[0-9]{1,12}$ ]] && [ $((EPOCHSECONDS - at)) -gt "$bound" ] &&
     { [ "$dry" = 1 ] || [ "$(head -c 16 "$stuck" 2>/dev/null)" != "$at" ]; }; then
     log "WARN: the dispatcher's lock has been held since $(date -u -d "@$at" +%FT%TZ), more than ${bound}s: a poll hangs, and no poll runs until it ends"
     [ "$dry" = 1 ] || echo "$at" >"$stuck" || log "WARN: could not write $stuck"
@@ -2035,7 +2035,7 @@ retire_quiet_notes() {
 }
 
 for n in $(tehas_cycles_running); do
-  now=$(date +%s)
+  now=$EPOCHSECONDS
   heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
   [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
   took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
