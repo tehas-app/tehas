@@ -437,21 +437,26 @@ that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
-done once for each time the cycle was last heard from. Every ask is recorded in
-`~/tehas/state/cycles/<issue>.quiet`: the time the cycle was last heard from,
-how many times the poll has asked, and when it asks next. Exit 0
-from `systemctl --user --no-block stop` only says systemd accepted the stop
-job, so the note means the stop was asked, not that the unit stopped; what
-ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s) and
-`RuntimeMaxSec`. A stop that failed or timed out adds `WARN: could not stop
+done once for each time the cycle was last heard from. The episode and every
+ask are on record in the state store, with the cycle: the time the cycle was
+last heard from, how many times the poll has asked, and when it last asked.
+Exit 0 from `systemctl --user --no-block stop` only says systemd accepted the
+stop job, so the record means the stop was asked, not that the unit stopped;
+what ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s)
+and `RuntimeMaxSec`. A stop that failed or timed out adds `WARN: could not stop
 tehas-cycle@N.service (exit <code>): it holds its slot, and the poll asks
 again`. While the cycle holds its lock the poll asks again, at most once every
 10 minutes (`WARN: ...: the poll asks tehas-cycle@N.service to stop again`),
 and after 6 asks it says the episode needs a person and asks no more, so one
-wedged unit does not hold the poll. The note goes once the
-episode is over: a later poll removes it when it can tell that no cycle holds
-that issue's lock, or the cycle is heard from again. A dry run says `would
-stop`, stops nothing and removes no note. A paused factory does not stop it.
+wedged unit does not hold the poll. That line comes 10 minutes after the last
+ask, and again once an hour while the cycle stays quiet. A cycle heard from
+again ends the episode; when it goes quiet later, that is a new episode and
+the asks count from one. The cycle's next start begins with no episode. When
+the store cannot record the episode, the poll says `WARN: ..., but the state
+store could not record it (<word>), so the poll asks nothing this time` and
+stops nothing on that poll. A cycle whose record has ended, or that has none,
+is not stopped by the poll. A dry run says `would stop`, stops nothing and
+records nothing. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and
 nobody else has changed its title or body since, and only while GitHub says the
@@ -1514,7 +1519,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.quiet`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
+`.timed`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.

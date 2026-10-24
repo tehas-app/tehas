@@ -199,7 +199,7 @@ died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
   # far as the log of this cycle), the log of the run, and the runner's own
   # status as tehas work records it. The cycle removes these only after it
   # takes its lock, so the runner makes them. What each of the three files is
-  # proof of is written beside tehas_cycle_note_files in lib/cycles.sh, which
+  # proof of is written in lib/cycles.sh, which
   # is where a change to this setup has to agree with the code. tehas work
   # itself exits 2 for a runner that died however it died: the comment's word
   # for the runner is the of this file, not that 2. A case may name tehas work's

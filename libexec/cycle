@@ -540,10 +540,10 @@ if [ "$no_result" = 1 ]; then
   case "$work_status" in killed) status=killed ;; esac
 fi
 # The files tehas work leaves for a cycle it watched, and what each proves, are
-# written beside tehas_cycle_note_files in lib/cycles.sh. The two of the
-# runner's end are there when the container was started and given its time, and
-# both are absent when tehas work stopped before that, in which case nothing of
-# this issue's earlier runs is read for this one.
+# written in lib/cycles.sh. The two of the runner's end are there when the
+# container was started and given its time, and both are absent when tehas
+# work stopped before that, in which case nothing of this issue's earlier runs
+# is read for this one.
 runner_exit_file=${cycles:?}/${issue:?}.runner_exit
 watched=0
 if [ -f "$runner_exit_file" ] && [ ! -L "$runner_exit_file" ]; then

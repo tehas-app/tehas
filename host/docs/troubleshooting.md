@@ -200,6 +200,14 @@ Run `tehas dispatch --dry-run` and read what it prints.
   stop it now: `tehas stop N`, which clears what the cycle left on the host as
   well, or `systemctl --user stop tehas-cycle@N.service` on its own, and read
   `journalctl --user -u tehas-cycle@N`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s, but the state store could not record it (<word>),
+  so the poll asks nothing this time`: the poll keeps each stuck cycle's asks
+  in the state store, and the store did not take this one. `busy` passes on
+  its own: a later poll asks. Any other word is a store to look at
+  (`TEHAS_HOME=~/tehas ~/tehas/libexec/store check`). Meanwhile, or for a
+  cycle whose record has ended but that still holds its lock (the poll does
+  not stop that one), stop it with `tehas stop N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.

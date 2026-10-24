@@ -20,7 +20,7 @@ runs=$T/home/.pi/agent/ensemble-runs
 # spends its retry, and the park stays as the cycle's record. The sibling name of
 # the nostart note goes with the note: a write of it is made beside it and moved
 # into place, and tehas work clears both when a cycle starts.
-GO=(lock cid "done" stalled timed stopped stopped.new quiet oom forks nostart nostart.new progress.json result.json)
+GO=(lock cid "done" stalled timed stopped stopped.new oom forks nostart nostart.new progress.json result.json)
 KEEP=(json manifest.json runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
@@ -152,7 +152,7 @@ leftovers() { # <issue>
 # The two names of the marker are the two last of them, and go on the same terms
 # as any other: the marker of a stop keeps the line it was written with, so a
 # case that means a marker of its own says the name here.
-LEFTOVERS_N=21
+LEFTOVERS_N=20
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext

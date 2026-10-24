@@ -2159,39 +2159,27 @@ fi
 # a long gate in the container. A cycle that took its lock lately counts as
 # heard from: the live file may be its issue's last cycle's.
 #
-# state/cycles/<issue>.quiet is what keeps such an episode said once. Its whole
-# rule is here, and nowhere else:
-#   written  when this poll asks that cycle's unit to stop, whether or not the
-#            ask worked: the time the cycle was last heard from, how many asks
-#            there have been, and when the poll next says or asks about the
-#            episode. systemctl --no-block answers as soon as it accepts the
-#            stop job, so the note means the stop was asked, not that the unit
-#            stopped; what ends a unit that ignores the job is the unit's own
-#            TimeoutStopSec and RuntimeMaxSec.
-#   re-asked for the same last-heard time at most once per quiet_retry, up to
-#            quiet_asks asks. After that the poll says the episode is a person's
-#            and asks no more, so one unit whose stop never completes cannot
-#            put a 35s wait in front of every cycle start on every poll.
-#   removed  when the cycle is heard from again, and by retire_quiet_notes once
-#            the poll can tell that no cycle holds that issue's lock.
+# The state store keeps such an episode said once. Its whole rule is here, and
+# nowhere else:
+#   the episode  is the time the cycle was last heard from: cycle-note keeps one
+#                per cycle, a later time is a new episode, and the cycle's next
+#                start removes it. It says how many times the poll has asked in
+#                this episode, and when it last asked or said.
+#   an ask       is recorded with cycle-stop-asked whether or not it worked.
+#                systemctl --no-block answers as soon as it accepts the stop
+#                job, so the record means the stop was asked, not that the
+#                unit stopped; what ends a unit that ignores the job is the
+#                unit's own TimeoutStopSec and RuntimeMaxSec.
+#   re-asked     at most once per quiet_retry, up to quiet_asks asks. After that
+#                the poll says the episode is a person's and asks no more, so
+#                one unit whose stop never completes cannot put a 35s wait in
+#                front of every cycle start on every poll. The first time it
+#                says so is recorded as one more (quiet_asks + 1), which is how
+#                a later poll tells it from the last ask; after that the line is
+#                said once per quiet_retry * quiet_asks (--said-only).
+# A poll that cannot record the episode asks nothing, and a cycle with no open
+# record is not the poll's to stop.
 quiet_bound=1200 quiet_retry=600 quiet_asks=6
-
-# Notes of issues no cycle holds any more: the episode is over, so the note
-# goes, and a note of a cycle long ended answers nothing about that issue's
-# next cycle. Called once per poll, after the stuck loop below and before the
-# loop that stops a cycle whose work is done: that loop releases locks later in
-# the same poll, so the note of such a cycle goes on the next poll. A poll that
-# cannot tell whether a lock is free removes nothing.
-retire_quiet_notes() {
-  local f n
-  for f in $(tehas_cycle_note_files quiet); do
-    n=${f##*/}
-    n=${n%.quiet}
-    tehas_cycle_lock_free "$n" || continue
-    [ "$dry" = 1 ] && continue
-    rm -f "$f" || log "WARN: could not remove $f"
-  done
-}
 
 # When each running cycle started, as the state store has it: read once a
 # poll, the first time a loop below needs it, into took_at. A lock held with
@@ -2225,37 +2213,34 @@ for n in $quiet_running; do
   [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
   took=${took_at[$n]:-0}
   [ "$took" -le "$heard" ] || heard=$took
-  note=$TEHAS_HOME/state/cycles/$n.quiet
-  if [ -L "$note" ] || { [ -e "$note" ] && [ ! -f "$note" ]; }; then
-    # Not a plain file: no note. A link goes and what it points at stays; what
-    # the poll cannot remove is said, and this cycle keeps no record.
-    if ! rm -f "$note" 2>/dev/null; then
-      log "WARN: $note is not a note file and could not be removed: the poll keeps no record for #$n"
-      continue
-    fi
-    log "WARN: $note is not a note file: the poll removed it"
-  fi
   if [ "$heard" = 0 ]; then
     # Nothing is known about this cycle: neither its live file nor its start
-    # on record could be read. Nothing is said, and no note stands or goes.
+    # on record could be read. Nothing is said or recorded.
     continue
   fi
-  if [ $(( now - heard )) -le "$quiet_bound" ]; then
-    # Heard from: no episode outstanding, so a note of an earlier one goes.
-    [ "$dry" = 1 ] || rm -f "$note" || log "WARN: could not remove $note"
-    continue
-  fi
+  # Heard from: no episode outstanding. One on record stays until the next
+  # episode or the next start replaces it.
+  [ $(( now - heard )) -gt "$quiet_bound" ] || continue
   why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
   if [ "$dry" = 1 ]; then
     log "would stop tehas-cycle@$n.service: $why"
     continue
   fi
-  noted="" asks=0 next=0
-  if [ -f "$note" ] && [ ! -L "$note" ]; then
-    read -r noted asks next <"$note" || true
+  if ! tehas_store cycle-note "$n" --kind quiet --said-for "$heard"; then
+    case $tehas_store_word in
+      ended | nocycle) ;;
+      *) log "WARN: $why, but the state store could not record it ($tehas_store_word), so the poll asks nothing this time" ;;
+    esac
+    continue
   fi
-  [[ $asks =~ ^[0-9]+$ ]] && [[ $next =~ ^[0-9]+$ ]] || noted=""
-  [ "$noted" = "$heard" ] || asks=0
+  asks=$(tehas_store_get '.times') || asks=""
+  asked=$(tehas_store_get '.stop_asked_at // 0') || asked=""
+  if ! [[ $asks =~ ^[0-9]{1,6}$ ]] || ! [[ $asked =~ ^[0-9]{1,12}$ ]]; then
+    log "WARN: $why, but the state store's record of it does not read as one, so the poll asks nothing this time"
+    continue
+  fi
+  next=$(( asked + quiet_retry ))
+  [ "$asks" -le "$quiet_asks" ] || next=$(( asked + quiet_retry * quiet_asks ))
   if [ "$asks" = 0 ]; then
     log "WARN: $why: stopping tehas-cycle@$n.service"
   elif [ "$now" -lt "$next" ]; then
@@ -2263,8 +2248,11 @@ for n in $quiet_running; do
   elif [ "$asks" -lt "$quiet_asks" ]; then
     log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again"
   else
-    log "WARN: $why: the poll asked ${asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
-    echo "$heard $asks $(( now + quiet_retry * quiet_asks ))" >"$note" || log "WARN: could not write $note"
+    log "WARN: $why: the poll asked ${quiet_asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
+    only=()
+    [ "$asks" = "$quiet_asks" ] || only=(--said-only)
+    tehas_store cycle-stop-asked "$n" "${only[@]}" ||
+      log "WARN: the state store did not record that the poll asks no more of tehas-cycle@$n.service ($tehas_store_word)"
     continue
   fi
   # Without waiting for it: the cycle reports as it stops, and the poll holds
@@ -2275,13 +2263,11 @@ for n in $quiet_running; do
   else
     timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&- || rc=$?
   fi
-  echo "$heard $(( asks + 1 )) $(( now + quiet_retry ))" >"$note" ||
-    log "WARN: could not write $note"
+  tehas_store cycle-stop-asked "$n" ||
+    log "WARN: the state store did not record the stop of tehas-cycle@$n.service ($tehas_store_word): the poll asks again"
   [ "$rc" = 0 ] ||
     log "WARN: could not stop tehas-cycle@$n.service (exit $rc): it holds its slot, and the poll asks again"
 done
-
-retire_quiet_notes
 
 # A cycle whose work is done holds its slot for nothing: its issue is closed,
 # or the bot's pull request for it is merged or closed, and the cycle may

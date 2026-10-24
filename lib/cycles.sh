@@ -16,12 +16,6 @@
 #                                 free: no lock file, or one it can take. It is
 #                                 not 0 when the probe could not tell.
 #   tehas_cycles_running          the issues with a running cycle, one per line
-#   tehas_cycle_note_files <ext>  the files state/cycles/<issue>.<ext>, one per
-#                                 line, that name an issue and are plain files
-#                                 and no link: the per-issue leftovers a command
-#                                 may read or remove. A stray name, a directory
-#                                 or a link is no issue's file and is not
-#                                 listed, so nothing acts on it.
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
@@ -59,18 +53,6 @@ tehas_cycles_running() {
     n=${lock##*/}
     n=${n%.lock}
     if tehas_cycle_running "$n"; then printf '%s\n' "$n"; fi
-  done
-  return 0
-}
-
-tehas_cycle_note_files() {
-  local f n
-  for f in "$TEHAS_HOME"/state/cycles/*."$1"; do
-    [ -e "$f" ] || continue
-    n=${f##*/}
-    n=${n%."$1"}
-    [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$f" ] && [ ! -L "$f" ] || continue
-    printf '%s\n' "$f"
   done
   return 0
 }

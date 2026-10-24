@@ -52,6 +52,11 @@ empty one above it.
   account that started it, and is spent by `tehas stop`; a cycle started by
   hand says it waits for a person. The hold of a relabelled start on an
   unchanged body is told once per park through the store.
+- The poll keeps a stuck cycle's episode and its asks to stop in the state
+  store, no longer in `state/cycles/<n>.quiet`. The timing and the log lines
+  are as before. When the store cannot record the episode, the poll asks
+  nothing on that poll and says so; a cycle whose record has ended is not
+  stopped by the poll. `tehas stop` no longer removes a `.quiet` file.
 
 ### Adopter action
 
