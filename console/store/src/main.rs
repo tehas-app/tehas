@@ -566,7 +566,8 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
         )
     })?;
     Ok(format!(
-        "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"from\":{from},\"to\":{to},\"backup\":{name:?}}}"
+        "{{\"api\":1,\"verb\":\"migrate\",\"ok\":true,\"from\":{from},\"to\":{to},\"backup\":{}}}",
+        verbs::j(name)
     ))
 }
 
