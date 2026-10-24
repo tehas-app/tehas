@@ -89,17 +89,17 @@ RUN rm -rf /usr/lib/node_modules/wigolo /usr/local/lib/node_modules/wigolo \
 # write, and only the binary is copied over the base's copy in /usr/local/bin.
 RUN --mount=type=tmpfs,target=/cbm \
     chmod 755 /cbm \
- && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${CBM_VERSION}/install.sh" -o /tmp/cbm-install.sh \
+ && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 "https://raw.githubusercontent.com/DeusData/codebase-memory-mcp/v${CBM_VERSION}/install.sh" -o /tmp/cbm-install.sh \
  && echo "${CBM_INSTALLER_SHA256}  /tmp/cbm-install.sh" | sha256sum -c - \
  && env HOME=/root CBM_DOWNLOAD_URL="https://github.com/DeusData/codebase-memory-mcp/releases/download/v${CBM_VERSION}" \
      bash /tmp/cbm-install.sh --skip-config --dir=/cbm \
  && install -m 755 /cbm/codebase-memory-mcp /usr/local/bin/codebase-memory-mcp \
  && rm -f /tmp/cbm-install.sh \
- && found=$(codebase-memory-mcp --version 2>&1 | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
+ && found=$(codebase-memory-mcp --version 2>&1 | grep -E '^codebase-memory-mcp' | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
  && if [ "${found:-}" != "$CBM_VERSION" ]; then echo "sandbox: codebase-memory-mcp is ${found:-not there}, versions.env names $CBM_VERSION" >&2; exit 1; fi \
  && echo "sandbox: codebase-memory-mcp $CBM_VERSION"
 
-RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz \
+RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz" -o /tmp/shellcheck.tar.xz \
  && echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c - \
  && tar -xJf /tmp/shellcheck.tar.xz -C /tmp \
  && install -m 755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck \
@@ -116,8 +116,8 @@ RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL
  && snap="$repo/snapshots/$VIPUNE_MODEL_REVISION" \
  && url="https://huggingface.co/$VIPUNE_MODEL/resolve/$VIPUNE_MODEL_REVISION" \
  && mkdir -p "$repo/refs" "$snap/onnx" \
- && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 "$url/onnx/model.onnx" -o "$snap/onnx/model.onnx" \
- && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 "$url/tokenizer.json" -o "$snap/tokenizer.json" \
+ && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 "$url/onnx/model.onnx" -o "$snap/onnx/model.onnx" \
+ && curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 "$url/tokenizer.json" -o "$snap/tokenizer.json" \
  && echo "${VIPUNE_MODEL_SHA256_ONNX}  $snap/onnx/model.onnx" | sha256sum -c - \
  && echo "${VIPUNE_MODEL_SHA256_TOKENIZER}  $snap/tokenizer.json" | sha256sum -c - \
  && printf %s "$VIPUNE_MODEL_REVISION" >"$repo/refs/$VIPUNE_MODEL_REVISION" \
