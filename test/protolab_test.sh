@@ -577,6 +577,15 @@ t_run "$protolab"
 t_contains "$(cat "$site/52/index.html")" "$(left_out good.zip 'Not a zip the lab can read.')"
 t_eq "$(find "$site/52/files" -type f | wc -l)" 0
 
+t_case "without the attachment checker a zip is left out with the host's reason"
+reset
+rm -f "$T/home/tehas/libexec/attach"
+net_file "$F/17/good.zip" "$zips/good.zip"
+issues "$(issue 53 'No checker' "[good.zip]($F/17/good.zip)")"
+t_run "$protolab"
+t_contains "$(cat "$site/53/index.html")" "$(left_out good.zip 'This host cannot unpack a zip.')"
+t_contains "$t_out" "attach: absent"
+
 t_case "a name with no slash keeps the same address as before"
 reset
 net "$F/11/solo.html" "<h1>solo</h1>"

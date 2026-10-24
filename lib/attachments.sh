@@ -37,7 +37,8 @@
 #                                     {"name","kind","bytes","sha256","image",
 #                                     "text"}, and one per entry left out,
 #                                     {"skip","reason"}. Returns 2 when the zip
-#                                     cannot be read
+#                                     cannot be read, 3 when the program is
+#                                     missing or failed
 #
 # Sourcing it does nothing. Which of the known types protolab takes, and how
 # much, is its own rule; the images a container is given follow the rule at
@@ -270,14 +271,17 @@ tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
 }
 
 # tehas_attach <verb> [args...]: run libexec/attach. Its answer is in
-# $tehas_attach_out after a 0. After a 1, $tehas_attach_word is the word it
-# refused with (unreadable, unwritable), empty when it did not answer at all,
-# and $tehas_attach_why is its line for a log.
+# $tehas_attach_out after a 0. After a 1, $tehas_attach_word says why:
+# unreadable or unwritable, its own refusals; timeout, cut off after 60 s;
+# crashed, a panic; absent, no program; empty for any other failure. The first
+# three are the input's fault, the last two the host's. $tehas_attach_why is
+# its line for a log.
 tehas_attach_out="" tehas_attach_word="" tehas_attach_why=""
 tehas_attach() { # <verb> [args...]
   local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach out rc LC_ALL=C
   tehas_attach_out="" tehas_attach_word="" tehas_attach_why=""
   if [ -z "${TEHAS_HOME:-}" ] || [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
+    tehas_attach_word=absent
     tehas_attach_why="attach: absent: $bin is not an executable file"
     return 1
   fi
@@ -289,7 +293,11 @@ tehas_attach() { # <verb> [args...]
     return 0
   fi
   out=${out%%$'\n'*}
-  [ "$rc" != 1 ] || [[ ! $out =~ ^attach:\ (unreadable|unwritable): ]] || tehas_attach_word=${BASH_REMATCH[1]}
+  case $rc in
+    1) [[ ! $out =~ ^attach:\ (unreadable|unwritable): ]] || tehas_attach_word=${BASH_REMATCH[1]} ;;
+    124 | 137) tehas_attach_word=timeout ;;
+    101) tehas_attach_word=crashed ;;
+  esac
   out=${out//[[:cntrl:]]/?}
   tehas_attach_why="attach: $verb exited $rc: ${out:0:300}"
   return 1
@@ -311,8 +319,11 @@ tehas_attach_sniff() { # <file>
 
 tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
   if ! tehas_attach unpack "$1" "$2" --max-bytes "$3" --max-files "$4"; then
-    [ -n "$tehas_attach_word" ] || echo "tehas: $tehas_attach_why" >&2
-    return 2
+    case $tehas_attach_word in
+      unreadable | timeout | crashed) return 2 ;;
+    esac
+    echo "tehas: $tehas_attach_why" >&2
+    return 3
   fi
   jq -c '.entries[] | if has("skip") then {skip, reason} else {name, kind, bytes, sha256, image, text} end' <<<"$tehas_attach_out"
 }
@@ -653,10 +664,14 @@ _tehas_unpack() {
   fi
   if ! tehas_attach unpack "$images/.part" "$zdir" --max-bytes "$zleft" --max-files "$zfiles"; then
     rm -rf "$images/.part" "$zdir"
-    # An archive that cannot be read is left out. A program that did not
-    # answer is the host's fault, and nothing starts on it.
-    [ "$tehas_attach_word" = unreadable ] || { image_why="$ref could not be unpacked ($tehas_attach_why)"; return 1; }
-    leave "$ref" "$notzip"
+    # What the archive did is left out with a reason, so its author cannot
+    # stop a cycle with it. A program that is missing or did not answer is
+    # the host's fault, and nothing starts on it.
+    case $tehas_attach_word in
+      unreadable | crashed) leave "$ref" "$notzip" ;;
+      timeout) leave "$ref" "An archive that took more than 60 seconds to unpack." ;;
+      *) image_why="$ref could not be unpacked ($tehas_attach_why)"; return 1 ;;
+    esac
     return 0
   fi
   rm -f "$images/.part"
