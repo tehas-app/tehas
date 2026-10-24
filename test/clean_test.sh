@@ -489,13 +489,12 @@ t_lacks "$t_out" "removed $workdir-7/target"
 t_case "a workspace whose issue has a running cycle is left alone"
 reset
 workspace
-flock -n "$cycles/7.lock" sleep 5 &
-sleep 0.3
+t_hold "$cycles/7.lock"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
-wait
+t_release
 
 t_case "a workspace whose lock another holds is left alone"
 reset
@@ -507,9 +506,7 @@ mkdir -p "$cycles" "$logs" "$tmp" "$workdir"
 # different process, so the holder is a sleep of its own. The fixture then makes
 # issue 8 and ages it, all of it while that sleep holds the lock.
 : >"$cycles/8.lock"
-flock "$cycles/8.lock" sleep 10 &
-sleep 0.3
-flock -n "$cycles/8.lock" true && t_bad 'the holder did not take the lock'
+t_hold "$cycles/8.lock"
 mkdir -p "$workdir-8/target" "$workdir-8/src" "$workdir-8.state/cache"
 echo x >"$workdir-8/target/app"
 echo idx >"$workdir-8.state/cache/index.db"
@@ -520,7 +517,7 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-8/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-8.state/cache" ] && echo there)" "there"
 t_contains "$t_out" "kept the build output of #8: its lock is held"
-wait
+t_release
 
 t_case "a symlink named like build output is neither followed nor removed"
 reset
@@ -770,13 +767,12 @@ t_case "a worktree of an issue whose cycle runs is left alone"
 reset
 workspace
 wt=$(worktree 2>/dev/null)
-flock -n "$cycles/7.lock" sleep 5 &
-sleep 0.3
+t_hold "$cycles/7.lock"
 t_run "$clean"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$wt/console/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
-wait
+t_release
 
 t_case "an idle issue with no build output at all says so, and not that a lock is held"
 reset
@@ -1122,12 +1118,11 @@ t_contains "$t_out" "low on disk: 20.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g"
 t_case "a held lock keeps its build output when the disk is low"
 reset
 workspace 7
-flock -n "$cycles/7.lock" sleep 5 &
-sleep 0.3
+t_hold "$cycles/7.lock"
 df_free 2
 t_run "$clean"
 t_eq "$t_rc" 0
-wait
+t_release
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
 t_contains "$t_out" "kept the build output of #7: its lock is held"
@@ -1135,12 +1130,11 @@ t_contains "$t_out" "kept the build output of #7: its lock is held"
 t_case "a held lock keeps its build output when the disk has room"
 reset
 workspace 7
-flock -n "$cycles/7.lock" sleep 5 &
-sleep 0.3
+t_hold "$cycles/7.lock"
 df_free 100
 t_run "$clean"
 t_eq "$t_rc" 0
-wait
+t_release
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
 t_contains "$t_out" "kept the build output of #7: its lock is held"
