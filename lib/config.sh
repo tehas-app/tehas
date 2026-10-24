@@ -213,6 +213,11 @@ _tehas_valid() {
       ;;
     # What tehasbot clean removes, and when. The hours are docker's `until`
     # and find's `-newermt`, and the names are each one directory name.
+    # Minutes between two runs of tehasbot refresh, at most a day.
+    TEHAS_REFRESH_EVERY)
+      [[ $v =~ ^[1-9][0-9]{0,3}$ ]] && [ "$v" -le 1440 ] ||
+        { echo "expected a whole number of minutes from 1 to 1440"; return 1; }
+      ;;
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
       ;;
@@ -496,9 +501,11 @@ tehas_load() {
   # Whether the factory refreshes its own pull requests that conflict with the
   # branch. Off unless the instance says so: it starts cycles with no fresh
   # label. And how many times one pull request may be refreshed since the
-  # person's approval its cycle rests on.
+  # person's approval its cycle rests on. And how many minutes apart the
+  # conflict check runs.
   export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0}
   export TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
+  export TEHAS_REFRESH_EVERY=${TEHAS_REFRESH_EVERY:-10}
   # The check on the branch's head commit whose failure holds new cycles back.
   # Unset, the poll does not ask.
   export TEHAS_BRANCH_CHECK=${TEHAS_BRANCH_CHECK:-}
@@ -586,7 +593,7 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # The bound install.sh puts on one cargo build. Its default belongs to
