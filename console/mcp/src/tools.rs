@@ -8,6 +8,7 @@ use crate::logs::{self, LogGuard};
 use crate::sessions;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
+use tehas_core::time::days_from_civil;
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
@@ -1033,12 +1034,7 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
     }
 }
 
-pub(crate) fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
+pub(crate) use tehas_core::time::now;
 
 /// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files use.
 pub(crate) fn epoch(t: &str) -> Option<i64> {
@@ -1049,14 +1045,7 @@ pub(crate) fn epoch(t: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| t.get(r)?.parse::<i64>().ok();
     let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
     let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
-    // Days from the civil date (Howard Hinnant's algorithm).
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468;
-    Some(days * 86400 + hh * 3600 + mm * 60 + ss)
+    Some(days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss)
 }
 
 #[cfg(test)]

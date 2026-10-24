@@ -35,10 +35,12 @@ use crate::verbs::{self, cap_char, j, kebab_char, line, list, obj, stub, word_ch
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, DirBuilder, File};
-use std::io::{ErrorKind, Read};
+use std::fs::{self, DirBuilder};
+use std::io::ErrorKind;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Path, PathBuf};
+use tehas_core::file::{read_regular, ReadError};
+use tehas_core::time::{civil_from_days, days_from_civil};
 
 /// The most a record file may hold.
 const BOUND: u64 = 1 << 20;
@@ -130,26 +132,9 @@ pub fn iso(s: &str) -> Option<i64> {
     Some(days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + se)
 }
 
-fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * ((m + 9) % 12) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
-}
-
 /// The UTC day of a Unix second as YYYYMMDD.
 pub fn day(t: i64) -> String {
-    let z = t.div_euclid(86_400) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (y, m, d) = civil_from_days(t.div_euclid(86_400));
     format!("{y:04}{m:02}{d:02}")
 }
 
@@ -302,25 +287,12 @@ fn scan(home: &Path) -> Result<Vec<Found>, Fail> {
 
 /// A regular file, the same one after it is opened, of at most BOUND bytes.
 fn read(path: &Path) -> Result<Got, String> {
-    let before = fs::symlink_metadata(path).map_err(|e| format!("cannot be read: {e}"))?;
-    if !before.file_type().is_file() {
-        return Err("is not a regular file".to_string());
-    }
-    let f = File::open(path).map_err(|e| format!("cannot be read: {e}"))?;
-    let m = f.metadata().map_err(|e| format!("cannot be read: {e}"))?;
-    if m.dev() != before.dev() || m.ino() != before.ino() || !m.is_file() {
-        return Err("was replaced while it was read".to_string());
-    }
-    if m.len() > BOUND {
-        return Err(format!("is over {BOUND} bytes"));
-    }
-    let mut bytes = Vec::new();
-    f.take(BOUND + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| format!("cannot be read: {e}"))?;
-    if bytes.len() as u64 > BOUND {
-        return Err(format!("is over {BOUND} bytes"));
-    }
+    let (bytes, m) = read_regular(path, BOUND).map_err(|e| match e {
+        ReadError::Io(e) => format!("cannot be read: {e}"),
+        ReadError::NotRegular => "is not a regular file".to_string(),
+        ReadError::Replaced => "was replaced while it was read".to_string(),
+        ReadError::TooLarge => format!("is over {BOUND} bytes"),
+    })?;
     Ok(Got {
         bytes,
         mtime: m.mtime(),

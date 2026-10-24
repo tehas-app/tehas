@@ -6,10 +6,11 @@
 use crate::{approval, cycle, db, history, live, park, plan};
 use rusqlite::Connection;
 use serde_json::Value;
-use std::fs::File;
-use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use tehas_core::file::{read_regular, ReadError};
+pub use tehas_core::grammar::count;
+use tehas_core::grammar::{digits, is_hex, is_image};
 
 /// The exit status and the line for standard error.
 pub type Fail = (u8, String);
@@ -251,30 +252,9 @@ impl Args {
 
 // --- grammars ----------------------------------------------------------------
 
-fn digits(s: &str, max: usize, zero: bool) -> Option<i64> {
-    if zero && s == "0" {
-        return Some(0);
-    }
-    let b = s.as_bytes();
-    let ok = !b.is_empty()
-        && b.len() <= max
-        && (b'1'..=b'9').contains(&b[0])
-        && b.iter().all(u8::is_ascii_digit);
-    if ok {
-        s.parse().ok()
-    } else {
-        None
-    }
-}
-
 /// An issue, pull request, turn or attempt.
 pub fn number(s: &str) -> Option<i64> {
     digits(s, 10, false)
-}
-
-/// A count or an exit status.
-pub fn count(s: &str) -> Option<i64> {
-    digits(s, 9, true)
 }
 
 pub fn unix(s: &str) -> Option<i64> {
@@ -293,26 +273,20 @@ pub fn account(s: &str) -> Option<String> {
     all(s, 1, 39, |b| b.is_ascii_alphanumeric() || b == b'-').then(|| s.to_string())
 }
 
-fn lower_hex(b: u8) -> bool {
-    b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
-}
-
 pub fn sha256(s: &str) -> Option<String> {
-    all(s, 64, 64, lower_hex).then(|| s.to_string())
+    is_hex(s, 64, 64).then(|| s.to_string())
 }
 
 pub fn commit(s: &str) -> Option<String> {
-    all(s, 7, 40, lower_hex).then(|| s.to_string())
+    is_hex(s, 7, 40).then(|| s.to_string())
 }
 
 pub fn head_sha(s: &str) -> Option<String> {
-    all(s, 40, 40, lower_hex).then(|| s.to_string())
+    is_hex(s, 40, 40).then(|| s.to_string())
 }
 
 pub fn image(s: &str) -> Option<String> {
-    s.strip_prefix("sha256:")
-        .and_then(sha256)
-        .map(|_| s.to_string())
+    is_image(s).then(|| s.to_string())
 }
 
 // --- cleaned values ----------------------------------------------------------
@@ -558,26 +532,11 @@ pub enum FileErr {
 /// A regular file read whole, at most `bound` bytes, with its mtime in Unix
 /// seconds.
 pub fn read_file(path: &Path, bound: u64) -> Result<(Vec<u8>, i64), FileErr> {
-    let before = std::fs::symlink_metadata(path).map_err(|_| FileErr::Refused)?;
-    if !before.file_type().is_file() {
-        return Err(FileErr::Refused);
+    match read_regular(path, bound) {
+        Ok((bytes, m)) => Ok((bytes, m.mtime())),
+        Err(ReadError::TooLarge) => Err(FileErr::TooLarge),
+        Err(_) => Err(FileErr::Refused),
     }
-    let f = File::open(path).map_err(|_| FileErr::Refused)?;
-    let m = f.metadata().map_err(|_| FileErr::Refused)?;
-    if m.dev() != before.dev() || m.ino() != before.ino() || !m.is_file() {
-        return Err(FileErr::Refused);
-    }
-    if m.len() > bound {
-        return Err(FileErr::TooLarge);
-    }
-    let mut bytes = Vec::new();
-    f.take(bound + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| FileErr::Refused)?;
-    if bytes.len() as u64 > bound {
-        return Err(FileErr::TooLarge);
-    }
-    Ok((bytes, m.mtime()))
 }
 
 /// A text file argument, read before the store is opened. Exit 1 with `word`

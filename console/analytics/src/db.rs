@@ -5,6 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tehas_core::file::side_file;
 
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 1;
@@ -60,13 +61,6 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), Stri
         Unusable::Failed(e) | Unusable::Broken(e) | Unusable::Foreign(_, e) => e,
     })?;
     Ok((conn, Some(to)))
-}
-
-// SQLite names a database's side files by appending to its name.
-fn side_file(file: &Path, side: &str) -> PathBuf {
-    let mut name = file.as_os_str().to_owned();
-    name.push(side);
-    PathBuf::from(name)
 }
 
 /// Deletes the databases of other schema versions, and their side files,
