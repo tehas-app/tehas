@@ -83,6 +83,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
+| `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
@@ -2445,9 +2446,12 @@ tail ~/tehas/logs/refresh.log
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
 dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
-model, no container. `tehas-refresh.timer` runs it once an hour, the first
-time 15 minutes after boot. With `TEHAS_REFRESH_CONFLICTS` other than 1 it
-exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
+model, no container. `tehas-refresh.timer` starts it every minute, the first
+time 15 minutes after boot, and a run goes ahead only when the last one began
+`TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
+written as a run begins, so a failed run counts too). With
+`TEHAS_REFRESH_CONFLICTS` other than 1, or inside the interval, it exits 0 at
+once and calls nothing. Exit 1 when a call to GitHub fails: no
 request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
 

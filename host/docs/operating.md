@@ -1220,14 +1220,16 @@ takes `--continue-pr` and says so with `features.continuePr` in its
 `--capabilities` (pi-rukas#1468, in v0.14.0); until then a refresh starts
 nothing and the dispatcher says so.
 
-**What it reads.** `tehasbot refresh`, from `tehas-refresh.timer` once an hour,
-lists the open pull requests of the repository. It keeps the bot's that close
+**What it reads.** `tehasbot refresh`, every `TEHAS_REFRESH_EVERY` minutes (10
+unless the instance says otherwise), lists the open pull requests of the repository. It keeps the bot's that close
 exactly one open issue carrying `tehas:awaiting-merge`, not the control issue,
 are the only open pull request that closes it, come from a branch of the
 repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
-`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again next hour. A
-request whose pull request no longer qualifies goes. Each run writes one line
-to `~/tehas/logs/refresh.log`:
+`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again on the next run. A
+request whose pull request no longer qualifies goes. `tehas-refresh.timer`
+starts it every minute, and it goes ahead only when the last run began that
+many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
+counts. Each run writes one line to `~/tehas/logs/refresh.log`:
 
 ```
 2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
