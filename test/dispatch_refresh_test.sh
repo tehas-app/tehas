@@ -346,6 +346,26 @@ past 7 bob label 2026-10-01T00:00:00Z
 t_run "$dispatch"
 refresh_dropped "this host has no approval of a person's"
 
+t_case "an approval the store cannot read keeps the refresh waiting: the request stays"
+refresh_setup
+store_refuses "approval-current 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: its approval could not be read"
+t_lacks "$t_out" "drop the refresh of #7"
+t_lacks "$(t_calls gh)" "$mark_call"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "a history the store cannot read keeps the refresh waiting: the request stays"
+refresh_setup
+store_refuses "history-show 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: its history could not be read"
+t_lacks "$t_out" "drop the refresh of #7"
+t_lacks "$(t_calls gh)" "$mark_call"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
 t_case "a pull request that carries tehas:refreshing waits"
 refresh_setup
 pull '.labels.nodes = [{name: "tehas:refreshing"}]'
@@ -504,5 +524,25 @@ t_case "a host that never refreshed does not ask for the mark"
 reset
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "tehas:refreshing"
+
+t_case "a history of refreshes the store cannot read clears no mark"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+store_refuses "history-show --kind cycle --how refresh" 1 'store: busy: the database is locked'
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "$unmark_call"
+t_contains "$t_out" "WARN: the history of refreshes could not be read (busy)"
+
+t_case "an approval the store cannot read clears no mark"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+store_refuses "approval-current 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "$unmark_call"
+t_contains "$t_out" "WARN: the approval of #7 could not be read (busy)"
 
 t_done

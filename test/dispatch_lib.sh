@@ -571,3 +571,20 @@ limit() { # <cycles> [<plan true|false>] [<until or "">] [<reason>]: the limit t
 
 # Issue 7's body is "Words." in the fixer's and the refresh's cases.
 WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
+
+# store_refuses <args> <rc> <line>: the installed store answers <rc> with
+# <line> on stderr for each call whose arguments are <args> or begin with
+# <args> and a space, and runs the real store for every other call. Each call
+# is noted in t_calls store.
+store_refuses() {
+  local bin=$T/home/tehas/libexec/store
+  rm -f "$bin"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    "a=\"\$*\" p=$(t_q "$1")" \
+    'if [ "$a" = "$p" ] || [ "${a#"$p "}" != "$a" ]; then' \
+    "  printf '%s\\n' $(t_q "$3") >&2; exit $(t_q "$2")" \
+    'fi' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}

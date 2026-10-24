@@ -71,6 +71,15 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$t_out" "its text is not the text alice approved"
 
+t_case "a busy store leaves the fixer's label for the next poll: no label comes off, nothing is said"
+fixer_ready
+store_refuses "approval-current 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: tehas:ready from the fixer waits: its approvals on the state store could not be read"
+t_lacks "$(t_calls gh)" "--remove-label tehas:ready"
+t_lacks "$(t_calls gh)" "issue comment 7"
+
 t_case "the fixer's label on the control issue starts nothing"
 fixer_ready
 echo '[{"number":1,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"

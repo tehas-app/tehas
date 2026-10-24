@@ -565,6 +565,38 @@ t_lacks "$t_out" "its last cycle parked on"
 t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
 t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
 
+# outage_parked: rule 4a's park of #7, as in the case above.
+outage_parked() {
+  parked_again "Words." '{cap: "step-failed:adversarial", reason: "Connection error.",
+    provider: true, retry: true, started: 1767225600, body_sha256: $SUM}'
+  t_ended "$T/home/tehas" 7 alice label --provider --parked
+  echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
+    >"$fx/ready.json"
+  echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+  new_poll
+}
+
+t_case "a busy store keeps the retry after an outage for the next poll: nothing starts, the park stays"
+outage_parked
+# Only rule 4a asks for #7: no label of a person's queues it.
+echo '[]' >"$fx/ready.json"
+store_refuses "cycle-show 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: who started its last cycle could not be read (busy)"
+t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 1
+t_lacks "$(t_calls gh)" "issue edit 7"
+
+t_case "a store that cannot be used for the retry after an outage stops the poll at 78"
+outage_parked
+store_refuses "cycle-show 7" 78 'store: corrupt: the file is not a database'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+t_lacks "$(t_calls gh)" "issue edit 7"
+
 t_case "a park of a cycle that named no body starts as today"
 # A park that says nothing of its body is no reason to hold: this issue's cycle
 # ended before the field existed, and its start rests on the label.

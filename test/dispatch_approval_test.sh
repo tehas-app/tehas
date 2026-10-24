@@ -372,6 +372,26 @@ t_contains "$t_out" "ERROR: could not write the approval record of #7 (busy), no
 t_lacks "$(t_calls gh)" "issue edit"
 t_eq "$(t_calls fake-start)" ""
 
+t_case "a store that cannot be used stops the poll at 78 before the first start changes a label"
+reset
+store_refuses "approval-record 7" 78 'store: corrupt: the file is not a database'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used, not starting a cycle for #7"
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "after a start, a store that cannot be used ends the poll with exit 1 and starts no more"
+reset
+slots 2
+ready 3 8
+store_refuses "approval-record 8" 78 'store: corrupt: the file is not a database'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start | tr '\n' ' ')" "3 "
+t_contains "$t_out" "ERROR: the state store cannot be used, not starting a cycle for #8"
+t_lacks "$(t_calls gh)" "issue edit 8"
+
 # The seam between the two commands. A cycle the poll started can find its
 # issue closed when it asks, and refuse it. It claimed its place before it
 # asked, so the poll does not report a start that did happen as one that did
