@@ -2999,17 +2999,96 @@ for entry in $plans; do
   # The park's question goes with the label that asked: plan_turn takes
   # tehas:question off, and its boxes must not answer for the new session.
   rm -rf "$st" "$st.out" "$st.answer" "$st.keep" "$(park_id "$n")"
-  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
-    { log "ERROR: unreadable text of #$n"; exit 1; }
-  # The brief goes after the issue's text, so the first line is still the title
-  # the planner is asked to plan. The last line names the issue under discussion:
-  # without it the planner matches its own issue as the duplicate of the plan and
-  # stops at turn 1 (issue 542).
-  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$st.brief"; then
-    log "ERROR: could not write the brief of #$n"
+  plan_brief "$n" "$brief" "$refine" || exit 1
+  log "start planning #$n (labelled by $who${refine:+, to refine it})"
+  plan_turn "$n" first "$st.brief"
+  "$status_cmd"
+  exit 0
+done
+
+# 5a. A cycle that parked as underspecified or too-large is refined once,
+# without a label: tehasbot cycle marks such a park refine: true in
+# state/cycles/<issue>.park. It is a planning session, so like rule 5 it does
+# not wait for a cycle's slot. The session rests on the account whose
+# tehas:ready started the cycle, while it is still allowed and nobody else
+# changed the text since that cycle began. A person's decision since the park
+# wins: a label of theirs, a tick of the park's boxes, or a session they had
+# before. So does a ticket a planning session filed, which is never refined
+# again, and a start of the fixer's, which rests on no person's label here.
+# A mark that cannot start anything is dropped and the issue stays parked.
+for pf in $(tehas_cycle_note_files park); do
+  n=${pf##*/}
+  n=${n%.park}
+  [ "$(jq -r '.refine == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+  if [ -n "$plan_busy" ]; then
+    log "refining #$n waits: the turn of #$plan_busy is still running"
+    break
+  fi
+  slice_ok || break
+  if ! limit_plan_ok; then
+    [ "$dry" = 0 ] || log "refining #$n waits: the limit holds new planning turns"
+    break
+  fi
+  mesh_ok || exit 0
+  why=""
+  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
+  preason=$(jq -r '.park_reason // "" | strings' "$pf" 2>/dev/null | tr -cd 'a-z-' | head -c 40)
+  if control_ask "$n" "a cycle that parked as \`underspecified\` asked to be refined"; then
+    why="it is the control issue"
+  else
+    gh_json issue view "$n" --repo "$repo" --json state,labels,title,body
+    brief=$json
+    have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$brief") "
+    for l in tehas:ready tehas:running tehas:blocked tehas:plan tehas:refine tehas:refined tehas:replaced; do
+      [[ $have != *" $l "* ]] || why="it carries $l"
+    done
+    [ "$(jq -r '.state // ""' <<<"$brief")" = OPEN ] || why="it is closed"
+    [[ $have == *" needs-human-attention "* && $have == *" tehas:question "* ]] || why="it is no longer parked"
+    [ -s "$(park_id "$n")" ] || why="its park question was answered"
+    [ ! -e "$(plan_state "$n")" ] && [ ! -e "$TEHAS_HOME/state/cycles/plan-$n.history.jsonl" ] ||
+      why="it has had a planning session"
+    ! jq -r '.body // "" | split("\n") | .[0] // "" | rtrimstr("\r")' <<<"$brief" | grep -qE '^Replaces #[0-9]+$' ||
+      why="a planning session filed it"
+    if [ -z "$by" ] || tehas_fixer_is "$by" || ! tehas_allowed_labeler "$by"; then
+      why="its cycle was not started by an account that may label (${by:-unknown})"
+    fi
+    if [ -z "$why" ] && ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:refine"; then
+      why="its text changed since its cycle began"
+    fi
+  fi
+  if [ -n "$why" ]; then
+    log "skip #$n: not refined: $why"
+    if [ "$dry" = 0 ]; then
+      if ! { jq -c '.refine = false' "$pf" >"$pf.new" && mv "$pf.new" "$pf"; }; then
+        log "WARN: could not drop the refine mark of #$n"
+      fi
+    fi
+    continue
+  fi
+  refine=$here/../lib/refine-brief.md
+  if [ ! -s "$refine" ]; then
+    log "ERROR: no refine brief at $refine, not refining #$n"
+    break
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would start refining #$n (its cycle parked as ${preason:-underspecified}, approved by $by)"
+    exit 0
+  fi
+  st=$(plan_state "$n")
+  rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
+  plan_brief "$n" "$brief" "$refine" || exit 1
+  # Dropped before the turn, so a poll that fails after the start never starts
+  # a second session: the record the turn writes holds it from here.
+  if ! { jq -c '.refine = false' "$pf" >"$pf.new" && mv "$pf.new" "$pf"; }; then
+    log "ERROR: could not drop the refine mark of #$n, not refining it"
     exit 1
   fi
-  log "start planning #$n (labelled by $who${refine:+, to refine it})"
+  rm -f "$(park_id "$n")"
+  who=$by
+  plabel=tehas:refine
+  plan_auto=1
+  plan_auto_reason=${preason:-underspecified}
+  log "start refining #$n (its cycle parked as $plan_auto_reason, approved by $by)"
   plan_turn "$n" first "$st.brief"
   "$status_cmd"
   exit 0

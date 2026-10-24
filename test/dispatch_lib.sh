@@ -126,6 +126,7 @@ case "$1 $2" in
     if [ -s "$T/fx/edit-fails-on" ]; then
       case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
+  "issue close") [ ! -e "$T/fx/close-fails" ] || exit 1 ;;
   "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
     # The pull requests marked tehas:refreshing.
     case "$*" in *tehas:refreshing*) cat "$T/fx/refreshing.json" 2>/dev/null || echo "[]"; exit 0 ;; esac

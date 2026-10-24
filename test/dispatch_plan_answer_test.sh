@@ -233,4 +233,57 @@ t_run "$dispatch"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 t_lacks "$(t_calls gh)" "issue comment"
 
+# A session the factory started on its own, when a cycle parked as
+# underspecified or too large. Ended by its limit or by losing its session, it
+# goes back to a person as a parked issue; ended by a person, it does not.
+auto_planning() {
+  planning
+  jq '.by = "alice" | .label = "tehas:refine" | .auto = true' "$record" >"$record.new" && mv "$record.new" "$record"
+}
+
+t_case "a turn of an automatic session says so in its line of history"
+auto_planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(tail -n 1 "$T/home/tehas/state/cycles/plan-7.history.jsonl" | jq -c '[.label, .auto]')" '["tehas:refine",true]'
+t_eq "$(jq -r .auto "$record")" true
+
+t_case "a labelled session has no auto in its line of history"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_eq "$(tail -n 1 "$T/home/tehas/state/cycles/plan-7.history.jsonl" | jq -r 'has("auto")')" false
+
+t_case "an automatic session at its turn limit hands the issue back to a person"
+auto_planning
+jq '.turns = 20' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "reached its limit of 20 turns"
+t_contains "$(t_calls gh)" "--remove-label tehas:plan --add-label needs-human-attention"
+t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
+
+t_case "a labelled session at its turn limit still takes needs-human-attention off"
+planning
+jq '.turns = 20' "$record" >"$record.new" && mv "$record.new" "$record"
+comments 7 "$(plan_body x ' ' ' ')" alice
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--remove-label tehas:plan --remove-label needs-human-attention"
+
+t_case "an automatic session pi-rukas lost hands the issue back to a person"
+auto_planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "pi-rukas has no record of it on"
+t_contains "$(t_calls gh)" "--remove-label tehas:plan --add-label needs-human-attention"
+
+t_case "an automatic session a person ends is not handed back"
+auto_planning
+comments 7 "$(plan_body ' ' ' ' x)" alice
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "Planning session ended by alice."
+t_contains "$(t_calls gh)" "--remove-label needs-human-attention"
+t_lacks "$(t_calls gh)" "--add-label needs-human-attention"
+
 t_done
