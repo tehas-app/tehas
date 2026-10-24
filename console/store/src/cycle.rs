@@ -412,6 +412,17 @@ pub fn cycle_json(conn: &Connection, issue: i64) -> Result<String, Fail> {
         .optional()
         .q()?;
     pairs.push(("quiet", quiet.map_or("null".to_string(), |p| obj(&p))));
+    // The newest heartbeat since this attempt started: what the stuck rule
+    // reads.
+    let heard: Option<i64> = conn
+        .query_row(
+            "SELECT max(h.at) FROM heartbeats h JOIN cycles c ON c.issue = h.issue
+             WHERE h.issue = ?1 AND h.at >= c.started_at",
+            [issue],
+            |r| r.get(0),
+        )
+        .q()?;
+    pairs.push(("heard_at", j(heard)));
     Ok(obj(&pairs))
 }
 
@@ -853,8 +864,12 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
         )
         .q()?;
         c.execute(
-            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status)
-             VALUES (?1, ?2, 0, ?3, ?4)",
+            // The step and the notice the cycle last gave, when the end
+            // names none, so the page keeps showing them.
+            "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text)
+             SELECT ?1, ?2, 0,
+               coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 ORDER BY at DESC LIMIT 1)),
+               ?4, (SELECT text FROM heartbeats WHERE issue = ?1 ORDER BY at DESC LIMIT 1)",
             params![issue, now, r.step, r.status],
         )
         .q()?;

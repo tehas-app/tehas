@@ -36,10 +36,11 @@ table has no column for it. The step to 3 is one `ALTER TABLE ... ADD COLUMN`,
 like step 2. #676 also wants a schema 3 for the millwright grant. Whichever
 merges second takes schema 4.
 
-D2. **`cycle-heartbeat <issue> --attempt N (--running | --ended) --status <w>
---step <s> [--text <t>]`.** It refuses a heartbeat for an attempt that is not
-the open one (`conflict`), so a late tick of an ended cycle cannot make it
-look running again. It keeps the newest 100 rows per issue, the bound the spec
+D2. **`cycle-heartbeat <issue> [--attempt N] (--running | --ended) --status <w>
+[--step <s>] [--text <t>]`.** It refuses a heartbeat for a cycle that has
+ended (`ended`) or for another attempt (`attempt`), so a late tick of an ended
+cycle cannot make it look running again. `--attempt` is optional because a
+`tehas work` started by hand has none. It keeps the newest 100 rows per issue, the bound the spec
 gives `prune`. The text is cleaned like any container-made value and cut to
 300 characters.
 
