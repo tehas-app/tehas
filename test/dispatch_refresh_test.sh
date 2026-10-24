@@ -325,7 +325,41 @@ t_case "an issue that no longer waits for a merge drops the refresh"
 refresh_setup
 echo '{"number":7,"state":"open","labels":[]}' >"$fx/work-7.json"
 t_run "$dispatch"
-refresh_dropped "it does not carry tehas:awaiting-merge"
+refresh_dropped "it carries neither tehas:awaiting-merge nor needs-human-attention"
+
+# handed_off [<label>...]: issue 7 ended as a handoff, its pull request open.
+handed_off() {
+  printf '%s\n' needs-human-attention "$@" | jq -R '{name: .}' | jq -s '{number: 7, state: "open", labels: .}' >"$fx/work-7.json"
+  pull '.closingIssuesReferences.nodes[0].labels.nodes = [{name: "needs-human-attention"}]'
+  echo '[]' >"$fx/awaiting.json"
+}
+
+t_case "a handed-off issue's pull request is refreshed: the issue is marked running, with no label to take off"
+refresh_setup
+handed_off
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+edits=$(label_pair)
+t_contains "$edits" "$mark_call"
+t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running"
+t_lacks "$edits" "--remove-label"
+t_eq "$(jq -r .how "$approved_file")" refresh
+
+t_case "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's"
+refresh_setup
+slots 1 TEHAS_REFRESH_CONFLICTS=1
+handed_off tehas:ready
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+refresh_dropped "it was handed off and carries tehas:ready"
+
+t_case "a handed-off issue whose pull request says tehas:running drops the refresh"
+refresh_setup
+handed_off
+pull '.closingIssuesReferences.nodes[0].labels.nodes = [{name: "needs-human-attention"}, {name: "tehas:running"}]'
+t_run "$dispatch"
+t_eq "$(started)" ""
 
 t_case "no person's approval on record drops the refresh"
 refresh_setup
