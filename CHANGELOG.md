@@ -13,11 +13,27 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The files under `live/` that describe the cycles and the factory's health
+  have one writer, the state store's `publish` (#252). `tehas work` records a
+  heartbeat on the store every 10 seconds (`cycle-heartbeat`) in place of
+  writing `live/cycles/<n>.json`, and the poll's stuck rule reads it. The
+  store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
+  of the files are unchanged. `status.json`, `platform.json` and
+  `energy.json` are written through temporary names of their own.
+- `tehasbot clean` keeps the host's state in bounds (#257): it removes the
+  logs of cycles, planning turns and index runs older than 7 days whether or
+  not the improvement loop is on, makes a copy of the state store once a day
+  (`store backup`, `state/backup/tehas-<YYYYMMDD>.db`, 7 kept) and removes
+  rows older than 90 days (`store prune`). The poll's sweep removes the lock
+  file of an issue nothing has used for 30 days (`store sweep-locks`).
+  `tehasbot health` warns when the newest backup is missing or more than two
+  days old (`checks.backup`). The manual has a restore procedure.
 
 ### Adopter action
 
-- None.
+- Drain before you install (`tehas drain`): a cycle started by the earlier
+  `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
+  owns. `install.sh` takes the store to schema 3.
 
 ## v0.12.0 (2026-10-24)
 

@@ -1,0 +1,16 @@
+The live/ views as tehas_live_assemble (lib/live.sh before #252) wrote them,
+for the publisher's tests to compare against. Captured from these inputs:
+
+  live/cycles/12.json  running, step build, text "Running the gate",
+                       started 4102440000, updated 4102444800
+  live/cycles/7.json   running, step review, no text,
+                       started 4102441000, updated 4102444790
+  live/cycles/5.json   merged, step handoff, text "Opened #40",
+                       started 4102430000, updated 4102439000
+  live/cycles/9.json   handoff, step review, text "Asked a person",
+                       started 4102420000, updated 4102438000
+  live/endings.json    [{"issue":3,"status":"timeout","step":"build",
+                         "startedAt":4102400000,"updatedAt":4102410000}]
+
+Each cycle file was written with tehas work's jq -n expression. kept.txt is
+what was left in live/cycles/ afterwards.

@@ -470,10 +470,9 @@ host no cycle holds a lock.
 
 The other way round, a cycle that holds its lock but has not been heard from
 for 20 minutes is stuck, for example a `tehas work` that hangs after its
-container ended. Heard from means its live file,
-`~/tehas/live/cycles/<issue>.json`, was written, which `tehas work` does every
-10 seconds from the host, also while a long gate runs in the container, or
-that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
+container ended. Heard from means it recorded a heartbeat on the state store,
+which `tehas work` does every 10 seconds from the host, also while a long gate
+runs in the container, or that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
@@ -2233,8 +2232,22 @@ What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time
 and the work script says so when the console is missing or ends with an error.
 At the end of a cycle the console is given 30 seconds to stop; one that takes
 longer is killed, and the work script says so.
-The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
+The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
+
+### The live view
+
+The files under `~/tehas/live/` that describe the cycles and the factory's
+health have one writer, the state store's `publish`: `cycles/<issue>.json`
+(each running cycle and the one that finished last), `running.json`,
+`endings.json`, and `dispatch.json` and `health.json` with `health.down` when
+the poll and `tehasbot health` hand it their reports. It holds
+`~/tehas/state/publish.lock` while it writes and renames each file into place
+from a hidden temporary name, so a reader never sees half a file.
+`tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
+poll call it. A running cycle not heard from for two minutes whose lock is
+free is shown as `lost`, and its end is kept as lost when the issue starts
+again.
 
 The console, and the mask of the status line, also mask in any case the names
 the host knows that an agent can print: each name and address in
@@ -2282,7 +2295,7 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -2305,6 +2318,10 @@ recorded as ended with the status `lost`, which is a failure. While
 `checks.platform` is `live/platform.json`: the release a host runs, or the
 checkout of a host that has one. It is `null` on a host with neither.
 
+`checks.backup` is the newest daily copy of the state store, `{time,
+ageSeconds}`, or `null` when there is none (see [Backups and
+restore](/operating#backups-and-restore)).
+
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
 `null` when the snapshot is older than ten minutes or could not read it.
@@ -2322,7 +2339,7 @@ that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
 overtook ten seconds later leaves the status `pass`, and is still in
 `checks.failed` until ten more cycles have ended. A monitor that polls less
 often than cycles end reads it to see every failure. The ten endings are kept
-in `live/endings.json`.
+on the state store and published in `live/endings.json`.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host
@@ -2712,7 +2729,8 @@ journalctl --user -u tehas-clean
 ```
 
 Removes what the host can make again, of anything untouched for
-`TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
+`TEHAS_CLEAN_AFTER` hours (24 by default), and keeps the logs and the state
+store in bounds. Six steps, and a step that fails
 is logged as a warning while the others still run. One exception to the age:
 when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
 system of `~/tehas` or on the one Docker keeps its images on, whichever has
@@ -2790,6 +2808,16 @@ starting cycles:
    with one `docker rmi` of its own once it is of that age and no container was
    made from it. Nothing else is offered to docker: the step asks for that one
    name, and never for the images that have lost their tag.
+6. **Logs and the state store.** The logs in `~/tehas/logs` of cycles
+   (`work-*`, `dispatch-work-*`), planning turns (`plan-*.jsonl`,
+   `dispatch-plan-*.log`), index runs (`index-*`) and the improvement loop's
+   analyst (`improve-analyst*.log`) older than 7 days, whether or not the
+   improvement loop is on. Then `store backup`, a copy a day of the state store
+   kept seven days, and `store prune --days 90` (see [Backups and
+   restore](/operating#backups-and-restore)). All of it is one call,
+   `store upkeep`, and says one line per log removed and then
+   `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
+   store alone.
 
 Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),

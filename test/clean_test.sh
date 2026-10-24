@@ -156,6 +156,8 @@ reset() {
   mkdir -p "$th/lib"
   printf '%s\n' "${pins[@]}" >"$th/versions.env"
   t_instance "${T_MINIMAL[@]}"
+  # The state store step 6 backs up and prunes.
+  t_store_home "$th"
   after_hours=24
   # The knob is turned by a case that leaves the names reset set, and adds to
   # them: PS_RC, INSPECT_RC, BASE_LS_RC, HELD_LS_RC, PRUNE_RC, RMI_FAILS,
@@ -1774,5 +1776,38 @@ t_contains "$t_out" "WARN: clean: docker builder prune failed"
 t_contains "$(cat "$log_file")" "WARN: clean: docker builder prune failed"
 t_contains "$t_out" "removed $workdir-7/target: build output of #7"
 t_eq "$(grep -c "removed $workdir-7/target: build output of #7" "$log_file")" 1
+
+t_case "step 6: logs of cycles, planning turns and index runs over 7 days go, whatever the improvement loop does"
+reset
+for f in work-3-261001-000000.jsonl work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log \
+  improve-analyst-261001-000000.log plan-4-261001-000000.jsonl dispatch-plan-4.log dispatch.log clean.log; do
+  touch -d '8 days ago' "$logs/$f"
+done
+touch -d '6 days ago' "$logs/work-5-261004-000000.jsonl"
+t_run "$clean --dry-run"
+t_contains "$t_out" "would remove logs/plan-4-261001-000000.jsonl: a log 7 days old"
+t_eq "$([ -e "$logs/plan-4-261001-000000.jsonl" ] && echo kept)" kept
+t_eq "$([ -d "$th/state/backup" ] && echo made)" ""
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed logs/dispatch-plan-4.log: a log 7 days old"
+t_eq "$(find "$logs" -type f -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "clean.log dispatch.log work-5-261004-000000.jsonl "
+
+t_case "step 6: the state store is backed up once a day and pruned"
+reset
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$(find "$th/state/backup" -name 'tehas-[0-9]*.db' | wc -l)" 1
+t_contains "$t_out" "clean: store upkeep: "
+t_run "$clean"
+t_eq "$(find "$th/state/backup" -name 'tehas-[0-9]*.db' | wc -l)" 1
+
+t_case "step 6: no state store is a warning, and the other steps still run"
+reset
+rm -f "$th/libexec/store"
+t_run "$clean"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: clean: the state store is not installed: no logs removed, no backup"
+t_contains "$t_out" "clean: freed "
 
 t_done

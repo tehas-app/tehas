@@ -16,12 +16,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
-/// The step from schema 1 to 2: columns and a table added, nothing changed or
-/// removed, so no row of a v1 store can be lost. Each column comes last in its
-/// table in schema.sql too, so the two ways to schema 2 agree.
+/// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
+/// nothing changed or removed, so no row of an older store can be lost. Each
+/// column comes last in its table in schema.sql too, so init and migrate make
+/// the same schema.
 const STEP_2: &str = "
 ALTER TABLE approvals ADD COLUMN input_json TEXT;
 ALTER TABLE parks ADD COLUMN told_at INTEGER;
@@ -33,6 +34,9 @@ CREATE TABLE planning_notes (
   at INTEGER NOT NULL,
   PRIMARY KEY (issue, kind, comment_id)
 );
+";
+const STEP_3: &str = "
+ALTER TABLE heartbeats ADD COLUMN text TEXT;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -697,8 +701,9 @@ pub fn write_schema(
 /// and a `user_version` of 0 (what SQLite makes of an empty file),
 /// `write_schema` is the whole of it: it lays schema.sql at the version this
 /// binary writes, writes the rows of `meta` -- `schema` among them -- and sets
-/// `user_version`, all in one transaction. From schema 1 it is `step_2`. A
-/// database already at SCHEMA_VERSION has nothing to run.
+/// `user_version`, all in one transaction. From schema 1 it is the step to 2
+/// and then the step to 3, each its own transaction. A database already at
+/// SCHEMA_VERSION has nothing to run.
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
@@ -726,7 +731,8 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        1 => step_2(conn),
+        1 => step(conn, 2, STEP_2).and_then(|()| step(conn, 3, STEP_3)),
+        2 => step(conn, 3, STEP_3),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -734,9 +740,11 @@ pub fn migrate(
     }
 }
 
-/// Schema 1 to 2 in one transaction with `meta.schema` and `user_version`: a
-/// failure commits nothing and leaves the store at 1 with every row.
-fn step_2(conn: &mut Connection) -> Result<(), DbError> {
+/// One schema step to `to`, in one transaction with `meta.schema` and
+/// `user_version`: a failure commits nothing and leaves the store where it
+/// was with every row.
+fn step(conn: &mut Connection, to: i64, sql: &str) -> Result<(), DbError> {
+    let from = to - 1;
     let tx = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(classify)?;
@@ -744,21 +752,24 @@ fn step_2(conn: &mut Connection) -> Result<(), DbError> {
     let held: i64 = tx
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
-    if held != 1 {
+    if held != from {
         return Err(DbError::Corrupt(format!(
-            "the step from schema 1 found schema {held}"
+            "the step from schema {from} found schema {held}"
         )));
     }
-    tx.execute_batch(STEP_2).map_err(classify)?;
+    tx.execute_batch(sql).map_err(classify)?;
     let n = tx
-        .execute("UPDATE meta SET value = '2' WHERE key = 'schema'", [])
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'schema'",
+            [to.to_string()],
+        )
         .map_err(classify)?;
     if n != 1 {
-        return Err(DbError::Corrupt(
-            "the store at schema 1 has no schema row in meta".to_string(),
-        ));
+        return Err(DbError::Corrupt(format!(
+            "the store at schema {from} has no schema row in meta"
+        )));
     }
-    tx.pragma_update(None, "user_version", 2)
+    tx.pragma_update(None, "user_version", to)
         .map_err(classify)?;
     tx.commit().map_err(classify)
 }
@@ -790,6 +801,12 @@ pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
 /// timeout is what another waits.
 pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<PathBuf, DbError> {
     let copy = backup_name(state, from, now);
+    backup_to(conn, &copy)?;
+    Ok(copy)
+}
+
+/// `backup` to a name the caller chose, with the same guarantees.
+pub fn backup_to(conn: &Connection, copy: &Path) -> Result<(), DbError> {
     let name = copy.to_str().ok_or_else(|| {
         DbError::Unreadable(format!("the backup path {} is not UTF-8", copy.display()))
     })?;
@@ -801,7 +818,7 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&copy)
+        .open(copy)
         .map(|_| ())
         .map_err(|e| {
             DbError::Unreadable(format!("cannot make the backup {}: {e}", copy.display()))
@@ -810,11 +827,26 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
         // SQLite may have filled part of the file before it gave up, and a
         // reader cannot tell that copy from a good one. The name is taken away
         // so that the only backup the directory holds is one that finished.
-        let _ = fs::remove_file(&copy);
+        let _ = fs::remove_file(copy);
         classify(e)
     })?;
-    set_mode(&copy, 0o600)?;
-    Ok(copy)
+    // The copy is written in the rollback journal mode, which the store's
+    // readers cannot open: a copy restored over the store must be one the
+    // store opens as it is.
+    let wal = Connection::open(copy)
+        .and_then(|c| c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)))
+        .map_err(|e| {
+            let _ = fs::remove_file(copy);
+            classify(e)
+        })?;
+    if wal != "wal" {
+        let _ = fs::remove_file(copy);
+        return Err(DbError::Unreadable(format!(
+            "the backup {} took journal mode {wal}",
+            copy.display()
+        )));
+    }
+    set_mode(copy, 0o600)
 }
 
 /// The directory `migrate --backup` was given, settled to one of the two places

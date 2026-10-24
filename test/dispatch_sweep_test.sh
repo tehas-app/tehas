@@ -312,19 +312,20 @@ t_run "$dispatch"
 t_eq "$(left)" ""
 rm -rf "$works"
 
-# #9 was last heard from <age> seconds ago: its live file was written then.
+# #9 was last heard from <age> seconds ago: its heartbeat is on record then.
 heard_at() { # <age>
-  mkdir -p "$T/home/tehas/live/cycles"
-  printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
+  echo "$(($(date +%s) - $1))" >"$T/heard-9"
+  t_at "$(cat "$T/heard-9")" cycle-heartbeat 9 --running --status running --step develop >/dev/null ||
+    t_bad "the store did not take the heartbeat of #9"
 }
-# A cycle on #9 whose live file was last written <age> seconds ago, and that
-# took its lock <taken> seconds ago: its start on record at that time, under the
-# lock hold took.
+# A cycle on #9 whose heartbeat is <age> seconds old, and that took its lock
+# <taken> seconds ago: its start on record at that time, under the lock hold
+# took.
 quiet_cycle() { # <age> <taken>
   hold 9
-  heard_at "$1"
   t_at "$(($(date +%s) - $2))" cycle-start 9 --by-hand >/dev/null ||
     t_bad "the store did not start the record of #9"
+  heard_at "$1"
 }
 # The issues with a quiet episode on record.
 notes() { t_row cycle-show 9 -- 'if .cycle.quiet == null then "" else "9 " end'; }
@@ -337,7 +338,7 @@ note_asks() {
 # move the time of the last ask back without starting a new episode.
 seen_long_ago() {
   t_at "$(($(date +%s) - 86400))" cycle-note 9 --kind quiet \
-    --said-for "$(jq -r .updatedAt "$T/home/tehas/live/cycles/9.json")" >/dev/null ||
+    --said-for "$(cat "$T/heard-9")" >/dev/null ||
     t_bad "the store did not take the episode of #9"
 }
 # Time passes: the last ask or line about #9 was <seconds> ago. The count of
@@ -453,7 +454,7 @@ t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
 t_eq "$(note_asks)" "2"
 release
 
-t_case "a quiet cycle that is heard from again is left alone, and a new episode counts its asks from one"
+t_case "a quiet cycle that is heard from again is left alone"
 reset
 t_stub fake-stop 'exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
@@ -463,12 +464,25 @@ t_run "$dispatch"
 ago 601
 t_run "$dispatch"
 t_eq "$(note_asks)" "2"
-# The stop was asked, and the cycle went on writing its live file.
+# The stop was asked, and the cycle went on with its heartbeats.
 heard_at 20
 ago 3601
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
+release
+
+# A heartbeat only moves forward, so the new episode is a cycle of its own.
+t_case "a quiet cycle heard from since its episode is a new episode, whose asks count from one"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+t_run "$dispatch"
+ago 601
+t_run "$dispatch"
+t_eq "$(note_asks)" "2"
 # Quiet again, since a later time: the first ask of a new episode.
 heard_at 1250
 t_run "$dispatch"
@@ -599,10 +613,9 @@ quiet_cycle 1300 3600
 t_run "$dispatch"
 t_eq "$(notes)" "9 "
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
-# Neither the live file nor an open start on record: nothing is known about
-# this cycle.
-rm -f "$T/home/tehas/live/cycles/9.json"
-TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 -- .cycle.attempt)" --refused >/dev/null
+# The store answers with no cycle on record: nothing is known about this
+# cycle.
+t_store_answers cycle-show 0 '{"api":1,"verb":"cycle-show","ok":true,"probe_rc":0,"cycles":[{"issue":9,"lock":{"state":"held","probe_rc":1,"file":true,"seen_at":1},"cycle":null}]}'
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
 t_eq "$(notes)" "9 "
@@ -628,12 +641,14 @@ t_contains "$t_out" "and the state store has no open record of it, so the poll d
 t_eq "$(t_calls fake-stop)" ""
 release
 
-t_case "a quiet lock with no cycle on record is not stopped by the poll, which says so for a person"
+t_case "a quiet lock whose record has ended is not stopped by the poll, which says so for a person"
 reset
 t_stub fake-stop
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 hold 9
+t_at "$(($(date +%s) - 3600))" cycle-start 9 --by-hand >/dev/null || t_bad "the store did not start the record of #9"
 heard_at 1300
+TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 -- .cycle.attempt)" --refused >/dev/null
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
@@ -726,5 +741,45 @@ t_run "$dispatch"
 t_eq "$(notes)" ""
 t_eq "$(t_calls fake-stop)" "9"
 release
+
+# A cycle of #<n> that ended <days> days ago, its lock file left.
+ended_days_ago() { # <n> <days>
+  hold "$1"
+  t_at "$(($(date +%s) - $2 * 86400 - 60))" cycle-start "$1" --by-hand >/dev/null ||
+    t_bad "the store did not start the record of #$1"
+  release
+  t_at "$(($(date +%s) - $2 * 86400))" cycle-end "$1" --attempt 1 --status merged >/dev/null ||
+    t_bad "the store did not end the record of #$1"
+  # As old as its cycle: a lock touched in the last minute may have a waiter.
+  touch -d "$2 days ago" "$T/home/tehas/state/cycles/$1.lock"
+}
+
+t_case "the lock of an issue nothing has used for 30 days goes, and one used lately stays"
+reset
+ended_days_ago 31 40
+ended_days_ago 32 10
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would remove the lock of #31: unused for 30 days"
+t_eq "$(find "$T/home/tehas/state/cycles" -name '3[12].lock' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "31.lock 32.lock "
+t_run "$dispatch"
+t_contains "$t_out" "removed the lock of #31: unused for 30 days"
+t_lacks "$t_out" "#32: unused"
+t_eq "$([ -e "$T/home/tehas/state/cycles/31.lock" ] && echo kept)" ""
+t_eq "$([ -e "$T/home/tehas/state/cycles/32.lock" ] && echo kept)" kept
+
+t_case "a backup restored into a fresh home is a store a poll runs on"
+reset
+ended_days_ago 33 1
+TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null || t_bad "the store made no backup"
+copy=$(find "$T/home/tehas/state/backup" -name 'tehas-[0-9]*.db' | head -n 1)
+cp "$copy" "$T/restored.db"
+reset
+cp "$T/restored.db" "$T/home/tehas/state/tehas.db"
+rm -f "$T/home/tehas/state/tehas.db-wal" "$T/home/tehas/state/tehas.db-shm"
+chmod 600 "$T/home/tehas/state/tehas.db"
+t_eq "$(TEHAS_HOME=$T/home/tehas "$T_STORE" check | jq -r .integrity)" ok
+t_eq "$(t_row cycle-show 33 -- .cycle.end_reason)" merged
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
 
 t_done

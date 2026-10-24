@@ -417,6 +417,16 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
             "1791999000",
         ],
         vec!["cycle-stop-asked", "1"],
+        vec![
+            "cycle-heartbeat",
+            "1",
+            "--running",
+            "--status",
+            "running",
+            "--step",
+            "build",
+        ],
+        vec!["publish"],
         vec!["park", "1", "--attempt", "1", "--reason", "failed"],
         vec!["park-show", "1"],
         vec!["park-show", "--automatic"],
@@ -485,13 +495,21 @@ fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
         vec!["plan-show", "--open"],
         vec!["plan-note", "1", "--kind", "held", "--id", "5"],
         vec!["history-show"],
+        vec!["backup"],
+        vec!["backup", "--show"],
+        vec!["prune", "--days", "90"],
+        vec!["sweep-locks"],
+        vec!["upkeep"],
         vec!["history-show", "1", "--kind", "cycle", "--how", "label"],
     ];
     raw.into_iter().map(|v| strings(&v)).collect()
 }
 
-const READERS: [&str; 6] = [
+const READERS: [&str; 9] = [
     "cycle-show",
+    "backup",
+    "sweep-locks",
+    "publish",
     "park-show",
     "question-known",
     "approval-current",

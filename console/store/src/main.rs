@@ -66,6 +66,9 @@
 //!   store cycle-show <issue> | --running
 //!   store cycle-note <issue> --kind quiet --said-for <key>
 //!   store cycle-stop-asked <issue> [--said-only]
+//!   store cycle-heartbeat <issue> [--attempt N] --running|--ended --status <word>
+//!                [--step <word>] [--text <notice>]
+//!   store publish [--dispatch <file>] [--health <file>]
 //!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
 //!                [--comment-id <id> --body-sha <sha256>]
 //!   store park-show <issue> | --automatic
@@ -84,6 +87,10 @@
 //!   store plan-note <issue> --kind fixer-refused|held --id <id>
 //!   store plan-show <issue> | --open
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
+//!   store backup [--show]
+//!   store prune --days N
+//!   store sweep-locks [--days N] [--max N] [--dry-run]
+//!   store upkeep [--dry-run]
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
@@ -123,9 +130,11 @@ mod db;
 mod exercise;
 mod history;
 mod import;
+mod live;
 mod lock;
 mod park;
 mod plan;
+mod upkeep;
 mod verbs;
 
 #[cfg(test)]
@@ -137,6 +146,8 @@ mod history_tests;
 #[cfg(test)]
 mod import_tests;
 #[cfg(test)]
+mod live_tests;
+#[cfg(test)]
 mod lock_tests;
 #[cfg(test)]
 mod park_tests;
@@ -146,6 +157,8 @@ mod plan_tests;
 mod schema_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod upkeep_tests;
 #[cfg(test)]
 mod verbs_tests;
 
@@ -172,7 +185,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | upkeep";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
