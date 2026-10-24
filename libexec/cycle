@@ -239,8 +239,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/analytics.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
-# shellcheck source=lib/live.sh
-. "$here/../lib/live.sh"
 tehas_load || exit 78
 # shellcheck source=lib/questions.sh
 . "$here/../lib/questions.sh"
@@ -1427,7 +1425,8 @@ if tehas_store_try 5 cycle-end "${end_args[@]}"; then
 else
   log "ERROR: the end of #$issue is not on record ($tehas_store_word: $tehas_store_line): cycle-end ${end_args[*]}"
 fi
-tehas_live_publish ||
+# The live view, as lib/live.sh describes it, with this end in it.
+tehas_store_try 3 publish ||
   log "WARN: the live view is not published after the end of #$issue ($tehas_store_word: $tehas_store_line)"
 # The run and its end in the factory's analytics, from the line of history as
 # the cycle saw it and what the cycle's record holds (lib/analytics.sh); the

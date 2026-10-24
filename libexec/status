@@ -228,8 +228,9 @@ platform_release() { # <installed version>
     {generatedAt: $now, release: $release, newest: (if $newest == "" then null else $newest end),
      behind: 0, upstream: "releases",
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.$$.new" 2>/dev/null && mv "$live/platform.json.$$.new" "$live/platform.json" ||
-    rm -f "$live/platform.json.$$.new"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 
 platform_checkout() {
@@ -262,8 +263,9 @@ platform_checkout() {
      upstream: $upstream, behind: ($behind | num),
      behindSince: ($since | num | if . == null then null else todate end),
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.$$.new" 2>/dev/null && mv "$live/platform.json.$$.new" "$live/platform.json" ||
-    rm -f "$live/platform.json.$$.new"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 platform
 
