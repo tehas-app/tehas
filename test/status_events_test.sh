@@ -200,10 +200,11 @@ for n in 20 21 22 23 24 25 26 27 28 29; do nodes+=("$(merged "$n" 60)"); done
 shipped "${nodes[@]}"
 t_stub_analytics 'exec sleep 30'
 T_ENV=(TEHAS_ANALYTICS_WAIT=1)
-before=$(date +%s)
 t_run "$status"
 t_eq "$t_rc" 0
-t_eq "$(($(date +%s) - before < 8))" 1
+# Each call is cut at the 1 s limit, so three calls is three calls' time. A
+# count, not a clock: the clock fails on a loaded runner (#655).
+t_eq "$(grep -c 'WARN analytics event: exit' <<<"$t_out")" 3
 t_contains "$t_out" "WARN analytics event: exit 124"
 t_contains "$t_out" "WARN analytics: out of time, the other events of this run are left out"
 t_eq "$(grep -c 'out of time' <<<"$t_out")" 1
