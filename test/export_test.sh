@@ -286,6 +286,23 @@ run_export --json --after $((T0 - 1))-12 "$out" 2>/dev/null
 t_eq "$t_rc" 78
 t_eq "$(find "$out" -type f 2>/dev/null | wc -l)" 0
 
+t_case "without the state store it is exit 78 and copies nothing"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+rm -f "$home/libexec/store"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas export: ERROR: the state store is not installed (run install.sh)"
+t_eq "$(find "$out" -type f 2>/dev/null | wc -l)" 0
+
+t_case "a busy store is exit 1 and copies nothing"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+t_store_answers history-show 1 'store: busy: the database is locked'
+run_export --json --after $((T0 - 1))-12 "$out" 2>/dev/null
+t_eq "$t_rc" 1
+t_eq "$(find "$out" -type f 2>/dev/null | wc -l)" 0
+
 t_case "no console means nothing is exported, because nothing could be masked"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
