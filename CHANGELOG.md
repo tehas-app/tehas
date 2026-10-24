@@ -19,6 +19,37 @@ empty one above it.
 
 - None.
 
+## v0.10.6 (2026-10-24)
+
+A patch release from v0.10.5, not from the default branch: it carries the
+GitHub App work (#639) and nothing of epic #244.
+
+### Changes
+
+- A factory can act as a GitHub App instead of a machine user.
+  `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`
+  name it, all three or none; the key is `~/.config/tehas/github-app.pem`.
+  `tehasbot github-token` makes and keeps its one-hour installation token, and
+  `--check` says whether it reaches the repository.
+- With an app named, the host's `gh` and git act as the app through
+  `~/tehas/shim/gh`, a user `GH_TOKEN` is dropped, and the dispatcher, the
+  refresh and the Protolab take the bot's login from `TEHAS_BOT_LOGIN`.
+- A cycle's container reads the app's token from `~/tehas/state/github`
+  (read-only, never the key) through the image's own `gh`, and `tehas work`
+  keeps the token fresh while the cycle runs. A security change: the container
+  is given one more read-only directory.
+
+### Adopter action
+
+- None for a factory that keeps its machine user: without the three settings
+  nothing changes. The sandbox image is rebuilt by the update.
+- To move to an app: make one as `docs/specs/2026-10-24-github-app.md` says
+  (under "For adopters"), put its key at `~/.config/tehas/github-app.pem` with
+  mode 600, add the three settings to the instance, set git's `user.name` and
+  `user.email` for the tehas user to the app's (`<slug>[bot]` and
+  `<id>+<slug>[bot]@users.noreply.github.com`), and run
+  `tehasbot github-token --check`.
+
 ## v0.10.5 (2026-10-23)
 
 ### Changes
