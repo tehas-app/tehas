@@ -31,7 +31,7 @@ stacked on the one before:
 | 1 | `store-callers-store-v2` (schema 2, new verbs) | done, reviewed, pushed |
 | 2 | `store-callers-wrapper` (`lib/store.sh`, test harness) | done, reviewed, pushed |
 | 3 | `store-callers-analytics-facts` | done, reviewed, pushed |
-| 4 | `store-callers-cycle-records` (approvals, start, image, end, history) | built and pushed, in review |
+| 4 | `store-callers-cycle-records` (approvals, start, image, end, history) | built, reviewed, fixing findings |
 | 5 | `store-callers-park-records` | not started |
 | 6 | `store-callers-quiet-notes` | not started |
 | 7 | `store-callers-plan-records` (#251) | not started |
