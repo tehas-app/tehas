@@ -1822,8 +1822,13 @@ fi
 # the bot: a list that names the bot would let an agent approve its own work by
 # labelling. A login that cannot be read ends the poll for the same reason:
 # nothing below could be checked against the allowed list.
-gh_json api user
-bot=$(jq -r '.login // ""' <<<"$json") || bot=""
+# A GitHub App's token cannot ask GET /user, so an app's login is the setting.
+if [ -n "${TEHAS_BOT_LOGIN:-}" ]; then
+  bot=$TEHAS_BOT_LOGIN
+else
+  gh_json api user
+  bot=$(jq -r '.login // ""' <<<"$json") || bot=""
+fi
 [ -n "$bot" ] || { log "ERROR: the bot's own login could not be read"; exit 1; }
 if tehas_allowed_labeler "$bot"; then
   log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"

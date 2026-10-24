@@ -67,6 +67,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/unzip.sh
 . "$here/../lib/unzip.sh"
+# shellcheck source=lib/github-app.sh
+. "$here/../lib/github-app.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_ALLOWED_LABELERS
 repo=$TEHAS_REPO
@@ -89,6 +91,7 @@ rm -rf "$work"
 mkdir -p "$work" || exit 1
 trap 'rm -rf "$work"' EXIT
 
+tehas_github_env || { echo "tehasbot protolab: no GitHub token for the app" >&2; exit 1; }
 token=${GH_TOKEN:-}
 [ -n "$token" ] || token=$(gh auth token 2>/dev/null) || token=""
 
@@ -370,7 +373,9 @@ build() {
 # removed: whatever a cycle labels, it labels as the bot. A login that cannot be
 # read ends the pass too, because no label below could then be checked against
 # the allowed list. Nothing is built and nothing is removed on either outcome.
-bot=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
+# A GitHub App's token cannot ask GET /user, so an app's login is the setting.
+bot=${TEHAS_BOT_LOGIN:-}
+[ -n "$bot" ] || bot=$(gh api user 2>/dev/null | jq -r '.login // empty' 2>/dev/null)
 if [ -z "$bot" ]; then
   echo "the bot's own login could not be read, nothing built or removed"
   exit 0

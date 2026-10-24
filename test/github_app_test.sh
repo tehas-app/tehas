@@ -175,4 +175,88 @@ t_run "$token_cmd >$T/a & $token_cmd >$T/b & wait"
 t_eq "$(t_calls curl | grep -c access_tokens)" 1
 t_eq "$(cat "$T/a")" "$(cat "$T/b")"
 
+# An installed home for the shim and env.sh: the real commands at their
+# installed paths, gh a stub that says the token it was given.
+installed() {
+  local h=$T/home/tehas
+  mkdir -p "$h/lib" "$h/libexec" "$h/bin" "$h/shim"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
+  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
+  cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
+  cp "$T_ROOT/host/env.sh" "$h/env.sh"
+  printf '#!/usr/bin/env bash\necho "gh $* token=${GH_TOKEN:-none}"\n' >"$h/bin/gh"
+  chmod +x "$h/bin/gh" "$h/shim/gh" "$h/libexec/github-token"
+}
+
+t_case "tehas_github_app_env drops GH_TOKEN, puts the shim first and gives git the shim's helper"
+reset
+t_run "GH_TOKEN=ghp_user; $lib && tehas_github_app_env && tehas_github_app_env
+  echo \"token=\${GH_TOKEN:-none}\"; echo \"\$PATH\" | tr : '\n' | grep -c -x \"\$TEHAS_HOME/shim\"; echo \"\${PATH%%:*}\"
+  echo \"\$GIT_CONFIG_COUNT|\$GIT_CONFIG_KEY_0|\$GIT_CONFIG_VALUE_0|\$GIT_CONFIG_KEY_1|\$GIT_CONFIG_VALUE_1\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "token=none
+1
+$T/home/tehas/shim
+2|credential.https://github.com.helper||credential.https://github.com.helper|!$T/home/tehas/shim/gh auth git-credential"
+
+t_case "the helper key is the one lib/sandbox.sh names for a container"
+t_run ". '$T_ROOT/lib/sandbox.sh' && tehas_git_credential_helper_key"
+t_eq "$t_out" "credential.https://github.com.helper"
+
+t_case "without an app, tehas_github_app_env and tehas_github_env change nothing"
+reset
+t_instance TEHAS_REPO=acme/widget
+t_run "GH_TOKEN=ghp_user; before=\$PATH; $lib && tehas_github_app_env && tehas_github_env && echo \"\$GH_TOKEN \${GIT_CONFIG_COUNT:-unset} \$([ \"\$PATH\" = \"\$before\" ] && echo same)\""
+t_eq "$t_out" "ghp_user unset same"
+
+t_case "tehas_github_env exports the app's token, and fails when there is none"
+reset
+t_run "$lib && tehas_github_env && echo \"\$GH_TOKEN\""
+t_contains "$t_out" "ghs_fresh"
+reset
+T_ENV=(CURL_FAILS=1)
+t_run "$lib && tehas_github_env || echo failed"
+t_contains "$t_out" "failed"
+
+t_case "the shim gives gh the app's token, and each call asks for one"
+reset
+installed
+t_run "TEHAS_GITHUB_APP_ID=5452597 GH_TOKEN=ghp_user $T/home/tehas/shim/gh pr list --repo acme/widget"
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh pr list --repo acme/widget token=ghs_fresh"
+t_lacks "$t_out" "ghp_user"
+
+t_case "the shim runs no gh when no token could be had"
+reset
+installed
+T_ENV=(CURL_FAILS=1)
+t_run "TEHAS_GITHUB_APP_ID=5452597 $T/home/tehas/shim/gh pr list"
+t_eq "$t_rc" 1
+t_lacks "$t_out" "gh pr list"
+
+t_case "without an app the shim is gh with the token it was given"
+reset
+installed
+t_run "GH_TOKEN=ghp_user $T/home/tehas/shim/gh api user"
+t_eq "$t_out" "gh api user token=ghp_user"
+
+t_case "env.sh with an app: the shim is first, git asks it, and the user token is gone"
+reset
+installed
+mkdir -p "$T/home/.config/tehas"
+printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
+t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\"; git config --get-all credential.https://github.com.helper | tail -n 1"
+t_eq "$t_out" "$T/home/tehas/shim/gh
+token=none
+!$T/home/tehas/shim/gh auth git-credential"
+
+t_case "env.sh without an app leaves gh and the user token as they were"
+reset
+installed
+t_instance TEHAS_REPO=acme/widget
+printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
+t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
+t_eq "$t_out" "$T/home/tehas/bin/gh
+token=ghp_user"
+
 t_done

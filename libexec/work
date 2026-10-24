@@ -331,6 +331,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/private.sh
 . "$here/../lib/private.sh"
+# shellcheck source=lib/github-app.sh
+. "$here/../lib/github-app.sh"
 # shellcheck source=lib/sizing.sh
 . "$here/../lib/sizing.sh"
 tehas_load || exit 78
@@ -401,6 +403,7 @@ console_wait=${TEHAS_CONSOLE_WAIT:-30}
 text_wait=${TEHAS_TEXT_WAIT:-60}
 [[ $text_wait =~ ^[1-9][0-9]{0,3}$ ]] || text_wait=60
 
+tehas_github_env || { echo "tehas work: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
 # Before anything is moved: a second run would move the running cycle's tree

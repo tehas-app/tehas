@@ -122,7 +122,8 @@ q_render() {
 # then leaves out; a marked reply with nothing after the marker is none.
 # Whether either counts is the caller's to decide.
 q_answer() {
-  jq -c --arg bot "$1" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
+  # GraphQL names a GitHub App without the [bot] its REST login carries.
+  jq -c --arg bot "${1%\[bot\]}" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
     ($allowed | split(" ")) as $list
     | (.data.repository.issue.comments.nodes // []) as $c
     | "<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->" as $re

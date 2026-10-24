@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# gh, acting as the factory's GitHub App. host/env.sh puts this directory first
+# on PATH, and git's github.com credential helper names this file, when the
+# instance names an app (TEHAS_GITHUB_APP_ID). Each call takes a token from
+# tehasbot github-token, which keeps one and makes a new one before it runs
+# out, so a command that runs for hours never holds a token that expired.
+# Without an app it is gh as it was.
+#
+# The real gh is $TEHAS_HOME/bin/gh, where bootstrap.sh installs it.
+#
+# Exit: gh's own; 1 when no token could be had (tehasbot github-token says why).
+set -uo pipefail
+
+home=${TEHAS_HOME:-$HOME/tehas}
+if [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
+  GH_TOKEN=$("$home/libexec/github-token") || exit 1
+  export GH_TOKEN
+fi
+exec "$home/bin/gh" "$@"

@@ -2471,9 +2471,22 @@ Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
 installation reaches `TEHAS_REPO`, and never the token.
 
-Nothing else uses the app's token yet: the host's commands and the cycles still
-act with `GH_TOKEN` from `~/.config/tehas/env`
-([#639](https://github.com/tehas-app/tehas/issues/639) moves them over).
+With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
+first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every
+call and runs `~/tehas/bin/gh`, so a command that runs for hours never holds an
+expired token. git's github.com credential helper is pointed at the same shim,
+as environment-level config (no file is written), and a `GH_TOKEN` left in
+`~/.config/tehas/env` is dropped so nothing acts as the user it belongs to. The
+dispatcher, the refresh and the Protolab take the bot's login from
+`TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
+
+A cycle's container is given a token with at least 50 minutes left when it
+starts. A cycle that runs longer cannot push or comment after that, until the
+container is given a token it can renew
+([#639](https://github.com/tehas-app/tehas/issues/639), part 3).
+
+GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
+where tehas compares a GraphQL author with the bot it drops the `[bot]`.
 
 Exit 0 a token or a check that passed; 1 no token could be had, or it does not
 reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
