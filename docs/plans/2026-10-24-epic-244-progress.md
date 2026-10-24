@@ -33,8 +33,8 @@ stacked on the one before:
 | 3 | `store-callers-analytics-facts` | done, reviewed, pushed |
 | 4 | `store-callers-cycle-records` (approvals, start, image, end, history) | done, reviewed, fixed, pushed |
 | 5 | `store-callers-park-records` | done, reviewed, fixed, pushed |
-| 6 | `store-callers-quiet-notes` | built, reviewed, fixing findings |
-| 7 | `store-callers-plan-records` (#251) | not started |
+| 6 | `store-callers-quiet-notes` | done, reviewed, fixed, pushed |
+| 7 | `store-callers-plan-records` (#251) | building |
 | 8 | `store-callers-old-paths` (old-path guard, manual) | not started |
 | - | `store-import` (from main: `store import`, install.sh runs it) | done, reviewed, pushed |
 
