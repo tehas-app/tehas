@@ -2470,7 +2470,7 @@ Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`,
 `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`. It signs a JSON Web
 Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
-hour. The token is kept in `~/tehas/state/github-token` (mode 600) and made
+hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
 Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
@@ -2485,10 +2485,14 @@ as environment-level config (no file is written), and a `GH_TOKEN` left in
 dispatcher, the refresh and the Protolab take the bot's login from
 `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
 
-A cycle's container is given a token with at least 50 minutes left when it
-starts. A cycle that runs longer cannot push or comment after that, until the
-container is given a token it can renew
-([#639](https://github.com/tehas-app/tehas/issues/639), part 3).
+A cycle's container is given `~/tehas/state/github` read-only at
+`/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
+before `/usr/bin/gh` on its `PATH`) reads the token there at every call, and
+git's helper asks that `gh`. While the container runs, `tehas work` asks for a
+fresh token every 5 minutes, so a cycle of any length pushes and comments as
+the app. The container's `GH_TOKEN` is the token it started with; a program in
+it that reads `GH_TOKEN` itself, not through `gh`, has that token for its first
+hour only.
 
 GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
 where tehas compares a GraphQL author with the bot it drops the `[bot]`.
