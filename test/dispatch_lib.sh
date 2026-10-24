@@ -277,10 +277,14 @@ cid() { # <issue> <hex digit> <bytes in use>
   slice_child "$(slice_id "$2")" "$3" 0 $((2 * gib))
 }
 dispatch_json=$T/home/tehas/live/dispatch.json
+# No case leaves the old file of a record that is on the store.
+t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
+  # The state store a poll runs, with nothing on record.
+  t_store_home "$T/home/tehas"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))

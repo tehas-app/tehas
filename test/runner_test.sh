@@ -47,8 +47,9 @@ broken=
 
 fresh() {
   rm -rf "$repo"
-  # One case reads what the lint was called with, so its record starts empty.
-  rm -f "$T/calls/shellcheck"
+  # Cases read what the lint and cargo were called with, so their records start
+  # empty, and a cargo stub of one case is not the next case's.
+  rm -f "$T/calls/shellcheck" "$T/calls/cargo" "$T/bin/cargo"
   mkdir -p "$repo/runner" "$repo/test" "$recs"
   # The runner sits where the lint's globs do not read, and its lint is stubbed
   # to pass: no case turns on what a real shellcheck makes of a scratch checkout
@@ -570,6 +571,56 @@ else
   t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
     shellcheck"
 fi
+
+# --- The state store, built once for the test files ------------------------------
+# saw_store <name>: a fake test file that prints what it was told of the store.
+saw_store() {
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$0 bin=${T_STORE_BIN:-} why=${T_STORE_WHY:-}"' >"$repo/test/$1"
+  chmod +x "$repo/test/$1"
+}
+with_console() {
+  mkdir -p "$repo/console"
+  : >"$repo/console/Cargo.toml"
+}
+
+t_case "the store is built once, offline, into a target of its own, and named to every test file"
+fresh
+with_console
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+mkdir -p "$td/debug" && echo store >"$td/debug/store"'
+saw_store a_test.sh
+saw_store b_test.sh
+run
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store"
+t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+t_contains "$t_out" "b_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+
+t_case "a store that does not build is named to the test files, which still run"
+fresh
+with_console
+t_stub cargo 'echo "error: could not compile store" >&2; exit 101'
+saw_store a_test.sh
+# A store named by the caller's environment is not the one this run built.
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs" T_STORE_BIN=/elsewhere/store)
+run
+T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+t_eq "$t_rc" 0
+t_contains "$t_out" "a_test.sh bin= why=the store did not build offline: error: could not compile store"
+
+t_case "a checkout without the console, or a host without cargo, builds nothing"
+fresh
+t_stub cargo
+saw_store a_test.sh
+run
+t_eq "$(t_calls cargo)" ""
+t_contains "$t_out" "a_test.sh bin= why=this checkout has no console/Cargo.toml"
+fresh
+with_console
+saw_store a_test.sh
+no_shellcheck
+t_contains "$t_out" "a_test.sh bin= why=cargo is not installed"
 
 t_case "a checkout with nothing to check is exit 2, not a pass"
 fresh

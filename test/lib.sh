@@ -23,9 +23,27 @@
 #                                    the MCP server and the store into a scratch
 #                                    checkout, and name its commit (t_tree_commit)
 #   t_tree_commit DIR                write COMMIT, as a release tree carries it
-#   t_store                          build the real store once per run, in
-#                                    $T_STORE; 1 when it cannot (t_store_why)
+#   t_store                          the real store, built once per run of
+#                                    the tests, in $T_STORE; 1 when there is
+#                                    none (t_store_why)
 #   t_store_db HOME                  a fresh database in HOME/state/tehas.db
+#   t_store_home HOME                the real store installed at
+#                                    HOME/libexec/store and a fresh database;
+#                                    a failure when there is no store
+#   t_row VERB ARGS... -- JQ         a read verb of the real store against the
+#                                    home of t_store_home, and jq -r JQ of its
+#                                    answer
+#   t_at EPOCH VERB ARGS...          the real store at that time, against that
+#                                    home (TEHAS_STORE_TEST_NOW)
+#   t_store_answers VERB RC LINE [TIMES]
+#                                    the installed store answers VERB with RC
+#                                    and LINE (or never answers: RC hang) for
+#                                    its first TIMES calls, and runs the real
+#                                    store otherwise; t_calls store
+#   t_no_old_state HOME              a failure for each old record file in
+#                                    HOME that t_old_state names
+#   t_after                          a command run as each case ends, by
+#                                    t_case and t_done
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
@@ -48,7 +66,9 @@ t_rc=0
 T_MINIMAL=(TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
   PI_ENSEMBLE_SUBAGENT_MODEL=test-model PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider)
 
+t_after=""
 t_case() {
+  [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
   t_name=$1
   t_count=$((t_count + 1))
 }
@@ -188,20 +208,30 @@ t_console_source() {
 T_COMMIT=0123456789abcdef0123456789abcdef01234567
 t_tree_commit() { printf '%s\n' "$T_COMMIT" >"$1/COMMIT"; }
 
-# t_store: the store program of this checkout, built once per run of the tests
-# and kept in $T_STORE. cargo builds it offline into the workspace's own target
-# directory, where the gate's cargo test builds the same crates. Returns 1 with
-# the reason in $t_store_why when there is no cargo or the build fails, and the
-# case then says t_skip.
+# t_store: the store program of this checkout, in $T_STORE. scripts/test.sh
+# builds it once before it starts the test files and names it in T_STORE_BIN,
+# or says in T_STORE_WHY why there is none. A test file run alone builds it
+# itself. Both build offline into console/target/shell, not the workspace's
+# own target directory: the gate's cargo test holds that one's lock while the
+# shell tests run. Returns 1 with the reason in $t_store_why.
 T_STORE=$T/store-bin
 t_store_why=""
 t_store() {
   [ -x "$T_STORE" ] && return 0
+  if [ -n "${T_STORE_BIN:-}" ]; then
+    cp "$T_STORE_BIN" "$T_STORE" && return 0
+    t_store_why="the store built for this run cannot be copied: $T_STORE_BIN"
+    return 1
+  fi
+  if [ -n "${T_STORE_WHY:-}" ]; then
+    t_store_why=$T_STORE_WHY
+    return 1
+  fi
   if ! command -v cargo >/dev/null 2>&1; then
     t_store_why="cargo is not installed"
     return 1
   fi
-  local target=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
+  local target=$T_ROOT/console/target/shell
   if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
     --target-dir "$target" -p store >"$T/store-build.log" 2>&1; then
     t_store_why="the store did not build offline: $(tail -n 1 "$T/store-build.log")"
@@ -216,6 +246,91 @@ t_store_db() {
   mkdir -p "$1"
   TEHAS_HOME=$1 "$T_STORE" init --version v0.0.0 --commit "$T_COMMIT" --instance instance \
     --repo acme/widget >/dev/null
+}
+# t_store_home <home>: the home a command runs the store in. A record test
+# fails without the store rather than skip: the gate needs cargo anyway. The
+# binary is a hard link to $T_STORE, so a case that changes it removes it
+# first, as t_store_answers does.
+t_store_at=""
+t_store_home() {
+  t_store_at=$1
+  if ! t_store; then
+    t_bad "no store: $t_store_why"
+    return 1
+  fi
+  mkdir -p "$1/libexec"
+  rm -f "$1/libexec/store" "$T/store-answers.n"
+  ln "$T_STORE" "$1/libexec/store" 2>/dev/null || cp "$T_STORE" "$1/libexec/store"
+  t_store_db "$1" || t_bad "the store's init failed in $1"
+}
+# t_row <verb> <args...> -- <jq filter>: what the store has on record, through
+# its read verbs only. On a refusal it prints the store's own line and
+# returns 1.
+t_row() {
+  local t_args=() t_got
+  case ${1:-} in
+    cycle-show | park-show | question-known | approval-current | plan-show | history-show | check) ;;
+    *)
+      t_bad "t_row reads, and ${1:-nothing} is not a read verb"
+      return 64
+      ;;
+  esac
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+    t_args+=("$1")
+    shift
+  done
+  if [ "$#" != 2 ]; then
+    t_bad "t_row: no -- <jq filter> after ${t_args[*]}"
+    return 64
+  fi
+  t_got=$(TEHAS_HOME=$t_store_at "$T_STORE" "${t_args[@]}" 2>&1) || {
+    printf '%s\n' "$t_got"
+    return 1
+  }
+  jq -r "$2" <<<"$t_got"
+}
+# t_at <epoch> <verb> <args...>: the store with its clock at <epoch>, which a
+# debug build takes from TEHAS_STORE_TEST_NOW.
+t_at() {
+  TEHAS_HOME=$t_store_at TEHAS_STORE_TEST_NOW=$1 "$T_STORE" "${@:2}"
+}
+t_q() { printf %q "$1"; }
+# t_store_answers <verb> <rc> <line> [<times>]: a store at the home of
+# t_store_home that answers <verb> with <rc>, and <line> on stdout for 0 and
+# on stderr otherwise, for its first <times> calls (all when not given).
+# <rc> hang is a store that never answers. Every other call goes to the real
+# store. Each call is noted in t_calls store.
+t_store_answers() {
+  local t_bin=$t_store_at/libexec/store t_times=${4:-all} t_answer
+  case $2 in
+    hang) t_answer="exec $(printf %q "$(command -pv sleep)") 600" ;;
+    0) t_answer="printf '%s\\n' $(printf %q "$3"); exit 0" ;;
+    *) t_answer="printf '%s\\n' $(printf %q "$3") >&2; exit $(printf %q "$2")" ;;
+  esac
+  rm -f "$t_bin" "$T/store-answers.n"
+  mkdir -p "${t_bin%/*}"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    "if [ \"\${1:-}\" = $(t_q "$1") ]; then" \
+    "  n=\$((\$(cat $(t_q "$T/store-answers.n") 2>/dev/null || echo 0) + 1))" \
+    "  echo \"\$n\" >$(t_q "$T/store-answers.n")" \
+    "  if [ $(t_q "$t_times") = all ] || [ \"\$n\" -le $(t_q "$t_times") ]; then" \
+    "    $t_answer" \
+    "  fi" \
+    "fi" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$t_bin"
+  chmod 755 "$t_bin"
+}
+# The old record files a group moved onto the store no longer has, as globs
+# under a home. Each group that moves adds its own.
+t_old_state=()
+t_no_old_state() { # <home>
+  local t_glob t_file
+  for t_glob in "${t_old_state[@]}"; do
+    for t_file in "$1"/$t_glob; do
+      if [ -e "$t_file" ] || [ -L "$t_file" ]; then t_bad "an old record file is there: ${t_file#"$1"/}"; fi
+    done
+  done
 }
 
 # A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
@@ -287,6 +402,7 @@ no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 
 t_done() {
   local line
+  [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
   line="$(basename "$0"): $t_count cases, "
   [ "$t_skipped" = 0 ] || line=$line"$t_skipped skipped, "
   echo "$line$t_failed failed"

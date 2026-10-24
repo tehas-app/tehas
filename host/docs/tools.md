@@ -3446,12 +3446,23 @@ scripts/test.sh
 
 It runs shellcheck over the shell scripts, one process per file, together with
 every `test/*_test.sh` in the same pool: nothing waits for the lint to finish.
-Those need bash, git, jq and shellcheck only: no sandbox image, no product
-checkout and no network. At most `TEHAS_TEST_JOBS` tasks run at once: by
+Those need bash, git, jq and shellcheck, and cargo for the store (below): no
+sandbox image, no product checkout and no network. At most `TEHAS_TEST_JOBS` tasks run at once: by
 default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
 it runs in, rounded up. The slowest files start first, from a short fixed list
 in the script, so none of them starts last and holds the run; the rest follow
 in name order and the lint of each file after them.
+
+Before the pool starts, it builds the state store (`console/store`) once,
+offline, into `console/target/shell`, and tells every test file where the
+program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The directory
+is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
+`console/target` at the same time, and cargo holds that directory's lock while
+it builds. The tests of the commands that run the store (`test/dispatch_*`,
+`test/cycle_*`, `test/work_*` and `test/store_*`) install it in their scratch
+home and fail without it, so they need cargo too; the build needs the
+workspace's crates in cargo's cache, as the gate's own `cargo test` does. A
+test file run alone builds the store itself, into the same directory.
 
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore

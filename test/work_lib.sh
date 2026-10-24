@@ -235,7 +235,12 @@ gone='wait; exit 137'
 # case's name: its files go first, the body of the container the case before
 # named among them (container puts the default back, and the file beside it,
 # container-default, holds that default for every case that names none).
-fresh() { rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*; }
+fresh() {
+  rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*
+  t_store_home "$T/home/tehas"
+}
+# No case leaves the old file of a record that is on the store.
+t_after='t_no_old_state "$T/home/tehas"'
 
 # stub_github: gh answers for the issue and its events from files, no events
 # file is an issue nobody labelled. curl hands out $T/fx/net/<address, with _
@@ -300,6 +305,7 @@ images_on() {
   # The body of the container of the case before, if it named one: fresh clears
   # it too, and the two helpers clear the rest of the host in their own way.
   rm -f "$T/container.sh"
+  t_store_home "$T/home/tehas"
   mkdir -p "$fx/net"
   slice_good
   reads_image 1
@@ -314,6 +320,7 @@ images_off() {
   # What the container of this cycle does is a file a case writes; it goes with
   # the rest of the host here, as fresh does for the cases that use it.
   rm -f "$T/container.sh"
+  t_store_home "$T/home/tehas"
   mkdir -p "$fx/net"
   slice_good
   reads_image 1

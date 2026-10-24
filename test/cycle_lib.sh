@@ -145,6 +145,8 @@ t_stub fake-status
 # The poll a cycle starts when it ends.
 t_stub systemctl
 
+# No case leaves the old file of a record that is on the store.
+t_after='t_no_old_state "$T/home/tehas"'
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
     "$T/home/tehas/libexec" \
@@ -153,6 +155,8 @@ reset() {
   # does so before tehas work has run: the directory is made here so the file
   # has somewhere to go.
   mkdir -p "$T/home/tehas/logs"
+  # The state store a cycle runs, with nothing on record.
+  t_store_home "$T/home/tehas"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
