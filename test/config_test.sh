@@ -103,7 +103,7 @@ t_case "a planning turn's time limit too long for the arithmetic is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=9223372036854775808
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_PLAN_TIMEOUT (9223372036854775808) is more than $plan_max"
+t_contains "$t_out" "TEHAS_PLAN_TIMEOUT is not valid: expected at most 9 digits"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=10000000
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
@@ -421,6 +421,17 @@ for bad in "1000000000" "99999999999999999999"; do
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "TEHAS_SIZE_MAX_FILES is not valid: expected at most 9 digits"
+  t_lacks "$t_out" "integer expression"
+done
+# Every count: a number no comparison can hold is refused by its length, not
+# taken as passing the comparison that failed on it.
+for name in TEHAS_WORK_TIMEOUT TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_VERIFY_TIMEOUT \
+  TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
+  t_case "loading rejects a $name of 20 digits"
+  t_instance "${T_MINIMAL[@]}" "$name=99999999999999999999"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "$name is not valid: expected at most 9 digits"
   t_lacks "$t_out" "integer expression"
 done
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999 >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -987,7 +998,7 @@ t_eq "$t_rc" 0
 t_eq "$t_out" "[]"
 
 for bad in PI_ENSEMBLE_MODEL_REVIEWER=m PI_ENSEMBLE_MODEL_PROJECT_MANAGER=m PI_ENSEMBLE_MODEL_developer=m \
-  PI_ENSEMBLE_PROVIDER_PLANNER=p PI_ENSEMBLE_MODEL_LENS_SECURITY=; do
+  PI_ENSEMBLE_PROVIDER_PLANNER=p PI_ENSEMBLE_MODEL_LENS_SECURITY= PI_ENSEMBLE_MODEL_=m PI_ENSEMBLE_PROVIDER_=p; do
   t_case "a role pi-rukas does not know is refused: ${bad%%=*}"
   t_instance "${T_MINIMAL[@]}" "$bad"
   t_run "$load; echo rc=\$?"
