@@ -383,4 +383,17 @@ t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
+t_case "with a GitHub App the container is given the app's token, not a user's"
+rm -f "$T"/calls/*
+cp "$TEHAS_INSTANCE_DIR/instance.env" "$T/instance.env.before"
+printf '%s\n' TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
+mkdir -p "$T/home/tehas/state"
+printf 'ghs_app\n' >"$T/home/tehas/state/github-token"
+echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github-token.expires"
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+t_run "$work 7"
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_app"
+cp "$T/instance.env.before" "$TEHAS_INSTANCE_DIR/instance.env"
+rm -f "$T/home/tehas/state/github-token" "$T/home/tehas/state/github-token.expires"
+
 t_done

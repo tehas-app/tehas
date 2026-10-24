@@ -163,6 +163,7 @@ files="./.bashrc
 ./tehas/sandbox/build.sh
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
+./tehas/shim/gh
 ./tehas/versions.env"
 # The manual and the front page are whole directories; leave them out of the
 # exact comparison and check them separately. So is state/, which is what the host

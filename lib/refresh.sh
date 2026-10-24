@@ -13,7 +13,9 @@
 #                                 the same fields, as variable $number
 #   tehas_refresh_rule            print a jq definition, `refresh_why`: of one
 #                                 pull request node, why it is not one the
-#                                 factory refreshes, "" when it is. Needs $bot,
+#                                 factory refreshes, "" when it is. Needs $bot
+#                                 (an app's [bot] suffix is dropped: GraphQL
+#                                 names an app without it),
 #                                 $repo and $control as jq arguments. The
 #                                 mergeable state is the caller's to read
 #   tehas_refresh_count <record> <base>
@@ -59,7 +61,7 @@ tehas_refresh_rule() {
   printf '%s\n' 'def refresh_why:
     def names: [(.labels.nodes // [])[]? | .name? | strings];
     if type != "object" or (.number | type) != "number" then "it cannot be read"
-    elif (.author.login // "") != $bot then "it is not the bot'"'"'s"
+    elif (.author.login // "") != ($bot | sub("\\[bot\\]$"; "")) then "it is not the bot'"'"'s"
     elif .isCrossRepository != false or ((.headRepository.nameWithOwner // "") | ascii_downcase) != ($repo | ascii_downcase) then "its branch is not in \($repo)"
     elif .isDraft != false then "it is a draft"
     elif (.closingIssuesReferences.totalCount // 0) != 1 or ((.closingIssuesReferences.nodes // []) | length) != 1 then "it does not close exactly one issue"

@@ -163,6 +163,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
+# shellcheck source=lib/github-app.sh
+. "$here/../lib/github-app.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -201,6 +203,7 @@ images_inside=$repo.images
 # PI_ENSEMBLE_PLAN_SESSION_DIR is unset, which is how it is left here.
 sessions=$tree/.git/pi-plan-sessions
 
+tehas_github_env || { echo "tehas plan: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
 

@@ -414,4 +414,12 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_eq "$(t_calls fake-start)" ""
 
+t_case "with a GitHub App the bot's login is TEHAS_BOT_LOGIN, and GET /user is not asked"
+reset
+echo '{"message":"Resource not accessible by integration"}' >"$fx/user.json"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$dispatch"
+t_lacks "$t_out" "the bot's own login could not be read"
+t_lacks "$(t_calls gh)" "api user"
+
 t_done

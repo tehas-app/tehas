@@ -72,6 +72,7 @@ if [ "$1" = image ]; then
   exit
 fi
 printf "%s\n" "$@" >"$T/calls/docker.args.$$"
+printf "%s\n" "${GH_TOKEN:-}" >"$T/calls/docker.token"
 prev=""
 for a in "$@"; do
   if [ "$prev" = --cidfile ]; then
