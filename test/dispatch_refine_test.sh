@@ -15,10 +15,10 @@ history_file=$cycles_dir/plan-7.history.jsonl
 # Issue 7 was started by alice's tehas:ready, and its cycle parked at explore:
 # intent-park, marked to be refined, its question on record and unanswered.
 # The text has not been edited since. Nothing else is queued.
-refine_park() { # [<park reason>] [<labels besides the park's, space separated>] [<body>]
+refine_park() { # [<park reason>] [<one more label>] [<body>]
   local reason=${1:-underspecified} extra=${2:-} body=${3:-Make it good.} labels
   parked
-  labels=$(printf '%s\n' needs-human-attention tehas:question $extra | jq -Rs 'split("\n") | map(select(. != "") | {name: .})')
+  labels=$(printf '%s\n' needs-human-attention tehas:question "$extra" | jq -Rs 'split("\n") | map(select(. != "") | {name: .})')
   jq -n --argjson l "$labels" '[{number: 7, labels: $l}]' >"$fx/asking.json"
   jq -n --argjson l "$labels" --arg b "$body" '{title: "Faster search", body: $b, state: "OPEN", labels: $l}' >"$fx/issue-7.json"
   echo '[]' >"$fx/plans.json"
