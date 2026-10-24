@@ -446,6 +446,8 @@ files=(
   "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
+  # How the commands run the state store, libexec/store.
+  "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"

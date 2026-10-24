@@ -603,6 +603,8 @@ table with rows, `meta`, which says when the database was made, by which version
 and commit of tehas, and for which instance and repository. The other tables
 are there and empty: no command writes them yet. The host's records are still
 the files of `state/` until the commands are moved to the store one by one.
+A command will run the store through `~/tehas/lib/store.sh`, which is
+installed and which no command sources yet.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`:
