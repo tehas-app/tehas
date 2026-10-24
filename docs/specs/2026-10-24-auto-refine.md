@@ -93,8 +93,10 @@ A poll starts the refine session only when all of these hold:
    with the `Replaces #<n>` line tehas writes (below). Having a parent is not
    the test: a person's epic has sub-issues too. `state/refined.jsonl` keeps only 500 lines and only refine sessions,
    so it is not the guard.
-6. No retry box of the park has been ticked. A tick is a person's decision to
-   run the cycle again, and it wins.
+6. The park's question is still on record (`state/park-<issue>.id`) and the
+   issue carries `tehas:question`. A tick of either box is a person's
+   decision and wins: Retry starts a cycle in rule 4, and Leave it parked
+   takes the question away there.
 7. The planning limits hold as for a labelled session: no other planning turn
    running, `limit_plan_ok`, `slice_ok`, `mesh_ok`, not the control issue.
    When they do not hold, the session waits for a later poll; the park record
@@ -111,8 +113,9 @@ was.
 The session is started the way a `tehas:refine` label starts one
 (`libexec/dispatch` near "start planning"): the same brief, the refine brief
 after it, `plan_turn <issue> first`. Its record has `label: tehas:refine` and
-`how: auto` (or a value the builder picks), so analytics and `tehas history`
-tell an automatic refine from a labelled one. The start takes `tehas:question`
+`auto: true`, and so does each line of its history, so `tehas history` tells
+an automatic refine from a labelled one. Analytics derives its `how` from the
+label and counts both as `refine`; telling them apart there is later work. The start takes `tehas:question`
 and `needs-human-attention` off, as a labelled start on a parked issue takes
 `tehas:question` off.
 
@@ -136,14 +139,15 @@ the planner wrote:
   sub-issues API). Where the API is missing, the link in the body is enough.
 - The original gets a comment `Replaced by #<filed>`.
 
-A session can go on after a turn that files, and can file again. Each filed
-issue gets the links in the turn that filed it. The original is closed or
-labelled only when the session ends, never in the middle: closing it earlier
-would end the session without a word (rule 4 drops the record of a closed
-issue). A session that filed more than one issue counts as a plan with later
-parts.
+A headless pi-rukas planning session files once: a second confirm files
+nothing, and an answer after the filing is refused (`already-filed`, pi-rukas
+`docs/headless.md`). So a refine session is over when its turn files. tehas
+does not post the usual question with its one "End this planning session"
+box after that turn; it makes the links, says `Replaced by #<filed>` with the
+turn's own words, and ends the session itself. A filed address in another
+repository gets no links and is named in the comment only.
 
-When the session ends, one of two things. This holds for every refine
+Then one of two things. This holds for every refine
 session, the ones a person starts with `tehas:refine` too: today a labelled
 refine never closes the original, and after this change it does, so the
 manual says so. A `tehas:plan` session is unchanged.
@@ -156,10 +160,11 @@ manual says so. A `tehas:plan` session is unchanged.
   original has now had a session (check 4). A person closes it when nothing is
   left.
 
-Which of the two applies is read from the turn's outcome. How the outcome says
-"later parts" is for the builder to find in pi-rukas's headless plan result;
-if it does not say it in a field, tehas treats the plan as having later parts
-and leaves the original open. Closing it wrongly is the worse mistake.
+Which of the two applies is read from the filed issue's body, which is the
+shown plan byte for byte: the refine brief asks for a "Later parts" section.
+A body with a "Later parts" heading that has a line under it other than
+"None" has later parts. A body that cannot be read counts as having later
+parts, and the original stays open. Closing it wrongly is the worse mistake.
 
 `tehas labels` makes `tehas:replaced` and `tehas:refined`. `libexec/tidy`
 does not take either off a closed issue.
@@ -190,8 +195,8 @@ None of these starts another automatic session (check 4).
   it", marked built and tested, not proven, until a host has run one.
 - `host/docs/troubleshooting.md`: the `underspecified` and `too-large` rows
   say the factory refines once, and what to do when it has already.
-- `host/docs/analytics.md`, `host/docs/api.md`, `host/docs/mcp-server.md`:
-  the new `how` value wherever the list of `how` values is given.
+- `host/docs/tools.md`: `tehas history` lines of an automatic session carry
+  `auto: true`, where the history fields are listed.
 
 ## Tests
 
