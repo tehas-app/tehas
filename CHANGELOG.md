@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.11.0 (2026-10-23)
+
+### Changes
+
 - `install.sh` builds and installs the state store, `~/tehas/libexec/store`,
   and gives it its database: `store init` makes `~/tehas/state/tehas.db` when
   there is none, and every later install runs `store migrate`, which first
@@ -24,6 +34,21 @@ empty one above it.
 - `tehasbot top --every` reads the clock from bash instead of starting
   `date` between snapshots. A `date` stopped mid-write printed "Broken pipe"
   into the unit's log, and made a test fail now and then.
+- The store has the verbs for the cycle, park, question, approval and
+  planning records (`store cycle-start`, `park`, `plan-begin` and the rest).
+  Nothing calls them yet; the shell commands move to them in later releases.
+- The store waits its turn under load: a writer asks for the lock every
+  millisecond for up to 5 s, and a reader waits up to 1 s. Tests prove it
+  under 8 writers and 8 readers, and with a writer killed mid-transaction.
+- `tehas update --pending` runs the install steps an update recorded, for a
+  host whose platform checkout cannot move.
+- `install.sh` records `tehas labels` as an update step when the labels
+  program changes.
+- A fresh cycle does not start on an issue whose last cycle parked on the
+  same issue text.
+- The improvement loop can skip findings about pi-rukas
+  (`TEHAS_IMPROVE_RUKAS_SKIP`).
+- The name lint checks file names too, and reads them NUL-separated.
 
 ### Adopter action
 
