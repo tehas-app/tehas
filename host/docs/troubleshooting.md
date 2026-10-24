@@ -208,8 +208,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   its units step installs the cycle unit. Run `tehas dispatch` in the tehas
   user's own session, not in a `sudo -iu` shell, which has no user bus.
 - `ERROR: the state store is not installed (run install.sh)`: the poll, a
-  cycle, `tehas stop` and `tehas history` need `~/tehas/libexec/store` and
-  `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
+  cycle, `tehas work`, `tehas stop`, `tehas history` and `tehas export` need
+  `~/tehas/libexec/store` and `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
   anything. Run `install.sh`, which builds the store and makes the database.
 - `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
   on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is

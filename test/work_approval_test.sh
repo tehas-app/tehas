@@ -33,6 +33,17 @@ t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
 
+t_case "without the state store a start stops at 78 before GitHub is asked"
+images_off
+issue_is "Words only." NONE
+record_is alice "Words only."
+rm -f "$T/home/tehas/libexec/store"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: ERROR: the state store is not installed (run install.sh)"
+t_eq "$(t_calls gh)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 # --- The size of what the cycle starts with ----------------------------------
 # A start that had an approval to measure records the measure of the approved
 # body in state/sizes.jsonl, one line, from the read it already made: the

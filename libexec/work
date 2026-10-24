@@ -92,7 +92,8 @@
 #              with no result, or ended at the time limit leaves no such note.
 #
 #             64 no bot token or no git identity; no cycle was started.
-#             78 the instance settings are invalid, tehas.slice is not
+#             78 the instance settings are invalid, the state store is not
+#                installed, tehas.slice is not
 #                usable on this host, the image does not support what the
 #                cycle is given, or the product names no gate in
 #                .pi/verify-cmd and holds neither package.json nor Cargo.toml
@@ -351,6 +352,11 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+# Every start reads an approval from the store.
+if ! tehas_store_ready; then
+  echo "tehas work: ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
 tehas_sandbox_settings_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78

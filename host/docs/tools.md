@@ -604,7 +604,18 @@ an answer that is a pull request or a closed issue, and an issue that cannot be
 read each stop the start with 4, and the issue is
 told which and that `tehas:ready` records a fresh approval. What the issue is
 told names nothing of this host: the path of a record that could not be read is
-said on the command's error stream only.
+said on the command's error stream only. A state store that is not installed
+stops every start with exit 78 before GitHub is asked: `tehas work: ERROR: the
+state store is not installed (run install.sh)`.
+
+Under `tehasbot cycle`, as the container starts, the image's id, the pi-rukas
+commit of its label `tehas.rukas` and the settings the cycle is given go on the
+cycle's record in the state store (`cycle-image`), for its report. A store that
+is busy or does not answer in time only costs the record: the command says so
+on its error stream and the cycle runs. Any other refusal stops the start with
+exit 4, and the issue is told `Tehas started no cycle: its record on this host
+could not be updated as it started`. A run on its own has no attempt and
+records no image.
 
 What is bound here is the body and the title: the record carries the hash of
 each, and a start is refused when either is not the approved one. The
@@ -639,10 +650,10 @@ account before it starts a cycle.
 | 40   | The runner's: it refused to start the cycle                      |
 | 2    | The cycle was stopped here as stalled or at the time limit and grace, or the runner ended without a result |
 | 3    | The sandbox cannot push to the repository; no cycle was started  |
-| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
+| 4    | No cycle was started. On every start that finds the dispatcher's approval record, whatever the settings: the issue's body is not the body that record approved, its title is not the title it approved, the record cannot be read or is not of the shape tehas reads, the answer is a pull request or a closed issue, or the issue cannot be read for its text (within `TEHAS_TEXT_WAIT`); the issue is told which and that a fresh `tehas:ready` is needed. Under `tehasbot cycle` (`TEHAS_CYCLE_ATTEMPT`), also: no approval was used by this start and the store does not have it as a start by hand, the state store cannot be read, or the store refuses the image of the start (`cycle-image`: an attempt that is not the open one, a start that has ended, a lock not held, or a store that cannot be used), said as `its record on this host could not be updated as it started`. With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, also: an image or file the issue links could not be fetched, the issue could not be read for them, or a file is not the one first fetched for the approval |
 | 5    | A cycle for this issue is running already: its lock `~/tehas/state/cycles/<issue>.lock` is held. Nothing was moved and no container started |
 | 64   | The issue is not a number, or no bot token or no git identity; no cycle was started |
-| 78   | The instance settings are invalid, `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
+| 78   | The instance settings are invalid, the state store is not installed (`~/tehas/libexec/store` or `~/tehas/state/tehas.db` is missing), `tehas.slice` is missing, has no memory limit, or cannot be used (the message names `sudo ./bootstrap.sh slice` or the reason), the image does not support what the cycle is given, a workaround in `TEHAS_RUKAS_WORKAROUNDS` has expired, or the product names no gate in `.pi/verify-cmd` and its commit holds neither `package.json` nor `Cargo.toml`; no cycle was started, nothing was pushed, and the clone made for the cycle is left in place. A refusal for the gate is said on the command's error stream only, which under the unit is `~/tehas/logs/dispatch-work-<issue>.log`: the issue gets no comment for it, because no cycle of that issue ever began |
 | 137  | The container was killed while the cycle was running, and the runner wrote no result: out of memory, or stopped from outside. The cycle is `killed` |
 
 The runner's codes are its own only when it wrote a result for the issue, or a
