@@ -40,6 +40,35 @@
 #                                    and LINE (or never answers: RC hang) for
 #                                    its first TIMES calls, and runs the real
 #                                    store otherwise; t_calls store
+#   t_approve HOME N BY HOW [AT] [ARGS...]
+#                                    an approval of issue N on record, as the
+#                                    dispatcher records it: at AT [1760000000],
+#                                    the body hash of "Words." ($T_WSUM) unless
+#                                    ARGS give one, tehas:ready for label and
+#                                    fixer
+#   t_started HOME N [ARGS...]       a cycle start of issue N on record, made
+#                                    under the issue's lock as the cycle makes
+#                                    it; TEHAS_STORE_TEST_NOW sets its time
+#   t_ended HOME N BY [HOW] [ARGS...]
+#                                    a cycle of issue N on record that has
+#                                    ended (cycle-end ARGS, status failed
+#                                    unless given), started on BY's approval
+#                                    of HOW [label], or by hand when BY is -
+#   t_record HOME N JSON             on a fresh store, the approval JSON
+#                                    describes in the shape the record file had
+#                                    (tehas_approval_view's), used by a start of
+#                                    issue N: with the person's approval it rests
+#                                    on, and the fixer's and the refreshes'
+#                                    starts it counts, as ended starts before it
+#   t_history_end HOME N END [FIELDS]
+#                                    one end of a cycle of issue N on the store
+#                                    at END (epoch seconds), with FIELDS in the
+#                                    shape the line of history had before the
+#                                    store (started [a minute before], rc,
+#                                    status, step, cap, park_reason,
+#                                    failure_kind, failure_cause, provider,
+#                                    parked, pr as an address, by and how; by
+#                                    hand without by)
 #   t_no_old_state HOME              a failure for each old record file in
 #                                    HOME that t_old_state names
 #   t_after                          a command run as each case ends, by
@@ -321,9 +350,118 @@ t_store_answers() {
     "exec $(t_q "$T_STORE") \"\$@\"" >"$t_bin"
   chmod 755 "$t_bin"
 }
+T_WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
+t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
+  local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args
+  if [ "$#" -ge 5 ]; then shift 5; else shift "$#"; fi
+  t_args=(approval-record "$t_n" --at "$t_when" --by "$t_by" --how "$t_how")
+  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  case " $* " in *" --body-sha "*) ;; *) t_args+=(--body-sha "$T_WSUM") ;; esac
+  TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" "$@" >/dev/null ||
+    t_bad "t_approve: the store refused ${t_args[*]} $*"
+}
+t_started() { # <home> <issue> [<cycle-start args>...]
+  local t_home=$1 t_n=$2
+  shift 2
+  mkdir -p "$t_home/state/cycles"
+  TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-start "$t_n" "$@" >/dev/null ||
+    t_bad "t_started: the store refused cycle-start $t_n $*"
+}
+t_ended() { # <home> <issue> <by|-> [<how>] [<cycle-end args>...]
+  local t_home=$1 t_n=$2 t_by=$3 t_how=${4:-label} t_a
+  if [ "$#" -ge 4 ]; then shift 4; else shift "$#"; fi
+  t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+  if [ "$t_by" = - ]; then
+    t_started "$t_home" "$t_n" --by-hand
+  else
+    t_approve "$t_home" "$t_n" "$t_by" "$t_how" $((1700000000 + t_a))
+    t_started "$t_home" "$t_n"
+  fi
+  case " $* " in *" --status "*) ;; *) set -- --status failed "$@" ;; esac
+  TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-end "$t_n" --attempt $((t_a + 1)) "$@" >/dev/null ||
+    t_bad "t_ended: the store refused cycle-end $t_n $*"
+}
+
+t_record() { # <home> <issue> <JSON>
+  local t_home=$1 t_n=$2 t_j=$3 t_how t_at t_last=0 t_base t_k t_count t_in=$T/record-input.json
+  local -a t_args
+  t_store_db "$t_home"
+  t_how=$(jq -r .how <<<"$t_j")
+  t_at=$(date -u -d "$(jq -r .at <<<"$t_j")" +%s)
+  t_base=$(jq -c '.rests_on // empty' <<<"$t_j")
+  # _t_used <by> <how> <at> [<approval-record args>...]: an approval a start used, and its end.
+  _t_used() {
+    local t_a
+    t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+    t_approve "$t_home" "$t_n" "$@"
+    t_started "$t_home" "$t_n"
+    TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-end "$t_n" --attempt $((t_a + 1)) \
+      --status handoff >/dev/null || t_bad "t_record: the store refused the end of an earlier start"
+    t_last=$3
+  }
+  if { [ "$t_how" = fixer ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
+    _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
+      --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
+    t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
+    [ "$t_how" != fixer ] || t_count=$((t_count - 1))
+    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-fixer fixer $((t_last + 10)); done
+    if [ "$t_how" = refresh ]; then
+      t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
+      for ((t_k = 1; t_k < t_count; t_k++)); do
+        _t_used "$(jq -r .by <<<"$t_j")" refresh $((t_last + 10)) --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
+      done
+    fi
+  fi
+  [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
+  jq --arg how "$t_how" '{links: (.links // [])}
+    + with_entries(select(.key == "comment_links" or .key == "retry_context"))
+    + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
+  t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
+    --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")
+  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  t_k=$(jq -r '.title_sha256 // ""' <<<"$t_j")
+  [ -z "$t_k" ] || t_args+=(--title-sha "$t_k")
+  [ "$t_how" != refresh ] ||
+    t_args+=(--refresh-pr "$(jq -r '.refresh_of.pr // 50' <<<"$t_j")" --refresh-head "$(jq -r '.refresh_of.head_sha // ("a" * 40)' <<<"$t_j")")
+  TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" >/dev/null || t_bad "t_record: the store refused ${t_args[*]}"
+  t_started "$t_home" "$t_n"
+}
+
+t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
+  local home=$1 n=$2 e=$3 x=${4:-'{}'} started a
+  local -a t_end=()
+  started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
+  a=$(TEHAS_HOME=$home "$T_STORE" cycle-show "$n" | jq '.cycle.attempt // 0')
+  if [ "$(jq -r '.by // ""' <<<"$x")" != "" ]; then
+    t_approve "$home" "$n" "$(jq -r .by <<<"$x")" "$(jq -r '.how // "label"' <<<"$x")" $((started - 1 - a))
+    TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n"
+  else
+    TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n" --by-hand
+  fi
+  mapfile -t t_end < <(jq -r '
+    "--status", (.status // "unknown"),
+    (if .rc != null then ("--rc", (.rc | tostring)) else empty end),
+    (if .step != null then ("--step", .step) else empty end),
+    (if .cap != null then ("--cap", .cap) else empty end),
+    (if .park_reason != null then ("--park-reason", .park_reason) else empty end),
+    (if .failure_kind != null then ("--failure-kind", .failure_kind) else empty end),
+    (if .failure_cause != null then ("--failure-cause", .failure_cause) else empty end),
+    (if .provider == true then "--provider" else empty end),
+    (if .parked == true then "--parked" else empty end),
+    (if .pr != null then ("--pr", (.pr | sub(".*/"; ""))) else empty end)' <<<"$x")
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" \
+    --attempt $((a + 1)) "${t_end[@]}" >/dev/null || t_bad "t_history_end: the store refused the end of #$n"
+}
+
 # The old record files a group moved onto the store no longer has, as globs
 # under a home. Each group that moves adds its own.
-t_old_state=()
+t_old_state=(
+  # The cycle's records: its start, its approval, its image and settings,
+  # its branch and its history.
+  'state/cycles/*.taken' 'state/cycles/*.by' 'state/cycles/*.requeued' 'state/cycles/*.rukas'
+  'state/cycles/*.image' 'state/cycles/*.settings' 'state/cycles/*.branch'
+  'state/cycles/*.approved.json' 'state/cycles/*.approved.json.new' 'state/cycles/[1-9]*.history.jsonl'
+)
 t_no_old_state() { # <home>
   local t_glob t_file
   for t_glob in "${t_old_state[@]}"; do

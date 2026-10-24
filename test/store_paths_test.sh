@@ -18,6 +18,11 @@ code() { # every tracked file that is installed or run and could name a record
 # store adds its own.
 forbidden=()
 forbidden_sample=()
+# forbid <pattern> <sample>
+forbid() {
+  forbidden+=("$1")
+  forbidden_sample+=("$2")
+}
 
 # carrier <pattern> <sample> <files that may name it> <why it stays a file>
 c_re=()
@@ -34,6 +39,23 @@ carrier() {
 n='\$\{?(issue|n|1)(:\?)?\}?'
 # The analytics program still reads some of these files itself.
 an=console/analytics/src
+# A cycle's file as the code names it: after its issue, after <issue> in a
+# comment, or in a glob. Not after "plan-": the planning turns' history stays a
+# file until its own group moves.
+f='(^|[^-])(\$\{?(issue|n|1|owner)(:\?)?\}?|<issue>|<n>|\*)'
+
+# The cycle's records: its start, the approval it used, its image and
+# settings, its branch and its history.
+forbid "$f"'\.taken\b' ': >"$cycles/$issue.taken"'
+forbid "$f"'\.by\b' 'printf x >"$TEHAS_HOME/state/cycles/$n.by"'
+forbid "$f"'\.requeued\b' 'rm -f "${cycles:?}/${issue:?}.requeued"'
+forbid "$f"'\.rukas\b' 'printf x >"$cycles/$issue.rukas"'
+forbid "$f"'\.image\b' 'image_file=${cycles:?}/${issue:?}.image'
+forbid "$f"'\.settings\b' 'settings_file=$TEHAS_HOME/state/cycles/$issue.settings'
+forbid "$f"'\.branch\b' 'read -r b <"${cycles:?}/${issue:?}.branch"'
+forbid "$f"'\.approved\.json\b' 'grep -l x "$TEHAS_HOME"/state/cycles/*.approved.json'
+forbid "$f"'\.history\.jsonl\b' '# state/cycles/<issue>.history.jsonl, one line per end'
+forbid 'tehas_cycle_history_add\b' 'tehas_cycle_history_add "$issue" "$line"'
 carrier '\.runner_exit\b' 'runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit' \
   'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
   "work tells the cycle how the runner ended"
@@ -129,6 +151,15 @@ for i in "${!forbidden[@]}"; do
 done
 for i in "${!c_re[@]}"; do
   grep -qE -- "${c_re[i]}" <<<"${c_sample[i]}" || t_bad "the pattern ${c_re[i]} finds nothing in its sample"
+done
+
+t_case "no forbidden pattern takes a JSON field, a label or a kept name for a file"
+for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/state/dispatch.taken"' \
+  'tehas_plan_history_add "$n"' 'state/cycles/plan-$1.history.jsonl' '$images/.taken' '.images.md' \
+  'tehas_cycle_history "$1"'; do
+  for re in "${forbidden[@]}"; do
+    grep -qE -- "$re" <<<"$line" && t_bad "the pattern $re finds: $line"
+  done
 done
 
 t_case "no carrier's pattern takes a JSON field or a struct's for a file"
