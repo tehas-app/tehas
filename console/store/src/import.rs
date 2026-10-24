@@ -1083,13 +1083,21 @@ impl Op {
                 )
                 .q()?
             }
-            Op::Answer(issue, turn, by, fixer, text) => c
-                .execute(
-                    "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, fixer, text)
+            Op::Answer(issue, turn, by, fixer, text) => {
+                // The column of an answer is `millwright` from schema 3, the name
+                // the step of db::STEP_3 gave it. What import writes keeps the old
+                // name until the verbs speak the new one (#686); see that step for
+                // the rename, its rows and its place last in the table.
+                c.execute(
+                    &format!(
+                        "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, {}, text)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
+                        ANSWER_COLUMN
+                    ),
                     params![issue, turn, by, fixer, text],
                 )
-                .q()?,
+                .q()?
+            }
             Op::Filed(issue, url, filed, at) => c
                 .execute(
                     "INSERT OR IGNORE INTO planning_filed (issue, url, filed_issue, at)
@@ -1191,6 +1199,10 @@ impl Op {
                 &[issue, &r.p.turns, &r.p.by, &r.p.label, &r.p.started_at],
             ),
             Op::Answer(issue, turn, by, ..) => yes(
+                // The issue and the turn are the key of the row, so the column
+                // of the answer is not named: from schema 3 it answers to
+                // `millwright` (db::STEP_3). Part 2 (#686) renames what import
+                // writes.
                 "planning_answers WHERE issue = ?1 AND turn = ?2 AND by_account = ?3",
                 &[issue, turn, by],
             ),
@@ -1848,6 +1860,11 @@ fn move_file(home: &Path, it: &Item, day: &str) -> Result<(), String> {
     }
     Err("cannot be moved: every name under imported/ is taken".to_string())
 }
+
+/// The name of the column of an answer, from schema 3: the step of db::STEP_3
+/// renamed it from `fixer`. What the store's own verbs write is written with this
+/// name; what import writes keeps the old one until the verbs do too (#686).
+pub const ANSWER_COLUMN: &str = "millwright";
 
 pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
     match fs::symlink_metadata(home.join(MARKER)) {

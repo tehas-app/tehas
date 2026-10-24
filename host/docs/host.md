@@ -607,7 +607,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 2 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 3 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 for which instance and repository, and when records were last imported
 (`imported_at`); and the cycles' records: the approval
@@ -633,9 +633,19 @@ when it is not installed.
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many. A
-  store at version 1 is migrated to 2 in place, and the install keeps the
-  database as it was under both names, `tehas-1-<time>.db` and
-  `tehas-2-<time>.db`.
+  store at version 1 is brought forward by the step to 2 and the step to 3, each
+  a transaction of its own, and the install keeps the database as it was under
+  the name of the version it came with, `tehas-1-<time>.db`, beside the copy the
+  answer names, `tehas-3-<time>.db`. A run that stopped between the two steps
+  leaves the store at 2 with its rows and no copy named `tehas-2-<time>.db`:
+  the next install takes the step to 3 from there. The step to 3 adds the word
+  `millwright` beside `fixer` in the kinds the store accepts, rebuilds the two
+  tables whose lists changed, and compacts the file afterwards, so a store the
+  step brought forward is of the size of one `init` made. The step renames the
+  column of a planning answer from `fixer` to `millwright`, keeping its rows. The
+  words of a cycle's start are not a CHECK of the store: `cycles.how` holds the
+  six it has always held. The verbs still write the old words; that is the next
+  part (#686).
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
