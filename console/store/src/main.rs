@@ -44,9 +44,21 @@
 //!     check answers with "integrity" naming what failed and exit 1; it is
 //!     never moved aside.
 //!
+//!   store import [--dry-run] [--json]
+//!     The records an older tehas kept as files under state/ (the cycle's,
+//!     the park's and the planning session's), made rows, and each file moved
+//!     to state/imported-<YYYYMMDD>/ once its rows read back (src/import.rs).
+//!     $TEHAS_HOME/.tehas-home must be there, else 78 `unmarked`. A cycle or
+//!     planning lock held while there is anything to import is 1 `live`; a
+//!     file that is a link, over 1 MiB or does not parse stays where it is,
+//!     with its issue's other files, and the verb exits 1 `held` with one
+//!     line per file. --dry-run reads the files only. Answers
+//!     {"api":1,"verb":"import","ok":true,"imported":{<table>:N},"moved":N,
+//!     "held":[],"dry_run":false}.
+//!
 //! This part of the store is the schema, the two housekeeping verbs, migrate,
-//! the record verbs of cycles, parks, questions, approvals and planning, and
-//! the history (src/verbs.rs and the files it names):
+//! import, the record verbs of cycles, parks, questions, approvals and
+//! planning, and the history (src/verbs.rs and the files it names):
 //!
 //!   store cycle-start <issue> [--rukas <commit>] [--by-hand]
 //!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
@@ -110,6 +122,7 @@ mod db;
 #[cfg(debug_assertions)]
 mod exercise;
 mod history;
+mod import;
 mod lock;
 mod park;
 mod plan;
@@ -121,6 +134,8 @@ mod approval_tests;
 mod cycle_tests;
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod import_tests;
 #[cfg(test)]
 mod lock_tests;
 #[cfg(test)]
@@ -157,7 +172,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -215,6 +230,9 @@ pub enum Verb {
         settings: Settings,
     },
     Check,
+    Import {
+        dry_run: bool,
+    },
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
     Record(verbs::Call),
@@ -236,6 +254,12 @@ fn parse(args: &[String]) -> Option<Verb> {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
+        }
+        [verb, rest @ ..] if verb == "import" => {
+            flags(rest, &["--json", "--dry-run"])?;
+            Some(Verb::Import {
+                dry_run: rest.iter().any(|a| a == "--dry-run"),
+            })
         }
         [verb, rest @ ..] if verb == "migrate" => {
             let mut backup: Option<String> = None;
@@ -423,6 +447,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
             ))
         }
         Verb::Init { force, settings } => init(&file, *force, settings, now),
+        Verb::Import { dry_run } => import::run(home, *dry_run, now),
         Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
