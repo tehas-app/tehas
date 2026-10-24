@@ -38,8 +38,9 @@
 //!
 //! The image, its tehas.rukas commit and the counts of processes killed for
 //! memory and of refused forks are given on the command line (Given):
-//! libexec/cycle reads and removes .image, .oom and .forks before it writes
-//! the history line, so they are not read here.
+//! libexec/cycle reads the image and its commit from the cycle's record on
+//! the state store, and reads and removes .oom and .forks, so they are not
+//! read here.
 //! - logs/work-<n>-<stamp>.jsonl (libexec/work): the runner's NDJSON progress,
 //!   the newest one written since the run started. Its stable step-started
 //!   lines give the steps where the result has none.
