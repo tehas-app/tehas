@@ -248,6 +248,109 @@ ready_at() { # <issue> <login> <time>: tehas:ready applied by <login> at <time>
   jq -nc --arg w "$2" --arg at "$3" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $w}, created_at: $at}]' >"$fx/events-$1.json"
 }
 
+# alone <issue> [<label>...]: the issue carries tehas:blocked and no tehas:ready.
+alone() {
+  local n=$1
+  shift
+  echo '[]' >"$fx/ready.json"
+  jq -nc --argjson n "$n" '[{number: $n, labels: ([{name: "tehas:blocked"}] + [$ARGS.positional[] | {name: .}])}]' \
+    --args "$@" >"$fx/blocked.json"
+}
+# blocked_by <issue> <login>: tehas:blocked by that account is the issue's only label event.
+blocked_by() {
+  jq -nc --arg w "$2" '[{event: "labeled", label: {name: "tehas:blocked"}, actor: {login: $w}, created_at: "2026-10-01T00:01:00Z"}]' \
+    >"$fx/events-$1.json"
+}
+
+t_case "tehas:blocked alone starts the issue once its blockers close, and comes off"
+reset
+alone 7
+blocked_by 7 alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:blocked"
+t_lacks "$(t_calls gh)" "--remove-label tehas:ready"
+t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:blocked\` label"
+t_eq "$(approval '"\(.by) \(.at)"')" "alice 2026-10-01T00:01:00Z"
+
+t_case "tehas:blocked alone waits while a blocker is open, and changes nothing"
+reset
+alone 7
+blocked_by 7 alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=OPEN
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
+t_lacks "$(t_calls gh)" "issue edit 7 "
+
+t_case "tehas:blocked alone from an outsider starts nothing"
+reset
+alone 7
+blocked_by 7 mallory
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "tehas:blocked was applied by 'mallory', not an allowed account"
+t_lacks "$(t_calls gh)" "issue edit 7 "
+
+t_case "tehas:blocked alone from the fixer holds the issue but does not start it"
+reset
+slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+alone 7
+blocked_by 7 tehas-fixer
+notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_lacks "$(t_calls gh)" "issue edit 7 "
+
+t_case "tehas:blocked alone on a body an outsider edited since starts nothing"
+reset
+alone 7
+blocked_by 7 alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-10-02T00:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit.json"
+t_run "$dispatch"
+t_eq "$(started)" ""
+
+t_case "tehas:blocked alone on an issue in another flow is not asked about"
+reset
+alone 7 tehas:awaiting-merge
+blocked_by 7 alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_lacks "$(t_calls gh)" "issueOrPullRequest"
+
+t_case "tehas:blocked alone with an open pull request that closes it comes off"
+reset
+alone 7
+blocked_by 7 alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+jq -nc '{data: {repository: {issue: {closedByPullRequestsReferences: {nodes: [{url: "https://github.com/acme/widget/pull/90", state: "OPEN"}]}}}}}' >"$fx/prs-7.json"
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:blocked"
+t_lacks "$(t_calls gh)" "--remove-label tehas:ready"
+
+t_case "tehas:ready beside tehas:blocked: the start takes both off"
+reset
+queue "7 tehas:blocked"
+label_events 7 tehas:blocked=alice
+notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
+states 12=CLOSED
+t_run "$dispatch"
+t_eq "$(started)" "7 "
+t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:blocked"
+
 t_case "demand: a poll with no room counts the waiting issues and the oldest acceptance"
 reset
 ready 7 8
