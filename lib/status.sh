@@ -163,7 +163,7 @@ tehas_slice_line() { # <health json> <now epoch seconds>
     (.checks.slice // null
      | if . == null then "slice     unknown: no poll has reported in 10 min"
        elif (.why // "") | IN("", "resources") | not then "slice     \(.hold // "holding") (\(.time | age($now)))"
-       else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown"), \(.time | age($now)))" end)
+       else "slice     room for \(.room // 0) cycles (\(.committed | gib) GiB of \(.max | gib) GiB promised, reserve \(.reserve // "unknown")\(if .refreshRoom == null then "" else ", refresh lane \(.refreshRoom) free" end), \(.time | age($now)))" end)
   ' <<<"$1"
 }
 
@@ -219,7 +219,7 @@ tehas_status_json() { # <health json> <now epoch seconds> <stale true|false>
               elif $s != null and ($s.why // "") != "" then {why: $s.why, text: ($s.hold // "")}
               else null end),
        room: (if $s == null then null
-              else {cycles: $s.free, maxAwaiting: $s.awaitRoom, slice: $s.room, limit: $s.limitRoom}
+              else {cycles: $s.free, refreshes: $s.refreshRoom, maxAwaiting: $s.awaitRoom, slice: $s.room, limit: $s.limitRoom}
                    | with_entries(select(.value != null)) end)}
     | with_entries(select((.key | IN("allHands", "limit") | not) or .value != null))
   ' <<<"$1"

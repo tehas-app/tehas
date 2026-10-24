@@ -11,8 +11,9 @@
 # once and calls nothing.
 #
 # It lists the open pull requests of TEHAS_REPO and keeps the bot's that close
-# exactly one open issue carrying tehas:awaiting-merge, not the control issue,
-# and are the only open pull request that closes it; whose branch is in the
+# exactly one open issue carrying tehas:awaiting-merge or, after a handoff,
+# needs-human-attention, and not tehas:running, not the control issue, and are
+# the only open pull request that closes it; whose branch is in the
 # repository and that are no draft (lib/refresh.sh). Of those, the ones GitHub
 # says are CONFLICTING get a request, $TEHAS_HOME/state/refresh/<issue>.json:
 # {at, pr, head_sha, base_sha}. A request for the same pull request at the

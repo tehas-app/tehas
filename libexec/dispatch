@@ -40,7 +40,12 @@
 #      whose work is done or that nobody has heard from is stopped and a mark
 #      with no cycle behind it is cleared. The poll ends after that, before
 #      rule 4.
-#   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once.
+#   2. At most TEHAS_TICKET_CONCURRENCY cycles run at once. With
+#      TEHAS_REFRESH_CONFLICTS=1 and TEHAS_REFRESH_SLOTS above 0, refreshes run
+#      in a lane of their own: at most TEHAS_REFRESH_SLOTS of them, not
+#      counted against TEHAS_TICKET_CONCURRENCY, and new cycles leave as many
+#      containers of the slice's room as the lane has free. A running cycle is
+#      a refresh when its approval record has how "refresh".
 #      An open issue marked tehas:running whose cycle holds no lock on this
 #      host is handed to a human, once a fresh read shows it still marked.
 #      Nothing is started for it. A closed one only loses the mark. A cycle
@@ -93,7 +98,8 @@
 #      whose approval the pull request's cycle rests on. Only with
 #      TEHAS_REFRESH_CONFLICTS=1 and a sandbox image whose pi-rukas takes
 #      --continue-pr; otherwise it starts nothing, said once. Read again at the
-#      start: the issue is open, carries tehas:awaiting-merge and none of
+#      start: the issue is open, carries tehas:awaiting-merge or
+#      needs-human-attention (a handoff, and then not tehas:ready) and none of
 #      tehas:running, tehas:question, tehas:fixer-escalated, tehas:plan, and
 #      no cycle or planning session is open on it; its text is the text that
 #      person approved, renamed or edited by nobody else since; the pull
@@ -108,7 +114,10 @@
 #      no refresh in the count; rule 2 takes it off a pull request whose issue
 #      has no cycle, and one that the bot did not apply. Rules 1 and 2, the
 #      limit and the slice's room hold a refresh; the cap of rule 3 does not:
-#      the start takes tehas:awaiting-merge off, so it adds no pull request.
+#      its pull request is open already, and the start takes
+#      tehas:awaiting-merge off. A refresh of a handed-off issue is a restart:
+#      tehas cycle passes --restart, which takes needs-human-attention off,
+#      and the refresh's own end labels the issue.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The fixer's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -226,6 +235,8 @@
 #                             commit holds new cycles back, none when unset
 #   TEHAS_REFRESH_MAX         refreshes of one pull request since the
 #                             person's approval [2]
+#   TEHAS_REFRESH_SLOTS       refreshes side by side in their own lane, 0 to
+#                             share the cycles' slots [1]
 #   TEHAS_SIZE_MAX_FILES      the most files an issue's body may name before
 #                             the poll holds it back, none when unset
 #   TEHAS_LOW_GATE            a command the poll asks before it starts the
@@ -720,9 +731,10 @@ report_hold() {
   if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
     --argjson free "$free" --argjson awaitRoom "${room:-null}" --argjson limitRoom "${limit_room:-null}" \
-    --arg endpoint "$mesh_end" \
+    --argjson refreshRoom "${lane:-null}" --arg endpoint "$mesh_end" \
     '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}
      + (if $limitRoom == null then {} else {$limitRoom} end)
+     + (if $refreshRoom == null then {} else {$refreshRoom} end)
      + (if $endpoint == "" then {} else {$endpoint} end)' >"$file.new" 2>/dev/null; then
     mv "$file.new" "$file" || log "WARN: could not write $file"
   else
@@ -1704,7 +1716,12 @@ refresh_ok() {
   if [ -e "$(plan_state "$n")" ]; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
-  [[ $have == *" tehas:awaiting-merge "* ]] || { refresh_drop "$n" "it does not carry tehas:awaiting-merge"; return 1; }
+  [[ $have == *" tehas:awaiting-merge "* || $have == *" needs-human-attention "* ]] ||
+    { refresh_drop "$n" "it carries neither tehas:awaiting-merge nor needs-human-attention"; return 1; }
+  # On a handed-off issue tehas:ready asks for a fresh cycle, which rule 6
+  # starts: a refresh must not take its place.
+  [[ $have != *" needs-human-attention "* || $have != *" tehas:ready "* ]] ||
+    { refresh_drop "$n" "it was handed off and carries tehas:ready"; return 1; }
   for l in tehas:running tehas:question tehas:fixer-escalated tehas:plan tehas:planning; do
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
@@ -1767,7 +1784,8 @@ refresh_ok() {
   refresh_url[$n]=$(jq -r '.url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))' <<<"$node")
   refresh_of[$n]=$(jq -n -c --argjson pr "$pr" --arg head "$head" --arg base "$base" --arg branch "${b:-$branch}" \
     '{$pr, head_sha: $head, base_sha: $base, $branch}')
-  drop[$n]="--remove-label tehas:awaiting-merge"
+  drop[$n]=""
+  [[ $have != *" tehas:awaiting-merge "* ]] || drop[$n]="--remove-label tehas:awaiting-merge"
   [[ $have != *" tehas:ready "* ]] || drop[$n]+=" --remove-label tehas:ready"
 }
 
@@ -2137,7 +2155,22 @@ running=$(tehas_cycles_running | tr '\n' ' ')
 running=${running% }
 count=$(wc -w <<<"$running")
 count=$((count))
-free=$((TEHAS_TICKET_CONCURRENCY - count))
+# The refresh lane: $cycles is what counts against TEHAS_TICKET_CONCURRENCY,
+# $lane the lane's free slots, empty without a lane. The limit, the slice and
+# the review cap still count every container.
+cycles=$count
+lane=""
+if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] && [ "$TEHAS_REFRESH_SLOTS" -gt 0 ]; then
+  refreshing=0
+  for n in $running; do
+    [ "$(jq -r '.how // "" | strings' "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null)" != refresh ] ||
+      refreshing=$((refreshing + 1))
+  done
+  cycles=$((count - refreshing))
+  lane=$((TEHAS_REFRESH_SLOTS - refreshing))
+  [ "$lane" -ge 0 ] || lane=0
+fi
+free=$((TEHAS_TICKET_CONCURRENCY - cycles))
 
 # The limit tehas limit sets, read on every poll that gets this far: the room
 # under its cap of cycles, empty without a limit. One that expired or cannot
@@ -2421,9 +2454,9 @@ disk_check() {
 # otherwise the slots could overshoot the cap. Rules 2 and 3 hold back new
 # cycles only; a question is still read while they hold. $hold says why and
 # $why is the one word for it: slice, unreadable, disk, resources, limit, red,
-# count, awaiting, pressure, room or full, the first that applies. resources is a model
-# endpoint that does not answer or does not offer the model: it holds
-# planning turns and retries as well.
+# count, awaiting, pressure, room, full or lane, the first that applies.
+# resources is a model endpoint that does not answer or does not offer the
+# model: it holds planning turns and retries as well.
 #
 # The slice is read here, after the sweep above, which needs no slice. The
 # room is read whenever the slice is usable, also when the slots are full, so
@@ -2452,8 +2485,10 @@ hold=""
 why=""
 want=0
 # A refresh takes a pull request out of awaiting-merge as it starts, so the
-# cap of rule 3 does not hold it: $want_all is the room without that cap.
+# cap of rule 3 does not hold it: $want_all is the room without that cap. With
+# a lane, $want_all is the room of both, and $want_refresh of the lane alone.
 want_all=0
+want_refresh=""
 cut=""
 if [ -n "$slice_hold" ]; then
   why=slice
@@ -2493,11 +2528,21 @@ elif branch_check && [ -n "$red_hold" ]; then
   hold=$red_hold
 elif [ "$free" -le 0 ]; then
   why=count
-  hold="holding: $count cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
+  hold="holding: $cycles cycles are running (limit $TEHAS_TICKET_CONCURRENCY)"
+  if [ -n "$lane" ]; then
+    hold="$hold; the refresh lane has $lane of $TEHAS_REFRESH_SLOTS free"
+    want_all=$lane
+    [ -z "$limit_room" ] || [ "$limit_room" -ge "$want_all" ] || want_all=$limit_room
+    [ "$room_mem" -ge "$want_all" ] || want_all=$room_mem
+    want_refresh=$want_all
+  fi
 else
-  want_all=$free
+  want_all=$((free + ${lane:-0}))
   [ -z "$limit_room" ] || [ "$limit_room" -ge "$want_all" ] || want_all=$limit_room
   [ "$room_mem" -ge "$want_all" ] || want_all=$room_mem
+  if [ -n "$lane" ]; then
+    want_refresh=$((lane < want_all ? lane : want_all))
+  fi
   gh_json issue list --repo "$repo" --state open --label tehas:awaiting-merge --limit 1000 --json number
   awaiting=$(jq length <<<"$json") || { log "ERROR: unreadable list of issues awaiting merge"; exit 1; }
   room=$((max_awaiting - awaiting - count))
@@ -2527,6 +2572,15 @@ else
       want=$room_mem
       cut=room
     fi
+    # What the lane has free is kept from new cycles.
+    if [ -n "$lane" ] && [ $((room_mem - lane)) -lt "$want" ]; then
+      want=$((room_mem > lane ? room_mem - lane : 0))
+      cut=lane
+    fi
+    if [ "$want" = 0 ] && [ "$cut" = lane ]; then
+      why=lane
+      hold="holding: tehas.slice has room for $room_mem more and the refresh lane keeps $lane"
+    fi
   fi
 fi
 # Fewer start than there are free slots and issues waiting: the reason is
@@ -2542,6 +2596,7 @@ if [ "$short" = 1 ] && [ "$want" -gt 0 ]; then
   case "$cut" in
     awaiting) hold="holding: $want of $free free slots start: $awaiting issues await merge and $count cycles are running (limit $max_awaiting)" ;;
     limit) hold="holding: $want of $free free slots start: the limit allows $(limit_cycles) at once${limit_reason:+: $limit_reason}" ;;
+    lane) hold="holding: $want of $free free slots start: tehas.slice has room for $room_mem more and the refresh lane keeps $lane" ;;
     *) hold="holding: $want of $free free slots start: tehas.slice has room for $want more ($(gib "$committed") of $(gib "$slice_max") promised, each cycle is given $TEHAS_CYCLE_RESERVE)" ;;
   esac
   [ "$dry" = 0 ] || log "$hold"
@@ -3067,6 +3122,7 @@ for n in $(refresh_requests); do order+=$'\n'"r $n"; done
 order+=$'\n'$(printf '%s\n' "$candidates" | grep '^n ')
 order+=$'\n'$(printf '%s\n' "$candidates" | grep '^x ')
 ready_picked=0
+refresh_picked=0
 
 while read -r kind n; do
   [ -n "${n:-}" ] || continue
@@ -3074,8 +3130,13 @@ while read -r kind n; do
   [ "${#picked[@]}" -lt "$want_all" ] || break
   case " ${picked[*]} " in *" $n "*) continue ;; esac
   if [ "$kind" = r ]; then
+    if [ -n "$want_refresh" ] && [ "$refresh_picked" -ge "$want_refresh" ]; then
+      log "wait #$n: the refresh lane is full ($((TEHAS_REFRESH_SLOTS - lane + refresh_picked)) of $TEHAS_REFRESH_SLOTS)"
+      continue
+    fi
     refresh_ok "$n" || continue
     picked+=("$n")
+    refresh_picked=$((refresh_picked + 1))
     continue
   fi
   # The gate's answer is this poll's answer: the issues of the lowest kind

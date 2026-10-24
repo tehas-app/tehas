@@ -186,6 +186,16 @@ for row in "16 4 3.75 4096" "16 15 3.75 4096" "16 1 15.00 4096" "16 2 7.50 4096"
   t_eq "$t_out" "$want"
 done
 
+t_case "with refreshes on, the refresh lane counts among the cycles side by side"
+for row in "16 2 1 1 5.00 4096" "16 2 0 1 7.50 4096" "16 2 1 0 7.50 4096" "16 4 1 1 3.75 4096" "16 3 2 1 3.75 4096"; do
+  read -r cpus cycles lane on want <<<"$row"
+  good
+  t_stub nproc "echo $cpus"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles" TEHAS_REFRESH_SLOTS="$lane" TEHAS_REFRESH_CONFLICTS="$on"
+  t_run "$pre"'tehas_slice_ok && tehas_slice_cpus'
+  t_eq "$row: $t_out" "$row: $want"
+done
+
 t_case "a quota with no probe, or with no concurrency, is no quota"
 good
 t_run "$pre"'tehas_slice_cpus; echo "rc=$?"'

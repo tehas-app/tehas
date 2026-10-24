@@ -92,7 +92,7 @@ slice=null
 [ -s "$dispatch_file" ] && slice=$(jq -cs '
   select(length == 1) | .[0]
   | select(type == "object" and (.why | type) == "string" and (now - (.time | fromdateiso8601)) < 600)
-  | {time, why, hold, count, room, committed, max, reserve} + ({free, awaitRoom, limitRoom} | with_entries(select(.value != null)))' "$dispatch_file" 2>/dev/null)
+  | {time, why, hold, count, room, committed, max, reserve} + ({free, awaitRoom, limitRoom, refreshRoom} | with_entries(select(.value != null)))' "$dispatch_file" 2>/dev/null)
 [ -n "$slice" ] || slice=null
 
 # How many issues wait for room, and since when the oldest, as the last poll

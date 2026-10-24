@@ -53,9 +53,10 @@ tehas_refresh_pr_query() {
       pullRequest(number: $number) { state '"$_tehas_refresh_fields"' } } }'
 }
 
-# Only the bot's own pull request of one open issue that waits for a merge,
-# from a branch of the repository and no draft, and the only open one that
-# closes that issue. A shape it does not know is a reason too.
+# Only the bot's own pull request of one open issue that waits for a merge or
+# was handed off (needs-human-attention) and has no cycle running, from a
+# branch of the repository and no draft, and the only open one that closes
+# that issue. A shape it does not know is a reason too.
 tehas_refresh_rule() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def refresh_why:
@@ -69,7 +70,9 @@ tehas_refresh_rule() {
       | if (.number | type) != "number" then "the issue it closes cannot be read"
         elif .number == $control then "it closes the control issue"
         elif .state != "OPEN" then "#\(.number) is not open"
-        elif (names | index("tehas:awaiting-merge")) == null then "#\(.number) does not carry tehas:awaiting-merge"
+        elif (names | index("tehas:awaiting-merge")) == null and (names | index("needs-human-attention")) == null
+          then "#\(.number) carries neither tehas:awaiting-merge nor needs-human-attention"
+        elif (names | index("tehas:running")) != null then "#\(.number) carries tehas:running"
         elif [(.closedByPullRequestsReferences.nodes // [])[]? | select(.state? == "OPEN") | .number] != [$pr] then "it is not the one open pull request that closes #\(.number)"
         else "" end
     end;'

@@ -99,6 +99,8 @@ for kind in "a fork|.isCrossRepository = true" \
   "one whose issue has two open pull requests|.closingIssuesReferences.nodes[0].closedByPullRequestsReferences.nodes += [{number: 52, state: \"OPEN\"}]" \
   "one whose issue does not wait for a merge|.closingIssuesReferences.nodes[0].labels.nodes = []" \
   "one whose issue is closed|.closingIssuesReferences.nodes[0].state = \"CLOSED\"" \
+  "one whose issue has a cycle running|.closingIssuesReferences.nodes[0].labels.nodes += [{name: \"tehas:running\"}]" \
+  "one whose handed-off issue has a cycle running|.closingIssuesReferences.nodes[0].labels.nodes = [{name: \"needs-human-attention\"}, {name: \"tehas:running\"}]" \
   "one that closes the control issue|.closingIssuesReferences.nodes[0].number = 1"; do
   t_case "${kind%%|*} gets no request, and one it had is removed"
   reset
@@ -109,6 +111,14 @@ for kind in "a fork|.isCrossRepository = true" \
   t_eq "$t_rc" 0
   t_eq "$(requests)" ""
 done
+
+t_case "a handed-off issue's conflicting pull request gets a request"
+reset
+prs "$(pr 50 7 '.closingIssuesReferences.nodes[0].labels.nodes = [{name: "needs-human-attention"}]')"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "7.json"
+t_eq "$(jq -r .pr "$dir/7.json")" 50
 
 t_case "a request whose pull request is gone is removed; a stray file is left"
 reset

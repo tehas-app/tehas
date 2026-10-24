@@ -61,6 +61,11 @@ refresh_dropped() { # <why in the log>
   t_contains "$t_out" "drop the refresh of #7: $1"
   t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
 }
+# A running refresh: a cycle whose approval record has how "refresh".
+running_refresh() { # <issue>
+  hold "$1"
+  jq -n '{at: "2026-10-01T00:00:00Z", by: "alice", how: "refresh"}' >"$T/home/tehas/state/cycles/$1.approved.json"
+}
 # The REST call of rule 4b that marks a pull request, and the one that takes
 # the mark off.
 mark_call="api -X POST repos/acme/widget/issues/50/labels -f labels[]=tehas:refreshing"
@@ -243,7 +248,7 @@ t_contains "$t_out" "hold refreshes"
 t_case "a refresh that waits for room counts in the demand"
 refresh_setup
 slots 1 TEHAS_REFRESH_CONFLICTS=1
-hold 9
+running_refresh 9
 t_run "$dispatch"
 release
 t_eq "$(started)" ""
@@ -320,7 +325,41 @@ t_case "an issue that no longer waits for a merge drops the refresh"
 refresh_setup
 echo '{"number":7,"state":"open","labels":[]}' >"$fx/work-7.json"
 t_run "$dispatch"
-refresh_dropped "it does not carry tehas:awaiting-merge"
+refresh_dropped "it carries neither tehas:awaiting-merge nor needs-human-attention"
+
+# handed_off [<label>...]: issue 7 ended as a handoff, its pull request open.
+handed_off() {
+  printf '%s\n' needs-human-attention "$@" | jq -R '{name: .}' | jq -s '{number: 7, state: "open", labels: .}' >"$fx/work-7.json"
+  pull '.closingIssuesReferences.nodes[0].labels.nodes = [{name: "needs-human-attention"}]'
+  echo '[]' >"$fx/awaiting.json"
+}
+
+t_case "a handed-off issue's pull request is refreshed: the issue is marked running, with no label to take off"
+refresh_setup
+handed_off
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+edits=$(label_pair)
+t_contains "$edits" "$mark_call"
+t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running"
+t_lacks "$edits" "--remove-label"
+t_eq "$(jq -r .how "$approved_file")" refresh
+
+t_case "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's"
+refresh_setup
+slots 1 TEHAS_REFRESH_CONFLICTS=1
+handed_off tehas:ready
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+refresh_dropped "it was handed off and carries tehas:ready"
+
+t_case "a handed-off issue whose pull request says tehas:running drops the refresh"
+refresh_setup
+handed_off
+pull '.closingIssuesReferences.nodes[0].labels.nodes = [{name: "needs-human-attention"}, {name: "tehas:running"}]'
+t_run "$dispatch"
+t_eq "$(started)" ""
 
 t_case "no person's approval on record drops the refresh"
 refresh_setup
@@ -385,9 +424,9 @@ t_run "$dispatch"
 t_eq "$(started)" ""
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
-t_case "full slots hold a refresh"
+t_case "with TEHAS_REFRESH_SLOTS=0 full slots hold a refresh"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1
+slots 1 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=0
 hold 9
 t_run "$dispatch"
 release
@@ -419,13 +458,107 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "8 7 9 3 "
 
-t_case "a refresh takes a slot before tehas:next does"
+t_case "with TEHAS_REFRESH_SLOTS=0 a refresh takes a slot before tehas:next does"
 refresh_setup
-slots 1 TEHAS_REFRESH_CONFLICTS=1
+slots 1 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=0
 queue "9 tehas:next"
 label_events 9 tehas:next=alice
 t_run "$dispatch"
 t_eq "$(started)" "7 "
+
+# --- The refresh lane ----------------------------------------------------------
+# The slice of reset holds four containers: a quarter of it is a container's
+# ceiling.
+
+t_case "the lane: with every cycle slot busy a refresh starts, and the hold says the lane"
+refresh_setup
+slots 3 TEHAS_REFRESH_CONFLICTS=1
+hold 9; hold 10; hold 11
+t_run "$dispatch"
+release
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_contains "$t_out" "holding: 3 cycles are running (limit 3); the refresh lane has 1 of 1 free"
+t_eq "$(jq -c '{free, refreshRoom}' "$dispatch_json")" '{"free":0,"refreshRoom":1}'
+
+t_case "the lane and a free slot: the refresh and a ready issue both start"
+refresh_setup
+slots 2 TEHAS_REFRESH_CONFLICTS=1
+queue 20
+hold 9
+t_run "$dispatch"
+release
+t_eq "$(started)" "7 20 "
+
+t_case "a running refresh fills the lane: the next one waits and a cycle slot does not take it"
+refresh_setup
+slots 3 TEHAS_REFRESH_CONFLICTS=1
+running_refresh 8
+t_run "$dispatch"
+release
+t_eq "$t_rc" 0
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the refresh lane is full (1 of 1)"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "a running refresh does not count against TEHAS_TICKET_CONCURRENCY"
+refresh_setup
+slots 1 TEHAS_REFRESH_CONFLICTS=1
+rm "$refresh_dir/7.json"
+queue 20
+running_refresh 8
+t_run "$dispatch"
+release
+t_eq "$(started)" "20 "
+
+t_case "TEHAS_REFRESH_SLOTS=2 runs two refreshes side by side"
+refresh_setup
+slots 2 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=2
+hold 9; hold 10
+running_refresh 8
+t_run "$dispatch"
+release
+t_eq "$(started)" "7 "
+
+t_case "new cycles leave the lane's room in the slice: three of four start, and the poll says why"
+refresh_setup
+slots 4 TEHAS_REFRESH_CONFLICTS=1
+rm "$refresh_dir/7.json"
+queue 20 21 22 23
+t_run "$dispatch"
+t_eq "$(started)" "20 21 22 "
+t_contains "$t_out" "holding: 3 of 4 free slots start: tehas.slice has room for 4 more and the refresh lane keeps 1"
+
+t_case "with three cycles in a slice of four the lane keeps the last room from a ready issue"
+refresh_setup
+slots 4 TEHAS_REFRESH_CONFLICTS=1
+rm "$refresh_dir/7.json"
+queue 20
+hold 9; hold 10; hold 11
+t_run "$dispatch"
+release
+t_eq "$(started)" ""
+t_contains "$t_out" "holding: tehas.slice has room for 1 more and the refresh lane keeps 1"
+t_eq "$(jq -r .why "$dispatch_json")" lane
+
+t_case "a full slice holds a refresh and a ready issue alike"
+refresh_setup
+slots 4 TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_SLOTS=2
+queue 20
+hold 9; hold 10; hold 11; hold 12
+t_run "$dispatch"
+release
+t_eq "$(started)" ""
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "with refreshes off the lane keeps nothing: four of four start"
+refresh_setup
+slots 4
+rm "$refresh_dir/7.json"
+queue 20 21 22 23
+t_run "$dispatch"
+t_eq "$(started)" "20 21 22 23 "
+t_eq "$(jq -c 'has("refreshRoom")' "$dispatch_json")" false
 
 t_case "a dry run says what a refresh would start, and changes nothing"
 refresh_setup
