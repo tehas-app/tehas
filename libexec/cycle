@@ -1071,16 +1071,20 @@ rm -f "$cycles/$issue.done"
 # approved on, for the park, and the pull request a refresh marked. A start by
 # hand used none. An approval that cannot be read leaves both unknown: the park
 # then names no body, and the mark of a refresh is the dispatcher's to clear.
-used_body="" refreshed=""
+# A refresh is on record at the time the poll decided it: the person's approval
+# it rests on is the one named for it, as tehas_approval_shape names it.
+used_body="" refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
-  read -r used_body refreshed < <(jq -r --argjson a "$attempt" '.current | select(. != null and .used_by == $a)
-    | "\(.body_sha256 // "-") \(if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr // "") else "" end)"' \
-    <<<"$tehas_store_out" 2>/dev/null)
+  read -r used_body refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
+    | .current | select(. != null and .used_by == $a)
+    | [.body_sha256, (if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr) else null end), $r.at, $r.by]
+    | map(. // "-" | tostring) | join(" ")' <<<"$tehas_store_out" 2>/dev/null)
 else
   log "WARN: the approval of #$issue could not be read for its report ($tehas_store_word)"
 fi
 [[ $used_body =~ ^[0-9a-f]{64}$ ]] || used_body=""
 [[ $refreshed =~ ^[1-9][0-9]{0,9}$ ]] || refreshed=""
+[[ $base_at =~ ^[1-9][0-9]{0,10}$ ]] || base_at=""
 # park <text>: hand the issue to a human with the retry question.
 # The park on record for the dispatcher. retry is set only for a provider
 # outage on a cycle that was not itself the dispatcher's retry of one.
@@ -1261,10 +1265,16 @@ else
     # is the dispatcher's record of the start it authorised, and the log tehas
     # work wrote its reason into.
     never_ran=1
-    approved_by=$start_by
+    # The time a person approved: a refresh names the approval it rests on,
+    # and the retry after an outage is the poll's own, so it names no time.
+    approved_by=$start_by approved_epoch=$approval_at
+    case $start_how in
+      refresh) approved_by=$base_by approved_epoch=$base_at ;;
+      outage-retry) approved_epoch="" ;;
+    esac
     [[ $approved_by =~ ^[A-Za-z0-9-]{1,39}$ ]] || approved_by=""
     approved_at=""
-    [ -z "$approval_at" ] || approved_at=$(date -u -d "@$approval_at" +%FT%TZ 2>/dev/null) || approved_at=""
+    [ -z "$approved_epoch" ] || approved_at=$(date -u -d "@$approved_epoch" +%FT%TZ 2>/dev/null) || approved_at=""
     never_ran_said=""
     if [ -n "$approved_by" ] && [ -n "$approved_at" ]; then
       never_ran_said=" @${approved_by} approved this start at ${approved_at}; tehas keeps no record of an approval that started nothing, so a fresh \`tehas:ready\` asks for another start."

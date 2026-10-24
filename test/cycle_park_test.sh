@@ -410,6 +410,24 @@ t_lacks "$(t_calls gh)" "status \`unknown\`"
 t_lacks "$(t_calls gh)" "last step"
 t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["",false,false]'
 
+t_case "a refresh that never ran names the person's approval it rests on, not the time the poll decided it"
+never_ran
+t_ended "$T/home/tehas" 7 alice label --status handoff
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice refresh "$(date -u -d 2026-10-24T12:00:00Z +%s)" \
+  --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "alice approved this start at 2023-11-14T22:13:20Z"
+t_lacks "$(t_calls gh)" "2026-10-24T12:00:00Z"
+
+t_case "the retry after an outage that never ran names no time of approval: the poll decided it"
+never_ran
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice outage-retry "$(date -u -d 2026-10-24T12:00:00Z +%s)"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "alice approved this start;"
+t_lacks "$(t_calls gh)" "2026-10-24T12:00:00Z"
+
 t_case "a start that never ran leaves no approval record, and its line of history still names how it was authorised"
 never_ran approved
 t_run "$cycle 7"
