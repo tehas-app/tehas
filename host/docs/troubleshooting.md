@@ -350,7 +350,7 @@ The common ones:
 
 | Reason                              | What it means                                       | What to do                                               |
 | ----------------------------------- | --------------------------------------------------- | -------------------------------------------------------- |
-| underspecified, needs clarification | The issue does not say enough                       | Add acceptance criteria, relabel                         |
+| underspecified, needs clarification | The issue does not say enough                       | The factory refines it once on its own; after that, add acceptance criteria and relabel |
 | `explore-bodies-empty`              | `gh` could not read the issue                       | Check the bot token: `gh auth status`                    |
 | verify or smoke failure             | The gates failed on the developer's change          | Read the gate output in the handoff; often a real defect |
 | protected paths                     | The patch touched `.pi/`, `.github/`, `CODEOWNERS` or `agents.json` | By design. Make that change yourself                     |
@@ -472,11 +472,11 @@ and "Resolver's rationale" says why.
 
 | The comment says | Verdict | What to change |
 | --- | --- | --- |
-| "does not say enough to build from" | underspecified | Add a `## Acceptance criteria` section, or say concretely what should change |
+| "does not say enough to build from" | underspecified | The next poll refines it once on its own. If it was refined before, add a `## Acceptance criteria` section, or say concretely what should change |
 | "central claim is contradicted by the code as it actually is" | contradicted-by-code | What the issue says about the code is not what the code does now. The issue may be stale, or describe a bug already fixed. Read the evidence in the comment, then correct the issue or close it |
 | "rests on a premise the driver could not substantiate" | premise-unsound | Name where the API or behaviour the issue relies on is, or correct the premise |
 | "appears to be already implemented" | already-implemented | Close the issue, or say what is still missing |
-| "is too large to execute as one cycle" | too-large | Split it into several issues |
+| "is too large to execute as one cycle" | too-large | The next poll refines it once on its own into a first part. If it was refined before, split it into several issues |
 
 The last one is in pi-rukas and was not seen here. After the change, retry.
 

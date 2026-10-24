@@ -14,14 +14,15 @@ reset() {
   t_instance TEHAS_REPO=acme/widget
 }
 
-t_case "it needs only the repository, and makes the sixteen labels there"
+t_case "it needs only the repository, and makes the eighteen labels there"
 reset
 t_run "$labels"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | wc -l)" 16
-t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 16
+t_eq "$(t_calls gh | wc -l)" 18
+t_eq "$(t_calls gh | grep -c -e '--repo acme/widget .*--force')" 18
 for name in tehas:ready tehas:urgent tehas:running tehas:awaiting-merge tehas:shipped tehas:pause needs-human-attention \
-  tehas:question tehas:plan tehas:refine tehas:planning tehas:fixer-escalated tehas:next tehas:blocked tehas:refreshing tehas:all-hands; do
+  tehas:question tehas:plan tehas:refine tehas:planning tehas:fixer-escalated tehas:next tehas:blocked tehas:refreshing tehas:all-hands \
+  tehas:replaced tehas:refined; do
   t_contains "$(t_calls gh)" "label create $name --repo acme/widget"
   t_contains "$t_out" "label $name"
 done
@@ -43,7 +44,7 @@ t_run "$labels"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas labels: could not make tehas:urgent"
 t_contains "$t_out" "label tehas:pause"
-t_eq "$(t_calls gh | wc -l)" 16
+t_eq "$(t_calls gh | wc -l)" 18
 
 t_case "without the repository nothing is called, exit 78"
 reset

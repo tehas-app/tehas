@@ -126,7 +126,8 @@ echo '[]' >"$fx/closed.json"
 t_run "$tidy"
 search=$(t_calls gh | grep '^issue list')
 t_contains "$search" '--search label:"tehas:running","tehas:awaiting-merge","tehas:question","tehas:planning","tehas:refreshing","tehas:blocked","tehas:ready","tehas:plan"'
-for l in tehas:shipped needs-human-attention tehas:urgent tehas:next tehas:prototype cross-project tehas:pause; do
+for l in tehas:shipped needs-human-attention tehas:urgent tehas:next tehas:prototype cross-project tehas:pause \
+  tehas:replaced tehas:refined; do
   t_lacks "$search" "\"$l\""
 done
 

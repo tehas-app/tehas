@@ -148,6 +148,14 @@ t_eq "$(jq -c '.cycles[0] | [.label, .filed]' <<<"$t_out")" '["tehas:refine",["h
 t_run "$history"
 t_contains "$t_out" "plan  #7  finished  turn 2  refine  filed https://github.com/acme/widget/issues/41"
 
+t_case "a turn of a refine the factory started on its own says auto, as JSON and as text"
+reset
+plan 7 "$((T0 + 300))" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true}'
+run_json
+t_eq "$(jq -c '.cycles[0] | [.label, .auto]' <<<"$t_out")" '["tehas:refine",true]'
+t_run "$history"
+t_contains "$t_out" "plan  #7  finished  turn 1  refine (auto)"
+
 t_case "both kinds together, and a turn whose unit left no readable status"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'

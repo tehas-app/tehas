@@ -13,11 +13,18 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- A cycle that parks at explore as `underspecified` or `too-large` is refined
+  once on its own, on the approval of the `tehas:ready` that started it
+  (`host/docs/operating.md`, "Refined on its own").
+- A refine that files ends the session: the filed issue says `Replaces #<n>`
+  and is a sub-issue of the original, and the original says `Replaced by #<m>`
+  and is closed with `tehas:replaced`, or kept open with `tehas:refined` when
+  later parts remain.
+- `tehas history` has `auto` on the turns of such a refine.
 
 ### Adopter action
 
-- None.
+- Run `tehas labels` once, for `tehas:replaced` and `tehas:refined`.
 
 ## v0.11.0 (2026-10-24)
 

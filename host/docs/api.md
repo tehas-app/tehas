@@ -271,8 +271,9 @@ status, `outcome` what it reported, and the rest are the fields of the line:
 the step and cap it stopped at, why it was parked, the failure the fixer named,
 whether its provider was asked, the pull request, and who asked for it and how.
 A planning turn has `turn`, its number in the issue, `label`, the label that
-started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
-the turn filed, when it filed any. A field the line does not have is left out,
+started its session (`tehas:plan` or `tehas:refine`), `auto`, true for a
+refine the factory started on its own when a cycle parked as underspecified
+or too-large, and `filed`, the issues the turn filed, when it filed any. A field the line does not have is left out,
 never null.
 
 Without `--json`, one line each, oldest first.

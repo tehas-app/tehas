@@ -38,6 +38,7 @@
 #       "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
 #       "label": "tehas:refine", "filed": ["https://github.com/..."]}],
 #    "next": "1760700300-7"}
+# A turn of a refine the factory started on its own also has "auto": true.
 #
 # host/docs/api.md has every field and the line it comes from. A field the line
 # does not have is left out, never null.
@@ -155,6 +156,7 @@ after_json=null
        failureKind: word(.failure_kind), failureCause: word(.failure_cause),
        provider: bool(.provider), parked: bool(.parked), pr: word(.pr),
        by: word(.by), how: word(.how), label: word(.label),
+       auto: (if .auto == true then true else null end),
        filed: (if (.filed | type) == "array" then
            [.filed[] | strings | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]
            | if length == 0 then null else . end
@@ -186,6 +188,7 @@ after_json=null
       (if .kind == "plan" then
          "turn \(.turn // "?")" +
          (if .label == "tehas:refine" then "  refine" else "" end) +
+         (if .auto then " (auto)" else "" end) +
          (if .filed then "  filed \(.filed | join(" "))" else "" end)
        else
          "rc \(.status // "?")" +
