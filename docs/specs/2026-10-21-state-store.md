@@ -339,7 +339,7 @@ neither is part of any transaction. Where a removal decision has to be auditable
 it is `sweep_log` (group 13) that records it. Group 8 names no verb at all: see
 the note at the end of section 4.
 
-## 3. Schema v1
+## 3. Schema v2
 
 `$TEHAS_HOME/state/tehas.db`, mode 0600, owned by the tehas user. The mode is
 set the way the analytics program sets it — the file created 0600 before SQLite
@@ -359,9 +359,12 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 1 for this schema. Migrations run
-  forward only, from install or update under `state/update.lock`, after a
-  `VACUUM INTO` backup.
+- The version is `PRAGMA user_version`. It is 2 for this schema. Schema 1 was
+  the first on main; the step to 2 only adds columns and one table
+  (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
+  `planning_notes`; the verbs spec's D29). An added column comes last in its
+  table, where `ALTER TABLE` puts it. Migrations run forward only, from install
+  or update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
   `synchronous=FULL`, `foreign_keys=ON`. Writes stay under one a second, so
   durability costs nothing worth saving.
@@ -522,6 +525,7 @@ CREATE TABLE approvals (
   refresh_head TEXT,
   used_at      INTEGER,                   -- when it authorised a start (A2, A3)
   used_by      INTEGER,                   -- the cycle that consumed it
+  input_json   TEXT,                      -- v2: links, comment_links, retry_context, refresh_of
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);
@@ -570,13 +574,23 @@ CREATE TABLE planning_answers (           -- was: the `answers` array
   turn  INTEGER NOT NULL,
   by_account TEXT NOT NULL,
   fixer      INTEGER NOT NULL DEFAULT 0,
+  text       TEXT,                        -- v2: was <record>.answer
   PRIMARY KEY (issue, turn)
 );
 CREATE TABLE planning_filed (             -- was: the `filed` array
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  url TEXT NOT NULL,                      -- the whole URL: it may be in another repository
   filed_issue INTEGER NOT NULL,
   at INTEGER NOT NULL,
-  PRIMARY KEY (issue, filed_issue)
+  PRIMARY KEY (issue, url)
+);
+-- v2: was the record's fixer_refused and held lists. They go with the session.
+CREATE TABLE planning_notes (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
 );
 ```
 
@@ -644,6 +658,7 @@ CREATE TABLE parks (
   step     TEXT,
   pr       INTEGER,
   retries  INTEGER NOT NULL DEFAULT 0,    -- C12: one automatic retry, then a person
+  told_at  INTEGER,                       -- v2: the hold said once; was .park's held
   PRIMARY KEY (issue, attempt)
 );
 -- The trust root of F5: a tick counts only in a comment this host put here.
@@ -1001,14 +1016,17 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `park` | `<issue> --reason <r> [--step <s>] [--pr N] --comment-id <id> --body-sha <sum>` | **group 3**: `parks`, `questions`; the comment is posted by the caller through the journal | `{"issue":12,"question":<id>}` | 0, 64, 78, 1, 5 |
 | `park-show` | `<issue>` | | the current park, `retries` | 0, 78 |
 | `park-retry` | `<issue>` | increments `parks.retries` | `{"retries":1,"automatic":true}` | 0, 78, 1 |
+| `park-told` | `<issue>` | `parks.told_at` of the current park, once | `{"said":true,"park":...}` | 0, 64, 78, 1 |
 | `question-asked` | `<issue> --id <id> --kind <k> [--attempt N]` | `questions` | the row | 0, 64, 78 |
 | `question-known` | `<issue> --id <id>` | | `{"known":true,"kind":"park"}` | 0, 64, 78, 1 |
-| `approval-record` | `<issue> --by <acct> --how <h> --label <l> --body-sha <sum> [--comment-id <id>] [--refresh-pr N --refresh-head <sha>]` | `approvals` | the row | 0, 64, 78 |
+| `approval-record` | `<issue> --by <acct> --how <h> --label <l> --body-sha <sum> [--comment-id <id>] [--refresh-pr N --refresh-head <sha>] [--input-file <f>]` | `approvals`, the inputs in `input_json` | the row | 0, 64, 78 |
 | `approval-current` | `<issue>` | | the open approval, or `{"approval":null}` | 0, 78 |
 | `plan-begin` | `<issue> --by <acct> --label <l> --brief-file <f> [--session <id>] [--turn N]` | **group 6**: `planning`, `plan_history` | the row | 0, 64, 78 |
 | `plan-end` | `<issue> --outcome <o> [--session <id>] [--turn N] [--rc N] [--filed 1,2,3]` | `planning`, `plan_history` | the row | 0, 64, 78 |
-| `plan-answer` | `<issue> --turn N --by <acct> [--fixer]` | `planning_answers` | `{"turn":2}` | 0, 64, 78 |
+| `plan-answer` | `<issue> --turn N --by <acct> [--fixer] [--text-file <f>]` | `planning_answers`, the reply in `text` | `{"turn":2}` | 0, 64, 78 |
+| `plan-note` | `<issue> --kind fixer-refused\|held --id <id>` | `planning_notes` | `{"said":true,"planning":...}` | 0, 64, 78, 1 |
 | `plan-show` | `<issue> \| --open` | | the rows | 0, 78 |
+| `history-show` | `[<issue>] [--kind cycle\|plan] [--how <h>]` | | `{"rows":[...]}`, oldest first | 0, 64, 78, 1 |
 | `poll-begin` | | `polls` (the lock's instant), clears nothing else | `{"at":...}` | 0, 78 |
 | `poll-commit` | `--held <why> \| --held-none [--short N] [--slice-room N --slice-committed N --slice-max N --slice-why <w>] [--endpoint main\|backup] [--paused] [--all-hands 0\|1]` | **group 4**: `polls`, `poll_demand`, `queue_snapshot`, the sample the analytics program is then given | the row | 0, 64, 78 |
 | `poll-show` | `--last` | | the last poll, with its age (A15) | 0, 78 |
