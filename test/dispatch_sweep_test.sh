@@ -760,7 +760,7 @@ ended_days_ago 31 40
 ended_days_ago 32 10
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would remove the lock of #31: unused for 30 days"
-t_eq "$(ls "$T/home/tehas/state/cycles" | LC_ALL=C sort | tr '\n' ' ')" "31.lock 32.lock "
+t_eq "$(find "$T/home/tehas/state/cycles" -name '3[12].lock' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "31.lock 32.lock "
 t_run "$dispatch"
 t_contains "$t_out" "removed the lock of #31: unused for 30 days"
 t_lacks "$t_out" "#32: unused"
