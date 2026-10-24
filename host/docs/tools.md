@@ -2906,14 +2906,36 @@ has no `previews.json` and no such section.
 ## The gates (run by the cycle, usable by hand)
 
 A product names its gates in `.pi/verify-cmd`, `.pi/verify-cmd-full` and
-`.pi/smoke-cmd`: the first line that is not empty or a comment is the command.
-Run them by hand from the root of a clone of the product. For the example
-product:
+`.pi/smoke-cmd`, and may name a developer's gate in `.pi/verify-cmd-fast`: the
+first line that is not empty or a comment is the command. Run them by hand
+from the root of a clone of the product. For the example product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --changed  # developer's: the lint, then shellcheck and the tests of what the change touched
+scripts/verify.sh            # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
+
+`.pi/verify-cmd-fast` is `scripts/verify.sh --changed`. pi-rukas tells a
+cycle's developer to run that command and not `.pi/verify-cmd`, and its driver
+runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
+consolidated tree and the base commit. So the whole gate still runs before a
+pull request opens, and CI runs it again.
+
+`--changed` takes the paths changed since the merge base with `origin/main`,
+uncommitted and untracked files included, and hands them to
+`scripts/select-tests.sh`. A changed test file runs itself; another path runs
+the test files that name it (`libexec/update`, `tehas update`, a test file
+named `update_*`), and a path under `console/` also runs the workspace's tests.
+The heavy integration files, `test/install_*`, `test/update_*`,
+`test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
+change touches what they test directly, and a `note` line names the ones left
+to the whole gate. A change to `test/lib.sh`, `scripts/test.sh`,
+`scripts/verify.sh` or the selector, a path no test names, or a checkout
+without `origin/main` runs the whole gate. Records under `docs/` and the
+top-level notes that no test names need no test. The selection is by name, so
+a test that builds a file's name at run time is missed: the whole gate after it
+is what catches that.
 
 When the shellcheck step refuses a file, the severity floor it runs at and the
 one suppression it accepts are under
@@ -3537,7 +3559,7 @@ The checks of the platform itself. Run from the platform checkout; it is not
 installed on a host.
 
 ```
-scripts/test.sh
+scripts/test.sh [path...]
 ```
 
 It runs shellcheck over the shell scripts, one process per file, together with
@@ -3548,6 +3570,12 @@ default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
 it runs in, rounded up. The slowest files start first, from a short fixed list
 in the script, so none of them starts last and holds the run; the rest follow
 in name order and the lint of each file after them.
+
+With paths, relative to the root of the checkout, only those run: the test
+files among them and the lint of those of them it lints anyway. A test file
+named that does not exist stops it with 2; paths with nothing to test or lint
+among them pass with a line that says so. `scripts/verify.sh --changed` calls
+it this way.
 
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore

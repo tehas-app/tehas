@@ -15,7 +15,12 @@
 # checkout and no network. It belongs to a checkout of the platform and is not
 # installed on a host: there is no test/ directory there.
 #
-# Usage: scripts/test.sh
+# Usage: scripts/test.sh [path...]
+#
+# With paths, relative to the root of the checkout, only those run: the test
+# files among them, and the lint of those of them it would lint anyway.
+# scripts/verify.sh --changed gives it the paths a change touched. A test file
+# named that does not exist stops the run with 2.
 #
 # The test files and the lint of each shell script run side by side, at most
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
@@ -39,6 +44,17 @@ why=()      # why bad[i] is named beyond its path, empty when it is just that
 skipped=()  # checks that did not run, with the reason
 ran=0
 
+given=" "
+for a in "$@"; do
+  a=${a#./}
+  case "$a" in
+    test/*_test.sh) [ -f "$root/$a" ] || { echo "test.sh: no test file $a" >&2; exit 2; } ;;
+  esac
+  given+="$root/$a "
+done
+# Whether a file is to run: every file without paths, else only those given.
+asked() { [ "$given" = " " ] || [[ $given == *" $1 "* ]]; }
+
 files=()
 for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "$root"/test/*.sh \
   "$root/install.sh" "$root/bootstrap.sh" "$root/host/env.sh" "$root/host/sandbox/build.sh" "$root/host/login/tehas" \
@@ -46,6 +62,7 @@ for f in "$root"/bin/* "$root"/libexec/* "$root"/lib/*.sh "$root"/scripts/*.sh "
   [ -f "$f" ] || continue
   # publish-lib.sh is a vendored copy, checked where it is kept.
   case "$f" in */scripts/publish-lib.sh) continue ;; esac
+  asked "$f" || continue
   files+=("$f")
 done
 lint=0
@@ -84,11 +101,11 @@ first=(work_ dispatch_ install_ preview_ cycle_ top_ improve_ update_ plan_)
 tests=()
 for p in "${first[@]}"; do
   for t in "$root"/test/"$p"*_test.sh; do
-    [ -f "$t" ] && tests+=("$t")
+    [ -f "$t" ] && asked "$t" && tests+=("$t")
   done
 done
 for t in "$root"/test/*_test.sh; do
-  [ -f "$t" ] || continue
+  { [ -f "$t" ] && asked "$t"; } || continue
   [[ " ${tests[*]} " == *" $t "* ]] || tests+=("$t")
 done
 
@@ -218,6 +235,10 @@ nf=${#bad[@]}
 cap=$((keep - 5 - ${#lintbad[@]} - ${#skipped[@]}))
 [ "$cap" -ge 1 ] || cap=1
 failed=$(( ${#lintbad[@]} + nf ))
+if [ "$ran" = 0 ] && [ "$given" != " " ] && [ "${#skipped[@]}" = 0 ]; then
+  echo "test.sh: no test file and no linted script among the paths given"
+  exit 0
+fi
 [ "$ran" = 1 ] || { echo "test.sh: nothing could be checked" >&2; exit 2; }
 if [ "$failed" -gt 0 ] || [ "${#skipped[@]}" -gt 0 ]; then
   printf '\ntest.sh: failed checks (%s), not run (%s)\n' "$failed" "${#skipped[@]}"
