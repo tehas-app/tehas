@@ -155,6 +155,6 @@ prs "$(pr 50 7 '.author.login = "tehas-app-bot"')" "$(pr 51 8 '.author.login = "
 t_run "$refresh"
 t_eq "$t_rc" 0
 t_lacks "$(t_calls gh)" "api user"
-t_eq "$(requests)" "7.json"
+t_eq "$([ -e "$dir/7.json" ] && echo 7) $([ -e "$dir/8.json" ] && echo 8)" "7 "
 
 t_done
