@@ -305,6 +305,63 @@ if real_store "a database the install did not make is migrated and not replaced"
   t_lacks "$t_out" "store: made"
 fi
 
+if real_store "a store of schema 2 is brought to 3 and kept under both names"; then
+  # The one install case that runs a step of a real store, rather than the no-op
+  # of a store already at the version the store writes: every other case here
+  # installs over a store the same store made, so no step of any kind runs.
+  #
+  # The fixture is what a host of the release of schema 2 has: the schema 1 DDL
+  # that release carried, and the four additions of the step to 2 over it, in the
+  # words of the step itself. They are read from the files of the tree, so the
+  # fixture cannot drift from the DDL it is meant to be. The install is then what
+  # brings it forward, which is the path no other case of this file exercises.
+  fresh
+  instance
+  mkdir -p "$th/state"
+  # python3's sqlite3 module is the client: sqlite3 is not one of the tools the
+  # gate names, and the store has no verb for laying DDL over a file.
+  cat >"$T/at-2.py" <<PY
+import sqlite3, sys
+root, db = sys.argv[1], sys.argv[2]
+c = sqlite3.connect(db)
+c.executescript(open(root + '/console/store/tests/schema_v1.sql').read())
+c.execute('ALTER TABLE approvals ADD COLUMN input_json TEXT')
+c.execute('ALTER TABLE parks ADD COLUMN told_at INTEGER')
+c.execute('ALTER TABLE planning_answers ADD COLUMN text TEXT')
+c.execute(
+    'CREATE TABLE planning_notes ('
+    'issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE, '
+    "kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')), "
+    'comment_id INTEGER NOT NULL, at INTEGER NOT NULL, '
+    'PRIMARY KEY (issue, kind, comment_id))')
+c.execute(
+    "INSERT INTO meta (key, value) VALUES ('schema','2'),('created_at','1791000000'),"
+    "('tehas_version','v0.11.0'),('tehas_commit','$T_COMMIT'),"
+    "('instance','instance'),('repo','acme/widget')")
+c.execute('PRAGMA user_version=2')
+c.commit()
+print(c.execute('PRAGMA user_version').fetchone()[0])
+PY
+  t_run "python3 '$T/at-2.py' '$T_ROOT' '$th/state/tehas.db'"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" "2"
+  chmod 600 "$th/state/tehas.db"
+  t_run "$install"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "store: $th/state/tehas.db at schema 3, backup $th/state/backup/tehas-3-"
+  t_run "TEHAS_HOME='$th' '$th/libexec/store' check"
+  t_eq "$t_rc" 0
+  t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "3 ok"
+  # The two copies the verb leaves behind: the one the answer names, under the
+  # version the step was going to write, and the one under the version the store
+  # came with. Only the step from 2 ran, so the second is named for 2.
+  for v in 2 3; do
+    copy=$(find "$th/state/backup" -type f -name "tehas-$v-*.db")
+    t_eq "$(printf '%s\n' "$copy" | grep -c .)" 1
+    t_eq "$(stat -c %a "$copy")" 600
+  done
+fi
+
 if real_store "a database that is not one stops the install and is left as it was"; then
   fresh
   instance

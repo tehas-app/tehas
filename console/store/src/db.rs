@@ -22,9 +22,11 @@ pub const SCHEMA: &str = include_str!("schema.sql");
 /// The step from schema 1 to 2: columns and a table added, nothing changed or
 /// removed, so no row of a v1 store can be lost. Each column comes last in its
 /// table in schema.sql too, so the two ways to schema 2 agree. The tests that
-/// need a store at 2 lay this over the fixture of schema 1, so a step and its
-/// own test of the store it starts from cannot drift apart.
-pub const STEP_2: &str = "
+/// need a store at 2 lay this over the fixture of schema 1 through `step_sql`
+/// below, so a step and its own test of the store it starts from cannot drift
+/// apart. No one but a step of this file names the DDL of a step: the verbs
+/// reach a schema through `migrate`.
+const STEP_2: &str = "
 ALTER TABLE approvals ADD COLUMN input_json TEXT;
 ALTER TABLE parks ADD COLUMN told_at INTEGER;
 ALTER TABLE planning_answers ADD COLUMN text TEXT;
@@ -37,25 +39,38 @@ CREATE TABLE planning_notes (
 );
 ";
 
-/// The step from schema 2 to 3: one word added to each of two CHECK lists and
-/// one column renamed, so no row of a v2 store can be lost and every `fixer`
-/// value is kept as it was. SQLite cannot change a CHECK in place, so
-/// `approvals` and `planning_notes` are rebuilt the way the docs tell a person
-/// to: create the table as schema.sql now writes it, copy every row, drop the
-/// old one, rename, and recreate the one index the first of the two has. The
-/// column list of each INSERT names the columns, so a copy cannot line rows up
-/// by position. A CHECK that is only a PRIMARY KEY (`approvals`) survives the
-/// rebuild in its own `sqlite_autoindex` row, which is why no index of either
-/// table is dropped first: it belongs to the table that goes, not to a name a
-/// later CREATE INDEX would answer to.
+/// The DDL of the step that starts at the version named, for the test fixture
+/// that lays a step over an older store: the only reader of a step's text
+/// outside the step that runs it, and a test build only, so no caller of the
+/// crate can name the destructive SQL of a migration.
+#[cfg(test)]
+pub fn step_sql(from: i64) -> Option<&'static str> {
+    match from {
+        1 => Some(STEP_2),
+        2 => Some(STEP_3),
+        _ => None,
+    }
+}
+
+/// The step from schema 2 to 3: one word added to each of the two CHECK lists
+/// of this step and one column renamed, so no row of a v2 store can be lost and
+/// every `fixer` value is kept as it was. SQLite cannot change a CHECK in place,
+/// so `approvals` and `planning_notes` are rebuilt the way the docs tell a
+/// person to: create the table as schema.sql now writes it, copy every row, drop
+/// the old one, rename, and recreate the one index the first of the two has. The
+/// CREATE of each rebuilt table is written as schema.sql writes it, so the store
+/// brought from 2 and the one `init` made hold the same text, which is what
+/// `a_migrated_store_has_the_schema_init_writes` compares.
 ///
-/// The order is the step's own. The rename comes first: `fixer` would be the
-/// last column of v2's `planning_answers` and `millwright` is the last of the
-/// same table in schema.sql, so a rename keeps the two ways to schema 3 in
-/// step. The rebuilds are asked before it, so the rename's own rename of
-/// `planning_answers`'s foreign key is the last thing the transaction does to
-/// the schema.
-pub const STEP_3: &str = "
+/// Two words of this step are not a CHECK of the store: `approvals.how` carries
+/// no CHECK in either schema, so the words of a start are the list of
+/// `approval::HOWS` and the verb is what refuses a word outside it. `hand` and
+/// `millwright` belong to `cycles.how`, which this step does not touch.
+///
+/// The rename comes last: `fixer` is the last column of v2's `planning_answers`
+/// and `millwright` is the last of the same table in schema.sql, so a rename
+/// keeps the two ways to schema 3 in step.
+const STEP_3: &str = "
 CREATE TABLE approvals_new (
   issue        INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   at           INTEGER NOT NULL,
@@ -79,6 +94,8 @@ INSERT INTO approvals_new (issue, at, by_account, how, label, body_sha256, title
   FROM approvals;
 DROP TABLE approvals;
 ALTER TABLE approvals_new RENAME TO approvals;
+-- The index of the table that went is not dropped with it: it is not a name the
+-- rebuild leaves behind, so it is made again under the name it always had.
 CREATE INDEX approvals_open ON approvals (issue, used_at);
 CREATE TABLE planning_notes_new (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
@@ -91,6 +108,7 @@ INSERT INTO planning_notes_new (issue, kind, comment_id, at)
   SELECT issue, kind, comment_id, at FROM planning_notes;
 DROP TABLE planning_notes;
 ALTER TABLE planning_notes_new RENAME TO planning_notes;
+-- Last, so the two ways to schema 3 leave the column in the same place.
 ALTER TABLE planning_answers RENAME COLUMN fixer TO millwright;
 ";
 
@@ -486,30 +504,17 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
     conn.execute("COMMIT", []).map(|_| ()).map_err(classify)
 }
 
-/// `open` for the test that writes a row or two and asks what a constraint
-/// answers: a write connection with no transaction of its own. `open` already
-/// leaves a connection outside any transaction, and `lock` leaves one inside;
-/// a statement asked of the second is answered by the transaction that is open
-/// rather than by the table it names, which is the difference a test of a CHECK
-/// cannot afford to miss. No verb asks for this -- each takes the lock in its
-/// own transaction and commits what it wrote -- so it is built for the tests.
-#[cfg(test)]
-pub fn write_rows(file: &Path) -> Result<Connection, DbError> {
-    open(file, Purpose::Write)
-}
-
-/// A connection of the store's own making that may write, for the test that
-/// asks a CHECK what it answers. `open_read_only` is the reader `check` is and
-/// cannot write a row at all; `lock` is the writer and answers a statement from
-/// the transaction it holds open. This is neither: every pragma of `prepare`,
-/// no transaction, and the leave to write that a CHECK needs in order to say
-/// anything. Tests only.
+/// A connection of the store's own making that may write, with no transaction
+/// of its own, for the test that writes a row or two and asks what a constraint
+/// answers. `lock` is the writer that holds a transaction open, and a statement
+/// asked of it is answered by that transaction rather than by the table it
+/// names, which is the difference a test of a CHECK cannot afford to miss.
+/// No verb asks for this -- each takes the lock in its own transaction and
+/// commits what it wrote -- so the purpose is `Write` like every other writer
+/// and the busy wait is the writer's. Tests only.
 #[cfg(test)]
 pub fn write_ask(file: &Path) -> Result<Connection, DbError> {
-    guard_result(file)?;
-    let conn = Connection::open(file).map_err(classify)?;
-    prepare(&conn, Purpose::Read)?;
-    Ok(conn)
+    open(file, Purpose::Write)
 }
 
 /// The same checks and the same connection as `open`, for the reader that must
@@ -812,6 +817,11 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
+        // Two transactions, not one: each step commits wholly or not at all, so
+        // a store found at 2 by the next run is brought forward by the step it
+        // is missing. `main.rs` names both of its copies before either runs, so
+        // a store left at 2 by a crash between the two has only the copy under
+        // the version the step was going to write.
         1 => step_2(conn).and_then(|()| step_3(conn)),
         2 => step_3(conn),
         v => Err(DbError::Corrupt(format!(
@@ -832,6 +842,8 @@ fn step_2(conn: &mut Connection) -> Result<(), DbError> {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
     if held != 1 {
+        // The step is its own lock, so another migrate may have committed the
+        // same step, or the step before it, in the window between.
         return Err(DbError::Corrupt(format!(
             "the step from schema 1 found schema {held}"
         )));
@@ -851,10 +863,11 @@ fn step_2(conn: &mut Connection) -> Result<(), DbError> {
 }
 
 /// Schema 2 to 3 in one transaction with `meta.schema` and `user_version`: a
-/// failure commits nothing and leaves the store at 2 with every row, the old
 /// CHECKs still in place and `fixer` still its column's name. Asked for on its
 /// own from 2, and after `step_2` from 1, so a store at 1 is brought forward by
-/// two transactions and each one either commits wholly or not at all.
+/// two transactions and each one either commits wholly or not at all. The
+/// commit is followed by a `VACUUM`, which the rebuild of two tables needs to
+/// give their pages back to the file.
 fn step_3(conn: &mut Connection) -> Result<(), DbError> {
     let tx = conn
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
@@ -879,7 +892,17 @@ fn step_3(conn: &mut Connection) -> Result<(), DbError> {
     }
     tx.pragma_update(None, "user_version", 3)
         .map_err(classify)?;
-    tx.commit().map_err(classify)
+    // A failure of either kind leaves the store at 2 with every row: the commit
+    // is what makes the step, and a step that did not commit is undone.
+    tx.commit().map_err(classify)?;
+    // The tables that went leave their pages on the freelist, which the commit
+    // never gives back to the file: without this the store a step rebuilt stays
+    // larger than the one `init` made and carries the waste into every copy
+    // `VACUUM INTO` takes of it. Outside the transaction, which VACUUM requires,
+    // and after the commit, so a step that fails before it leaves the store at 2
+    // rather than half-rebuilt and compacted.
+    conn.execute("VACUUM", []).map_err(classify)?;
+    Ok(())
 }
 
 /// The name of a backup this verb writes, given the version it came from and

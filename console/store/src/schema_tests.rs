@@ -15,13 +15,9 @@ use std::path::PathBuf;
 
 const V1: &str = include_str!("../tests/schema_v1.sql");
 
-/// The v2 DDL of db::STEP_2: the three columns and the table that took the
-/// store from 1 to 2, in the words the step itself uses. A schema 1 fixture
-/// with these run over it is a store at 2, which is what the step from 2 is
-/// asked of.
-const V2_STEP: &str = db::STEP_2;
-
-/// A row in every table of schema 1, so the step is seen to keep each.
+/// A row in every table of schema 1, so the step is seen to keep each. The
+/// issue, its cycle and the rows that hang off them are the shared ones, so a
+/// fixture that needs the cycle of issue 7 asks for one list and not a copy.
 const V1_ROWS: &str = "
 INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
 INSERT INTO cycles (issue, attempt, started_at, started_by, how) VALUES (7, 2, 100, 'alice', 'label');
@@ -113,16 +109,81 @@ INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'fixer-refus
 INSERT INTO planning_notes (issue, kind, comment_id, at) VALUES (7, 'held', 66, 82);
 ";
 
-/// Every row of `approvals` and of `planning_answers` at once, so a fixture
-/// that reads one of the two back can be compared with the other: the step
-/// rebuilds the first and renames a column of the second, and neither is
-/// allowed to move a value the store already held.
-fn dump_two(c: &Connection) -> (Vec<String>, Vec<Vec<Sql>>, Vec<String>, Vec<Vec<Sql>>) {
+/// One row of a table read through `keyed_rows`: its primary key and the values
+/// that go with it, named so that a caller cannot read a key as a value or the
+/// other way about.
+type Row = (Vec<Sql>, Vec<Sql>);
+
+/// The two tables the step from 2 to 3 is about, each read at once with its
+/// rows keyed by their own primary key, so a comparison cannot line the rows of
+/// one up with the columns of the other or with another row's values: the step
+/// rebuilds `approvals` and renames a column of `planning_answers`, and neither
+/// is allowed to move a value the store already held. `pk` is the table's own
+/// key, which both dumps are sorted by, and `value_cols` names the values that
+/// follow it.
+struct Held {
+    cols: Vec<String>,
+    rows: Vec<Row>,
+    pk: Vec<String>,
+    value_cols: Vec<String>,
+}
+
+fn dump_two(c: &Connection) -> (Held, Held) {
     let ac = columns(c, "approvals");
-    let a = dump(c, "approvals", &ac);
+    let (a, pk_a) = keyed_rows(c, "approvals", &ac);
     let pc = columns(c, "planning_answers");
-    let p = dump(c, "planning_answers", &pc);
-    (ac, a, pc, p)
+    let (p, pk_p) = keyed_rows(c, "planning_answers", &pc);
+    (
+        Held {
+            cols: ac.clone(),
+            rows: a,
+            value_cols: value_cols(&pk_a, &ac),
+            pk: pk_a,
+        },
+        Held {
+            cols: pc.clone(),
+            rows: p,
+            value_cols: value_cols(&pk_p, &pc),
+            pk: pk_p,
+        },
+    )
+}
+
+/// The columns of the values part of a keyed row: the key's own columns lead the
+/// row and are not values, and the values that follow them are named by `cols`,
+/// the columns of the table read in order.
+fn value_cols(pk: &[String], cols: &[String]) -> Vec<String> {
+    cols.iter().filter(|c| !pk.contains(c)).cloned().collect()
+}
+
+/// The columns of a keyed row that are not the named one, each with the name it
+/// is under: the rest of a row is compared by name rather than by position,
+/// because the position a dump gives a column says nothing about which name it
+/// was read under.
+fn held_by_name<'a>(
+    vcols: &'a [String],
+    row: &'a [Sql],
+    skip: &str,
+) -> Vec<(&'a str, &'a Sql)> {
+    vcols
+        .iter()
+        .zip(row)
+        .filter(|(c, _)| c.as_str() != skip)
+        .map(|(c, v)| (c.as_str(), v))
+        .collect()
+}
+
+/// The value of one column of a keyed row, asked by name. Asking for the column
+/// by name rather than at an offset is what keeps the answer's own column, whose
+/// name the step changes, from being read out of the middle of the values by
+/// position.
+fn value_of<'a>(vcols: &'a [String], row: &'a [Sql], name: &str) -> &'a Sql {
+    vcols
+        .iter()
+        .zip(row)
+        .find(|(c, _)| c.as_str() == name)
+        .map(|(_, v)| v)
+        .unwrap_or_else(|| panic!("the row has no column {name}: {vcols:?}"))
 }
 
 /// The text of every table and index of a store, each reduced to what it says
@@ -156,12 +217,24 @@ fn ddl(c: &Connection) -> Vec<(String, Option<String>)> {
         .collect()
 }
 
-/// How the two old fixtures reach the version they are the fixture of.
+/// How the two old fixtures reach the version they are the fixture of: the DDL
+/// that makes the store, the number `user_version` carries, and the word of the
+/// `schema` row of `meta` that says the same thing to a reader of the table.
 enum At {
     /// The DDL of schema 1, as released: the store main's install.sh made.
     One,
     /// The same DDL with db::STEP_2 over it, which is a store at 2.
     Two,
+}
+
+impl At {
+    /// The two spellings of this version, which the step moves together.
+    fn held(&self) -> (i64, &'static str) {
+        match self {
+            At::One => (1, "1"),
+            At::Two => (2, "2"),
+        }
+    }
 }
 
 /// A home whose store is one of the two schemas the steps are asked of, with
@@ -179,13 +252,12 @@ fn old_home(name: &str, at: At, rows: &str) -> PathBuf {
     let c = Connection::open(db::path(&home)).unwrap();
     c.pragma_update(None, "journal_mode", "WAL").unwrap();
     c.execute_batch(V1).unwrap();
-    let version = match at {
-        At::One => 1,
-        At::Two => {
-            c.execute_batch(V2_STEP).unwrap();
-            2
-        }
-    };
+    let (version, schema_row) = at.held();
+    if let At::Two = at {
+        // The step's own words, laid over the schema 1 fixture: a fixture of 2
+        // and the step that starts at 2 cannot drift apart.
+        c.execute_batch(db::step_sql(1).unwrap()).unwrap();
+    }
     c.execute_batch(
         "INSERT INTO meta (key, value) VALUES ('schema', '1'), ('created_at', '1791000000'),
            ('tehas_version', 'v0.11.0'), ('tehas_commit', 'cb6912a'),
@@ -196,8 +268,11 @@ fn old_home(name: &str, at: At, rows: &str) -> PathBuf {
     // The row of meta and the pragma are set together, and the step is what
     // moves both, so the fixture states the version it is a store at.
     if version != 1 {
-        c.execute("UPDATE meta SET value = '2' WHERE key = 'schema'", [])
-            .unwrap();
+        c.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'schema'",
+            [schema_row],
+        )
+        .unwrap();
     }
     c.pragma_update(None, "user_version", version).unwrap();
     home
@@ -210,9 +285,10 @@ fn v1_home(name: &str, rows: &str) -> PathBuf {
 }
 
 /// A home whose store holds schema 2, as a host that installed the release of
-/// schema 2 has it. The issues and the planning session of PLAN_ROWS, the three
-/// records of V2_ROWS and the two notes of WORDS are in it, which is what the
-/// step from 2 is asked of and what the verbs read back afterwards.
+/// schema 2 has it. The issues and the planning session of PLAN_ROWS, the cycle
+/// of CYCLE_ROW and the three records of V2_ROWS -- whose two notes are of the
+/// two kinds a store of schema 2 could already say -- are in it, which is what
+/// the step from 2 is asked of and what the verbs read back afterwards.
 fn v2_home(name: &str, rows: &str) -> PathBuf {
     old_home(
         name,
@@ -222,8 +298,11 @@ fn v2_home(name: &str, rows: &str) -> PathBuf {
 }
 
 /// Rows enough to hold the old words, not the new ones: no record made before
-/// schema 3 can carry either, and a store whose row says `millwright` before
-/// the step is a store that never was.
+/// schema 3 can carry either, and a store whose note is of the kind of 3 before
+/// the step is a store that never was. The kind of a note is the one of the two
+/// the store itself refuses: `approvals.how` carries no CHECK at all, so the
+/// words of a start are the verb's list rather than a constraint's, and no
+/// constraint could keep either word out of a v2 store.
 fn holds_no_new_word(c: &Connection) {
     let said: i64 = c
         .query_row(
@@ -243,15 +322,105 @@ fn holds_no_new_word(c: &Connection) {
     assert_eq!(said, 0);
 }
 
-/// The two CHECKs of the step, and the name of the answer's column, read back
-/// from a store at 3: the words the old store could not say are sayable, the
-/// words it could say are still sayable, and one word more is still refused.
+/// The three places the name of the answer's column is written: schema.sql, the
+/// rebuild of the step from 2, and what import writes. The step renames the
+/// column and the import writes it, so a rename that reached two of the three
+/// would fail here rather than as an SQL error at import time.
+#[test]
+fn the_name_of_the_answer_s_column_is_the_one_the_schema_holds() {
+    assert_eq!(crate::import::ANSWER_COLUMN, "millwright");
+    assert!(
+        db::SCHEMA.contains("millwright   INTEGER NOT NULL DEFAULT 0"),
+        "schema.sql does not write the column the store names"
+    );
+    assert!(
+        db::step_sql(2).is_some_and(|sql| sql.contains("RENAME COLUMN fixer TO millwright")),
+        "the step from 2 does not rename the column to the name the store names"
+    );
+    // The JSON key of an answer stays `fixer` until the verbs speak the new word
+    // (#686), and two readers outside the store depend on it: `tehas_fixer_answer`
+    // in lib/fixer.sh reads `.fixer` of each answer and refuses the grant when the
+    // key is not a boolean, and console/analytics/src/plan.rs counts the answers
+    // whose `fixer` is true. Neither can be renamed here; the key moves with them.
+    let h = v2_home("answer-key", "");
+    migrate(&h).unwrap();
+    let p = ok(&h, &["plan-show", "7"])["planning"].clone();
+    assert_eq!(
+        p["answers"],
+        serde_json::json!([{"turn": 2, "by": "bob", "fixer": true}]),
+        "{p}"
+    );
+}
+
+/// The word list of the CHECK of a table's column, as the store's own text/// holds it. A CHECK cannot be changed in place, so the two of this step are
+/// written twice: in schema.sql, which `init` runs, and in the rebuild of
+/// `db::STEP_3`, which the step from 2 runs. The same list is written by hand
+/// there, so both ways to schema 3 are asked the same words here: a word in one
+/// and not the other is the drift the shape test cannot see, since it compares a
+/// migrated store with an `init`-made one and both would be wrong together.
+/// The list is taken from between the parentheses of the CHECK by finding the
+/// opening list and its closing parenthesis, so no offset has to be counted.
+fn check_words(c: &Connection, table: &str, column: &str) -> Vec<String> {
+    let sql: String = c
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |r| r.get(0),
+        )
+        .unwrap();
+    // The CHECK of the column, found by the words that open its list of them and
+    // read to the parenthesis that closes the list -- not to the last opening
+    // parenthesis of the CREATE, which belongs to the table's PRIMARY KEY. The
+    // two CHECKs of this step are written by hand in two files, so the text is
+    // asked for rather than matched exactly, and the spacing of the file it came
+    // from is left alone.
+    let opened = sql
+        .find(&format!("CHECK ({column} IN ("))
+        .unwrap_or_else(|| panic!("{table}.{column} has no CHECK of its own: {sql}"));
+    let list = &sql[opened + "CHECK (".len() + column.len() + " IN (".len()..];
+    let closed = list
+        .find(')')
+        .unwrap_or_else(|| panic!("{table}.{column}: no list of words: {sql}"));
+    list[..closed]
+        .split(',')
+        .map(|w| w.trim().trim_matches('\'').to_string())
+        .collect()
+}
+
+/// The words each CHECK of the step must hold at schema 3. These two lists and
+/// the two of schema.sql and of the rebuild are one contract written in four
+/// places, so they are named here once and asked of every store at 3: a word in
+/// one copy and not another is the drift the shape test cannot see, because it
+/// compares a migrated store with an `init`-made one and both would be wrong
+/// together. Note the third word: `plan-note` does not take it yet, which is the
+/// next part (#686); the store's shape accepts it and the verb does not.
+const NOTE_KINDS: [&str; 3] = ["fixer-refused", "millwright-refused", "held"];
+const QUESTION_KINDS: [&str; 2] = ["park", "plan"];
+
+/// The CHECKs of the two tables the step is about, and the name of the answer's
+/// column, read back from a store at 3: the words the old store could not say
+/// are sayable, the words it could say are still sayable, and one word more is
+/// still refused.
 /// Everything it writes is of issue 9, which no fixture of either step uses, so
 /// the helper asks the same questions of a store `init` made, of one brought
 /// from 1 and of one brought from 2. Issue 9 has no cycle, so its approval is
 /// recorded as a start owed and not as one made.
 fn says_the_words_of_schema_3(home: &Path) {
-    let mut c = db::write_rows(&db::path(home)).unwrap();
+    // The two lists of the step are the two named above, in whichever store this
+    // is: the one `init` made from schema.sql or the one the step rebuilt.
+    let made = conn(home);
+    assert_eq!(
+        check_words(&made, "planning_notes", "kind"),
+        NOTE_KINDS,
+        "the CHECK of a note's kind is not the list of the step"
+    );
+    assert_eq!(
+        check_words(&made, "questions", "kind"),
+        QUESTION_KINDS,
+        "the CHECK of a question's kind is not the list of the schema"
+    );
+    drop(made);
+    let mut c = db::write_ask(&db::path(home)).unwrap();
     let tx = c
         .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .unwrap();
@@ -304,6 +473,11 @@ fn says_the_words_of_schema_3(home: &Path) {
     // no transaction of its own: a CHECK belongs to the table, and a statement
     // asked of a connection with a transaction open is answered by that
     // transaction before SQLite has read the statement.
+    // A CHECK belongs to the table: `approvals.how` carries none, in schema.sql
+    // or in the rebuild, so the words of a start are the list of
+    // `approval::HOWS` and a verb of the store refuses one outside it with exit
+    // 64 before a row is written. What is refused below is a kind no table takes
+    // and a kind of a question outside its own list.
     let asker = db::write_ask(&db::path(home)).unwrap();
     for (sql, what) in [
         // The CHECK of the step is the one of a note's kind. `approvals.how`
@@ -344,6 +518,24 @@ fn says_the_words_of_schema_3(home: &Path) {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(words, ["millwright".to_string(), "fixer".to_string()]);
+    // The two notes the helper wrote, read back under their own kinds: the words
+    // the store of schema 2 could not say and the one it could, all three in the
+    // table the step rebuilt.
+    let kinds: Vec<String> = asker
+        .prepare("SELECT kind FROM planning_notes WHERE issue = 9 ORDER BY comment_id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        kinds,
+        [
+            "millwright-refused".to_string(),
+            "fixer-refused".to_string(),
+        ],
+        "{kinds:?}"
+    );
 }
 
 fn migrate(home: &Path) -> Result<String, (u8, String)> {
@@ -367,44 +559,173 @@ fn tables(c: &Connection) -> Vec<String> {
         .unwrap()
 }
 
-/// Rows of a pragma that describes one table, as text.
-fn described(c: &Connection, pragma: &str, table: &str) -> Vec<String> {
+/// The rows of a pragma that describes one table, as the values they are rather
+/// than as formatted text: a NULL and the word NULL are two things, and a shape
+/// comparison between a migrated store and an `init`-made one should not rest on
+/// how Debug happens to spell either.
+///
+/// `table_info` is the one pragma whose rows have an order that means something,
+/// `cid`, the column's place in the table -- and it is the thing the two ways to
+/// a schema are required to agree on, so it is what the rows are sorted by.
+/// SQLite answers the pragma by way of an index of its own otherwise. The other
+/// pragmas here answer in the order of their own rows, which is stable, and are
+/// left as they came.
+fn described(c: &Connection, pragma: &str, table: &str) -> Vec<Vec<Sql>> {
     let mut q = c
         .prepare(&format!("SELECT * FROM pragma_{pragma}('{table}')"))
         .unwrap();
     let n = q.column_count();
-    let rows = q
+    let mut rows = q
         .query_map([], |r| {
             (0..n)
-                .map(|i| r.get::<_, Sql>(i).map(|v| format!("{v:?}")))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap();
-    rows.map(|r| r.unwrap().join("|")).collect()
-}
-
-/// Every row of a table, the named columns only, in rowid order.
-fn dump(c: &Connection, table: &str, columns: &[String]) -> Vec<Vec<Sql>> {
-    let cols: Vec<String> = columns.iter().map(|c| format!("\"{c}\"")).collect();
-    let mut q = c
-        .prepare(&format!(
-            "SELECT {} FROM {table} ORDER BY rowid",
-            cols.join(", ")
-        ))
-        .unwrap();
-    let rows = q
-        .query_map([], |r| {
-            (0..columns.len())
                 .map(|i| r.get::<_, Sql>(i))
                 .collect::<Result<Vec<_>, _>>()
         })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    rows.map(Result::unwrap).collect()
+    drop(q);
+    if pragma == "table_info" {
+        // `cid` is the first column of the pragma's own row.
+        rows.sort_by_key(|r| match r.first() {
+            Some(Sql::Integer(cid)) => *cid,
+            _ => i64::MIN,
+        });
+    }
+    rows
 }
 
+/// Every row of a table keyed by its own primary key, which is what a row of
+/// these tables is known by. The step's tests compare a table across a rebuild
+/// and a rename: a row of the rebuilt `approvals` and of the renamed
+/// `planning_answers` is the row whose key it was, so the key is read with the
+/// values and carried through the comparison instead of a row being matched to
+/// its counterpart by the position a dump happened to give it. The key's own
+/// names come back with the rows, so the caller can name the values that follow
+/// them, and the rows come back in one order the two dumps share.
+fn keyed_rows(c: &Connection, table: &str, cols: &[String]) -> (Vec<Row>, Vec<String>) {
+    // A table whose key is a column of its own -- `actions` has an INTEGER
+    // PRIMARY KEY, which is the rowid and carries no index row of origin 'pk' --
+    // is keyed by that column, named in the table's own pragma.
+    let pk: Vec<String> = {
+        let mut q = c
+            .prepare(&format!(
+                "SELECT name FROM pragma_index_list('{table}') WHERE origin = 'pk'"
+            ))
+            .unwrap();
+        let mut names = q
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        drop(q);
+        match names.pop() {
+            Some(name) => {
+                let mut q = c
+                    .prepare(&format!(
+                        "SELECT name FROM pragma_index_info('{name}') ORDER BY seqno"
+                    ))
+                    .unwrap();
+                q.query_map([], |r| r.get::<_, String>(0))
+                    .unwrap()
+                    .collect::<Result<Vec<String>, _>>()
+                    .unwrap()
+            }
+            // No index row of origin 'pk': the key is one column of its own,
+            // which is the rowid -- `actions` and the rest of the INTEGER PRIMARY
+            // KEY tables. The column is named in the table's own pragma.
+            None => {
+                let mut q = c
+                    .prepare(&format!(
+                        "SELECT name FROM pragma_table_info('{table}') WHERE pk = 1 ORDER BY cid"
+                    ))
+                    .unwrap();
+                let single = q
+                    .query_map([], |r| r.get::<_, String>(0))
+                    .unwrap()
+                    .collect::<Result<Vec<String>, _>>()
+                    .unwrap();
+                assert_eq!(single.len(), 1, "{table} has no key to key a row by");
+                single
+            }
+        }
+    };
+    key_by_columns(c, table, cols, pk)
+}
+
+/// Every row of `table` as its key and its values, the two read in one statement
+/// so that a row's key and its values are the same row's on both sides of a
+/// comparison. The key's own names come back with the rows, so the caller can
+/// name the values that follow them.
+fn key_by_columns(
+    c: &Connection,
+    table: &str,
+    cols: &[String],
+    pk: Vec<String>,
+) -> (Vec<Row>, Vec<String>) {
+    // The key columns lead the row, then the columns that are not part of it:
+    // a primary key of these tables is made of ordinary columns, so naming the
+    // key twice in one SELECT would ask for the same column two positions over
+    // and read a row's values against the wrong names.
+    let mut all: Vec<String> = pk.clone();
+    all.extend(cols.iter().filter(|c| !pk.contains(c)).cloned());
+    let quoted: Vec<String> = all.iter().map(|c| format!("\"{c}\"")).collect();
+    let mut q = c
+        .prepare(&format!("SELECT {} FROM {table}", quoted.join(", ")))
+        .unwrap();
+    let mut rows = q
+        .query_map([], |r| {
+            (0..all.len())
+                .map(|i| r.get::<_, Sql>(i))
+                .collect::<Result<Vec<Sql>, _>>()
+        })
+        .unwrap()
+        .collect::<Result<Vec<Vec<Sql>>, _>>()
+        .unwrap();
+    drop(q);
+    let pk_len = pk.len();
+    let mut out: Vec<Row> = rows
+        .drain(..)
+        .map(|r| {
+            let k = r[..pk_len].to_vec();
+            let v = r[pk_len..].to_vec();
+            (k, v)
+        })
+        .collect();
+    // The order of the rows is SQLite's to choose and is not what is being
+    // asserted -- only something both dumps must agree on for the two to be
+    // compared row against row. `Sql` has no order of its own, so each key is
+    // made into one text of its values, which is stable for one store and so the
+    // same on both sides of a comparison.
+    out.sort_by_key(|(k, _)| key_text(k));
+    (out, pk)
+}
+
+/// One key as a single text, for ordering two dumps of a table by their keys.
+fn key_text(k: &[Sql]) -> String {
+    k.iter()
+        .map(|v| match v {
+            Sql::Null => "~".to_string(),
+            Sql::Integer(n) => format!("I{n:020}"),
+            Sql::Real(r) => format!("R{r:020}"),
+            Sql::Text(s) => format!("T{s}"),
+            Sql::Blob(b) => format!("B{}", b.len()),
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// The columns of a table in the order the table holds them, `cid` by `cid`.
+/// Every dump below lines a row's values up with this list, so it is the order a
+/// reader of the store sees and the one thing this helper must not get wrong:
+/// SQLite answers `pragma_table_info` by way of an index of its own unless the
+/// rows are ordered, which left a migrated `planning_answers` answering with its
+/// renamed column before the old ones.
 fn columns(c: &Connection, table: &str) -> Vec<String> {
     let mut q = c
-        .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+        .prepare(&format!(
+            "SELECT name FROM pragma_table_info('{table}') ORDER BY cid"
+        ))
         .unwrap();
     q.query_map([], |r| r.get(0))
         .unwrap()
@@ -433,27 +754,37 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     let before = conn(&home);
     let names = tables(&before);
     assert_eq!(names.len(), db::COUNTED_TABLES.len() - 1);
-    let meta = dump(&before, "meta", &columns(&before, "meta"));
+    // The rows of `meta` are keyed by `key`: a name is never read against
+    // another row's value.
+    let meta = keyed_rows(&before, "meta", &columns(&before, "meta")).0;
     let mut held = Vec::new();
     for t in &names {
         if t == "meta" {
             continue;
         }
         let cols = columns(&before, t);
-        let rows = dump(&before, t, &cols);
+        let (rows, _) = keyed_rows(&before, t, &cols);
         assert!(!rows.is_empty(), "the fixture has no row in {t}");
         held.push((t.clone(), cols, rows));
     }
     drop(before);
+    // The two tables the step is about, read out of the store as it was before it
+    // ran and not after: the columns of `planning_answers` are asked here, while
+    // the answer's column still answers to `fixer`, because the rebuild and the
+    // rename are compared with these below.
+    let was = conn(&home);
+    let rebuilt = columns(&was, "approvals");
+    let (was_approvals, _) = keyed_rows(&was, "approvals", &rebuilt);
+    let renamed = columns(&was, "planning_answers");
+    let (was_answers, answers_pk) = keyed_rows(&was, "planning_answers", &renamed);
+    assert!(
+        renamed.contains(&"fixer".to_string()),
+        "the store was not at 2 before the step: {renamed:?}"
+    );
+    drop(was);
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(1), Some(3)));
-    // The two tables the step is about, read out of the store as it was before
-    // it ran: the rebuild and the rename are compared with these below.
-    let rebuilt = columns(&conn(&home), "approvals");
-    let was_approvals = dump(&conn(&home), "approvals", &rebuilt);
-    let renamed = columns(&conn(&home), "planning_answers");
-    let was_answers = dump(&conn(&home), "planning_answers", &renamed);
     let after = conn(&home);
     for (t, cols, rows) in &held {
         // The two tables the step is about are asked of by name below, where
@@ -462,27 +793,72 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
         if t == "approvals" || t == "planning_answers" {
             continue;
         }
-        assert_eq!(&dump(&after, t, cols), rows, "{t}");
+        assert_eq!(&keyed_rows(&after, t, cols).0, rows, "{t}");
     }
-    // `approvals` is the rebuild: read back through the columns of the store at
-    // 3, its one row is the row of schema 1 -- `how` of 'label', the approval
-    // the fixture gave, and the column of input_json the first step added.
-    assert_eq!(dump(&after, "approvals", &rebuilt), was_approvals);
+    // `approvals` is the rebuild: keyed by its own (issue, at), its one row is
+    // the row of schema 1 -- `how` of 'label', the approval the fixture gave, and
+    // the column of input_json the first step added.
+    assert_eq!(
+        keyed_rows(&after, "approvals", &rebuilt).0,
+        was_approvals
+    );
     assert_eq!(count(&home, "approvals WHERE how = 'label'"), 1);
     assert_eq!(count(&home, "approvals WHERE input_json IS NULL"), 1);
     // `planning_answers` is the rename: the row of schema 1 never gave a value,
-    // and at 3 it is the 0 of a column nobody filled, under the new name. Its
-    // other columns are the columns they were, in the order they were.
+    // and at 3 it is the 0 of a column nobody filled, under the new name. The
+    // columns the step is not allowed to touch are the ones both the store it
+    // starts from and the store it leaves hold -- `text` is the first step's, so
+    // the fixture of schema 1 has none of it -- and naming them keeps "no value
+    // of an existing column moved" from becoming an assertion that schema 1 was
+    // missing a column of schema 3's.
     let now = columns(&after, "planning_answers");
     assert!(now.contains(&"millwright".to_string()), "{now:?}");
     assert!(!now.contains(&"fixer".to_string()), "{now:?}");
+    let is = keyed_rows(&after, "planning_answers", &now);
+    assert_eq!(is.1, answers_pk, "the step changed the key of a row");
+    let was_cols = value_cols(&answers_pk, &renamed);
+    let now_cols = value_cols(&is.1, &now);
+    assert_eq!(is.0.len(), was_answers.len());
+    for ((k_was, was), (k_is, is)) in was_answers.iter().zip(&is.0) {
+        assert_eq!(k_was, k_is, "the step moved a row's key");
+        // The columns of the row the step is not allowed to move, each under the
+        // name it carries in the store it is read out of.
+        fn kept<'x>(cols: &'x [String], row: &'x [Sql], skip: &str) -> Vec<(&'x str, &'x Sql)> {
+            held_by_name(cols, row, skip)
+                .into_iter()
+                // `text` is the column of the step to 2, so the fixture of
+                // schema 1 has none of it: the columns the step from 2 to 3 is
+                // not allowed to move are the ones the two stores hold in common.
+                .filter(|(c, _)| *c == "by_account" || *c == "millwright" || *c == "fixer")
+                .filter(|(c, _)| *c != skip)
+                .collect()
+        }
+        assert_eq!(
+            kept(&was_cols, was, "fixer"),
+            kept(&now_cols, is, "millwright")
+        );
+        // The answer's own value, which the line above leaves out: the row of
+        // schema 1 never gave one, so at 3 it is the 0 of a column nobody filled,
+        // under the name the step gave it.
+        assert_eq!(*value_of(&was_cols, was, "fixer"), Sql::Integer(0));
+        assert_eq!(*value_of(&now_cols, is, "millwright"), Sql::Integer(0));
+    }
+    // Where the two ways to schema 3 put the columns: `millwright` is the column
+    // the step of 3 renames and `text` the one the step of 2 adds, and a store
+    // brought forward and one `init` made hold them in the same places. The
+    // rename keeps `fixer`'s own place and ADD COLUMN puts `text` last, which is
+    // where schema.sql writes it: the claim the steps' docs make, and the one an
+    // `assert!(contains)` could not fail.
     assert_eq!(
-        was_answers[0][..3],
-        dump(&after, "planning_answers", &now)[0][..3]
-    );
-    assert_eq!(
-        was_answers[0][4..],
-        dump(&after, "planning_answers", &now)[0][4..]
+        now,
+        [
+            "issue".to_string(),
+            "turn".to_string(),
+            "by_account".to_string(),
+            "millwright".to_string(),
+            "text".to_string(),
+        ],
+        "{now:?}"
     );
     assert_eq!(count(&home, "planning_answers WHERE millwright = 0"), 1);
     assert_eq!(count(&home, "planning_answers WHERE text IS NULL"), 1);
@@ -491,12 +867,14 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
         "3"
     );
-    // meta keeps its rows; only `schema` moves with the version.
-    let meta_after = dump(&after, "meta", &columns(&after, "meta"));
+    // meta keeps its rows; only `schema` moves with the version. The rows are
+    // keyed by `key`, so a name is never read against another row's value.
+    let meta_after = keyed_rows(&after, "meta", &columns(&after, "meta")).0;
     assert_eq!(meta_after.len(), meta.len());
-    for (was, is) in meta.iter().zip(&meta_after) {
-        if was[0] == Sql::Text("schema".to_string()) {
-            assert_eq!(is[1], Sql::Text("3".to_string()));
+    for ((k_was, was), (k_is, is)) in meta.iter().zip(&meta_after) {
+        assert_eq!(k_was, k_is);
+        if k_was[0] == Sql::Text("schema".to_string()) {
+            assert_eq!(is[0], Sql::Text("3".to_string()));
         } else {
             assert_eq!(was, is);
         }
@@ -525,26 +903,30 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
 
 #[test]
 fn the_step_from_2_keeps_the_approval_the_answer_and_the_note() {
-    // The three rows the step is about: an approval whose how is the old word,
-    // an answer whose value is the answer's yes, and a note of the old kind.
-    // Every one of them is kept, and the answer's value is in `millwright`.
-    // What the two rebuilt tables and the renamed one hold, column by column,
-    // before anything runs: the step is allowed to move a row and not to change
-    // one.
+    // The three records the step is about, read out of the store before anything
+    // runs: the step is allowed to move a row and not to change one, and the two
+    // dumps of a row are compared apart from the one column it renames -- which
+    // is why they are asked of the store while it is still at 2 and its answer's
+    // column answers to `fixer`.
     let home = v2_home("step-2-rows", "");
     let before = conn(&home);
     holds_no_new_word(&before);
-    let (approval_cols, approvals, answer_cols, answers) = dump_two(&before);
+    let (approvals, answers) = dump_two(&before);
+    let note_cols = columns(&before, "planning_notes");
+    let notes = keyed_rows(&before, "planning_notes", &note_cols).0;
     // The fixture is a store of schema 2: its answer's column answers to
     // `fixer`, which is the name the step takes away.
     assert!(
-        answer_cols.contains(&"fixer".to_string()),
-        "the fixture is not a store of schema 2: {answer_cols:?}"
+        answers.cols.contains(&"fixer".to_string()),
+        "the fixture is not a store of schema 2: {:?}",
+        answers.cols
     );
-    assert_eq!(approvals.len(), 1, "the fixture has no approval");
-    assert_eq!(approvals[0][3], Sql::Text("fixer".to_string()));
-    let note_cols = columns(&before, "planning_notes");
-    let notes = dump(&before, "planning_notes", &note_cols);
+    assert_eq!(answers.rows.len(), 1, "the fixture has no answer");
+    assert_eq!(approvals.rows.len(), 1, "the fixture has no approval");
+    assert_eq!(
+        *value_of(&approvals.value_cols, &approvals.rows[0].1, "how"),
+        Sql::Text("fixer".to_string())
+    );
     // The two notes of the fixture: the two of issue 7, each a kind the store
     // of schema 2 could already say.
     assert_eq!(notes.len(), 2, "the fixture has no note of each kind");
@@ -569,7 +951,10 @@ fn the_step_from_2_keeps_the_approval_the_answer_and_the_note() {
     let after = conn(&home);
     // The approval is the row it was, `how` and all, and the index of the
     // rebuilt table still answers to the name it always had.
-    assert_eq!(dump(&after, "approvals", &approval_cols), approvals);
+    assert_eq!(
+        keyed_rows(&after, "approvals", &approvals.cols).0,
+        approvals.rows
+    );
     assert_eq!(count(&home, "approvals WHERE how = 'fixer'"), 1);
     let open: i64 = after
         .query_row(
@@ -580,7 +965,11 @@ fn the_step_from_2_keeps_the_approval_the_answer_and_the_note() {
         .unwrap();
     assert_eq!(open, 1, "the index of the rebuilt approvals is not there");
     // The note of the old kind is the note it was, and so is the held one.
-    assert_eq!(dump(&after, "planning_notes", &note_cols), notes);
+    assert_eq!(
+        keyed_rows(&after, "planning_notes", &note_cols).0,
+        notes,
+        "a note moved or changed"
+    );
     assert_eq!(
         count(&home, "planning_notes WHERE kind = 'fixer-refused'"),
         1
@@ -591,13 +980,41 @@ fn the_step_from_2_keeps_the_approval_the_answer_and_the_note() {
     let later = columns(&after, "planning_answers");
     assert!(later.contains(&"millwright".to_string()), "{later:?}");
     assert!(!later.contains(&"fixer".to_string()), "{later:?}");
-    let held = dump(&after, "planning_answers", &later);
-    assert_eq!(held.len(), answers.len());
-    for (was, is) in answers.iter().zip(&held) {
-        // Every column but the answer's own is the same value in the same place.
-        assert_eq!(&was[..3], &is[..3]);
-        assert_eq!(&was[4..], &is[4..]);
+    let held = keyed_rows(&after, "planning_answers", &later);
+    let later_cols = value_cols(&held.1, &later);
+    assert_eq!(held.1.len(), answers.pk.len());
+    assert_eq!(held.0.len(), answers.rows.len());
+    for ((k_was, was), (k_is, is)) in answers.rows.iter().zip(&held.0) {
+        // The same row, under the same key.
+        assert_eq!(k_was, k_is, "the step moved a row's key");
+        // Every column of the row but the answer's own is the same value under
+        // the same name, whichever way `pragma_table_info` orders them.
+        assert_eq!(
+            held_by_name(&answers.value_cols, was, "fixer"),
+            held_by_name(&later_cols, is, "millwright")
+        );
+        // The answer's own value, read from under the name each dump gives it:
+        // the step may change that name and not the yes it carries.
+        assert_eq!(
+            *value_of(&answers.value_cols, was, "fixer"),
+            *value_of(&later_cols, is, "millwright"),
+            "the answer's value moved with the name of its column"
+        );
     }
+    // The same claim as the step from 1 makes: the columns of the renamed table
+    // are those of schema.sql, in its order, with the answer's own between the
+    // actor and the text.
+    assert_eq!(
+        later,
+        [
+            "issue".to_string(),
+            "turn".to_string(),
+            "by_account".to_string(),
+            "millwright".to_string(),
+            "text".to_string(),
+        ],
+        "{later:?}"
+    );
     let yes: i64 = after
         .query_row(
             "SELECT millwright FROM planning_answers WHERE issue = 7 AND turn = 2",
@@ -893,3 +1310,5 @@ fn the_test_clock_is_read_from_its_variable() {
         assert!(err.contains("TEHAS_STORE_TEST_NOW"), "{bad}: {err}");
     }
 }
+
+
