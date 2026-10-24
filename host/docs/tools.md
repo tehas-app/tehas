@@ -2473,13 +2473,36 @@ is logged as a warning while the others still run:
    lock is held while they go, as the 7-day sweep holds it, so no cycle starts
    meanwhile. What stays is what a person reads: `.git`, the sources, what the
    agents wrote there, uncommitted changes, `.state/memory` and
-   `.state/sessions`. It runs no git command in a workspace and follows no
+   `.state/sessions`. It runs no git command in a workspace except one:
+   `git -C <worktree> rev-parse --absolute-git-dir`, to name the gitdir of a
+   worktree for the age rule, in a tree a cycle wrote. That call is confined: the
+   bound and git itself are named by absolute path before the environment is
+   cleared, so neither is answered by a helper a cycle planted on the tehas user's
+   `PATH`; no config file is read at all - no system file, no global file, none of
+   the tree's own - and `core.fsmonitor`, the one hook `rev-parse` could act on,
+   is pinned off on the command line; and the answer is used only when it names an
+   existing directory
+   under `~/tehas/work`. The call is bounded, so a git that wedges cannot wedge the
+   timer with it, and the issue is left whole when git cannot answer for a
+   worktree, on the line
+   `kept the build output of #<issue>: git could not name the gitdir of one of its
+   worktrees` - which is what a stale worktree record reads as, and is a different
+   thing from the young answer beside it. It follows no
    symlink (a link named `target` stays a link and what it points at is not
    touched). It enters no dot-name: every name `TEHAS_CLEAN_DIRS` can hold is
    un-dotted, so this gives up no build output, and it is what keeps a
    workspace's own trees, whatever a container called them, out of the removal.
-   A removal needs the issue's lock to be there and freeable: no lock file, or
-   one that is not a plain file, means nothing is removed. The lock is taken
+   A removal needs the issue's lock to be there and freeable. The lock is asked
+   for once per issue before any removal, since taking the lock of a name that is
+   not there would make it: no lock file, or one that is not a plain file, means
+   none of the issue's removals are even tried, and the log says so
+   with `kept the build output of #<issue>: no lock to hold, so nothing of it was
+   removed` - the line an issue with no build output in any of its trees does not
+   get, since it is reported as `nothing to remove in #<issue>`, and the line a
+   lock that exists but could not be taken does not get either, since that removal
+   is reported by its warning. A lock held by a cycle is asked for first, before
+   the age, and is `kept the build output of #<issue>: its lock is held`. The lock
+   is taken
    for the instant of each removal. A manual session's build output,
    `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
    directory under `~/tehas/dev` for build-output names, and that tree is a
