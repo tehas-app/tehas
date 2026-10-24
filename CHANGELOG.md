@@ -13,11 +13,19 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The files under `live/` that describe the cycles and the factory's health
+  have one writer, the state store's `publish` (#252). `tehas work` records a
+  heartbeat on the store every 10 seconds (`cycle-heartbeat`) in place of
+  writing `live/cycles/<n>.json`, and the poll's stuck rule reads it. The
+  store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
+  of the files are unchanged. `status.json`, `platform.json` and
+  `energy.json` are written through temporary names of their own.
 
 ### Adopter action
 
-- None.
+- Drain before you install (`tehas drain`): a cycle started by the earlier
+  `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
+  owns. `install.sh` takes the store to schema 3.
 
 ## v0.12.0 (2026-10-24)
 

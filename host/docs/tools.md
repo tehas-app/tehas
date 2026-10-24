@@ -470,10 +470,9 @@ host no cycle holds a lock.
 
 The other way round, a cycle that holds its lock but has not been heard from
 for 20 minutes is stuck, for example a `tehas work` that hangs after its
-container ended. Heard from means its live file,
-`~/tehas/live/cycles/<issue>.json`, was written, which `tehas work` does every
-10 seconds from the host, also while a long gate runs in the container, or
-that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
+container ended. Heard from means it recorded a heartbeat on the state store,
+which `tehas work` does every 10 seconds from the host, also while a long gate
+runs in the container, or that it took its lock. The poll logs `WARN: the cycle for #N holds its lock but
 has not been heard from since <time>, more than 1200s: stopping
 tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
@@ -2233,8 +2232,22 @@ What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time
 and the work script says so when the console is missing or ends with an error.
 At the end of a cycle the console is given 30 seconds to stop; one that takes
 longer is killed, and the work script says so.
-The work script's own status line, in `~/tehas/live/cycles/<issue>.json` and from there in `~/tehas/live/running.json`, goes through
+The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, goes through
 the same mask (`console --mask`); without a console it is left empty.
+
+### The live view
+
+The files under `~/tehas/live/` that describe the cycles and the factory's
+health have one writer, the state store's `publish`: `cycles/<issue>.json`
+(each running cycle and the one that finished last), `running.json`,
+`endings.json`, and `dispatch.json` and `health.json` with `health.down` when
+the poll and `tehasbot health` hand it their reports. It holds
+`~/tehas/state/publish.lock` while it writes and renames each file into place
+from a hidden temporary name, so a reader never sees half a file.
+`tehas work`, `tehasbot cycle` after a cycle ends, `tehasbot health` and the
+poll call it. A running cycle not heard from for two minutes whose lock is
+free is shown as `lost`, and its end is kept as lost when the issue starts
+again.
 
 The console, and the mask of the status line, also mask in any case the names
 the host knows that an agent can print: each name and address in
@@ -2322,7 +2335,7 @@ that ended as anything but `merged` or `handoff`: `issue`, `status`, `step`,
 overtook ten seconds later leaves the status `pass`, and is still in
 `checks.failed` until ten more cycles have ended. A monitor that polls less
 often than cycles end reads it to see every failure. The ten endings are kept
-in `live/endings.json`.
+on the state store and published in `live/endings.json`.
 
 `checks.disk` has the free and the required bytes and `low`, as `tehasbot
 preview` last wrote them to `live/previews.json`. It is `null` on a host

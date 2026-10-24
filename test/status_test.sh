@@ -77,17 +77,11 @@ reset() {
   echo false >"$T/paused"
   echo '[]' >"$T/events.json"
 }
-one() { # issue running status step [started [updated]]: one cycle as the work script writes it; times are seconds ago
-  printf '{"issue":%s,"running":%s,"status":"%s","step":"%s","startedAt":%s,"updatedAt":%s}' \
-    "$1" "$2" "$3" "$4" "$(($(date +%s) - ${5:-600}))" "$(($(date +%s) - ${6:-180}))"
+one() { # issue running status step [started [updated]]: one cycle on the store, as the live view shows it; times are seconds ago
+  t_live "$T/home/tehas" "$@"
 }
 cycle() { # running status step: issue 12, running or the last one
-  mkdir -p "$live"
-  if [ "$1" = true ]; then
-    printf '{"cycles":[%s],"last":null}\n' "$(one 12 "$@")" >"$live/running.json"
-  else
-    printf '{"cycles":[],"last":%s}\n' "$(one 12 "$@")" >"$live/running.json"
-  fi
+  one 12 "$@"
 }
 
 t_case "status writes the snapshot and the health file, without a command on PATH"
@@ -563,8 +557,8 @@ t_contains "$t_out" "cycle     #12 aborted at step develop"
 
 t_case "summary: two running cycles are both named, each on a line"
 reset
-mkdir -p "$live"
-printf '{"cycles":[%s,%s],"last":null}\n' "$(one 12 true running develop)" "$(one 14 true running plan)" >"$live/running.json"
+one 12 true running develop
+one 14 true running plan
 t_run "$status && $summary"
 t_eq "$t_rc" 0
 t_contains "$t_out" "factory   pass: Working on #12, #14."
@@ -638,41 +632,23 @@ t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
-mkdir -p "$live"
-printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan 600 5)" "$(one 12 false aborted develop 700 180)" >"$live/running.json"
+one 14 true running plan 600 5
+one 12 false aborted develop 700 180
 t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "factory   fail: The last cycle failed: #12 ended as aborted."
 
 t_case "summary: a cycle that started after the last one failed clears the failure"
 reset
-mkdir -p "$live"
-printf '{"cycles":[%s],"last":%s}\n' "$(one 14 true running plan 60 5)" "$(one 12 false aborted develop 700 180)" >"$live/running.json"
+one 14 true running plan 60 5
+one 12 false aborted develop 700 180
 t_run "$status; $summary"
 t_eq "$t_rc" 0
 t_contains "$t_out" "factory   pass: Working on #14."
 
-t_case "health reads the one object an earlier version wrote: a running cycle"
-reset
-mkdir -p "$live"
-one 12 true running develop >"$live/running.json"
-t_run "$status && $summary"
-t_eq "$t_rc" 0
-t_contains "$t_out" "factory   pass: Working on #12."
-
-t_case "health reads the one object an earlier version wrote: a failed cycle stays failed"
-reset
-mkdir -p "$live"
-one 12 false aborted develop >"$live/running.json"
-t_run "$status; $summary"
-t_eq "$t_rc" 1
-t_contains "$t_out" "The last cycle failed: #12 ended as aborted."
-
 t_case "a cycle that stopped writing is lost, and the factory says so"
 reset
-mkdir -p "$live/cycles"
-printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
-  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+one 9 true running develop 900 300
 t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
@@ -680,9 +656,7 @@ t_eq "$(jq -c '[(.cycles | length), .last.status]' "$live/running.json")" '[0,"l
 
 t_case "a cycle that stopped writing while its lock is held stays running; a free lock is lost"
 reset
-mkdir -p "$live/cycles" "$T/home/tehas/state/cycles"
-printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
-  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
+one 9 true running develop 900 300
 exec 8>"$T/home/tehas/state/cycles/9.lock"
 flock -n 8
 t_run "$status; $summary"
@@ -697,10 +671,8 @@ t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_case "an abort a merge overtook ten seconds later passes, and checks.failed still names it"
 reset
 t_run "$status"
-mkdir -p "$live/cycles"
 ended() { # issue status started-ago updated-ago
-  printf '{"issue":%s,"running":false,"status":"%s","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
-    "$1" "$2" "$(($(date +%s) - $3))" "$(($(date +%s) - $4))" >"$live/cycles/$1.json"
+  one "$1" false "$2" develop "$3" "$4"
 }
 ended 12 aborted 900 20
 t_run "$health"
@@ -715,7 +687,6 @@ t_eq "$(jq -r '.checks.failed[0].time | fromdateiso8601 | (now - .) < 60' "$live
 t_case "two endings that arrive together are both recorded"
 reset
 t_run "$status"
-mkdir -p "$live/cycles"
 ended 12 killed 900 20
 ended 13 merged 800 10
 t_run "$health"
@@ -726,7 +697,6 @@ t_eq "$(jq -c '[.[].issue]' "$live/endings.json")" '[12,13]'
 t_case "the endings keep the last ten, and a failure eleven endings ago is gone"
 reset
 t_run "$status"
-mkdir -p "$live/cycles"
 ended 20 aborted 900 300
 t_run "$health"
 for n in 21 22 23 24 25 26 27 28 29 30; do
@@ -737,10 +707,9 @@ t_eq "$(jq length "$live/endings.json")" 10
 t_eq "$(jq -c .checks.failed "$live/health.json")" '[]'
 t_eq "$(ls "$live/cycles")" "30.json"
 
-t_case "an endings file that is not a list is started again"
+t_case "an endings file that is not a list is written again"
 reset
 t_run "$status"
-mkdir -p "$live/cycles"
 echo '{"not":"a list"}' >"$live/endings.json"
 ended 12 aborted 900 20
 t_run "$health"
@@ -1599,13 +1568,10 @@ poll room "holding: the reason"
 t_run "$status && $summary"
 t_eq "$(t_calls systemctl)$(t_calls docker)" ""
 
-t_case "a lost cycle counts from when it was found, not from its last heartbeat"
+t_case "a lost cycle ends two minutes after its last heartbeat"
 reset
-mkdir -p "$live/cycles"
-printf '{"issue":9,"running":true,"status":"running","step":"develop","startedAt":%s,"updatedAt":%s}\n' \
-  "$(($(date +%s) - 900))" "$(($(date +%s) - 300))" >"$live/cycles/9.json"
-printf '{"issue":12,"running":false,"status":"merged","step":"review","startedAt":%s,"updatedAt":%s}\n' \
-  "$(($(date +%s) - 600))" "$(($(date +%s) - 200))" >"$live/cycles/12.json"
+one 9 true running develop 900 300
+one 12 false merged review 600 200
 t_run "$status; $summary"
 t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
