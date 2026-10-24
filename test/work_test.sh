@@ -41,7 +41,7 @@ t_eq "$(after --memory-reservation)" "2g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --cidfile)" "$cid_file"
-t_eq "$(after --cpus)" "3.75"
+t_eq "$(after --cpus)" "15.00"
 # Every capability of Docker's default list is taken away, and only what a
 # gate needs is given back: see tehas_sandbox_security.
 t_eq "$(cycle_args | security_line)" "$security_opts "
