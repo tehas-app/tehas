@@ -230,7 +230,9 @@ number. A `tehas:next` counts when its latest event applies it and is by an
 allowed account or the fixer. The urgent and next checks run for every ready
 issue that carries the label and this poll could still start, before the free
 slots cut the queue; who applied `tehas:ready` is read at the decision, when
-the issue is picked. A `tehas:blocked` is checked then too, and costs two
+the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
+stands for one: who applied it is read the same way, after its blockers. A
+`tehas:blocked` is checked then too, and costs two
 GraphQL calls: the issue's last 100 comments, and the states of the issues
 they name (see [What happens next](/operating#3-what-happens-next)). A poll never asks
 GitHub the same question twice.
