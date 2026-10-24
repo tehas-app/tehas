@@ -105,12 +105,11 @@ socket.
 
 - The identity the factory acts as on GitHub. Make it [a GitHub App](/github-app),
   one per factory: its tokens last an hour, reach only the repositories it is
-  installed on, and are renewed by tehas. `tehas setup` itself still takes a
-  token: give it one for the first run (a token of your own account with push
-  access is enough), then move the factory to the app as that page says and
-  remove the token. A machine user (a second account with a token) still works
-  without the app settings, but GitHub can suspend an account that automation
-  drives hard; the [bootstrap page](/bootstrap) has the token trap to avoid.
+  installed on, and are renewed by tehas. `tehas setup` takes the app's ID,
+  its installation's ID and its private key. The other way is a token: a
+  machine user (a second account with a token) still works without the app,
+  but GitHub can suspend an account that automation drives hard; the
+  [bootstrap page](/bootstrap) has the token trap to avoid.
 - The logins whose labels start work. Never the bot.
 - The model endpoint's address with its `/v1`, and its key if it takes one.
 
@@ -121,20 +120,25 @@ put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
 ~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labellers "janit" \
-  --token-file - --endpoint http://gb1:8086/v1 <token.txt
+  --app-id 5452597 --app-installation 174742089 --app-key-file ~/app.pem \
+  --endpoint http://gb1:8086/v1
 ```
 
-It asks for what it is not given when there is a terminal. The token is read
-from a file or standard input, never from the command line. In this order, and
-stopping at the first step that fails, it:
+With a token in place of the app, `--token-file - <token.txt`. The token is
+read from a file or standard input, never from the command line. It asks for
+what it is not given when there is a terminal. In this order, and stopping at
+the first step that fails, it:
 
-1. checks that the token can push to the repository and that the endpoint
-   offers the model, and makes the control issue;
-2. writes `~/.config/tehas/instance.env` with the required settings only,
-   `models.json`, and the token and the model key in `~/.config/tehas/env`,
-   mode 600;
+1. checks that the app's installation lists the repository and may write its
+   contents, issues and pull requests (or that the token can push to it), and
+   that the endpoint offers the model, and makes the control issue;
+2. writes `~/.config/tehas/instance.env` with the required settings only, and
+   with an app its three settings, `models.json`, the app's key in
+   `~/.config/tehas/github-app.pem` (or the token in `~/.config/tehas/env`),
+   and the model key in `~/.config/tehas/env`, mode 600;
 3. gives git gh's credential helper for github.com, unless git has one, and
-   gives it the bot's name and noreply address, unless it has one;
+   gives it the bot's name and noreply address, unless it has one; with an app
+   the bot is `<slug>[bot]`;
 4. clones the product to `~/tehas/repos/<name>`;
 5. runs `install.sh` from the release, then `tehas labels`;
 6. builds the sandbox image and runs the product's gates in it with

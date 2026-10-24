@@ -25,6 +25,7 @@ t_stub curl 'for a in "$@"; do case "$a" in *Authorization:*) printf "%s\n" "$a"
 case "$*" in
 *access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$(date +%s%N)" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
 *installation/repositories*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
+*/app) printf "%s" "${APP_ANSWER:-{\"slug\":\"tehas-app-bot\"\}}" ;;
 esac'
 
 app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
@@ -67,6 +68,28 @@ for bad in "TEHAS_GITHUB_APP_ID=app" "TEHAS_GITHUB_APP_ID=0" "TEHAS_GITHUB_APP_I
   t_eq "$t_rc" 78
   t_contains "$t_out" "${bad%%=*} is not valid"
 done
+
+t_case "TEHAS_GITHUB_APP_KEY names the key and is kept from the environment; else the installed one"
+reset
+t_run "$lib && tehas_github_app_key"
+t_eq "$t_out" "$key"
+T_ENV=(TEHAS_GITHUB_APP_KEY=/elsewhere/app.pem)
+t_run "$lib && tehas_github_app_key"
+T_ENV=()
+t_eq "$t_out" "/elsewhere/app.pem"
+
+t_case "the slug is read from GET /app with the JWT; an answer with none is 1"
+reset
+t_run "$lib && tehas_github_app_slug"
+t_eq "$t_rc" 0
+t_eq "$t_out" "tehas-app-bot"
+t_contains "$(t_calls curl)" "https://api.github.com/app"
+t_contains "$(t_calls auth)" "Authorization: Bearer "
+T_ENV=("APP_ANSWER={}")
+t_run "$lib && tehas_github_app_slug"
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "held no slug"
 
 t_case "with no token kept, one is made, kept with mode 600, and printed"
 reset

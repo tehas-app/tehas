@@ -105,9 +105,11 @@ It prints the app, the installation, the bot's login, when the token runs out
 and whether the installation reaches `TEHAS_REPO`, and never the token itself.
 `command -v gh` now answers `~/tehas/shim/gh`.
 
-`tehas setup` still asks for a token and does not take an app yet: on a new
-host, run it with a token as [a new project](/new-project) says, then move to
-the app with the steps above and remove the token from `~/.config/tehas/env`.
+On a new host, `tehas setup` takes the app from its first run:
+`--app-id`, `--app-installation` and `--app-key-file` do the steps above and
+check the installation before anything is written (see
+[tehas setup](/tools#tehas-setup)). The steps above move a host that was set up
+with a token; remove the token from `~/.config/tehas/env` after.
 
 ## What tehas does with it
 

@@ -7,6 +7,10 @@
 #   --labellers "<a> <b>"      the logins whose labels count; never the bot
 #   --token-file <file>|-      the bot's GitHub token, read from a file or
 #                              from standard input. Never on the command line
+#   --app-id <id>              the GitHub App the factory acts as, in place of
+#   --app-installation <id>    a token: its ID, its installation's ID and its
+#   --app-key-file <file>      private key. All three or none, and not with
+#                              --token-file
 #   --endpoint <url>           the model endpoint, OpenAI-compatible, with its
 #                              /v1: its models are read from <url>/models
 #   --model <id>               the model to use; needed when the endpoint
@@ -18,11 +22,15 @@
 #   --force                    replace a setting that is there and differs
 #
 # Then, in this order, stopping at the first step that fails:
-#   1. checks the token can push to the repository and the endpoint offers
-#      the model, and makes the control issue
+#   1. checks the token can push to the repository, or that the app's
+#      installation lists it and may write its contents, issues and pull
+#      requests, checks the endpoint offers the model, and makes the control
+#      issue
 #   2. writes ~/.config/tehas (or the directory instance-dir names):
 #      instance.env with the required settings only, models.json, and the
-#      token and the model key in env, mode 600
+#      token and the model key in env, mode 600. With an app: the app's three
+#      settings in instance.env, the key in ~/.config/tehas/github-app.pem,
+#      mode 600, and no token; the later steps run gh through ~/tehas/shim/gh
 #   3. gives git gh's credential helper for github.com, unless git has one, and
 #      gives it the bot's name and noreply address, unless it has one. The
 #      helper is checked first: the identity is of no use on a host whose git
@@ -42,7 +50,8 @@
 #   tehas setup [options]
 #
 # Exit: 0 done; 1 a check or a step failed (a step's own status when it has
-# one); 64 an unknown option; 78 a setting is missing, malformed, or differs
+# one); 64 an unknown option, or the app options given in part or with
+# --token-file; 78 a setting is missing, malformed, or differs
 # from the one there without --force, or a git config file git could not open.
 set -uo pipefail
 
@@ -52,17 +61,20 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 die() { echo "tehas setup: $*" >&2; exit "${2:-1}"; }
 bad() { die "$1" 78; }
-usage() { echo "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|-] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]" >&2; exit 64; }
+usage() { echo "usage: tehas setup [--repo owner/name] [--labellers \"a b\"] [--token-file f|- | --app-id id --app-installation id --app-key-file f] [--endpoint url] [--model id] [--model-key-file f|-] [--provider name] [--control-issue n] [--no-build] [--force]" >&2; exit 64; }
 
-repo="" labellers="" token_file="" endpoint="" model="" key_file="" provider="" control="" build=1 force=0
+repo="" labellers="" token_file="" app_id="" app_inst="" app_key_file="" endpoint="" model="" key_file="" provider="" control="" build=1 force=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --repo | --labellers | --token-file | --endpoint | --model | --model-key-file | --provider | --control-issue)
+    --repo | --labellers | --token-file | --app-id | --app-installation | --app-key-file | --endpoint | --model | --model-key-file | --provider | --control-issue)
       [ "$#" -ge 2 ] || usage
       case "$1" in
         --repo) repo=$2 ;;
         --labellers) labellers=$2 ;;
         --token-file) token_file=$2 ;;
+        --app-id) app_id=$2 ;;
+        --app-installation) app_inst=$2 ;;
+        --app-key-file) app_key_file=$2 ;;
         --endpoint) endpoint=$2 ;;
         --model) model=$2 ;;
         --model-key-file) key_file=$2 ;;
@@ -76,9 +88,17 @@ while [ "$#" -gt 0 ]; do
     *) usage ;;
   esac
 done
+app=0
+if [ -n "$app_id$app_inst$app_key_file" ]; then
+  [ -n "$app_id" ] && [ -n "$app_inst" ] && [ -n "$app_key_file" ] ||
+    { echo "tehas setup: --app-id, --app-installation and --app-key-file go together" >&2; usage; }
+  [ -z "$token_file" ] || { echo "tehas setup: an app or --token-file, not both" >&2; usage; }
+  app=1
+fi
 
 dir=$(tehas_instance_dir)
 env_file=$HOME/.config/tehas/env
+app_key=$HOME/.config/tehas/github-app.pem
 inst=$dir/instance.env
 models=$dir/models.json
 
@@ -138,10 +158,16 @@ endpoint=${endpoint%/}
 [ -z "$model" ] || [[ $model =~ ^[A-Za-z0-9._:/-]+$ ]] || bad "not a model id: $model"
 
 token="" key=""
-if [ -n "$token_file" ]; then token=$(read_secret "$token_file" "the token") || exit 78
-else token=$(value_in "$env_file" GH_TOKEN); fi
-[ -n "$token" ] || [ "$tty" = 0 ] || ask token "The bot's GitHub token" -s
-[ -n "$token" ] || bad "no token: give --token-file <file> or --token-file - and the token on standard input"
+if [ "$app" = 1 ]; then
+  [[ $app_id =~ ^[1-9][0-9]*$ ]] || bad "the app ID is a number, not: $app_id"
+  [[ $app_inst =~ ^[1-9][0-9]*$ ]] || bad "the installation ID is a number, not: $app_inst"
+  [ -r "$app_key_file" ] && [ -s "$app_key_file" ] || bad "cannot read the app's key from $app_key_file"
+else
+  if [ -n "$token_file" ]; then token=$(read_secret "$token_file" "the token") || exit 78
+  else token=$(value_in "$env_file" GH_TOKEN); fi
+  [ -n "$token" ] || [ "$tty" = 0 ] || ask token "The bot's GitHub token" -s
+  [ -n "$token" ] || bad "no token: give --token-file <file> or --token-file - and the token on standard input"
+fi
 key_name=TEHAS_MODEL_KEY_$(tr '[:lower:]-' '[:upper:]_' <<<"$provider")
 if [ -n "$key_file" ]; then key=$(read_secret "$key_file" "the model key") || exit 78
 else key=$(value_in "$env_file" "$key_name"); fi
@@ -158,7 +184,13 @@ differs "$inst" TEHAS_ALLOWED_LABELERS "$labellers"
 [ -z "$control" ] || differs "$inst" TEHAS_CONTROL_ISSUE "$control"
 differs "$inst" PI_ENSEMBLE_SUBAGENT_PROVIDER "$provider"
 [ -z "$model" ] || differs "$inst" PI_ENSEMBLE_SUBAGENT_MODEL "$model"
-differs "$env_file" GH_TOKEN "$token"
+if [ "$app" = 1 ]; then
+  differs "$inst" TEHAS_GITHUB_APP_ID "$app_id"
+  differs "$inst" TEHAS_GITHUB_APP_INSTALLATION "$app_inst"
+  [ ! -e "$app_key" ] || cmp -s "$app_key" "$app_key_file" || conflicts+=("the app's key in $app_key")
+else
+  differs "$env_file" GH_TOKEN "$token"
+fi
 [ -z "$key" ] || differs "$env_file" "$key_name" "$key"
 if [ -r "$models" ]; then
   jq -e . "$models" >/dev/null 2>&1 || bad "$models is not JSON"
@@ -171,10 +203,39 @@ if [ "${#conflicts[@]}" -gt 0 ] && [ "$force" = 0 ]; then
 fi
 
 # --- GitHub and the endpoint --------------------------------------------------
-export GH_TOKEN=$token
-push=$(gh api "repos/$repo" --jq .permissions.push 2>/dev/null) || push=""
-[ "$push" = true ] || die "the token cannot push to $repo (permissions.push is ${push:-unknown}); nothing was written"
-echo "tehas setup: the token can push to $repo"
+if [ "$app" = 1 ]; then
+  # Checked with the given key, in this shell: nothing is installed yet, so
+  # neither the shim nor tehasbot github-token can find the app. The minted
+  # token is kept in no file; it serves the checks and the control issue.
+  # shellcheck source=lib/github-app.sh
+  . "$here/../lib/github-app.sh"
+  TEHAS_GITHUB_APP_ID=$app_id TEHAS_GITHUB_APP_INSTALLATION=$app_inst TEHAS_GITHUB_APP_KEY=$app_key_file
+  mint=$(tehas_github_app_mint) || die "the app's key could not make a token; nothing was written"
+  token=$(jq -r '.token // empty | strings' <<<"$mint" 2>/dev/null)
+  [ -n "$token" ] || die "GitHub's answer for the app's token held no token; nothing was written"
+  for p in contents issues pull_requests; do
+    [ "$(jq -r --arg p "$p" '.permissions[$p] // empty' <<<"$mint" 2>/dev/null)" = write ] ||
+      die "the app's installation may not write $p (it needs contents, issues and pull_requests: write); nothing was written"
+  done
+  slug=$(tehas_github_app_slug) || die "GitHub did not say the app's name; nothing was written"
+  bot="${slug}[bot]"
+  export GH_TOKEN=$token
+  repos=$(gh api --paginate "installation/repositories" --jq '.repositories[].full_name' 2>/dev/null) || repos=""
+  grep -qixF -- "$repo" <<<"$repos" || die "the app's installation $app_inst does not list $repo; nothing was written"
+  echo "tehas setup: the app $slug is installed on $repo and may write to it"
+  bot_id=$(gh api "users/$bot" --jq .id 2>/dev/null) || bot_id=""
+  [[ $bot_id =~ ^[1-9][0-9]*$ ]] || die "GitHub did not give the ID of $bot; nothing was written"
+  differs "$inst" TEHAS_BOT_LOGIN "$bot"
+  if [ "${#conflicts[@]}" -gt 0 ] && [ "$force" = 0 ]; then
+    printf 'tehas setup: differs from what is there: %s\n' "${conflicts[@]}" >&2
+    bad "nothing was changed; run again with --force to replace it"
+  fi
+else
+  export GH_TOKEN=$token
+  push=$(gh api "repos/$repo" --jq .permissions.push 2>/dev/null) || push=""
+  [ "$push" = true ] || die "the token cannot push to $repo (permissions.push is ${push:-unknown}); nothing was written"
+  echo "tehas setup: the token can push to $repo"
+fi
 
 ids=$( {
   echo 'silent'
@@ -241,9 +302,23 @@ put "$inst" TEHAS_ALLOWED_LABELERS "$labellers" quoted
 put "$inst" PI_ENSEMBLE_SUBAGENT_PROVIDER "$provider"
 put "$inst" PI_ENSEMBLE_SUBAGENT_MODEL "$model"
 chmod 600 "$inst"
-put "$env_file" GH_TOKEN "$token"
+if [ "$app" = 1 ]; then
+  if ! cmp -s "$app_key" "$app_key_file" 2>/dev/null; then
+    { cp "$app_key_file" "$app_key.new" && chmod 600 "$app_key.new" && mv -f "$app_key.new" "$app_key"; } ||
+      { rm -f "$app_key.new"; die "could not install the app's key at $app_key"; }
+    # A kept token was made for the app before this one.
+    rm -f "${TEHAS_HOME:-$HOME/tehas}/state/github/token" "${TEHAS_HOME:-$HOME/tehas}/state/github/token.expires"
+    echo "tehas setup: the app's key installed at $app_key"
+  fi
+  chmod 600 "$app_key"
+  put "$inst" TEHAS_GITHUB_APP_ID "$app_id"
+  put "$inst" TEHAS_GITHUB_APP_INSTALLATION "$app_inst"
+  put "$inst" TEHAS_BOT_LOGIN "$bot"
+else
+  put "$env_file" GH_TOKEN "$token"
+fi
 [ -z "$key" ] || put "$env_file" "$key_name" "$key"
-chmod 600 "$env_file"
+[ ! -e "$env_file" ] || chmod 600 "$env_file"
 
 # The provider with the four keys install.sh needs; it fills the rest.
 api_key=unused
@@ -263,6 +338,14 @@ umask 022
 # --- git, the product, the install --------------------------------------------
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
+
+# From here gh acts as the app through the shim, which reads the app from the
+# files just written, as every later command on the host does.
+if [ "$app" = 1 ]; then
+  unset GH_TOKEN TEHAS_GITHUB_APP_KEY
+  tehas_load || exit 78
+  tehas_github_app_env
+fi
 
 # git's own read of the helper key: its standard output is the value and its
 # standard error is what git says about a file it could not open. The two are
@@ -310,8 +393,13 @@ give_git_the_helper() {
 }
 give_git_the_helper
 
-read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
-[ -n "${login:-}" ] || die "gh api user did not say who the bot is"
+# An installation token cannot ask /user who it is: the app's bot was read above.
+if [ "$app" = 1 ]; then
+  login=$bot uid=$bot_id
+else
+  read -r login uid < <(gh api user --jq '[.login,.id]|@tsv' 2>/dev/null) || true
+  [ -n "${login:-}" ] || die "gh api user did not say who the bot is"
+fi
 if [ -z "$(git config --global user.name)" ] && [ -z "$(git config --global user.email)" ]; then
   if ! git config --global user.name "$login" || ! git config --global user.email "$uid+$login@users.noreply.github.com"; then
     die "could not set git's identity"
