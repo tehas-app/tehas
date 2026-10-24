@@ -13,6 +13,43 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.11.0 (2026-10-24)
+
+From the default branch. It carries the GitHub App work of v0.10.6 and the
+state store, which nothing reads yet. The rest of epic #244 comes in a later
+release.
+
+### Changes
+
+- A cycle's container may use every CPU of the host but one, not a fixed
+  share. `--cpu-shares` splits them when several gates run at once. A
+  resource change of the container: its mounts, environment, memory and pids
+  limits do not change.
+- The conflict check runs every `TEHAS_REFRESH_EVERY` minutes (1 to 1440,
+  default 10). `tehas-refresh.timer` fires every minute and `tehasbot
+  refresh` returns at once when its last run is younger than that.
+- Refreshes run in their own lane of `TEHAS_REFRESH_SLOTS` (0 to 8, default
+  1) and no longer count against `TEHAS_TICKET_CONCURRENCY`. The lane keeps
+  a slice slot, so a 4-slot host runs 3 cycles and 1 refresh. `0` keeps the
+  old sharing.
+- The conflict check also refreshes a pull request handed off with
+  `needs-human-attention`, and the refresh clears the handoff.
+- `tehas tidy` adds `tehas:shipped` when a merged pull request closed the
+  issue, not only for the newest closed issues.
+- When free disk falls under `TEHAS_CLEAN_MIN_FREE` (default 30g), `tehasbot
+  clean` removes kept workspaces' build output and Docker's build cache at
+  once instead of waiting for their age.
+- A cycle ended by an abort gets an account in its `err.txt`, as a cycle
+  ended at a cap does, instead of an empty file.
+- The installer and `tehas update` fetch the release asset for the machine's
+  architecture (`uname -m`), and stop before downloading on one they do not
+  know.
 - Fewer processes per command, for the same results. Loading the settings
   checks each value in the shell, the commands read the clock from the shell,
   and `install.sh` leaves the record of steps owed as it is when a copy adds
@@ -22,15 +59,6 @@ empty one above it.
   its own `.sha256` and `.minisig`. Its programs are static, cross-built on
   the x86_64 runner. A host on aarch64 cannot run tehas yet: `bootstrap.sh`
   and the sandbox image are x86_64 only.
-
-### Adopter action
-
-- None.
-
-## v0.11.0 (2026-10-23)
-
-### Changes
-
 - `install.sh` builds and installs the state store, `~/tehas/libexec/store`,
   and gives it its database: `store init` makes `~/tehas/state/tehas.db` when
   there is none, and every later install runs `store migrate`, which first
@@ -63,6 +91,8 @@ empty one above it.
 - None. The first install after this release makes the database. Old copies
   in `~/tehas/state/backup/` are not removed; remove them by hand when there
   are too many.
+- With `TEHAS_REFRESH_CONFLICTS` on, the refresh lane takes one cycle slot
+  from new cycles. Set `TEHAS_REFRESH_SLOTS=0` to keep the old sharing.
 
 ## v0.10.6 (2026-10-24)
 
