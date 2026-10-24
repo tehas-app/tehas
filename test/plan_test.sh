@@ -130,6 +130,8 @@ printf '%s\n' '$1' >"\$ws/.git/pi-plan-sessions/abc-123/session.json"
 EOF
 }
 caps_plan() { jq -n '{contract: "0.14.0", features: {planTurns: true}}' >"$T/caps.json"; }
+# An issue's attachments are read by the real attachment checker.
+t_attach_home "$T/home/tehas"
 reset() {
   rm -rf "$T"/calls/* "$T/out.json" "$fx/live" "$fx/keeps" "$T/keep"
   asked

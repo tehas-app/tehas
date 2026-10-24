@@ -25,12 +25,21 @@ empty one above it.
   argument grammars. A change there rebuilds all four programs.
 - `store migrate` writes the backup's path as JSON. A path with a control
   character in it was written in a form no JSON reader takes.
+- The bytes of a file attached to an issue are read by a new program,
+  `libexec/attach` (`console/attach`), and no longer by the shell: the size,
+  sha256, image type and text check of every fetched file, and the unpacking of
+  a zip for a cycle and for the Protolab. The zip is read by its central
+  directory instead of `zipinfo` and `unzip`. The rules and the reasons are as
+  before. `lib/unzip.sh` is gone.
 
 ### Adopter action
 
 - Drain before you install (`tehas drain`): a cycle started by the earlier
   `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
   owns. `install.sh` takes the store to schema 3.
+- `install.sh` builds and installs `libexec/attach` with the other programs. A
+  host without it does not start a cycle given an issue's attachments, and its
+  Protolab leaves zips out.
 
 ## v0.12.0 (2026-10-24)
 

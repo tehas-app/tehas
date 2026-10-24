@@ -439,7 +439,6 @@ files=(
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
-  "lib/unzip.sh|$TEHAS_HOME/lib/unzip.sh|644"
   "lib/describe.sh|$TEHAS_HOME/lib/describe.sh|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"

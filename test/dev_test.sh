@@ -37,6 +37,8 @@ printf "%s\n" "$@" >"$T/calls/docker.args.$n"'
 t_stub docker "$docker_stub"
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
+# An issue's attachments are read by the real attachment checker.
+t_attach_home "$T/home/tehas"
 mkdir -p "$T/home/.pi/agent"
 echo '{"retry":{"provider":{"timeoutMs":600000,"maxRetries":8,"maxRetryDelayMs":60000}}}' >"$T/home/.pi/agent/settings.json"
 echo '{"providers":{}}' >"$T/home/.pi/agent/models.json"
