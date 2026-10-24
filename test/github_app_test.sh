@@ -8,7 +8,7 @@
 
 token_cmd="$T_ROOT/libexec/github-token"
 lib=". '$T_ROOT/lib/config.sh' && . '$T_ROOT/lib/github-app.sh' && tehas_load"
-kept=$T/home/tehas/state/github-token
+kept=$T/home/tehas/state/github/token
 key=$T/home/.config/tehas/github-app.pem
 
 # openssl: base64 reads stdin and writes its base64; dgst signs with a fixed
@@ -37,7 +37,7 @@ reset() {
   t_instance "${app[@]}"
 }
 keep() { # <seconds left>: a kept token that runs out then
-  mkdir -p "$T/home/tehas/state"
+  mkdir -p "$T/home/tehas/state/github"
   printf 'ghs_kept\n' >"$kept"
   echo $(($(date +%s) + $1)) >"$kept.expires"
 }
@@ -258,5 +258,18 @@ printf 'GH_TOKEN=ghp_user\n' >"$T/home/.config/tehas/env"
 t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
 t_eq "$t_out" "$T/home/tehas/bin/gh
 token=ghp_user"
+
+t_case "the renewer makes a new token when the kept one runs low, and stops when killed"
+reset
+keep 300
+t_run "$lib && TEHAS_GITHUB_RENEW_EVERY=1; pid=\$(tehas_github_renew); for _ in \$(seq 1 50); do grep -q fresh '$kept' 2>/dev/null && break; sleep 0.1; done; kill \$pid; sleep 0.3; kill -0 \$pid 2>/dev/null && echo alive || echo stopped"
+t_eq "$(cat "$kept")" "$(grep -o 'ghs_fresh[0-9]*' "$kept")"
+t_contains "$t_out" "stopped"
+
+t_case "without an app the renewer starts nothing"
+reset
+t_instance TEHAS_REPO=acme/widget
+t_run "$lib && pid=\$(tehas_github_renew); echo \"[\$pid]\""
+t_eq "$t_out" "[]"
 
 t_done

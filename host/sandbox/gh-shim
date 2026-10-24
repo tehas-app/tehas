@@ -1,0 +1,13 @@
+#!/bin/sh
+# gh in a cycle's container. When the host gives the container the GitHub App's
+# token directory (lib/sandbox.sh), every call reads the token the host keeps
+# fresh there, so a cycle that runs past the hour of one token still pushes and
+# comments. Without it, gh is called with the GH_TOKEN the container was given.
+# Installed over nothing: the image's gh stays at /usr/bin/gh, and this goes
+# earlier on PATH, in /usr/local/bin.
+f=/run/tehas/github/token
+if [ -r "$f" ]; then
+  GH_TOKEN=$(cat "$f") || exit 1
+  export GH_TOKEN
+fi
+exec /usr/bin/gh "$@"

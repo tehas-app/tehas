@@ -183,6 +183,14 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
     -v "$state/models.json:/home/vscode/.pi/agent/models.json:ro" \
     -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
     -v "$agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
+  # The GitHub App's token directory, read-only, when the instance names an
+  # app: the image's gh (host/sandbox/gh-shim) reads the token the host keeps
+  # fresh there. Not the key, which stays in ~/.config/tehas. A security change
+  # under AGENTS.md rule 4: test/work_test.sh pins it.
+  if [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
+    mkdir -p "$TEHAS_HOME/state/github" || return 1
+    printf '%s\0' -v "$TEHAS_HOME/state/github:/run/tehas/github:ro"
+  fi
 }
 
 # The provider and agent retry and timeout a container's Pi runs with: the host's

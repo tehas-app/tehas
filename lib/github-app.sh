@@ -15,19 +15,27 @@
 #                           10 minutes left, for a command that hands it on to a
 #                           container. 1 when none could be had. Without an app
 #                           it changes nothing.
+#   tehas_github_renew      with an app: keep the kept token fresh in the
+#                           background, asking every 5 minutes, while a
+#                           container reads it; prints the renewer's pid, or
+#                           nothing without an app. Kill it when the container
+#                           ends.
 #   tehas_github_token      print a token that has at least 10 minutes left,
 #                           making one when the kept one has less. 1 with one
 #                           line on stderr when it cannot: no app, no key, the
 #                           exchange failed or answered no token. A token is
 #                           only ever printed to stdout, never logged.
 #
-# The token is $TEHAS_HOME/state/github-token (mode 600), its expiry
-# github-token.expires (epoch seconds). One mint at a time: github-token.lock,
-# waited for up to 30 seconds. GitHub is asked at TEHAS_GITHUB_API
+# The token is $TEHAS_HOME/state/github/token (mode 600), its expiry
+# token.expires (epoch seconds) beside it. The directory, not the file, is what
+# a cycle's container is given read-only: a new token is moved over the old
+# one, and a mount of the file would keep showing the old. One mint at a time:
+# state/github/lock, waited for up to 30 seconds. GitHub is asked at TEHAS_GITHUB_API
 # [https://api.github.com, from the environment; the tests point it away].
 
 tehas_github_app() { [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; }
 tehas_github_app_key() { printf '%s\n' "$HOME/.config/tehas/github-app.pem"; }
+tehas_github_dir() { printf '%s\n' "$TEHAS_HOME/state/github"; }
 
 _tehas_b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
@@ -45,7 +53,8 @@ _tehas_github_jwt() {
 
 # Print the kept token when it has at least $1 seconds left.
 _tehas_github_kept() {
-  local file=$TEHAS_HOME/state/github-token until token
+  local file until token
+  file=$(tehas_github_dir)/token
   until=$(cat "$file.expires" 2>/dev/null) || return 1
   [[ $until =~ ^[0-9]{1,12}$ ]] || return 1
   [ "$until" -ge $(($(date +%s) + $1)) ] || return 1
@@ -55,9 +64,10 @@ _tehas_github_kept() {
 }
 
 tehas_github_token() {
-  local state=$TEHAS_HOME/state api=${TEHAS_GITHUB_API:-https://api.github.com} key jwt exchange token expires until
+  local state api=${TEHAS_GITHUB_API:-https://api.github.com} key jwt exchange token expires until
   tehas_github_app || { echo "tehas: no GitHub App is set for this instance (TEHAS_GITHUB_APP_ID)" >&2; return 1; }
   _tehas_github_kept 600 && return 0
+  state=$(tehas_github_dir)
   key=$(tehas_github_app_key)
   [ -r "$key" ] || { echo "tehas: the GitHub App's key is not readable at $key" >&2; return 1; }
   mkdir -p "$state" || return 1
@@ -79,15 +89,15 @@ tehas_github_token() {
       { echo "tehas: GitHub's answer for the app's token held no token and expiry" >&2; exit 1; }
     # Written beside the old one and moved over it: a reader sees the old token
     # or the new one, never half of one.
-    if ! (umask 077 && printf '%s\n' "$token" >"$state/github-token.new" && printf '%s\n' "$until" >"$state/github-token.expires.new") ||
-      ! mv -f "$state/github-token.new" "$state/github-token" ||
-      ! mv -f "$state/github-token.expires.new" "$state/github-token.expires"; then
-      rm -f "$state/github-token.new" "$state/github-token.expires.new"
+    if ! (umask 077 && printf '%s\n' "$token" >"$state/token.new" && printf '%s\n' "$until" >"$state/token.expires.new") ||
+      ! mv -f "$state/token.new" "$state/token" ||
+      ! mv -f "$state/token.expires.new" "$state/token.expires"; then
+      rm -f "$state/token.new" "$state/token.expires.new"
       echo "tehas: the app's token could not be kept in $state" >&2
       exit 1
     fi
     printf '%s\n' "$token"
-  ) 9>>"$state/github-token.lock"
+  ) 9>>"$state/lock"
 }
 
 # The helper key is the one tehas_git_credential_helper_key in lib/sandbox.sh
@@ -106,4 +116,15 @@ tehas_github_env() {
   tehas_github_app || return 0
   GH_TOKEN=$(tehas_github_token) || return 1
   export GH_TOKEN
+}
+
+tehas_github_renew() {
+  tehas_github_app || return 0
+  (
+    trap 'exit 0' TERM
+    while sleep "${TEHAS_GITHUB_RENEW_EVERY:-300}" & wait $!; do
+      tehas_github_token >/dev/null || true
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  printf '%s\n' "$!"
 }

@@ -161,6 +161,12 @@ RUN cd /opt/pin/playwright \
  && chmod -R a+rX /opt/ms-playwright \
  && rm -rf /var/lib/apt/lists/* /root/.npm /opt/pin
 
+# gh reads the GitHub App's token the host keeps fresh, when the host gives the
+# container that directory (host/sandbox/gh-shim). The image's own gh stays at
+# /usr/bin/gh; this one is earlier on PATH.
+COPY gh-shim /usr/local/bin/gh
+RUN chmod 755 /usr/local/bin/gh && [ -x /usr/bin/gh ]
+
 # Every command a cycle's instructions name, and every command tehas gives a
 # container (by --entrypoint or after the image), has to answer there. A tool
 # that quietly leaves the image costs a cycle a call each time an agent reaches

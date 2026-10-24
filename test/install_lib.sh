@@ -159,6 +159,7 @@ files="./.bashrc
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
+./tehas/sandbox/gh-shim
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
 ./tehas/shim/gh

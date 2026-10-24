@@ -40,7 +40,7 @@ if [ "$check" = 0 ]; then
 fi
 
 tehas_require TEHAS_REPO
-until=$(cat "$TEHAS_HOME/state/github-token.expires" 2>/dev/null)
+until=$(cat "$(tehas_github_dir)/token.expires" 2>/dev/null)
 echo "app $TEHAS_GITHUB_APP_ID, installation $TEHAS_GITHUB_APP_INSTALLATION, acting as $TEHAS_BOT_LOGIN"
 echo "token good until $(date -u -d "@$until" +%FT%TZ 2>/dev/null || echo "an expiry that cannot be read")"
 answer=$(curl -fsS --max-time 30 -H "Authorization: Bearer $token" -H 'Accept: application/vnd.github+json' \

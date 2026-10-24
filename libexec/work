@@ -792,7 +792,10 @@ fi
 
 # The runner is the container's command, so a docker stop reaches it: it ends
 # the cycle as interrupted and still writes its result.
-trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
+# The container reads the app's token from a directory the host keeps fresh;
+# the renewer ends with the container, or with this command.
+renewer=$(tehas_github_renew)
+trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; [ -z "$renewer" ] || kill "$renewer" 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted' TERM INT
 docker run --rm --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" --cidfile "$cid_file" \
@@ -910,6 +913,7 @@ if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
 fi
 wait "$pid" 2>/dev/null
 rc=$?
+[ -z "$renewer" ] || kill "$renewer" 2>/dev/null
 rm -f "$cid_file"
 have=0 error_only=0
 outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
