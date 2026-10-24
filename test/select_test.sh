@@ -15,7 +15,8 @@ fresh() {
   mkdir -p "$repo/scripts" "$repo/test/fixtures/headless-x" "$repo/lib" "$repo/libexec" "$repo/docs" "$repo/host/fun"
   cp "$T_ROOT/scripts/select-tests.sh" "$T_ROOT/scripts/test.sh" "$T_ROOT/scripts/verify.sh" "$repo/scripts/"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-generic.sh"
-  chmod +x "$repo/scripts/check-generic.sh"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/scripts/check-bash-lines.sh"
+  chmod +x "$repo/scripts/check-generic.sh" "$repo/scripts/check-bash-lines.sh"
   : >"$repo/test/lib.sh"
   t_stub shellcheck 'exit 0'
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The gate of this repository: what must pass before a change is proposed.
 #
-#   scripts/verify.sh          the lint for product and host names, shellcheck,
+#   scripts/verify.sh          the lint for product and host names, the
+#                              ceiling on bash lines, shellcheck,
 #                              every shell test, the tests of the cargo
 #                              workspace and, where node is installed, the
 #                              tests of the front page
@@ -10,7 +11,8 @@
 #                              tests even where node is missing
 #   scripts/verify.sh --changed  only what the change since the merge base with
 #                              origin/main can affect, uncommitted and untracked
-#                              files included: the name lint, then the checks
+#                              files included: the name lint and the bash
+#                              ceiling, then the checks
 #                              scripts/select-tests.sh names. The gate a
 #                              developer runs while working; pi-rukas reads it
 #                              from .pi/verify-cmd-fast. When the selection
@@ -100,6 +102,7 @@ if has cargo && [ "$cargo_wanted" = 1 ]; then
 fi
 
 step "no product or host names in platform files" scripts/check-generic.sh
+step "the bash under its ceiling (scripts/bash-lines.max)" scripts/check-bash-lines.sh
 if [ "$changed" = 0 ]; then
   step "shellcheck and the shell tests" scripts/test.sh
 elif [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then

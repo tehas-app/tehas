@@ -75,6 +75,9 @@ when a person pulls and runs `install.sh` there.
 - Which language: the state store, the dispatcher and the cycle supervisor
   are Rust, in the workspace under `console/`. Install, update, bootstrap, the
   units and the glue between commands stay bash. Bash never writes SQL.
+  New logic goes into Rust. The bash of `bin/`, `lib/` and `libexec/` has a
+  ceiling, `scripts/bash-lines.max`, that the gate checks; a change that
+  needs more bash takes out as many lines as it adds.
 - Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
   allows. No `unsafe`. Builds and tests use `--locked`.
 - Prose in comments, the manual and commit messages: plain and direct, short
