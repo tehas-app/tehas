@@ -4,7 +4,8 @@
 # An adopter downloads one tarball, unpacks it and runs install.sh from it, so
 # what is packed is what install.sh reads: the directories, the top-level
 # files and the example instance named in lib/release.sh, the console binary it was given as
-# libexec/console, a VERSION file with the tag, and host/versions.env, to which
+# libexec/console, a VERSION file with the tag, a COMMIT file with the commit
+# it was packed from when one is given, and host/versions.env, to which
 # the pins are put when they are given. The tarball holds one top directory,
 # tehas-<tag>/, so unpacking it leaves that and nothing beside it.
 #
@@ -21,6 +22,7 @@
 #
 # Usage: scripts/pack-release.sh <tag> <out dir> --console <path>
 #                               [--analytics <path>] [--mcp <path>]
+#                               [--store <path>] [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
 #   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
@@ -31,6 +33,12 @@
 #   --mcp        the built MCP server, copied to libexec/tehas-mcp; the two are
 #                the other programs install.sh puts in libexec, and a release
 #                packed without them installs without them
+#   --store      the built state store, copied to libexec/store. install.sh
+#                makes and migrates the host's database with it, so a release
+#                packed without it installs only on a host that has one
+#   --commit     the commit of tehas the tree is, 40 hex digits, written to
+#                COMMIT. A tree with no git has no other way to say it, and
+#                install.sh refuses a tree whose commit it cannot read
 #   --rukas-commit   the pi-rukas commit this release's sandbox is built from,
 #                    40 hex digits (upper case is accepted and written lower case)
 #   --rukas-digest   the base image's digest, as sha256: and 64 hex digits, the
@@ -49,11 +57,12 @@
 #
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
 #       64 a bad argument (the tag is not vX.Y.Z, --console is missing, is not
-#       a file or is the tree's own build, --analytics or --mcp names no
-#       program, only one of the two pins is given,
+#       a file or is the tree's own build, --analytics, --mcp or --store names
+#       no program, only one of the two pins is given,
 #       the tree does not answer to TEHAS_PACK_ROOT, or an out dir cannot be
 #       made or already holds that tarball); 1 the tree is missing something
-#       install.sh reads, a pin's value has the wrong shape, or staging, tar or
+#       install.sh reads, a pin's or --commit's value has the wrong shape, or
+#       staging, tar or
 #       sha256sum failed.
 set -uo pipefail
 
@@ -62,6 +71,8 @@ out_dir=""
 console=""
 analytics=""
 mcp=""
+store=""
+tree_commit=""
 rukas_commit=""
 rukas_digest=""
 usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; }
@@ -72,9 +83,18 @@ while [ "$#" -gt 0 ]; do
       console=$2
       shift
       ;;
-    --analytics | --mcp)
+    --analytics | --mcp | --store)
       [ "$#" -ge 2 ] || { echo "pack-release: $1 needs a path" >&2; exit 64; }
-      if [ "$1" = --mcp ]; then mcp=$2; else analytics=$2; fi
+      case $1 in
+        --mcp) mcp=$2 ;;
+        --store) store=$2 ;;
+        *) analytics=$2 ;;
+      esac
+      shift
+      ;;
+    --commit)
+      [ "$#" -ge 2 ] || { echo "pack-release: --commit needs a commit" >&2; exit 64; }
+      tree_commit=$2
       shift
       ;;
     --rukas-commit)
@@ -116,7 +136,7 @@ if [ ! -x "$console" ]; then
   echo "pack-release: the console is not executable: $console" >&2
   exit 64
 fi
-for program in "$analytics" "$mcp"; do
+for program in "$analytics" "$mcp" "$store"; do
   [ -n "$program" ] || continue
   if [ ! -f "$program" ] || [ ! -x "$program" ]; then
     echo "pack-release: not a program the pack can run: $program" >&2
@@ -129,6 +149,11 @@ done
 # first: what versions.env holds, and what its readers compare, is one shape.
 rukas_commit=${rukas_commit,,}
 rukas_digest=${rukas_digest,,}
+tree_commit=${tree_commit,,}
+if [ -n "$tree_commit" ] && [[ ! $tree_commit =~ ^[0-9a-f]{40}$ ]]; then
+  echo "pack-release: --commit must be 40 hex digits: $tree_commit" >&2
+  exit 1
+fi
 if [ -n "$rukas_commit" ] && [[ ! $rukas_commit =~ ^[0-9a-f]{40}$ ]]; then
   echo "pack-release: --rukas-commit must be 40 hex digits: $rukas_commit" >&2
   exit 1
@@ -268,7 +293,7 @@ chmod 755 "$stage_dir/libexec/console" || {
   echo "pack-release: cannot make the console executable" >&2
   exit 1
 }
-for pair in "analytics:$analytics" "tehas-mcp:$mcp"; do
+for pair in "analytics:$analytics" "tehas-mcp:$mcp" "store:$store"; do
   [ -n "${pair#*:}" ] || continue
   if ! cp "${pair#*:}" "$stage_dir/libexec/${pair%%:*}" || ! chmod 755 "$stage_dir/libexec/${pair%%:*}"; then
     echo "pack-release: cannot copy ${pair#*:}" >&2
@@ -319,6 +344,11 @@ fi
 # version a host reports is the version.txt install.sh writes beside the pages,
 # so a tarball's gives the tag where a checkout's gives tag and commit.
 printf '%s\n' "$tag" >"$stage_dir/VERSION" || exit 1
+# The commit, which the store records in the host's database: install.sh reads
+# it here when the tree has no git of its own.
+if [ -n "$tree_commit" ]; then
+  printf '%s\n' "$tree_commit" >"$stage_dir/COMMIT" || exit 1
+fi
 
 # The tree is copied, tarred and removed before the hash line is made: the
 # tarball's contents are fixed by then, and the .sha256 names only itself.

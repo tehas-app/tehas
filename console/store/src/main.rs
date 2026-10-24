@@ -29,9 +29,10 @@
 //!     empty file is) is given the schema, the rows of meta and the version, in
 //!     one transaction. A database init made is already at 1, and says "from":1,
 //!     "to":1 and still writes its backup, the one copy of the two. <dir> is the
-//!     state/ of this instance's home, where the copy takes the 0700 of the
-//!     directory and the 0600 of the file: another directory is refused, because
-//!     the store was not given leave to write a copy of itself in a person's.
+//!     state/ of this instance's home, or state/backup/ below it, which the verb
+//!     makes 0700 when it is not there; the copy takes the 0700 of the directory
+//!     and the 0600 of the file. Another directory is refused, because the store
+//!     was not given leave to write a copy of itself in a person's.
 //!     Answers
 //!     {"api":1,"verb":"migrate","ok":true,"from":1,"to":1,
 //!     "backup":"..."}.
@@ -404,8 +405,8 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
 /// before the step too.
 ///
 /// `dir` is the argument the caller gave, and `backup_dir` below is the only
-/// reader of it: the copy is written beside the file it came from, where the
-/// 0700 of `state/` and the 0600 of the store keep a copy of the host's
+/// reader of it: the copy is written in `state/` or in `state/backup/`, where the
+/// 0700 of the directory and the 0600 of the store keep a copy of the host's
 /// approvals as unreadable as the store itself. A directory off the command line
 /// is a person's -- it could be a link, it could walk out of the home with a
 /// `..`, it could be 0755 -- and the store was never given leave to write a copy
@@ -434,7 +435,7 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
         db::set_file_mode(file).map_err(line)?;
     }
     let mut conn = db::lock(file).map_err(line)?;
-    db::backup_dir(&home_of(file), dir).map_err(|e| {
+    let copies = db::backup_dir(&home_of(file), dir).map_err(|e| {
         let _ = db::settle(&conn);
         line(e)
     })?;
@@ -445,7 +446,6 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
             let _ = db::settle(&conn);
             line(e)
         })?;
-    let state = home_of(file).join("state");
     db::settle(&conn).map_err(line)?;
     // The version of the copy the verb reports. For a database that needs a
     // step it is the one the step takes the store to, known before it runs: a
@@ -458,13 +458,13 @@ fn migrate(file: &Path, dir: &Path, settings: &Settings, now: i64) -> Result<Str
     // made leaves the store exactly as it was -- no schema, no version, no row.
     // It holds the database as the verb found it, under the name the answer
     // gives, which is the copy whose bytes predate whatever the step does next.
-    let reported = db::backup(&conn, &state, target, now).map_err(line)?;
+    let reported = db::backup(&conn, &copies, target, now).map_err(line)?;
     // The copy under the version the file came with, asked of only when the two
     // names differ. A database at the version this binary writes is copied once:
     // the same bytes under two names would be a directory of backups saying a
     // migration happened when none did.
     if target != from {
-        db::backup(&conn, &state, from, now).map_err(line)?;
+        db::backup(&conn, &copies, from, now).map_err(line)?;
     }
     // The step is its own transaction and its own lock, and it is the only one:
     // a database already at the version this binary writes has no step to run,

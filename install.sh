@@ -19,20 +19,30 @@
 # improvement loop and the manual, plus Pi's model list and settings, made from
 # the instance's models.json and settings.json (see section 2).
 #
-# It copies files, and compiles three: the console of a running cycle, the
-# analytics program and the MCP server, Rust programs in the Cargo workspace
-# console/ (the other two in console/analytics and console/mcp). A real run
-# builds each with cargo in this checkout (console/target, which git ignores)
-# and installs them as libexec/console, libexec/analytics and
-# libexec/tehas-mcp; the MCP server is built static (musl), because it runs in
-# a container that has none of the host's libraries. Beside each, <name>.stamp holds two checksums: of the
+# It copies files, and compiles four: the console of a running cycle, the
+# analytics program, the MCP server and the state store, Rust programs in the
+# Cargo workspace console/ (the other three in console/analytics, console/mcp
+# and console/store). A real run builds each with cargo in this checkout
+# (console/target, which git ignores) and installs them as libexec/console,
+# libexec/analytics, libexec/tehas-mcp and libexec/store; the MCP server is
+# built static (musl), because it runs in a container that has none of the
+# host's libraries. Beside each, <name>.stamp holds two checksums: of the
 # source it was built from and of the program itself. A program is built
 # again only when its source has changed or it is not the one that was
 # installed, and the build that fetches the crates from the network is the
 # first one on a host that has never fetched. The console's source leaves out
-# console/analytics and console/mcp, so a change there builds that program
-# alone. --check compares the checksums and builds nothing. A
+# console/analytics, console/mcp and console/store, so a change there builds
+# that program alone. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
+#
+# A real run then gives the state store its database, state/tehas.db, under
+# the update lock: `store init` when there is none, `store migrate --backup
+# state/backup` otherwise, which copies the database into state/backup/ before
+# it changes it. state/ is made and kept 0700. The store is told the version
+# and commit of this tree, the instance and the repository: the commit is
+# git's for a checkout and the COMMIT file's for a tree with no git, which is
+# what a release carries. A tree with neither is refused before anything is
+# written, and a store that fails stops the run with exit 1 and its own line.
 #
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
@@ -325,6 +335,28 @@ if refusal=$(home_refusal) && [ -n "$refusal" ]; then
   exit 78
 fi
 
+# --- 1c. The commit the store records -----------------------------------------
+# The store's database records which commit of tehas made it: git's for a
+# checkout, the COMMIT file's for a tree with no git of its own, which is what
+# a release carries. Asked before the lock and the first write, so a tree with
+# neither is refused while nothing has been written.
+tree_commit() {
+  if [ -z "$(git -C "$root" rev-parse --show-prefix 2>/dev/null || echo none)" ]; then
+    git -C "$root" rev-parse HEAD 2>/dev/null
+    return
+  fi
+  [ ! -f "$root/COMMIT" ] || head -n 1 "$root/COMMIT"
+}
+store_commit=$(tree_commit) || store_commit=""
+store_refusal=""
+if [[ ! $store_commit =~ ^[0-9a-f]{40}$ ]]; then
+  store_refusal="the commit of $root is not known (no git commit, no COMMIT file with 40 hex digits), and the store records it"
+  if [ "$check" != 1 ]; then
+    echo "tehas: $store_refusal; nothing was installed" >&2
+    exit 1
+  fi
+fi
+
 # One update at a time. Two runs side by side would build the image twice and
 # each rewrite the record of steps owed with its own view. tehas update holds the
 # lock while it runs this script and names the descriptor it holds it on; any
@@ -338,8 +370,12 @@ if [ "$check" != 1 ]; then
   update_lock=$TEHAS_HOME/state/update.lock
   # The state directory the lock is in is made here: a home with nothing in it
   # yet has none, and a run that has not been given the lock by tehas update
-  # opens the file itself.
-  mkdir -p "$TEHAS_HOME/state"
+  # opens the file itself. It is the store's directory too, so it is 0700 from
+  # here on: with WAL on, a readable state/ is a readable copy of the database.
+  if ! mkdir -p "$TEHAS_HOME/state" || ! chmod 700 "$TEHAS_HOME/state"; then
+    echo "tehas: could not make $TEHAS_HOME/state mode 0700; nothing was installed" >&2
+    exit 1
+  fi
   if [[ $update_fd =~ ^[0-9]+$ ]] && [ "/dev/fd/$update_fd" -ef "$update_lock" ]; then
     flock -w "$lock_wait" "$update_fd" || { echo "tehas: another update is running ($update_lock), still held after ${lock_wait}s; nothing was installed" >&2; exit 1; }
   else
@@ -654,9 +690,10 @@ if [ -r "$login_manager" ]; then
 fi
 
 # --- 3. Install ---------------------------------------------------------------
-# The compiled programs first, the console, analytics and the MCP server, the
-# members of the Cargo workspace in console/: a build that fails must leave the host as it was,
-# so every program that is due is built before any is installed. What is
+# The compiled programs first, the console, analytics, the MCP server and the
+# store, the members of the Cargo workspace in console/: a build that fails must
+# leave the host as it was, so every program that is due is built before any is
+# installed. What is
 # installed is judged without building: by the checksum of every file the
 # program's build reads, and by the checksum of the program that was installed.
 # A tree unpacked from a release has no console/ to build from: it carries the
@@ -665,11 +702,22 @@ fi
 # from a checkout is not mistaken for this one.
 if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
   [ -x "$root/libexec/console" ] || { echo "tehas: this release has no libexec/console; nothing was installed" >&2; exit 1; }
+  # The store is what the database is made and migrated with below, so a host
+  # that would be left with none is refused before the first copy. --check
+  # names it as a refusal, not drift, since no update can clear it.
+  if [ ! -x "$root/libexec/store" ] && [ ! -x "$TEHAS_HOME/libexec/store" ]; then
+    if [ "$check" != 1 ]; then
+      echo "tehas: this release has no libexec/store and none is installed; nothing was installed" >&2
+      exit 1
+    fi
+    store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
+  fi
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
-  for prog in console analytics tehas-mcp; do
+  for prog in console analytics tehas-mcp store; do
     from=$root/libexec/$prog
     to=$TEHAS_HOME/libexec/$prog
     if [ ! -x "$from" ]; then
+      [ "$prog" = store ] && [ ! -x "$to" ] && continue
       note "this release carries no libexec/$prog; the one installed stays"
       continue
     fi
@@ -691,11 +739,11 @@ else
     (cd "$root/console" && find . -type f ! -path './target/*' ! -path './analytics/target/*' "$@" -print0 |
       LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
   }
-  # The console's source is all of console/ but its tests, analytics/ and mcp/,
-  # so a change to either alone does not build the console again. analytics reads
-  # its own directory, the workspace's manifest and lock, and the console's mask,
-  # and so does the MCP server.
-  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*') ||
+  # The console's source is all of console/ but its tests, analytics/, mcp/ and
+  # store/, so a change to one of those alone does not build the console again.
+  # analytics reads its own directory, the workspace's manifest and lock, and the
+  # console's mask, and so does the MCP server.
+  console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
@@ -703,12 +751,17 @@ else
   mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
     { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
+  # The store reads its own directory and the workspace's manifest and lock.
+  store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
+    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.
   program_label() {
     case $1 in
       console) echo "the console" ;;
       tehas-mcp) echo "the MCP server" ;;
+      store) echo "the store" ;;
       *) echo "the $1 program" ;;
     esac
   }
@@ -782,7 +835,8 @@ else
   }
 
   due=()
-  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source"; do
+  for entry in "console $console_source" "analytics $analytics_source" "tehas-mcp $mcp_source" \
+    "store $store_source"; do
     read -r prog sum <<<"$entry"
     to=$TEHAS_HOME/libexec/$prog
     [ ! -x "$to" ] || [ "$(cat "$to.stamp" 2>/dev/null)" != "$sum $(program_sum "$to")" ] || continue
@@ -1106,6 +1160,10 @@ if [ "$check" = 1 ]; then
     echo "First install: NOT DONE (labels and core units; ./install.sh does them)"
     rc=1
   fi
+  if [ -n "$store_refusal" ]; then
+    echo "Store:        REFUSED ($store_refusal; ./install.sh stops before it writes)"
+    rc=1
+  fi
 
   if [ -n "$login_fix" ]; then
     echo "Login:        NOT CURRENT"
@@ -1147,6 +1205,39 @@ fi
 # --- 5. After a real run ------------------------------------------------------
 # The directories of a home are made in step 3, before the marker and the first
 # copy.
+
+# The store's database, under the update lock this run still holds: made when
+# there is none, otherwise brought forward by the store, which copies it into
+# state/backup/ first. Every real run asks, so a host is never left on a schema
+# older than the store it was given. What the store is told is what this run
+# loaded: the version and commit of this tree, the instance and the repository.
+# A store that fails stops the run: the files are copied, the database is left
+# as it was, and the store's own line says why.
+store_db() {
+  local store=$TEHAS_HOME/libexec/store db=$TEHAS_HOME/state/tehas.db version name out verb
+  version=$(checkout_version)
+  name=${instance%/}
+  name=${name##*/}
+  [ -n "$version" ] || version=${store_commit:0:7}
+  if [ -e "$db" ] || [ -L "$db" ]; then
+    verb=(migrate --backup "$TEHAS_HOME/state/backup")
+  else
+    verb=(init)
+  fi
+  [ -x "$store" ] || { echo "tehas: $store is not installed, so $db was neither made nor migrated" >&2; exit 1; }
+  chmod 700 "$TEHAS_HOME/state" || { echo "tehas: could not keep $TEHAS_HOME/state mode 0700" >&2; exit 1; }
+  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" "${verb[@]}" --version "$version" --commit "$store_commit" \
+    --instance "$name" --repo "$TEHAS_REPO" 2>&1); then
+    printf '%s\n' "$out" | tail -n 5 >&2
+    echo "tehas: the store could not ${verb[0]} $db; the files are installed, the database was left as it was" >&2
+    exit 1
+  fi
+  case ${verb[0]} in
+    init) echo "store: made $db" ;;
+    *) echo "store: $db at schema $(jq -r '.to // "?"' <<<"$out" 2>/dev/null), backup $(jq -r '.backup // "?"' <<<"$out" 2>/dev/null)" ;;
+  esac
+}
+store_db
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the

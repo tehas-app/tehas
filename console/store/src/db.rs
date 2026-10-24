@@ -11,7 +11,7 @@ use rusqlite::{params, Connection, ErrorCode, OpenFlags};
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -737,8 +737,9 @@ pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
 /// 0600 and never replaces one that is there, and a `VACUUM INTO` that fails
 /// partway leaves no half-written copy behind.
 ///
-/// `state` is `state/` of the home the command was pointed at, settled by
-/// `backup_dir` below: a directory the store may write a copy of itself into.
+/// `state` is `state/` or `state/backup/` of the home the command was pointed
+/// at, settled by `backup_dir` below: a directory the store may write a copy of
+/// itself into.
 ///
 /// The caller holds the write lock and has ended the transaction it was taken
 /// in: SQLite will not copy a database that a transaction is open on, so a verb
@@ -775,8 +776,9 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
     Ok(copy)
 }
 
-/// The directory `migrate --backup` was given, settled to the one place the
-/// verb may write: `state/` of the home the command was pointed at, resolved.
+/// The directory `migrate --backup` was given, settled to one of the two places
+/// the verb may write: `state/` of the home the command was pointed at, or
+/// `state/backup/` below it, resolved.
 ///
 /// A backup is a copy of the store, so it is readable by nobody but the tehas
 /// user, and the mode that buys is the one on the directory: `state/` is 0700
@@ -786,13 +788,37 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
 /// ever recorded -- and the store was never given leave to write one there. The
 /// resolution comes first so that a link is answered as the directory it is,
 /// and the comparison of the two comes before the name: the verb asks once.
+///
+/// `state/backup/` is the store's too: it is made here, 0700, when it is not
+/// there, and kept 0700 when it is, so the copies `install.sh` asks for stay
+/// out of the way of the files beside the store without leaving its directory.
 pub fn backup_dir(home: &Path, dir: &Path) -> Result<PathBuf, DbError> {
+    let own = home.join("state").join("backup");
+    if dir == own {
+        match fs::symlink_metadata(dir) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                fs::DirBuilder::new().mode(0o700).create(dir).map_err(|e| {
+                    DbError::Unreadable(format!("cannot make {}: {e}", dir.display()))
+                })?;
+            }
+            _ => {}
+        }
+    }
     let state = dir
         .canonicalize()
         .map_err(|e| DbError::Unreadable(format!("the backup directory {}: {e}", dir.display())))?;
+    // Resolved too, so a home reached through a link compares like for like.
+    let home = home
+        .canonicalize()
+        .map_err(|e| DbError::Unreadable(format!("the home {}: {e}", home.display())))?;
+    let own = home.join("state").join("backup");
+    if state == own {
+        set_mode(&state, 0o700)?;
+        return Ok(state);
+    }
     if state != home.join("state") {
         return Err(DbError::Unreadable(format!(
-            "the backup goes in the state/ of the store's home, not {}",
+            "the backup goes in the state/ or state/backup/ of the store's home, not {}",
             state.display()
         )));
     }

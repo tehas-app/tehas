@@ -51,18 +51,18 @@ jobs:
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign 2>/dev/null
           echo "$RUNNER_TEMP/minisign-linux/x86_64" >> "$GITHUB_PATH"
-      - name: build the console, the analytics program and the MCP server
+      - name: build the console, the analytics program, the MCP server and the store
         run: |
           . host/versions.env
           cargo --version
           # The MCP server is static, as install.sh builds it.
           rustup target add x86_64-unknown-linux-musl
           target=$RUNNER_TEMP/target
-          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics
+          cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
             --target x86_64-unknown-linux-musl -p tehas-mcp
           mkdir -p "$RUNNER_TEMP/programs"
-          cp "$target/release/console" "$target/release/analytics" \
+          cp "$target/release/console" "$target/release/analytics" "$target/release/store" \
             "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/"
           # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
           for p in "$RUNNER_TEMP"/programs/*; do
@@ -73,7 +73,8 @@ jobs:
           # No pi-rukas pin: a release follows the line its versions.env names.
           p=$RUNNER_TEMP/programs
           TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
-            --analytics "$p/analytics" --mcp "$p/tehas-mcp"
+            --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" \
+            --commit "$(git rev-parse HEAD)"
           (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
       - name: sign, and check the signature with the key in the tree
