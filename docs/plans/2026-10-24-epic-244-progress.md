@@ -35,8 +35,10 @@ stacked on the one before:
 | 5 | `store-callers-park-records` | done, reviewed, fixed, pushed |
 | 6 | `store-callers-quiet-notes` | done, reviewed, fixed, pushed |
 | 7 | `store-callers-plan-records` (#251) | done, reviewed, fixed, pushed |
-| 8 | `store-callers-old-paths` (old-path guard, manual) | built, reviewed, fixing findings (bringing in the importer commits) |
+| 8 | `store-callers-old-paths` (old-path guard, manual) | done, reviewed, fixed, pushed (carries the importer commits) |
 | - | `store-import` (from main: `store import`, install.sh runs it) | done, reviewed, pushed |
+
+Final check against #250 and #251 Done-when: running.
 
 Work happens in `~/work/tehas-244-finish` (the caller chain) and
 `~/work/tehas-250-import` (the importer). Each unit: build, then three
