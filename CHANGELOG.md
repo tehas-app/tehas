@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- The files under `live/` that describe the cycles and the factory's health
+  have one writer, the state store's `publish` (#252). `tehas work` records a
+  heartbeat on the store every 10 seconds (`cycle-heartbeat`) in place of
+  writing `live/cycles/<n>.json`, and the poll's stuck rule reads it. The
+  store is schema 3 (`heartbeats.text`); `install.sh` migrates it. The shapes
+  of the files are unchanged. `status.json`, `platform.json` and
+  `energy.json` are written through temporary names of their own.
 - The state store's schema is version 2. `install.sh` migrates a version 1
   `state/tehas.db` in place, after its backup, and keeps every row: the step
   only adds columns and one table. The store gains the verbs `history-show`,

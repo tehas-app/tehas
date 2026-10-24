@@ -23,6 +23,8 @@ t_eq "$(cat "$T/home/tehas/state/cycles/7.timed")" "1 tehas lens-review"
 
 t_case "a runner stopped at the time limit that writes interrupted is a timeout, exit 2"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
 t_run "$work 7"
 t_eq "$t_rc" 2
@@ -64,6 +66,8 @@ T_ENV=("${env_ok[@]}")
 
 t_case "a cycle none of whose logs change is stopped as stalled before its time limit"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 rm -f "$T/home/tehas/state/cycles/7.stalled"
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1
 container "$hold; $gone"
@@ -113,6 +117,8 @@ T_ENV=("${env_ok[@]}")
 
 t_case "TERM stops the container, and the runner's result says interrupted"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 container "trap 'says interrupted; exit 21' TERM; \"\$nap\" 60 & echo \$! >\"\$T/sleeper.pid\"; wait; wait"
 t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
 for _ in \$(seq 100); do [ -e \"\$T/sleeper.pid\" ] && [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; \"\$(command -pv sleep)\" 0.1; done
@@ -124,6 +130,8 @@ t_eq "$(jq -c '[.running, .status]' "$live/cycles/7.json")" '[false,"interrupted
 
 t_case "TERM with no result gives interrupted"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 container "$hold; $gone"
 t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
 for _ in \$(seq 100); do [ -e \"\$T/sleeper.pid\" ] && [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; \"\$(command -pv sleep)\" 0.1; done

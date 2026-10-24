@@ -155,12 +155,13 @@ t_eq "$(jq -r '[.queued, .awaiting, .stopped, .completed, .running] | map(type) 
 t_eq "$(jq -r '.links | keys | join(",")' "$T_ROOT/preview/live/status.json")" "all,awaiting,completed,queued,stopped"
 t_eq "$(jq -r '[(.previews | type), (.disk | type)] | join(",")' "$T_ROOT/preview/live/previews.json")" "array,object"
 
-# The sample files stand where a host has what tehas work and tehasbot health
-# write. Their keys are pinned to those two, so a change there is seen here.
-t_case "the preview's sample running.json is the live view, and its cycle has the keys tehas work writes, but for the console"
-written=$(sed -n "/'{issue: \$issue/,/}'/p" "$T_ROOT/libexec/work" | grep -oE '\b[A-Za-z]+: ' | tr -d ': ' | LC_ALL=C sort | tr '\n' ' ')
+# The sample files stand where a host has what the store's publish and
+# tehasbot health write. Their keys are pinned to those two, so a change there
+# is seen here.
+t_case "the preview's sample running.json is the live view, and its cycle has the keys the store publishes, but for the console"
+written=$(sed -n '/fn pairs/,/^    }/p' "$T_ROOT/console/store/src/live.rs" | grep -oE '\("[A-Za-z]+", j\(' | cut -d'"' -f2 | LC_ALL=C sort | tr '\n' ' ')
 t_eq "$written" "console issue running startedAt status statusText step updatedAt "
-# The view of lib/live.sh: no cycle runs in a preview, and one finished last.
+# The view: no cycle runs in a preview, and one finished last.
 t_eq "$(jq -c '[keys, .cycles]' "$T_ROOT/preview/live/running.json")" '[["cycles","last"],[]]'
 # A preview has no console file to show, so the sample names none.
 t_eq "$(jq -r '.last | keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.json" | tr ' ' '\n' | LC_ALL=C sort | tr '\n' ' ')" \
@@ -171,7 +172,10 @@ sample=$T/home/sample
 mkdir -p "$sample/live"
 # The state store health reads the planning turns from, with none on record.
 t_store_home "$sample"
-cp "$T_ROOT/preview/live/running.json" "$sample/live/"
+# The cycle that finished last, as the sample shows it; health publishes the
+# view from the store before it reads it.
+t_live "$sample" "$(jq .last.issue "$T_ROOT/preview/live/running.json")" false \
+  "$(jq -r .last.status "$T_ROOT/preview/live/running.json")" review
 # The sample health file was written when its snapshot was: a fresh one.
 jq '.generatedAt = (now | todate)' "$T_ROOT/preview/live/status.json" >"$sample/live/status.json"
 t_run "TEHAS_HOME='$sample' '$T_ROOT/libexec/health'; echo rc=\$?"

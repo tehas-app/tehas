@@ -200,6 +200,6 @@ printf '%s' "$body" | jq --argjson prev "$prev" --argjson now "$now" \
                  | select((.t | type == "number") and (.w | type == "object"))
                  | select(.t > $now - $window and .t <= $now and (.t | slot) != ($now | slot))]
                 + [$sample] | sort_by(.t))
-    }' >"$file.new" 2>/dev/null || { rm -f "$file.new"; exit 1; }
-mv "$file.new" "$file"
+    }' >"$file.$$.new" 2>/dev/null || { rm -f "$file.$$.new"; exit 1; }
+mv "$file.$$.new" "$file" || { rm -f "$file.$$.new"; exit 1; }
 exit 0

@@ -1,92 +1,31 @@
 # shellcheck shell=bash
-# The live view of the cycles: $TEHAS_HOME/live/running.json, read by the
-# factory floor, the plain dashboard, tehasbot health and tehas dev.
+# The live view under $TEHAS_HOME/live, as the factory floor, the plain
+# dashboard, tehasbot health, tehas dev and the MCP server read it:
 #
-# Each cycle writes a file of its own, live/cycles/<issue>.json, every ten
-# seconds: one file cannot have several writers. The view is put together
-# from those files:
+#   cycles/<issue>.json  each running cycle and the one that finished last
+#   running.json         {"cycles": [<each running cycle, oldest first>],
+#                         "last": <the cycle that finished most recently, or null>}
+#   endings.json         the last ten ends, oldest first, each
+#                        {issue, status, step, startedAt, updatedAt}
+#   dispatch.json        the poll's report, when the poll gives it
+#   health.json          tehasbot health's report, when health gives it, and
+#                        health.down while that report says fail
 #
-#   {"cycles": [<each running cycle, oldest first>],
-#    "last": <the cycle that finished most recently, or null>}
+# They have one writer, the state store's publish verb
+# (console/store/src/live.rs). It renders the cycle views from the heartbeats
+# a running cycle records every ten seconds (cycle-heartbeat) and from the
+# ends cycle-end records, holds state/publish.lock while it writes, and puts
+# each file in place by renaming a hidden temp file. A running cycle not heard
+# from for two minutes whose issue lock (state/cycles/<issue>.lock) is free is
+# shown as lost.
 #
-# The files of finished cycles other than the last are removed, so before
-# that each ending is kept in live/endings.json: the last ten, oldest first,
-# each {issue, status, step, startedAt, updatedAt}. tehasbot health reads
-# it, so an ending a later one overtook is still seen.
+#   tehas_live_publish [--dispatch <file>] [--health <file>]
+#       Publishes the views, and the reports given. Returns the store's
+#       status (lib/store.sh): 0 published; otherwise tehas_store_word and
+#       tehas_store_line say why. Tries again while the store is busy.
 #
-#   tehas_live_assemble   write live/running.json; returns 1 if it could not
-#
-# A file that went quiet is lost only when its issue's lock
-# (state/cycles/<issue>.lock, held by tehasbot cycle) is free: a host that
-# stalled for two minutes does not make a running cycle lost.
-#
-# Called by tehas work each time it writes its own file, and by tehasbot
-# health. Two callers at once can leave the view one tick old; the next tick
-# corrects it. Needs TEHAS_HOME.
+# Needs lib/store.sh and TEHAS_HOME.
 
-tehas_live_assemble() {
-  local live=$TEHAS_HOME/live f files=() now marker tmp view issues i lost lock prev endings
-  now=$EPOCHSECONDS
-  for f in "$live"/cycles/*.json; do
-    [ -e "$f" ] || continue
-    # A cycle writes every ten seconds. Two minutes of silence is a cycle
-    # that died without saying so; it must not stay on the page as running.
-    # It ended when it was found, so it counts from now, not from its last
-    # heartbeat. The temporary names start with a dot and end in .new: the
-    # docs server hides those, and the glob above does not match them.
-    lock=${f##*/}
-    lock=$TEHAS_HOME/state/cycles/${lock%.json}.lock
-    if jq -e --argjson now "$now" '.running == true and ((.updatedAt // 0) < $now - 120)' "$f" >/dev/null 2>&1 &&
-      ! { [ -e "$lock" ] && ! flock -n "$lock" true; }; then
-      lost=${f%/*}/.${f##*/}.lost.$$.new
-      if jq -c --argjson now "$now" '.running = false | .status = "lost" | .updatedAt = $now' "$f" >"$lost" 2>/dev/null; then
-        mv "$lost" "$f"
-      else
-        rm -f "$lost"
-      fi
-    fi
-    files+=("$f")
-  done
-  # Nothing written in this shape yet: leave what an earlier version wrote.
-  [ "${#files[@]}" -gt 0 ] || return 0
-  # A file newer than the marker was written after the files were read, so
-  # the view says nothing about it and it is not pruned.
-  marker=$live/.running.$$.mark.new
-  tmp=$live/.running.$$.new
-  view=$live/.running.$$.view.new
-  endings=$live/.endings.$$.new
-  prev=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || prev='[]'
-  [ -n "$prev" ] || prev='[]'
-  : >"$marker"
-  if ! jq -c -s --argjson prev "$prev" '
-      (map(select(.running == true)) | sort_by(.startedAt, .issue)) as $cycles
-      | (map(select(.running != true)) | sort_by(.updatedAt) | last) as $last
-      | {view: {cycles: $cycles, last: $last},
-         prune: (map(select(.running != true and .issue != $last.issue) | .issue)),
-         endings: ($prev + map(select(.running != true) | {issue, status, step, startedAt, updatedAt})
-                   | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | .[-10:])}' \
-      "${files[@]}" >"$tmp" 2>/dev/null; then
-    rm -f "$tmp" "$marker"
-    return 1
-  fi
-  # The endings are written before any file is pruned. A record that
-  # cannot be written leaves the files where they are.
-  if ! jq -c .endings "$tmp" >"$endings" 2>/dev/null || ! mv "$endings" "$live/endings.json"; then
-    rm -f "$tmp" "$endings" "$marker"
-    return 1
-  fi
-  issues=$(jq -r '.prune[]' "$tmp" 2>/dev/null)
-  if ! jq -c .view "$tmp" >"$view" 2>/dev/null || ! mv "$view" "$live/running.json"; then
-    rm -f "$tmp" "$view" "$marker"
-    return 1
-  fi
-  # Only the last finished cycle is shown, so only its file is kept.
-  for i in $issues; do
-    f=$live/cycles/$i.json
-    [ -e "$f" ] || continue
-    [ "$f" -nt "$marker" ] && continue
-    rm -f "$f"
-  done
-  rm -f "$tmp" "$marker"
-  return 0
+tehas_live_publish() {
+  tehas_store_try 3 publish "$@"
 }
