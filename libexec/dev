@@ -286,14 +286,9 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs
 mounts+=(-v "$target_host:$target_container")
 envs+=(-e "CARGO_TARGET_DIR=$target_container")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-mapfile -d '' -t sec < <(tehas_sandbox_security)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
-if ! { [ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] &&
-      tehas_sandbox_security_ok; }; then
-  echo "tehas dev: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting a session" >&2
-  exit 78
-fi
+tehas_sandbox_security_take "tehas dev" "a session" || exit 78
 
 echo "tehas dev: $tree, commits as $who"
 # The running cycles, from the view or from the one object an earlier version wrote.
