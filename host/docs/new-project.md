@@ -102,10 +102,14 @@ socket.
 
 ### 2. What setup asks for
 
-- A GitHub machine account that is a write collaborator on the product
-  repository, and a token for it. Use one bot account per instance: the token
-  enters the cycle's container, so it should reach this product and nothing
-  else. The [bootstrap page](/bootstrap) has the token trap to avoid.
+- The identity the factory acts as on GitHub. Make it [a GitHub App](/github-app),
+  one per factory: its tokens last an hour, reach only the repositories it is
+  installed on, and are renewed by tehas. `tehas setup` itself still takes a
+  token: give it one for the first run (a token of your own account with push
+  access is enough), then move the factory to the app as that page says and
+  remove the token. A machine user (a second account with a token) still works
+  without the app settings, but GitHub can suspend an account that automation
+  drives hard; the [bootstrap page](/bootstrap) has the token trap to avoid.
 - The logins whose labels start work. Never the bot.
 - The model endpoint's address with its `/v1`, and its key if it takes one.
 
@@ -296,7 +300,8 @@ command; see [tehas update](/tools#tehas-update).
 
 The improvement loop reads the cycles that ended and files what could be
 better as issues. Set `TEHAS_IMPROVE_REPO` in `instance.env` to the repository
-those issues go to and give the bot account write access there. A host
+those issues go to and install the factory's app there (or give the bot account
+write access there). A host
 installed before you set it enables the timer by hand with
 `systemctl --user enable --now tehas-improve.timer`. The logs of the cycles it
 files about are published in that repository. See [Operating](/operating).

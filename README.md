@@ -70,7 +70,8 @@ request are the bot's. One step as root lets an account in:
   requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
   a flexible meshed inference platform for both home and enterprise grade hardware.
   The example instance uses it. Any other OpenAI-compatible endpoint works too.
-- A GitHub bot account that can push to the product repository.
+- A GitHub App for the factory, installed on the product repository
+  ([how](host/docs/github-app.md)). A machine user with a token still works.
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.
 
@@ -95,7 +96,7 @@ Then, on the host, from a checkout of this repository:
 ```
 
 `install.sh` checks the settings first and installs nothing if one is missing
-or malformed. The bot account, its token, the sandbox image and the first
+or malformed. The factory's GitHub App, the sandbox image and the first
 issue are covered step by step in
 [A new project](host/docs/new-project.md).
 

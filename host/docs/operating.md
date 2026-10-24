@@ -351,7 +351,7 @@ does. See [Commands](/tools).
 
 ## 4. Review and merge
 
-The pull request comes from the bot account against the product's default
+The pull request comes from the bot (the factory's app or bot account) against the product's default
 branch (in the example, `main`). It has passed the product's fast gate, its
 full gate, its smoke command and pi-rukas's six-pass review, but none of those
 is a human reading the diff. Nothing merges on its own.
@@ -646,7 +646,7 @@ turn fails before that, or is cut off by a restart of the host, there is no
 session to continue: the bot says so, the issue gets `needs-human-attention`,
 and you apply `tehas:plan` again.
 
-The bot account is never one of the allowed labellers. If it is listed in
+The bot (`TEHAS_BOT_LOGIN` with an app, otherwise the token's account) is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
 the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
