@@ -1018,6 +1018,45 @@ epic_ok() {
   return 1
 }
 
+# The loop's own label, and its label for a finding whose fix needs a change on
+# both sides of the factory and pi-rukas. libexec/improve puts the second beside
+# the first, on the two halves of a boundary finding and on any finding whose
+# text names a repository the loop knows of besides the one the issue is filed
+# in, and says in each body which repository has which half. The three names are
+# shared with libexec/improve; test/improve_repos_test.sh names them too.
+loop_label=tehas:improvement
+cross_label=cross-project
+
+# cross_repo_holds <issue> <its labels>: does another repository hold this issue
+# back? The improvement loop labels such a finding cross-project, beside its own
+# label, because a cycle in this repository can make only one half of it. The
+# cycle that takes one reads the text, reads the source it was pinned to, finds
+# the change belongs in a repository this factory has no checkout of, and parks:
+# hours of a slot to rediscover what the label already said, with a comment
+# asking for a person on an issue no cycle here can fix. So the poll starts
+# nothing while both labels stand, and asks GitHub nothing: the labels are read
+# from the ready list this poll already has. As for an epic the issue and its
+# labels stay as they are, so the log line is the whole tell; a comment every two
+# minutes would be its own noise.
+#
+# Only an issue that also carries the loop's own label is held. That label says
+# tehas put cross-project there, which is what makes the pair trustworthy: a
+# cross-project anyone may apply is no reason to hold a person's issue back.
+# A planning session is not held by it: deciding which repository a finding
+# belongs in is what a planning turn is for, and a turn opens no pull request.
+# A refresh takes no path through here, as no refresh carries either label.
+#
+# Call it where a cycle is about to start, after work_ok, on the `tehas:ready`
+# path and on the retry tick of a park question, where the labels are the ones
+# read for the issue. Returns 1 when the issue is held.
+cross_repo_holds() {
+  local n=$1 have=$2
+  [[ $have == *" $cross_label "* ]] || return 0
+  [[ $have == *" $loop_label "* ]] || return 0
+  log "skip #$n: it carries $cross_label and $loop_label, so its fix needs a change in another repository too, and one cycle here cannot make it"
+  return 1
+}
+
 # size_ok <issue> <its labels>: is that number small enough for one cycle? With
 # TEHAS_SIZE_MAX_FILES set on the instance, the body the label approved is
 # measured (lib/sizing.sh) and a body naming more files than the setting names
@@ -2683,6 +2722,9 @@ for n in $asking; do
       # An epic is not a change either: the tick starts nothing, and, as for a
       # hold, the issue and its tick stay as they are for a person.
       epic_ok "$n" || continue
+      # Nor is an issue the loop says needs a change in another repository too:
+      # the tick starts nothing and stays for a person, as an epic's does.
+      cross_repo_holds "$n" "$have" || continue
       # The tick approves the text as it was at that moment, as the label does.
       issue_events "$n"
       unchanged_since "$n" "$(jq -r .tick.at <<<"$ans")" "$by ticked retry" "untick the box and tick it again" || continue
@@ -3074,8 +3116,13 @@ while read -r kind n; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
+  # Asked of the answer work_ok already read, and before every later ask: an
+  # issue whose fix lies in another repository spends no call of its own on the
+  # pull requests, the images or the park that its start would never reach.
   # An epic is a plan, not a change: it never starts a cycle.
   epic_ok "$n" || continue
+  # Nor does one whose fix the loop says lives on the other side too.
+  cross_repo_holds "$n" "$have" || continue
   # With TEHAS_SIZE_MAX_FILES, a body that names too many files is held too.
   # The labels are the ones the poll read from the ready list above.
   size_ok "$n" "$have" || continue
