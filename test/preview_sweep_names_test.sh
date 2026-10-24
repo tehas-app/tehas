@@ -245,7 +245,9 @@ t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
 # The sweep's temporary file was removed on the last line of the sweep, which a
 # signal never reaches. The trap removes what this run made. The sweep is stopped
 # while it waits on the call about one pull request: fx/slow holds that call
-# until fx/go is there, and the file under tmp is what the wait looks for.
+# until fx/go is there, and fx/held is what the wait looks for. Not the file
+# under tmp: it is there a moment before the run remembers it, and a signal in
+# that moment leaves it behind, which a loaded runner hit.
 t_case "a sweep that is stopped partway leaves no temporary file either"
 reset
 stub_gh
@@ -255,15 +257,15 @@ t_run "$preview"
 : >"$fx/slow"
 rm -f "$T"/calls/*
 t_run "$preview --sweep & sweep=\$!
-for _ in \$(seq 100); do
-  ls \"$T/home/tehas/tmp\"/preview-sweep.?????? >/dev/null 2>&1 && break
+for _ in \$(seq 200); do
+  [ ! -e \"$fx/held\" ] || break
   /bin/sleep 0.05
 done
 kill -TERM \"\$sweep\" 2>/dev/null
 : >\"$fx/go\"
 wait \"\$sweep\" 2>/dev/null
 printf 'rc=%s\n' \"\$?\""
-rm -f "$fx/slow" "$fx/go"
+rm -f "$fx/slow" "$fx/go" "$fx/held"
 t_contains "$t_out" "rc=143"
 t_eq "$(count "$root" sweep.json)" 0
 t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 2>/dev/null | wc -l)" 0
