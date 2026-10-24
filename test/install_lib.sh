@@ -91,6 +91,7 @@ files="./.bashrc
 ./tehas/lib/disk.sh
 ./tehas/lib/edge.sh
 ./tehas/lib/fixer.sh
+./tehas/lib/github-app.sh
 ./tehas/lib/headless.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
@@ -106,6 +107,7 @@ files="./.bashrc
 ./tehas/lib/refresh.sh
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
+./tehas/lib/shipped.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
@@ -130,6 +132,7 @@ files="./.bashrc
 ./tehas/libexec/drain
 ./tehas/libexec/energy
 ./tehas/libexec/export
+./tehas/libexec/github-token
 ./tehas/libexec/health
 ./tehas/libexec/history
 ./tehas/libexec/improve
@@ -160,8 +163,10 @@ files="./.bashrc
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
 ./tehas/sandbox/build.sh
+./tehas/sandbox/gh-shim
 ./tehas/sandbox/npm/playwright/package-lock.json
 ./tehas/sandbox/npm/playwright/package.json
+./tehas/shim/gh
 ./tehas/versions.env"
 # The manual and the front page are whole directories; leave them out of the
 # exact comparison and check them separately. So is state/, which is what the host

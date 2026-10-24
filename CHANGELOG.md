@@ -110,10 +110,50 @@ empty one above it.
   `TEHAS_CYCLE_FROM=unit`; a unit file not refreshed is still known by
   systemd's `INVOCATION_ID`.
 
-## v0.11.0 (2026-10-23)
+## v0.11.0 (2026-10-24)
+
+From the default branch. It carries the GitHub App work of v0.10.6 and the
+state store, which nothing reads yet. The rest of epic #244 comes in a later
+release.
 
 ### Changes
 
+- A cycle's container may use every CPU of the host but one, not a fixed
+  share. `--cpu-shares` splits them when several gates run at once. A
+  resource change of the container: its mounts, environment, memory and pids
+  limits do not change.
+- The conflict check runs every `TEHAS_REFRESH_EVERY` minutes (1 to 1440,
+  default 10). `tehas-refresh.timer` fires every minute and `tehasbot
+  refresh` returns at once when its last run is younger than that.
+- Refreshes run in their own lane of `TEHAS_REFRESH_SLOTS` (0 to 8, default
+  1) and no longer count against `TEHAS_TICKET_CONCURRENCY`. The lane keeps
+  a slice slot, so a 4-slot host runs 3 cycles and 1 refresh. `0` keeps the
+  old sharing.
+- The conflict check also refreshes a pull request handed off with
+  `needs-human-attention`, and the refresh clears the handoff.
+- `tehas tidy` adds `tehas:shipped` when a merged pull request closed the
+  issue, not only for the newest closed issues.
+- When free disk falls under `TEHAS_CLEAN_MIN_FREE` (default 30g), `tehasbot
+  clean` removes kept workspaces' build output and Docker's build cache at
+  once instead of waiting for their age.
+- A cycle ended by an abort gets an account in its `err.txt`, as a cycle
+  ended at a cap does, instead of an empty file.
+- The installer and `tehas update` fetch the release asset for the machine's
+  architecture (`uname -m`), and stop before downloading on one they do not
+  know.
+- `tehas setup` takes a GitHub App in place of a token: `--app-id`,
+  `--app-installation` and `--app-key-file`, all three or none. It checks the
+  app's permissions and that it reaches the repository before it writes
+  anything, then installs the key and writes the three settings.
+- Fewer processes per command, for the same results. Loading the settings
+  checks each value in the shell, the commands read the clock from the shell,
+  and `install.sh` leaves the record of steps owed as it is when a copy adds
+  nothing to it. The tests of `install.sh`, the status, the update, planning
+  and the cycle record fork 15 to 44% fewer processes.
+- A release has a `linux-aarch64` tarball beside the `linux-x86_64` one, with
+  its own `.sha256` and `.minisig`. Its programs are static, cross-built on
+  the x86_64 runner. A host on aarch64 cannot run tehas yet: `bootstrap.sh`
+  and the sandbox image are x86_64 only.
 - `install.sh` builds and installs the state store, `~/tehas/libexec/store`,
   and gives it its database: `store init` makes `~/tehas/state/tehas.db` when
   there is none, and every later install runs `store migrate`, which first
@@ -146,6 +186,39 @@ empty one above it.
 - None. The first install after this release makes the database. Old copies
   in `~/tehas/state/backup/` are not removed; remove them by hand when there
   are too many.
+- With `TEHAS_REFRESH_CONFLICTS` on, the refresh lane takes one cycle slot
+  from new cycles. Set `TEHAS_REFRESH_SLOTS=0` to keep the old sharing.
+
+## v0.10.6 (2026-10-24)
+
+A patch release from v0.10.5, not from the default branch: it carries the
+GitHub App work (#639) and nothing of epic #244.
+
+### Changes
+
+- A factory can act as a GitHub App instead of a machine user.
+  `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`
+  name it, all three or none; the key is `~/.config/tehas/github-app.pem`.
+  `tehasbot github-token` makes and keeps its one-hour installation token, and
+  `--check` says whether it reaches the repository.
+- With an app named, the host's `gh` and git act as the app through
+  `~/tehas/shim/gh`, a user `GH_TOKEN` is dropped, and the dispatcher, the
+  refresh and the Protolab take the bot's login from `TEHAS_BOT_LOGIN`.
+- A cycle's container reads the app's token from `~/tehas/state/github`
+  (read-only, never the key) through the image's own `gh`, and `tehas work`
+  keeps the token fresh while the cycle runs. A security change: the container
+  is given one more read-only directory.
+
+### Adopter action
+
+- None for a factory that keeps its machine user: without the three settings
+  nothing changes. The sandbox image is rebuilt by the update.
+- To move to an app: make one as `docs/specs/2026-10-24-github-app.md` says
+  (under "For adopters"), put its key at `~/.config/tehas/github-app.pem` with
+  mode 600, add the three settings to the instance, set git's `user.name` and
+  `user.email` for the tehas user to the app's (`<slug>[bot]` and
+  `<id>+<slug>[bot]@users.noreply.github.com`), and run
+  `tehasbot github-token --check`.
 
 ## v0.10.5 (2026-10-23)
 

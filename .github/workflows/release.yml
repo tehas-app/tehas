@@ -4,12 +4,12 @@
 # it calls is scripts/pack-release.sh and scripts/release-notes.sh, both in the
 # gate; this file is not.
 #
-# Assets of a release vX.Y.Z:
-#   tehas-vX.Y.Z-linux-x86_64.tar.gz           the tarball
-#   tehas-vX.Y.Z-linux-x86_64.tar.gz.sha256    its hash, for sha256sum -c
-#   tehas-vX.Y.Z-linux-x86_64.tar.gz.minisig   its signature
-#   install, install.minisig                   the installer, when the tag
-#                                              has host/release/install
+# Assets of a release vX.Y.Z, for ARCH x86_64 and aarch64:
+#   tehas-vX.Y.Z-linux-ARCH.tar.gz           the tarball
+#   tehas-vX.Y.Z-linux-ARCH.tar.gz.sha256    its hash, for sha256sum -c
+#   tehas-vX.Y.Z-linux-ARCH.tar.gz.minisig   its signature
+#   install, install.minisig                 the installer, when the tag
+#                                            has host/release/install
 #
 # Secrets: MINISIGN_SECRET_KEY, the whole secret key file; MINISIGN_PASSWORD,
 # its password, only when the key has one.
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-      - name: the runner builds for linux x86_64
+      - name: the runner is linux x86_64
         run: |
           [ "$(uname -s) $(uname -m)" = "Linux x86_64" ] || { echo "not a linux x86_64 runner: $(uname -sm)" >&2; exit 1; }
           [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a release tag: $TAG" >&2; exit 1; }
@@ -51,7 +51,16 @@ jobs:
           echo "9a599b48ba6eb7b1e80f12f36b94ceca7c00b7a5173c95c3efc88d9822957e73  $RUNNER_TEMP/minisign.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/minisign.tar.gz" -C "$RUNNER_TEMP" minisign-linux/x86_64/minisign 2>/dev/null
           echo "$RUNNER_TEMP/minisign-linux/x86_64" >> "$GITHUB_PATH"
-      - name: build the console, the analytics program, the MCP server and the store
+      - name: zig and cargo-zigbuild at pinned versions, for the aarch64 build
+        run: |
+          # zig 0.14.1, checked against its hash; cargo-zigbuild 0.20.1 from its lock file.
+          curl -fsSL -o "$RUNNER_TEMP/zig.tar.xz" https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+          echo "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/zig-x86_64-linux-0.14.1" >> "$GITHUB_PATH"
+          cargo install --locked --root "$RUNNER_TEMP/tools" cargo-zigbuild --version 0.20.1
+          echo "$RUNNER_TEMP/tools/bin" >> "$GITHUB_PATH"
+      - name: build the console, the analytics program, the MCP server and the store for x86_64
         run: |
           . host/versions.env
           cargo --version
@@ -61,21 +70,31 @@ jobs:
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" -p console -p analytics -p store
           cargo build --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
             --target x86_64-unknown-linux-musl -p tehas-mcp
-          mkdir -p "$RUNNER_TEMP/programs"
+          mkdir -p "$RUNNER_TEMP/programs/x86_64"
           cp "$target/release/console" "$target/release/analytics" "$target/release/store" \
-            "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/"
-          # An ELF for x86_64 (e_machine 0x3e), whatever the runner's defaults.
-          for p in "$RUNNER_TEMP"/programs/*; do
-            [ "$(od -An -tx1 -j18 -N2 "$p" | tr -d ' ')" = 3e00 ] || { echo "$p is not an x86_64 program" >&2; exit 1; }
-          done
+            "$target/x86_64-unknown-linux-musl/release/tehas-mcp" "$RUNNER_TEMP/programs/x86_64/"
+      - name: build the same four for aarch64, static
+        run: |
+          # A cross build on the x86_64 runner: zig is the C compiler and
+          # linker, so the bundled SQLite builds without an aarch64 toolchain.
+          rustup target add aarch64-unknown-linux-musl
+          target=$RUNNER_TEMP/target
+          cargo zigbuild --release --locked --manifest-path console/Cargo.toml --target-dir "$target" \
+            --target aarch64-unknown-linux-musl -p console -p analytics -p store -p tehas-mcp
+          bin=$target/aarch64-unknown-linux-musl/release
+          mkdir -p "$RUNNER_TEMP/programs/aarch64"
+          cp "$bin/console" "$bin/analytics" "$bin/store" "$bin/tehas-mcp" "$RUNNER_TEMP/programs/aarch64/"
       - name: pack
         run: |
           # No pi-rukas pin: a release follows the line its versions.env names.
-          p=$RUNNER_TEMP/programs
-          TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --console "$p/console" \
-            --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" \
-            --commit "$(git rev-parse HEAD)"
-          (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-x86_64.tar.gz.sha256")
+          # The pack refuses a program whose e_machine is not its --arch.
+          for arch in x86_64 aarch64; do
+            p=$RUNNER_TEMP/programs/$arch
+            TEHAS_PACK_ROOT=$PWD scripts/pack-release.sh "$TAG" "$DIST" --arch "$arch" --console "$p/console" \
+              --analytics "$p/analytics" --mcp "$p/tehas-mcp" --store "$p/store" \
+              --commit "$(git rev-parse HEAD)"
+            (cd "$DIST" && sha256sum -c "tehas-$TAG-linux-$arch.tar.gz.sha256")
+          done
           if [ -f host/release/install ]; then cp host/release/install "$DIST/install"; fi
       - name: sign, and check the signature with the key in the tree
         env:
@@ -87,7 +106,7 @@ jobs:
           key=$(mktemp "$RUNNER_TEMP/key.XXXXXX")
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$MINISIGN_SECRET_KEY" >"$key"
-          for f in "$DIST/tehas-$TAG-linux-x86_64.tar.gz" "$DIST/install"; do
+          for f in "$DIST/tehas-$TAG-linux-x86_64.tar.gz" "$DIST/tehas-$TAG-linux-aarch64.tar.gz" "$DIST/install"; do
             [ -f "$f" ] || continue
             # A key with a password reads it from standard input; one without
             # reads nothing.

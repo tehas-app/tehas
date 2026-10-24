@@ -330,6 +330,23 @@ followed by the next poll two minutes later. What a failed poll cost is the
 work it did not do, not the queue. Read `~/tehas/logs/dispatch.log` for the
 error and `systemctl --user status tehas-dispatch.service` for its exit status.
 
+## Every poll fails with `ERROR: gh repo view failed`
+
+The dispatcher cannot reach the repository at all. Ask GitHub as the factory
+does: `. ~/tehas/env.sh; gh api repos/<owner>/<name> --jq .full_name`.
+
+- `Sorry. Your account was suspended` (403): GitHub suspended the bot's user
+  account. Everything it wrote is hidden until it is reinstated, and its token
+  does nothing. Pause the factory (`tehas pause`), move it to [a GitHub
+  App](/github-app), and take the old account off the repository. Cycles that
+  were running keep their commits in `~/tehas/work/<name>-<n>` but could not
+  push: apply `tehas:ready` to them again once the factory runs.
+- `Bad credentials` (401): the token in `~/.config/tehas/env` expired or was
+  revoked. With an app, run `tehasbot github-token --check`: it says whether
+  the key, the installation and the repository are right.
+- With an app, `the GitHub App's key is not readable`: the key is not at
+  `~/.config/tehas/github-app.pem`, or not readable by the tehas user.
+
 ## The dispatcher holds on the slice
 
 `tehas status` says `warn` and its `slice` line starts with `holding:`. No
@@ -818,7 +835,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | `failed: the analyst ended with 124 at its bound of 60 minutes` | The model took too long for the records it was given and left no file that passes the check; the line says which. The next run takes half as many, as the line says. What it printed is in the file the line names. The records wait |
 | `failed: the analyst ended with ...` | Pi or the model. What it printed is in the file the line names, `~/tehas/logs/improve-analyst-<stamp>.log`. The records wait |
 | `failed: findings.json is not the shape asked for`, or `left no findings.json` | The model did not write the file it was asked for. Its output is in the same file. The records wait |
-| `failed: GitHub refused an issue` | The bot account cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
+| `failed: GitHub refused an issue` | The bot (the app or bot account) cannot write to that repository. Issues filed before the refusal are named; the records wait, so a later run may file the same finding again under another title |
 
 A run that failed kept its records, and every later run reads them again until
 one succeeds or they are seven days old. A run reads at most five, the oldest

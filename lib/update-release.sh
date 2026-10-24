@@ -11,6 +11,8 @@
 #   tehas_release_installed          the version current points at, or nothing
 #   tehas_release_checkout_tag <dir> the newest vX.Y.Z tag at or before the
 #                                    checkout's HEAD, or nothing
+#   tehas_release_arch               x86_64 or aarch64 for this machine, or 1
+#                                    when uname -m names another
 #   tehas_release_list               the published releases, newest first, as
 #                                    JSON lines {tag, body}
 #   tehas_release_between <from> <to> <list>
@@ -33,7 +35,38 @@
 tehas_release_api_limit=60
 tehas_release_download_limit=600
 
-tehas_release_tarball() { printf 'tehas-%s-linux-x86_64.tar.gz\n' "$1"; }
+# The architecture in the name of the asset this machine downloads, and the
+# machine's own answer read through a function of its own: a case can have uname
+# fail without taking the other tools of this host's PATH away with it. Releases
+# are published for linux x86_64 and aarch64 only, so a machine whose uname -m
+# says anything else stops here, with the words it answered, before a download.
+# arm64 is what macOS and some container ports answer for aarch64.
+tehas_release_machine() { uname -m 2>/dev/null; }
+
+tehas_release_arch() { # [machine, as uname -m answers it]
+  local machine=${1:-} arch=""
+  [ -n "$machine" ] || machine=$(tehas_release_machine)
+  case "$machine" in
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=aarch64 ;;
+  esac
+  if [ -z "$arch" ]; then
+    # The machine is named as uname answered it, or as the caller named it.
+    tehas_err "this machine has no tehas release to download: releases are published for x86_64 and aarch64, and uname -m says ${machine:-nothing}"
+    return 1
+  fi
+  printf '%s\n' "$arch"
+}
+
+# The name of the asset, which needs the architecture, so a machine with none is
+# refused here: tehas update asks this before it makes the download directory.
+# With no machine given, the asset of the one this run is on; with one, that
+# machine's, which is how a caller checks the name without a stub of uname.
+tehas_release_tarball() { # <tag> [machine]
+  local arch
+  arch=$(tehas_release_arch "${2:-}") || return 1
+  printf 'tehas-%s-linux-%s.tar.gz\n' "$1" "$arch"
+}
 tehas_release_tag_ok() { [[ ${1:-} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
 
 # git while the host updates from its platform checkout, release once it runs

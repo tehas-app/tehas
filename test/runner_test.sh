@@ -629,4 +629,35 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "nothing could be checked"
 t_lacks "$t_out" "failed checks"
 
+t_case "paths given run only the test files among them and lint only those"
+fresh
+fake a_test.sh 0
+fake b_test.sh 1
+mkdir -p "$repo/lib"
+printf 'true\n' >"$repo/lib/one.sh"
+printf 'true\n' >"$repo/lib/two.sh"
+t_stub shellcheck 'exit 0'
+t_run "cd '$repo' && bash runner/runner.sh test/a_test.sh ./lib/one.sh host/docs/x.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ran a_test.sh line 1"
+t_lacks "$t_out" "b_test.sh"
+t_contains "$t_out" "1 files"
+t_eq "$(t_calls shellcheck | sort)" "-x $repo/lib/one.sh
+-x $repo/test/a_test.sh"
+
+t_case "a test file given that does not exist is exit 2"
+fresh
+fake a_test.sh 0
+t_run "cd '$repo' && bash runner/runner.sh test/gone_test.sh"
+t_eq "$t_rc" 2
+t_contains "$t_out" "no test file test/gone_test.sh"
+
+t_case "paths given with nothing to test or lint among them pass"
+fresh
+fake a_test.sh 0
+t_run "cd '$repo' && bash runner/runner.sh host/docs/x.md"
+t_eq "$t_rc" 0
+t_contains "$t_out" "no test file and no linted script among the paths given"
+t_lacks "$t_out" "ran a_test.sh"
+
 t_done

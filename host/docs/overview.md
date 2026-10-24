@@ -67,7 +67,8 @@ for what a finding does and what a cycle may defer.
 
 ## What is optional
 
-tehas needs a host, a product repository, a bot account and any
+tehas needs a host, a product repository, a [GitHub App](/github-app) (or a
+bot account) and any
 OpenAI-compatible model endpoint. Everything in this table can be left out, and
 the factory works the same without it.
 

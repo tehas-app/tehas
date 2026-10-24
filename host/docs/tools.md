@@ -79,11 +79,17 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_FIXER_LOGIN`             | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no fixer |
+| `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
+| `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
+| `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
 | `TEHAS_FIXER_MAX_RETRIES`       | `2`                                      | How many cycles the fixer may start on one issue since a person last approved it |
 | `TEHAS_FIXER_MAX_PLAN_ANSWERS`  | `3`                                      | How many planning questions the fixer may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
+| `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
+| `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_CLEAN_MIN_FREE`          | `30g`                                    | Free disk space below which `tehasbot clean` takes the build output of a kept workspace and Docker's build cache whatever their age, instead of waiting for `TEHAS_CLEAN_AFTER` hours: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read changes nothing, and a lock a cycle holds is never removed under. Host scratch and the old images keep the age. It sits above `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles. A size such as `512m` or `30g`, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
@@ -91,7 +97,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's CPU quota is the host's CPUs less one over this, counted at most 4. Lower it when the model backends cannot serve this many cycles; nothing measures that |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most 4; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
@@ -281,12 +287,30 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:ready` and `tehas:plan`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
 `tehas:next`, `tehas:prototype`). It makes one search, for the closed issues
-that carry one of those labels, up to 100 a poll, the most recently updated
+that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
-one edit and logs `tidy #N: removed <labels>`. An open issue is never
-touched, and a closed one whose cycle still holds its lock on this host waits
-for that cycle. A dry run passes `--dry-run` and logs `tidy #N: would remove
-<labels>` instead. A search that fails, times out or cannot be read is logged
+one edit and logs `tidy #N: removed <labels>`. The names it takes off are the
+state labels above and no others, whatever the search sent back. An open issue is
+never touched, and a closed one whose cycle still holds its lock on this host
+waits for that cycle. The control issue `TEHAS_CONTROL_ISSUE` names is left out
+of every edit: it is not work, whatever label it carries. To the issues it tidies
+that do not carry `tehas:shipped` it adds the label, in the same edit, when the
+last closed event of the issue is a merged pull request: one further GraphQL
+search a poll answers that for all of them at once, and only when there is a
+label to give, and it is the same read
+[tehasbot status](#tehasbot-status-and-the-console) makes (`lib/shipped.sh`).
+The search is asked about at most a hundred issues, the page of that read: past
+it an issue is not named and keeps its labels for a later poll. An issue whose
+closer the read answered as a person, an unmerged pull request, or nothing at
+all, keeps no label: the state labels still come off and the line says
+`WARN: tidy #N: no merged pull request was read as the closer, tehas:shipped was
+not added`. When the read itself failed or timed out, that line is said once for
+the whole poll as `WARN: tidy: the read of what closed these issues failed,
+tehas:shipped was not added for N issues`, so a search GitHub refused reads
+differently from a factory that shipped nothing. A dry run passes `--dry-run` and
+logs `tidy #N: would remove <labels>` instead, and `would add tehas:shipped` for
+the label it would give.
+A search that fails, times out or cannot be read is logged
 as `WARN: tidy: the search for closed issues with state labels failed`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
 neither stops the poll.
@@ -620,7 +644,7 @@ Four inputs are this command's, whatever the instance says:
 | `PI_ENSEMBLE_HANDOFF_CHANNEL` | `host` | pi-rukas posts no handoff comment and applies no label. `tehasbot cycle` posts the one comment of the park from the result's handoff, and labels the issue |
 | `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS` | `480000`, 8 minutes | The handoff allowance: the time the cycle's handoff may take. It is the one allowance tehas and pi-rukas share. The deadline's margin holds it, so the handoff is written before the container is stopped, not as it is stopped |
 | `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. When the image's `--capabilities` answer has the feature `cycleDeadlineHandoffAllowance`, its runner bounds every step by the deadline, and the margin is the handoff allowance alone: with the default limit the deadline is 5 h 52 min in. Otherwise the margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and the handoff allowance when that is longer: a step that started before the deadline may run past it, and the handoff comes after that step. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
-| `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's quota and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
+| `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's share and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
@@ -717,8 +741,8 @@ file.
 
 The container runs in `tehas.slice` and gets the bot token and the
 `PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
-swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of its share of the
-host's CPUs, a pids limit that follows the quota, a CPU weight and an init, and
+swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of the host's CPUs less
+one, a pids limit that follows its share of them, a CPU weight and an init, and
 no Docker socket or SSH keys. git inside it is given the
 bot's identity and a credential helper that reads the token, through
 environment-level configuration; before a cycle starts, a dry-run push proves
@@ -1296,6 +1320,7 @@ exit 78.
 | `--repo <owner/name>` | The product repository |
 | `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
 | `--token-file <file>` or `-` | The bot's token, from a file or standard input. There is no option that takes the token itself, so it is never on a command line or in the shell's history |
+| `--app-id <id>`, `--app-installation <id>`, `--app-key-file <file>` | The [GitHub App](/github-app) the factory acts as, in place of a token: the app's ID, its installation's ID and its private key. All three or none, and not with `--token-file`, else exit 64 |
 | `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
 | `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
 | `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
@@ -1309,13 +1334,28 @@ In order, stopping at the first step that fails:
 1. It checks that the token can push to the repository
    (`gh api repos/<repo>` answers `push: true`) and that the endpoint offers
    the model, then makes the control issue. Nothing is written before these.
+   With an app it makes a token from the given key instead and checks that
+   the token's permissions have `contents`, `issues` and `pull_requests` at
+   `write` and that the installation lists the repository
+   (`GET /installation/repositories`). It reads the app's slug (`GET /app`)
+   and the ID of its bot, `<slug>[bot]` (`GET /users/<slug>[bot]`). A check
+   that fails stops the run with 1 and nothing written. The token is kept in
+   no file.
 2. It writes the instance directory (`~/.config/tehas`, or the one
    `~/.config/tehas/instance-dir` names): `instance.env` with the five required
    settings and nothing else, and `models.json` with the provider's `api`,
    `baseUrl`, `apiKey` and the model's `id`. The token goes in
    `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
+   With an app there is no `GH_TOKEN`: the key is installed at
+   `~/.config/tehas/github-app.pem`, mode 600, and `instance.env` gets
+   `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and
+   `TEHAS_BOT_LOGIN=<slug>[bot]`. Another key or other app settings are
+   replaced only with `--force`. From here `gh` runs through `~/tehas/shim/gh`,
+   which reads the app from these files.
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
+   With an app the login is `<slug>[bot]` and the ID the one step 1 read,
+   because an installation token cannot ask `/user`.
    It gives git `gh`'s credential helper for `github.com`
    (`gh auth setup-git --hostname github.com`) when git has none, which is what
    lets plain git read a private product's remote: the clone in step 4 and the
@@ -1832,6 +1872,7 @@ tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
+tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 ```
 
 The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
@@ -1966,8 +2007,10 @@ nor the dispatcher removes it.
 The pull request is looked up in every state. One that a person merged while
 the cycle ran ends the cycle as merged, whatever the result says: the
 issue only loses `tehas:running`, the comment says the pull request was merged
-while the cycle ran, nothing is parked, and [tehasbot status](#tehasbot-status-and-the-console)
-labels the closed issue `tehas:shipped`. One that a person closed without
+while the cycle ran, nothing is parked, and the tail of every poll,
+[`tehas tidy`](#tehas-dispatch), and
+[tehasbot status](#tehasbot-status-and-the-console)
+label the closed issue `tehas:shipped`. One that a person closed without
 merging gets `needs-human-attention` and a plain comment that says so, without
 the retry boxes: to try again, apply `tehas:ready`.
 
@@ -2071,18 +2114,24 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
-left with. `planning` is a count, not a list: the open issues labelled
+left with: the query and the acceptance rule are `lib/shipped.sh`'s, the ones
+`tehas tidy` reads too, so the two commands cannot disagree on what a merge
+closed. `tehasbot status` gives each issue its read finds shipped the label;
+`tehas tidy` is the one that logs the read, and both leave the control issue
+unlabelled. The read of the list goes under the same 60 seconds as the count
+below; one that times out or is refused writes no snapshot, and the file of the
+run before stays. `planning` is a count, not a list: the open issues labelled
 `tehas:plan` or `tehas:planning`, found by the same search as the lists. `completedCount`
 is also a count, not a list: a whole number from 0 of the closed issues that
 carry `tehas:shipped`, counted by a search of its own, so it keeps rising past
-the fifty `completed` holds. The figure of the Shipped stage of the business
+the hundred `completed` holds. The figure of the Shipped stage of the business
 layout is that count where the file has one, and the length of the list where
 it has none. The call for that count may take 60 seconds, the same limit the
 platform reads go under; a call that fails or runs out of time leaves the key
 out of the snapshot. The key is absent whenever the search gave no such number, so
 absence is not zero: a reader cannot tell a factory that shipped nothing from
 one whose search could not be read. `tehasbot status` gives each such issue `tehas:shipped`, so GitHub
-lists the same issues; run `tehas labels` once so the label exists. The control
+lists the same issues, and `tehas tidy` gives it too, from the same read; run `tehas labels` once so the label exists. The control
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
@@ -2601,11 +2650,56 @@ tail ~/tehas/logs/refresh.log
 Finds the factory's own pull requests that conflict with the branch and
 writes a request for each, `~/tehas/state/refresh/<issue>.json`, for the
 dispatcher to start (see [refreshes](/operating#refreshes)). Deterministic, no
-model, no container. `tehas-refresh.timer` runs it once an hour, the first
-time 15 minutes after boot. With `TEHAS_REFRESH_CONFLICTS` other than 1 it
-exits 0 at once and calls nothing. Exit 1 when a call to GitHub fails: no
+model, no container. `tehas-refresh.timer` starts it every minute, the first
+time 15 minutes after boot, and a run goes ahead only when the last one began
+`TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
+written as a run begins, so a failed run counts too). With
+`TEHAS_REFRESH_CONFLICTS` other than 1, or inside the interval, it exits 0 at
+once and calls nothing. Exit 1 when a call to GitHub fails: no
 request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
+
+## tehasbot github-token
+
+```
+tehasbot github-token           # print the app's token
+tehasbot github-token --check   # when it runs out, and whether it reaches TEHAS_REPO
+```
+
+Makes the installation token of the GitHub App named by `TEHAS_GITHUB_APP_ID`,
+`TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`. It signs a JSON Web
+Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
+given to a container), and exchanges it at GitHub for a token that lasts an
+hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
+again when fewer than 10 minutes are left; one command makes it at a time.
+Without `--check` it prints the token and nothing else. `--check` prints the
+app, the installation, the bot's login, when the token runs out and whether the
+installation reaches `TEHAS_REPO`, and never the token.
+
+With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
+first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every
+call and runs `~/tehas/bin/gh`, so a command that runs for hours never holds an
+expired token. git's github.com credential helper is pointed at the same shim,
+as environment-level config (no file is written), and a `GH_TOKEN` left in
+`~/.config/tehas/env` is dropped so nothing acts as the user it belongs to. The
+dispatcher, the refresh and the Protolab take the bot's login from
+`TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
+
+A cycle's container is given `~/tehas/state/github` read-only at
+`/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
+before `/usr/bin/gh` on its `PATH`) reads the token there at every call, and
+git's helper asks that `gh`. While the container runs, `tehas work` asks for a
+fresh token every 5 minutes, so a cycle of any length pushes and comments as
+the app. The container's `GH_TOKEN` is the token it started with; a program in
+it that reads `GH_TOKEN` itself, not through `gh`, has that token for its first
+hour only.
+
+GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
+where tehas compares a GraphQL author with the bot it drops the `[bot]`.
+
+Exit 0 a token or a check that passed; 1 no token could be had, or it does not
+reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
+missing, malformed or name no app.
 
 ## tehasbot clean
 
@@ -2619,7 +2713,18 @@ journalctl --user -u tehas-clean
 
 Removes what the host can make again, of anything untouched for
 `TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
-is logged as a warning while the others still run:
+is logged as a warning while the others still run. One exception to the age:
+when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
+system of `~/tehas` or on the one Docker keeps its images on, whichever has
+less, steps 1 and 2 take build output and the build cache whatever their age -
+step 2 with `until=0h`, which prunes the whole cache - and the run opens with
+the line `clean: low on disk: <n> GiB free, under TEHAS_CLEAN_MIN_FREE=<value>:
+build output and build cache go whatever their age`. Steps 3, 4 and 5 keep the
+age, the free figure is read once for the whole run, and a figure that cannot
+be read changes nothing. The lock rule is not relaxed: a workspace whose lock a
+cycle holds is left alone low on disk or not. It sits above
+`TEHAS_CYCLE_MIN_FREE`, so the cleaner frees space before the poll stops
+starting cycles:
 
 1. **Build output in kept workspaces.** For each issue with a kept workspace
    (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
@@ -2664,7 +2769,8 @@ is logged as a warning while the others still run:
    directory under `~/tehas/dev` for build-output names, and that tree is a
    person's call (see [tehas dev](#tehas-dev)).
 2. **Docker's build cache** of that age, with `docker builder prune -f --filter
-   until=<N>h`. This is the build cache of the whole host's Docker daemon: tehas
+   until=<N>h`, or `until=0h` for the whole cache when the host is low on disk.
+   This is the build cache of the whole host's Docker daemon: tehas
    is one project on one host, and the cache of anything else on it is made
    again too. The next sandbox build is slower after a prune. No image and no
    volume is removed.
@@ -2985,14 +3091,36 @@ has no `previews.json` and no such section.
 ## The gates (run by the cycle, usable by hand)
 
 A product names its gates in `.pi/verify-cmd`, `.pi/verify-cmd-full` and
-`.pi/smoke-cmd`: the first line that is not empty or a comment is the command.
-Run them by hand from the root of a clone of the product. For the example
-product:
+`.pi/smoke-cmd`, and may name a developer's gate in `.pi/verify-cmd-fast`: the
+first line that is not empty or a comment is the command. Run them by hand
+from the root of a clone of the product. For the example product:
 
 ```
-scripts/verify.sh          # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --changed  # developer's: the lint, then shellcheck and the tests of what the change touched
+scripts/verify.sh            # fast: the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
+
+`.pi/verify-cmd-fast` is `scripts/verify.sh --changed`. pi-rukas tells a
+cycle's developer to run that command and not `.pi/verify-cmd`, and its driver
+runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
+consolidated tree and the base commit. So the whole gate still runs before a
+pull request opens, and CI runs it again.
+
+`--changed` takes the paths changed since the merge base with `origin/main`,
+uncommitted and untracked files included, and hands them to
+`scripts/select-tests.sh`. A changed test file runs itself; another path runs
+the test files that name it (`libexec/update`, `tehas update`, a test file
+named `update_*`), and a path under `console/` also runs the workspace's tests.
+The heavy integration files, `test/install_*`, `test/update_*`,
+`test/pack_release_test.sh` and `test/bootstrap_test.sh`, run only when the
+change touches what they test directly, and a `note` line names the ones left
+to the whole gate. A change to `test/lib.sh`, `scripts/test.sh`,
+`scripts/verify.sh` or the selector, a path no test names, or a checkout
+without `origin/main` runs the whole gate. Records under `docs/` and the
+top-level notes that no test names need no test. The selection is by name, so
+a test that builds a file's name at run time is missed: the whole gate after it
+is what catches that.
 
 When the shellcheck step refuses a file, the severity floor it runs at and the
 one suppression it accepts are under
@@ -3036,8 +3164,12 @@ version to move to.
 
 `tehas update` and `tehas update --to vX.Y.Z` then:
 
-1. download `tehas-<version>-linux-x86_64.tar.gz`, its `.sha256` and its
-   `.minisig`, unless that version is still on the host;
+1. download `tehas-<version>-linux-<arch>.tar.gz`, its `.sha256` and its
+   `.minisig`, unless that version is still on the host. `<arch>` is the
+   architecture `uname -m` answers, `x86_64` or `aarch64`, with `amd64` and
+   `arm64` read as those. A machine whose `uname -m` says anything else has no
+   release to download and stops with the words it answered, before anything is
+   fetched;
 2. check the tarball against the `.sha256` and the signature against
    `~/tehas/release/minisign.pub`, the key `install.sh` installed, never a key
    in the download. A download that fails either check is not unpacked. With
@@ -3351,6 +3483,11 @@ puts in `libexec`, packed as `libexec/analytics`, `libexec/tehas-mcp` and
 `install.sh` makes and migrates the host's database with the store, so a
 tarball without it installs only on a host that has one.
 
+`--arch` names the architecture the release is for, `x86_64` (the default) or
+`aarch64`, and nothing else is accepted: it is the middle of the tarball's name
+and it says which e_machine every program given has to have, so a console built
+for the other one is refused before anything is packed.
+
 `--commit` is the commit of tehas the tree is, written to a `COMMIT` file. A
 tree with no git has no other way to say it, the store records it in the
 database, and `install.sh` refuses a tree whose commit it cannot read. It is
@@ -3364,16 +3501,21 @@ one, so a workflow that checks a tag out into its own workspace points the
 script at the checkout rather than at the runner's copy of the script. It reads
 that tree and its arguments and nothing else: no network, no git, no cargo. It
 builds no console of its own; the workflow compiles it for linux x86_64 and
-hands the binary over, which is why the pack script needs no toolchain.
+aarch64 and hands the binaries over, which is why the pack script needs no toolchain. Which
+architecture the binaries are is read from the programs themselves, from the
+two bytes of e_machine at offset 18 of each ELF header, so a release is not
+packed on what whoever ran the workflow believed.
 
 Usage, the list of what is packed and the exit statuses are the script's: run
-`scripts/pack-release.sh --help`. Two of them matter to the workflow that calls
+`scripts/pack-release.sh --help`. Three of them matter to the workflow that calls
 this one: half a pin is a bad argument (64), a pin whose value has the wrong
-shape is a failure (1), and the two are gated differently. A pin of either shape
+shape is a failure (1), and the two are gated differently; so is a program built
+for the other architecture, a failure too (1), since the argument itself is
+never wrong. A pin of either shape
 is written to `versions.env` in lower case, so a value `git rev-parse` or a
 registry gave in upper case is accepted.
 
-What it writes is `tehas-<tag>-linux-x86_64.tar.gz` and one `.sha256` file
+What it writes is `tehas-<tag>-linux-<arch>.tar.gz` and one `.sha256` file
 beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
@@ -3470,12 +3612,15 @@ with no such tag it is shown every release.
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
 organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
-build --release --locked`, checks each is an x86_64 program, resolves the pins, runs
-the pack command above, signs the tarball and `host/release/install` (when the
-tag has one) with minisign, checks both signatures against
-`host/release/minisign.pub`, and publishes the release with the tarball named
-above, its `.sha256` and `.minisig` beside it, and `install` with
-`install.minisig`.
+build --release --locked` for x86_64, and all four again for aarch64, static
+with musl, with `cargo zigbuild` (0.20.1) and zig 0.14.1, a cross build on the
+x86_64 runner with zig as the C compiler and linker. It runs the pack command
+above once for each architecture (it refuses any program whose e_machine is
+not the one its `--arch` promises), signs both tarballs and
+`host/release/install` (when the tag has one) with minisign, checks every
+signature against `host/release/minisign.pub`, and publishes the release with
+the two tarballs named above, each with its `.sha256` and `.minisig` beside it,
+and `install` with `install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
 The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret
@@ -3494,7 +3639,11 @@ downloads:
 curl -fsSL https://github.com/tehas-app/tehas/releases/latest/download/install | sudo sh -s -- boss
 ```
 
-It downloads the newest release (or `--version vX.Y.Z`), checks the `.sha256`
+It downloads the newest release (or `--version vX.Y.Z`) of this machine: the
+asset is `tehas-<version>-linux-<arch>.tar.gz`, `<arch>` the architecture
+`uname -m` answers, `x86_64` or `aarch64`, with `amd64` and `arm64` read as
+those. A machine whose `uname -m` says anything else stops before anything is
+downloaded, with the words it answered. It checks the `.sha256`
 and the signature with the key written into the script, which
 `test/release_install_test.sh` keeps equal to `host/release/minisign.pub`, and
 unpacks it. It installs `minisign` with apt-get when the host has none. It runs
@@ -3628,7 +3777,7 @@ The checks of the platform itself. Run from the platform checkout; it is not
 installed on a host.
 
 ```
-scripts/test.sh
+scripts/test.sh [path...]
 ```
 
 It runs shellcheck over the shell scripts, one process per file, together with
@@ -3650,6 +3799,12 @@ it builds. The tests of the commands that run the store (`test/dispatch_*`,
 their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. A
 test file run alone builds the store itself, into the same directory.
+
+With paths, relative to the root of the checkout, only those run: the test
+files among them and the lint of those of them it lints anyway. A test file
+named that does not exist stops it with 2; paths with nothing to test or lint
+among them pass with a line that says so. `scripts/verify.sh --changed` calls
+it this way.
 
 Each task is stopped after `TEHAS_TEST_FILE_TIMEOUT` seconds (300 by default)
 and counts as a failure, named with `timed out`. A file that hangs therefore

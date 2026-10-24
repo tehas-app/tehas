@@ -2,13 +2,18 @@
 # Find the factory's own pull requests that conflict with the branch, and ask
 # the dispatcher to refresh them.
 #
-# Deterministic, no model, no container. tehas-refresh.service runs it once an
-# hour from tehas-refresh.timer. With TEHAS_REFRESH_CONFLICTS other than 1 it
-# exits 0 at once and calls nothing.
+# Deterministic, no model, no container. tehas-refresh.timer starts
+# tehas-refresh.service every minute, and a run goes ahead only when the last
+# one began TEHAS_REFRESH_EVERY minutes ago or more: the time it began is in
+# $TEHAS_HOME/state/refresh/last-run, in seconds. A run that fails counts, so
+# a GitHub that does not answer is asked again only after the interval. With
+# TEHAS_REFRESH_CONFLICTS other than 1, or inside the interval, it exits 0 at
+# once and calls nothing.
 #
 # It lists the open pull requests of TEHAS_REPO and keeps the bot's that close
-# exactly one open issue carrying tehas:awaiting-merge, not the control issue,
-# and are the only open pull request that closes it; whose branch is in the
+# exactly one open issue carrying tehas:awaiting-merge or, after a handoff,
+# needs-human-attention, and not tehas:running, not the control issue, and are
+# the only open pull request that closes it; whose branch is in the
 # repository and that are no draft (lib/refresh.sh). Of those, the ones GitHub
 # says are CONFLICTING get a request, $TEHAS_HOME/state/refresh/<issue>.json:
 # {at, pr, head_sha, base_sha}. A request for the same pull request at the
@@ -56,12 +61,24 @@ dir=$(tehas_refresh_dir)
 logfile=$TEHAS_HOME/logs/refresh.log
 mkdir -p "$dir" "$TEHAS_HOME/logs"
 
+# A stamp from the future, as after the clock was set back, does not hold runs
+# off for good.
+now=$(date +%s)
+last=$(cat "$dir/last-run" 2>/dev/null) || last=""
+if [[ $last =~ ^[0-9]{1,12}$ ]] && [ "$last" -le "$now" ] && [ $((now - last)) -lt $((TEHAS_REFRESH_EVERY * 60)) ]; then
+  exit 0
+fi
+{ printf '%s\n' "$now" >"$dir/last-run.new" && mv "$dir/last-run.new" "$dir/last-run"; } 2>/dev/null ||
+  printf '%s WARN: could not write %s\n' "$(date -u +%FT%TZ)" "$dir/last-run" >>"$logfile"
+
 fail() {
   printf '%s ERROR: %s\n' "$(date -u +%FT%TZ)" "$1" | tee -a "$logfile" >&2
   exit 1
 }
 
-bot=$(gh api user --jq .login 2>/dev/null) || bot=""
+# A GitHub App's token cannot ask GET /user, so an app's login is the setting.
+bot=${TEHAS_BOT_LOGIN:-}
+[ -n "$bot" ] || bot=$(gh api user --jq .login 2>/dev/null) || bot=""
 [ -n "$bot" ] || fail "the bot's own login could not be read"
 prs=$(gh api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -f query="$(tehas_refresh_query)" 2>/dev/null) ||
   fail "GitHub did not list the open pull requests of $repo"

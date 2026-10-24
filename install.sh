@@ -430,6 +430,8 @@ jq '
 
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
+  # gh as the GitHub App, first on PATH when the instance names one (env.sh).
+  "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
@@ -449,6 +451,7 @@ files=(
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/edge.sh|$TEHAS_HOME/lib/edge.sh|644"
   "lib/headless.sh|$TEHAS_HOME/lib/headless.sh|644"
+  "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
   "lib/sandbox.sh|$TEHAS_HOME/lib/sandbox.sh|644"
   "lib/slice.sh|$TEHAS_HOME/lib/slice.sh|644"
@@ -463,6 +466,8 @@ files=(
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
+  # What closed an issue: the closer read tehasbot status and tehas tidy share.
+  "lib/shipped.sh|$TEHAS_HOME/lib/shipped.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -473,6 +478,7 @@ files=(
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
+  "sandbox/gh-shim|$TEHAS_HOME/sandbox/gh-shim|755"
   "sandbox/npm/playwright/package.json|$TEHAS_HOME/sandbox/npm/playwright/package.json|644"
   "sandbox/npm/playwright/package-lock.json|$TEHAS_HOME/sandbox/npm/playwright/package-lock.json|644"
   "edge/docs.Caddyfile|$TEHAS_HOME/edge/docs.Caddyfile|644"
@@ -506,7 +512,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh resume setup status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a

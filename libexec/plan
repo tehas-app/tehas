@@ -166,6 +166,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/cycles.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
+# shellcheck source=lib/github-app.sh
+. "$here/../lib/github-app.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
 tehas_sandbox_settings_ok || exit 78
@@ -204,6 +206,7 @@ images_inside=$repo.images
 # PI_ENSEMBLE_PLAN_SESSION_DIR is unset, which is how it is left here.
 sessions=$tree/.git/pi-plan-sessions
 
+tehas_github_env || { echo "tehas plan: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
 
@@ -442,13 +445,13 @@ docker run --rm --init --name "$name" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" "${run[@]}" </dev/null >"$doc" 2>"$log" &
 pid=$!
-started=$(date +%s)
+started=$EPOCHSECONDS
 trap 'docker stop -t 10 "$name" >/dev/null 2>&1' TERM INT
 echo "tehas plan: issue $issue turn started, log $log"
 
 timed_out=0
 while kill -0 "$pid" 2>/dev/null; do
-  if [ $(($(date +%s) - started)) -ge "$limit" ]; then
+  if [ $((EPOCHSECONDS - started)) -ge "$limit" ]; then
     echo "tehas plan: time limit of ${limit}s passed"
     timed_out=1
     docker stop -t 20 "$name" >/dev/null 2>&1
@@ -527,4 +530,4 @@ if ! jq --arg session "$sid" '{session: $session, text, question} + (if .filed =
   echo "tehas plan: could not write $out" >&2
   exit 2
 fi
-echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$(($(date +%s) - started))"
+echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$((EPOCHSECONDS - started))"

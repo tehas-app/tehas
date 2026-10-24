@@ -523,8 +523,11 @@ t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:ques
 
 t_case "a failing or hanging analytics changes nothing in the turn"
 to_plan
+# The start comment names the minute: two runs either side of one differ
+# only there.
+gh_calls() { t_calls gh | sed -E 's/ at [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} UTC/ at <time> UTC/'; }
 t_run "$dispatch"
-without_gh=$(t_calls gh)
+without_gh=$(gh_calls)
 without_record=$(rec | jq -c 'del(.startedAt)')
 for body in 'exit 70' 'exec sleep 30'; do
   to_plan
@@ -533,7 +536,7 @@ for body in 'exit 70' 'exec sleep 30'; do
   t_run "$dispatch"
   t_eq "$t_rc" 0
   t_contains "$t_out" "WARN analytics plan: exit"
-  t_eq "$(t_calls gh)" "$without_gh"
+  t_eq "$(gh_calls)" "$without_gh"
   t_eq "$(rec | jq -c 'del(.startedAt)')" "$without_record"
 done
 

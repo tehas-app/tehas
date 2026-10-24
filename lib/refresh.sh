@@ -13,7 +13,9 @@
 #                                 the same fields, as variable $number
 #   tehas_refresh_rule            print a jq definition, `refresh_why`: of one
 #                                 pull request node, why it is not one the
-#                                 factory refreshes, "" when it is. Needs $bot,
+#                                 factory refreshes, "" when it is. Needs $bot
+#                                 (an app's [bot] suffix is dropped: GraphQL
+#                                 names an app without it),
 #                                 $repo and $control as jq arguments. The
 #                                 mergeable state is the caller's to read
 #   tehas_refresh_count <record> <base>
@@ -54,15 +56,16 @@ tehas_refresh_pr_query() {
       pullRequest(number: $number) { state '"$_tehas_refresh_fields"' } } }'
 }
 
-# Only the bot's own pull request of one open issue that waits for a merge,
-# from a branch of the repository and no draft, and the only open one that
-# closes that issue. A shape it does not know is a reason too.
+# Only the bot's own pull request of one open issue that waits for a merge or
+# was handed off (needs-human-attention) and has no cycle running, from a
+# branch of the repository and no draft, and the only open one that closes
+# that issue. A shape it does not know is a reason too.
 tehas_refresh_rule() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def refresh_why:
     def names: [(.labels.nodes // [])[]? | .name? | strings];
     if type != "object" or (.number | type) != "number" then "it cannot be read"
-    elif (.author.login // "") != $bot then "it is not the bot'"'"'s"
+    elif (.author.login // "") != ($bot | sub("\\[bot\\]$"; "")) then "it is not the bot'"'"'s"
     elif .isCrossRepository != false or ((.headRepository.nameWithOwner // "") | ascii_downcase) != ($repo | ascii_downcase) then "its branch is not in \($repo)"
     elif .isDraft != false then "it is a draft"
     elif (.closingIssuesReferences.totalCount // 0) != 1 or ((.closingIssuesReferences.nodes // []) | length) != 1 then "it does not close exactly one issue"
@@ -70,7 +73,9 @@ tehas_refresh_rule() {
       | if (.number | type) != "number" then "the issue it closes cannot be read"
         elif .number == $control then "it closes the control issue"
         elif .state != "OPEN" then "#\(.number) is not open"
-        elif (names | index("tehas:awaiting-merge")) == null then "#\(.number) does not carry tehas:awaiting-merge"
+        elif (names | index("tehas:awaiting-merge")) == null and (names | index("needs-human-attention")) == null
+          then "#\(.number) carries neither tehas:awaiting-merge nor needs-human-attention"
+        elif (names | index("tehas:running")) != null then "#\(.number) carries tehas:running"
         elif [(.closedByPullRequestsReferences.nodes // [])[]? | select(.state? == "OPEN") | .number] != [$pr] then "it is not the one open pull request that closes #\(.number)"
         else "" end
     end;'

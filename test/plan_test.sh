@@ -64,8 +64,9 @@ case " $* " in
   exit "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 11)" ;;
   *" image inspect "*) cat "$T/image.label" 2>/dev/null ;;
 esac'
-# The command looks at the container once a second. Here a look costs no time.
-t_stub sleep
+# The command looks at the container once a second. Here it looks every 0.05s:
+# a sleep that returned at once would spin until the stubbed run ends.
+t_stub sleep 'exec "$(command -pv sleep)" 0.05'
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
 mkdir -p "$T/home/.pi/agent"
@@ -297,7 +298,7 @@ t_eq "$(after --memory-swap)" "2048m"
 t_eq "$(after --memory-reservation)" "1g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
-t_eq "$(after --cpus)" "3.75"
+t_eq "$(after --cpus)" "15.00"
 t_eq "$(turn_args | security_line)" "$security_opts "
 t_eq "$(turn_args | security_of --cap-add | LC_ALL=C sort)" "CHOWN
 FOWNER"

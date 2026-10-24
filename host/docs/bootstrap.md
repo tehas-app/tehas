@@ -241,9 +241,11 @@ them; they are here so the error is recognisable if it comes back.
 Not created by the script. All of them go in `~/.config/tehas/`, mode 600,
 never in git.
 
-**The bot token.** A token of a GitHub machine account with write access to the
-product repository, in `~/.config/tehas/env` as `GH_TOKEN=...`. What it is used
-for: reading the queue and label events, relabelling and commenting, editing
+**The factory's GitHub identity.** Make it a [GitHub App](/github-app): its key
+goes in `~/.config/tehas/github-app.pem`, and tehas makes its tokens itself.
+What follows is for a token instead, which `tehas setup` still asks for and a
+factory without the app settings uses: a token with write access to the product
+repository, in `~/.config/tehas/env` as `GH_TOKEN=...`. What it is used for: reading the queue and label events, relabelling and commenting, editing
 the description of a pull request to say where its preview is, pushing the
 cycle's branch, opening the pull request.
 
@@ -256,9 +258,11 @@ cycle's branch, opening the pull request.
   with the `repo` scope, or moving the repository into an organisation the bot
   belongs to, where a fine-grained token can be limited to the one repository
   with Contents, Issues and Pull requests read and write.
-- The token enters the cycle's container. Use one bot account per instance so
-  that it reaches one product only.
-- Note its expiry. Cycles stop at the push check on that date.
+- The token enters the cycle's container. Use one per instance so that it
+  reaches one product only; an app installed on that repository alone does
+  this by itself.
+- Note its expiry. Cycles stop at the push check on that date. An app's tokens
+  have no such date: tehas makes a new one every hour.
 
 **The deploy key.** For a private platform repository, a read-only deploy key:
 

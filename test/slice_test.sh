@@ -171,19 +171,31 @@ t_case "limits fills exactly the fourteen words with a quarter of the max in MiB
 good
 t_run "$pre"'tehas_slice_ok && tehas_slice_limits; echo "rc=$? n=${#TEHAS_SLICE_LIMITS[@]}"; printf "%s\n" "${TEHAS_SLICE_LIMITS[*]}"'
 t_eq "$t_out" "rc=0 n=14
---cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 1.75 --pids-limit 2048 --cpu-shares 1024"
+--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m --memory-reservation 2g --cpus 7.00 --pids-limit 2048 --cpu-shares 1024"
 
 # --- tehas_slice_cpus -------------------------------------------------------
 # <host CPUs> <TEHAS_TICKET_CONCURRENCY> <quota and pids limit>
-t_case "the quota is the host's CPUs less one over the cycles side by side, at most four"
-for row in "16 4 3.75 4096" "16 15 3.75 4096" "16 1 15.00 4096" "16 2 7.50 4096" \
-  "8 3 2.33 3072" "8 7 1.75 2048" "4 3 1.00 2048" "4 20 1.00 2048" "2 1 1.00 2048" "1 1 1.00 2048" "64 4 15.75 4096"; do
+t_case "the quota is the host's CPUs less one whatever the cycles side by side"
+for row in "16 4 15.00 4096" "16 15 15.00 4096" "16 1 15.00 4096" "12 4 11.00 3072" \
+  "8 3 7.00 3072" "8 7 7.00 2048" "4 3 3.00 2048" "4 20 3.00 2048" "2 1 1.00 2048" "1 1 1.00 2048" "64 4 63.00 4096"; do
   read -r cpus cycles want <<<"$row"
   good
   t_stub nproc "echo $cpus"
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles"
   t_run "$pre"'tehas_slice_ok && tehas_slice_cpus'
-  t_eq "$t_out" "$want"
+  t_eq "$row: $t_out" "$row: $want"
+done
+
+# The pids limit follows each cycle's share of the CPUs, 1024 a CPU, as it did
+# when the share was the quota: a gate's processes do not grow with the quota.
+t_case "the pids limit follows the share, with the refresh lane among the cycles side by side"
+for row in "8 2 1 1 7.00 3072" "8 2 0 1 7.00 4096" "8 2 1 0 7.00 4096" "8 4 1 1 7.00 2048" "8 3 2 1 7.00 2048"; do
+  read -r cpus cycles lane on want <<<"$row"
+  good
+  t_stub nproc "echo $cpus"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles" TEHAS_REFRESH_SLOTS="$lane" TEHAS_REFRESH_CONFLICTS="$on"
+  t_run "$pre"'tehas_slice_ok && tehas_slice_cpus'
+  t_eq "$row: $t_out" "$row: $want"
 done
 
 t_case "a quota with no probe, or with no concurrency, is no quota"
@@ -200,8 +212,8 @@ t_eq "$(wc -l <"$T/calls/systemctl" | tr -d ' ') $(wc -l <"$T/calls/docker" | tr
 
 # --- tehas_slice_verify -----------------------------------------------------
 # <host CPUs> <TEHAS_TICKET_CONCURRENCY> <slice max in GiB> <gate runs at once>
-t_case "a container runs a gate for each two whole CPUs and each 2 GiB of its ceiling, at least one"
-for row in "16 4 20 1" "16 1 20 2" "16 1 64 7" "16 2 64 3" "8 1 8 1" "2 1 64 1" "64 1 256 31"; do
+t_case "a container runs a gate for each two whole CPUs of its share and each 2 GiB of its ceiling, at least one"
+for row in "16 4 20 1" "16 1 20 2" "16 1 64 7" "16 2 64 3" "16 4 64 1" "12 4 64 1" "8 1 8 1" "2 1 64 1" "64 1 256 31"; do
   read -r cpus cycles gib want <<<"$row"
   good
   t_stub nproc "echo $cpus"

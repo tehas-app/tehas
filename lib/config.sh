@@ -34,9 +34,10 @@
 #     TEHAS_CGROUP_ROOT, TEHAS_SLICE_WAIT, TEHAS_DISK_WAIT, TEHAS_PREFLIGHT_WAIT, TEHAS_STOP_WAIT, TEHAS_FETCH_WAIT, TEHAS_CHECK_WAIT,
 #     TEHAS_CONSOLE_WAIT, TEHAS_WORK_GRACE, TEHAS_CAPS_WAIT, TEHAS_TEXT_WAIT,
 #     TEHAS_BUILD_TIMEOUT, TEHAS_CYCLE_RETRY_WAIT, TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_TIDY_CMD,
-#     TEHAS_TIDY_WAIT and TEHAS_ANALYTICS_WAIT are kept, so are the two words
-#     a cycle hands down, TEHAS_CYCLE_FROM (tehas-cycle@.service) and
-#     TEHAS_CYCLE_ATTEMPT (tehasbot cycle to tehas work), and from
+#     TEHAS_TIDY_WAIT, TEHAS_ANALYTICS_WAIT, TEHAS_GITHUB_API,
+#     TEHAS_GITHUB_APP_KEY and TEHAS_GITHUB_RENEW_EVERY are kept, so are the
+#     two words a cycle hands down, TEHAS_CYCLE_FROM (tehas-cycle@.service)
+#     and TEHAS_CYCLE_ATTEMPT (tehasbot cycle to tehas work), and from
 #     ~/.config/tehas/env TEHAS_ENERGY, TEHAS_ENERGY_URL and the model
 #     endpoints' tokens TEHAS_MODEL_KEY_*. instance.env that sets a token is
 #     refused: it is in a repository.
@@ -49,6 +50,9 @@
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
 #     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it, and is not set
 #     with TEHAS_IMPROVE_RUKAS_SKIP=1.
+#   - TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN
+#     name the GitHub App the factory acts as (lib/github-app.sh), all three or
+#     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
 #   - TEHAS_FIXER_LOGIN names the fixer: an account whose tehas:ready the
 #     dispatcher takes, and whose answer to a planning question it takes,
 #     within a narrower grant than a person's (lib/fixer.sh). Unset is valid and means there is none. It is never
@@ -146,6 +150,12 @@ _tehas_valid() {
     TEHAS_FIXER_LOGIN)
       [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || { echo "expected one GitHub login"; return 1; }
       ;;
+    TEHAS_GITHUB_APP_ID | TEHAS_GITHUB_APP_INSTALLATION)
+      [[ $v =~ ^[1-9][0-9]{0,11}$ ]] || { echo "expected the ID GitHub shows, a whole number"; return 1; }
+      ;;
+    TEHAS_BOT_LOGIN)
+      [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$ ]] || { echo "expected one GitHub login, such as tehas-app-bot[bot]"; return 1; }
+      ;;
     TEHAS_ANALYTICS)
       case "$v" in on | off) ;; *) echo "expected on or off"; return 1 ;; esac
       ;;
@@ -203,7 +213,7 @@ _tehas_valid() {
     TEHAS_PREVIEW_MAX)
       [[ $v =~ ^[1-9][0-9]?$ ]] || { echo "expected a number from 1 to 99"; return 1; }
       ;;
-    TEHAS_PREVIEW_MIN_FREE | TEHAS_CYCLE_MIN_FREE)
+    TEHAS_PREVIEW_MIN_FREE | TEHAS_CYCLE_MIN_FREE | TEHAS_CLEAN_MIN_FREE)
       if ! mb=$(_tehas_mem_mb "$v") || [ "$mb" -le 0 ]; then
         echo "expected a size such as 512m or 5g"
         return 1
@@ -215,6 +225,14 @@ _tehas_valid() {
       ;;
     # What tehasbot clean removes, and when. The hours are docker's `until`
     # and find's `-newermt`, and the names are each one directory name.
+    # Minutes between two runs of tehasbot refresh, at most a day.
+    TEHAS_REFRESH_SLOTS)
+      [[ $v =~ ^[0-8]$ ]] || { echo "expected a whole number from 0 to 8"; return 1; }
+      ;;
+    TEHAS_REFRESH_EVERY)
+      [[ $v =~ ^[1-9][0-9]{0,3}$ ]] && [ "$v" -le 1440 ] ||
+        { echo "expected a whole number of minutes from 1 to 1440"; return 1; }
+      ;;
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
       ;;
@@ -308,6 +326,15 @@ _tehas_valid() {
   return 0
 }
 
+# _tehas_why <name> <value>: 0 when _tehas_valid accepts it, else 1 with its
+# reason in the caller's $reason. The check runs in this shell and the reason
+# is asked for only when there is one: every load checks some forty settings.
+_tehas_why() {
+  _tehas_valid "$1" "$2" >/dev/null && return 0
+  reason=$(_tehas_valid "$1" "$2")
+  return 1
+}
+
 # The roles an instance may give a model of their own, as the suffix of
 # PI_ENSEMBLE_MODEL_<ROLE> and PI_ENSEMBLE_PROVIDER_<ROLE>, checked when the
 # settings load, before any image is asked. They are the members pi-rukas
@@ -345,7 +372,7 @@ _tehas_role_models() { # <instance.env>
       unset "$v"
       continue
     fi
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for role in $roles; do
     m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
@@ -375,7 +402,7 @@ tehas_load() {
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | TEHAS_DISK_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | TEHAS_BUILD_TIMEOUT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -490,6 +517,7 @@ tehas_load() {
   # The account whose tehas:ready the dispatcher takes on the fixer's grant.
   # Unset, there is no fixer.
   export TEHAS_FIXER_LOGIN=${TEHAS_FIXER_LOGIN:-}
+  export TEHAS_GITHUB_APP_ID=${TEHAS_GITHUB_APP_ID:-} TEHAS_GITHUB_APP_INSTALLATION=${TEHAS_GITHUB_APP_INSTALLATION:-} TEHAS_BOT_LOGIN=${TEHAS_BOT_LOGIN:-}
   # How many cycles the fixer may start on one issue since a person last
   # approved it.
   export TEHAS_FIXER_MAX_RETRIES=${TEHAS_FIXER_MAX_RETRIES:-2}
@@ -498,9 +526,13 @@ tehas_load() {
   # Whether the factory refreshes its own pull requests that conflict with the
   # branch. Off unless the instance says so: it starts cycles with no fresh
   # label. And how many times one pull request may be refreshed since the
-  # person's approval its cycle rests on.
+  # person's approval its cycle rests on. And how many minutes apart the
+  # conflict check runs, and how many refreshes run in a lane of their own, 0
+  # for none: then they share the cycles' slots.
   export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0}
   export TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
+  export TEHAS_REFRESH_EVERY=${TEHAS_REFRESH_EVERY:-10}
+  export TEHAS_REFRESH_SLOTS=${TEHAS_REFRESH_SLOTS:-1}
   # The check on the branch's head commit whose failure holds new cycles back.
   # Unset, the poll does not ask.
   export TEHAS_BRANCH_CHECK=${TEHAS_BRANCH_CHECK:-}
@@ -560,6 +592,11 @@ tehas_load() {
   # Free disk below which the dispatcher starts no cycle (libexec/dispatch).
   # The 2026-10-20 outage: the host disk filled and every running cycle died.
   export TEHAS_CYCLE_MIN_FREE=${TEHAS_CYCLE_MIN_FREE:-10g}
+  # Free disk below which tehasbot clean removes build output and Docker's
+  # build cache whatever their age (libexec/clean). It sits above the
+  # dispatcher's hold below, so space goes before the host stops starting
+  # work: 30g of it, where a cycle is held at 10g.
+  export TEHAS_CLEAN_MIN_FREE=${TEHAS_CLEAN_MIN_FREE:-30g}
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   # How many workstreams one cycle may run side by side, inside its one
@@ -588,26 +625,26 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # The bound install.sh puts on one cargo build. Its default belongs to
   # install.sh, so an instance that leaves it out is checked only when it wrote
   # one.
   if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
-    reason=$(_tehas_valid TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT") ||
+    _tehas_why TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT" ||
       { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
   fi
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
-    reason=$(_tehas_valid PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW") || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
+    _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES; do
     [ -n "${!v:-}" ] || continue
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_FIXER_LOGIN TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_BOT_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
     [ -n "${!v}" ] || continue
-    reason=$(_tehas_valid "$v" "${!v}") || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # An entry for a setting the instance no longer has is a workaround removed
   # by half.
@@ -617,6 +654,14 @@ tehas_load() {
     tehas_err "TEHAS_RUKAS_WORKAROUNDS names $v, which is not set: remove its entry (see $file)"
     return 78
   done
+  # A GitHub App is named by all three or not at all: an ID without the
+  # installation makes no token, and a token without the bot's login leaves the
+  # dispatcher no name to keep out of the labellers.
+  if [ -n "$TEHAS_GITHUB_APP_ID$TEHAS_GITHUB_APP_INSTALLATION$TEHAS_BOT_LOGIN" ] &&
+    { [ -z "$TEHAS_GITHUB_APP_ID" ] || [ -z "$TEHAS_GITHUB_APP_INSTALLATION" ] || [ -z "$TEHAS_BOT_LOGIN" ]; }; then
+    tehas_err "TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN are set together or not at all (see $file)"
+    return 78
+  fi
   if [ -n "$TEHAS_ANALYTICS_SRC" ] && [ -z "$TEHAS_ANALYTICS_SITE" ]; then
     tehas_err "TEHAS_ANALYTICS_SITE is not set and TEHAS_ANALYTICS_SRC is (see $file)"
     return 78
@@ -683,6 +728,8 @@ tehas_load() {
   TEHAS_PREVIEW_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE")
   export TEHAS_CYCLE_MIN_FREE_MB
   TEHAS_CYCLE_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_CYCLE_MIN_FREE")
+  export TEHAS_CLEAN_MIN_FREE_MB
+  TEHAS_CLEAN_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_CLEAN_MIN_FREE")
   if [ -n "$TEHAS_DOMAIN" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ]; then
     export TEHAS_PROTOLAB_URL=https://lab.$TEHAS_DOMAIN
   fi
@@ -694,7 +741,7 @@ tehas_require() {
   for name in "$@"; do
     # Only spaces counts as not set.
     [ -n "${!name:-}" ] && [ -n "${!name// /}" ] || { tehas_err "$name is not set (see $file)"; exit 78; }
-    reason=$(_tehas_valid "$name" "${!name}") || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
+    _tehas_why "$name" "${!name}" || { tehas_err "$name is not valid: $reason (see $file)"; exit 78; }
   done
 }
 

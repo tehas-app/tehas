@@ -8,6 +8,14 @@
 #   scripts/verify.sh --full   the above, plus the format and the lints of the
 #                              workspace (rustfmt, clippy), and the front page's
 #                              tests even where node is missing
+#   scripts/verify.sh --changed  only what the change since the merge base with
+#                              origin/main can affect, uncommitted and untracked
+#                              files included: the name lint, then the checks
+#                              scripts/select-tests.sh names. The gate a
+#                              developer runs while working; pi-rukas reads it
+#                              from .pi/verify-cmd-fast. When the selection
+#                              needs everything, or there is no merge base, it
+#                              runs as scripts/verify.sh does.
 #
 # Needs bash, git, jq, shellcheck and cargo; --full also needs node. Without
 # cargo the gate fails, fast or full: the dispatcher's rules are Rust tests. A
@@ -25,7 +33,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
 failed=0
 full=0
-[ "${1:-}" = "--full" ] && full=1
+changed=0
+case "${1:-}" in
+  --full) full=1 ;;
+  --changed) changed=1 ;;
+esac
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
@@ -47,17 +59,55 @@ step() { # name command...
 }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# --changed: the paths the change touched and what scripts/select-tests.sh
+# makes of them. A selection that needs everything turns into the plain gate.
+cargo_wanted=1 tests=() nodes=() paths=() omitted=()
+if [ "$changed" = 1 ]; then
+  sel=
+  if ! base=$(git merge-base HEAD "origin/main" 2>/dev/null); then
+    sel="full there is no merge base with origin/main"
+  else
+    mapfile -t touched < <({ git diff --name-only "$base" && git ls-files --others --exclude-standard; } | sort -u)
+    for p in "${touched[@]}"; do
+      [ -e "$p" ] && paths+=("$p")
+    done
+    [ "${#touched[@]}" = 0 ] || sel=$(scripts/select-tests.sh "${touched[@]}") || sel="full the selection failed"
+  fi
+  if [[ $sel == full\ * ]]; then
+    echo "note  the full gate: ${sel#full }"
+    changed=0
+  else
+    cargo_wanted=0
+    while read -r kind f; do
+      case "$kind" in
+        cargo) cargo_wanted=1 ;;
+        test) tests+=("$f") ;;
+        node) nodes+=("$f") ;;
+        omit) omitted+=("${f#test/}") ;;
+      esac
+    done <<<"$sel"
+    echo "note  ${#touched[@]} changed paths since ${base:0:12}: ${#tests[@]} test files, ${#nodes[@]} front page files$([ "$cargo_wanted" = 1 ] && echo ", the workspace")"
+    [ "${#omitted[@]}" = 0 ] || echo "note  left to the full gate: ${omitted[*]}"
+  fi
+fi
+
 # The workspace's root manifest is console/Cargo.toml.
 workspace=(--manifest-path console/Cargo.toml --workspace)
 cargo_pid=
-if has cargo; then
+if has cargo && [ "$cargo_wanted" = 1 ]; then
   cargo test --locked --quiet "${workspace[@]}" >"$tmp/cargo" 2>&1 &
   cargo_pid=$!
 fi
 
 step "no product or host names in platform files" scripts/check-generic.sh
-step "shellcheck and the shell tests" scripts/test.sh
-if [ -n "$cargo_pid" ]; then
+if [ "$changed" = 0 ]; then
+  step "shellcheck and the shell tests" scripts/test.sh
+elif [ "${#tests[@]}" -gt 0 ] || [ "${#paths[@]}" -gt 0 ]; then
+  step "shellcheck and the shell tests of the change" scripts/test.sh "${tests[@]}" "${paths[@]}"
+fi
+if [ "$cargo_wanted" = 0 ]; then
+  echo "skip  the workspace's tests (the change touches nothing under console/)"
+elif [ -n "$cargo_pid" ]; then
   rc=0
   wait "$cargo_pid" || rc=$?
   report "the workspace's tests" "$rc" "$tmp/cargo"
@@ -65,7 +115,11 @@ else
   echo "FAIL  the workspace's tests (cargo is not installed)"
   failed=1
 fi
-if has node; then
+if [ "$changed" = 1 ] && [ "${#nodes[@]}" = 0 ]; then
+  echo "skip  the front page's tests (no test of the change)"
+elif [ "$changed" = 1 ] && has node; then
+  step "the front page's tests of the change" node --test "${nodes[@]}"
+elif has node; then
   step "the front page's tests" node --test test/*_test.mjs
 elif [ "$full" = 1 ]; then
   echo "FAIL  the front page's tests (node is not installed)"

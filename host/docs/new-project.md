@@ -27,6 +27,7 @@ are on; pi-rukas reads the rest of it.
 | `AGENTS.md`                                              | The rules agents work under: architecture rules, how to verify, commit style, what never to touch. No sentence granting merge rights, unless you want auto-merge                                                 | Yes                                     |
 | `.pi/verify-cmd`                                         | Fast gate. The first line that is not empty or a comment is run in the cycle's worktree, 30 minute limit by default (`TEHAS_VERIFY_TIMEOUT`). Without it pi-rukas guesses from `package.json` or `Cargo.toml`, and for other stacks verifies nothing. `tehas work` checks the commit the cycle's clone was made at before the cycle starts: with no gate and neither `package.json` nor `Cargo.toml` there the cycle parks and nothing is pushed | Yes                                     |
 | `.pi/verify-cmd-full`                                    | Full gate, same format; stands in for CI                                                                                                                                                                         | Recommended                             |
+| `.pi/verify-cmd-fast`                                    | Optional developer's gate, same format. With it, pi-rukas tells the developer to run this command and not `.pi/verify-cmd`, and runs it ahead of `.pi/verify-cmd` wherever its driver gates |
 | `.pi/smoke-cmd`                                          | Proves the built product starts, same format                                                                                                                                                                     | Recommended                             |
 | `.pi/worktree-setup`                                     | Shell script run in each new worktree with no arguments and no environment: install dependencies. Must exit 0                                                                                                    | If a bare checkout cannot run the gates |
 | `.pi/settings.json`                                      | Provider and model of the session, when they are not the instance's                                                                                                                                              | Optional                                |
@@ -102,10 +103,13 @@ socket.
 
 ### 2. What setup asks for
 
-- A GitHub machine account that is a write collaborator on the product
-  repository, and a token for it. Use one bot account per instance: the token
-  enters the cycle's container, so it should reach this product and nothing
-  else. The [bootstrap page](/bootstrap) has the token trap to avoid.
+- The identity the factory acts as on GitHub. Make it [a GitHub App](/github-app),
+  one per factory: its tokens last an hour, reach only the repositories it is
+  installed on, and are renewed by tehas. `tehas setup` takes the app's ID,
+  its installation's ID and its private key. The other way is a token: a
+  machine user (a second account with a token) still works without the app,
+  but GitHub can suspend an account that automation drives hard; the
+  [bootstrap page](/bootstrap) has the token trap to avoid.
 - The logins whose labels start work. Never the bot.
 - The model endpoint's address with its `/v1`, and its key if it takes one.
 
@@ -116,20 +120,25 @@ put the `env.sh` line in `~/.bashrc`, so the first run names the release:
 
 ```
 ~/tehas/current/bin/tehas setup --repo tehas-app/tehas --labellers "janit" \
-  --token-file - --endpoint http://gb1:8086/v1 <token.txt
+  --app-id 5452597 --app-installation 174742089 --app-key-file ~/app.pem \
+  --endpoint http://gb1:8086/v1
 ```
 
-It asks for what it is not given when there is a terminal. The token is read
-from a file or standard input, never from the command line. In this order, and
-stopping at the first step that fails, it:
+With a token in place of the app, `--token-file - <token.txt`. The token is
+read from a file or standard input, never from the command line. It asks for
+what it is not given when there is a terminal. In this order, and stopping at
+the first step that fails, it:
 
-1. checks that the token can push to the repository and that the endpoint
-   offers the model, and makes the control issue;
-2. writes `~/.config/tehas/instance.env` with the required settings only,
-   `models.json`, and the token and the model key in `~/.config/tehas/env`,
-   mode 600;
+1. checks that the app's installation lists the repository and may write its
+   contents, issues and pull requests (or that the token can push to it), and
+   that the endpoint offers the model, and makes the control issue;
+2. writes `~/.config/tehas/instance.env` with the required settings only, and
+   with an app its three settings, `models.json`, the app's key in
+   `~/.config/tehas/github-app.pem` (or the token in `~/.config/tehas/env`),
+   and the model key in `~/.config/tehas/env`, mode 600;
 3. gives git gh's credential helper for github.com, unless git has one, and
-   gives it the bot's name and noreply address, unless it has one;
+   gives it the bot's name and noreply address, unless it has one; with an app
+   the bot is `<slug>[bot]`;
 4. clones the product to `~/tehas/repos/<name>`;
 5. runs `install.sh` from the release, then `tehas labels`;
 6. builds the sandbox image and runs the product's gates in it with
@@ -296,7 +305,8 @@ command; see [tehas update](/tools#tehas-update).
 
 The improvement loop reads the cycles that ended and files what could be
 better as issues. Set `TEHAS_IMPROVE_REPO` in `instance.env` to the repository
-those issues go to and give the bot account write access there. A host
+those issues go to and install the factory's app there (or give the bot account
+write access there). A host
 installed before you set it enables the timer by hand with
 `systemctl --user enable --now tehas-improve.timer`. The logs of the cycles it
 files about are published in that repository. See [Operating](/operating).
@@ -432,5 +442,7 @@ has the other previews on it and leads nowhere else.
 - A private database copy per cycle or per preview.
 - More than one project per host. A second project needs its own Unix user, or
   better its own machine.
-- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only, and releases are built
-  for linux x86_64 only.
+- `bootstrap.sh` supports Ubuntu 26.04 on x86_64 only. Releases are built for
+  linux x86_64 and aarch64, but an aarch64 host stops in `bootstrap.sh`, and
+  the sandbox image and the tools pinned in `host/versions.env` have no arm64
+  builds yet.

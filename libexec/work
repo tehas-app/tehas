@@ -43,7 +43,7 @@
 #                       past the deadline. None when that leaves no time.
 #                       PI_ENSEMBLE_CYCLE_BUDGET_MS is not passed.
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
-#                       container's CPU quota and memory ceiling
+#                       container's share of the CPUs and memory ceiling
 #                       (tehas_slice_verify).
 #
 # Usage: tehas work <issue-number> [--restart]
@@ -243,8 +243,8 @@
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
-# swap, the reserve as its floor, a CPU quota, a pids limit that follows it
-# and a CPU weight.
+# swap, the reserve as its floor, a CPU quota of the host less one CPU, a pids
+# limit that follows its share of that and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
 # that outlives its parent would count against the pids limit until the
 # container ends. A pass of the shell tests leaves several hundred.
@@ -346,6 +346,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/private.sh
 . "$here/../lib/private.sh"
+# shellcheck source=lib/github-app.sh
+. "$here/../lib/github-app.sh"
 # shellcheck source=lib/sizing.sh
 . "$here/../lib/sizing.sh"
 # shellcheck source=lib/store.sh
@@ -420,6 +422,7 @@ console_wait=${TEHAS_CONSOLE_WAIT:-30}
 text_wait=${TEHAS_TEXT_WAIT:-60}
 [[ $text_wait =~ ^[1-9][0-9]{0,3}$ ]] || text_wait=60
 
+tehas_github_env || { echo "tehas work: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas work: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
 # Before anything is moved: a second run would move the running cycle's tree
@@ -537,7 +540,7 @@ else
   [ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + handoff)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + handoff))
 fi
 if [ "$margin" -lt "$limit" ]; then
-  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$((($(date +%s) + limit - margin) * 1000))")
+  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$(((EPOCHSECONDS + limit - margin) * 1000))")
   features+=" cycleDeadline"
 else
   echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"
@@ -875,7 +878,10 @@ fi
 
 # The runner is the container's command, so a docker stop reaches it: it ends
 # the cycle as interrupted and still writes its result.
-trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; stop_container 10
+# The container reads the app's token from a directory the host keeps fresh;
+# the renewer ends with the container, or with this command.
+renewer=$(tehas_github_renew)
+trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; [ -z "$renewer" ] || kill "$renewer" 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted' TERM INT
 docker run --rm --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" --cidfile "$cid_file" \
@@ -884,7 +890,7 @@ docker run --rm --init --name "$name" \
   "$image" "$runner" work "$issue" "${run_flags[@]}" </dev/null >"$result_file" 2>"$log" &
 pid=$!
 
-started=$(date +%s)
+started=$EPOCHSECONDS
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle and its own "now" file.
@@ -913,7 +919,7 @@ now_file() { # running? status
   [ -n "$step" ] || step=starting
   text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
   jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$step" \
-    --arg text "$text" --argjson startedAt "$started" --argjson at "$(date +%s)" \
+    --arg text "$text" --argjson startedAt "$started" --argjson at "$EPOCHSECONDS" \
     '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
       startedAt: $startedAt, updatedAt: $at, console: "console-\($issue).txt"}' \
     >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
@@ -967,14 +973,14 @@ while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   oom_look
   now_file true running
   # The runner stops itself at its --timeout. This is for one that does not.
-  if [ $(($(date +%s) - started)) -ge $((limit + grace)) ]; then
+  if [ $((EPOCHSECONDS - started)) -ge $((limit + grace)) ]; then
     echo "tehas work: time limit of ${limit}s passed"
     timed=1
     break
   fi
   m=$(moved)
   [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$m
-  if [ $(($(date +%s) - last)) -ge "$stall" ]; then
+  if [ $((EPOCHSECONDS - last)) -ge "$stall" ]; then
     echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"
     stalled=1
     break
@@ -993,6 +999,7 @@ if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
 fi
 wait "$pid" 2>/dev/null
 rc=$?
+[ -z "$renewer" ] || kill "$renewer" 2>/dev/null
 rm -f "$cid_file"
 have=0 error_only=0
 outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
@@ -1038,7 +1045,7 @@ fi
 # limit ended the cycle as surely as a stop made here.
 ran_out=0
 if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" != 137 ] &&
-  [ $(($(date +%s) - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
+  [ $((EPOCHSECONDS - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
   case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
 fi
 inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
@@ -1130,7 +1137,7 @@ case "$status" in
   timeout) cap=wall-clock ;;
   stalled) cap=stall ;;
 esac
-echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$(($(date +%s) - started))"
+echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$((EPOCHSECONDS - started))"
 
 # The kill is what this command saw of the container. A runner that wrote its
 # result says how the cycle ended with its own exit status.

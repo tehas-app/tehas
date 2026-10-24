@@ -2,7 +2,9 @@
 # The tests of scripts/pack-release.sh: that the tarball holds what install.sh
 # reads, that VERSION, COMMIT and the two pin lines say what the arguments said, that
 # the .sha256 checks with sha256sum -c, that a tree holding a link out of itself
-# is refused, and what a bad argument costs. The console is a stub file in every
+# is refused, that every program given is an ELF for the architecture the
+# tarball's name promises, and what a bad argument costs. The console is a stub
+# file in every
 # case: the pack script builds nothing and needs no cargo. The tree it packs is
 # this checkout unless a case names another, so the case that checks what a tree
 # missing one of those files costs builds a partial one in scratch.
@@ -20,8 +22,22 @@ commit=0123456789abcdef0123456789abcdef01234567
 digest=sha256:$(printf 'a%.0s' {1..64})
 tar_gz=tehas-v9.9.9-linux-x86_64.tar.gz
 # A console of one name and content, made once; a case that needs a particular
-# content makes its own.
+# content or architecture makes its own.
 stub=$build/console
+# The two bytes of e_machine at offset 18 of an ELF header, as printf's %b reads
+# them, little endian: 0x3e for x86_64 and 0xb7 for aarch64. The pack script
+# reads exactly those two with od, so a header written with printf is enough:
+# no compiler, no toolchain.
+machine_x86_64='\076\000'
+machine_aarch64='\267\000'
+# The padding between the magic and e_machine: fourteen bytes, so the two below
+# land at offsets 18 and 19. They are spelled out rather than read from
+# /dev/zero, since a shell with no null bytes to drop prints no warning about
+# them, and the bytes are not what any assertion reads.
+padding='\000\000\000\000\000\000\000\000\000\000\000\000\000\000'
+# The same two pairs as od prints them, which is what a refusal quotes back.
+machine_x86_64_hex=3e00
+machine_aarch64_hex=b700
 # The packed file list, read from the one place it is written down.
 mapfile -t want_dirs < <(. "$manifest" && tehas_release_dirs)
 mapfile -t want_plain < <(. "$manifest" && tehas_release_plain)
@@ -29,8 +45,20 @@ mapfile -t want_plain < <(. "$manifest" && tehas_release_plain)
 # A console is needed by almost every run, and the out dir is written fresh
 # each time, so both are set up before the cases start.
 mkdir -p "$build"
-printf 'console built by the workflow\n' >"$stub"
-chmod 755 "$stub"
+# make_program FILE [machine] [text]: the smallest file the pack accepts as a
+# program of one architecture - the text named, after a header whose e_machine
+# says which. The pack reads only offsets 18 and 19, so nothing else of the ELF
+# header has to be right, and no compiler is needed. The text is the file's only
+# line, ended by a newline of its own rather than the header's nulls: a case
+# reads it back with sed, which stops at a null a command substitution drops.
+make_program() { # make_program <path> [machine] [text]
+  local machine=${2:-$machine_x86_64} text=${3:-console built by the workflow}
+  { printf '\177ELF'; printf '%b' "$padding$machine\n"; printf '%s\n' "$text"; } >"$1"
+  chmod 755 "$1"
+}
+# No case below asks for another architecture without saying so, so the console
+# every run is handed is an x86_64 program: the one the tarball's name promises.
+make_program "$stub"
 
 # t_pack_reset empties the out dir; t_pack runs the script for v9.9.9 against
 # this checkout, or against the tree TEHAS_PACK_ROOT names when the caller sets
@@ -157,31 +185,34 @@ done
 
 t_case "the console an adopter gets is the one --console named, and is executable"
 t_pack_reset
-printf 'the console of this release\n' >"$build/other"
-chmod 755 "$build/other"
+make_program "$build/other" "" "the console of this release"
 t_pack --console "$build/other"
 t_eq "$t_rc" 0
-t_eq "$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/libexec/console)" "the console of this release"
-rm -rf "$T/unpacked"
+rm -rf "$T/tehas-v9.9.9"
 tar -xzf "$dist/$tar_gz" -C "$T"
 for f in libexec/console bin/tehas host/sandbox/build.sh; do
   # install.sh compares an installed file's mode, so what is packed executable
   # has to stay executable through the tarball.
   [ -x "$T/tehas-v9.9.9/$f" ] || t_bad "$f is not executable in the tarball"
 done
+# The console of --console, header and all, read from the unpacked file rather
+# than with `tar -O`: a command substitution drops the null bytes of an ELF
+# header and prints a warning for each, so the text is the file's second line
+# and od, not a string compare, says which architecture the pack vouched for.
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/console")" "the console of this release"
+t_eq "$(od -An -tx1 -j18 -N2 "$T/tehas-v9.9.9/libexec/console" | tr -d ' \n')" "$machine_x86_64_hex"
 t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/console")" 755
 
 t_case "the analytics program and the MCP server are packed when given, executable"
 t_pack_reset
-printf 'analytics of this release\n' >"$build/analytics"
-printf 'mcp of this release\n' >"$build/tehas-mcp"
-chmod 755 "$build/analytics" "$build/tehas-mcp"
+make_program "$build/analytics" "" "analytics of this release"
+make_program "$build/tehas-mcp" "" "mcp of this release"
 t_pack --analytics "'$build/analytics'" --mcp "'$build/tehas-mcp'"
 t_eq "$t_rc" 0
 rm -rf "$T/tehas-v9.9.9"
 tar -xzf "$dist/$tar_gz" -C "$T"
-t_eq "$(cat "$T/tehas-v9.9.9/libexec/analytics")" "analytics of this release"
-t_eq "$(cat "$T/tehas-v9.9.9/libexec/tehas-mcp")" "mcp of this release"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/analytics")" "analytics of this release"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/tehas-mcp")" "mcp of this release"
 t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/analytics" "$T/tehas-v9.9.9/libexec/tehas-mcp" | tr '\n' ' ')" "755 755 "
 
 t_case "an --analytics or --mcp that is not a program is a bad argument, and writes nothing"
@@ -199,13 +230,12 @@ t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
 
 t_case "the store is packed when given, executable, and --commit is written to COMMIT"
 t_pack_reset
-printf 'store of this release\n' >"$build/store"
-chmod 755 "$build/store"
+make_program "$build/store" "" "store of this release"
 t_pack --store "'$build/store'" --commit "${commit^^}"
 t_eq "$t_rc" 0
 rm -rf "$T/tehas-v9.9.9"
 tar -xzf "$dist/$tar_gz" -C "$T"
-t_eq "$(cat "$T/tehas-v9.9.9/libexec/store")" "store of this release"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/store")" "store of this release"
 t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/store")" 755
 # Lower case, the shape install.sh accepts.
 t_eq "$(cat "$T/tehas-v9.9.9/COMMIT")" "$commit"
@@ -295,8 +325,11 @@ esac
 # checkout holds one, the scratch tree does not, and the pack takes the
 # --console build whichever tree it reads.
 t_eq "$(grep -c '^libexec/console$' <<<"$packed")" 1
-t_eq "$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/libexec/console)" \
-  "console built by the workflow"
+# Read from the file the tarball left, not from `tar -O`: a command substitution
+# drops the null bytes of the ELF header, and prints a warning for each.
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/console")" "console built by the workflow"
 
 t_case "a tree whose list names nothing is refused, and writes nothing"
 # Two empty lists pass every existence check below them, so a manifest whose
@@ -509,6 +542,77 @@ packed=$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/host/versions.env)
 t_contains "$packed" "PI_RUKAS_FOLLOW=commit:$commit"
 t_eq "$(tail -n 1 <<<"$packed")" "PI_RUKAS_IMAGE_DIGEST=$digest"
 
+t_case "a program built for the other architecture is refused, and writes nothing"
+# The check the release workflow used to make for itself: a tarball whose name
+# says one architecture and whose programs are another installs as a directory
+# of files that will not run. A program of the x86_64 e_machine under --arch
+# aarch64 is a failure, named by its path and both pairs of bytes, and the out
+# dir the run was given is left empty.
+t_pack_reset
+make_program "$build/arm-console" "$machine_aarch64"
+# The last half of this case packs with the arm console, so it comes from under
+# the default --console of t_pack: a run for aarch64 given the x86_64 stub.
+t_pack_reset
+t_pack --arch aarch64
+# The default is x86_64, so the run asked for aarch64 programs took the stub it
+# was given: the one made for the other machine.
+t_eq "$t_rc" 1
+t_contains "$t_out" "not a aarch64 program: $stub"
+t_contains "$t_out" "e_machine $machine_x86_64_hex, want $machine_aarch64_hex"
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+# The same program under its own architecture packs, which is what the case
+# after this checks the name of.
+t_pack_reset
+t_pack --arch aarch64 --console "'$build/arm-console'"
+t_eq "$t_rc" 0
+
+t_case "--arch names the tarball and its .sha256, and no --arch keeps x86_64"
+# The name the option answers for, and the one it does not when it is not given:
+# the file an adopter, the .sha256 and the workflow's upload all read.
+t_pack_reset
+t_pack
+t_eq "$t_rc" 0
+t_eq "$(head -n 1 <<<"$t_out")" "$dist/$tar_gz"
+t_pack_reset
+make_program "$build/arm-analytics" "$machine_aarch64" "analytics for arm"
+t_pack --arch aarch64 --console "'$build/arm-console'" --analytics "'$build/arm-analytics'"
+t_eq "$t_rc" 0
+t_eq "$(head -n 1 <<<"$t_out")" "$dist/tehas-v9.9.9-linux-aarch64.tar.gz"
+t_eq "$(find "$dist" -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" \
+  "tehas-v9.9.9-linux-aarch64.tar.gz tehas-v9.9.9-linux-aarch64.tar.gz.sha256 "
+# The hash line names the aarch64 tarball alone, as the x86_64 one's does, so
+# the check still runs from the directory the two are in.
+t_run "cd '$dist' && sha256sum -c 'tehas-v9.9.9-linux-aarch64.tar.gz.sha256'"
+t_eq "$t_rc" 0
+t_contains "$t_out" ": OK"
+# A program of the other architecture is refused whoever it is: the pack reads
+# every one it is given, not only the console.
+t_pack_reset
+make_program "$build/wrong-analytics" "$machine_x86_64" "analytics for the wrong machine"
+t_pack --arch aarch64 --console "'$build/arm-console'" --analytics "'$build/wrong-analytics'"
+t_eq "$t_rc" 1
+t_contains "$t_out" "not a aarch64 program: $build/wrong-analytics"
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+
+t_case "--arch of another name, or with none, is a bad argument"
+t_pack_reset
+for name in riscv64 arm64 x86 RISC-V; do
+  t_pack --arch "$name"
+  t_eq "$t_rc" 64
+  t_contains "$t_out" "--arch must be x86_64 or aarch64, got: $name"
+done
+t_run "\"$pack\" v9.9.9 '$dist' --console '$stub' --arch"
+t_eq "$t_rc" 64
+t_contains "$t_out" "--arch needs"
+# A run that was refused for its architecture wrote no tarball, whatever the
+# name it was given.
+t_eq "$(find "$dist" -maxdepth 1 -type f 2>/dev/null | wc -l)" 0
+
+t_case "the --help of the script names --arch"
+t_run "'$pack' --help"
+t_eq "$t_rc" 0
+t_contains "$t_out" "[--arch x86_64|aarch64]"
+
 t_case "an argument it does not know, or a third one, is a bad argument"
 t_pack_reset
 t_pack --consolex yes
@@ -566,8 +670,7 @@ t_eq "$(tar -tzf "$dist/$tar_gz" | cut -d/ -f2 | grep -v '^$' | LC_ALL=C sort -u
 t_case "the tree's own build of the console is refused, by path and by content"
 t_pack_reset
 make_tree
-printf 'a console built in the tree\n' >"$tree/libexec/console"
-chmod 755 "$tree/libexec/console"
+make_program "$tree/libexec/console" "" "a console built in the tree"
 # The tree's own file is the tree's build whoever names it, and so is a copy of
 # it byte for byte: both are refused before anything is copied.
 TEHAS_PACK_ROOT=$tree t_pack --console "$tree/libexec/console"
@@ -581,8 +684,9 @@ t_contains "$t_out" "is the tree's own build of it"
 t_pack_reset
 TEHAS_PACK_ROOT=$tree t_pack --console "$stub"
 t_eq "$t_rc" 0
-t_eq "$(tar -xzf "$dist/$tar_gz" -O tehas-v9.9.9/libexec/console)" \
-  "console built by the workflow"
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/console")" "console built by the workflow"
 
 t_case "the .sha256 is in sha256sum's format, checks, and fails on a changed tarball"
 t_pack_reset
@@ -608,8 +712,7 @@ t_pack_reset
 t_pack
 t_eq "$t_rc" 0
 before=$(sha256sum <"$dist/$tar_gz" | awk '{print $1}')
-printf 'a different console\n' >"$build/second"
-chmod 755 "$build/second"
+make_program "$build/second" "" "a different console"
 t_pack --console "$build/second"
 t_eq "$t_rc" 1
 t_contains "$t_out" "already exists"
@@ -630,7 +733,7 @@ t_case "the names the release workflow is written against are the ones this writ
 # the first placeholder, so the test does not depend on how the manual quotes
 # either of them.
 manual=$T_ROOT/host/docs/tools.md
-t_eq "$(grep -c 'tehas-<tag>-linux-x86_64.tar.gz' "$manual")" 1
+t_eq "$(grep -c 'tehas-<tag>-linux-<arch>.tar.gz' "$manual")" 1
 start=$(grep -n "^TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag>" "$manual" | cut -d: -f1)
 end=$(awk -v n="$start" 'NR > n && /^```$/ { print NR; exit }' "$manual")
 args=$(sed -n "${start},$((end - 1))p" "$manual" | tr -d '\\\n' | tr -s ' ')

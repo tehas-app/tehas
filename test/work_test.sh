@@ -41,7 +41,7 @@ t_eq "$(after --memory-reservation)" "2g"
 t_eq "$(after --pids-limit)" "4096"
 t_eq "$(after --cpu-shares)" "1024"
 t_eq "$(after --cidfile)" "$cid_file"
-t_eq "$(after --cpus)" "3.75"
+t_eq "$(after --cpus)" "15.00"
 # Every capability of Docker's default list is taken away, and only what a
 # gate needs is given back: see tehas_sandbox_security.
 t_eq "$(cycle_args | security_line)" "$security_opts "
@@ -382,5 +382,27 @@ t_run "$work 7"
 t_eq "$t_rc" 64
 t_contains "$t_out" "GH_TOKEN is not set"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "with a GitHub App the container is given the app's token, not a user's"
+rm -f "$T"/calls/*
+cp "$TEHAS_INSTANCE_DIR/instance.env" "$T/instance.env.before"
+printf '%s\n' TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
+mkdir -p "$T/home/tehas/state/github"
+printf 'ghs_app\n' >"$T/home/tehas/state/github/token"
+echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+t_run "$work 7"
+t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_app"
+run_args=$(cycle_args)
+t_contains "$run_args" "$T/home/tehas/state/github:/run/tehas/github:ro"
+t_lacks "$run_args" "github-app.pem"
+cp "$T/instance.env.before" "$TEHAS_INSTANCE_DIR/instance.env"
+rm -f "$T/home/tehas/state/github/token" "$T/home/tehas/state/github/token.expires"
+
+t_case "without a GitHub App the container is given no token directory"
+rm -f "$T"/calls/*
+t_run "$work 7"
+run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
+t_lacks "$run_args" "/run/tehas/github"
 
 t_done

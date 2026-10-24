@@ -277,7 +277,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it   | Nothing; the bot gives it                |
+| `tehas:shipped`         | A merged pull request closed it   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -301,11 +301,26 @@ when that one has ended. Remove the label before then to withdraw it.
 Once an issue is closed, the next poll takes tehas's state labels off it:
 `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`,
 `tehas:refreshing`, `tehas:blocked`, `tehas:ready` and `tehas:plan`.
-`tehas:shipped` stays, and so do `needs-human-attention` and the labels a
-person chooses, such as `tehas:urgent` and `tehas:next`.
+`needs-human-attention` and the labels a person chooses, such as `tehas:urgent`
+and `tehas:next`, stay.
+
+The same edit puts `tehas:shipped` on an issue that a merged pull request
+closed: `tehas tidy` reads what closed the issues it tidies and adds the label
+in the call that strips their state labels, so the label says one thing, that a
+merge closed the issue, whatever the queue's list happened to hold. Two commands
+put the label from a merged closer, and both read the one answer from
+`lib/shipped.sh`: `tehas tidy` in the edit that takes the state labels off, and
+`tehasbot status` from its own read of the list for any issue missing it.
+`tehas tidy` is the one that says what it did in
+`~/tehas/logs/dispatch.log`. Neither gives it to the control issue. An issue
+that already carries the label is not
+labelled again, and one that the read could not answer is never labelled on a
+guess: its state labels still come off and the tidy line says no merged pull
+request was read as the closer, or, when the whole read failed, that the read
+failed once for the poll.
 
 The pages' **Shipped** figure counts the closed issues that carry
-`tehas:shipped`, and not the fifty most recent items of the queue's list: an
+`tehas:shipped`, and not the hundred most recent items of the queue's list: an
 issue a person closes as completed without a merged pull request does not carry
 the label and is not counted. The count is the `completedCount` of the queue
 snapshot; where the snapshot has none, the figure is the length of that list.
@@ -351,7 +366,7 @@ does. See [Commands](/tools).
 
 ## 4. Review and merge
 
-The pull request comes from the bot account against the product's default
+The pull request comes from the bot (the factory's app or bot account) against the product's default
 branch (in the example, `main`). It has passed the product's fast gate, its
 full gate, its smoke command and pi-rukas's six-pass review, but none of those
 is a human reading the diff. Nothing merges on its own.
@@ -650,7 +665,7 @@ turn fails before that, or is cut off by a restart of the host, there is no
 session to continue: the bot says so, the issue gets `needs-human-attention`,
 and you apply `tehas:plan` again.
 
-The bot account is never one of the allowed labellers. If it is listed in
+The bot (`TEHAS_BOT_LOGIN` with an app, otherwise the token's account) is never one of the allowed labellers. If it is listed in
 `TEHAS_ALLOWED_LABELERS`, the dispatcher stops with an error rather than let
 the bot approve its own work: every poll reads its own login first, before it
 reads a label or changes one. The Protolab refuses the same list, with an error
@@ -805,7 +820,9 @@ recording, and both commands then say so and exit 69.
 - A limit set with `tehas limit`, when there is one: see
   [Limit and drain](#limit-and-drain).
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
-  a promise: the dispatcher starts fewer when the slice has no room.
+  a promise: the dispatcher starts fewer when the slice has no room. With
+  refreshes on, refreshes have a lane of their own (see
+  [refreshes](#refreshes)) and do not count here.
 - No new cycle while the host runs short of disk: less than
   `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
   or on the one Docker keeps its images on, whichever has less. The poll reads
@@ -1224,14 +1241,17 @@ takes `--continue-pr` and says so with `features.continuePr` in its
 `--capabilities` (pi-rukas#1468, in v0.14.0); until then a refresh starts
 nothing and the dispatcher says so.
 
-**What it reads.** `tehasbot refresh`, from `tehas-refresh.timer` once an hour,
-lists the open pull requests of the repository. It keeps the bot's that close
-exactly one open issue carrying `tehas:awaiting-merge`, not the control issue,
-are the only open pull request that closes it, come from a branch of the
-repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
-`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again next hour. A
-request whose pull request no longer qualifies goes. Each run writes one line
-to `~/tehas/logs/refresh.log`:
+**What it reads.** `tehasbot refresh`, every `TEHAS_REFRESH_EVERY` minutes (10
+unless the instance says otherwise), lists the open pull requests of the repository. It keeps the bot's that close
+exactly one open issue carrying `tehas:awaiting-merge`, or `needs-human-attention`
+after a handoff that left the pull request open, without `tehas:running` and not
+the control issue, that are the only open pull request that closes it, come
+from a branch of the repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
+`~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again on the next run. A
+request whose pull request no longer qualifies goes. `tehas-refresh.timer`
+starts it every minute, and it goes ahead only when the last run began that
+many minutes ago, by `~/tehas/state/refresh/last-run`. A run that failed
+counts. Each run writes one line to `~/tehas/logs/refresh.log`:
 
 ```
 2026-10-18T09:00:00Z read 6 pull requests, 1 conflict, wrote 1 requests
@@ -1242,9 +1262,11 @@ and starts it on the word of the person whose approval the pull request's cycle
 rests on (the `by` of the approval of the issue's last start, or the person's
 approval it rests on after the fixer):
 
-- the issue is open, carries `tehas:awaiting-merge` and none of
-  `tehas:running`, `tehas:question`, `tehas:fixer-escalated`, `tehas:plan`,
-  and no cycle or planning session is open on it;
+- the issue is open, carries `tehas:awaiting-merge` or `needs-human-attention`
+  and none of `tehas:running`, `tehas:question`, `tehas:fixer-escalated`,
+  `tehas:plan`, and no cycle or planning session is open on it. A handed-off
+  issue that carries `tehas:ready` gets the fresh cycle a person asked for,
+  not a refresh;
 - its body is the body that person approved, and nobody outside
   `TEHAS_ALLOWED_LABELERS` renamed or edited it since;
 - the pull request is still the bot's, the one open pull request that closes
@@ -1254,7 +1276,7 @@ approval it rests on after the fixer):
   the instance says otherwise), and none that parked. A start that failed
   counts as none: where the mark of a refresh could not be put on the pull
   request, or the cycle never ran, the dispatcher writes the record back as it
-  found it and asks again next hour. The count is what the bot itself saw
+  found it and asks again on the next run. The count is what the bot itself saw
   start.
 
 A request that fails a check goes, and the dispatcher's log says why. At the
@@ -1262,12 +1284,35 @@ cap or after a parked refresh the bot says so on the issue, once: a person
 resolves the conflict or applies `tehas:ready`. A pull request that carries
 `tehas:refreshing` waits.
 
-Pause, the limit, the slots and the slice's room hold a refresh as they hold
-any start. `TEHAS_MAX_AWAITING` does not: the start takes
-`tehas:awaiting-merge` off, so it moves one pull request from waiting to
-running and adds none. A refresh goes after `tehas:urgent` and before
+**The refresh lane.** Refreshes run in a lane of their own, so a conflicting
+pull request is refreshed while every cycle slot is busy. At most
+`TEHAS_REFRESH_SLOTS` refreshes run at once (1 unless the instance says
+otherwise), and they do not count against `TEHAS_TICKET_CONCURRENCY`. The slice
+holds four containers whatever the slots say, so new cycles leave room in it
+for the lane: while the lane has a slot free, a cycle does not take the last
+room of the slice. On a host with `TEHAS_TICKET_CONCURRENCY=4` and one lane
+slot that is three cycles and one refresh. The poll says
+`holding: tehas.slice has room for 1 more and the refresh lane keeps 1`, or
+`holding: 3 of 4 free slots start: ... the refresh lane keeps 1`. With every
+cycle slot busy the hold line ends `the refresh lane has 1 of 1 free`, and a
+request that finds the lane full waits: `wait #<issue>: the refresh lane is
+full (1 of 1)`. `tehas status` shows the lane's free slots on the slice line.
+`TEHAS_REFRESH_SLOTS=0` turns the lane off: refreshes then take the cycles'
+slots, and no room is kept. With `TEHAS_REFRESH_CONFLICTS` off no room is kept
+either. With it on but an image that cannot refresh, the room is still kept:
+turn refreshes off on such a host.
+
+Pause, the limit, the slots of the lane and the slice's room hold a refresh as
+they hold any start; the limit of `tehas limit` counts refreshes and cycles
+together. `TEHAS_MAX_AWAITING` does not: the pull request is open already,
+and the start takes `tehas:awaiting-merge` off. A refresh goes after `tehas:urgent` and before
 `tehas:next`. A refresh that waits for room counts in the demand of
 `tehas status`.
+
+**After a handoff.** The refresh of a handed-off issue is a restart, as a
+person's `tehas:ready` would be: the cycle takes `needs-human-attention` off as
+it starts, and how the refresh ends labels the issue, `tehas:awaiting-merge` or
+a new handoff. The handoff comment stays on the issue.
 
 **While it runs** the pull request carries `tehas:refreshing`: do not merge or
 push to it. The dispatcher applies it before it marks the issue, and a start

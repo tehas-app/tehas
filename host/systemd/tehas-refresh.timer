@@ -1,9 +1,9 @@
 [Unit]
-Description=Tehas: look for conflicting pull requests every hour
+Description=Tehas: start the conflict check every minute; it runs every TEHAS_REFRESH_EVERY minutes
 
 [Timer]
 OnBootSec=15min
-OnUnitInactiveSec=1h
+OnUnitInactiveSec=1min
 
 [Install]
 WantedBy=timers.target

@@ -70,7 +70,8 @@ request are the bot's. One step as root lets an account in:
   requests at once. [viiwork](https://github.com/janit/viiwork) is one that fits:
   a flexible meshed inference platform for both home and enterprise grade hardware.
   The example instance uses it. Any other OpenAI-compatible endpoint works too.
-- A GitHub bot account that can push to the product repository.
+- A GitHub App for the factory, installed on the product repository
+  ([how](host/docs/github-app.md)). A machine user with a token still works.
 - In the product repository: `AGENTS.md`, `.pi/verify-cmd` and
   `.pi/settings.json`. The ones in this repository are a working example.
 
@@ -95,7 +96,7 @@ Then, on the host, from a checkout of this repository:
 ```
 
 `install.sh` checks the settings first and installs nothing if one is missing
-or malformed. The bot account, its token, the sandbox image and the first
+or malformed. The factory's GitHub App, the sandbox image and the first
 issue are covered step by step in
 [A new project](host/docs/new-project.md).
 
@@ -134,8 +135,9 @@ more than one repository from one host.
 ## Working on tehas
 
 ```
-scripts/verify.sh          # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
-scripts/verify.sh --full   # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
+scripts/verify.sh --changed  # only what the change can affect; the gate a cycle's developer runs
+scripts/verify.sh            # the lint, shellcheck, the shell tests, the workspace's tests, the front page's tests where node is
+scripts/verify.sh --full     # plus the workspace's format and lints (rustfmt, clippy); a missing node fails
 ```
 
 The gate needs bash, git, jq, shellcheck and cargo; the full gate also needs
@@ -191,6 +193,7 @@ host.
 | `lib/live.sh` | The live view of the cycles, put together from a file per cycle |
 | `lib/planning.sh`, `lib/questions.sh` | The steps of a planning session, and the questions the factory asks on an issue |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand, and the one name each of the sandbox's images is known by (the build and `tehasbot clean` both ask it; `tehas_base_image` needs `lib/rukas.sh` sourced beside it) |
+| `lib/shipped.sh` | What closed an issue: the GraphQL read of the last closed event and the rule that accepts a merged pull request, which `tehasbot status` and `tehas tidy` both read |
 | `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
