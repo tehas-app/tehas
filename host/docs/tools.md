@@ -362,14 +362,16 @@ cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
 other turn. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
 As the poll takes up a turn that ended, it records it in the factory's
-analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended>` reads
-the record before it is rewritten and stores one run of kind `plan`, with its
+analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended> --facts
+<file>` takes the record before it is rewritten, copied to a private file for
+the call, and stores one run of kind `plan`, with its
 start, its end (when the poll took it up), its number in the session and its
 outcome: `handoff` for a turn that asked its question, `stopped` for a session
 Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
 other. pi's rpc mode reports no token usage, so a planning turn has none. A
-call that fails is a line `WARN analytics plan: exit N` in the log and
-changes nothing in the turn.
+call that fails is a line `WARN analytics plan: exit N` in the log, a copy
+that cannot be written is `WARN analytics plan: no facts written`, and neither
+changes anything in the turn.
 One planning turn runs at a time. A comment is a question only if the host has its id on record:
 in `~/tehas/state/plan-<issue>.json` for a planning session, in
 `~/tehas/state/park-<issue>.id` for a stopped cycle. Only the last 100
@@ -1897,10 +1899,13 @@ cycle was that retry.
 
 Once its history line is written, the cycle records the run in the factory's
 analytics, `~/tehas/state/analytics.db`: `~/tehas/libexec/analytics run` with
-the image, its pi-rukas commit and the counts of kills and refused forks it
-read, then `analytics event <issue> ended`. Each call may take 5 seconds. One
-that fails or runs out of time is a line `WARN analytics <subcommand>: exit N`
-in the log and changes nothing in the report. A stopped cycle is recorded too.
+the run's facts (its history line, approval, settings snapshot and the image's
+commit, gathered into a private file for the call), the image, its pi-rukas
+commit and the counts of kills and refused forks it read, then `analytics
+event <issue> ended`. Each call may take 5 seconds. One that fails or runs out
+of time is a line `WARN analytics <subcommand>: exit N` in the log, facts that
+cannot be written are `WARN analytics run: no facts written`, and neither
+changes anything in the report. A stopped cycle is recorded too.
 `TEHAS_ANALYTICS=off`, or a host where the program is not installed, makes no
 call.
 

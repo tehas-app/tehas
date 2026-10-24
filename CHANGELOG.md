@@ -18,6 +18,10 @@ empty one above it.
   only adds columns and one table. The store gains the verbs `history-show`,
   `park-told` and `plan-note`, and `approval-record --input-file` and
   `plan-answer --text-file`. Nothing calls them yet.
+- The analytics program no longer reads a cycle's history, approval, settings
+  and commit files, or a planning record, itself: `analytics run` and
+  `analytics plan` take them as facts in a file their caller writes
+  (`--facts <file>`). The rows are the same.
 
 ### Adopter action
 

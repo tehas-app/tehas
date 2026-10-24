@@ -23,6 +23,7 @@ fn scratch(name: &str) -> PathBuf {
     fs::create_dir_all(dir.join("state/cycles")).unwrap();
     fs::create_dir_all(dir.join("logs")).unwrap();
     fs::create_dir_all(dir.join("docs")).unwrap();
+    fs::create_dir_all(dir.join("tmp")).unwrap();
     dir
 }
 
@@ -66,13 +67,45 @@ fn empty_buckets() -> Value {
     json!({"none": nothing(), "1-2": nothing(), "3-4": nothing(), "5+": nothing()})
 }
 
+/// Where a test's facts of the issue's run or turn are, as lib/analytics.sh
+/// writes them for a call.
+fn facts_path(home: &Path, issue: i64) -> PathBuf {
+    home.join(format!("tmp/facts-{issue}.json"))
+}
+
+/// Sets one fact of the issue's run and keeps the others.
+fn fact(home: &Path, issue: i64, key: &str, value: Value) {
+    let p = facts_path(home, issue);
+    let mut facts: Value = fs::read_to_string(&p)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| {
+            json!({"line": null, "attempt": null, "approval": null, "settings": null, "rukas": null})
+        });
+    facts[key] = value;
+    fs::write(&p, facts.to_string()).unwrap();
+}
+
+/// The run's facts with these history lines: the last one, and how many.
 fn history(home: &Path, issue: i64, lines: &[Value]) {
-    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
-    put(home, &format!("state/cycles/{issue}.history.jsonl"), &text);
+    fact(
+        home,
+        issue,
+        "line",
+        lines.last().cloned().unwrap_or(Value::Null),
+    );
+    fact(home, issue, "attempt", json!(lines.len()));
+}
+
+fn given(home: &Path, issue: i64) -> Given {
+    Given {
+        facts: Some(facts_path(home, issue)),
+        ..Given::default()
+    }
 }
 
 fn record(home: &Path, issue: i64, now: i64) -> Connection {
-    execute(home, &Cmd::Run(issue, Given::default()), now).unwrap();
+    execute(home, &Cmd::Run(issue, given(home, issue)), now).unwrap();
     Connection::open(db::path(home)).unwrap()
 }
 
@@ -95,8 +128,9 @@ fn steps(conn: &Connection) -> Vec<(String, i64, i64, i64, i64)> {
 }
 
 // A cycle of issue 7 from a fixture, as libexec/cycle and libexec/work leave
-// it: the result, the progress summary, the settings, the approval, the
-// image's commit and the version, and the history line `line`.
+// it: the result, the progress summary and the version on disk, and the facts
+// of the settings, the approval, the image's commit and the history line
+// `line`.
 fn cycle(home: &Path, name: &str, started: i64, line: Value) {
     let dir = fixture(name);
     fs::copy(
@@ -119,22 +153,23 @@ fn cycle(home: &Path, name: &str, started: i64, line: Value) {
         "state/cycles/7.progress.json",
         r#"{"roles":[],"reason":"","failure":null,"reviewHeld":false,"from":{"roles":"progress","failure":"progress"}}"#,
     );
-    put(
+    fact(
         home,
-        "state/cycles/7.settings",
-        &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "sub-model",
-                              "PI_ENSEMBLE_SUBAGENT_PROVIDER": "sub-provider",
-                              "PI_ENSEMBLE_MODEL_OPS": "ops-model",
-                              "PI_ENSEMBLE_PROVIDER_OPS": "ops-provider"},
-                "host": {"TEHAS_WORK_TIMEOUT": "21600"}, "concurrentCycles": 2})
-        .to_string(),
+        7,
+        "settings",
+        json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "sub-model",
+                             "PI_ENSEMBLE_SUBAGENT_PROVIDER": "sub-provider",
+                             "PI_ENSEMBLE_MODEL_OPS": "ops-model",
+                             "PI_ENSEMBLE_PROVIDER_OPS": "ops-provider"},
+               "host": {"TEHAS_WORK_TIMEOUT": "21600"}, "concurrentCycles": 2}),
     );
-    put(
+    fact(
         home,
-        "state/cycles/7.approved.json",
-        &json!({"at": iso(started - 90), "by": "someone", "how": "label"}).to_string(),
+        7,
+        "approval",
+        json!({"at": iso(started - 90), "how": "label"}),
     );
-    put(home, "state/cycles/7.rukas", "abcdef1\n");
+    fact(home, 7, "rukas", json!("abcdef1"));
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
     history(home, 7, &[line]);
 }
@@ -441,6 +476,7 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
             rukas_image: Some("abc1234".into()),
             oom: Some(4),
             forks: Some(2),
+            facts: Some(facts_path(&home, 12)),
         };
         execute(&home, &Cmd::Run(12, given), started + 3700).unwrap();
         let conn = Connection::open(db::path(&home)).unwrap();
@@ -520,10 +556,11 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
             line(t + 2000, "fixer"),
         ],
     );
-    put(
+    fact(
         &home,
-        "state/cycles/9.approved.json",
-        &json!({"at": iso(t + 1900), "by": "a", "how": "fixer"}).to_string(),
+        9,
+        "approval",
+        json!({"at": iso(t + 1900), "how": "fixer"}),
     );
     let conn = record(&home, 9, t + 3000);
     assert_eq!(
@@ -534,7 +571,7 @@ fn attempt_counts_earlier_runs_and_how_is_kept() {
         "3 fixer 100"
     );
     // Recorded again, it replaces itself.
-    execute(&home, &Cmd::Run(9, Given::default()), t + 3000).unwrap();
+    execute(&home, &Cmd::Run(9, given(&home, 9)), t + 3000).unwrap();
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM runs"), 1);
 }
 
@@ -706,26 +743,148 @@ fn a_backup_endpoint_is_read_from_the_preflight_log() {
 #[test]
 fn an_issue_without_history_records_nothing() {
     let home = scratch("nohistory");
+    let now = 1_792_000_000;
+    let code = |home: &Path, given: Given| execute(home, &Cmd::Run(5, given), now).unwrap_err().0;
+    // No facts given, and a facts file that is not there.
+    assert_eq!(code(&home, Given::default()), 65);
+    assert_eq!(code(&home, given(&home, 5)), 65);
+    // Facts with no history line, or one with no start.
+    history(&home, 5, &[]);
+    assert_eq!(code(&home, given(&home, 5)), 65);
+    history(&home, 5, &[json!({"at": "2026-10-18T10:16:39Z", "rc": 0})]);
+    assert_eq!(code(&home, given(&home, 5)), 65);
+    // Facts that are not an object, or not JSON.
+    for text in ["[1, 2]", "{\"line\":", ""] {
+        fs::write(facts_path(&home, 5), text).unwrap();
+        assert_eq!(code(&home, given(&home, 5)), 65, "{text}");
+    }
+    assert!(!db::path(&home).exists());
+}
+
+#[test]
+fn facts_are_read_as_a_claim_never_through_a_link_and_bounded() {
+    let home = scratch("factslink");
+    let now = 1_792_000_000;
+    history(
+        &home,
+        5,
+        &[json!({"at": iso(now - 60), "started": now - 600, "rc": 0, "status": "merged"})],
+    );
+    // A link to good facts is not read.
+    let link = home.join("tmp/link.json");
+    std::os::unix::fs::symlink(facts_path(&home, 5), &link).unwrap();
+    let through = Given {
+        facts: Some(link),
+        ..Given::default()
+    };
     assert_eq!(
-        execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000)
-            .unwrap_err()
-            .0,
+        execute(&home, &Cmd::Run(5, through), now).unwrap_err().0,
         65
     );
+    // Nor is a directory, or a file over the bound.
+    let dir = Given {
+        facts: Some(home.join("tmp")),
+        ..Given::default()
+    };
+    assert_eq!(execute(&home, &Cmd::Run(5, dir), now).unwrap_err().0, 65);
+    let mut big = fs::read_to_string(facts_path(&home, 5)).unwrap();
+    big.push_str(&" ".repeat(16 << 20));
+    fs::write(home.join("tmp/big.json"), big).unwrap();
+    let over = Given {
+        facts: Some(home.join("tmp/big.json")),
+        ..Given::default()
+    };
+    assert_eq!(execute(&home, &Cmd::Run(5, over), now).unwrap_err().0, 65);
     assert!(!db::path(&home).exists());
-    // A link is not read.
-    let target = home.join("elsewhere.jsonl");
-    fs::write(
-        &target,
-        "{\"started\": 1, \"at\": \"2026-10-18T10:16:39Z\"}\n",
-    )
-    .unwrap();
-    std::os::unix::fs::symlink(&target, home.join("state/cycles/5.history.jsonl")).unwrap();
+    // The facts themselves are recorded.
+    record(&home, 5, now);
+}
+
+#[test]
+fn the_run_takes_its_history_approval_settings_and_commit_from_the_facts_alone() {
+    let home = scratch("factsonly");
+    let started = 1_792_000_000;
+    // The files these facts once came from, saying otherwise: none is read.
+    put(
+        &home,
+        "state/cycles/7.history.jsonl",
+        &format!(
+            "{}\n",
+            json!({"at": iso(started + 9), "started": started - 5000, "rc": 1, "status": "failed"})
+        ),
+    );
+    put(
+        &home,
+        "state/cycles/7.approved.json",
+        &json!({"at": iso(started - 9000), "how": "fixer"}).to_string(),
+    );
+    put(
+        &home,
+        "state/cycles/7.settings",
+        &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "file-model"}, "concurrentCycles": 9})
+            .to_string(),
+    );
+    put(&home, "state/cycles/7.rukas", "fedcba9\n");
+    put(
+        &home,
+        "state/cycles/7.progress.json",
+        r#"{"roles":[{"role":"ops","dispatches":1}],"reviewHeld":false}"#,
+    );
+    history(
+        &home,
+        7,
+        &[
+            json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
+                 "how": "label"}),
+        ],
+    );
+    fact(&home, 7, "attempt", json!(4));
+    fact(
+        &home,
+        7,
+        "approval",
+        json!({"at": iso(started - 30), "how": "retry-tick"}),
+    );
+    fact(
+        &home,
+        7,
+        "settings",
+        json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "facts-model"}, "host": {},
+               "concurrentCycles": 3}),
+    );
+    fact(&home, 7, "rukas", json!(" 1234abc \n"));
+    let conn = record(&home, 7, started + 100);
     assert_eq!(
-        execute(&home, &Cmd::Run(5, Given::default()), 1_792_000_000)
-            .unwrap_err()
-            .0,
-        65
+        one::<String>(
+            &conn,
+            "SELECT id || ' ' || attempt || ' ' || how || ' ' || queue_wait || ' ' || status || ' ' ||
+               seconds || ' ' || concurrent || ' ' || rukas_commit FROM runs"
+        ),
+        format!("work-7-{started} 4 retry-tick 30 merged 60 2 1234abc")
+    );
+    assert_eq!(
+        one::<String>(&conn, "SELECT role || ' ' || model FROM run_roles"),
+        "ops facts-model"
+    );
+    // No approval, settings or commit on record: their columns are NULL.
+    let home = scratch("factsnull");
+    history(
+        &home,
+        7,
+        &[
+            json!({"at": iso(started + 60), "started": started, "rc": 0, "status": "merged",
+                 "how": "label"}),
+        ],
+    );
+    fact(&home, 7, "rukas", json!("not hex"));
+    let conn = record(&home, 7, started + 100);
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT how || ' ' || coalesce(queue_wait, '-') || ' ' || coalesce(concurrent, '-') ||
+               ' ' || coalesce(rukas_commit, '-') || ' ' || attempt FROM runs"
+        ),
+        "label - - - 1"
     );
 }
 
@@ -1070,7 +1229,7 @@ fn export_writes_a_copy_that_opens_with_the_same_version_mode_0600_and_nothing_p
             ip([10, 0, 0, 7]), ip([203, 0, 113, 9]))});
     fs::write(&path, r.to_string()).unwrap();
     let now = started + 60;
-    execute(&home, &Cmd::Run(7, Given::default()), now).unwrap();
+    execute(&home, &Cmd::Run(7, given(&home, 7)), now).unwrap();
     execute(&home, &Cmd::Event(7, "ready".into(), None), now).unwrap();
     let out = home.join("copy.db");
     execute(&home, &Cmd::Export(out.clone(), false), now).unwrap();
@@ -1247,11 +1406,21 @@ fn iso_times_are_read_as_utc() {
 #[test]
 fn the_arguments_are_checked() {
     let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
-    assert_eq!(parse(&args("run 12")), Some(Cmd::Run(12, Given::default())));
+    let facts = || Some(PathBuf::from("/f.json"));
+    assert_eq!(
+        parse(&args("run 12 --facts /f.json")),
+        Some(Cmd::Run(
+            12,
+            Given {
+                facts: facts(),
+                ..Given::default()
+            }
+        ))
+    );
     let image = format!("sha256:{}", "0f".repeat(32));
     assert_eq!(
         parse(&args(&format!(
-            "run 12 --oom 0 --image {image} --forks 3 --rukas-image 1234abc"
+            "run 12 --facts /f.json --oom 0 --image {image} --forks 3 --rukas-image 1234abc"
         ))),
         Some(Cmd::Run(
             12,
@@ -1260,10 +1429,16 @@ fn the_arguments_are_checked() {
                 rukas_image: Some("1234abc".into()),
                 oom: Some(0),
                 forks: Some(3),
+                facts: facts(),
             }
         ))
     );
     for bad in [
+        "run 12".to_string(),
+        "run 12 --oom 0".into(),
+        "run 12 --facts".into(),
+        "run 12 --facts /f.json --facts /g.json".into(),
+        "run 12 --facts /f.json --oom".into(),
         "run 12 --oom".to_string(),
         "run 12 --oom -1".into(),
         "run 12 --oom 01".into(),
@@ -1393,7 +1568,7 @@ fn run_reads_nothing_through_a_link() {
     let moved = home.join("result.json");
     fs::rename(&result, &moved).unwrap();
     std::os::unix::fs::symlink(&moved, &result).unwrap();
-    let r = run::read(&home, 7, &Given::default()).unwrap();
+    let r = run::read(&home, 7, &given(&home, 7)).unwrap();
     assert_eq!(r.result_schema, None);
     assert_eq!(r.runner_ms, None);
 }
@@ -1594,22 +1769,23 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
     );
 }
 
-// A planning turn of issue 7 in flight, as lib/planning.sh leaves its record
-// when the turn has ended, and what libexec/plan wrote beside it.
+// A planning turn of issue 7 in flight: its record as lib/planning.sh leaves
+// it when the turn has ended, as facts, and what libexec/plan wrote beside it.
 fn turn(home: &Path, record: Value, out: Option<Value>) {
-    put(home, "state/plan-7.json", &record.to_string());
+    fs::write(facts_path(home, 7), record.to_string()).unwrap();
     if let Some(o) = out {
         put(home, "state/plan-7.json.out", &o.to_string());
     }
     put(home, "docs/version.txt", "v0.7.22+1234abc\n");
 }
 
-fn plan_cmd(rc: &str) -> Cmd {
+fn plan_cmd(home: &Path, rc: &str) -> Cmd {
     Cmd::Plan(
         7,
         crate::plan::Given {
             rc: rc.into(),
             rukas_image: Some("abcdef1".into()),
+            facts: Some(facts_path(home, 7)),
         },
     )
 }
@@ -1626,7 +1802,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
                "answers": [{"turn": 2, "by": "alice", "fixer": false}]}),
         Some(json!({"session": "s1", "text": "Which one?", "question": null})),
     );
-    execute(&home, &plan_cmd("0"), now).unwrap();
+    execute(&home, &plan_cmd(&home, "0"), now).unwrap();
     let conn = Connection::open(db::path(&home)).unwrap();
     assert_eq!(
         one::<String>(
@@ -1651,7 +1827,7 @@ fn plan_stores_the_turn_with_its_times_turn_and_outcome_and_no_usage() {
     assert!(!dump.contains("alice") && !dump.contains("s1"));
 
     // plan_finish again for the same turn keeps the first row.
-    execute(&home, &plan_cmd("interrupted"), now + 600).unwrap();
+    execute(&home, &plan_cmd(&home, "interrupted"), now + 600).unwrap();
     assert_eq!(
         one::<String>(&conn, "SELECT outcome || ' ' || ended FROM runs"),
         format!("handoff {now}")
@@ -1726,7 +1902,7 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
     ] {
         let home = scratch("plan-outcome");
         turn(&home, record, out);
-        execute(&home, &plan_cmd(rc), now).unwrap();
+        execute(&home, &plan_cmd(&home, rc), now).unwrap();
         let conn = Connection::open(db::path(&home)).unwrap();
         assert_eq!(
             one::<String>(
@@ -1755,7 +1931,7 @@ fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers
         }
         let home = scratch("plan-refine");
         turn(&home, record, Some(json!({"session": "s", "text": "t"})));
-        execute(&home, &plan_cmd("0"), now).unwrap();
+        execute(&home, &plan_cmd(&home, "0"), now).unwrap();
         let conn = Connection::open(db::path(&home)).unwrap();
         assert_eq!(
             one::<String>(&conn, "SELECT how FROM runs"),
@@ -2255,39 +2431,76 @@ fn the_size_figures_of_a_full_ledger_come_in_inside_the_time_limit() {
 fn a_planning_turn_not_in_flight_records_nothing() {
     let now = 1_792_000_000;
     let home = scratch("plan-none");
-    let err = execute(&home, &plan_cmd("0"), now).unwrap_err();
+    let err = execute(&home, &plan_cmd(&home, "0"), now).unwrap_err();
     assert_eq!(err.0, 65);
     assert!(!db::path(&home).exists());
     for record in [
         json!({"session": "s", "turns": 1, "running": false, "startedAt": iso(now - 60)}),
         json!({"session": "s", "turns": 1, "running": true}),
         json!([1, 2]),
+        json!(null),
     ] {
         turn(&home, record, None);
-        assert_eq!(execute(&home, &plan_cmd("0"), now).unwrap_err().0, 65);
+        assert_eq!(
+            execute(&home, &plan_cmd(&home, "0"), now).unwrap_err().0,
+            65
+        );
     }
+    // The record on disk is not read, and facts through a link are not either.
+    let in_flight =
+        json!({"session": "s", "turns": 0, "running": true, "startedAt": iso(now - 60)});
+    put(&home, "state/plan-7.json", &in_flight.to_string());
+    let target = home.join("tmp/elsewhere.json");
+    fs::write(&target, in_flight.to_string()).unwrap();
+    fs::remove_file(facts_path(&home, 7)).unwrap();
+    assert_eq!(
+        execute(&home, &plan_cmd(&home, "0"), now).unwrap_err().0,
+        65
+    );
+    std::os::unix::fs::symlink(&target, facts_path(&home, 7)).unwrap();
+    assert_eq!(
+        execute(&home, &plan_cmd(&home, "0"), now).unwrap_err().0,
+        65
+    );
     assert!(!db::path(&home).exists());
+    fs::remove_file(facts_path(&home, 7)).unwrap();
+    fs::copy(&target, facts_path(&home, 7)).unwrap();
+    execute(&home, &plan_cmd(&home, "0"), now).unwrap();
 }
 
 #[test]
 fn plan_s_arguments_are_checked() {
     let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
     assert_eq!(
-        parse(&args("plan 7 --rc 0")),
+        parse(&args("plan 7 --rc 0 --facts /f.json")),
         Some(Cmd::Plan(
             7,
             crate::plan::Given {
                 rc: "0".into(),
-                rukas_image: None
+                rukas_image: None,
+                facts: Some("/f.json".into()),
             }
         ))
     );
     assert_eq!(
-        parse(&args("plan 7 --rukas-image abcdef1 --rc not-started")),
-        Some(plan_cmd("not-started"))
+        parse(&args(
+            "plan 7 --facts /f.json --rukas-image abcdef1 --rc not-started"
+        )),
+        Some(Cmd::Plan(
+            7,
+            crate::plan::Given {
+                rc: "not-started".into(),
+                rukas_image: Some("abcdef1".into()),
+                facts: Some("/f.json".into()),
+            }
+        ))
     );
     for bad in [
         "plan 7",
+        "plan 7 --rc 0",
+        "plan 7 --facts /f.json",
+        "plan 7 --rc 0 --facts",
+        "plan 7 --rc 0 --facts /f.json --facts /g.json",
         "plan 7 --rc",
         "plan 7 --rc 01",
         "plan 7 --rc 1000",

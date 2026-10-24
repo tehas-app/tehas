@@ -1260,9 +1260,10 @@ if [ "$never_ran" = 1 ]; then
   rm -f "$cycles/$issue.approved.json"
 fi
 # The run and its end in the factory's analytics, from the history line and
-# what the cycle left in state/cycles; the image and the counts were read and
-# removed above, so they are passed. A failure is a warning (lib/analytics.sh).
-tehas_analytics run "$issue" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
+# what the cycle left in state/cycles, which lib/analytics.sh gives as facts;
+# the image and the counts were read and removed above, so they are passed. A
+# failure is a warning.
+tehas_analytics_run "$issue" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
   ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
 tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported

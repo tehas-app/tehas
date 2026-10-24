@@ -44,6 +44,8 @@ fn a_wrong_argument_is_a_usage_error() {
     for args in [
         &[][..],
         &["run"],
+        &["run", "3"],
+        &["plan", "3", "--rc", "0"],
         &["event", "3", "shipped"],
         &["report", "--text"],
     ] {
@@ -63,11 +65,21 @@ fn an_event_makes_the_database_and_a_run_without_history_is_65() {
         (0, String::new())
     );
     assert!(home.join("state/analytics.db").is_file());
-    let (code, err) = status(Some(h), &["run", "3"]);
+    let facts = home.join("facts.json");
+    std::fs::write(&facts, r#"{"line":null,"attempt":0}"#).unwrap();
+    let f = facts.to_str().unwrap();
+    let (code, err) = status(Some(h), &["run", "3", "--facts", f]);
     assert_eq!(code, 65);
     assert_eq!(
         err,
         "analytics: no history of issue 3, so no run to record\n"
+    );
+    let missing = home.join("missing.json");
+    let (code, err) = status(Some(h), &["run", "3", "--facts", missing.to_str().unwrap()]);
+    assert_eq!(code, 65);
+    assert!(
+        err.starts_with("analytics: no facts of the run of issue 3"),
+        "{err}"
     );
 }
 

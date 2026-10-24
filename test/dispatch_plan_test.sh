@@ -443,12 +443,13 @@ t_eq "$(t_calls fake-start)" "8"
 rm -f "$fx/events-8.json"
 
 # The analytics program, where install.sh puts it. A call notes the record as
-# the program would read it.
+# the program reads it: its facts.
 plan_analytics() { # [<bash body>]
-  t_stub_analytics '[ "$1" != plan ] || cp "$TEHAS_HOME/state/plan-7.json" "$T/calls/record.at-analytics" 2>/dev/null
+  t_stub_analytics '[ "$1 $3" != "plan --facts" ] || cp "$4" "$T/calls/record.at-analytics" 2>/dev/null
 '"${1:-}"
 }
-plan_analytics_calls() { t_calls analytics | grep '^plan' || true; }
+# The calls, without the facts file's name, which is new each time.
+plan_analytics_calls() { t_calls analytics | grep '^plan' | sed 's/ --facts [^ ]*//' || true; }
 
 t_case "a planning turn that ends is recorded in analytics, from its record before it is rewritten"
 to_plan

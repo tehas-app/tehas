@@ -1,11 +1,13 @@
-//! `analytics plan <issue> --rc <rc>`: one planning turn, read from its
-//! record as lib/planning.sh leaves it when the turn has ended and before
-//! plan_finish rewrites or removes it. Under $TEHAS_HOME:
+//! `analytics plan <issue> --rc <rc> --facts <file>`: one planning turn, from
+//! its record as lib/planning.sh leaves it when the turn has ended and before
+//! plan_finish rewrites or removes it.
 //!
-//! - state/plan-<n>.json: {session, turns, running, startedAt, answers:
-//!   [{turn, by, fixer}], ...}. A turn in flight is running, with turns the
-//!   turns done before it and startedAt when it started (ISO 8601). Nothing is
-//!   recorded without both.
+//! The facts are that record, which lib/analytics.sh writes for the call and
+//! which is read as a host file is: {session, turns, running, startedAt,
+//! label, answers: [{turn, by, fixer}], ...}. A turn in flight is running,
+//! with turns the turns done before it and startedAt when it started (ISO
+//! 8601). Nothing is recorded without both. Under $TEHAS_HOME:
+//!
 //! - state/plan-<n>.json.out (libexec/plan): {session, lost, ...}, what the
 //!   turn left: the session on exit 0, lost when Pi no longer had it.
 //! - docs/version.txt, as for a work run.
@@ -14,18 +16,19 @@
 //! the model's turns: pi's rpc mode reports no usage, so no usage column is
 //! set. The turn ended when the poll collected it, which is now.
 
-use crate::run::{iso_ms, read_json, tehas_version, Run};
+use crate::run::{iso_ms, read_facts, read_json, tehas_version, Run};
 use rusqlite::{params, Connection};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// What lib/planning.sh passes: how the turn's unit ended, as plan_finish
-/// has it (its exit status, interrupted, not-started or not-readable), and
-/// the pi-rukas commit of the sandbox image's label.
+/// has it (its exit status, interrupted, not-started or not-readable), the
+/// pi-rukas commit of the sandbox image's label, and the facts file.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Given {
     pub rc: String,
     pub rukas_image: Option<String>,
+    pub facts: Option<PathBuf>,
 }
 
 pub const RC_WORDS: [&str; 3] = ["interrupted", "not-started", "not-readable"];
@@ -33,7 +36,7 @@ pub const RC_WORDS: [&str; 3] = ["interrupted", "not-started", "not-readable"];
 pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, String> {
     let state = home.join("state");
     let none = || format!("no planning turn of issue {issue} in flight, so none to record");
-    let rec = read_json(&state.join(format!("plan-{issue}.json"))).ok_or_else(none)?;
+    let rec = read_facts(given.facts.as_deref()).ok_or_else(none)?;
     let rec = rec.as_object().ok_or_else(none)?;
     if rec.get("running").and_then(Value::as_bool) != Some(true) {
         return Err(none());

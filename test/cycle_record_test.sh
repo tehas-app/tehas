@@ -620,12 +620,16 @@ t_eq "$(t_calls fake-status | wc -l)" 1
 t_eq "$(find "$T/home/tehas/tmp/improve/window" -mindepth 1 2>/dev/null | wc -l)" 0
 
 # The analytics program, where install.sh puts it. Each call notes how many
-# history lines the issue had and whether the status was refreshed yet.
+# history lines the issue had and whether the status was refreshed yet, and a
+# run keeps its facts.
 analytics_stub() { # [<bash body>]
   t_stub_analytics 'printf "%s %s\n" "$(wc -l <"$TEHAS_HOME/state/cycles/7.history.jsonl" 2>/dev/null || echo 0)" \
   "$([ -e "$T/calls/fake-status" ] && echo late || echo early)" >>"$T/calls/analytics.moment"
+[ "$1 $3" != "run --facts" ] || cp "$4" "$T/calls/analytics.facts"
 '"${1:-}"
 }
+# The calls, without the facts file's name, which is new each time.
+analytics_calls() { t_calls analytics | sed 's/ --facts [^ ]*//'; }
 
 t_case "the cycle records its run and its end in analytics after the history line, with what it read and removed"
 reset
@@ -635,10 +639,11 @@ echo 'echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOM
 echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; echo 2 >"$TEHAS_HOME/state/cycles/7.forks"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "run 7 --image $image_id --rukas-image 0123456789abcdef0123456789abcdef01234567 --oom 3 --forks 2
+t_eq "$(analytics_calls)" "run 7 --image $image_id --rukas-image 0123456789abcdef0123456789abcdef01234567 --oom 3 --forks 2
 event 7 ended"
 t_eq "$(cat "$T/calls/analytics.moment")" "1 early
 1 early"
+t_eq "$(jq -c '[.line, .attempt]' "$T/calls/analytics.facts")" "[$(tail -n 1 "$state/7.history.jsonl"),1]"
 t_lacks "$t_out" "analytics"
 
 t_case "an option with no value is left out of the run"
@@ -646,7 +651,7 @@ reset
 analytics_stub
 ended handoff commit-pr feature/x
 t_run "$cycle 7"
-t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+t_eq "$(analytics_calls)" "run 7 --oom 0 --forks 0
 event 7 ended"
 
 t_case "a cycle stopped by a signal is recorded too"
@@ -655,7 +660,7 @@ analytics_stub
 echo 'kill -TERM "$PPID"; sleep 1; exit 143' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+t_eq "$(analytics_calls)" "run 7 --oom 0 --forks 0
 event 7 ended"
 
 t_case "with TEHAS_ANALYTICS off the cycle calls no analytics"

@@ -253,7 +253,7 @@ plan_finish() {
   # unit ended, as one word, and the image's pi-rukas commit.
   if [ "${TEHAS_ANALYTICS:-}" = on ]; then
     commit=$(tehas_rukas_commit)
-    tehas_analytics plan "$n" --rc "${rc// /-}" ${commit:+--rukas-image "$commit"}
+    tehas_analytics_plan "$n" --rc "${rc// /-}" ${commit:+--rukas-image "$commit"}
   fi
   if [ "$rc" = interrupted ]; then
     why="was cut off, for example by a restart of the host"

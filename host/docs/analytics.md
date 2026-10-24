@@ -78,12 +78,18 @@ Every column below came in schema 1. A column without a value is NULL.
 
 ### runs
 
-One row per run, written when the run ends. A work run reads what the cycle
-left on the host: its history line in `state/cycles/<n>.history.jsonl`, the
-headless runner's result, `progress.json`, `settings`, `approved.json`, the
-image's pi-rukas commit, the preflight log and `docs/version.txt`. A run that
-has no result (killed, stalled, timed out) is stored with tehas's status and
-its times. A planning turn reads its record `state/plan-<n>.json`.
+One row per run, written when the run ends. A work run takes its facts from
+the cycle, which gathers them into a private file for the call
+(`lib/analytics.sh`): the last line of `state/cycles/<n>.history.jsonl` and how
+many lines it has, `at` and `how` of `approved.json`, the run's `settings`
+snapshot and the image's pi-rukas commit. It reads the rest from the host: the
+headless runner's result, `progress.json`, the preflight log and
+`docs/version.txt`. A run that has no result (killed, stalled, timed out) is
+stored with tehas's status and its times. A planning turn takes its record
+`state/plan-<n>.json` as its facts, and reads the turn's output
+`state/plan-<n>.json.out` from the host. Facts that are missing, a link, over
+16 MiB or not JSON record nothing, as a run without a history line records
+nothing.
 
 | Column | Source | Since |
 | --- | --- | --- |
@@ -151,7 +157,7 @@ The usage of each role in a run, and the model it was given.
 | --- | --- | --- |
 | `run_id` | The run's `id` | 1 |
 | `role` | The role's name | 1 |
-| `model`, `provider` | The role's model and provider in the run's settings snapshot (`state/cycles/<n>.settings`) | 1 |
+| `model`, `provider` | The role's model and provider in the run's settings snapshot (`state/cycles/<n>.settings`, in the run's facts) | 1 |
 | `dispatches`, `turns`, `input`, `output`, `cache_read` | The result's `usage.byRole`, else `progress.json` | 1 |
 | `cache_write`, `cost` | The result's `usage.byRole` | 1 |
 | `ms` | The role's time, in milliseconds, from `usage.byRole` | 1 |
