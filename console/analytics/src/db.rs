@@ -28,10 +28,10 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
-/// is only ten days deep. A database of another schema version is moved,
-/// with its -wal and -shm, to analytics.db.schema-<version>, where a reader
-/// can still fetch it, and prune_aside deletes it ten days after its last
-/// write. Any other failure, a full disk, a file it may not write, a lock
+/// is at most RETENTION_DAYS deep. A database of another schema version is
+/// moved, with its -wal and -shm, to analytics.db.schema-<version>, where a
+/// reader can still fetch it, and prune_aside deletes it RETENTION_DAYS after
+/// its last write. Any other failure, a full disk, a file it may not write, a lock
 /// held too long, is an error and leaves the file as it is. The second value
 /// is where a file was moved, if one was.
 pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), String> {
