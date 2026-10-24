@@ -1869,6 +1869,8 @@ refresh_ok() {
   head=$(jq -r .head_sha <<<"$req")
   base=$(jq -r .base_sha <<<"$req")
   if tehas_cycle_running "$n"; then refresh_drop "$n" "a cycle runs on it"; return 1; fi
+  # A list that could not be read is no reason to drop the request.
+  if ! plan_sessions; then log "wait #$n: the open planning sessions could not be read ($plan_open_word)"; return 1; fi
   if plan_open "$n"; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
@@ -3307,6 +3309,11 @@ for owed_line in "${owed[@]}"; do
   # A label of a person's decides it, in rule 6 or by waiting.
   [[ $have != *" tehas:ready "* ]] || continue
   control_ask "$n" "a cycle its provider outage parked asked to start again" && continue
+  # A list that could not be read is no reason to spend the retry.
+  if ! plan_sessions; then
+    log "wait #$n: the open planning sessions could not be read ($plan_open_word)"
+    continue
+  fi
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
     [[ $have == *" tehas:running "* ]] || plan_open "$n" || ! tehas_allowed_labeler "$by" ||
     ! unchanged_since "$n" "$(date -u -d "@$started" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
@@ -3417,6 +3424,10 @@ while read -r kind n; do
   # session's question, and the session would then end with nobody told. The
   # record counts as well as the label: between turns only the record shows
   # that a session is open.
+  if ! plan_sessions; then
+    log "skip #$n: the open planning sessions could not be read ($plan_open_word)"
+    continue
+  fi
   if plan_open "$n" || [[ $have == *" tehas:planning "* ]]; then
     log "skip #$n: a planning session is open on it; end it first"
     continue

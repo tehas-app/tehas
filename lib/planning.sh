@@ -48,7 +48,10 @@
 #                                  after a planning write; 1 when the store
 #                                  could not answer
 #   plan_open <issue>              0 when a session is open on the issue, or
-#                                  when the store could not say
+#                                  when the store could not say. A caller that
+#                                  would undo or spend something on it asks
+#                                  plan_sessions first, and waits when that
+#                                  fails: plan_open_word says why
 #   plan_turn <issue> first|next <file> [<comment id>] [<login>]
 #                                  start one turn as its own unit; its outcome
 #                                  is posted when it has ended. <file> is the
@@ -82,6 +85,18 @@
 
 plan_state() { printf '%s/state/plan-%s.json\n' "$TEHAS_HOME" "$1"; }
 plan_keep() { printf '%s-plan-%s.keep\n' "${TEHAS_WORK_DIR:?}" "$1"; }
+# plan_keep_make <dir>: make the keep directory, in a directory of workspaces
+# that tehas made, as tehas plan and tehas work ask, and marked before
+# anything is in it. 1 when that directory is someone else's.
+plan_keep_make() {
+  local works
+  works=$(dirname "$1")
+  if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
+    log "ERROR: $works exists and was not made by tehas, not touching it"
+    return 1
+  fi
+  mkdir -p "$works" && : >"$works/.tehas-workspaces" && mkdir -p "$1"
+}
 
 # The open sessions, as plan-show --open lists them. A planning write of this
 # poll makes the next plan_sessions read them again.
@@ -89,6 +104,7 @@ plan_open_read=0
 plan_open_known=0
 plan_open_json='[]'
 plan_open_set=" "
+plan_open_word=""
 plan_sessions() {
   local list
   if [ "$plan_open_read" = 1 ]; then
@@ -99,12 +115,16 @@ plan_sessions() {
   plan_open_known=0
   plan_open_json='[]'
   plan_open_set=" "
-  tehas_store plan-show --open || return 1
+  plan_open_word=unreadable
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets the word
+  tehas_store plan-show --open || { plan_open_word=$tehas_store_word; return 1; }
   list=$(tehas_store_get '[.sessions[] | select((.issue | type) == "number")]') || return 1
   # shellcheck disable=SC2034  # read by libexec/dispatch
   plan_open_json=$list
   plan_open_set=" $(jq -r 'map(.issue | tostring) | join(" ")' <<<"$list") "
   plan_open_known=1
+  # shellcheck disable=SC2034  # read by libexec/dispatch
+  plan_open_word=""
 }
 plan_open() {
   plan_sessions || return 0
@@ -128,6 +148,11 @@ plan_files_rm() {
   plan_brief_rm "$1"
 }
 
+# plan_end <issue> <text> [lost]: a lost session is closed before it is
+# announced. It stays running on record until it is closed, so the next poll
+# ends it again through plan_recover, and says it then: said first, it would
+# be said every poll until a close went through. Any other session that could
+# not be closed is closed by the next poll without a word, so it is said now.
 plan_end() {
   local n=$1
   if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:question --remove-label tehas:planning \
@@ -135,8 +160,12 @@ plan_end() {
     log "WARN: could not take the planning labels off #$n, so its session is not ended yet"
     return 1
   fi
+  if ! plan_close "$n"; then
+    [ "${3:-}" = lost ] && return 1
+    say "$n" "$2"
+    return 0
+  fi
   say "$n" "$2"
-  plan_close "$n" || return 0
   log "planning #$n ended"
 }
 
@@ -151,12 +180,19 @@ plan_close() {
   plan_files_rm "$1"
 }
 
+# The address of an issue a turn filed, as jq matches it: no line end, no
+# space and nothing else a value on a command line could be split at.
+plan_filed_re='^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+\z'
+# A session id the runner names and the store keeps: the store takes 128
+# characters at most.
+plan_sid_ok() { [[ $1 =~ ^[A-Za-z0-9-]{1,128}$ ]]; }
+
 # plan_filed <file>: the issues a turn's outcome names as filed, as one line
 # of addresses separated by ", ". An empty line when it names none. A filed
 # that is not a list of strings is none.
 plan_filed() {
-  jq -r 'if (.filed | type) == "array" then
-      [.filed[] | select(type == "string") | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]
+  jq -r --arg plan_filed_re "$plan_filed_re" 'if (.filed | type) == "array" then
+      [.filed[] | select(type == "string") | select(test($plan_filed_re))]
       | unique | join(", ")
     else "" end' "$1" 2>/dev/null
 }
@@ -215,9 +251,9 @@ plan_post() {
 plan_refined() {
   local n=$1 label=$2 out=$3 lines ledger=$TEHAS_HOME/state/refined.jsonl
   [ "$label" = tehas:refine ] || return 0
-  lines=$(jq -c --arg at "$(date -u +%FT%TZ)" --argjson n "$n" '
+  lines=$(jq -c --arg plan_filed_re "$plan_filed_re" --arg at "$(date -u +%FT%TZ)" --argjson n "$n" '
       (.filed // []) | if type == "array" then .[] else empty end | strings
-      | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))
+      | select(test($plan_filed_re))
       | {at: $at, source: $n, filed: (capture("/issues/(?<k>[0-9]+)$").k | tonumber), url: .}' "$out" 2>/dev/null) || lines=""
   [ -n "$lines" ] || return 0
   printf '%s\n' "$lines" >>"$ledger" ||
@@ -234,7 +270,7 @@ plan_refined() {
 }
 
 plan_lost() {
-  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session."
+  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session." lost
 }
 
 # plan_ended <issue> <args of plan-end>: the turn's end on record, and its
@@ -294,15 +330,18 @@ plan_finish() {
 
   if [ "$rc" = 0 ]; then
     session=$(jq -r '.session | if type == "string" then . else "" end' "$out" 2>/dev/null) || session=""
+    plan_sid_ok "$session" || session=""
   fi
   if [ -n "$session" ]; then
     # The options on record are the ones q_render posts, in the same order.
-    # What the turn filed is added to what the session filed before.
-    mapfile -t more < <(jq -r --argjson max "${Q_MAX_OPTIONS:?}" '
+    # What the turn filed is added to what the session filed before. Each
+    # value ends in a NUL, so no text of the runner's is split into words.
+    mapfile -d '' -t more < <(jq -j --arg plan_filed_re "$plan_filed_re" --argjson max "${Q_MAX_OPTIONS:?}" '
         ((.question.options // []) | if type == "array" then .[0:$max][] else empty end
-          | "--option", ((if type == "object" then .label else null end) // "-" | tostring | gsub("[\r\n]"; " "))),
+          | "--option", ((if type == "object" then .label else null end) // "-" | tostring | gsub("[\r\n]"; " ") | gsub("\u0000"; ""))),
         ((.filed // []) | if type == "array" then .[] else empty end | strings
-          | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$")) | "--filed", .)' "$out" 2>/dev/null)
+          | select(test($plan_filed_re)) | "--filed", .)
+        | . + "\u0000"' "$out" 2>/dev/null)
     plan_ended "$n" --turn "$turns" "${how[@]}" --session "$session" "${more[@]}" --out "$out" || return 1
     plan_brief_rm "$n"
     plan_refined "$n" "$label" "$out"
@@ -317,7 +356,7 @@ plan_finish() {
   if [ -z "$sid" ]; then
     sid=$(jq -r '.session | if type == "string" then . else "" end' "$out" 2>/dev/null) || sid=""
   fi
-  case "$sid" in *[!A-Za-z0-9-]*) sid="" ;; esac
+  plan_sid_ok "$sid" || sid=""
   if [ -n "$sid" ]; then
     # The session exists, so a reply can run the turn again. Its brief, what
     # it filed and who answered stay on record.
@@ -430,7 +469,7 @@ plan_turn() {
     # model would otherwise be done again.
     what=$(tehas_store_get '(.planning.filed // []) | map(strings) | unique | join(", ")') || what=""
     text=$(tehas_store_get '.planning.answer // ""') || text=""
-    if ! { mkdir -p "$keep" && if [ -n "$what" ]; then
+    if ! { plan_keep_make "$keep" && if [ -n "$what" ]; then
       printf 'Already filed in this session: %s\n\n%s\n' "$what" "$text"
     else
       printf '%s\n' "$text"

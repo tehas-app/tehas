@@ -259,6 +259,13 @@ if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas plan: $works exists and was not made by tehas, not touching it" >&2
   exit 78
 fi
+# Marked before anything is made in it: the keep directory is there too, and a
+# turn that stops before its workspace must not leave a directory that every
+# later cycle refuses.
+if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
+  echo "tehas plan: could not make $works, not starting a turn" >&2
+  exit 78
+fi
 if [ -n "$brief" ]; then
   rm -rf "$keep"
 fi
@@ -461,7 +468,7 @@ rm -rf "$tree" "$container" "$images_given" || echo "tehas plan: could not remov
 
 answer_doc=$(jq -c 'objects' "$doc" 2>/dev/null | head -n 1)
 [ -n "$answer_doc" ] || answer_doc='{}'
-sid=$(jq -r '.session.id // "" | strings | select(test("^[A-Za-z0-9-]+$"))' <<<"$answer_doc")
+sid=$(jq -r '.session.id // "" | strings | select(test("^[A-Za-z0-9-]{1,128}\\z"))' <<<"$answer_doc")
 [ -n "$sid" ] || sid=$session
 
 # give_up <what happened> [lost]: the turn failed. The session, when it is
@@ -496,7 +503,7 @@ outcome=$(jq -c --argjson rc "$rc" '
   | if $rc == 0 then
       {text: ("Filed " + ((.url // .issueUrl // "") | tostring) + (if (.title // "") == "" then "" else ": \(.title)" end) + "."),
        question: null,
-       filed: [(.url // .issueUrl) | strings | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]}
+       filed: [(.url // .issueUrl) | strings | select(test("^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+\\z"))]}
     elif $rc == 12 then
       {text: ((.text // "") + "\n\n### \(.title // "The plan")\n\n" + ((.spec // "") | tostring | clip)),
        question: {question: ((if ($qs | length) == 0 then "" else "Open points, with the planner'"'"'s proposals:\n\n\($numbered)\n\n" end)

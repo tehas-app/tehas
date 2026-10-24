@@ -161,6 +161,15 @@ run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
 t_eq "$(listing 1760700000-7)" "history.json"
 
+t_case "a turn whose session a later tehas:plan replaced has no plan.json: the new session is not its"
+reset
+turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice"}'
+printf '# Again\n' >"$T/brief-again.md"
+TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((T0 + 600)) "$T_STORE" plan-begin 7 --by bob --label tehas:refine --brief-file "$T/brief-again.md" >/dev/null
+run_export --json --after $((T0 - 1))-7 "$out"
+t_eq "$t_rc" 0
+t_eq "$(listing 1760700000-7)" "history.json"
+
 t_case "a planning turn whose session the store cannot give is not written, and the rest are"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'

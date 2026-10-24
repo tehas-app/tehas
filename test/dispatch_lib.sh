@@ -613,3 +613,19 @@ store_refuses() {
     "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
   chmod 755 "$bin"
 }
+# open_read_fails_again: the open planning sessions are read once, and every
+# read of them after that answers busy, as after a planning write of the poll.
+# With a session on #9 whose issue no longer asks, the poll ends it, which is
+# such a write.
+open_read_fails_again() {
+  local bin=$T/home/tehas/libexec/store
+  t_plan "$T/home/tehas" 9 '{"turns":1,"comment":4009}'
+  rm -f "$bin"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "if [ \"\$*\" = 'plan-show --open' ] && [ -e $(t_q "$T/calls/open-read") ]; then" \
+    "  echo 'store: busy #0: the database is locked' >&2; exit 1" \
+    'fi' \
+    "[ \"\$*\" != 'plan-show --open' ] || : >$(t_q "$T/calls/open-read")" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
