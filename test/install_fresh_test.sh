@@ -85,21 +85,21 @@ t_eq "$(core_files)" ""
 
 # The other half of the wait: a run that follows one which stopped partway finds
 # the lock held for a moment and gets in once it is let go. The wait is longer
-# than the hold and the case is timed, so a wait that was not taken - a -n
-# restored on either branch, or a wait that never reached the script - is a red
-# case rather than a green one that refused at once. It runs on a home of its
-# own: an install that finished would leave the home below matching this
-# checkout, and the --check after it has nothing left to find.
+# than the hold, and the checks below show the wait was taken: a refusal exits 1
+# and names the lock, so a wait that was not taken - a -n restored on either
+# branch, or a wait that never reached the script - is a red case rather than a
+# green one that refused at once. The run is not timed: a fresh install copies
+# the whole tree, so a bound that the copy alone can pass under load measures the
+# install and not the wait. It runs on a home of its own: an install that
+# finished would leave the home below matching this checkout, and the --check
+# after it has nothing left to find.
 t_case "an install that finds the lock held waits for it and installs when it is let go"
 mkdir -p "$th/state"
 lock=$th/state/update.lock
 late=$T/home/late/tehas
 ( exec 6>>"$lock"; flock -n 6; sleep 1 ) & holder=$!
-t_start
 t_run "export TEHAS_UPDATE_LOCK_WAIT=5; TEHAS_HOME='$late' '$install'"
 wait "$holder"
-# Under the 10s default: install.sh waited, rather than refusing at once.
-t_fast 9000
 t_eq "$t_rc" 0
 t_lacks "$t_out" "another update is running"
 # The files of a fresh install, asked of the second home: the wait was taken,
