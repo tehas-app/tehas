@@ -35,8 +35,9 @@ case "$1 $2" in "api repos/acme/widget/branches/"*)
 esac
 [ ! -e "$T/fx/gh-down" ] || { echo "gh: connection refused" >&2; exit 1; }
 # fx/slow holds a call about one pull request until fx/go is there, ten seconds
-# at most, so that a test can stop the command while it works.
-[ ! -e "$T/fx/slow" ] || for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done
+# at most, so that a test can stop the command while it works. fx/held says a
+# call is being held.
+[ ! -e "$T/fx/slow" ] || { : >"$T/fx/held"; for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done; }
 case "$1 $2" in
   "api repos/acme/widget/pulls?"*)
     # The run reads the open pull requests in pages. A fixture that names page
@@ -297,10 +298,10 @@ writes() { cat "$T/calls/gh-writes" 2>/dev/null || true; }
 # stub_gh: the gh of the fixtures at the top of this file, for a case that needs
 # it after another case replaced it with its own. It answers the repository, the
 # list of open pull requests and one pull request, and holds a call about one
-# pull request as the gh above does when fx/slow is there.
+# pull request as the gh above does when fx/slow is there, fx/held included.
 stub_gh() {
   t_stub gh 'if [ "$1 $2" = "api repos/acme/widget" ]; then echo "{\"full_name\":\"Acme/Widget\"}"; exit 0; fi
-[ ! -e "$T/fx/slow" ] || for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done
+[ ! -e "$T/fx/slow" ] || { : >"$T/fx/held"; for _ in $(seq 200); do [ ! -e "$T/fx/go" ] || break; /bin/sleep 0.05; done; }
 case "$1 $2" in
   "api repos/acme/widget/pulls?"*) cat "$T/fx/pulls.json" ;;
   "api repos/acme/widget/pulls/"*) cat "$T/fx/pull-${2#repos/acme/widget/pulls/}.json" ;;
