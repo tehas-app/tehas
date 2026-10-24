@@ -401,8 +401,10 @@ rm -f "$T/home/tehas/state/github/token" "$T/home/tehas/state/github/token.expir
 
 t_case "without a GitHub App the container is given no token directory"
 rm -f "$T"/calls/*
+T_ENV=("${env_ok[@]}")
 t_run "$work 7"
 run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
+t_contains "$run_args" "pi-rukas-headless"
 t_lacks "$run_args" "/run/tehas/github"
 
 t_done
