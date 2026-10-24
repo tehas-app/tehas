@@ -89,6 +89,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_CLEAN_MIN_FREE`          | `30g`                                    | Free disk space below which `tehasbot clean` takes the build output of a kept workspace and Docker's build cache whatever their age, instead of waiting for `TEHAS_CLEAN_AFTER` hours: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read changes nothing, and a lock a cycle holds is never removed under. Host scratch and the old images keep the age. It sits above `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles. A size such as `512m` or `30g`, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
 | `TEHAS_LOW_GATE`               | empty                                    | Optional. A command the dispatcher asks before it starts an issue it puts on neither the urgent list nor the `tehas:next` list. An absolute path of `/`, letters, digits and `._-` with no empty or dot segment, and not under `~/tehas` or the instance directory, else every command stops with 78. Empty: there is no gate, and every ready issue is started as before (see [tehas dispatch](#tehas-dispatch)) |
@@ -2540,7 +2541,18 @@ journalctl --user -u tehas-clean
 
 Removes what the host can make again, of anything untouched for
 `TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
-is logged as a warning while the others still run:
+is logged as a warning while the others still run. One exception to the age:
+when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
+system of `~/tehas` or on the one Docker keeps its images on, whichever has
+less, steps 1 and 2 take build output and the build cache whatever their age -
+step 2 with `until=0h`, which prunes the whole cache - and the run opens with
+the line `clean: low on disk: <n> GiB free, under TEHAS_CLEAN_MIN_FREE=<value>:
+build output and build cache go whatever their age`. Steps 3, 4 and 5 keep the
+age, the free figure is read once for the whole run, and a figure that cannot
+be read changes nothing. The lock rule is not relaxed: a workspace whose lock a
+cycle holds is left alone low on disk or not. It sits above
+`TEHAS_CYCLE_MIN_FREE`, so the cleaner frees space before the poll stops
+starting cycles:
 
 1. **Build output in kept workspaces.** For each issue with a kept workspace
    (`<name>-<n>` and `<name>-<n>.before-retry`) that no cycle is running, and
@@ -2585,7 +2597,8 @@ is logged as a warning while the others still run:
    directory under `~/tehas/dev` for build-output names, and that tree is a
    person's call (see [tehas dev](#tehas-dev)).
 2. **Docker's build cache** of that age, with `docker builder prune -f --filter
-   until=<N>h`. This is the build cache of the whole host's Docker daemon: tehas
+   until=<N>h`, or `until=0h` for the whole cache when the host is low on disk.
+   This is the build cache of the whole host's Docker daemon: tehas
    is one project on one host, and the cache of anything else on it is made
    again too. The next sandbox build is slower after a prune. No image and no
    volume is removed.
