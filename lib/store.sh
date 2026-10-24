@@ -38,6 +38,20 @@
 #       caller removes it. With <attempt>, only the approval that start used.
 #       Returns 0 with a path, 1 when there is none on record, 2 when the store
 #       could not answer (and prints nothing).
+#   plan_view <issue>
+#       The issue's open planning session, in the shape its record file had
+#       before the store (tehas_plan_shape), in a new 0600 file under $TEHAS_HOME/tmp;
+#       prints its path, and the caller removes it. Returns 0 with a path, 1
+#       when no session is open, 2 when the store could not answer (and
+#       prints nothing).
+#   tehas_plan_shape              a jq filter: of plan-show's answer, the
+#                                 session as its record file had it: session,
+#                                 turns, options, pending, failed, running,
+#                                 startedAt (ISO), comment (the question's
+#                                 id), lost, by, label, answers, filed and the
+#                                 notes fixer_refused and held, each key left
+#                                 out where the file had none; null when the
+#                                 store has no session of the issue
 #   tehas_settings_shape          a jq filter: of a cycle as cycle-show answers
 #                                 it, the settings on its record in the shape
 #                                 tehas_improve_settings writes them,
@@ -194,6 +208,36 @@ tehas_approval_view() { # <issue> [<attempt>]
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
   file=$(mktemp "$dir/approval.XXXXXX" 2>/dev/null) || return 2
+  if ! printf '%s\n' "$view" >"$file" 2>/dev/null; then
+    rm -f "$file"
+    return 2
+  fi
+  printf '%s\n' "$file"
+}
+
+# shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
+tehas_plan_shape='.planning | if type != "object" then null else
+  {session: (.session // ""), turns, options: (.options // []), pending, failed, running}
+  + (if .started_at == null then {} else {startedAt: (.started_at | todate)} end)
+  + (if .comment_id == null then {} else {comment: .comment_id} end)
+  + (if .lost == true then {lost: true} else {} end)
+  + (if .by == null then {} else {by} end)
+  + (if .label == null then {} else {label} end)
+  + {answers: (.answers // [])}
+  + (if (.filed // []) == [] then {} else {filed} end)
+  + (if (.notes.fixer_refused // []) == [] then {} else {fixer_refused: .notes.fixer_refused} end)
+  + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'
+
+plan_view() { # <issue>
+  local dir=${TEHAS_HOME:-}/tmp view file
+  tehas_store plan-show "$1" || return 2
+  [ "$(jq -r '.planning | if type == "object" and .ended_at == null then "open" else "none" end' <<<"$tehas_store_out" 2>/dev/null)" = open ] ||
+    return 1
+  view=$(jq -c "$tehas_plan_shape" <<<"$tehas_store_out" 2>/dev/null) || return 2
+  [ -n "$view" ] && [ "$view" != null ] || return 2
+  [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
+  file=$(mktemp "$dir/plan.XXXXXX" 2>/dev/null) || return 2
   if ! printf '%s\n' "$view" >"$file" 2>/dev/null; then
     rm -f "$file"
     return 2

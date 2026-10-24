@@ -363,8 +363,9 @@ other turn. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
 As the poll takes up a turn that ended, it records it in the factory's
 analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended> --facts
-<file>` takes the record before it is rewritten, copied to a private file for
-the call, and stores one run of kind `plan`, with its
+<file>` takes the session as the state store has it before the turn's end is
+recorded, written to a private file for the call, and stores one run of kind
+`plan`, with its
 start, its end (when the poll took it up), its number in the session and its
 outcome: `handoff` for a turn that asked its question, `stopped` for a session
 Pi no longer has, `refused` for a turn that ran nothing, `failed` for any
@@ -372,10 +373,25 @@ other. pi's rpc mode reports no token usage, so a planning turn has none. A
 call that fails is a line `WARN analytics plan: exit N` in the log, a copy
 that cannot be written is `WARN analytics plan: no facts written`, and neither
 changes anything in the turn.
-One planning turn runs at a time. A comment is a question only if the host has its id on record:
-in `~/tehas/state/plan-<issue>.json` for a planning session, and on the state
-store for a stopped cycle, as the question of the issue's current park
-(`question-known`). A question of an earlier attempt, one taken off the record,
+A planning session is on the state store (`plan-show`): its turns, the
+options of its open question, who started it and with which label, the
+approved text, each answer with who gave it, the issues it filed and the
+comments the poll spoke about once. Each change is one write: `plan-begin` as
+a session starts, `plan-answer` as an answer begins a turn, `plan-end` as a
+turn ends, as its outcome is posted, and as the session ends. A turn's end the
+store would not take keeps the turn's exit status, and the next poll takes it
+up again and posts it once. The poll reads the open sessions once
+(`plan-show --open`): an issue with one open starts no cycle, no refresh and
+no retry after an outage, and a list that cannot be read ends the poll (exit 1
+when the store is busy, 78 when it cannot be used). Read again after a
+planning write of the poll, a list that cannot be read holds every issue for
+the rest of that poll. A turn running on record is not begun again by a new
+`tehas:plan`; the poll logs the issue and starts nothing.
+
+One planning turn runs at a time. A comment is a question only if the host has its id on record
+on the state store: the question of the issue's open planning session, or of
+its current park (`question-known`). An answer that begins a turn answers that
+question on record, so a second tick in it runs nothing. A question of an earlier attempt, one taken off the record,
 one already answered and one of another issue are none of those: a box ticked
 in it starts nothing, and it is unticked with a comment that says the factory
 is not waiting on it. When the store cannot be read the issue is skipped for
@@ -981,12 +997,15 @@ issue's images. Every later turn's workspace is at that commit and gets the
 record back. A later turn whose commit is missing or gone starts at the tip of
 the branch and says so. The answer reaches the runner as
 `.tehas/answer.md` in the workspace, which git ignores. The dispatcher keeps
-the directory at `~/tehas/state/plan-<issue>.json.keep` and removes it when
-the session ends.
+the directory at `~/tehas/work/<name>-plan-<issue>.keep`, beside the turn's
+workspace and out of the state directory, writes a later turn's answer there
+as `answer.md` from the answer on record, and removes it when the session
+ends. A first turn's `--brief` is a file in `~/tehas/tmp` until the turn ends;
+the text is on the state store.
 
 The issue a confirm files is in the runner's answer. The turn's comment names
-it in one line, `Filed in this turn: <address>`, and the session's record keeps
-it. pi-rukas files a session once: a second confirm files nothing more.
+it in one line, `Filed in this turn: <address>`, and the session on the state
+store keeps it. pi-rukas files a session once: a second confirm files nothing more.
 
 With `TEHAS_WORK_IMAGES=1` the first turn fetches the images the issue links,
 by the rules of `tehas work`, with `tehas:plan` in place of `tehas:ready`,
@@ -1047,8 +1066,8 @@ are removed with it. Its transcripts go to
 turn. A confirm files the issue with the token. The runner's progress is kept
 in `~/tehas/logs/plan-<issue>-<time>.jsonl` and its answer beside it as
 `.json`. The limit is `TEHAS_PLAN_TIMEOUT`: past it the container is stopped
-with `docker stop` and the turn exits 2. The session record is
-`~/tehas/state/plan-<issue>.json`. A container left under the turn's name, by
+with `docker stop` and the turn exits 2. The session is on the state store
+(`plan-show`). A container left under the turn's name, by
 a turn whose client died, is removed before the turn starts.
 
 ## tehas dev
@@ -1446,9 +1465,8 @@ tehas history [--json] [--after CURSOR] [--issue N]
 ```
 
 What has ended, oldest first: one line for each cycle and each planning turn,
-with `kind` telling them apart. It reads the cycles' history from the state
-store and the planning turns' from `~/tehas/state/cycles/plan-<issue>.history.jsonl`,
-so it needs no network, takes no lock a running cycle holds, and writes
+with `kind` telling them apart. It reads both from the state store
+(`history-show`), so it needs no network, takes no lock a running cycle holds, and writes
 nothing. A line it cannot read is left out, not an error. A store that does not
 answer prints nothing, never a listing without the cycles: exit 1 when it was
 busy, 78 when it is not installed or cannot be used.
@@ -2223,8 +2241,10 @@ the counts in line, building, in review and stopped. `checks.cycles` has the
 issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn and `startedAt` of every planning turn
-in flight: a session record marked running whose lock
-(`state/plan-<issue>.json.lock`) its unit holds.
+in flight: a session the state store has running (`plan-show --open`) whose
+lock (`state/plan-<issue>.json.lock`) its unit holds. A store that does not
+answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
+when it is not installed or cannot be used.
 
 `fail` is about the cycle that finished most recently. It lasts until a cycle
 starts after that one ended. A cycle that was already running when the other

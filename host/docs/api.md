@@ -253,11 +253,10 @@ tehas history [--json] [--after CURSOR] [--issue N]
 
 What has ended, oldest first: one line for each cycle and each planning turn.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. It reads the cycles' history from the state store and
-the planning turns' from their history files, and nothing else: no network, no
-lock a running cycle holds, and it writes nothing. A line it cannot read is left
-out, not an error, so an older or a newer file breaks no listing. A store that
-does not answer prints nothing: never a listing without the cycles.
+the two the same way. It reads the history of both from the state store, and
+nothing else: no network, no lock a running cycle holds, and it writes
+nothing. A line it cannot read is left out, not an error. A store that does
+not answer prints nothing: never a listing without the cycles.
 
 `cursor` is the seconds of the end and the issue, as `1760700000-12`. Keep
 `next` and pass it as `--after` to read what ended since: each line is then
@@ -272,9 +271,12 @@ status, `outcome` what it reported, and the rest are the fields of the line:
 the step and cap it stopped at, why it was parked, the failure the fixer named,
 whether its provider was asked, the pull request, and who asked for it and how
 (`hand` for a cycle run by hand, which names no account).
-A planning turn has `turn`, its number in the issue, `label`, the label that
+A planning turn has `turn`, its number in the session, `label`, the label that
 started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
-the turn filed, when it filed any. A field the line does not have is left out,
+the turn filed, when it filed any. Its `outcome` is `finished`, `failed`,
+`interrupted`, `not-started`, `not-readable`, or `lost` for a turn whose
+session pi-rukas no longer had; `status` is there when the turn's unit left an
+exit status. A field the line does not have is left out,
 never null.
 
 Without `--json`, one line each, oldest first.
@@ -299,11 +301,16 @@ The copy a person reads afterwards. For every line `tehas history` gives after
 `CURSOR`, it writes `<dir>/cycles/<cursor>/`: the cycle's `result.json`, its
 `logs/`, its agents' `transcripts/`, its Protolab page under `protolab/`, and
 `history.json`, the line as `tehas history` publishes it. A planning turn brings
-`plan.json` and no cycle files: the session record as that turn left it, which
-outlives a session that never came into being, since it is copied to
-`~/tehas/state/plan-<issue>.turn` before the record is rewritten or removed. A
-turn of a session that went on has no copy of its own, and brings the record as
-it stands. A cycle whose logs the improvement loop has already removed is not an
+`plan.json` and no cycle files: the session as the state store has it now
+(`plan-show`), with `issue`, `session`, `turns`, `options`, `pending`,
+`pending_outcome`, `failed`, `running`, `started_at`, `comment_id`, `lost`,
+`by`, `label`, `brief`, `turn_rc`, `opened_at`, `ended_at` (times in Unix
+seconds), `answers`, `filed`, `answer` and `notes`. A session that ended stays
+on the store until the next `tehas:plan` of the issue replaces it, so a turn
+that never made a session still brings the one it ended; a turn whose session
+was replaced since brings no `plan.json`. A planning session the store did not
+give is a cycle not written: the others are copied, and the command exits 1.
+A cycle whose logs the improvement loop has already removed is not an
 error: those files are simply not there.
 
 Every text file goes through the console's mask, the one masker tehas has, with

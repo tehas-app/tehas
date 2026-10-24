@@ -8,9 +8,10 @@
 # numbers, from the last poll of tehas dispatch), demand.json (how many issues
 # wait for room, from the same poll), this host's pause flag,
 # $TEHAS_HOME/state/pause.json, so that a host paused while GitHub did not answer
-# still reports itself paused, and the planning turns in flight: a record
-# $TEHAS_HOME/state/plan-<issue>.json marked running whose lock the turn's unit
-# holds. No network, no model, no systemctl and no docker.
+# still reports itself paused, and the planning turns in flight: a session the
+# state store has running (plan-show --open) whose lock,
+# $TEHAS_HOME/state/plan-<issue>.json.lock, the turn's unit holds. No network,
+# no model, no systemctl and no docker.
 # tehasbot status runs it on exit, so it is refreshed at every poll and at the
 # end of every cycle.
 #
@@ -38,13 +39,30 @@
 # A stopped dispatcher cannot report itself: the file just stops changing. A
 # monitor should treat a "time" older than about ten minutes as down.
 #
-# Usage: tehasbot health        (prints nothing; exit 0 unless the file cannot be written)
+# Usage: tehasbot health        (prints nothing)
+#
+# Exit: 0 written; 1 the file could not be written, or the state store did not
+# answer (busy), which writes nothing; 78 the state store is not installed or
+# cannot be used, which writes nothing. A health file without the planning
+# turns would say none run.
 set -uo pipefail
 
 : "${TEHAS_HOME:=$HOME/tehas}"
 live=$TEHAS_HOME/live
-mkdir -p "$live"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
+if ! tehas_store_ready; then
+  echo "ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
+if ! tehas_store plan-show --open; then
+  echo "ERROR: the planning sessions could not be read from the state store: $tehas_store_line" >&2
+  [ "$tehas_store_rc" = 1 ] && exit 1
+  exit 78
+fi
+sessions=$tehas_store_out
+mkdir -p "$live"
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
 # shellcheck source=lib/status.sh
@@ -110,21 +128,21 @@ demand=null
 # The limit tehas limit sets, read here as the dispatcher reads it.
 limit=$(tehas_limit_read)
 
-# The planning turns in flight, each {issue, turn, startedAt}. A turn holds
-# its lock while it runs (lib/planning.sh); one that left its exit status has
-# ended and waits for the next poll to post it.
+# The planning turns in flight, each {issue, turn, startedAt}: the sessions
+# the store has running, read above. A turn holds its lock while it runs
+# (lib/planning.sh); one that left its exit status has ended and waits for the
+# next poll to post it.
 plans='[]'
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] && [ -f "$st.lock" ] && [ ! -e "$st.rc" ] || continue
-  ! flock -n "$st.lock" true 2>/dev/null || continue
-  n=${st##*/plan-}
-  n=${n%.json}
-  case "$n" in '' | *[!0-9]*) continue ;; esac
-  turn=$(jq -c --argjson n "$n" 'select(type == "object" and .running == true)
-    | {issue: $n, turn: ((if (.turns | type) == "number" then .turns else 0 end) + 1),
-       startedAt: (if (.startedAt | type) == "string" then .startedAt else null end)}' "$st" 2>/dev/null) || continue
-  [ -z "$turn" ] || plans=$(jq -c --argjson t "$turn" '. + [$t]' <<<"$plans")
-done
+while read -r n turn; do
+  [[ $n =~ ^[1-9][0-9]{0,9}$ ]] || continue
+  lock=$TEHAS_HOME/state/plan-$n.json.lock
+  [ -f "$lock" ] && [ ! -e "$TEHAS_HOME/state/plan-$n.json.rc" ] || continue
+  ! flock -n "$lock" true 2>/dev/null || continue
+  plans=$(jq -c --argjson t "$turn" '. + [$t]' <<<"$plans")
+done < <(jq -r '.sessions[] | select(.running == true and (.issue | type) == "number")
+  | "\(.issue) \({issue, turn: ((if (.turns | type) == "number" then .turns else 0 end) + 1),
+     startedAt: (if (.started_at | type) == "number" then (.started_at | todate) else null end)} | tojson)"' \
+  <<<"$sessions" 2>/dev/null)
 
 # tehasbot status keeps the old snapshot when GitHub does not answer. Older
 # than this, its counts and its pause are not news.

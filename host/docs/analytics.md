@@ -86,9 +86,11 @@ attempt the state store gave its start, and from the state store `at` and
 image's pi-rukas commit. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log and
 `docs/version.txt`. A run that has no result (killed, stalled, timed out) is
-stored with tehas's status and its times. A planning turn takes its record
-`state/plan-<n>.json` as its facts, and reads the turn's output
-`state/plan-<n>.json.out` from the host. Facts that are missing, a link, over
+stored with tehas's status and its times. A planning turn takes its session
+on the state store as its facts, in the shape its record file had before the
+store (running, turns, `startedAt`, label, answers), read before the turn's
+end is recorded, and reads the turn's output `state/plan-<n>.json.out` from
+the host. Facts that are missing, a link, over
 16 MiB or not JSON record nothing, as a run without a history line records
 nothing. The private file is `~/tehas/tmp/analytics-facts.*`, removed after the
 call; one that a caller killed during the call leaves is removed by

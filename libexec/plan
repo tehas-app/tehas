@@ -17,8 +17,11 @@
 #       A later turn. <file> holds the operator's answer. --comment names the
 #       reply it came from, whose attachments the turn is given.
 #
-# <dir> is what the session carries from one turn to the next. The first turn
-# makes it anew; the caller removes it when the session ends. It holds:
+# <dir> is what the session carries from one turn to the next. The dispatcher
+# gives $TEHAS_WORK_DIR-plan-<issue>.keep, beside the turn's workspace and out
+# of the state directory, and writes a later turn's answer there as answer.md.
+# The first turn makes it anew; the caller removes it when the session ends.
+# It holds:
 #   brief.md        the approved text of the issue. Every turn's workspace has
 #                   it as .tehas/brief.md. The first turn gives it to the
 #                   planner: its first line, less the "# ", as what to plan,

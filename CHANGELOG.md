@@ -36,9 +36,7 @@ empty one above it.
   be read, and never takes that for a run by hand. `tehas stop` ends the record
   of a cycle killed outright. `tehas dispatch`, `tehasbot cycle`, `tehas stop`,
   `tehas history` and `tehas export` exit 78 when the store is not installed.
-  `tehas history` lists the cycles from the store, and a planning turn's lines
-  from `state/cycles/plan-<n>.history.jsonl`, where they are written; it read
-  `state/plan-<n>.history.jsonl` before, which nothing writes.
+  `tehas history` lists the cycles from the store.
 - `host/systemd/tehas-cycle@.service` sets `TEHAS_CYCLE_FROM=unit`.
 - A park and its question are in the state store, no longer
   `state/cycles/<n>.park` and `state/park-<n>.id`. `tehasbot cycle` puts the
@@ -60,6 +58,24 @@ empty one above it.
   not stopped by the poll, which says so on every poll for a person. A dry run
   says what the poll would do about each quiet cycle. `tehas stop` no longer
   removes a `.quiet` file.
+- A planning session is in the state store, no longer `state/plan-<n>.json`
+  with its `.brief`, `.answer` and `.turn`: the session, its brief, each
+  answer with its text, the issues it filed, its open question, the comments
+  the poll spoke about once, and one line of history per turn (in place of
+  `state/cycles/plan-<n>.history.jsonl`). Each change is one write. What the
+  runner carries between turns moves out of `state/` to
+  `work/<name>-plan-<n>.keep`, beside the workspace; `.out`, `.rc` and `.lock`
+  keep their names. A turn's end the store would not take keeps the turn's
+  exit status, and the next poll posts it once. A session pi-rukas lost ends
+  with the outcome `lost`. An answer that begins a turn answers its question on
+  record, so a second tick in it runs nothing. The poll reads the open
+  sessions once: an issue with one open starts no cycle, no refresh and no
+  outage retry; a list that cannot be read ends the poll (1 when busy, 78 when
+  the store cannot be used). `tehas history` lists the planning turns from the
+  store, with `started` and `status`, which it left out before, and `label` on
+  every line. `tehas export`'s `plan.json` is the session as the store has it
+  (`plan-show`), a new shape. `tehasbot health` exits 1 or 78, writing nothing,
+  when the store cannot list the sessions.
 
 ### Adopter action
 
@@ -77,6 +93,10 @@ empty one above it.
   wait for a person's `tehas:ready`. A park of such a cycle is not on record
   either: its question's boxes start nothing (the poll unticks a tick in it
   and says so), and it owes no retry after an outage. Apply `tehas:ready`.
+- Update when no planning turn runs. A planning session of the old files is not
+  on record until the importer moves it: an answer to its question runs no
+  turn, and the poll ends the session with a comment that says so. Apply
+  `tehas:plan` again.
 
 ## v0.11.0 (2026-10-23)
 

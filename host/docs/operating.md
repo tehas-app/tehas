@@ -596,7 +596,7 @@ dispatcher's log says so.
    account outside the list, the bot's included, is taken off.
 
 pi-rukas's record of a session is kept on the host, in
-`~/tehas/state/plan-<issue>.json.keep/plan-sessions`, and carried into each
+`~/tehas/work/<name>-plan-<issue>.keep/plan-sessions`, and carried into each
 turn. If it is gone, for example after the host was rebuilt, the session cannot
 go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
@@ -1184,10 +1184,9 @@ what the account may do, and this section is that.
   ticked a box, so a tick the fixer saved after another account edited the
   question is held: it is neither used nor unticked, and the bot asks a
   person, once, to tick again or reply. To overrule it, reply or tick before the next
-  poll, or reply to the next question. The planning record,
-  `~/tehas/state/plan-<issue>.json`, keeps who started the session (`by`)
-  and who answered each turn (`answers`). A session started before tehas
-  kept these takes no answer from the fixer.
+  poll, or reply to the next question. The session on the state store
+  (`plan-show`) keeps who started it and who answered each turn, and
+  whether the fixer did.
 - **`tehas:fixer-escalated`** is the fixer's word that a person decides.
   The factory does nothing on it; a start takes it off.
 - **It may order the queue** with `tehas:next` and `tehas:blocked`, and
@@ -1199,8 +1198,7 @@ what the account may do, and this section is that.
   (`~/tehas/state/tehas.db`), the last 50 of each issue: when, its status,
   last step, cap, park reason, failure, whether a provider outage stopped
   it, whether it parked, its pull request, who started it and how. A
-  planning turn leaves one of its own in
-  `~/tehas/state/cycles/plan-<issue>.history.jsonl`, with `kind` `plan`.
+  planning turn leaves one of its own in the store too, with `kind` `plan`.
   `tehas history` lists both, oldest first, and `tehas export` copies what a
   cycle left behind. A fixer reads GitHub, not these records.
 - **The park comment carries the park's facts.** The bot's park comment,

@@ -33,19 +33,14 @@
 #                                 one). On 1, $tehas_fixer_why says why not;
 #                                 2 when the store could not answer, which
 #                                 decides nothing.
-#   tehas_fixer_answer <planning record>
-#                                 0 when the fixer may answer the open question
-#                                 of that session (lib/planning.sh): a person
+#   tehas_fixer_answer <session>  0 when the fixer may answer the open question
+#                                 of the session, a file as plan_view writes
+#                                 it (lib/store.sh, lib/planning.sh): a person
 #                                 allowed now started it, the fixer gave fewer
 #                                 than TEHAS_FIXER_MAX_PLAN_ANSWERS of its
 #                                 answers and not the last one. On 1,
 #                                 $tehas_fixer_why says why not. What the
 #                                 answer is, the caller checks.
-#   tehas_plan_history_add <issue> <JSON object>
-#                                 append one line to the planning turns'
-#                                 history of the issue,
-#                                 state/cycles/plan-<issue>.history.jsonl,
-#                                 keeping the last 50
 #   tehas_cycle_history <issue>   the issue's cycle history on the state store
 #                                 (history-show), one JSON object per line in
 #                                 the shape the lines had before the store
@@ -130,7 +125,7 @@ tehas_fixer_grant() { # <issue> <body sha256>
 }
 
 # shellcheck disable=SC2034  # the caller reads what this sets
-tehas_fixer_answer() { # <planning record>
+tehas_fixer_answer() { # <session, as plan_view writes it>
   local by got had last
   tehas_fixer_why=""
   if ! tehas_fixer_on; then
@@ -162,14 +157,6 @@ tehas_fixer_answer() { # <planning record>
     tehas_fixer_why="the fixer has answered $had questions in this session, the limit"
     return 1
   fi
-}
-
-tehas_plan_history_add() { # <issue> <JSON object>
-  local file=$TEHAS_HOME/state/cycles/plan-$1.history.jsonl
-  [ ! -L "$file" ] || return 1
-  jq -ec 'objects' <<<"$2" >>"$file" 2>/dev/null || return 1
-  [ "$(wc -l <"$file")" -le 50 ] && return 0
-  tail -n 50 "$file" >"$file.new" && mv "$file.new" "$file"
 }
 
 tehas_cycle_history() { # <issue>

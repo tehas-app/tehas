@@ -75,10 +75,10 @@
 #      parked issue that GitHub still says is open, and it is unticked when it
 #      is used. A tick on an issue closed since its cycle stopped starts
 #      nothing. A comment is a
-#      question only if this host has its id on record: the planning record in
-#      $TEHAS_HOME/state, or the question of the issue's current park on the
-#      state store (question-known). A record that could not be read skips the
-#      issue for this poll: no tick counts and none is undone.
+#      question only if this host has its id on record on the state store:
+#      the question of the issue's open planning session, or of its current
+#      park (question-known). A record that could not be read skips the issue
+#      for this poll: no tick counts and none is undone.
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
 #      account that started the parked one (park-show --automatic). Any start
@@ -125,7 +125,8 @@
 #      whose tehas:plan or tehas:refine label was applied by an
 #      allowed account starts a session, a parked one included: as with
 #      tehas:ready, tehas:question is no bar to asking for a session, and the
-#      start takes it off. tehas:planning and tehas:running are. Neither waits
+#      start takes it off. tehas:planning and tehas:running are, and so is a
+#      turn running on record (plan-begin refuses it). Neither waits
 #      for rule 2, the cap of
 #      rule 3 or the slice's room: a planning turn opens no pull request. A
 #      slice that cannot be used holds them too, before a label or a comment
@@ -133,7 +134,8 @@
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. It never names the bot: every poll
 #      reads its own login and stops when it is listed. An issue with an open
-#      planning session is not eligible until it is ended. It is eligible only
+#      planning session on record is not eligible until it is ended; while the
+#      open sessions cannot be read, no issue is. It is eligible only
 #      while GitHub says the number is an open issue: a closed issue and a pull
 #      request start nothing, whatever label they carry. Nothing else the issue
 #      carries holds it back: tehas's labels of an earlier outcome go with
@@ -1200,19 +1202,20 @@ fixer_ok() {
   return 1
 }
 
-# fixer_answer_ok <issue> <record> <answer> tick|reply: the fixer answered a
-# planning question. 0 when the answer may run the turn (tehas_fixer_answer in
-# lib/fixer.sh, a marked reply, never the way out). Otherwise it is an
-# outsider's: a tick is undone with a note, as a stranger's is, and a reply is
-# logged and said on the issue once, its id kept in the record's fixer_refused.
+# fixer_answer_ok <issue> <session> <answer> tick|reply: the fixer answered a
+# planning question. <session> is the open session as plan_view writes it. 0
+# when the answer may run the turn (tehas_fixer_answer in lib/fixer.sh, a
+# marked reply, never the way out). Otherwise it is an outsider's: a tick is
+# undone with a note, as a stranger's is, and a reply is logged and said on the
+# issue once, its id noted with the session (plan-note --kind fixer-refused).
 fixer_answer_ok() {
-  local n=$1 st=$2 ans=$3 said=$4 why="" id
+  local n=$1 view=$2 ans=$3 said=$4 why="" id
   # The way out is a person's, whether the fixer's tick or its reply is used.
   if [ "$(jq -r .tick.status <<<"$ans")" = fixer ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
     why="it ticked End this planning session, which only a person may"
   elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
     why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
-  elif ! tehas_fixer_answer "$st"; then
+  elif ! tehas_fixer_answer "$view"; then
     why=$tehas_fixer_why
   else
     return 0
@@ -1224,31 +1227,35 @@ fixer_answer_ok() {
     return 1
   fi
   id=$(jq -r '.fixer_reply.id | tostring' <<<"$ans")
-  jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 1
+  [[ $id =~ ^[1-9][0-9]{0,15}$ ]] || return 1
+  jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 1
   log "skip #$n: the fixer's answer runs no turn: $why"
   [ "$dry" = 0 ] || return 1
-  if jq -c --argjson id "$id" '.fixer_refused = (.fixer_refused // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
-    say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
+  if plan_store plan-note "$n" --kind fixer-refused --id "$id"; then
+    [ "$(tehas_store_get .said)" != true ] ||
+      say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
   else
-    log "WARN: the record of #$n could not be updated"
+    log "WARN: the record of #$n could not be updated ($tehas_store_word)"
   fi
   return 1
 }
 
-# fixer_held <issue> <record> <answer>: the fixer saved the ticked question
+# fixer_held <issue> <session> <answer>: the fixer saved the ticked question
 # after someone else edited it, so the tick may be a person's. It is neither
 # used nor undone: a person ticks again or replies. Said once a question, its
-# id kept in the record's held.
+# id noted with the session (plan-note --kind held).
 fixer_held() {
-  local n=$1 st=$2 ans=$3 id
-  id=$(jq -r .comment <<<"$ans")
-  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 0
+  local n=$1 view=$2 ans=$3 id
+  id=$(jq -r '.comment | tostring' <<<"$ans")
+  [[ $id =~ ^[1-9][0-9]{0,15}$ ]] || return 0
+  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 0
   log "skip #$n: the fixer saved the question after another account did, so who ticked it is not known"
   [ "$dry" = 0 ] || return 0
-  if jq -c --argjson id "$id" '.held = (.held // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
-    say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
+  if plan_store plan-note "$n" --kind held --id "$id"; then
+    [ "$(tehas_store_get .said)" != true ] ||
+      say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
   else
-    log "WARN: the record of #$n could not be updated"
+    log "WARN: the record of #$n could not be updated ($tehas_store_word)"
   fi
 }
 
@@ -1862,7 +1869,7 @@ refresh_ok() {
   head=$(jq -r .head_sha <<<"$req")
   base=$(jq -r .base_sha <<<"$req")
   if tehas_cycle_running "$n"; then refresh_drop "$n" "a cycle runs on it"; return 1; fi
-  if [ -e "$(plan_state "$n")" ]; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
+  if plan_open "$n"; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
   [[ $have == *" tehas:awaiting-merge "* ]] || { refresh_drop "$n" "it does not carry tehas:awaiting-merge"; return 1; }
@@ -2012,7 +2019,7 @@ report_demand() {
   fi
   for n in $list; do
     [ "$n" = "$control" ] && continue
-    if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+    if plan_open "$n" || tehas_cycle_running "$n"; then continue; fi
     if ! ev=$(gh api "repos/$repo/issues/$n/events?per_page=100" --paginate 2>/dev/null) ||
       ! line=$(tehas_label_actor tehas:ready <<<"$ev"); then
       rm -f "$file"
@@ -2044,7 +2051,7 @@ report_demand() {
   fi
   if [ -z "$held" ]; then
     for n in $list; do
-      if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+      if plan_open "$n" || tehas_cycle_running "$n"; then continue; fi
       at=$(jq -r '.at | strings' "$(tehas_refresh_dir)/$n.json" 2>/dev/null) || at=""
       waiting=$((waiting + 1))
       if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
@@ -2107,6 +2114,18 @@ fi
 # Closed issues lose tehas's state labels once a poll, after the rest of it,
 # however it ends: the trap above runs libexec/tidy from here on.
 tidy_on=1
+
+# The open planning sessions, read once before the poll acts: an open session
+# holds its issue out of every start (plan_open). A list that cannot be read
+# ends the poll. Read again after a planning write of this poll, a list that
+# cannot be read then holds every issue (lib/planning.sh).
+plan_sessions_must() {
+  plan_sessions && return 0
+  log "ERROR: the state store could not list the open planning sessions ($tehas_store_word)"
+  [ "$tehas_store_rc" = 1 ] && exit 1
+  exit 78
+}
+plan_sessions_must
 
 # The demand is read from a repository that answers to its name, and the
 # health file the snapshot above wrote is written again with it.
@@ -2655,7 +2674,7 @@ count_waiting() {
   list=$(jq -r '.[].number | tonumber? // empty' <<<"$ready_json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
   waiting=0
   for n in $list; do
-    [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n" || waiting=$((waiting + 1))
+    plan_open "$n" || tehas_cycle_running "$n" || waiting=$((waiting + 1))
   done
 }
 
@@ -2816,22 +2835,19 @@ fi
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
-# poll does not wait for it. A running record is a turn still in flight (its
-# unit holds state/plan-<issue>.json.lock), one that ended and left its exit
-# status, which is posted now, or one that was cut off, for example by a
-# restart of the host, which is reported as a failed turn. While one turn is
-# in flight no other starts.
+# poll does not wait for it. A session running on record is a turn still in
+# flight (its unit holds state/plan-<issue>.json.lock), one that ended and
+# left its exit status, which is posted now, or one that was cut off, for
+# example by a restart of the host, which is reported as a failed turn. While
+# one turn is in flight no other starts.
 fresh=" "
 plan_busy=""
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
-  [ "$(jq -r '.running // false' "$st" 2>/dev/null)" = true ] || continue
+plan_sessions_must
+for n in $(jq -r '.[] | select(.running == true) | .issue' <<<"$plan_open_json"); do
   if plan_in_flight "$n"; then
     plan_busy=$n
   elif [ "$dry" = 1 ]; then
-    if [ -f "$st.rc" ]; then
+    if [ -f "$(plan_state "$n").rc" ]; then
       log "would post the planning turn of #$n that ended"
     else
       log "would report the cut-off planning turn of #$n"
@@ -2844,12 +2860,9 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
 done
 # A planning turn whose outcome could not be posted is posted first: its
 # session is waiting on a comment nobody has seen.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
+plan_sessions_must
+for n in $(jq -r '.[] | select(.pending == true) | .issue' <<<"$plan_open_json"); do
   case "$fresh" in *" $n "*) continue ;; esac
-  [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] || continue
   if [ "$dry" = 1 ]; then
     log "would post the waiting planning turn of #$n"
   else
@@ -2858,22 +2871,20 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   # Its question label is newer than the list read below.
   fresh="$fresh$n "
 done
+open_sessions=$(jq -r '.[].issue' <<<"$plan_open_json")
 
 gh_json issue list --repo "$repo" --state open --label tehas:question --limit 1000 --json number,labels
 asking_json=$json
 asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
 # A session whose issue was closed, or whose question label was taken off by
-# hand, is over. Its record goes without a comment. A record that was running
-# or waiting to be posted when this poll began is in $fresh, whatever became
-# of it above, so it is never taken for a session that is over.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
+# hand, is over. It ends without a comment. A session that was running or
+# waiting to be posted when this poll began is in $fresh, whatever became of
+# it above, so it is never taken for a session that is over.
+for n in $open_sessions; do
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
-    *) [ "$dry" = 1 ] || rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep" ;;
+    *) [ "$dry" = 1 ] || plan_close "$n" || true ;;
   esac
 done
 for n in $asking; do
@@ -2882,37 +2893,40 @@ for n in $asking; do
   control_ask "$n" "its question was answered" && continue
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
-  # record, before a comment is read: the planning record's, else the question
-  # of the parked cycle on the state store, which the store must still know as
-  # this issue's question on record. Everything on the issue can be written
-  # with the bot's token. A record that could not be read decides nothing: a
-  # tick then neither counts nor is undone.
-  st=$(plan_state "$n")
+  # record on the state store, before a comment is read: the question of the
+  # open planning session, else the question of the parked cycle, which the
+  # store must still know as this issue's question on record. Everything on
+  # the issue can be written with the bot's token. A record that could not be
+  # read decides nothing: a tick then neither counts nor is undone.
   qid=""
   qkind=""
-  if [ -f "$st" ]; then
-    qid=$(jq -r '.comment // ""' "$st" 2>/dev/null) || qid=""
-    qkind=plan
-  fi
-  case "$qid" in '' | *[!0-9]*) qid="" ;; esac
-  if [ -z "$qid" ]; then
-    qkind=""
-    if tehas_store park-show "$n"; then
+  plan_row=null
+  if tehas_store plan-show "$n"; then
+    plan_row=$(tehas_store_get '.planning | if type == "object" and .ended_at == null then . else null end') || plan_row=null
+    [ -n "$plan_row" ] || plan_row=null
+    qid=$(jq -r '.comment_id // empty | tostring' <<<"$plan_row")
+    [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
+    if [ -z "$qid" ] && tehas_store park-show "$n"; then
       qid=$(tehas_store_get '.park.question // empty | tostring')
       [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
-      if [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
-        [ "$(tehas_store_get '.known')" = true ] && qkind=park || qid=""
-      fi
     fi
-    if ! tehas_store_looked; then
-      if [ "$tehas_store_rc" != 1 ]; then
-        log "ERROR: the state store cannot be used: $tehas_store_line"
-        exit 78
+    if tehas_store_looked && [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
+      if [ "$(tehas_store_get '.known')" = true ]; then
+        qkind=$(tehas_store_get '.kind // ""')
+      else
+        qid=""
       fi
-      log "skip #$n: its question on record could not be read ($tehas_store_word)"
-      continue
     fi
   fi
+  if ! tehas_store_looked; then
+    if [ "$tehas_store_rc" != 1 ]; then
+      log "ERROR: the state store cannot be used: $tehas_store_line"
+      exit 78
+    fi
+    log "skip #$n: its question on record could not be read ($tehas_store_word)"
+    continue
+  fi
+  case "$qkind" in park | plan) ;; *) qid="" qkind="" ;; esac
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
@@ -3068,7 +3082,10 @@ for n in $asking; do
       elif [ "$tick" = one ]; then
         :
       elif [ "$tick" = held ]; then
-        fixer_held "$n" "$st" "$ans"
+        if pview=$(plan_view "$n"); then
+          fixer_held "$n" "$pview" "$ans"
+          rm -f "$pview"
+        fi
         continue
       elif [ "$(jq -r '.fixer_reply != null' <<<"$ans")" = true ]; then
         fixer_said=reply
@@ -3077,7 +3094,7 @@ for n in $asking; do
       else
         continue
       fi
-      if [ ! -f "$st" ]; then
+      if [ "$plan_row" = null ]; then
         [ "$dry" = 1 ] || plan_end "$n" "The record of this planning session is gone from the host, so it cannot continue. Apply \`tehas:plan\` to start a new one."
         continue
       fi
@@ -3085,13 +3102,20 @@ for n in $asking; do
       # bot question must not run a turn. With an id on record the comment was
       # chosen by it and this always holds. It stops the case of a record that
       # names no question, where the newest question of the bot was read.
-      if [ "$(jq -r '.comment // ""' "$st" 2>/dev/null)" != "$(jq -r .comment <<<"$ans")" ]; then
+      if [ "$(jq -r '.comment_id // ""' <<<"$plan_row")" != "$(jq -r .comment <<<"$ans")" ]; then
         log "skip #$n: the question answered is not the one this session is waiting on"
         continue
       fi
       speaker="The operator"
       if [ -n "$fixer_said" ]; then
-        fixer_answer_ok "$n" "$st" "$ans" "$fixer_said" || continue
+        if ! pview=$(plan_view "$n"); then
+          log "skip #$n: its planning session on record could not be read"
+          continue
+        fi
+        fixer_answer_ok "$n" "$pview" "$ans" "$fixer_said"
+        fixer_ok_rc=$?
+        rm -f "$pview"
+        [ "$fixer_ok_rc" = 0 ] || continue
         speaker="The fixer"
         by=$TEHAS_FIXER_LOGIN
         if [ "$fixer_said" = reply ]; then
@@ -3110,7 +3134,7 @@ $reply"
           if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
             choice="End this planning session"
           else
-            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' <<<"$plan_row" 2>/dev/null) || choice=""
             [ -n "$choice" ] || choice="a box that matches no option on record"
           fi
           text="$text
@@ -3128,7 +3152,7 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
           [ "$dry" = 1 ] || plan_end "$n" "Planning session ended by $by."
           continue
         fi
-        choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+        choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' <<<"$plan_row" 2>/dev/null) || choice=""
         if [ -z "$choice" ]; then
           log "skip #$n: the ticked box matches no option on record"
           continue
@@ -3152,9 +3176,15 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
         log "would run a planning turn for #$n (answer from $from)"
         exit 0
       fi
-      printf '%s\n' "$text" >"$st.answer"
+      # The answer goes to the store as it is; the turn is given it from there.
+      [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+      if ! answer_file=$(mktemp "$TEHAS_HOME/tmp/plan-answer.XXXXXX") || ! printf '%s\n' "$text" >"$answer_file"; then
+        [ -z "${answer_file:-}" ] || rm -f "$answer_file"
+        log "ERROR: could not write the answer for #$n, not starting a turn"
+        exit 1
+      fi
       log "planning #$n continues (answer from $from)"
-      plan_turn "$n" next "$st.answer" "$reply_id" "$by"
+      plan_turn "$n" next "$answer_file" "$reply_id" "$by"
       "$status_cmd"
       exit 0
       ;;
@@ -3218,30 +3248,27 @@ for entry in $plans; do
     log "would start a planning session for #$n (labelled by $who${refine:+, to refine it})"
     exit 0
   fi
-  st=$(plan_state "$n")
-  # The park's question goes with the label that asked: plan_turn takes
-  # tehas:question off, and its boxes must not answer for the new session.
-  if ! park_unask "$n"; then
-    if [ "$tehas_store_rc" = 1 ]; then
-      log "skip #$n: the question of its park could not be taken off the record ($tehas_store_word)"
-      continue
-    fi
-    log "ERROR: the state store cannot be used: $tehas_store_line"
-    exit 78
+  # The approved text, kept for the turn's unit until the turn ends. The
+  # session's start takes the park's question off the record with it: its
+  # boxes must not answer for the new session.
+  [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+  if ! brief_file=$(mktemp "$TEHAS_HOME/tmp/plan-$n.brief.XXXXXX"); then
+    log "ERROR: could not write the brief of #$n"
+    exit 1
   fi
-  rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
-  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
-    { log "ERROR: unreadable text of #$n"; exit 1; }
+  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$brief_file" ||
+    { rm -f "$brief_file"; log "ERROR: unreadable text of #$n"; exit 1; }
   # The brief goes after the issue's text, so the first line is still the title
   # the planner is asked to plan. The last line names the issue under discussion:
   # without it the planner matches its own issue as the duplicate of the plan and
   # stops at turn 1 (issue 542).
-  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$st.brief"; then
+  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$brief_file"; then
+    rm -f "$brief_file"
     log "ERROR: could not write the brief of #$n"
     exit 1
   fi
   log "start planning #$n (labelled by $who${refine:+, to refine it})"
-  plan_turn "$n" first "$st.brief"
+  plan_turn "$n" first "$brief_file"
   "$status_cmd"
   exit 0
 done
@@ -3281,7 +3308,7 @@ for owed_line in "${owed[@]}"; do
   [[ $have != *" tehas:ready "* ]] || continue
   control_ask "$n" "a cycle its provider outage parked asked to start again" && continue
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
-    [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
+    [[ $have == *" tehas:running "* ]] || plan_open "$n" || ! tehas_allowed_labeler "$by" ||
     ! unchanged_since "$n" "$(date -u -d "@$started" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
     log "skip #$n: its retry after a provider outage is not started; it waits for a person"
     if [ "$dry" = 0 ] && ! tehas_store park-retry "$n" && [ "$tehas_store_word" != unparked ]; then
@@ -3327,7 +3354,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) |
 urgent=()
 for n in $carrying; do
   [ "$want" -gt 0 ] || break
-  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+  if plan_open "$n" || tehas_cycle_running "$n"; then
     continue
   fi
   label_actor "$n" tehas:urgent
@@ -3342,7 +3369,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:next")) | .
 next=()
 for n in $carrying; do
   [ "$want" -gt 0 ] || break
-  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+  if plan_open "$n" || tehas_cycle_running "$n"; then
     continue
   fi
   order_label "$n" tehas:next && next+=("$n")
@@ -3390,7 +3417,7 @@ while read -r kind n; do
   # session's question, and the session would then end with nobody told. The
   # record counts as well as the label: between turns only the record shows
   # that a session is open.
-  if [ -e "$(plan_state "$n")" ] || [[ $have == *" tehas:planning "* ]]; then
+  if plan_open "$n" || [[ $have == *" tehas:planning "* ]]; then
     log "skip #$n: a planning session is open on it; end it first"
     continue
   fi

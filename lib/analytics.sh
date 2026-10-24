@@ -35,8 +35,9 @@
 #
 #   tehas_analytics_plan <issue> [<option>...]
 #       tehas_analytics plan <issue> --facts <file> [<option>...], the facts
-#       being the planning record state/plan-<issue>.json as it is, null where
-#       it cannot be read.
+#       being the issue's planning session on the state store as it is, in the
+#       shape plan_view gives it (lib/store.sh, which the caller sources); null
+#       when the store has none or could not answer.
 #
 #       Both return 0. Facts are built only where tehas_analytics would call
 #       the program. <file> is a new 0600 file, $TEHAS_HOME/tmp/analytics-facts.*;
@@ -55,9 +56,6 @@
 # Short: a stopped cycle has TimeoutStopSec for its whole report, and two
 # calls are part of it.
 tehas_analytics_limit=5
-
-# The largest host file a fact is read from, as the program bounds its own.
-tehas_analytics_max=$((16 << 20))
 
 tehas_analytics_on() {
   local bin=$TEHAS_HOME/libexec/analytics
@@ -90,16 +88,6 @@ tehas_analytics_wait() {
   local wait=${TEHAS_ANALYTICS_WAIT:-}
   [[ $wait =~ ^[1-9][0-9]{0,2}$ ]] || wait=$tehas_analytics_limit
   printf '%s\n' "$wait"
-}
-
-# tehas_analytics_read <file> [<bytes>]: the file's text, for a regular file
-# that is not a link and is no bigger than <bytes>; 1 otherwise.
-tehas_analytics_read() {
-  local max=${2:-$tehas_analytics_max} size
-  [ -f "$1" ] && [ ! -L "$1" ] || return 1
-  size=$(stat -c %s -- "$1" 2>/dev/null) || return 1
-  [ "$size" -le "$max" ] || return 1
-  head -c "$max" -- "$1"
 }
 
 # tehas_analytics_facts <subcommand> <issue> <facts> [<option>...]
@@ -154,11 +142,13 @@ tehas_analytics_run() {
 }
 
 tehas_analytics_plan() {
-  local issue=$1 record
+  local issue=$1 record=null
   shift
   tehas_analytics_on || return 0
-  record=$(tehas_analytics_read "$TEHAS_HOME/state/plan-$issue.json" |
-    jq -s -c 'if length == 1 then .[0] else null end' 2>/dev/null) || record=null
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets the shape
+  if tehas_store plan-show "$issue"; then
+    record=$(jq -c "$tehas_plan_shape" <<<"$tehas_store_out" 2>/dev/null) || record=null
+  fi
   [ -n "$record" ] || record=null
   tehas_analytics_facts plan "$issue" "$record" "$@"
 }
