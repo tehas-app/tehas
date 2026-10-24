@@ -107,6 +107,7 @@ files="./.bashrc
 ./tehas/lib/refresh.sh
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
+./tehas/lib/shipped.sh
 ./tehas/lib/sandbox.sh
 ./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
