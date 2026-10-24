@@ -598,17 +598,11 @@ for bad in \
   printf '%s\n' "tehas_sandbox_security() { printf '%s\\0' $opts; }" \
     "tehas_sandbox_security_count() { printf '%s\\n' $words; }" \
     >>"$secdir/sandbox.sh"
-  # The guard as the three commands write it, in a script of its own, run
-  # against that library: it is the guard itself that has to refuse, and 78 is
-  # what each of the three exits with when the list and the caller disagree. The
-  # count is asked of the stubbed library first, so a list that drifted from the
-  # documented one is caught by the content check even when its length agrees.
-  printf '%s\n' 'set -uo pipefail' ". '$secdir/sandbox.sh'" 'sec=()' \
-    'mapfile -d "" -t sec < <(tehas_sandbox_security)' \
-    '[ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] && tehas_sandbox_security_ok ||' \
-    '  { echo "tehas plan: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting a turn" >&2; exit 78; }' \
-    >"$secdir/guard.sh"
-  t_run "bash '$secdir/guard.sh'"
+  # The guard the three commands ask, run against that library: it is the guard
+  # itself that has to refuse. The count is asked of the stubbed library first,
+  # so a list that drifted from the documented one is caught by the content
+  # check even when its length agrees.
+  t_run "set -uo pipefail; . '$secdir/sandbox.sh'; tehas_sandbox_security_take 'tehas plan' 'a turn' || exit 78"
   t_eq "$t_rc" 78
   t_contains "$t_out" "tehas plan: tehas_sandbox_security gave "
 done
