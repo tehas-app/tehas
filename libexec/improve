@@ -474,6 +474,12 @@ release() {
     gh release create "$tag" --repo "$repo" --prerelease --title "Cycle logs of the improvement loop" \
       --notes "The whole logs of the cycles that issues labelled $label refer to." >/dev/null 2>&1
 }
+# Why a cycle's log stays on the host: a note for the run's line, a line for
+# the issue.
+kept() { # <note> <text>
+  echo "- \`$rec\`: $2" >"$out"
+  notes+=("$1=$rec")
+}
 # Pack and upload the whole log of one cycle, once a run. What the issue says
 # about it is left in up/<record>.links.
 upload() { # <record>
@@ -484,27 +490,21 @@ upload() { # <record>
     echo "- \`$rec\`: the log is no longer on the host" >"$out"
     return 0
   fi
-  cat "$raw" >"$dir/$name"
-  [ ! -f "$raw.err" ] || cat "$raw.err" >>"$dir/$name"
-  if tehas_improve_secret "$dir/$name"; then
-    echo "- \`$rec\`: not uploaded, the log holds something shaped like a token" >"$out"
-    notes+=("secret-shape=$rec")
-    return 0
+  # The release is public: the log goes up as the console masks it, or not at all.
+  if ! { cat "$raw" "$raw.err" 2>/dev/null || :; } | "$here/console" --mask >"$dir/$name" 2>/dev/null; then
+    kept not-masked "not uploaded, the log could not be masked"
+  elif tehas_improve_secret "$dir/$name"; then
+    kept secret-shape "not uploaded, the log holds something shaped like a token"
+  elif ! tehas_improve_pack "$dir/$name" "$dir/gz" "$name" "$chunk"; then
+    kept not-packed "not uploaded, the log could not be packed"
+  elif ! release || ! gh release upload "$tag" "$dir"/gz/*.gz --repo "$repo" --clobber >/dev/null 2>&1; then
+    kept not-uploaded "the log could not be uploaded"
+  else
+    printf '%s\n' "$dir"/gz/*.gz | sort -V | while IFS= read -r f; do
+      f=$(basename "$f")
+      echo "- [$f](https://github.com/$repo/releases/download/$tag/$f)"
+    done >"$out"
   fi
-  if ! tehas_improve_pack "$dir/$name" "$dir/gz" "$name" "$chunk"; then
-    echo "- \`$rec\`: not uploaded, the log could not be packed" >"$out"
-    notes+=("not-packed=$rec")
-    return 0
-  fi
-  if ! release || ! gh release upload "$tag" "$dir"/gz/*.gz --repo "$repo" --clobber >/dev/null 2>&1; then
-    echo "- \`$rec\`: the log could not be uploaded" >"$out"
-    notes+=("not-uploaded=$rec")
-    return 0
-  fi
-  printf '%s\n' "$dir"/gz/*.gz | sort -V | while IFS= read -r f; do
-    f=$(basename "$f")
-    echo "- [$f](https://github.com/$repo/releases/download/$tag/$f)"
-  done >"$out"
 }
 
 # The body is this script's: the model's text goes in with every mention

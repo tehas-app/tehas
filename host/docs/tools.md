@@ -2622,8 +2622,9 @@ Limits: 3 issues a run; no run files in a repository while
 `TEHAS_IMPROVE_MAX_OPEN` (10 by default) open issues there carry the label. The
 whole log of each cycle a finding names is gzipped and uploaded to the release
 `tehas-improve-logs`, in pieces of at most 5 MB (`ticket-<issue>-<time>.log.gz`,
-or `.log.1.gz`, `.log.2.gz`). A log that holds something shaped like a token is
-not uploaded.
+or `.log.1.gz`, `.log.2.gz`), masked first by `console --mask`. A log that
+still holds something shaped like a token, or that could not be masked, is not
+uploaded.
 
 Exit 0 when the run finished, also with an analyst stopped at its bound that
 left a good file, there was nothing to read, the open issues are at their
