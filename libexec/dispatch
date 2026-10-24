@@ -98,7 +98,8 @@
 #      whose approval the pull request's cycle rests on. Only with
 #      TEHAS_REFRESH_CONFLICTS=1 and a sandbox image whose pi-rukas takes
 #      --continue-pr; otherwise it starts nothing, said once. Read again at the
-#      start: the issue is open, carries tehas:awaiting-merge and none of
+#      start: the issue is open, carries tehas:awaiting-merge or
+#      needs-human-attention (a handoff, and then not tehas:ready) and none of
 #      tehas:running, tehas:question, tehas:fixer-escalated, tehas:plan, and
 #      no cycle or planning session is open on it; its text is the text that
 #      person approved, renamed or edited by nobody else since; the pull
@@ -113,7 +114,10 @@
 #      no refresh in the count; rule 2 takes it off a pull request whose issue
 #      has no cycle, and one that the bot did not apply. Rules 1 and 2, the
 #      limit and the slice's room hold a refresh; the cap of rule 3 does not:
-#      the start takes tehas:awaiting-merge off, so it adds no pull request.
+#      its pull request is open already, and the start takes
+#      tehas:awaiting-merge off. A refresh of a handed-off issue is a restart:
+#      tehas cycle passes --restart, which takes needs-human-attention off,
+#      and the refresh's own end labels the issue.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The fixer's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -1712,7 +1716,12 @@ refresh_ok() {
   if [ -e "$(plan_state "$n")" ]; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
-  [[ $have == *" tehas:awaiting-merge "* ]] || { refresh_drop "$n" "it does not carry tehas:awaiting-merge"; return 1; }
+  [[ $have == *" tehas:awaiting-merge "* || $have == *" needs-human-attention "* ]] ||
+    { refresh_drop "$n" "it carries neither tehas:awaiting-merge nor needs-human-attention"; return 1; }
+  # On a handed-off issue tehas:ready asks for a fresh cycle, which rule 6
+  # starts: a refresh must not take its place.
+  [[ $have != *" needs-human-attention "* || $have != *" tehas:ready "* ]] ||
+    { refresh_drop "$n" "it was handed off and carries tehas:ready"; return 1; }
   for l in tehas:running tehas:question tehas:fixer-escalated tehas:plan tehas:planning; do
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
@@ -1775,7 +1784,8 @@ refresh_ok() {
   refresh_url[$n]=$(jq -r '.url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))' <<<"$node")
   refresh_of[$n]=$(jq -n -c --argjson pr "$pr" --arg head "$head" --arg base "$base" --arg branch "${b:-$branch}" \
     '{$pr, head_sha: $head, base_sha: $base, $branch}')
-  drop[$n]="--remove-label tehas:awaiting-merge"
+  drop[$n]=""
+  [[ $have != *" tehas:awaiting-merge "* ]] || drop[$n]="--remove-label tehas:awaiting-merge"
   [[ $have != *" tehas:ready "* ]] || drop[$n]+=" --remove-label tehas:ready"
 }
 
