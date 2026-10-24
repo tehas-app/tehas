@@ -11,8 +11,9 @@ default-members = [".", "analytics", "core", "mcp", "store"]
 name = "console"
 version = "0.1.0"
 edition = "2021"
-# The oldest compiler that knows what the source uses (LazyLock).
-rust-version = "1.80"
+# The oldest compiler that builds the default members: the store needs 1.89
+# (File::try_lock). The console's own source needs 1.80 (LazyLock).
+rust-version = "1.89"
 publish = false
 
 [dependencies]
