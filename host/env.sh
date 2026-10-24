@@ -27,6 +27,13 @@ if [ -r "$TEHAS_HOME/lib/config.sh" ]; then
   . "$TEHAS_HOME/lib/config.sh"
   tehas_load || true
 fi
+# The GitHub App, when the instance names one: gh and git act as the app, and a
+# user token left in ~/.config/tehas/env is dropped so nothing acts with it.
+if [ -n "${TEHAS_GITHUB_APP_ID:-}" ] && [ -r "$TEHAS_HOME/lib/github-app.sh" ]; then
+  # shellcheck source=lib/github-app.sh
+  . "$TEHAS_HOME/lib/github-app.sh"
+  tehas_github_app_env
+fi
 # Energy use on the dashboard: tehasbot energy samples the model mesh when it
 # is a viiwork mesh, and the section appears by itself. TEHAS_ENERGY=off removes
 # it (the file tells every visitor the machines' names, their draw and their

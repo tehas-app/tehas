@@ -75,7 +75,9 @@ fail() {
   exit 1
 }
 
-bot=$(gh api user --jq .login 2>/dev/null) || bot=""
+# A GitHub App's token cannot ask GET /user, so an app's login is the setting.
+bot=${TEHAS_BOT_LOGIN:-}
+[ -n "$bot" ] || bot=$(gh api user --jq .login 2>/dev/null) || bot=""
 [ -n "$bot" ] || fail "the bot's own login could not be read"
 prs=$(gh api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -f query="$(tehas_refresh_query)" 2>/dev/null) ||
   fail "GitHub did not list the open pull requests of $repo"

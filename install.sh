@@ -418,6 +418,8 @@ jq '
 
 files=(
   "env.sh|$TEHAS_HOME/env.sh|644"
+  # gh as the GitHub App, first on PATH when the instance names one (env.sh).
+  "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
   "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"

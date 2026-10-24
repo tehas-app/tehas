@@ -204,4 +204,14 @@ t_run "$refresh --help"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehasbot refresh"
 
+t_case "with a GitHub App the bot is TEHAS_BOT_LOGIN, and GraphQL's login without [bot] is the bot's"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+touch "$fx/user-fails"
+prs "$(pr 50 7 '.author.login = "tehas-app-bot"')" "$(pr 51 8 '.author.login = "someone"')"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "api user"
+t_eq "$(requests)" "7.json"
+
 t_done
