@@ -50,7 +50,6 @@
 //! - docs/version.txt (install.sh): one line, "vX.Y.Z+<sha7>" or "<sha7>".
 //!   `analytics plan` reads it too.
 
-use crate::mask;
 use regex::Regex;
 use rusqlite::{params, Connection};
 use serde_json::{Map, Value};
@@ -59,6 +58,9 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::UNIX_EPOCH;
+use tehas_core::grammar::is_hex;
+use tehas_core::mask;
+use tehas_core::time::days_from_civil;
 
 // A file bigger than this is not read: none that tehas writes comes near it.
 const MAX_FILE: u64 = 16 << 20;
@@ -712,10 +714,6 @@ fn number(o: &Map<String, Value>, key: &str) -> Option<i64> {
     o.get(key).and_then(Value::as_i64).filter(|n| *n >= 0)
 }
 
-pub fn is_hex(s: &str, min: usize, max: usize) -> bool {
-    (min..=max).contains(&s.len()) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 fn pattern(p: &str) -> Regex {
     Regex::new(p).expect("a pattern of the cause's mask is not a regular expression")
 }
@@ -839,13 +837,6 @@ pub fn iso_ms(s: &str) -> Option<i64> {
         return None;
     }
     let ms = format!("{frac:0<3}")[..3].parse::<i64>().ok()?;
-    // Days from the civil date (Howard Hinnant's algorithm).
-    let y = if mo <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (mo + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + da - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
+    let days = days_from_civil(y, mo, da);
     Some(((days * 24 + h) * 60 + mi) * 60_000 + se * 1000 + ms)
 }

@@ -1,11 +1,11 @@
 # The console of a running cycle: libexec/work starts it, install.sh builds
 # it and installs the binary as ~/tehas/libexec/console. It is also the root
 # of the workspace, so the gate's cargo commands on this manifest cover the
-# analytics program in analytics/, the store in store/ and the MCP server in
-# mcp/ as well.
+# analytics program in analytics/, the store in store/, the MCP server in
+# mcp/ and the library they share in core/ as well.
 [workspace]
-members = ["analytics", "mcp", "store"]
-default-members = [".", "analytics", "mcp", "store"]
+members = ["analytics", "core", "mcp", "store"]
+default-members = [".", "analytics", "core", "mcp", "store"]
 
 [package]
 name = "console"
@@ -17,9 +17,9 @@ publish = false
 
 [dependencies]
 libc = "0.2"
-regex = "1"
 serde_json = "1"
 signal-hook = "0.3"
+tehas-core = { path = "core", features = ["mask"] }
 
 [profile.release]
 strip = true

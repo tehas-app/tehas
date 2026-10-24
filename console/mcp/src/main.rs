@@ -74,7 +74,7 @@ fn main() {
     };
     let listen = listen.unwrap_or_else(|| usage("--listen is missing"));
     let version = version.unwrap_or_else(|| usage("--server-version is missing"));
-    if let Err(why) = mcp::mask::set_private(&private) {
+    if let Err(why) = tehas_core::mask::set_private(&private) {
         usage(&why);
     }
     let keys = match parse_keys(&std::env::var("TEHAS_MCP_KEYS").unwrap_or_default()) {

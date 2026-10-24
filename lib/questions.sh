@@ -21,7 +21,7 @@
 
 # What an agent wrote goes to a public issue. Tokens, database passwords,
 # private IPv4 and IPv6 unique-local addresses and tailnet names are masked: a copy in sed of the
-# console's rules for those (console/src/mask.rs), so this file needs no
+# console's rules for those (console/core/src/mask.rs), so this file needs no
 # program beside it. Three more things are taken out because the comment is
 # parsed again later or read by people: a comment marker, a task-list box, and
 # an @ that would notify somebody. Carriage returns go first: the web interface

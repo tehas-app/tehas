@@ -170,7 +170,6 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show";
 
@@ -390,9 +389,7 @@ fn now() -> Result<i64, String> {
     if let Some(t) = test_clock(std::env::var_os(TEST_NOW).as_deref())? {
         return Ok(t);
     }
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64))
+    Ok(tehas_core::time::now())
 }
 
 /// The shell tests' clock: a build with debug assertions takes the time from

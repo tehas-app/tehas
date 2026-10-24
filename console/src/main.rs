@@ -12,7 +12,7 @@
 //!     said, the commands it ran and the start of what came back.
 //!
 //! Output is plain text. Tokens, database passwords and private network
-//! addresses are masked, see mask.rs, and so is each name given with
+//! addresses are masked, see core/src/mask.rs, and so is each name given with
 //! --private, as text in any case. A name is not a secret: it is on the
 //! command line.
 //!
@@ -24,7 +24,6 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
-mod mask;
 mod render;
 mod tail;
 
@@ -38,6 +37,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::mask;
 
 const POLL: Duration = Duration::from_millis(1500);
 // How often a stop is looked for between two polls.
@@ -91,9 +91,7 @@ fn args(given: &[String]) -> Result<Args, String> {
 }
 
 fn write(out: &mut File, entry: &Entry) -> io::Result<()> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() % 86400);
+    let now = tehas_core::time::now().rem_euclid(86_400);
     out.write_all(render::format(entry, now as u32).as_bytes())
 }
 

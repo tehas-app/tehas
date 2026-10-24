@@ -7,8 +7,8 @@
 //! gives no entry. Of the progress only the kinds the runner declares stable
 //! are read; a line it marks `unstable` gives no entry.
 
-use crate::mask::{is_format, mask};
 use serde_json::Value;
+use tehas_core::mask::{is_format, mask};
 
 /// One entry of the console: who speaks, what they said and, when the line
 /// carried a time, the second of the UTC day it was said.
