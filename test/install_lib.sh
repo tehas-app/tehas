@@ -91,6 +91,7 @@ files="./.bashrc
 ./tehas/lib/disk.sh
 ./tehas/lib/edge.sh
 ./tehas/lib/fixer.sh
+./tehas/lib/github-app.sh
 ./tehas/lib/headless.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
@@ -129,6 +130,7 @@ files="./.bashrc
 ./tehas/libexec/drain
 ./tehas/libexec/energy
 ./tehas/libexec/export
+./tehas/libexec/github-token
 ./tehas/libexec/health
 ./tehas/libexec/history
 ./tehas/libexec/improve

@@ -237,8 +237,8 @@ for name in $names; do
 done
 
 t_case "every command in the usage of tehasbot has an executable script"
-names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh clean mcp "
+names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
+t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh clean mcp github-token "
 missing=""
 for name in $names; do
   # The command is `top`; its script is top-publish, because libexec/top is the
