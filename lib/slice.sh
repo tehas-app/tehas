@@ -33,7 +33,9 @@
 #                        and the pids limit of one container: "<c> <p>".
 #                        <c> is the host's CPUs less one, shared by the
 #                        cycles that may run at once (TEHAS_TICKET_CONCURRENCY,
-#                        at most the four the slice holds), never below one
+#                        and TEHAS_REFRESH_SLOTS more with
+#                        TEHAS_REFRESH_CONFLICTS=1, at most the four the
+#                        slice holds), never below one
 #                        CPU, as docker writes it (3.75). <p> is 1024 for
 #                        each CPU of <c>, rounded up, from 2048 to 4096.
 #                        Returns 1 with nothing printed without a probe or
@@ -70,7 +72,8 @@
 #                        printed when it cannot be read, and sets
 #                        TEHAS_SLICE_WHY to the file and what was missing.
 #
-# Settings read: TEHAS_CYCLE_RESERVE and TEHAS_TICKET_CONCURRENCY
+# Settings read: TEHAS_CYCLE_RESERVE, TEHAS_TICKET_CONCURRENCY,
+# TEHAS_REFRESH_CONFLICTS and TEHAS_REFRESH_SLOTS
 # (lib/config.sh gives them defaults and checks them) and TEHAS_CGROUP_ROOT,
 # the tests' seam for /sys/fs/cgroup.
 
@@ -195,6 +198,8 @@ tehas_slice_cpus() {
   local cpus=${TEHAS_SLICE_CPUS:-} cycles=${TEHAS_TICKET_CONCURRENCY:-} spare quota pids
   _tehas_slice_num "$cpus" && [ "$cpus" -gt 0 ] || return 1
   _tehas_slice_num "$cycles" && [ "$cycles" -gt 0 ] || return 1
+  [ "${TEHAS_REFRESH_CONFLICTS:-}" != 1 ] || ! _tehas_slice_num "${TEHAS_REFRESH_SLOTS:-}" ||
+    cycles=$((cycles + TEHAS_REFRESH_SLOTS))
   [ "$cycles" -le 4 ] || cycles=4
   spare=$((cpus > 1 ? cpus - 1 : 1))
   quota=$((spare * 100 / cycles))

@@ -1512,6 +1512,15 @@ jq '.committed = 4831838208' "$live/dispatch.json" >"$live/x" && mv "$live/x" "$
 t_run "$status && $summary"
 t_contains "$t_out" "slice     room for 8 cycles (4.5 GiB of 20 GiB promised, reserve 2g, 5 min ago)"
 
+t_case "summary: with a refresh lane the slice line says how much of it is free"
+reset
+rm -rf "$T/home/tehas/platform"
+poll "" ""
+jq '.refreshRoom = 1' "$live/dispatch.json" >"$live/x" && mv "$live/x" "$live/dispatch.json"
+t_run "$status && $summary"
+t_contains "$t_out" "slice     room for 8 cycles (4 GiB of 20 GiB promised, reserve 2g, refresh lane 1 free, 4"
+t_eq "$(jq -r .checks.slice.refreshRoom "$live/health.json")" 1
+
 t_case "summary: a health file written before the slice was known says unknown"
 reset
 t_run "$status"

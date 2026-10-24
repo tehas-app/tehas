@@ -368,14 +368,18 @@ t_eq "$t_out" "[tehas-fixer][3][1]"
 
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY]\""
-t_eq "$t_out" "[0][2][10]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_EVERY=1440 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY]\""
-t_eq "$t_out" "[1][5][1440]"
+t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
+t_eq "$t_out" "[0][2][10][1]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_EVERY=1440 TEHAS_REFRESH_SLOTS=8 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
+t_eq "$t_out" "[1][5][1440][8]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
+t_eq "$t_out" "[0]"
 
 for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
-  "TEHAS_REFRESH_EVERY=0" "TEHAS_REFRESH_EVERY=1441" "TEHAS_REFRESH_EVERY=010" "TEHAS_REFRESH_EVERY=10m"; do
+  "TEHAS_REFRESH_EVERY=0" "TEHAS_REFRESH_EVERY=1441" "TEHAS_REFRESH_EVERY=010" "TEHAS_REFRESH_EVERY=10m" \
+  "TEHAS_REFRESH_SLOTS=9" "TEHAS_REFRESH_SLOTS=-1" "TEHAS_REFRESH_SLOTS=01" "TEHAS_REFRESH_SLOTS=one"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
