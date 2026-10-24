@@ -45,6 +45,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
+| `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
@@ -602,7 +603,8 @@ console, or takes from the release.
 
 What is in it today: the schema, version 2 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
-and for which instance and repository; and the cycles' records: the approval
+for which instance and repository, and when records were last imported
+(`imported_at`); and the cycles' records: the approval
 each start rests on (the dispatcher's), each cycle's start and end with its
 image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
 `tehas stop`), and the last 50 lines of history of each issue; each park and
@@ -627,6 +629,14 @@ exit 78 before anything else when it is not installed.
   store at version 1 is migrated to 2 in place, and the install keeps the
   database as it was under both names, `tehas-1-<time>.db` and
   `tehas-2-<time>.db`.
+- Then it runs `store import`: the records an older tehas kept as files (the
+  cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
+  session's `state/plan-<n>.json` with its brief, answer and history) become
+  rows, and each file moves to `state/imported-<YYYYMMDD>/`, under its path in
+  `state/`, once its rows read back. Nothing is deleted. The files a cycle hands
+  to the next step (`result.json`, `progress.json`, a plan's `.out` and the
+  rest) and `state/refined.jsonl` stay where they are. A run again changes
+  nothing that is in the store already.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from

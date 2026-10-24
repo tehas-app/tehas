@@ -44,6 +44,16 @@
 # what a release carries. A tree with neither is refused before anything is
 # written, and a store that fails stops the run with exit 1 and its own line.
 #
+# The records an older tehas kept as files under state/ are then imported
+# (`store import`): made rows, each file moved to state/imported-<YYYYMMDD>/,
+# nothing deleted. A real run holds state/dispatch.lock from before the first
+# copy until after the import, so no poll starts anything in between; a poll
+# that holds it longer than the update lock's wait stops the run (exit 1,
+# nothing installed). Before the first copy the store judges the old files
+# (`store import --dry-run`): while one is there, a running cycle or planning
+# turn, or a file the import would hold, stops the run the same way. Each
+# state/plan-<n>.json.keep moves to $TEHAS_WORK_DIR-plan-<n>.keep.
+#
 # It does not start the dispatcher or the docs server, rebuild the sandbox
 # image or write secrets. It reads the model endpoints' tokens from
 # ~/.config/tehas/env, to check the ones models.json names; the
@@ -52,8 +62,8 @@
 # and renamed over the installed one.
 #
 # It also removes the commands of an earlier layout, one file for each command
-# in ~/tehas/bin and the console script in ~/tehas/libexec, unless a cycle is
-# running that still uses them.
+# in ~/tehas/bin and the console script in ~/tehas/libexec, once systemd has
+# reloaded the units that name them.
 #
 # Four things it does besides copying, on a real run only. The product
 # checkout's origin/HEAD is refreshed, so the commands know the default branch
@@ -692,6 +702,12 @@ if [ -r "$login_manager" ]; then
 fi
 
 # --- 3. Install ---------------------------------------------------------------
+# The programs are built first and copied only after the old records are judged
+# (3a): program_puts and program_stamps hold what is due. gate_store is the
+# store this run installs, the one that judges them.
+program_puts=()
+program_stamps=()
+gate_store=$TEHAS_HOME/libexec/store
 # The compiled programs first, the console, analytics, the MCP server and the
 # store, the members of the Cargo workspace in console/: a build that fails must
 # leave the host as it was, so every program that is due is built before any is
@@ -715,6 +731,7 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
     store_refusal="${store_refusal:+$store_refusal; }this release has no libexec/store and none is installed"
   fi
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
+  [ ! -x "$root/libexec/store" ] || gate_store=$root/libexec/store
   for prog in console analytics tehas-mcp store; do
     from=$root/libexec/$prog
     to=$TEHAS_HOME/libexec/$prog
@@ -729,8 +746,8 @@ if [ ! -d "$root/console" ] && [ -f "$root/VERSION" ]; then
       changed+=("libexec/$prog")
       if [ -f "$to" ]; then note "differs: $to"; else note "missing: $to"; fi
     else
-      put "$from|$to|755"
-      echo "$sum" | write_file "$to.stamp"
+      program_puts+=("$from|$to|755")
+      program_stamps+=("$sum")
     fi
   done
 else
@@ -910,10 +927,72 @@ ${out:-cargo printed nothing}"
       read -r prog sum <<<"$entry"
       to=$TEHAS_HOME/libexec/$prog
       triple=$(program_triple "$prog")
-      put "$target/${triple:+$triple/}release/$prog|$to|755"
-      echo "$sum $(program_sum "$to")" | write_file "$to.stamp"
+      [ "$prog" != store ] || gate_store=$target/${triple:+$triple/}release/store
+      program_puts+=("$target/${triple:+$triple/}release/$prog|$to|755")
+      program_stamps+=("build $sum")
     done
   fi
+fi
+
+# --- 3a. The old records and the dispatcher's lock ----------------------------
+# The store keeps the host's records; an older tehas kept them as files under
+# state/, and store_db below imports them (store import). From here until after
+# that import this run holds state/dispatch.lock, so no poll starts a cycle or a
+# planning turn in between. A poll that holds it now is waited for as long as
+# the update lock is (TEHAS_UPDATE_LOCK_WAIT), then nothing is installed.
+#
+# Before the first copy the store this run installs judges the old files with
+# a dry run, which reads files only. A cycle or planning turn that runs while
+# old files are there would write more of them after the import, so it stops
+# the install; so does a file the import would hold (a link, too large, or
+# unreadable). A home without the marker has none of this tehas's records to
+# judge: its import runs after the marker is written, in store_db.
+dispatch_held=0
+store_gate() {
+  local out
+  exec 9>>"$TEHAS_HOME/state/dispatch.lock"
+  if ! flock -w "$lock_wait" 9; then
+    echo "tehas: a poll is running ($TEHAS_HOME/state/dispatch.lock still held after ${lock_wait}s); nothing was installed" >&2
+    exit 1
+  fi
+  dispatch_held=1
+  [ -f "$TEHAS_HOME/$home_marker" ] && [ ! -L "$TEHAS_HOME/$home_marker" ] || return 0
+  if [ ! -x "$gate_store" ]; then
+    echo "tehas: there is no store to judge the old records with ($gate_store); nothing was installed" >&2
+    exit 1
+  fi
+  out=$(TEHAS_HOME=$TEHAS_HOME "$gate_store" import --dry-run 2>&1) && return 0
+  case $out in
+    "store: live #"*)
+      out=${out#store: live }
+      echo "tehas: a cycle or planning turn runs (${out%%:*}); run tehas drain --wait and let it end, then install again; nothing was installed" >&2
+      ;;
+    "store: held "*)
+      printf '%s\n' "$out" >&2
+      echo "tehas: the old records listed above cannot be imported; move each one out of $TEHAS_HOME/state or mend it, then install again; nothing was installed" >&2
+      ;;
+    *)
+      printf '%s\n' "$out" | tail -n 5 >&2
+      echo "tehas: the store could not judge the old records under $TEHAS_HOME/state; nothing was installed" >&2
+      ;;
+  esac
+  exit 1
+}
+# Given back before the first index, which takes the lock itself.
+dispatch_release() {
+  [ "$dispatch_held" != 1 ] || exec 9>&-
+  dispatch_held=0
+}
+if [ "$check" != 1 ]; then
+  store_gate
+  for i in "${!program_puts[@]}"; do
+    put "${program_puts[$i]}"
+    to=${program_puts[$i]#*|}
+    to=${to%|*}
+    stamp=${program_stamps[$i]}
+    case $stamp in "build "*) stamp="${stamp#build } $(program_sum "$to")" ;; esac
+    echo "$stamp" | write_file "$to.stamp"
+  done
 fi
 
 # A host has its tools from bootstrap.sh before its first install, so only a
@@ -1238,8 +1317,43 @@ store_db() {
     init) echo "store: made $db" ;;
     *) echo "store: $db at schema $(jq -r '.to // "?"' <<<"$out" 2>/dev/null), backup $(jq -r '.backup // "?"' <<<"$out" 2>/dev/null)" ;;
   esac
+  # The records an older tehas kept as files, made rows; each file is moved to
+  # state/imported-<day>/ once its rows read back, and nothing is deleted. A run
+  # again is safe: what is in the store already is not written twice.
+  if ! out=$(TEHAS_HOME=$TEHAS_HOME "$store" import 2>&1); then
+    printf '%s\n' "$out" | head -n 40 >&2
+    echo "tehas: the store could not import the old records under $TEHAS_HOME/state; the files are installed, the database holds what was imported, and install.sh can run again" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC2016  # a jq program
+  if jq -e '.moved > 0' <<<"$out" >/dev/null 2>&1; then
+    echo "store: imported $(jq -r '[.imported | to_entries[] | select(.value > 0) | "\(.key) \(.value)"] | join(", ")' <<<"$out"); moved $(jq -r .moved <<<"$out") files to $TEHAS_HOME/state/imported-$(date -u +%Y%m%d)/"
+  fi
 }
 store_db
+
+# A planning session's kept directory, state/plan-<n>.json.keep, holds what a
+# container wrote, so it moves out of state/ to beside the workspaces, where
+# the planning turn now keeps it: $TEHAS_WORK_DIR-plan-<n>.keep. Only while no
+# turn holds the issue's lock, and never over a directory that is there.
+for keep in "$TEHAS_HOME"/state/plan-[0-9]*.json.keep; do
+  [ -d "$keep" ] && [ ! -L "$keep" ] || continue
+  n=${keep##*/plan-}
+  n=${n%.json.keep}
+  case $n in '' | *[!0-9]*) continue ;; esac
+  to=$TEHAS_WORK_DIR-plan-$n.keep
+  lock=$TEHAS_HOME/state/plan-$n.json.lock
+  if [ -e "$lock" ] && ! { flock -n 8; } 8<"$lock"; then
+    echo "later: ./install.sh again when the planning turn of #$n has ended   ($keep stays where it is)"
+  elif [ -e "$to" ] || [ -L "$to" ]; then
+    echo "note: $keep stays where it is: $to is there already" >&2
+  elif mkdir -p "${to%/*}" && mv -T -- "$keep" "$to"; then
+    echo "moved: $keep to $to"
+  else
+    echo "tehas: could not move $keep to $to" >&2
+    exit 1
+  fi
+done
 
 # A cycle used to leave state/cycles/<issue> - one empty file per issue number,
 # the record that this host had run a cycle for it. Nothing read it, and the
@@ -1345,6 +1459,7 @@ report_login() {
 
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   echo "tehas is up to date"
+  dispatch_release
   first_install
   report_login
   first_index
@@ -1385,31 +1500,25 @@ if [ "$had_versions" = 1 ] && [[ " ${changed[*]} " == *" versions.env "* ]]; the
   echo "later: $root/bootstrap.sh user   (versions.env changed; until it runs, --check says Dependencies: NOT OK)"
 fi
 
-# The old commands go while this holds the dispatcher's lock. A cycle that
-# began before this install was started by the old dispatcher, which calls
-# them by name until it ends: it holds the lock, so they stay. A poll that
-# starts meanwhile finds the lock taken and ends before it has run anything.
-# The units systemd holds name them too, so systemd reloads first, and only
-# silence next to exit 0 says it did. Either way the files are left and a
-# later run of this script removes them: they are still there to be found, so
-# nothing is recorded. A file that cannot be removed fails the install.
+# The old commands go while this holds the dispatcher's lock, taken in step 3a:
+# a poll that starts meanwhile finds the lock taken and ends before it has run
+# anything. The units systemd holds name them too, so systemd reloads first,
+# and only silence next to exit 0 says it did. Otherwise the files are left and
+# a later run of this script removes them: they are still there to be found, so
+# nothing is recorded. A file that cannot be removed fails the install. The
+# dispatcher's lock is given back here, before the first index below takes it.
 retire_later=""
 if [ "${#old[@]}" -gt 0 ]; then
   if ! out=$(systemctl --user daemon-reload 2>&1) || [ -n "$out" ]; then
     retire_later="once systemctl --user daemon-reload works   (systemd still holds the units that name the old commands and server files in $TEHAS_HOME, so they were left)"
-  else
-    exec 9>>"$TEHAS_HOME/state/dispatch.lock"
-    if flock -n 9; then
-      for to in "${old[@]}"; do
-        rm -f "$to" "$to.prev"
-        echo "removed: $to"
-      done
-    else
-      retire_later="when the running cycle has ended   (the dispatcher's lock is held, so the old commands and server files in $TEHAS_HOME were left)"
-    fi
-    exec 9>&-
+  elif [ "$dispatch_held" = 1 ]; then
+    for to in "${old[@]}"; do
+      rm -f "$to" "$to.prev"
+      echo "removed: $to"
+    done
   fi
 fi
+dispatch_release
 [ -z "$retire_later" ] || echo "later: ./install.sh again $retire_later"
 first_install
 report_login

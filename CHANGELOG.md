@@ -76,27 +76,32 @@ empty one above it.
   every line. `tehas export`'s `plan.json` is the session as the store has it
   (`plan-show`), a new shape. `tehasbot health` exits 1 or 78, writing nothing,
   when the store cannot list the sessions.
+- `install.sh` imports the records an older tehas kept as files under
+  `state/` (the cycle's, the park question ids, the planning sessions) into the
+  store with `store import`, and moves each file to
+  `state/imported-<YYYYMMDD>/` once its rows read back. Nothing is deleted.
+  It holds `state/dispatch.lock` from before its first copy until after the
+  import, and stops before the first copy, installing nothing, while a cycle or
+  planning turn runs and such files are there, or when a file cannot be
+  imported. Each `state/plan-<n>.json.keep` moves to
+  `$TEHAS_WORK_DIR-plan-<n>.keep`.
+- `install.sh` no longer leaves the commands of the earlier layout for a later
+  run while a poll holds the dispatcher's lock: it waits for the lock instead.
 
 ### Adopter action
 
-- Update when no cycle is running and no poll is in progress. A cycle or poll
-  that was running keeps the commands it started with, and those call
-  `analytics run` and `analytics plan` without `--facts`: the new program
-  refuses that with exit 64 (`WARN analytics run: exit 64` in the cycle's
-  log), so that run or planning turn is missing from the analytics report.
-  Nothing else about the run changes.
+- Before updating, drain: `tehas drain --wait 3600`, and let planning turns
+  end. `install.sh` refuses while a cycle or planning turn runs and old records
+  are there. After the update, `tehas limit clear`. Remove
+  `~/tehas/state/imported-<YYYYMMDD>/` once satisfied.
+- A cycle or poll that was running keeps the commands it started with, and
+  those call `analytics run` and `analytics plan` without `--facts`: the new
+  program refuses that with exit 64 (`WARN analytics run: exit 64` in the
+  cycle's log), so that run or planning turn is missing from the analytics
+  report. Nothing else about the run changes.
 - Run `install.sh` with its units step, so the cycle unit sets
   `TEHAS_CYCLE_FROM=unit`; a unit file not refreshed is still known by
-  systemd's `INVOCATION_ID`. The records of cycles that ended before the update
-  stay in their files until the importer moves them: until then the fixer, a
-  refresh and an outage retry find no approval on record for those issues, and
-  wait for a person's `tehas:ready`. A park of such a cycle is not on record
-  either: its question's boxes start nothing (the poll unticks a tick in it
-  and says so), and it owes no retry after an outage. Apply `tehas:ready`.
-- Update when no planning turn runs. A planning session of the old files is not
-  on record until the importer moves it: an answer to its question runs no
-  turn, and the poll ends the session with a comment that says so. Apply
-  `tehas:plan` again.
+  systemd's `INVOCATION_ID`.
 
 ## v0.11.0 (2026-10-23)
 
