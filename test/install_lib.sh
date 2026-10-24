@@ -114,7 +114,6 @@ files="./.bashrc
 ./tehas/lib/store.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
-./tehas/lib/unzip.sh
 ./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
