@@ -180,6 +180,7 @@
 #      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
+#      Alone, on an issue in no other flow, it approves as tehas:ready does.
 #      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
 #      (lib/sizing.sh), and an issue whose body names more files than the
 #      setting is not started either: its tehas:ready comes off,
@@ -1057,18 +1058,17 @@ epic_ok() {
   word=sub-issue
   [ "$open" = 1 ] || word=${word}s
   log "skip #$n: it is an epic with $open $word open, and an epic is never started"
-  # tehas:ready is the only label an epic loses: it is the one that asked for
-  # the cycle. Where the start was a retry tick, the issue need not carry it,
-  # and no other label of tehas's is taken from an issue this refuses.
-  [[ $have == *" tehas:ready "* ]] || return 1
+  # Only the label that asked for the cycle comes off. A retry tick's issue
+  # may carry none.
+  [[ $have == *" $ask "* ]] || return 1
   if [ "$dry" = 1 ]; then
-    log "would take tehas:ready off #$n: it is an epic"
+    log "would take $ask off #$n: it is an epic"
     return 1
   fi
-  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
-    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
+  if gh issue edit "$n" --repo "$repo" --remove-label $ask >/dev/null 2>&1; then
+    say "$n" "Tehas took \`$ask\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
   else
-    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+    log "WARN: label change on #$n failed: --remove-label $ask"
   fi
   return 1
 }
@@ -1141,20 +1141,17 @@ size_ok() {
   }
   [ "$files" -le "$TEHAS_SIZE_MAX_FILES" ] || {
     log "skip #$n: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES), and one cycle does not make that many changes"
-    # The label of this issue that asked for the cycle, as the poll read it when
-    # it put the issue on the list: work_ok's answer holds the body, not the
-    # labels, and the script's $have is written by the park and the refresh
-    # paths for the issue each of them is deciding, so this guard takes the
-    # labels from its caller instead of reading that global.
-    [[ $have == *" tehas:ready "* ]] || return 1
+    # The labels are the caller's: the park and refresh paths write the global
+    # $have for issues of their own.
+    [[ $have == *" $ask "* ]] || return 1
     if [ "$dry" = 1 ]; then
-      log "would take tehas:ready off #$n and add needs-human-attention: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES)"
+      log "would take $ask off #$n and add needs-human-attention: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES)"
       return 1
     fi
-    if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready --add-label needs-human-attention >/dev/null 2>&1; then
-      say "$n" "Tehas took \`tehas:ready\` off this issue, put \`needs-human-attention\` on it and started nothing. Its body names $files files, more than the $TEHAS_SIZE_MAX_FILES of \`TEHAS_SIZE_MAX_FILES\`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply \`tehas:ready\` again to start one of them."
+    if gh issue edit "$n" --repo "$repo" --remove-label $ask --add-label needs-human-attention >/dev/null 2>&1; then
+      say "$n" "Tehas took \`$ask\` off this issue, put \`needs-human-attention\` on it and started nothing. Its body names $files files, more than the $TEHAS_SIZE_MAX_FILES of \`TEHAS_SIZE_MAX_FILES\`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply \`tehas:ready\` again to start one of them."
     else
-      log "WARN: label change on #$n failed: --remove-label tehas:ready --add-label needs-human-attention"
+      log "WARN: label change on #$n failed: --remove-label $ask --add-label needs-human-attention"
     fi
     return 1
   }
@@ -1182,10 +1179,10 @@ clear_pr_open() {
   local n=$1
   log "skip #$n: pull request $pr_url is open and closes it"
   [ "$dry" = 0 ] || return 0
-  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
-    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
+  if gh issue edit "$n" --repo "$repo" --remove-label $ask >/dev/null 2>&1; then
+    say "$n" "Tehas took \`$ask\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
   else
-    log "WARN: label change on #$n failed: --remove-label tehas:ready"
+    log "WARN: label change on #$n failed: --remove-label $ask"
   fi
 }
 
@@ -2710,13 +2707,17 @@ if [ -n "$pause_holds" ]; then
   exit 0
 fi
 
-# The open issues labelled tehas:ready, read once a poll, in $ready_json.
+# The open issues labelled tehas:ready or tehas:blocked, read once a poll.
 ready_json=""
 read_ready() {
   [ -z "$ready_json" ] || return 0
   gh_json issue list --repo "$repo" --state open --label tehas:ready --limit 1000 --json number,labels
   ready_json=$json
+  gh_json issue list --repo "$repo" --state open --label tehas:blocked --limit 1000 --json number,labels
+  ready_json=$(jq -sc '.[0] + (.[1] | map(select(any(.labels[]?.name; test("^tehas:(running|awaiting-merge|question|planning|refreshing|plan|refine)$")) | not)))
+    | unique_by(.number)' <<<"$ready_json$json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
 }
+ask=tehas:ready # the label that asked for the issue being decided
 # count_waiting: how many of them could start now, as far as this host knows
 # without asking GitHub more, in $waiting: no cycle and no planning session of
 # theirs is open.
@@ -2724,7 +2725,7 @@ waiting=0
 count_waiting() {
   local n list
   read_ready
-  list=$(jq -r '.[].number | tonumber? // empty' <<<"$ready_json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
+  list=$(jq -r '.[] | select(any(.labels[]?.name; . == "tehas:ready")) | .number | tonumber? // empty' <<<"$ready_json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
   waiting=0
   for n in $list; do
     plan_open "$n" || tehas_cycle_running "$n" || waiting=$((waiting + 1))
@@ -3498,7 +3499,7 @@ while read -r kind n; do
     continue
   fi
   [ "$ready_picked" -lt "$want" ] || continue
-  have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
+  have=" $(jq -r --argjson n "$n" '[.[] | select((.number | tonumber?) == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
   # One issue is in one flow at a time. A cycle's park question would hide the
   # session's question, and the session would then end with nobody told. The
   # record counts as well as the label: between turns only the record shows
@@ -3511,9 +3512,8 @@ while read -r kind n; do
     log "skip #$n: a planning session is open on it; end it first"
     continue
   fi
-  # The pause switch, whatever label it carries and whoever applied one: said
-  # before the events of the issue are read, so it costs no call to GitHub and
-  # no change of its labels.
+  # The pause switch, whatever its label and whoever applied one: said before
+  # the issue's events are read, so it costs no GitHub call and no label change.
   control_ask "$n" "\`tehas:ready\`" && continue
   # The label asks for a fresh cycle. It gets one when this one has ended, and
   # stays on the issue until then. A running cycle is never stopped for it.
@@ -3522,12 +3522,14 @@ while read -r kind n; do
     continue
   fi
   by_fixer=0
-  if ! approval "$n" tehas:ready; then
-    if [ -n "$refused" ] && tehas_fixer_is "$refused"; then
+  ask=tehas:ready
+  [[ $have == *" tehas:ready "* ]] || ask=tehas:blocked
+  if ! approval "$n" "$ask"; then
+    if [ "$ask" = tehas:ready ] && [ -n "$refused" ] && tehas_fixer_is "$refused"; then
       fixer_ok "$n" || continue
       by_fixer=1
     else
-      [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
+      [ "$ask" != tehas:ready ] || [ -z "$refused" ] || clear_unauthorised "$n" tehas:ready "$refused"
       continue
     fi
   fi
@@ -3545,7 +3547,6 @@ while read -r kind n; do
   # Nor does one whose fix the loop says lives on the other side too.
   cross_repo_holds "$n" "$have" || continue
   # With TEHAS_SIZE_MAX_FILES, a body that names too many files is held too.
-  # The labels are the ones the poll read from the ready list above.
   size_ok "$n" "$have" || continue
   open_pr "$n"
   if [ -n "$pr_url" ]; then
@@ -3557,9 +3558,8 @@ while read -r kind n; do
   # that says a file goes there and links nothing waits for its owner instead
   # of spending a cycle on a premise it cannot see.
   image_missing_ok "$n" || continue
-  # A relabelled start of an issue whose last cycle parked on this very text
-  # asks for the attempt that cycle already spent: it goes no further than the
-  # log, once, until the body changes or the tick of the park asks for it.
+  # A relabelled start on the very text the last cycle parked on asks for a spent
+  # attempt: it is logged once, until the body changes or the park is ticked.
   park_holds "$n" && continue
   # The gate of rule 7, asked for the first issue of the lowest kind that
   # reached this point: an issue that waits for another reason asks nothing.
@@ -3568,7 +3568,7 @@ while read -r kind n; do
   ready_picked=$((ready_picked + 1))
   starter[$n]=$who
   verb[$n]=labelled
-  how[$n]="\`tehas:ready\` label"
+  how[$n]="\`$ask\` label"
   given_at[$n]=$at
   given_how[$n]=label
   if [ "$by_fixer" = 1 ]; then
@@ -3576,11 +3576,11 @@ while read -r kind n; do
     how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_fixer_rests_on")'s approval of $(jq -r .at <<<"$tehas_fixer_rests_on")"
     given_how[$n]=fixer
   fi
-  drop[$n]="--remove-label tehas:ready"
-  # What an earlier cycle left on the issue goes with the start. Only what
-  # is there: gh refuses to remove a label the repository does not have.
-  # needs-human-attention is not tehas's to take off: the cycle starts with
-  # --restart, and pi-rukas clears it.
+  drop[$n]="--remove-label $ask"
+  [ "$ask" = tehas:blocked ] || [[ $have != *" tehas:blocked "* ]] || drop[$n]+=" --remove-label tehas:blocked"
+  # What an earlier cycle left goes with the start, only what is there: gh refuses
+  # a label the repository lacks. needs-human-attention is pi-rukas's to clear
+  # (the cycle starts with --restart).
   for l in tehas:awaiting-merge tehas:question tehas:fixer-escalated; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done

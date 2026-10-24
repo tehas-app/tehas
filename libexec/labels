@@ -42,7 +42,7 @@ mk tehas:refine 0e8a16 "Tehas: plan this request into one issue sized for one cy
 mk tehas:planning 1d76db "Tehas: a planning turn is running for this issue"
 mk tehas:fixer-escalated c5def5 "Tehas: the fixer left this issue to a person"
 mk tehas:next bfd4f2 "Tehas: dispatch after urgent issues, before the rest"
-mk tehas:blocked e4e669 "Tehas: not started while an issue it names is open"
+mk tehas:blocked e4e669 "Tehas: started once every issue it names is closed"
 mk tehas:refreshing 1d76db "Tehas: a cycle is refreshing this pull request; do not merge or push now"
 mk tehas:all-hands b60205 "Tehas: on the control issue, asks for all hands on this project (reported only)"
 exit "$failed"

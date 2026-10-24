@@ -13,11 +13,20 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- `tehas:blocked` on its own now starts the issue once every issue its marker
+  names is closed. It approves the start as `tehas:ready` does: only from an
+  allowed labeller, and only while the text is the one it approved. The start
+  takes `tehas:blocked` off. A lone `tehas:blocked` from the fixer still only
+  holds the issue.
 
 ### Adopter action
 
-- None.
+- Before updating, look at the open issues that carry `tehas:blocked` and no
+  `tehas:ready`. One whose marker names only closed issues starts on the first
+  poll after the update. Name an open blocker in a new marker comment, or take
+  the label off, for any that should keep waiting.
+- Run `tehas labels` to update the description of `tehas:blocked`.
+- Nothing is migrated: going back to v0.12.0 leaves no state behind.
 
 ## v0.12.0 (2026-10-24)
 
