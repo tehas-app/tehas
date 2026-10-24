@@ -213,7 +213,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   anything. Run `install.sh`, which builds the store and makes the database.
 - `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
   on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
-  taken off the record and the issue gets `needs-human-attention`. Read
+  taken off the record, or the unit is stopped when the store keeps it, and
+  the issue gets `needs-human-attention`. Read
   `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
   store refused the start` (exit 77) is a unit started with no approval
   waiting, such as one started by hand with `systemctl`; `the state store did

@@ -518,6 +518,46 @@ t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
 # late finds none to use.
 t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" "[null,null]"
 
+# undo_busy <times>: the store answers the undo of an approval busy for its
+# first <times> calls, and runs the real store for everything else.
+undo_busy() {
+  local bin=$T/home/tehas/libexec/store
+  rm -f "$bin" "$T/undo.n"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    'case " $* " in *" --undo "*)' \
+    "  n=\$((\$(cat $(t_q "$T/undo.n") 2>/dev/null || echo 0) + 1)); echo \"\$n\" >$(t_q "$T/undo.n")" \
+    "  if [ \"\$n\" -le $1 ]; then echo 'store: busy: the database is locked' >&2; exit 1; fi ;;" \
+    'esac' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
+
+t_case "a busy store is asked again to take back the approval of a start that did not come up"
+reset
+: >"$fx/start-silent"
+undo_busy 1
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+t_stub fake-stop
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls store | grep -c -- '--undo')" 2
+t_eq "$(t_row approval-current 7 -- '.approval | tostring')" null
+t_eq "$(t_calls fake-stop)" ""
+
+t_case "when the approval of a start that did not come up stays on record, the unit is stopped"
+reset
+: >"$fx/start-silent"
+undo_busy 9
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+t_stub fake-stop
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls store | grep -c -- '--undo')" 3
+t_contains "$t_out" "WARN: could not take the approval of #7 off the record (busy)"
+t_eq "$(t_calls fake-stop)" 7
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+
 t_case "a cycle that refuses its number after its start still counts as started"
 reset
 : >"$fx/start-refused"

@@ -1490,12 +1490,23 @@ refresh_unmark() {
 # restore_record <issue>: take the approval this poll recorded off the record
 # again. A start that gives up after recording it must leave what was there
 # before: the approval of the issue's last start is still the one its readers
-# count on, and no refresh is counted that never ran. An approval that stays
-# because this fails is not used, and the next one recorded replaces it.
+# count on, and no refresh is counted that never ran. The undo is safe to
+# repeat, so a busy store is asked again. Returns 1 when the approval stays.
 restore_record() {
   [ -n "${recorded_at[$1]:-}" ] || return 0
-  tehas_store approval-record "$1" --undo --at "${recorded_at[$1]}" ||
-    log "WARN: could not take the approval of #$1 off the record ($tehas_store_word)"
+  tehas_store_try 3 approval-record "$1" --undo --at "${recorded_at[$1]}" && return 0
+  log "WARN: could not take the approval of #$1 off the record ($tehas_store_word)"
+  return 1
+}
+
+# stop_unit <issue>: stop the issue's cycle unit and wait for it, so a unit
+# that comes up late cannot use an approval left on record.
+stop_unit() {
+  if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
+    timeout -k 5 30 "$TEHAS_CYCLE_STOP_CMD" "$1" 8>&-
+  else
+    timeout -k 5 30 systemctl --user stop "tehas-cycle@$1.service" 8>&-
+  fi
 }
 
 # Without systemd's answer every picked issue would be marked running and then
@@ -1714,8 +1725,10 @@ start_cycles() {
       tehas_analytics event "$n" started
     else
       # A unit that comes up after this finds its approval gone and runs
-      # nothing.
-      restore_record "$n"
+      # nothing. When the approval stays on record, the unit is stopped.
+      if ! restore_record "$n" && ! stop_unit "$n" >/dev/null 2>&1; then
+        log "WARN: could not stop tehas-cycle@$n.service: a late start may still use its approval"
+      fi
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"

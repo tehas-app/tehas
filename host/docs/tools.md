@@ -495,6 +495,9 @@ holds its lock. A store that is busy is asked again within the wait. Without
 a later attempt by then, a cycle that holds the issue's lock is taken as
 started, with `WARN: the cycle for #N holds its lock but did not say so in
 30s; taking it as started`, and anything else is a start that did not happen.
+The undo is asked three times while the store is busy. When the approval
+still stays on record, the poll stops `tehas-cycle@N.service` before it
+labels the issue, so a unit that comes up late cannot use it.
 A state store that is not installed stops the poll before it asks GitHub
 anything: `ERROR: the state store is not installed (run install.sh)`, exit
 78. An answer that names no title records no
