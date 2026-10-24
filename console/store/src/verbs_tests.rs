@@ -397,8 +397,9 @@ fn a_flag_value_that_starts_with_a_dash_is_taken_as_given() {
 
 // --- the store -------------------------------------------------------------------
 
-/// One valid call of every verb, against issue 1. `brief` is a brief file.
-fn samples(brief: &str) -> Vec<Vec<String>> {
+/// One valid call of every verb, against issue 1. `brief` is a brief file,
+/// also taken as an answer's text, and `input` an approval's inputs.
+fn samples(brief: &str, input: &str) -> Vec<Vec<String>> {
     let raw: Vec<Vec<&str>> = vec![
         vec!["cycle-start", "1"],
         vec!["cycle-image", "1", "--attempt", "1", "--image", IMAGE],
@@ -420,6 +421,7 @@ fn samples(brief: &str) -> Vec<Vec<String>> {
         vec!["park-show", "1"],
         vec!["park-show", "--automatic"],
         vec!["park-retry", "1"],
+        vec!["park-told", "1"],
         vec!["question-asked", "1", "--id", "77", "--kind", "park"],
         vec!["question-known", "1", "--id", "77"],
         vec!["question-answered", "1", "--id", "77", "--by", "alice"],
@@ -437,6 +439,20 @@ fn samples(brief: &str) -> Vec<Vec<String>> {
             "--body-sha",
             SHA,
         ],
+        vec![
+            "approval-record",
+            "1",
+            "--at",
+            "6",
+            "--by",
+            "alice",
+            "--how",
+            "retry-tick",
+            "--body-sha",
+            SHA,
+            "--input-file",
+            input,
+        ],
         vec!["approval-record", "1", "--undo", "--at", "5"],
         vec!["approval-current", "1"],
         vec![
@@ -451,22 +467,36 @@ fn samples(brief: &str) -> Vec<Vec<String>> {
         ],
         vec!["plan-begin", "1", "--undo"],
         vec!["plan-answer", "1", "--turn", "2", "--by", "alice"],
+        vec![
+            "plan-answer",
+            "1",
+            "--turn",
+            "2",
+            "--by",
+            "alice",
+            "--text-file",
+            brief,
+        ],
         vec!["plan-answer", "1", "--turn", "2", "--undo"],
         vec!["plan-end", "1", "--turn", "1", "--outcome", "interrupted"],
         vec!["plan-end", "1", "--posted"],
         vec!["plan-end", "1", "--close"],
         vec!["plan-show", "1"],
         vec!["plan-show", "--open"],
+        vec!["plan-note", "1", "--kind", "held", "--id", "5"],
+        vec!["history-show"],
+        vec!["history-show", "1", "--kind", "cycle", "--how", "label"],
     ];
     raw.into_iter().map(|v| strings(&v)).collect()
 }
 
-const READERS: [&str; 5] = [
+const READERS: [&str; 6] = [
     "cycle-show",
     "park-show",
     "question-known",
     "approval-current",
     "plan-show",
+    "history-show",
 ];
 
 fn run_strings(home: &Path, args: &[String]) -> Result<String, (u8, String)> {
@@ -481,6 +511,8 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
     let files = scratch("briefs");
     let brief = write_file(&files, "brief.md", b"the brief");
     let brief = brief.to_str().unwrap();
+    let input = write_file(&files, "input.json", b"{}");
+    let input = input.to_str().unwrap();
     let missing = scratch("78-missing");
     let corrupt = scratch("78-corrupt");
     fs::create_dir_all(corrupt.join("state")).unwrap();
@@ -499,7 +531,7 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
     }
     let future = home("78-future");
     conn(&future)
-        .pragma_update(None, "user_version", 2)
+        .pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
         .unwrap();
     for (dir, word) in [
         (&missing, "missing"),
@@ -508,7 +540,7 @@ fn every_verb_says_78_and_its_word_when_the_store_cannot_be_used() {
         (&bare, "unreadable"),
         (&future, "future"),
     ] {
-        for args in samples(brief) {
+        for args in samples(brief, input) {
             let (code, line) = run_strings(dir, &args).expect_err("refused");
             assert_eq!(code, 78, "{args:?} {line}");
             assert!(line.starts_with(&format!("{word} ")), "{args:?}: {line}");
@@ -530,7 +562,9 @@ fn every_writer_says_busy_and_commits_nothing_while_the_lock_is_held() {
     let files = scratch("busy-briefs");
     let brief = write_file(&files, "brief.md", b"the brief");
     let brief = brief.to_str().unwrap().to_string();
-    let handles: Vec<_> = samples(&brief)
+    let input = write_file(&files, "input.json", b"{}");
+    let input = input.to_str().unwrap().to_string();
+    let handles: Vec<_> = samples(&brief, &input)
         .into_iter()
         .filter(|a| !READERS.contains(&a[0].as_str()))
         .map(|args| {
@@ -553,7 +587,7 @@ fn every_writer_says_busy_and_commits_nothing_while_the_lock_is_held() {
 
 #[test]
 fn every_reader_says_busy_when_it_cannot_look() {
-    let handles: Vec<_> = samples("/unused")
+    let handles: Vec<_> = samples("/unused", "/unused")
         .into_iter()
         .filter(|a| READERS.contains(&a[0].as_str()))
         .map(|args| {

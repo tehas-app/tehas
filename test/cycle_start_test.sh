@@ -37,11 +37,27 @@ for answer in '{"number":7,"state":"closed"}' '{"number":7,"state":"CLOSED"}'; d
   t_eq "$(t_calls fake-work)" ""
   t_lacks "$(t_calls gh)" "issue edit"
   t_lacks "$(t_calls gh)" "issue comment"
-  # It still said it came up. The dispatcher waits for this file to know its
-  # unit ran; a cycle that refuses its number after that is not a start that
-  # did not happen.
-  t_eq "$([ -e "$state/7.taken" ] && echo taken)" taken
+  # It still said it came up. The dispatcher waits for this start on record
+  # to know its unit ran; a cycle that refuses its number after that is not a
+  # start that did not happen. Its record is ended, as a refusal.
+  t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[1,true,null]'
+  t_eq "$(t_row history-show 7 -- '.rows | length')" 0
 done
+
+t_case "a refused start whose end the store will not take is an ERROR, and the next start replaces its row"
+reset
+printf '%s' '{"number":7,"state":"closed"}' >"$fx/issue-7.json"
+t_store_answers cycle-end 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 65
+t_contains "$t_out" "ERROR: the refused start of #7 is not on record (busy): cycle-end 7 --attempt 1 --refused"
+t_eq "$(t_calls store | grep -c '^cycle-end')" 5
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.ended_at] | tostring')" '[1,null]'
+rm -f "$T/home/tehas/libexec/store" "$fx/issue-7.json"
+cp "$T_STORE" "$T/home/tehas/libexec/store"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 2
 
 t_case "the number of a pull request is refused, open, merged or closed"
 for answer in '{"number":9,"state":"open","pull_request":{"url":"u"}}' '{"number":9,"state":"closed","pull_request":{"url":"u"}}'; do
@@ -52,7 +68,7 @@ for answer in '{"number":9,"state":"open","pull_request":{"url":"u"}}' '{"number
   t_contains "$t_out" "refuse #9: it is a pull request, not an issue the factory works on"
   t_eq "$(t_calls fake-work)" ""
   t_lacks "$(t_calls gh)" "issue edit"
-  t_eq "$([ -e "$state/9.taken" ] && echo taken)" taken
+  t_eq "$(t_row cycle-show 9 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[1,true]'
 done
 
 t_case "an answer that cannot be read is a refusal, not a guess"
@@ -77,7 +93,7 @@ t_lacks "$t_out" "could not be read"
 t_eq "$(grep -c '^api repos/acme/widget/issues/7$' <<<"$(t_calls gh)")" 3
 t_eq "$(t_calls fake-work)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$([ -e "$state/7.taken" ] && echo taken)" taken
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[1,true]'
 
 # A call that only failed is retried, as every other call here is: the cycle
 # the dispatcher already authorized still starts.
@@ -113,16 +129,18 @@ t_eq "$(t_calls fake-work)" "7 --restart"
 t_lacks "$(t_calls gh | grep -e '--remove-label needs-human-attention')" "needs-human-attention"
 
 t_case "it says that it holds its lock, and lets go of it at the end"
-t_eq "$(find "$state/7.taken" | wc -l)" 1
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[3,true]'
 t_eq "$(flock -n "$state/7.lock" echo free)" "free"
 
-# A run leaves its history line beside the lock files and suffixed notes.
-t_case "a cycle writes its history line and the suffixed notes"
+# A run leaves its lock and the carriers kept to the next start beside it;
+# its record and its line of history are on the store.
+t_case "a cycle leaves its lock and the suffixed notes, and its history on the store"
 reset
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(find "$state" -maxdepth 1 ! -name cycles -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')" \
-  "7.history.jsonl 7.lock 7.park 7.progress.json 7.rukas 7.taken "
+  "7.lock 7.progress.json "
+t_eq "$(t_row history-show 7 -- '[.rows[] | [.attempt, .status, .how]] | tostring')" '[[1,"unknown","hand"]]'
 
 t_case "a second cycle for the same issue runs nothing, exit 3"
 reset
@@ -133,8 +151,140 @@ t_run "$cycle 7"
 t_eq "$t_rc" 3
 t_contains "$t_out" "a cycle for #7 is already running"
 t_eq "$(t_calls gh)$(t_calls fake-work)" ""
-t_eq "$(find "$state/7.taken" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- .cycle)" null
 exec 9>&-
+
+# --- The start on the state store ---------------------------------------------
+t_case "a cycle run by hand is on record as one, uses no approval, and runs work with its attempt"
+reset
+t_approve "$T/home/tehas" 7 alice label
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- '[.cycle.how, .cycle.started_by, .cycle.requeued] | tostring')" '["hand",null,false]'
+# The approval stays for the start it was recorded for.
+t_eq "$(t_row approval-current 7 -- '[.approval.by, .current] | tostring')" '["alice",null]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.by, .how] | tostring')" '[null,"hand"]'
+
+t_case "work is given the attempt of the start, and nothing new reaches it"
+reset
+printf '%s\n' 'printf "%s\n" "${TEHAS_CYCLE_ATTEMPT:-none}" >"$T/calls/attempt"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$(cat "$T/calls/attempt")" 1
+t_run "$cycle 7"
+t_eq "$(cat "$T/calls/attempt")" 2
+
+t_case "from the unit a start uses the approval the dispatcher recorded, and the account is on record"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-work)" "7"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.how, .cycle.started_by] | tostring')" '["label","alice"]'
+t_eq "$(t_row approval-current 7 -- '[.approval, .current.used_by] | tostring')" '[null,1]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.by, .how] | tostring')" '["alice","label"]'
+
+t_case "systemd's INVOCATION_ID is a start from the unit too"
+reset
+T_ENV+=(INVOCATION_ID=0123456789abcdef)
+t_run "$cycle 7"
+t_eq "$t_rc" 77
+t_eq "$(t_calls fake-work)" ""
+
+t_case "from the unit, no approval waiting starts nothing: exit 77 before any label, comment or call"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_run "$cycle 7"
+t_eq "$t_rc" 77
+t_contains "$t_out" "refuse #7: the state store refused the start: store: unapproved #7"
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+t_eq "$(t_row cycle-show 7 -- .cycle)" null
+# A used approval is no approval for a second start (A3).
+t_approve "$T/home/tehas" 7 alice label
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+rm -f "$T"/calls/*
+t_run "$cycle 7"
+t_eq "$t_rc" 77
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+
+t_case "a busy store is asked three times, then the cycle exits 75 and changes nothing"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+t_store_answers cycle-start 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 75
+t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 3
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+t_eq "$(t_row approval-current 7 -- '[.approval.by, .current] | tostring')" '["alice",null]'
+
+# start_times_out <commit|none>: the store's first cycle-start ends as a
+# store killed at its bound does (124), after it committed the start or
+# before; every other call runs the real store.
+start_times_out() {
+  local bin=$T/home/tehas/libexec/store first
+  first="exit 124"
+  [ "$1" != commit ] || first="$(t_q "$T_STORE") \"\$@\" >/dev/null 2>&1; exit 124"
+  rm -f "$bin" "$T/start.n"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    'if [ "${1:-}" = cycle-start ] && [ ! -e '"$(t_q "$T/start.n")"' ]; then' \
+    "  : >$(t_q "$T/start.n")" \
+    "  $first" \
+    'fi' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
+
+t_case "a start the store took before it timed out is not asked again: it is ended as refused, exit 75"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+start_times_out commit
+t_run "$cycle 7"
+t_eq "$t_rc" 75
+t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 1
+t_contains "$t_out" "the state store took the start only after it timed out"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[1,true,null]'
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+
+t_case "a start that timed out before the store took it is asked again"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+start_times_out none
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(grep -c '^cycle-start' <<<"$(t_calls store)")" 2
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
+
+t_case "a store that cannot be used, or is not installed, stops the cycle at 78 before GitHub is asked"
+reset
+t_store_answers cycle-start 78 'store: corrupt: the file is not a database'
+t_run "$cycle 7"
+t_eq "$t_rc" 78
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+reset
+rm -f "$T/home/tehas/libexec/store"
+t_run "$cycle 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
+t_eq "$(t_calls gh)$(t_calls fake-work)" ""
+t_eq "$(find "$state" -name '7.lock' 2>/dev/null | wc -l)" 0
+
+t_case "the account on record is the approval's, whatever is approved after the start"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
+# While the cycle runs, a poll records bob's approval of a later label.
+printf '%s\n' 'TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-record 7 --at 1760000100 --by bob --how label --label tehas:ready --body-sha "$(printf a%.0s {1..64})" >/dev/null' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.started_by)" alice
+t_eq "$(t_row history-show 7 -- '.rows[0].by')" alice
+t_eq "$(t_row approval-current 7 -- '[.approval.by, .current.by] | tostring')" '["bob","alice"]'
 
 t_case "a cycle for another issue is not held back"
 reset

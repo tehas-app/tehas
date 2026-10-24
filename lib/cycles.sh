@@ -1,26 +1,21 @@
 # shellcheck shell=bash
-# Which cycles are running, where a parked cycle's question is on record, what
-# a number on GitHub is, and what the sandbox image says about itself. Sourced
-# by the dispatcher, by tehasbot cycle, by tehas index, by install.sh, and by
-# the two commands that give a cycle its issue's images.
+# Which cycles are running, what a number on GitHub is, and what the sandbox
+# image says about itself. Sourced by the dispatcher, by tehasbot cycle, by
+# tehas index, by install.sh, and by the two commands that give a cycle its
+# issue's images.
 #
 # tehasbot cycle holds $TEHAS_HOME/state/cycles/<issue>.lock for as long as it
 # lives. A lock nobody holds is a cycle that ended, however it ended, so a
-# cycle that died is never counted.
+# cycle that died is never counted. Whether a cycle runs is the lock's to say,
+# here; what a cycle is on record as (its attempt, when it started, its
+# approval, its end and history, its park and the park's question) is the
+# state store's (lib/store.sh).
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
 #   tehas_cycle_lock_free <issue> 0 only when the poll can tell the lock is
 #                                 free: no lock file, or one it can take. It is
 #                                 not 0 when the probe could not tell.
 #   tehas_cycles_running          the issues with a running cycle, one per line
-#   tehas_cycle_note_files <ext>  the files state/cycles/<issue>.<ext>, one per
-#                                 line, that name an issue and are plain files
-#                                 and no link: the per-issue leftovers a command
-#                                 may read or remove. A stray name, a directory
-#                                 or a link is no issue's file and is not
-#                                 listed, so nothing acts on it.
-#   park_id <issue>               the path of the file that holds the id of
-#                                 the park question this host posted
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
@@ -58,18 +53,6 @@ tehas_cycles_running() {
     n=${lock##*/}
     n=${n%.lock}
     if tehas_cycle_running "$n"; then printf '%s\n' "$n"; fi
-  done
-  return 0
-}
-
-tehas_cycle_note_files() {
-  local f n
-  for f in "$TEHAS_HOME"/state/cycles/*."$1"; do
-    [ -e "$f" ] || continue
-    n=${f##*/}
-    n=${n%."$1"}
-    [[ $n =~ ^[1-9][0-9]*$ ]] && [ -f "$f" ] && [ ! -L "$f" ] || continue
-    printf '%s\n' "$f"
   done
   return 0
 }
@@ -121,12 +104,6 @@ tehas_cycle_own_cap() { # <cap>: 0 when tehas itself set that cap
   for c in $tehas_own_caps; do [ "$c" = "$1" ] && return 0; done
   return 1
 }
-
-# An agent in a container holds the bot's token: it can post a comment with a
-# marker, edit the bot's comments and apply labels. It cannot write here, so
-# this file is what makes a comment the factory's own question. One line, the
-# comment's number. tehasbot cycle writes it, the dispatcher reads it.
-park_id() { printf '%s/state/park-%s.id\n' "$TEHAS_HOME" "$1"; }
 
 # The factory works on open issues only: a closed issue is never taken, and a
 # pull request is never taken, open, merged or closed. What GitHub answers for

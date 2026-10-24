@@ -312,24 +312,40 @@ t_run "$dispatch"
 t_eq "$(left)" ""
 rm -rf "$works"
 
-# A cycle on #9 whose live file was last written <age> seconds ago, and that
-# took its lock <taken> seconds ago.
-quiet_cycle() { # <age> <taken>
-  hold 9
+# #9 was last heard from <age> seconds ago: its live file was written then.
+heard_at() { # <age>
   mkdir -p "$T/home/tehas/live/cycles"
   printf '{"issue":9,"running":true,"updatedAt":%s}\n' "$(($(date +%s) - $1))" >"$T/home/tehas/live/cycles/9.json"
-  touch -d "@$(($(date +%s) - $2))" "$T/home/tehas/state/cycles/9.taken"
 }
-# The issues with a quiet note on record.
-notes() { find "$T/home/tehas/state/cycles" -maxdepth 1 -name '*.quiet' -printf '%f\n' 2>/dev/null | sed 's/\.quiet$//' | sort | tr '\n' ' '; }
-# How many times the poll has asked that issue's unit to stop.
-note_asks() { awk 'NR == 1 { print $2 }' "$T/home/tehas/state/cycles/$1.quiet" 2>/dev/null; }
-# Time passes: the next ask of that issue's note is due now.
-due() { # issue
-  local f=$T/home/tehas/state/cycles/$1.quiet fields
-  [ -f "$f" ] || return 0
-  fields=$(awk 'NR == 1 { print $1, $2 }' "$f")
-  printf '%s %s\n' "$fields" "$(($(date +%s) - 1))" >"$f"
+# A cycle on #9 whose live file was last written <age> seconds ago, and that
+# took its lock <taken> seconds ago: its start on record at that time, under the
+# lock hold took.
+quiet_cycle() { # <age> <taken>
+  hold 9
+  heard_at "$1"
+  t_at "$(($(date +%s) - $2))" cycle-start 9 --by-hand >/dev/null ||
+    t_bad "the store did not start the record of #9"
+}
+# The issues with a quiet episode on record.
+notes() { t_row cycle-show 9 -- 'if .cycle.quiet == null then "" else "9 " end'; }
+# How many times the poll has asked #9's unit to stop in the episode on record.
+note_asks() {
+  t_row cycle-show 9 -- '.cycle | if .quiet != null and (.stop_asked_at // -1) >= .quiet.at
+    then .stop_said_times else 0 end'
+}
+# The episode of #9 as it stands was first seen a day ago, so the cases can
+# move the time of the last ask back without starting a new episode.
+seen_long_ago() {
+  t_at "$(($(date +%s) - 86400))" cycle-note 9 --kind quiet \
+    --said-for "$(jq -r .updatedAt "$T/home/tehas/live/cycles/9.json")" >/dev/null ||
+    t_bad "the store did not take the episode of #9"
+}
+# Time passes: the last ask or line about #9 was <seconds> ago. The count of
+# asks stays as it is. A case that means "not yet" stays 10 s short of the
+# wait, as the poll reads its clock a moment after this.
+ago() { # <seconds>
+  t_at "$(($(date +%s) - $1))" cycle-stop-asked 9 --said-only >/dev/null ||
+    t_bad "the store did not move the last ask of #9"
 }
 
 t_case "a cycle that holds its lock and has not been heard from for 20 minutes is reported and stopped, once"
@@ -344,12 +360,12 @@ t_contains "$t_out" "more than 1200s: stopping tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" "9"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
 t_eq "$(notes)" "9 "
-t_eq "$(note_asks 9)" "1"
+t_eq "$(note_asks)" "1"
 t_run "$dispatch"
 t_lacks "$t_out" "#9 holds its lock"
 t_eq "$(t_calls fake-stop)" "9"
 t_eq "$(notes)" "9 "
-t_eq "$(note_asks 9)" "1"
+t_eq "$(note_asks)" "1"
 release
 
 t_case "a stop that failed is said, recorded, and asked again once the wait has passed"
@@ -357,36 +373,222 @@ reset
 t_stub fake-stop '[ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/stop.fd8"; exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
+seen_long_ago
 t_run "$dispatch"
 t_contains "$t_out" "WARN: could not stop tehas-cycle@9.service (exit 1)"
 t_contains "$t_out" "it holds its slot, and the poll asks again"
 t_eq "$(find "$T/calls/stop.fd8" 2>/dev/null | wc -l)" 0
-t_eq "$(note_asks 9)" "1"
+t_eq "$(note_asks)" "1"
 # The wait for the next ask has not passed: this poll says nothing.
+ago 590
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 # The wait has passed: the same episode is said and the stop asked again.
-due 9
+ago 601
 t_run "$dispatch"
 t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
-t_eq "$(note_asks 9)" "2"
+t_eq "$(note_asks)" "2"
 release
 
-t_case "a stop that never works is asked six times, then left to a person"
+t_case "a stop that never works is asked six times, 10 minutes apart, then said once an hour and left to a person"
 reset
 t_stub fake-stop 'exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
-for _ in 1 2 3 4 5 6 7; do
-  due 9
+seen_long_ago
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+for _ in 2 3 4 5 6; do
+  ago 601
   t_run "$dispatch"
+  t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
 done
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
-t_eq "$(note_asks 9)" "6"
+t_eq "$(note_asks)" "6"
+# The sixth ask waits for its 10 minutes like the others, and then the poll
+# says the episode is a person's.
+ago 590
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+ago 601
+t_run "$dispatch"
 t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
 t_contains "$t_out" "systemctl --user stop tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+# The first line is on record as one more: that tells it from the sixth ask.
+t_eq "$(note_asks)" "7"
+# That line is said again once an hour, and the stop is never asked again.
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+ago 3590
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+ago 3601
+t_run "$dispatch"
+t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+ago 3601
+t_run "$dispatch"
+t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+release
+
+t_case "an ask is recorded before the stop, so a slow stop does not put off the next ask"
+reset
+t_stub fake-stop 'sleep 3; date +%s >"$T/calls/stop.done"'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+asked=$(t_row cycle-show 9 -- .cycle.stop_asked_at)
+t_eq "$(( $(cat "$T/calls/stop.done") - asked >= 3 ))" 1
+# The record is dated a moment after the poll's clock: the poll that comes
+# quiet_retry after the ask, by its own clock, asks again.
+ago 599
+t_run "$dispatch"
+t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
+t_eq "$(note_asks)" "2"
+release
+
+t_case "a quiet cycle that is heard from again is left alone, and a new episode counts its asks from one"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+t_run "$dispatch"
+ago 601
+t_run "$dispatch"
+t_eq "$(note_asks)" "2"
+# The stop was asked, and the cycle went on writing its live file.
+heard_at 20
+ago 3601
+t_run "$dispatch"
+t_lacks "$t_out" "holds its lock but"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
+# Quiet again, since a later time: the first ask of a new episode.
+heard_at 1250
+t_run "$dispatch"
+t_contains "$t_out" "more than 1200s: stopping tehas-cycle@9.service"
+t_lacks "$t_out" "to stop again"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 "
+t_eq "$(note_asks)" "1"
+release
+
+t_case "a quiet cycle whose episode the store cannot take is not stopped, and is asked once it can"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 1 'store: busy #9: the database is locked' 1
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been heard from since "
+t_contains "$t_out" "the state store could not record it (busy), so the poll asks nothing this time"
+t_eq "$(t_calls fake-stop)" ""
+t_eq "$(notes)" ""
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop)" "9"
+t_eq "$(note_asks)" "1"
+release
+
+t_case "a store that cannot be used ends the poll and stops no quiet cycle"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 78 'store: corrupt: the database disk image is malformed'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt: the database disk image is malformed"
+t_lacks "$t_out" "so the poll asks nothing this time"
+t_eq "$(t_calls fake-stop)" ""
+t_store_answers cycle-note 64 'store: usage cycle-note: --said-for'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: usage cycle-note"
+t_eq "$(t_calls fake-stop)" ""
+# The episode is taken, and the ask cannot be recorded: nothing is stopped.
+t_store_answers cycle-stop-asked 78 'store: corrupt: the database disk image is malformed'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a store that cannot be used when the poll says a cycle needs a person ends the poll"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+for _ in 1 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+t_eq "$(note_asks)" "6"
+ago 601
+t_store_answers cycle-stop-asked 78 'store: corrupt: the database disk image is malformed'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "asks no more"
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+release
+
+t_case "a line the store does not record is said again on the next poll"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+for _ in 1 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+ago 601
+t_store_answers cycle-stop-asked 1 'store: busy #9: the database is locked' 1
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "asks no more"
+t_contains "$t_out" "WARN: the state store did not record that the poll asks no more of tehas-cycle@9.service (busy)"
+t_eq "$(note_asks)" "6"
+t_run "$dispatch"
+t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
+t_lacks "$t_out" "did not record"
+t_eq "$(note_asks)" "7"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+release
+
+t_case "a quiet cycle whose record does not read as one is asked nothing"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 0 '{"api":1,"verb":"cycle-note","ok":true,"said":true,"episode_at":1,"times":"many","stop_asked_at":null}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the state store's record of it does not read as one, so the poll asks nothing this time"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a stop the store does not record is asked again on the next poll"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-stop-asked 1 'store: busy #9: the database is locked' 1
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+t_contains "$t_out" "WARN: the state store did not record the stop of tehas-cycle@9.service (busy): the poll asks again"
+t_eq "$(t_calls fake-stop)" "9"
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 "
+t_eq "$(note_asks)" "1"
 release
 
 t_case "a stuck cycle whose last-heard time cannot be read says nothing and keeps its note"
@@ -397,44 +599,61 @@ quiet_cycle 1300 3600
 t_run "$dispatch"
 t_eq "$(notes)" "9 "
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
-# Neither the live file nor <issue>.taken: nothing is known about this cycle.
-rm -f "$T/home/tehas/live/cycles/9.json" "$T/home/tehas/state/cycles/9.taken"
+# Neither the live file nor an open start on record: nothing is known about
+# this cycle.
+rm -f "$T/home/tehas/live/cycles/9.json"
+TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 -- .cycle.attempt)" --refused >/dev/null
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
 t_eq "$(notes)" "9 "
-t_eq "$(note_asks 9)" "1"
+t_eq "$(note_asks)" "1"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
-t_case "a file in state/cycles that is no issue's note is left alone, and says nothing"
-reset
-t_stub fake-stop
-T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
-mkdir -p "$T/home/tehas/state/cycles"
-mkdir "$T/home/tehas/state/cycles/x.quiet"
-: >"$T/home/tehas/state/cycles/9.5.quiet"
-t_run "$dispatch"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "Is a directory"
-t_lacks "$t_out" "could not remove"
-t_eq "$([ -d "$T/home/tehas/state/cycles/x.quiet" ] && echo kept)" "kept"
-t_eq "$([ -f "$T/home/tehas/state/cycles/9.5.quiet" ] && echo kept)" "kept"
-release
-
-t_case "a quiet note that is a link goes, and what it points at is not written"
+t_case "a quiet cycle whose record has ended is not stopped by the poll, which says so for a person"
 reset
 t_stub fake-stop
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
-printf 'a person reads this\n' >"$T/target"
-ln -s "$T/target" "$T/home/tehas/state/cycles/9.quiet"
+TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 -- .cycle.attempt)" --refused >/dev/null
 t_run "$dispatch"
-t_contains "$t_out" "state/cycles/9.quiet is not a note file: the poll removed it"
-t_contains "$t_out" "stopping tehas-cycle@9.service"
-t_eq "$(cat "$T/target")" "a person reads this"
-t_eq "$(notes)" "9 "
-t_eq "$(note_asks 9)" "1"
-t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
+t_eq "$t_rc" 0
+t_lacks "$t_out" "stopping tehas-cycle@9.service"
+t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been heard from since "
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop 9 or systemctl --user stop tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop)" ""
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "would stop"
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a quiet lock with no cycle on record is not stopped by the poll, which says so for a person"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+hold 9
+heard_at 1300
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_eq "$(t_calls fake-stop)" ""
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "would stop"
+t_contains "$t_out" "and the state store has no open record of it"
+release
+
+t_case "a cycle whose record ends after the poll listed it is not stopped, and that is said"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 1 'store: nocycle #9: no cycle on record'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_lacks "$t_out" "could not record it"
+t_eq "$(t_calls fake-stop)" ""
 release
 
 t_case "a cycle heard from lately, or one that took its lock lately, is left alone"
@@ -452,9 +671,9 @@ t_lacks "$t_out" "holds its lock but"
 t_eq "$(t_calls fake-stop)" ""
 release
 
-t_case "a dry run says it would stop a quiet cycle, every time, and stops nothing"
+t_case "a dry run says what the poll would do about a quiet cycle, and stops nothing"
 reset
-t_stub fake-stop
+t_stub fake-stop 'exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
 t_run "$dispatch --dry-run"
@@ -463,42 +682,49 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(notes)" ""
+seen_long_ago
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
-release
-
-t_case "the note of an issue no cycle holds is gone from a later poll"
-reset
-t_stub fake-stop
-T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
-quiet_cycle 1300 3600
-t_run "$dispatch"
-t_eq "$(notes)" "9 "
-# The unit stopped: no cycle holds the lock of #9 any more.
-release
+# Inside the wait the poll says nothing, and so does the dry run.
 t_run "$dispatch --dry-run"
-t_eq "$(notes)" "9 "
-t_run "$dispatch"
-t_eq "$(notes)" ""
+t_lacks "$t_out" "holds its lock but"
+ago 601
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would ask tehas-cycle@9.service to stop again: the cycle for #9 holds its lock"
+t_lacks "$t_out" "would stop"
+for _ in 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+t_eq "$(note_asks)" "6"
+ago 601
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would say that tehas-cycle@9.service needs a person and ask no more"
+t_lacks "$t_out" "would ask"
+t_lacks "$t_out" "would stop"
+t_eq "$(note_asks)" "6"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+# A cycle heard from since the episode on record: a new one, which the poll
+# would stop.
+heard_at 1250
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service"
+release
 
-# A note left by hand, for an issue that has never had a cycle here.
-: >"$T/home/tehas/state/cycles/11.quiet"
-t_run "$dispatch"
-t_eq "$(notes)" ""
-
-t_case "a quiet cycle that is heard from again keeps no note"
+t_case "the issue's next cycle starts with no quiet episode on record"
 reset
 t_stub fake-stop
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
 t_run "$dispatch"
 t_eq "$(notes)" "9 "
-# The stop was asked, and the cycle went on writing its live file.
-quiet_cycle 20 3600
-t_run "$dispatch"
-t_lacks "$t_out" "holds its lock but"
+# The unit stopped, and the issue's next cycle took the lock.
+release
+quiet_cycle 20 20
 t_eq "$(notes)" ""
-t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
+t_run "$dispatch"
+t_eq "$(notes)" ""
+t_eq "$(t_calls fake-stop)" "9"
 release
 
 t_done

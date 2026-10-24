@@ -33,6 +33,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/work/tehas-<issue>.state`   | The cycle's own: `cache`, a copy of the code index the host built; `memory`, what its agents learn; `sessions`, Pi's session files. Made fresh for each cycle, mounted in its container, removed with the workspace. A cycle reads no memory an earlier cycle wrote, even one of the same issue, so a `vipune search` at its start answers `{"results": []}`. `~/tehas/work/tehas-plan-<issue>.state` is a planning turn's, removed after the turn. Of these, only `cache` is build output: `tehasbot clean` removes it when the issue has been idle for `TEHAS_CLEAN_AFTER` hours, and `memory` and `sessions` stay |
 | `~/tehas/work/tehas-<issue>.images`  | With `TEHAS_WORK_IMAGES=1`, the images of the cycle's issue and their `manifest.json`, and with `TEHAS_WORK_DESCRIBE=1` the model's descriptions of them, `images.md`. With `TEHAS_WORK_FILES=1`, the issue's text files too, `file-<n>.<ext>`, with or without the images. Made for each cycle, read-only in its container at `~/tehas/work/tehas.images`, removed when the cycle is over |
 | `~/tehas/work/tehas-plan-<issue>.images` | With `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, a copy of a planning session's images and files for one turn, read-only in its container at `~/tehas/work/tehas.images`, removed after the turn |
+| `~/tehas/work/tehas-plan-<issue>.keep` | What a planning session carries from one turn to the next: the approved text, the commit it began at, pi-rukas's record of the session, the last turn's exit status, the issue's images, and a later turn's answer as `answer.md`. Removed when the session ends. No container is given it; each turn copies what it needs into its workspace |
 | `~/tehas/dev/<name>`                 | A person's clone for working by hand, named after their account, made and used by `tehas dev`, never removed. `<name>.author` next to it holds whose name its commits carry, `<name>.state` its memory, sessions, transcripts, code index and cargo build output (`target`, kept so a later session of that clone builds on what an earlier one built; see [tehas dev](/tools#tehas-dev)), and `<name>.images` the images and files of the issue named by `--issue`, read-only in the session's container |
 | `~/tehas/repos/pi-rukas`             | pi-rukas, at the commit `PI_RUKAS_FOLLOW` names                         |
 | `~/tehas/docs/`, `~/tehas/fun/`      | This site's pages and the front page, installed from `host/`            |
@@ -40,10 +41,11 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/edge/`                      | The docs server (`docs.compose.yaml`) and the edge router (`router.compose.yaml`) |
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
-| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the record of each planning session (`plan-<issue>.json`, with what it carries between turns in `plan-<issue>.json.keep/`) and the id of each parked cycle's question (`park-<issue>.id`), and what each start rests on and the manifest of its images (`cycles/<issue>.approved.json`, `cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
+| `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc` and `.json.lock`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
+| `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
@@ -125,7 +127,8 @@ an unknown is never a reason to take an image away. Volumes are a person's call.
 
 The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
 `bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
-and old `~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
+old `~/tehas/tmp/analytics-facts.*` files a killed analytics call left, and old
+`~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
 under `~/tehas` is touched, and nothing outside it: not `~/tehas/tmp/improve`,
 `state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
@@ -604,11 +607,21 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 1 (`PRAGMA user_version`), and one
-table with rows, `meta`, which says when the database was made, by which version
-and commit of tehas, and for which instance and repository. The other tables
-are there and empty: no command writes them yet. The host's records are still
-the files of `state/` until the commands are moved to the store one by one.
+What is in it today: the schema, version 2 (`PRAGMA user_version`); `meta`,
+which says when the database was made, by which version and commit of tehas,
+for which instance and repository, and when records were last imported
+(`imported_at`); and the cycles' records: the approval
+each start rests on (the dispatcher's), each cycle's start and end with its
+image, settings, branch, result and progress (`tehasbot cycle`, `tehas work`,
+`tehas stop`), and the last 50 lines of history of each issue; each park and
+its question (`tehasbot cycle`, the dispatcher); and each planning session,
+with its brief, its answers, the issues it filed, its open question and the
+last 50 lines of history of its turns (the dispatcher). What a planning turn
+carries between turns is a directory beside its workspace,
+`~/tehas/work/<name>-plan-<issue>.keep`. The commands run the store through `~/tehas/lib/store.sh`;
+`tehas dispatch`, `tehasbot cycle`, `tehas work`, `tehas stop`, `tehas history`,
+`tehas export` and `tehasbot health` stop with exit 78 before anything else
+when it is not installed.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`:
@@ -619,7 +632,20 @@ the files of `state/` until the commands are moved to the store one by one.
   600, with SQLite's `VACUUM INTO`, and then brings the schema forward. A copy
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
-  removes old copies yet; remove them by hand when there are too many.
+  removes old copies yet; remove them by hand when there are too many. A
+  store at version 1 is migrated to 2 in place, and the install keeps the
+  database as it was under both names, `tehas-1-<time>.db` and
+  `tehas-2-<time>.db`.
+- Then it runs `store import`: the records an older tehas kept as files (the
+  cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
+  session's `state/plan-<n>.json` with its brief, answer and history) become
+  rows, and the files move to `state/imported-<YYYYMMDD>/`, under their paths
+  in `state/`, an issue's files together once all their rows read back. Nothing
+  is deleted. Each history keeps an issue's 50 newest rows, as the store does
+  for new ones. The files a cycle hands to the next step (`result.json`,
+  `progress.json`, a plan's `.out` and the rest) and `state/refined.jsonl` stay
+  where they are. A run again changes nothing that is in the store already, and
+  finishes a run that stopped partway.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from
@@ -664,7 +690,7 @@ the copy to the schema of the installed store:
 
 ```
 tehas pause
-cp ~/tehas/state/backup/tehas-1-<time>.db ~/tehas/state/tehas.db.new
+cp ~/tehas/state/backup/tehas-<version>-<time>.db ~/tehas/state/tehas.db.new
 chmod 600 ~/tehas/state/tehas.db.new
 rm -f ~/tehas/state/tehas.db-wal ~/tehas/state/tehas.db-shm
 mv ~/tehas/state/tehas.db.new ~/tehas/state/tehas.db

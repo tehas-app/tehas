@@ -22,6 +22,29 @@
 #       nothing, where tehas_analytics would not call it: TEHAS_ANALYTICS is
 #       not on or the program is not installed.
 #
+#   tehas_analytics_run <issue> <attempt> <line> [<option>...]
+#       tehas_analytics run <issue> --facts <file> [<option>...], the facts of
+#       the run that ended written to <file> for the call and removed after
+#       it: {line, attempt, approval, settings, rukas}. <line> is the line of
+#       history libexec/cycle made of the end, a JSON object, and <attempt> the
+#       attempt the state store gave the start. The rest is from the state
+#       store (lib/store.sh, which the caller sources): {at, how} of the
+#       approval that attempt used, and the settings and the pi-rukas commit on
+#       its record. What the store cannot answer, or has none of, is a null
+#       fact, as is a line that is not an object.
+#
+#   tehas_analytics_plan <issue> [<option>...]
+#       tehas_analytics plan <issue> --facts <file> [<option>...], the facts
+#       being the issue's planning session on the state store as it is, in the
+#       shape plan_view gives it (lib/store.sh, which the caller sources); null
+#       when the store has none or could not answer.
+#
+#       Both return 0. Facts are built only where tehas_analytics would call
+#       the program. <file> is a new 0600 file, $TEHAS_HOME/tmp/analytics-facts.*;
+#       one a killed caller left is libexec/clean's. Facts
+#       that cannot be written there are one line "WARN analytics
+#       <subcommand>: no facts written", and the program is not called.
+#
 #   tehas_analytics_wait
 #       Print the seconds a call may take.
 #
@@ -34,10 +57,14 @@
 # calls are part of it.
 tehas_analytics_limit=5
 
+tehas_analytics_on() {
+  local bin=$TEHAS_HOME/libexec/analytics
+  [ "${TEHAS_ANALYTICS:-}" = on ] && [ -f "$bin" ] && [ -x "$bin" ]
+}
+
 tehas_analytics() {
   local bin=$TEHAS_HOME/libexec/analytics wait rc
-  [ "${TEHAS_ANALYTICS:-}" = on ] || return 0
-  [ -f "$bin" ] && [ -x "$bin" ] || return 0
+  tehas_analytics_on || return 0
   wait=$(tehas_analytics_wait)
   TEHAS_HOME=$TEHAS_HOME timeout -k 1 "$wait" "$bin" "$@" </dev/null >/dev/null
   rc=$?
@@ -48,8 +75,7 @@ tehas_analytics() {
 tehas_analytics_to() {
   local file=$1 bin=$TEHAS_HOME/libexec/analytics wait rc
   shift
-  [ "${TEHAS_ANALYTICS:-}" = on ] || return 2
-  [ -f "$bin" ] && [ -x "$bin" ] || return 2
+  tehas_analytics_on || return 2
   wait=$(tehas_analytics_wait)
   TEHAS_HOME=$TEHAS_HOME timeout -k 1 "$wait" "$bin" "$@" </dev/null >"$file"
   rc=$?
@@ -62,4 +88,67 @@ tehas_analytics_wait() {
   local wait=${TEHAS_ANALYTICS_WAIT:-}
   [[ $wait =~ ^[1-9][0-9]{0,2}$ ]] || wait=$tehas_analytics_limit
   printf '%s\n' "$wait"
+}
+
+# tehas_analytics_facts <subcommand> <issue> <facts> [<option>...]
+tehas_analytics_facts() {
+  local subcommand=$1 issue=$2 facts=$3 dir=$TEHAS_HOME/tmp file
+  shift 3
+  [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
+  if [ ! -d "$dir" ] || [ -L "$dir" ] || ! file=$(mktemp "$dir/analytics-facts.XXXXXX" 2>/dev/null); then
+    log "WARN analytics $subcommand: no facts written"
+    return 0
+  fi
+  if ! printf '%s\n' "$facts" >"$file" 2>/dev/null; then
+    rm -f "$file"
+    log "WARN analytics $subcommand: no facts written"
+    return 0
+  fi
+  tehas_analytics "$subcommand" "$issue" --facts "$file" "$@"
+  rm -f "$file"
+  return 0
+}
+
+tehas_analytics_run() {
+  local issue=$1 attempt=$2 line=$3 approval=null settings=null rukas=null view facts
+  shift 3
+  tehas_analytics_on || return 0
+  [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]] || attempt=null
+  line=$(jq -c 'objects' <<<"$line" 2>/dev/null) || line=""
+  [ -n "$line" ] || line=null
+  if [ "$attempt" != null ]; then
+    if view=$(tehas_approval_view "$issue" "$attempt"); then
+      approval=$(jq -c '{at, how}' "$view" 2>/dev/null) || approval=null
+      rm -f "$view"
+    fi
+    # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets these
+    if tehas_store cycle-show "$issue"; then
+      settings=$(jq -c --argjson a "$attempt" ".cycle | select(. != null and .attempt == \$a) | $tehas_settings_shape" \
+        <<<"$tehas_store_out" 2>/dev/null) || settings=null
+      rukas=$(jq -c --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .rukas_commit' \
+        <<<"$tehas_store_out" 2>/dev/null) || rukas=null
+    fi
+  fi
+  [ -n "$approval" ] || approval=null
+  [ -n "$settings" ] || settings=null
+  [ -n "$rukas" ] || rukas=null
+  # Through standard input: a history line may be longer than one argument
+  # of a command may be.
+  facts=$(printf '%s\n' "$line" "$attempt" "$approval" "$settings" "$rukas" |
+    jq -s -c '{line: .[0], attempt: .[1], approval: .[2], settings: .[3], rukas: .[4]}' 2>/dev/null) ||
+    facts=""
+  [ -n "$facts" ] || facts=null
+  tehas_analytics_facts run "$issue" "$facts" "$@"
+}
+
+tehas_analytics_plan() {
+  local issue=$1 record=null
+  shift
+  tehas_analytics_on || return 0
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets the shape
+  if tehas_store plan-show "$issue"; then
+    record=$(jq -c "$tehas_plan_shape" <<<"$tehas_store_out" 2>/dev/null) || record=null
+  fi
+  [ -n "$record" ] || record=null
+  tehas_analytics_facts plan "$issue" "$record" "$@"
 }

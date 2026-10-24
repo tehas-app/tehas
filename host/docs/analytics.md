@@ -78,22 +78,33 @@ Every column below came in schema 1. A column without a value is NULL.
 
 ### runs
 
-One row per run, written when the run ends. A work run reads what the cycle
-left on the host: its history line in `state/cycles/<n>.history.jsonl`, the
-headless runner's result, `progress.json`, `settings`, `approved.json`, the
-image's pi-rukas commit, the preflight log and `docs/version.txt`. A run that
-has no result (killed, stalled, timed out) is stored with tehas's status and
-its times. A planning turn reads its record `state/plan-<n>.json`.
+One row per run, written when the run ends. A work run takes its facts from
+the cycle, which gathers them into a private file for the call
+(`lib/analytics.sh`): the line of history the cycle made of its end and the
+attempt the state store gave its start, and from the state store `at` and
+`how` of the approval that start used, the run's `settings` snapshot and the
+image's pi-rukas commit. It reads the rest from the host: the
+headless runner's result, `progress.json`, the preflight log and
+`docs/version.txt`. A run that has no result (killed, stalled, timed out) is
+stored with tehas's status and its times. A planning turn takes its session
+on the state store as its facts, in the shape its record file had before the
+store (running, turns, `startedAt`, label, answers), read before the turn's
+end is recorded, and reads the turn's output `state/plan-<n>.json.out` from
+the host. Facts that are missing, a link, over
+16 MiB or not JSON record nothing, as a run without a history line records
+nothing. The private file is `~/tehas/tmp/analytics-facts.*`, removed after the
+call; one that a caller killed during the call leaves is removed by
+`tehasbot clean` once it is old.
 
 | Column | Source | Since |
 | --- | --- | --- |
 | `id` | `<kind>-<issue>-<started>`, unique | 1 |
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
-| `attempt` | The run's number for this issue: its line in the history, counting from 1. The history keeps 50 lines, so it is at most 50. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry` or `fixer`, from `approved.json`, else the history line. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `fixer` for a later one | 1 |
+| `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
+| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `fixer` or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `fixer` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
-| `queue_wait` | `started` less when `tehas:ready` was accepted (`approved.json`) | 1 |
+| `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |
 | `status`, `exit_code` | The runner's status and exit code, or tehas's own (`killed`, `stalled`, `timeout`), from the history and the result | 1 |
 | `last_step`, `failed_step` | The step it was in last, and the step that failed, from the result and the history | 1 |
@@ -151,7 +162,7 @@ The usage of each role in a run, and the model it was given.
 | --- | --- | --- |
 | `run_id` | The run's `id` | 1 |
 | `role` | The role's name | 1 |
-| `model`, `provider` | The role's model and provider in the run's settings snapshot (`state/cycles/<n>.settings`) | 1 |
+| `model`, `provider` | The role's model and provider in the run's settings snapshot (on the cycle's record in the state store, in the run's facts) | 1 |
 | `dispatches`, `turns`, `input`, `output`, `cache_read` | The result's `usage.byRole`, else `progress.json` | 1 |
 | `cache_write`, `cost` | The result's `usage.byRole` | 1 |
 | `ms` | The role's time, in milliseconds, from `usage.byRole` | 1 |

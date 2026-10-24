@@ -40,8 +40,8 @@ t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas
 
 t_case "a cycle that never ran is reported from the approval record, and the record goes with the report"
 reset
-mkdir -p "$state"
-jq -n '{at: "2026-01-01T00:00:00Z", by: "alice", how: "label", body_sha256: "0", links: []}' >"$state/7.approved.json"
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label "$(date -u -d 2026-01-01T00:00:00Z +%s)"
 echo 'exit 4' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
@@ -51,11 +51,13 @@ t_lacks "$(t_calls gh)" "last step"
 t_lacks "$(t_calls gh)" "min,"
 t_lacks "$(t_calls gh)" "total, all dispatches"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_eq "$([ -e "$state/7.approved.json" ] && echo left)" ""
-t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[false,false]'
+# The approval goes with the report: no later start, the fixer's or a
+# refresh, rests on an approval that started nothing.
+t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring')" '[null,null,null]'
+t_eq "$(park_of '[.reason, .automatic]')" '["unknown",false]'
 t_contains "$(t_calls gh)" "--add-label tehas:question"
 # The line of history still names how the start was authorised.
-t_eq "$(jq -r '[.rc, .status, .step, .how] | @csv' "$state/7.history.jsonl")" '4,"unknown","-","label"'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"unknown","-","label","alice"'
 
 t_case "a cycle that never ran and holds no approval record says that, and asks for a fresh one"
 reset
@@ -129,7 +131,7 @@ t_contains "$(t_calls gh)" 'Tehas cycle handed off with its pull request open'
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `review-incomplete`.'
 t_contains "$(t_calls gh)" "Read the pull request before you retry: https://github.com/acme/widget/pull/9"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_eq "$(jq -r .cap "$state/7.park")" review-incomplete
+t_eq "$(park_of '[.reason, .pr]')" '["review-incomplete",9]'
 
 t_case "a handoff with its pull request open and no cap is parked"
 reset
@@ -223,20 +225,20 @@ t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `intent-park` (`too-larg
 
 t_case "each end of a cycle leaves a line of history for the fixer: a park and its reason, a waiting merge"
 reset
-mkdir -p "$state"
-echo alice >"$state/7.by"
-echo '{"how":"label","by":"alice"}' >"$state/7.approved.json"
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label 1760000000
 ended handoff explore "" intent-park
 jq '.issues[0].parkReason = "too-large"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
 echo 11 >"$fx/rc"
 t_run "$cycle 7"
-t_eq "$(jq -c '[.parked, .status, .step, .cap, .park_reason, .provider, .by, .how, .rc]' "$state/7.history.jsonl")" \
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.parked, .status, .step, .cap, .park_reason, .provider, .by, .how, .rc] | tostring')" \
   '[true,"handoff","explore","intent-park","too-large",false,"alice","label",11]'
+t_approve "$T/home/tehas" 7 alice label 1760000100
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_eq "$(wc -l <"$state/7.history.jsonl")" 2
-t_eq "$(tail -n 1 "$state/7.history.jsonl" | jq -c '[.parked, .pr, (.at | test("^[0-9]{4}-"))]')" '[false,"https://github.com/acme/widget/pull/9",true]'
+t_eq "$(t_row history-show 7 -- '.rows | length')" 2
+t_eq "$(t_row history-show 7 -- '.rows[1] | [.parked, .pr, (.at > 1760000000)] | tostring')" '[false,9,true]'
 
 t_case "the token usage per role is posted on the pull request, with the result's totals"
 reset
@@ -250,10 +252,8 @@ t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 4 | 35 | 11 | 1 |"
 
 # A refresh's approval record, as the dispatcher writes it before the start.
 refresh_started() {
-  mkdir -p "$state"
-  jq -n '{at: "2026-10-01T00:00:00Z", by: "alice", how: "refresh", body_sha256: ("0" * 64), links: [],
-    rests_on: {at: "2026-10-01T00:00:00Z", by: "alice", how: "label", body_sha256: ("0" * 64)},
-    refreshes: 1, refresh_of: {pr: 9, head_sha: ("a" * 40), base_sha: ("b" * 40), branch: "main"}}' >"$state/7.approved.json"
+  T_ENV+=(TEHAS_CYCLE_FROM=unit)
+  t_approve "$T/home/tehas" 7 alice refresh 1760000000 --refresh-pr 9 --refresh-head "$(printf 'a%.0s' {1..40})"
 }
 # The call that takes the mark of a refresh off its pull request, and the
 # fixture that makes it fail: the REST issues endpoint, since gh pr edit asks
@@ -274,7 +274,7 @@ for outcome in pushed parked failed; do
   t_lacks "$(t_calls gh)" "pr edit"
   [ "$outcome" != pushed ] || t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label tehas:awaiting-merge"
   [ "$outcome" = pushed ] || t_contains "$(t_calls gh)" "--add-label needs-human-attention"
-  t_eq "$(jq -r .how "$state/7.history.jsonl")" refresh
+  t_eq "$(t_row history-show 7 -- '.rows[0].how')" refresh
 done
 
 t_case "a cycle that is no refresh leaves the labels of pull requests alone"

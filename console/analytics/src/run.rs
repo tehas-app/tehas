@@ -1,16 +1,28 @@
-//! `analytics run <issue>`: one work run, read from what the cycle left on
-//! the host, and its insert.
+//! `analytics run <issue> --facts <file>`: one work run, from the facts its
+//! caller gives and what the cycle left on the host, and its insert.
+//!
+//! The facts are one JSON object that lib/analytics.sh writes for the call, a
+//! claim read as the files below are:
+//!
+//! - line: tehas's line of history of this run, written by libexec/cycle
+//!   just before this program is called: at, started, rc, status, step, cap,
+//!   park_reason, failure_kind, failure_cause, provider, parked, pr, how.
+//!   tehas's own view of the run: its status says killed, stalled or timeout
+//!   where tehas stopped it. The run is not recorded without it.
+//! - attempt: how many runs of the issue there have been, this one with them.
+//! - approval: {at, how} of the approval the run started on, or null: how,
+//!   and at, when tehas:ready was accepted (ISO 8601).
+//! - settings: {container: {PI_ENSEMBLE_*: value}, host: {TEHAS_*: value},
+//!   concurrentCycles} as libexec/work snapshot them for this run, values
+//!   already reduced to safe words, or null. The model and provider of each
+//!   role, and how many cycles held their lock as this one started, this one
+//!   with them.
+//! - rukas: the pi-rukas commit of the image's tehas.rukas label as the cycle
+//!   started, or null.
 //!
 //! Every file is read as tehas wrote it, and none through a link. Where a
 //! file is missing its columns are NULL. Under $TEHAS_HOME:
 //!
-//! - state/cycles/<n>.history.jsonl (libexec/cycle, tehas_cycle_history_add
-//!   in lib/fixer.sh): one JSON object per cycle end, the last 50. Its last
-//!   line is this run, written just before this program is called: at,
-//!   started, rc, status, step, cap, park_reason, failure_kind,
-//!   failure_cause, provider, parked, pr, how. tehas's own view of the run:
-//!   its status says killed, stalled or timeout where tehas stopped it. The
-//!   run is not recorded without it.
 //! - state/cycles/<n>.result.json (libexec/work): the headless runner's raw
 //!   result, schema 3 or 4, {schemaVersion, buildVersion, buildCommit,
 //!   exitCode, issues: [{issue, status, durationMs, steps: [{step,
@@ -23,20 +35,12 @@
 //!   {roles: [{role, dispatches, turns, input, output, cacheRead}], reason,
 //!   failure, reviewHeld, from}. reviewHeld, and the roles where the result
 //!   has no byRole (v0.12.80).
-//! - state/cycles/<n>.settings (libexec/work, tehas_improve_settings):
-//!   {container: {PI_ENSEMBLE_*: value}, host: {TEHAS_*: value},
-//!   concurrentCycles}, values already reduced to safe words. The model and
-//!   provider of each role, and how many cycles held their lock as this one
-//!   started, this one with them. Only a file written since the run started.
-//! - state/cycles/<n>.approved.json (libexec/dispatch, approved_record): {at,
-//!   by, how, ...}. how, and at, when tehas:ready was accepted (ISO 8601).
-//! - state/cycles/<n>.rukas (libexec/cycle): one line, the pi-rukas commit of
-//!   the image's tehas.rukas label as the cycle started.
 //!
 //! The image, its tehas.rukas commit and the counts of processes killed for
 //! memory and of refused forks are given on the command line (Given):
-//! libexec/cycle reads and removes .image, .oom and .forks before it writes
-//! the history line, so they are not read here.
+//! libexec/cycle reads the image and its commit from the cycle's record on
+//! the state store, and reads and removes .oom and .forks, so they are not
+//! read here.
 //! - logs/work-<n>-<stamp>.jsonl (libexec/work): the runner's NDJSON progress,
 //!   the newest one written since the run started. Its stable step-started
 //!   lines give the steps where the result has none.
@@ -133,34 +137,40 @@ pub struct Role {
 /// The result schemas whose fields this reads.
 const RESULT_SCHEMAS: [i64; 2] = [3, 4];
 
-/// What libexec/cycle passes on: the image the container started from, the
-/// pi-rukas commit of its label, and its counts of kills and refused forks.
+/// What libexec/cycle passes on: the facts file, the image the container
+/// started from, the pi-rukas commit of its label, and its counts of kills and
+/// refused forks.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Given {
     pub image: Option<String>,
     pub rukas_image: Option<String>,
     pub oom: Option<i64>,
     pub forks: Option<i64>,
+    pub facts: Option<PathBuf>,
 }
 
-/// Reads the run of `issue` that ended last. Err when there is no history
-/// line for it.
+/// The facts file, read as a host file is: a JSON value, not through a link,
+/// bounded. None when it is not there or not of that shape.
+pub(crate) fn read_facts(given: Option<&Path>) -> Option<Value> {
+    read_json(given?)
+}
+
+/// Reads the run of `issue` that ended last. Err when its facts cannot be
+/// read or hold no history line.
 pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     let cycles = home.join("state").join("cycles");
     let note = |ext: &str| cycles.join(format!("{issue}.{ext}"));
 
-    let history = read_plain(&note("history.jsonl"), MAX_FILE)
-        .ok_or_else(|| format!("no history of issue {issue}, so no run to record"))?;
-    let lines: Vec<Map<String, Value>> = history
-        .lines()
-        .filter_map(|l| match serde_json::from_str(l) {
-            Ok(Value::Object(o)) => Some(o),
+    let facts = read_facts(given.facts.as_deref())
+        .and_then(|f| match f {
+            Value::Object(o) => Some(o),
             _ => None,
         })
-        .collect();
-    let last = lines
-        .last()
-        .ok_or_else(|| format!("the history of issue {issue} has no line"))?;
+        .ok_or_else(|| format!("no facts of the run of issue {issue}, so no run to record"))?;
+    let last = facts
+        .get("line")
+        .and_then(Value::as_object)
+        .ok_or_else(|| format!("no history of issue {issue}, so no run to record"))?;
     let started = last
         .get("started")
         .and_then(Value::as_i64)
@@ -171,7 +181,10 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         id: format!("work-{issue}-{started}"),
         issue,
         started,
-        attempt: Some(lines.len() as i64),
+        attempt: facts
+            .get("attempt")
+            .and_then(Value::as_i64)
+            .filter(|n| *n > 0),
         ..Run::default()
     };
     run.ended = text(last, "at")
@@ -190,8 +203,8 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     run.how = word(last, "how", 40);
     let parked = last.get("parked").and_then(Value::as_bool).unwrap_or(false);
 
-    if let Some(approved) = read_json(&note("approved.json")) {
-        if let Some(how) = approved.as_object().and_then(|o| word(o, "how", 40)) {
+    if let Some(approved) = facts.get("approval").and_then(Value::as_object) {
+        if let Some(how) = word(approved, "how", 40) {
             run.how = Some(how);
         }
         if let Some(at) = approved.get("at").and_then(Value::as_str).and_then(iso_ms) {
@@ -236,13 +249,11 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
     if let Some(p) = &progress {
         run.review_held = p.get("reviewHeld").and_then(Value::as_bool);
     }
-    let settings = read_json_since(&note("settings"), started);
+    let settings = facts.get("settings");
     let container = settings
-        .as_ref()
         .and_then(|s| s.get("container"))
         .and_then(Value::as_object);
     if let Some(n) = settings
-        .as_ref()
         .and_then(|s| s.get("concurrentCycles"))
         .and_then(Value::as_i64)
     {
@@ -287,10 +298,14 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
 
     // The image's label as the container started, else as the cycle began.
     if run.rukas_commit.is_none() {
-        run.rukas_commit = given
-            .rukas_image
-            .clone()
-            .or_else(|| first_line(&note("rukas")).filter(|c| is_hex(c, 7, 40)));
+        run.rukas_commit = given.rukas_image.clone().or_else(|| {
+            facts
+                .get("rukas")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|c| is_hex(c, 7, 40))
+                .map(str::to_string)
+        });
     }
     run.image = given.image.clone();
     run.oom_kills = given.oom;
@@ -651,10 +666,6 @@ fn read_plain(p: &Path, limit: u64) -> Option<String> {
 
 pub(crate) fn read_json(p: &Path) -> Option<Value> {
     serde_json::from_str(&read_plain(p, MAX_FILE)?).ok()
-}
-
-fn read_json_since(p: &Path, started: i64) -> Option<Value> {
-    written_since(p, started).then(|| read_json(p)).flatten()
 }
 
 fn first_line(p: &Path) -> Option<String> {

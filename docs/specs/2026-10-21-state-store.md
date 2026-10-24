@@ -339,7 +339,7 @@ neither is part of any transaction. Where a removal decision has to be auditable
 it is `sweep_log` (group 13) that records it. Group 8 names no verb at all: see
 the note at the end of section 4.
 
-## 3. Schema v1
+## 3. Schema v2
 
 `$TEHAS_HOME/state/tehas.db`, mode 0600, owned by the tehas user. The mode is
 set the way the analytics program sets it — the file created 0600 before SQLite
@@ -359,9 +359,12 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 1 for this schema. Migrations run
-  forward only, from install or update under `state/update.lock`, after a
-  `VACUUM INTO` backup.
+- The version is `PRAGMA user_version`. It is 2 for this schema. Schema 1 was
+  the first on main; the step to 2 only adds columns and one table
+  (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
+  `planning_notes`; the verbs spec's D29). An added column comes last in its
+  table, where `ALTER TABLE` puts it. Migrations run forward only, from install
+  or update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
   `synchronous=FULL`, `foreign_keys=ON`. Writes stay under one a second, so
   durability costs nothing worth saving.
@@ -522,6 +525,7 @@ CREATE TABLE approvals (
   refresh_head TEXT,
   used_at      INTEGER,                   -- when it authorised a start (A2, A3)
   used_by      INTEGER,                   -- the cycle that consumed it
+  input_json   TEXT,                      -- v2: links, comment_links, retry_context, refresh_of
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);
@@ -570,13 +574,23 @@ CREATE TABLE planning_answers (           -- was: the `answers` array
   turn  INTEGER NOT NULL,
   by_account TEXT NOT NULL,
   fixer      INTEGER NOT NULL DEFAULT 0,
+  text       TEXT,                        -- v2: was <record>.answer
   PRIMARY KEY (issue, turn)
 );
 CREATE TABLE planning_filed (             -- was: the `filed` array
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  url TEXT NOT NULL,                      -- the whole URL: it may be in another repository
   filed_issue INTEGER NOT NULL,
   at INTEGER NOT NULL,
-  PRIMARY KEY (issue, filed_issue)
+  PRIMARY KEY (issue, url)
+);
+-- v2: was the record's fixer_refused and held lists. They go with the session.
+CREATE TABLE planning_notes (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
 );
 ```
 
@@ -644,6 +658,7 @@ CREATE TABLE parks (
   step     TEXT,
   pr       INTEGER,
   retries  INTEGER NOT NULL DEFAULT 0,    -- C12: one automatic retry, then a person
+  told_at  INTEGER,                       -- v2: the hold said once; was .park's held
   PRIMARY KEY (issue, attempt)
 );
 -- The trust root of F5: a tick counts only in a comment this host put here.
@@ -1001,14 +1016,17 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `park` | `<issue> --reason <r> [--step <s>] [--pr N] --comment-id <id> --body-sha <sum>` | **group 3**: `parks`, `questions`; the comment is posted by the caller through the journal | `{"issue":12,"question":<id>}` | 0, 64, 78, 1, 5 |
 | `park-show` | `<issue>` | | the current park, `retries` | 0, 78 |
 | `park-retry` | `<issue>` | increments `parks.retries` | `{"retries":1,"automatic":true}` | 0, 78, 1 |
+| `park-told` | `<issue>` | `parks.told_at` of the current park, once | `{"said":true,"park":...}` | 0, 64, 78, 1 |
 | `question-asked` | `<issue> --id <id> --kind <k> [--attempt N]` | `questions` | the row | 0, 64, 78 |
 | `question-known` | `<issue> --id <id>` | | `{"known":true,"kind":"park"}` | 0, 64, 78, 1 |
-| `approval-record` | `<issue> --by <acct> --how <h> --label <l> --body-sha <sum> [--comment-id <id>] [--refresh-pr N --refresh-head <sha>]` | `approvals` | the row | 0, 64, 78 |
+| `approval-record` | `<issue> --by <acct> --how <h> --label <l> --body-sha <sum> [--comment-id <id>] [--refresh-pr N --refresh-head <sha>] [--input-file <f>]` | `approvals`, the inputs in `input_json` | the row | 0, 64, 78 |
 | `approval-current` | `<issue>` | | the open approval, or `{"approval":null}` | 0, 78 |
 | `plan-begin` | `<issue> --by <acct> --label <l> --brief-file <f> [--session <id>] [--turn N]` | **group 6**: `planning`, `plan_history` | the row | 0, 64, 78 |
 | `plan-end` | `<issue> --outcome <o> [--session <id>] [--turn N] [--rc N] [--filed 1,2,3]` | `planning`, `plan_history` | the row | 0, 64, 78 |
-| `plan-answer` | `<issue> --turn N --by <acct> [--fixer]` | `planning_answers` | `{"turn":2}` | 0, 64, 78 |
+| `plan-answer` | `<issue> --turn N --by <acct> [--fixer] [--text-file <f>]` | `planning_answers`, the reply in `text` | `{"turn":2}` | 0, 64, 78 |
+| `plan-note` | `<issue> --kind fixer-refused\|held --id <id>` | `planning_notes` | `{"said":true,"planning":...}` | 0, 64, 78, 1 |
 | `plan-show` | `<issue> \| --open` | | the rows | 0, 78 |
+| `history-show` | `[<issue>] [--kind cycle\|plan] [--how <h>]` | | `{"rows":[...]}`, oldest first | 0, 64, 78, 1 |
 | `poll-begin` | | `polls` (the lock's instant), clears nothing else | `{"at":...}` | 0, 78 |
 | `poll-commit` | `--held <why> \| --held-none [--short N] [--slice-room N --slice-committed N --slice-max N --slice-why <w>] [--endpoint main\|backup] [--paused] [--all-hands 0\|1]` | **group 4**: `polls`, `poll_demand`, `queue_snapshot`, the sample the analytics program is then given | the row | 0, 64, 78 |
 | `poll-show` | `--last` | | the last poll, with its age (A15) | 0, 78 |
@@ -1526,105 +1544,150 @@ has them.
 
 ## 7. The import of today's files
 
-One command, `tehasbot store import --home <dir>`, run once per host, from
-`install.sh` under `state/update.lock`, after a `VACUUM INTO` backup.
+**Changed by the store-callers plan** (`docs/plans/2026-10-24-store-callers.md`,
+section 6, decision 11; **sign-off**): the import runs again whenever old files
+are there, and it moves each file instead of removing it after a `--verify`
+pass. Issue #250 says nothing is deleted. This section is the contract
+`console/store/src/import.rs` implements.
 
-**The root is proved before anything else.** `--home` is an operator-supplied
-directory that this command both writes into and deletes from, so before it
-reads, writes or removes a single file it requires `$HOME/.tehas-home` — the same
-marker `install.sh` requires as "the proof the directory is tehas's, read before
-anything else" (`install.sh:252-261`). Without it the import exits 78 with the
-word `unmarked` and touches nothing: B6's rule that removal happens only under a
-marker-owned root, with `TEHAS_HOME` checked first, is an invariant of every
-removal pass in the store, not only of the sweep's (#250).
+One command, `store import [--dry-run] [--json]`, run by `install.sh` on every
+real run, under `state/update.lock` and `state/dispatch.lock`, after `store init`
+or `store migrate` (whose backup is written first). The home is `TEHAS_HOME`, as
+for every verb of the store; the `--home` of earlier drafts is that variable.
+
+**The root is proved before anything else.** The home is a directory this
+command both writes into and moves files out of, so before it reads, writes or
+moves a single file it requires `$TEHAS_HOME/.tehas-home`, a regular file: the
+same marker `install.sh` requires as "the proof the directory is tehas's, read
+before anything else" (`install.sh:279-315`). Without it the import exits 78 with
+the word `unmarked` and touches nothing: B6's rule that a removal pass runs only
+under a marker-owned root holds for the import's moves too.
+
+**Nothing runs while it imports.** When there is anything to import and any
+`state/cycles/<n>.lock` or `state/plan-<n>.json.lock` probes held, or cannot be
+probed (the probe of section 1 of the verbs spec), the import exits 1 with the
+word `live` and the issue, and writes nothing. A cycle or planning turn that ran
+across the import would write old files after it. `install.sh` asks the same
+question with `--dry-run` before its first copy and refuses there, so a host
+that was not drained is left as it was.
 
 ### Order
 
-Order matters because the groups reference each other.
+One transaction per issue's group (its cycle files, or its planning files),
+the kinds in this order, because they reference each other. The cycle groups
+come before the planning groups:
 
-1. `init` the database, or refuse: an existing database with rows is never
-   re-imported by accident (see idempotence).
-2. `issues` from the current `live/status.json`, `live/running.json` and each
-   `state/cycles/<n>.approved.json`, so the join target exists first. Anything
-   whose kind the files cannot tell is `unreadable`, not `issue`.
-3. `cycles`, `approvals`, `parks`, `questions`, `cycle_settings`,
-   `cycle_results`, `cycle_progress`, `cycle_history`: from `state/cycles/*` and
-   `state/park-*.id`, newest first per issue so `attempt` is derived from the
-   history rather than guessed.
-4. `heartbeats` from `live/cycles/*.json`; `endings` from `live/endings.json`,
-   oldest first.
-5. `planning`, `planning_answers`, `planning_filed`, `plan_history`, `refined`:
-   from `state/plan-*.json` and its sidecars. An unparseable record is reported
-   and skipped, never guessed at.
-6. `polls`, `poll_demand`, `queue_snapshot`, `branch_checks`, `pause_flag`,
-   `limits`, `endpoints`, `index_state`, `release_history`, `edge_takeover`,
-   `improve_cap`, `refresh_requests`, `refresh_hold`, `check_product`,
-   `platform_state`.
-7. `sweep_log` from what is left on disk, as `kept` rows, so the sweep's rules
-   have a starting point.
+1. `cycles`, from `state/cycles/<n>.{taken,by,requeued,rukas,image,branch}`, the
+   approval and the history: `attempt` counts the history lines, and one more
+   for a start no line ended; `started_at` is the `.taken` mtime, else the last line's `started`;
+   `started_by` is `.by`, else the approval's `by`; `how` is the approval's,
+   else `hand` with no account. The cycle ended at the newest line's `at` with
+   its status when that line is newer than `started_at`, else it ended `lost` at
+   `started_at`: no cycle runs after a drain. A row on record that started
+   earlier than the files say is given the later start; an open row on record
+   that a newer line ends is ended. Files whose start is the row on record (the
+   same `.taken` mtime, or a last line that ended it or started within it), or
+   that hold no start at all, belong to that row: their lines are numbered so
+   the one that ended it has its attempt, and their approval, park and park id
+   are of its attempt.
+2. `approvals`, from `.approved.json`: a used row (`used_by` is the attempt), its
+   inputs (`links`, `comment_links`, `retry_context`, `refresh_of`) in
+   `input_json`, the label `tehas:ready` for `label` and `fixer`, else the `how`
+   word, `refresh_pr` and `refresh_head` from `refresh_of`. A `fixer` or
+   `refresh` record also gives its `rests_on` as a used row below it, and one
+   used row for each fixer start and refresh the record counts besides itself,
+   at times strictly between, so `approval-current` never counts fewer than the
+   file said: a lower count would let the fixer start more cycles.
+3. `parks`, from `.park`: the reason `provider-outage`, else the cap, else the
+   status of the line that ended the cycle; `retries` 0 when the file owed a
+   retry, else 1; `told_at` from `held`.
+4. `questions`, from `state/park-<n>.id`, only when the issue's `.park` is
+   imported or the attempt's park is on record: only an id this host recorded becomes a question (F5).
+5. `cycle_settings`, from `.settings`, with the secret-shape filter of
+   `cycle-image`.
+6. `cycle_history`, from `state/cycles/<n>.history.jsonl` (the pull request's URL
+   becomes its number).
+7. `planning`, `planning_answers` (the `.answer` text with the latest answer),
+   `planning_filed`, `planning_notes` (`fixer_refused`, `held`) and the plan
+   question (`comment`), from `state/plan-<n>.json`, its `.brief` and `.answer`.
+   `pending_outcome` names `state/plan-<n>.json.out` when it is there.
+8. `plan_history`, from `state/cycles/plan-<n>.history.jsonl` and
+   `state/plan-<n>.history.jsonl` (D18), a line in both once.
 
-Where a file's timestamp is text, step by step it is converted, not coerced:
-`%FT%TZ` parsed to Unix seconds for `state/refresh/<n>.json`'s `at` (section
-3.11), `state/pause.json`'s `at`, `plan-<n>.json`'s `startedAt` and the `$at` of
-the history JSONL. A value that does not parse makes its file `held`, never a
-row with a coerced time.
+Both histories keep an issue's 50 newest rows, as `cycle-end` and `plan-end`
+do: the lines are written newest first, a line older than 50 rows on record is
+not written, and the rest is cut to 50. The `options` of a planning record are
+kept as `plan-end` keeps them: at most 20, no control characters, each cut to
+300 bytes, and `-` for one that is empty or not text.
 
-Each step is one transaction, and the step that fails is reported by name with
-the file that broke it. The import does not run a second time on a host that has
-already imported.
+Every writer makes the issues stub first, as the verbs do. `.quiet`,
+`state/park-<n>.json` and `state/plan-<n>.json.turn` are moved with no row. The
+carriers (`result.json`, `progress.json`, `.runner_exit`, `.status`, `.oom`,
+`.forks`, `.stalled`, `.timed`, `.nostart`, `.done`, `.stopped`, `.cid`,
+`.manifest.json`, `.images.md`, `.retry-context.md`, a plan's `.out`, `.rc` and
+`.lock`), `state/refined.jsonl` (D9) and `live/` are not the import's. The rest
+of the groups of section 2 are imported by the units of #244 that move them.
+Each `state/plan-<n>.json.keep` is moved by `install.sh` to
+`$TEHAS_WORK_DIR-plan-<n>.keep`, out of `state/`, while no turn holds its lock.
+
+Where a file's timestamp is text it is converted, not coerced: `%FT%TZ` parsed
+to Unix seconds for the approval's `at`, `plan-<n>.json`'s `startedAt` and the
+`at` of the history JSONL. A value that does not parse makes its file `held`,
+never a row with a coerced time.
 
 ### Idempotence
 
-The rule is that an import is a move, not a merge, and a move must be provably
-complete before anything is removed.
+The rule is that an import is a move, not a merge, and a file moves only after
+its rows are in the store.
 
 - Every row is keyed by a natural key recomputed from the file it came from:
-  `(issue, at)` for history, parks, refresh requests and approvals; `(issue,
-  received_at)` for results and progress, which is what the file carries (no
-  cycle-side file records an attempt — section 3.6); `(issue, started_at)` for
-  endings; `id = 1` for the singletons. A re-run inserts `OR IGNORE`, so running
-  the import twice changes nothing.
-- **A file is removed only by a later run of the same command, and only when
-  its own row exists.** The check is per file: `import --verify` re-reads each
-  candidate file, recomputes its natural key, and reports it as `moved` only when
-  the row matches. Nothing is removed in the pass that wrote the rows.
+  `(issue, at)` for approvals, `(issue, attempt)` for parks, the comment id for
+  questions, `(issue, at, status, started_at)` for cycle history and `(issue,
+  turn, at, outcome)` for plan history, the issue for cycles and planning. A run
+  inserts `OR IGNORE`, so running the import twice changes nothing.
+- **A group's files move only after all its rows read back.** After a group's
+  commit, each of its files' rows are read from the store, and only then are
+  its files moved to `state/imported-<YYYYMMDD>/<its path under state/>`, never
+  over a file there (a taken name gets `.1`, `.2`), the files that say when it
+  started (`.taken`, `plan-<n>.json`) last. When any file's rows do not read
+  back, every file of the group stays and is `held`, so the next run plans the
+  same files. A crash between the commit and the moves, or partway through the
+  moves, is finished by the next run: the rows are there, and the files left
+  belong to the row on record.
 - **A candidate is a regular file, or it is not a candidate.** Before its content
-  is parsed or its key compared, a candidate must be a regular file, not a
-  symlink (`[ ! -L ]`, the guard the existing readers of these very files already
-  apply — `lib/improve.sh:88`, `lib/fixer.sh:152`, `install.sh:1013`), and within
-  a size bound of 1 MiB, read with `stat -c %s` as `lib/improve.sh:89` does. A
-  symlink, a directory, a device or an over-large file is reported `held` as
-  unreadable and stays where it is: it is never reported `moved`, so the next
-  run's removal pass cannot delete through it. A planted `state/cycles/<n>.json`
-  whose content parses and keys correctly would otherwise be removed by the
-  import and would have taken whatever it pointed at with it.
-- A file that cannot be read, parsed, or keyed is reported as `held` and stays
-  where it is. The import exits 1 when anything is `held`, and the operator sees
-  the list. It never invents a row to make a file disposable.
-- `--dry-run` reports the three sets (`moved`, `held`, `removed`) and writes
-  nothing.
-- The database's `meta.imported_at` records the pass; a second import against a
-  home whose `imported_at` is set exits 78 unless `--force`, which re-runs in
-  verify-and-remove mode only.
+  is parsed, a candidate must be a regular file, not a link, the same file after
+  it is opened (device and inode), and within 1 MiB. A link, a directory, a
+  device or an over-large file is `held` and stays where it is.
+- A file that cannot be read or parsed is `held` and stays, and so does every
+  other file of its issue's group (the cycle's or the planning session's): their
+  rows depend on each other. The import exits 1 with the word `held` when
+  anything is held, one line per file on stderr, and nothing on stdout. It never
+  invents a row to make a file movable.
+- `--dry-run` reads the files and nothing else: it does not open the store, so it
+  answers before `init` and `migrate`. It reports the rows the files hold, the
+  number of files that would move, and the same `live` and `held` refusals.
+- The answer: `{"api":1,"verb":"import","ok":true,"imported":{<table>:N,...},
+  "moved":N,"held":[],"dry_run":bool}`; the counts are the rows written. Nothing
+  left to import is exit 0 with zero counts. `meta.imported_at` records the last
+  pass that moved a file.
 
 ### What happens to the old files
 
-Three fates, decided per file, and the file stays for as long as its fate is
-not proven:
+Three fates, decided per file:
 
-1. **Removed** by the import after `--verify`, once every reader has moved to
-   the verb. For `state/cycles/*` that is #250; for `state/plan-*.json` it is
-   #251. Until then the file stays and the row is written beside it.
+1. **Moved** to `state/imported-<YYYYMMDD>/` by the import once its rows read
+   back. Nothing is deleted: a person removes the directory once satisfied.
+   For `state/cycles/*` that is #250; for `state/plan-*` it is #251.
 2. **Kept as a view**, written from the tables by `publish` (#252), with the
    bytes unchanged: the shapes of `live/*.json` stay the same unless a sub-issue
    says otherwise and changes the manual in the same commit.
 3. **Kept as a file**, for the reasons of section 1 and ADR 0003: the locks, the
-   mounts, `update-pending`, `update-hold`, `first-install`,
+   mounts, the carriers above, `update-pending`, `update-hold`, `first-install`,
    `sandbox.Dockerfile.sha256`, `index.json`, `analytics.db`, `dispatch.again`
    and the trees of other programs.
 
 Nothing from a container-written file becomes a row without a read from GitHub
-behind it (F7). `state/plan-<n>.json.keep/` moves directory, not rows.
+behind it (F7). `state/plan-<n>.json.keep/` moves as a directory, not rows.
 
 ## 8. Vendoring the crates
 

@@ -15,11 +15,13 @@ state=$th/state/cycles
 works=$th/work
 runs=$T/home/.pi/agent/ensemble-runs
 # What a stop takes away, and what it leaves as the cycle's record. The two
-# lists are here so a case can pin both sides of the line. The sibling name of
+# lists are here so a case can pin both sides of the line. The park of the
+# cycle is on the state store: a stop takes its question off the record and
+# spends its retry, and the park stays as the cycle's record. The sibling name of
 # the nostart note goes with the note: a write of it is made beside it and moved
 # into place, and tehas work clears both when a cycle starts.
-GO=(lock taken cid park requeued "done" stalled timed stopped stopped.new quiet oom forks branch image nostart nostart.new progress.json result.json)
-KEEP=(json history.jsonl by settings manifest.json approved.json rukas runner_exit status)
+GO=(lock cid "done" stalled timed stopped stopped.new oom forks nostart nostart.new progress.json result.json)
+KEEP=(json manifest.json runner_exit status)
 
 # systemctl: what the unit is doing ($UNIT_STATE), and the stop itself, which
 # ends the process holding the issue's lock, as a unit that stopped does.
@@ -72,6 +74,8 @@ reset() {
   rm -rf "$th" "$runs" "$T"/calls/* "$T/holder" "$T/holder-keep" "$T/gone"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+  # The state store with nothing on record.
+  t_store_home "$th"
   systemctl_idle
   docker_stub
   gh_stub
@@ -115,7 +119,9 @@ cycle_files() { # <issue>
   # the other notes hold.
   for ext in "${GO[@]}" "${KEEP[@]}"; do printf '%s\n' "$n $ext" >"$state/$n.$ext"; done
   printf '%s %s\n' "$(date +%s)" "$whoami_here" >"$state/$n.stopped"
-  printf '42\n' >"$th/state/park-$n.id"
+  # Its last cycle, on alice's label, parked with the question 42<issue> on record.
+  t_ended "$th" "$n" alice label --parked
+  t_park "$th" "$n" failed "42$n"
   printf 'console line\n' >"$th/live/console-$n.txt"
   printf 'transcript\n' >"$runs/issue-$n/a-1-coder.json"
   mkdir -p "$works/widget-$n" "$works/widget-$n.state" "$works/widget-$n.images"
@@ -129,20 +135,24 @@ cycle_files() { # <issue>
 leftovers() { # <issue>
   local n=$1 out="" ext f
   for ext in "${GO[@]}"; do [ -e "$state/$n.$ext" ] && out="$out $state/$n.$ext"; done
-  for f in "$th/state/park-$n.id" "$th/live/console-$n.txt" "$runs/issue-$n" \
+  # A park that still asks for something: its question, or its retry.
+  [ "$(t_row park-show "$n" -- '.park != null and (.park.question != null or .park.retries == 0)')" != true ] ||
+    out="$out park-of-$n"
+  for f in "$th/live/console-$n.txt" "$runs/issue-$n" \
     "$works/widget-$n" "$works/widget-$n.state" "$works/widget-$n.before-retry" "$works/widget-$n.images"; do
     [ -e "$f" ] && out="$out $f"
   done
   printf '%s\n' "${out# }"
 }
-# The number a case says a stop leaves behind: the notes of GO, and the seven paths beside them. It is stated here, not read back from the lists,
+# The number a case says a stop leaves behind: the notes of GO, the park on
+# record, and the six paths beside them. It is stated here, not read back from the lists,
 # so a note added to GO without being named here fails the cases that say a stop
 # took everything a cycle left. The marker of a stop and the sibling name of its
 # write are the two last of them, and are removed on the same terms as any other.
 # The two names of the marker are the two last of them, and go on the same terms
 # as any other: the marker of a stop keeps the line it was written with, so a
 # case that means a marker of its own says the name here.
-LEFTOVERS_N=26
+LEFTOVERS_N=20
 # The record files of this issue that a stop keeps, still on the host.
 record() { # <issue>
   local n=$1 out="" ext
@@ -172,13 +182,15 @@ t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 [ "$(($(date +%s) - began))" -lt 30 ] || t_bad "the stop took $(($(date +%s) - began))s"
 t_eq "$(leftovers 5)" ""
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_contains "$t_out" "stopped tehas-cycle@5.service"
 t_contains "$t_out" "removed the container tehas-work-5"
 t_contains "$t_out" "removed state/cycles/5.lock"
-t_contains "$t_out" "removed state/cycles/5.taken"
-t_contains "$t_out" "removed state/park-5.id"
+t_contains "$t_out" "removed state/cycles/5.cid"
+t_contains "$t_out" "took the park question of #5 off the record"
+t_contains "$t_out" "spent the retry of the park of #5"
+t_eq "$(t_row question-known 5 --id 425 -- .recorded)" false
 t_contains "$t_out" "removed live/console-5.txt"
 t_contains "$t_out" "removed ~/.pi/agent/ensemble-runs/issue-5"
 t_contains "$t_out" "removed work/widget-5"
@@ -371,7 +383,7 @@ t_eq "$([ -d "$works/widget-5" ] && echo kept) $([ -e "$works/widget-5/README.md
 t_eq "$([ -e "$works/widget-5.state" ] && echo kept) $([ -e "$works/widget-5.images" ] && echo kept) $([ -e "$works/widget-5.before-retry" ] && echo kept)" "kept kept kept"
 t_eq "$(leftovers 5)" "$works/widget-5 $works/widget-5.state $works/widget-5.before-retry $works/widget-5.images"
 t_eq "$(wc -w <<<"$(leftovers 5)")" 4
-t_contains "$t_out" "removed state/cycles/5.park"
+t_contains "$t_out" "spent the retry of the park of #5"
 t_contains "$t_out" "removed state/cycles/5.result.json"
 t_lacks "$t_out" "removed work/widget-5"
 
@@ -530,7 +542,7 @@ systemctl_idle
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$works/widget-5x" ] && echo x) $([ -e "$state/5.5.lock" ] && echo dot)" "x dot"
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 
 t_case "tehas:running is on the issue: one read and one edit take it off, as the last step"
 reset
@@ -573,7 +585,7 @@ t_run "$stop_cmd 5"
 t_eq "$t_rc" 1
 t_contains "$t_out" "WARN: the labels of #5 could not be read"
 t_eq "$(leftovers 5)" ""
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 t_eq "$(removed_containers)" "tehas-work-5 "
 t_eq "$(gh_edits)" ""
 
@@ -621,7 +633,7 @@ t_eq "$(gh_views | wc -l)" 1
 t_eq "$(gh_edits)" ""
 # The host's half went clean; what is left is the new cycle's own lock.
 t_eq "$(leftovers 5)" "$state/5.lock"
-t_eq "$(record 5)" "json history.jsonl by settings manifest.json approved.json rukas runner_exit status"
+t_eq "$(record 5)" "json manifest.json runner_exit status"
 release
 
 t_case "the read fits what gh really prints: gh's labels are an object, so a filter that indexes it as an array is a failure, not an empty answer"
@@ -631,5 +643,109 @@ t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".labels[].name"'
 t_eq "$t_out" "tehas:running"
 t_run 'gh issue view 5 --repo acme/widget --json labels --jq ".[].name" >/dev/null 2>&1 || echo refused'
 t_eq "$t_out" "refused"
+
+# --- The cycle's record on the state store ------------------------------------
+# A store at the installed path that notes, for each call, whether the lock
+# file of #5 was there, and runs the real store.
+store_notes() {
+  rm -f "$th/libexec/store"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s lock=%s\\n' \"\$1\" \"\$([ -e $(t_q "$state/5.lock") ] && echo there || echo gone)\" >>$(t_q "$T/calls/store")" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$th/libexec/store"
+  chmod 755 "$th/libexec/store"
+}
+
+t_case "a cycle killed outright has its record ended as stopped, before its lock file goes"
+reset
+# Its start is on record and never reported: no unit, no lock held.
+t_started "$th" 5 --by-hand
+store_notes
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ended the record of the cycle of #5 as stopped"
+t_eq "$(t_row cycle-show 5 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"stopped"]'
+t_eq "$(grep '^cycle-end' "$T/calls/store")" "cycle-end lock=there"
+t_eq "$(find "$state/5.lock" 2>/dev/null | wc -l)" 0
+# No history is written for it: tehas stop writes none.
+t_eq "$(t_row history-show 5 -- '.rows | length')" 0
+
+t_case "a second stop finds nothing to do and asks the store to end nothing"
+rm -f "$T"/calls/*
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_eq "$t_out" "nothing to stop for #5"
+t_eq "$(grep -c '^cycle-end' "$T/calls/store" 2>/dev/null)" 0
+
+t_case "a record that cannot be ended leaves the lock file and the rest, says so, and exits 1"
+reset
+cycle_files 5
+t_started "$th" 5 --by-hand
+rm -f "$state/5.stopped"
+t_store_answers cycle-end 1 'store: busy #5: the database is locked'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the record of #5 could not be ended as stopped (store: busy #5: the database is locked), so nothing was removed. Run this again."
+t_eq "$(find "$state/5.lock" | wc -l)" 1
+t_eq "$(find "$works/widget-5" -maxdepth 0 | wc -l)" 1
+t_eq "$(gh_edits)" ""
+t_eq "$(t_row cycle-show 5 -- .cycle.ended_at)" null
+
+t_case "a stop spends the retry a provider outage left owed, and the dispatcher starts nothing on its own"
+reset
+t_ended "$th" 5 alice label --provider --parked
+t_park "$th" 5 provider-outage
+t_eq "$(t_row park-show 5 -- '.park.automatic')" true
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 0
+t_contains "$t_out" "spent the retry of the park of #5"
+t_lacks "$t_out" "park question"
+t_eq "$(t_row park-show 5 -- '[.park.automatic, .park.retries] | tostring')" '[false,1]'
+t_eq "$(t_row park-show --automatic -- '.parks | length')" 0
+t_run "$stop_cmd 5"
+t_eq "$t_out" "nothing to stop for #5"
+
+t_case "a park that cannot be cleared leaves the lock file and the rest, says so, and exits 1"
+for verb in question-answered park-retry; do
+  reset
+  cycle_files 5
+  rm -f "$state/5.stopped"
+  t_store_answers "$verb" 1 'store: busy #5: the database is locked'
+  t_run "$stop_cmd 5"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "could not be"
+  t_contains "$t_out" "(store: busy #5: the database is locked), so nothing was removed. Run this again."
+  t_eq "$(find "$state/5.lock" | wc -l)" 1
+  t_eq "$(find "$works/widget-5" -maxdepth 0 | wc -l)" 1
+  t_eq "$(gh_edits)" ""
+done
+t_eq "$(t_row park-show 5 -- '.park.retries')" 0
+
+t_case "a park that cannot be read changes nothing: 1 when the store is busy, 78 when it cannot be used"
+reset
+cycle_files 5
+t_store_answers park-show 1 'store: busy #5: the database is locked'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 1
+t_contains "$t_out" "the park of #5 could not be read from the state store: store: busy #5"
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+t_store_answers park-show 78 'store: corrupt: the file is not a database'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 78
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+t_eq "$(t_calls systemctl | grep -c ' stop ')" 0
+
+t_case "a record that cannot be read changes nothing: 1 when the store is busy, 78 when it is not there"
+reset
+cycle_files 5
+t_store_answers cycle-show 1 'store: busy #5: the database is locked'
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 1
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+rm -f "$th/libexec/store"
+t_run "$stop_cmd 5"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
+t_eq "$(leftovers 5 | wc -w)" "$LEFTOVERS_N"
+t_eq "$(t_calls systemctl | grep -c ' stop ')" 0
 
 t_done

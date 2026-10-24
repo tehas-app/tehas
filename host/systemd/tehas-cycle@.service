@@ -3,6 +3,8 @@ Description=Tehas: the work cycle for issue %i
 
 [Service]
 Type=exec
+# The cycle is the unit's: its start needs the approval the dispatcher recorded.
+Environment=TEHAS_CYCLE_FROM=unit
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot cycle %i >> %h/tehas/logs/dispatch.log 2>&1"
 # A stop reaches the command only. It passes it on to the cycle's container
 # and then reports on the issue, which takes a few calls to GitHub. The worst

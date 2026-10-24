@@ -278,7 +278,7 @@ slots 2
 ready 7 8
 # fake-start fails for issue 7 only.
 t_stub fake-start '[ "$1" != 7 ] || exit 1
-: >"$TEHAS_HOME/state/cycles/$1.taken"'
+flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null'
 t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"

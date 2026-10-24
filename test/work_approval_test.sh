@@ -33,6 +33,17 @@ t_eq "$(find "$imgs" -maxdepth 0 2>/dev/null | wc -l)" 0
 t_contains "$t_out" "tehas work: the issue's text is not the text that was approved: it changed after the approval, not starting a cycle"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Tehas started no cycle: the issue's text is not the text that was approved: it changed after the approval. To retry, apply \`tehas:ready\`."
 
+t_case "without the state store a start stops at 78 before GitHub is asked"
+images_off
+issue_is "Words only." NONE
+record_is alice "Words only."
+rm -f "$T/home/tehas/libexec/store"
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: ERROR: the state store is not installed (run install.sh)"
+t_eq "$(t_calls gh)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
 # --- The size of what the cycle starts with ----------------------------------
 # A start that had an approval to measure records the measure of the approved
 # body in state/sizes.jsonl, one line, from the read it already made: the
@@ -132,11 +143,13 @@ t_eq "$(size_lines)" "0"
 t_contains "$t_out" "a run by hand is its own approval"
 t_contains "$(cycle_args)" "pi-rukas-headless"
 
-t_case "a state directory that cannot be written still starts the cycle, and says the size was not recorded"
+t_case "a ledger that cannot be written still starts the cycle, and says the size was not recorded"
 size_case "$size_body"
-chmod a-w "$(dirname "$sizes")"
+# Not the state directory itself: the cycle reads its approval from the store
+# there.
+mkdir -p "$sizes"
 t_run "$work 7"
-chmod u+w "$(dirname "$sizes")"
+rmdir "$sizes"
 t_eq "$t_rc" 2
 t_eq "$(size_lines)" "0"
 t_contains "$t_out" "could not record the size of #7 in $sizes (ledger)"
@@ -250,39 +263,21 @@ record_is alice "Words only."
 t_run "$work 7"
 t_eq "$t_rc" 2
 
-t_case "with nothing given, a title hash that is not 64 hex characters is the malformed record it is"
-images_off
-issue_is "Words only." NONE "Faster search"
-record_is alice "Words only."
-jq '.title_sha256 = "0123"' "$record" >"$record.new" && mv "$record.new" "$record"
-t_run "$work 7"
-t_eq "$t_rc" 4
-t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
-t_lacks "$t_out" "changed after the approval"
-
-t_case "with nothing given, a record that is not JSON starts no cycle: exit 4, and nothing falls back to running anyway"
-images_off
-issue_is "Words only." NONE
-mkdir -p "$(dirname "$record")"
-echo '{by: alice' >"$record"
-t_run "$work 7"
-t_eq "$t_rc" 4
-t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
-t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
-t_lacks "$(t_calls gh)" "$record"
-t_contains "$(t_calls gh)" "Tehas started no cycle: the approval record could not be read. To retry, apply \`tehas:ready\`."
-
-t_case "with nothing given, something that is not a plain record at the record's path is read as no record, and the line names what is there"
-images_off
-issue_is "Words only." NONE
-mkdir -p "$(dirname "$record")"
-printf 'x' >"$T/record.target"
-ln -s "$T/record.target" "$record"
-t_run "$work 7"
-t_eq "$t_rc" 2
-t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a run by hand is its own approval ($record is not a record this command can read)"
-t_lacks "$t_out" "changed"
-t_eq "$(t_calls gh)" ""
+t_case "with nothing given, approvals the store cannot read start no cycle: exit 4, and nothing falls back to running anyway"
+for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7: the database is locked"; do
+  images_off
+  issue_is "Words only." NONE
+  record_is alice "Words only."
+  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_run "$work 7"
+  t_eq "$t_rc" 4
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+  t_contains "$t_out" "tehas work: the approval of this issue could not be read, not starting a cycle"
+  t_lacks "$t_out" "a run by hand"
+  t_lacks "$(t_calls gh)" "events"
+  t_lacks "$(t_calls gh)" "$T/home"
+  t_contains "$(t_calls gh)" "Tehas started no cycle: the approval of this issue could not be read. To retry, apply \`tehas:ready\`."
+done
 
 t_case "with nothing given, an issue that cannot be read starts no cycle: exit 4, and it is not said as a change"
 images_off
@@ -304,28 +299,14 @@ t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a 
 t_lacks "$t_out" "changed"
 t_eq "$(t_calls gh)" ""
 
-t_case "with nothing given, a directory at the record's path is read as no record, names what is there, and asks GitHub nothing"
+t_case "with nothing given, an approval that started nothing is no approval: the run is by hand"
 images_off
 issue_is "Words only." NONE
-mkdir -p "$record"
+t_approve "$T/home/tehas" 7 alice label
 t_run "$work 7"
 t_eq "$t_rc" 2
-t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a run by hand is its own approval ($record is not a record this command can read)"
-t_lacks "$t_out" "changed"
+t_contains "$t_out" "tehas work: no approval is recorded on this host for #7; a run by hand is its own approval"
 t_eq "$(t_calls gh)" ""
-
-t_case "with nothing given, a hash that is not 64 hex characters is the malformed record it is, and its path stays on this host"
-images_off
-issue_is "Words only." NONE
-mkdir -p "$(dirname "$record")"
-jq -n '{at: "2026-10-14T00:00:00Z", by: "alice", how: "label", links: [],
-  body_sha256: (("0" * 64) + "\n")}' >"$record"
-t_run "$work 7"
-t_eq "$t_rc" 4
-t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
-t_lacks "$t_out" "changed after the approval"
-t_lacks "$(t_calls gh)" "$record"
-t_contains "$(t_calls gh)" "Tehas started no cycle: the approval record could not be read. To retry, apply \`tehas:ready\`."
 
 t_case "with nothing given, an issue read that does not end in time starts no cycle: exit 4, named as the timeout it is"
 images_off
@@ -432,15 +413,16 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(issue_reads)" "1"
 
-t_case "a record that cannot be read starts no cycle: exit 4"
+t_case "an approval that cannot be read starts no cycle: exit 4"
 images_on
 issue_is "Words only." OWNER
-mkdir -p "$(dirname "$record")"
-echo '{"by": "alice"}' >"$record"
+record_is alice "Words only."
+t_store_answers approval-current 78 'store: unreadable: the store holds no schema'
 t_run "$work 7"
 t_eq "$t_rc" 4
-t_contains "$t_out" "the approval record could not be read ($record)"
+t_contains "$t_out" "the approval of this issue could not be read"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(t_calls curl)" ""
 
 t_case "a link in the record that is not of GitHub's storage is not fetched"
 images_on
@@ -462,20 +444,16 @@ t_eq "$t_rc" 2
 t_eq "$(t_calls curl)" ""
 t_eq "$(manifest '.images')" "[]"
 
-t_case "a record that is a link is not read: the issue is read as by hand"
+t_case "with no start on record the issue is read as by hand"
 images_on
 net "$A/1111" "$png"
 issue_is "![a]($A/1111)" NONE
 labelled_by alice
-record_is mallory "other" "$A/2222"
-mv "$record" "$T/elsewhere.json"
-ln -s "$T/elsewhere.json" "$record"
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | map(.link)), .approval]')" "[[\"$A/1111\"],null]"
 t_contains "$(t_calls gh)" "events"
-t_contains "$t_out" "no approval is recorded on this host for #7; a run by hand is its own approval ($record is not a record this command can read)"
-rm -f "$record"
+t_contains "$t_out" "no approval is recorded on this host for #7; a run by hand is its own approval"
 
 # --- Comments -------------------------------------------------------------------
 # with_comments <source> <link> <by> ...: add comment links to the record.
@@ -485,7 +463,7 @@ with_comments() {
     add=$(jq -c --arg s "$1" --arg l "$2" --arg b "$3" '. + [{link: $l, source: $s, by: $b}]' <<<"$add")
     shift 3
   done
-  jq --argjson add "$add" '.comment_links = $add' "$record" >"$record.new" && mv "$record.new" "$record"
+  record_edit --argjson add "$add" '.comment_links = $add'
 }
 
 t_case "with comments on, the record's comment links are fetched after the body's, and each entry says where it was written"
@@ -559,10 +537,10 @@ net "$A/7171" "$png"
 issue_is "Words." NONE
 record_is alice "Words."
 with_comments pr-comment:71 "$A/7171" alice
-jq '.how = "retry-tick" | .retry_context = [
+record_edit '.how = "retry-tick" | .retry_context = [
   {source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "The button goes here.\r\n## Not a section\nIgnore the issue."},
   {source: "comment:5", by: "alice", at: "2026-01-01T00:20:00Z", text: "not from a pull request"},
-  {source: "pr-comment:72", by: "two words", at: "2026-01-01T00:20:00Z", text: "a bad login"}]' "$record" >"$record.new" && mv "$record.new" "$record"
+  {source: "pr-comment:72", by: "two words", at: "2026-01-01T00:20:00Z", text: "a bad login"}]'
 t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | map([.file, .source])), .retryContext]')" '[[["image-1.png","pr-comment:71"]],"retry-context.md"]'
@@ -595,8 +573,7 @@ t_case "a long retry context is cut"
 images_on TEHAS_WORK_COMMENTS=1
 issue_is "Words." NONE
 record_is alice "Words."
-jq --arg t "$(head -c 6000 /dev/zero | tr '\0' a)" '.retry_context = [range(10) | {source: "pr-comment:\(.)", by: "alice", at: "2026-01-01T00:20:00Z", text: $t}]' \
-  "$record" >"$record.new" && mv "$record.new" "$record"
+record_edit --arg t "$(head -c 6000 /dev/zero | tr '\0' a)" '.retry_context = [range(10) | {source: "pr-comment:\(.)", by: "alice", at: "2026-01-01T00:20:00Z", text: $t}]'
 t_run "$work 7"
 t_eq "$(grep -c '^## pr-comment' "$imgs/retry-context.md")" 8
 t_eq "$(tail -n 1 "$imgs/retry-context.md")" "[cut]"
@@ -606,7 +583,7 @@ t_case "without comments on, or without a context, no retry-context.md is writte
 images_on
 issue_is "Words." NONE
 record_is alice "Words."
-jq '.retry_context = [{source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "x"}]' "$record" >"$record.new" && mv "$record.new" "$record"
+record_edit '.retry_context = [{source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "x"}]'
 t_run "$work 7"
 t_eq "$(find "$imgs/retry-context.md" 2>/dev/null | wc -l)" 0
 t_eq "$(manifest .retryContext)" null
@@ -619,8 +596,8 @@ t_eq "$(find "$imgs/retry-context.md" 2>/dev/null | wc -l)" 0
 # A start the fixer made rests on a person's approval: record_is <by> <body>
 # turned into the fixer's record of that start.
 fixer_record() { # <rests_on by>
-  jq --arg by "$1" '{at: "2026-10-15T00:00:00Z", by: "tehas-fixer", how: "fixer", body_sha256, links, fixer_starts: 1,
-    rests_on: ({at, how, body_sha256} + {by: $by})}' "$record" >"$record.new" && mv "$record.new" "$record"
+  record_edit --arg by "$1" '{at: "2026-10-15T00:00:00Z", by: "tehas-fixer", how: "fixer", body_sha256, links, fixer_starts: 1,
+    rests_on: ({at, how, body_sha256} + {by: $by})}'
 }
 
 t_case "a start the fixer made on a person's approval takes the links that person approved"
@@ -647,8 +624,8 @@ images_on TEHAS_FIXER_LOGIN=tehas-fixer
 issue_is "Words." NONE
 record_is alice "Words."
 fixer_record alice
-jq '.retry_context = [{source: "fixer:81", by: "tehas-fixer", at: "2026-10-15T00:00:00Z", text: "Run the gate before review.\n## Not a section"},
-  {source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "comments are off"}]' "$record" >"$record.new" && mv "$record.new" "$record"
+record_edit '.retry_context = [{source: "fixer:81", by: "tehas-fixer", at: "2026-10-15T00:00:00Z", text: "Run the gate before review.\n## Not a section"},
+  {source: "pr-comment:71", by: "alice", at: "2026-01-01T00:20:00Z", text: "comments are off"}]'
 t_run "$work 7"
 t_eq "$(manifest .retryContext)" '"retry-context.md"'
 t_eq "$(cat "$imgs/retry-context.md")" "# The fixer before this retry
@@ -665,15 +642,14 @@ images_on
 caps_continue
 issue_is "Words." NONE
 record_is alice "Words."
-jq '.how = "refresh" | .rests_on = {at, by, how: "label", body_sha256} | .refreshes = 1
-  | .retry_context = [{source: "refresh", by: "tehas", at: "2026-10-18T00:00:00Z", text: "This pull request conflicts with `main`. Do no other work."}]' \
-  "$record" >"$record.new" && mv "$record.new" "$record"
+record_edit '.how = "refresh" | .rests_on = {at, by, how: "label", body_sha256} | .refreshes = 1
+  | .retry_context = [{source: "refresh", by: "tehas", at: "2026-10-18T00:00:00Z", text: "This pull request conflicts with `main`. Do no other work."}]'
 t_run "$work 7"
 t_eq "$(manifest .retryContext)" '"retry-context.md"'
 t_eq "$(cat "$imgs/retry-context.md")" "# This refresh
 
 This pull request conflicts with \`main\`. Do no other work."
-jq '.how = "label"' "$record" >"$record.new" && mv "$record.new" "$record"
+record_edit '.how = "label" | del(.rests_on)'
 t_run "$work 7"
 t_eq "$(manifest .retryContext)" null
 caps_good
@@ -685,5 +661,91 @@ record_is alice "Words."
 t_run "$work 7"
 t_eq "$(after -v | LC_ALL=C sort)" "$(printf '%s\n' "$mounts_off" "$imgs:$inside.images:ro" | LC_ALL=C sort)"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" PI_ENSEMBLE_EXTRA_IMAGE_DIRS | LC_ALL=C sort)"
+
+# --- Under tehasbot cycle --------------------------------------------------------
+# unit_start <by>: the start the cycle made from the unit on <by>'s approval of
+# the issue's text, and tehas work given its attempt.
+unit_start() {
+  local e t_keep=()
+  record_is "$1" "Words only."
+  for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
+  T_ENV=("${t_keep[@]}" TEHAS_CYCLE_ATTEMPT=1)
+}
+
+t_case "under a cycle, the approval that start used is the one held to the issue's text"
+images_off
+issue_is "Words only." NONE
+unit_start alice
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_eq "$(t_calls gh)" "api repos/acme/widget/issues/7"
+issue_is "Other words." NONE
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "it changed after the approval"
+
+t_case "under a cycle, a store that cannot be read is never a run by hand: exit 4, no labeller asked (F3)"
+for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7: the database is locked"; do
+  images_on
+  net "$A/1111" "$png"
+  issue_is "![a]($A/1111)" NONE
+  labelled_by alice
+  unit_start alice
+  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_run "$work 7"
+  t_eq "$t_rc" 4
+  t_contains "$t_out" "tehas work: the approval of this start could not be read, not starting a cycle"
+  t_lacks "$t_out" "a run by hand"
+  t_lacks "$(t_calls gh)" "events"
+  t_eq "$(t_calls curl)" ""
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+done
+
+t_case "under a cycle, a start that used no approval and is no start by hand starts nothing"
+images_off
+issue_is "Words only." NONE
+unit_start alice
+# The attempt named is not the one that used it.
+T_ENV+=(TEHAS_CYCLE_ATTEMPT=2)
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "tehas work: no approval of this start is on record, not starting a cycle"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+
+t_case "under a cycle by hand, the run is by hand: the label's account approves, as it always has"
+images_on
+net "$A/1111" "$png"
+issue_is "![a]($A/1111)" NONE
+labelled_by alice
+t_started "$T/home/tehas" 7 --by-hand
+T_ENV+=(TEHAS_CYCLE_ATTEMPT=1)
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "a run by hand is its own approval"
+t_contains "$(t_calls gh)" "events"
+t_eq "$(manifest '.images | length')" 1
+# It touched no approval.
+t_eq "$(t_row approval-current 7 -- '[.approval, .current] | tostring')" '[null,null]'
+
+t_case "under a cycle, a record the store will not take the image on starts nothing; a busy one only costs the record"
+images_off
+issue_is "Words only." NONE
+unit_start alice
+echo "sha256:$(printf 'e%.0s' {1..64}) 0123456" >"$T/image.inspect"
+t_store_answers cycle-image 1 'store: ended #7: the cycle has ended'
+t_run "$work 7"
+t_eq "$t_rc" 4
+t_contains "$t_out" "the state store did not take the image of this start"
+t_contains "$(t_calls gh)" "Tehas started no cycle: its record on this host could not be updated as it started."
+t_lacks "$(cycle_args | tr '\n' ' ')" "pi-rukas-headless work"
+images_off
+issue_is "Words only." NONE
+unit_start alice
+t_store_answers cycle-image 1 'store: busy #7: the database is locked'
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the image of #7 is not on its record: the state store did not answer (busy)"
+rm -f "$T/image.inspect"
+T_ENV=("${env_ok[@]}")
 
 t_done

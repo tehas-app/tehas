@@ -13,11 +13,102 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The state store's schema is version 2. `install.sh` migrates a version 1
+  `state/tehas.db` in place, after its backup, and keeps every row: the step
+  only adds columns and one table. The store gains the verbs `history-show`,
+  `park-told` and `plan-note`, and `approval-record --input-file` and
+  `plan-answer --text-file`.
+- The analytics program no longer reads a cycle's history, approval, settings
+  and commit files, or a planning record, itself: `analytics run` and
+  `analytics plan` take them as facts in a file their caller writes
+  (`--facts <file>`). The rows are the same. The file is
+  `tmp/analytics-facts.*`; `tehasbot clean` removes one a killed call left.
+- A cycle's records are in the state store, no longer files of
+  `state/cycles/`: the approval the dispatcher records before the label (in
+  place of `<n>.approved.json`), the cycle's start and its account (`.taken`,
+  `.by`, `.requeued`, `.rukas`), the image and settings `tehas work` saw as the
+  container started (`.image`, `.settings`), the end with its branch (`.branch`)
+  and one line of history per end (`<n>.history.jsonl`). An approval starts one
+  cycle. A cycle started by `tehas-cycle@.service` needs the dispatcher's
+  approval and exits 77 without one, 75 when the store stays busy and 78 when
+  it cannot be used, before any label or comment; one typed by hand is on
+  record as `hand`. `tehas work` exits 4 when the approval of its start cannot
+  be read, and never takes that for a run by hand. `tehas stop` ends the record
+  of a cycle killed outright. `tehas dispatch`, `tehasbot cycle`, `tehas stop`,
+  `tehas history` and `tehas export` exit 78 when the store is not installed.
+  `tehas history` lists the cycles from the store.
+- `host/systemd/tehas-cycle@.service` sets `TEHAS_CYCLE_FROM=unit`.
+- A park and its question are in the state store, no longer
+  `state/cycles/<n>.park` and `state/park-<n>.id`. `tehasbot cycle` puts the
+  park on record before it posts, and asks no question (the plain comment,
+  no `tehas:question`) when the store does not take it. A tick counts only in
+  the question of the issue's current park; a store that cannot be read skips
+  the issue for that poll, and never unticks. A start takes the park's
+  question off the record and spends its one retry after an outage before the
+  issue is marked, and puts the question back when the mark fails. The retry
+  after an outage is owed only to a cycle started on an approval, rests on the
+  account that started it, and is spent by `tehas stop`; a cycle started by
+  hand says it waits for a person. The hold of a relabelled start on an
+  unchanged body is told once per park through the store.
+- The poll keeps a stuck cycle's episode and its asks to stop in the state
+  store, no longer in `state/cycles/<n>.quiet`. The timing and the log lines
+  are as before. When the store is busy and cannot record the episode, the
+  poll asks nothing on that poll and says so; a store that cannot be used ends
+  the poll with exit 78. A cycle whose record has ended, or that has none, is
+  not stopped by the poll, which says so on every poll for a person. A dry run
+  says what the poll would do about each quiet cycle. `tehas stop` no longer
+  removes a `.quiet` file.
+- A planning session is in the state store, no longer `state/plan-<n>.json`
+  with its `.brief`, `.answer` and `.turn`: the session, its brief, each
+  answer with its text, the issues it filed, its open question, the comments
+  the poll spoke about once, and one line of history per turn (in place of
+  `state/cycles/plan-<n>.history.jsonl`). Each change is one write. What the
+  runner carries between turns moves out of `state/` to
+  `work/<name>-plan-<n>.keep`, beside the workspace; `.out`, `.rc` and `.lock`
+  keep their names. A turn's end the store would not take keeps the turn's
+  exit status, and the next poll posts it once. A session pi-rukas lost ends
+  with the outcome `lost`. An answer that begins a turn answers its question on
+  record, so a second tick in it runs nothing. The poll reads the open
+  sessions once: an issue with one open starts no cycle, no refresh and no
+  outage retry; a list that cannot be read ends the poll (1 when busy, 78 when
+  the store cannot be used). `tehas history` lists the planning turns from the
+  store, with `started` and `status`, which it left out before, and `label` on
+  every line. `tehas export`'s `plan.json` is the session as the store has it
+  (`plan-show`), a new shape. `tehasbot health` exits 1 or 78, writing nothing,
+  when the store cannot list the sessions.
+- `install.sh` imports the records an older tehas kept as files under
+  `state/` (the cycle's, the park question ids, the planning sessions) into the
+  store with `store import`, and moves each file to
+  `state/imported-<YYYYMMDD>/` once its rows read back. Nothing is deleted.
+  It holds `state/dispatch.lock` from before its first copy until after the
+  import, and stops before the first copy, installing nothing, while a cycle or
+  planning turn runs and such files are there, or when a file cannot be
+  imported. Each `state/plan-<n>.json.keep` moves to
+  `$TEHAS_WORK_DIR-plan-<n>.keep`.
+- `install.sh` no longer leaves the commands of the earlier layout for a later
+  run while a poll holds the dispatcher's lock: it waits for the lock instead,
+  up to `TEHAS_DISPATCH_LOCK_WAIT` seconds (900 by default).
+- A poll that finds a record file of an older tehas in `state/` (one the
+  import did not take, or one a cycle that ran the old code across the update
+  left) stops with exit 78 before it calls GitHub, and logs `ERROR: records of
+  an older tehas at <path>; run install.sh again`. `install.sh` run again
+  imports it.
 
 ### Adopter action
 
-- None.
+- Before updating, drain: `tehas drain --wait 3600`, and let planning turns
+  end. `install.sh` refuses while a cycle or planning turn runs and old records
+  are there. After the update, `tehas limit clear`. Remove
+  `~/tehas/state/imported-<YYYYMMDD>/` once satisfied. If the poll logs
+  `records of an older tehas`, run `install.sh` again.
+- A cycle or poll that was running keeps the commands it started with, and
+  those call `analytics run` and `analytics plan` without `--facts`: the new
+  program refuses that with exit 64 (`WARN analytics run: exit 64` in the
+  cycle's log), so that run or planning turn is missing from the analytics
+  report. Nothing else about the run changes.
+- Run `install.sh` with its units step, so the cycle unit sets
+  `TEHAS_CYCLE_FROM=unit`; a unit file not refreshed is still known by
+  systemd's `INVOCATION_ID`.
 
 ## v0.11.1 (2026-10-24)
 

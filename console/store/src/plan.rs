@@ -1,9 +1,10 @@
-//! The planning verbs: plan-begin, plan-answer, plan-end and plan-show. The
-//! open session of an issue is its `planning` row with no `ended_at`; an ended
-//! row stays until the next plan-begin replaces it.
+//! The planning verbs: plan-begin, plan-answer, plan-end, plan-note and
+//! plan-show. The open session of an issue is its `planning` row with no
+//! `ended_at`; an ended row stays until the next plan-begin replaces it. The
+//! notes of a session go when it ends or is replaced.
 
 use crate::verbs::{
-    self, j, line, list, obj, refuse, row_json, stub, Args, Cleaned, Fail, FileErr, Kind, Q,
+    self, j, line, list, obj, refuse, row_json, stub, Args, Cleaned, Fail, Kind, Q,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
@@ -25,6 +26,7 @@ pub enum Call {
         turn: i64,
         by: String,
         fixer: bool,
+        text: Option<PathBuf>,
     },
     AnswerUndo {
         issue: i64,
@@ -39,6 +41,11 @@ pub enum Call {
     },
     Show {
         issue: Option<i64>,
+    },
+    Note {
+        issue: i64,
+        kind: &'static str,
+        id: i64,
     },
 }
 
@@ -66,8 +73,29 @@ pub const OUTCOMES: [&str; 6] = [
 ];
 
 const BRIEF_BOUND: u64 = 1 << 20;
-const MAX_OPTIONS: usize = 20;
+// A GitHub comment is up to 65,536 characters of up to four bytes each.
+const TEXT_BOUND: u64 = 1 << 20;
+
+/// The kinds of `plan-note`, and the keys plan-show lists them under.
+const NOTES: [(&str, &str); 2] = [("fixer-refused", "fixer_refused"), ("held", "held")];
+const NOTE_KINDS: [&str; 2] = [NOTES[0].0, NOTES[1].0];
+pub const MAX_OPTIONS: usize = 20;
 const OPTION_BYTES: usize = 300;
+
+/// An option's label as the store keeps it: no control characters, at most
+/// OPTION_BYTES bytes on a character boundary, and `-` for an empty one.
+pub fn option_label(label: &str) -> String {
+    let mut v: String = label.chars().filter(|ch| !ch.is_control()).collect();
+    let mut end = v.len().min(OPTION_BYTES);
+    while !v.is_char_boundary(end) {
+        end -= 1;
+    }
+    v.truncate(end);
+    if v.is_empty() {
+        v = "-".to_string();
+    }
+    v
+}
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
@@ -81,7 +109,24 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 })
             })
         }
+        "plan-note" => note_args(rest),
         _ => return None,
+    })
+}
+
+fn note_args(rest: &[String]) -> Result<Call, String> {
+    let a = Args::parse(
+        "plan-note",
+        rest,
+        &[("--kind", Kind::Value), ("--id", Kind::Value)],
+        true,
+    )?;
+    let issue = a.issue()?;
+    a.need("--kind")?;
+    Ok(Call::Note {
+        issue,
+        kind: a.word("--kind", &NOTE_KINDS)?.expect("--kind was given"),
+        id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
     })
 }
 
@@ -125,6 +170,7 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
             ("--turn", Kind::Value),
             ("--by", Kind::Value),
             ("--fixer", Kind::Switch),
+            ("--text-file", Kind::Value),
             ("--undo", Kind::Switch),
         ],
         true,
@@ -140,15 +186,16 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         turn,
         by: a.strict_need("--by", "an account", verbs::account)?,
         fixer: a.has("--fixer"),
+        text: a.path("--text-file")?,
     })
 }
 
-fn session_ok(s: &str) -> bool {
+pub fn session_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(verbs::cap_char)
 }
 
 /// The issue number of a GitHub issue URL of any repository.
-fn filed_issue(url: &str) -> Option<i64> {
+pub fn filed_issue(url: &str) -> Option<i64> {
     let rest = url.strip_prefix("https://github.com/")?;
     let mut parts = rest.split('/');
     let (owner, repo, issues, n) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
@@ -218,15 +265,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
         .iter()
         .take(MAX_OPTIONS)
         .map(|label| {
-            let mut v: String = label.chars().filter(|ch| !ch.is_control()).collect();
-            let mut end = v.len().min(OPTION_BYTES);
-            while !v.is_char_boundary(end) {
-                end -= 1;
-            }
-            v.truncate(end);
-            if v.is_empty() {
-                v = "-".to_string();
-            }
+            let v = option_label(label);
             if v != *label {
                 c.mark("--option");
             }
@@ -267,12 +306,14 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             turn,
             by,
             fixer,
-        } => answer(home, *issue, *turn, by, *fixer, now),
+            text,
+        } => answer(home, *issue, *turn, by, *fixer, text.as_deref(), now),
         Call::AnswerUndo { issue, turn } => answer_undo(home, *issue, *turn),
         Call::End(e) => end(home, e, now),
         Call::Posted { issue } => posted(home, *issue),
         Call::Close { issue } => close(home, *issue, now),
         Call::Show { issue } => show(home, *issue),
+        Call::Note { issue, kind, id } => note(home, *issue, kind, *id, now),
     }
 }
 
@@ -340,6 +381,37 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
         .collect::<Result<_, _>>()
         .q()?;
     p.push(("filed", list(&filed)));
+    // The answer of the turn running (turns + 1), or of the one whose outcome
+    // waits to be posted (turns).
+    let answer: Option<String> = c
+        .query_row(
+            "SELECT a.text FROM planning p JOIN planning_answers a ON a.issue = p.issue
+             WHERE p.issue = ?1 AND p.ended_at IS NULL
+               AND ((p.running = 1 AND a.turn = p.turns + 1)
+                 OR (p.running = 0 AND p.pending = 1 AND a.turn = p.turns))",
+            [issue],
+            |r| r.get(0),
+        )
+        .optional()
+        .q()?
+        .flatten();
+    p.push(("answer", j(answer)));
+    let mut notes = Vec::new();
+    for (kind, key) in NOTES {
+        let mut q = c
+            .prepare(
+                "SELECT comment_id FROM planning_notes WHERE issue = ?1 AND kind = ?2
+                 ORDER BY at, rowid",
+            )
+            .q()?;
+        let ids: Vec<i64> = q
+            .query_map(params![issue, kind], |r| r.get(0))
+            .q()?
+            .collect::<Result<_, _>>()
+            .q()?;
+        notes.push((key, j(ids)));
+    }
+    p.push(("notes", obj(&notes)));
     Ok(obj(&p))
 }
 
@@ -387,6 +459,32 @@ fn withdraw(c: &Connection, issue: i64, kind: &str) -> Result<(), Fail> {
     .map(|_| ())
 }
 
+/// The notes go with the session that ends; a replaced one takes them with
+/// its row (ON DELETE CASCADE).
+fn drop_notes(c: &Connection, issue: i64) -> Result<(), Fail> {
+    c.execute("DELETE FROM planning_notes WHERE issue = ?1", [issue])
+        .q()
+        .map(|_| ())
+}
+
+/// `plan-note`: a comment the poll spoke about once in the open session.
+fn note(home: &Path, issue: i64, kind: &str, id: i64, now: i64) -> Result<String, Fail> {
+    verbs::write(home, |c| {
+        need_open(c, issue)?;
+        let n = c
+            .execute(
+                "INSERT OR IGNORE INTO planning_notes (issue, kind, comment_id, at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![issue, kind, id, now],
+            )
+            .q()?;
+        Ok(line(
+            "plan-note",
+            &[("said", j(n > 0)), ("planning", planning_json(c, issue)?)],
+        ))
+    })
+}
+
 fn begin(
     home: &Path,
     issue: i64,
@@ -395,14 +493,7 @@ fn begin(
     brief: &Path,
     now: i64,
 ) -> Result<String, Fail> {
-    let text = match verbs::read_file(brief, BRIEF_BOUND) {
-        Ok((bytes, _)) => String::from_utf8(bytes)
-            .map_err(|_| refuse("brief", issue, "the brief is not UTF-8"))?,
-        Err(FileErr::TooLarge) => return Err(refuse("brief", issue, "the brief is over 1 MiB")),
-        Err(FileErr::Refused) => {
-            return Err(refuse("brief", issue, "the brief is not a regular file"))
-        }
-    };
+    let text = verbs::read_text(brief, BRIEF_BOUND, "1 MiB", issue, "brief", "the brief")?;
     verbs::write(home, |c| {
         stub(c, issue)?;
         let had: Option<(Option<i64>, bool)> = c
@@ -461,8 +552,20 @@ fn answer(
     turn: i64,
     by: &str,
     fixer: bool,
+    text: Option<&Path>,
     now: i64,
 ) -> Result<String, Fail> {
+    let text = match text {
+        Some(p) => Some(verbs::read_text(
+            p,
+            TEXT_BOUND,
+            "1 MiB",
+            issue,
+            "answer",
+            "the answer",
+        )?),
+        None => None,
+    };
     verbs::write(home, |c| {
         let o = need_open(c, issue)?;
         if turn != o.turns + 1 || o.running || o.session.is_none() || o.lost {
@@ -476,8 +579,9 @@ fn answer(
             ));
         }
         c.execute(
-            "INSERT INTO planning_answers (issue, turn, by_account, fixer) VALUES (?1, ?2, ?3, ?4)",
-            params![issue, turn, by, fixer],
+            "INSERT INTO planning_answers (issue, turn, by_account, fixer, text)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![issue, turn, by, fixer, text],
         )
         .q()?;
         c.execute(
@@ -632,6 +736,7 @@ fn end(home: &Path, e: &TurnEnd, now: i64) -> Result<String, Fail> {
                 params![issue, e.turn, e.rc, now],
             )
             .q()?;
+            drop_notes(c, issue)?;
         }
         Ok(line(
             "plan-end",
@@ -678,6 +783,7 @@ fn close(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
         )
         .q()?;
         withdraw(c, issue, "plan")?;
+        drop_notes(c, issue)?;
         Ok(line(
             "plan-end",
             &[("closed", j(true)), ("planning", planning_json(c, issue)?)],

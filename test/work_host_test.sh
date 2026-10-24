@@ -190,11 +190,14 @@ rm -rf "$live/cycles" "$T/container.sh"
 
 t_case "the image's id and the pi-rukas commit of its label are on record, read before the container starts"
 fresh
+under_cycle
 image_id=sha256:$(printf 'e%.0s' {1..64})
 echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
-container 'says handoff'
+# What the cycle's record holds as the container runs.
+container '"$T/store-bin" cycle-show 7 >"$T/calls/at-run.json"; says handoff'
 t_run "$work 7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id 0123456789abcdef0123456789abcdef01234567"
+t_eq "$(t_row cycle-show 7 -- '"\(.cycle.image) \(.cycle.rukas_commit)"')" "$image_id 0123456789abcdef0123456789abcdef01234567"
+t_eq "$(jq -r '[.cycle.image, (.cycle.settings | has("PI_ENSEMBLE_SUBAGENT_MODEL"))] | @tsv' "$T/calls/at-run.json")" "$image_id	true"
 t_contains "$(t_calls docker)" "image inspect --format {{.Id}} {{index .Config.Labels \"tehas.rukas\"}} tehas/pi-rukas:uid$(id -u)"
 at_inspect=$(t_calls docker | grep -n -e '^image inspect' | cut -d: -f1 | head -n 1)
 at_run=$(t_calls docker | grep -n -e 'pi-rukas-headless work ' | cut -d: -f1 | head -n 1)
@@ -202,35 +205,49 @@ t_eq "$([ -n "$at_inspect" ] && [ -n "$at_run" ] && [ "$at_inspect" -lt "$at_run
 
 t_case "an image without the label is on record by its id alone"
 fresh
+under_cycle
 echo "$image_id " >"$T/image.inspect"
 t_run "$work 7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
+t_eq "$(t_row cycle-show 7 -- '"\(.cycle.image) \(.cycle.rukas_commit)"')" "$image_id null"
 
-t_case "an answer that is not an image id leaves no record, and one left by an earlier cycle goes"
+t_case "an answer that is not an image id puts none on record, nor a commit that is no commit"
 fresh
+under_cycle
 echo "not-an-id 0123456 \$(touch x)" >"$T/image.inspect"
-echo "$image_id 0123456" >"$T/home/tehas/state/cycles/7.image"
 t_run "$work 7"
-t_eq "$(find "$T/home/tehas/state/cycles/7.image" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.image)" null
 echo "$image_id not-a-commit" >"$T/image.inspect"
 t_run "$work 7"
-t_eq "$(cat "$T/home/tehas/state/cycles/7.image")" "$image_id "
-rm -f "$T/image.inspect" "$T/home/tehas/state/cycles/7.image"
+t_eq "$(t_row cycle-show 7 -- '"\(.cycle.image) \(.cycle.rukas_commit)"')" "$image_id null"
+rm -f "$T/image.inspect"
+
+t_case "run on its own, tehas work puts nothing on a cycle's record"
+fresh
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
+t_run "$work 7"
+t_eq "$(t_row cycle-show 7 -- .cycle)" null
+rm -f "$T/image.inspect"
 
 t_case "what the container is given of the settings is on record, before it starts, with the cycles running"
 fresh
+under_cycle
+echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/image.inspect"
 container 'says handoff'
 t_run "$work 7"
 t_eq "$t_rc" 0
-f=$T/home/tehas/state/cycles/7.settings
-t_eq "$(jq -r '.container | keys[]' "$f" | LC_ALL=C sort | tr '\n' ' ')" \
+f=$(t_row cycle-show 7 -- .cycle.settings)
+t_eq "$(jq -r 'keys[] | select(startswith("PI_ENSEMBLE_"))' <<<"$f" | LC_ALL=C sort | tr '\n' ' ')" \
   "PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_SANDBOX_MODE PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_VERIFY_TIMEOUT_MS PI_ENSEMBLE_WORKSPACE_ROOT "
-t_eq "$(jq -r '.container.PI_ENSEMBLE_SUBAGENT_MODEL' "$f")" test-model
-t_eq "$(jq -r '.container.PI_ENSEMBLE_WORKSPACE_ROOT' "$f")" "[withheld]"
+t_eq "$(jq -r '.PI_ENSEMBLE_SUBAGENT_MODEL' <<<"$f")" test-model
+t_eq "$(jq -r '.PI_ENSEMBLE_WORKSPACE_ROOT' <<<"$f")" "[withheld]"
 # This command holds the issue's lock, so it counts itself.
-t_eq "$(jq -r '.concurrentCycles' "$f")" 1
-t_lacks "$(cat "$f")" GH_TOKEN
-t_lacks "$(cat "$f")" test-token
+t_eq "$(jq -r '.concurrentCycles' <<<"$f")" 1
+t_lacks "$f" GH_TOKEN
+t_lacks "$f" test-token
+# The file it was handed in is gone.
+t_eq "$(find "$T/home/tehas/tmp" -name 'settings.*' 2>/dev/null | wc -l)" 0
+rm -f "$T/image.inspect"
+T_ENV=("${env_ok[@]}")
 
 t_case "the container's oom_kill count is printed and written to the state directory, and is not read from the slice"
 fresh

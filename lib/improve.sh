@@ -31,8 +31,9 @@
 # Source lib/config.sh and call tehas_load first.
 #
 # A record is a directory, window/<issue>-<stamp>, and the only thing the loop
-# reads of a cycle. Its cycle.json also holds what tehas work left in
-# state/cycles/<issue>.settings, when this cycle wrote it, and the provider
+# reads of a cycle. Its cycle.json also holds the settings tehas work put on
+# the cycle's record on the state store as the container started
+# (cycle-show), and the provider
 # retry line of the preflight log. With the issue's attachments given, it also holds what
 # tehas work kept of them: manifest.json, images.md and retry-context.md, each
 # when the cycle had it, none over tehas_manifest_bytes, which is the bound
@@ -42,6 +43,8 @@
 
 # shellcheck source=lib/attachments.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/attachments.sh"
+# shellcheck source=lib/store.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/store.sh"
 
 tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
 
@@ -78,21 +81,18 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   tmp=$(mktemp -d "$base/.new.XXXXXX") || return 1
   # The pi-rukas this cycle ran with: the image's, as its container started,
   # else as tehasbot cycle noted it at the start. What a fix in it is checked
-  # against.
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$(head -c 64 "$TEHAS_HOME/state/cycles/$issue.rukas" 2>/dev/null | head -n 1)
-  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
-  # What it ran with: only this cycle's file, and only an object of the shape
-  # tehas_improve_settings writes.
+  # against. With it, what the cycle ran with: the settings on the record of
+  # the issue's latest start, which is this cycle's, as the cycle still holds
+  # the issue's lock. A record that cannot be read leaves both out.
   settings=null
-  from=$TEHAS_HOME/state/cycles/$issue.settings
-  if [ -f "$from" ] && [ ! -L "$from" ] && [ "$(stat -c %s "$from" 2>/dev/null || echo 0)" -le 65536 ] &&
-    [ -n "$(find "$from" -maxdepth 0 -newermt "@$((started - 5))" 2>/dev/null)" ]; then
-    settings=$(jq -c 'if type == "object" and (.container | type == "object") and (.host | type == "object")
-      and ([.container[], .host[]] | all(type == "string"))
-      and (.concurrentCycles == null or (.concurrentCycles | type == "number"))
-      then . else null end' "$from" 2>/dev/null) || settings=null
+  from=""
+  if tehas_store cycle-show "$issue"; then
+    from=$(jq -r '.cycle.rukas_commit // "" | strings' <<<"$tehas_store_out" 2>/dev/null) || from=""
+    settings=$(jq -c ".cycle | select(. != null) | $tehas_settings_shape" <<<"$tehas_store_out" 2>/dev/null) || settings=null
     [ -n "$settings" ] || settings=null
   fi
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$from
+  [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
   retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$EPOCHSECONDS" --arg status "$status" --arg step "$step" --arg pr "$pr" \

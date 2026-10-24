@@ -12,7 +12,10 @@ workdir=$T/home/tehas/work/widget-7
 # How a cycle names that directory in a comment: in ~ form, as HOME is $T/home.
 kept_here="~${workdir#"$T/home"}"
 state=$T/home/tehas/state/cycles
-park_id=$T/home/tehas/state/park-7.id
+# park_q: the question of #7's current park on record, none without one.
+park_q() { t_row park-show 7 -- '.park.question // "none"'; }
+# park_of [<jq of the park>]: #7's current park on record.
+park_of() { t_row park-show 7 -- ".park | ${1:-.} | tostring"; }
 
 t_stub gh '
 # nap names the real sleep: found before the words of a call are named, so
@@ -145,14 +148,17 @@ t_stub fake-status
 # The poll a cycle starts when it ends.
 t_stub systemctl
 
+# No case leaves the old file of a record that is on the store.
+t_after='t_no_old_state "$T/home/tehas"'
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
-    "$T/home/tehas/libexec" \
-    "$T"/home/tehas/state/park-*
+    "$T/home/tehas/libexec"
   # A case writes a log of an earlier run beside the one of this cycle, and
   # does so before tehas work has run: the directory is made here so the file
   # has somewhere to go.
   mkdir -p "$T/home/tehas/logs"
+  # The state store a cycle runs, with nothing on record.
+  t_store_home "$T/home/tehas"
   T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
@@ -178,15 +184,13 @@ merged_pr() { echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"; echo M
 died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
 # panic, 137 for a kill), work=<n> the exit of tehas work itself [2, or 137 for
 # a container it saw killed], status=<word> the end tehas work read of the
-# container (killed, for a container it saw killed), branch=<name> a branch
-# file to leave in state/cycles, which tehas work never writes.
-  local rc=134 steps=() a branch="" word="" wrk=""
+# container (killed, for a container it saw killed).
+  local rc=134 steps=() a word="" wrk=""
   for a in "$@"; do
     case "$a" in
       rc=*) rc=${a#rc=} ;;
       work=*) wrk=${a#work=} ;;
       status=*) word=${a#status=} ;;
-      branch=*) branch=${a#branch=} ;;
       *) steps+=("$a") ;;
     esac
   done
@@ -195,7 +199,7 @@ died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
   # far as the log of this cycle), the log of the run, and the runner's own
   # status as tehas work records it. The cycle removes these only after it
   # takes its lock, so the runner makes them. What each of the three files is
-  # proof of is written beside tehas_cycle_note_files in lib/cycles.sh, which
+  # proof of is written in lib/cycles.sh, which
   # is where a change to this setup has to agree with the code. tehas work
   # itself exits 2 for a runner that died however it died: the comment's word
   # for the runner is the of this file, not that 2. A case may name tehas work's
@@ -203,10 +207,6 @@ died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
   [ -n "$wrk" ] || { [ "$word" != killed ] || wrk=137; }
   [ -n "$wrk" ] || wrk=2
   echo "$wrk" >"$fx/rc"
-  # tehas work writes no branch for a cycle, so the branch of one that wrote
-  # no result comes only from its log. A case that means a file to be there
-  # anyway says the name here, and checks the cycle keeps the log's name.
-  [ -z "$branch" ] || printf '%s\n' "$branch" >"$fx/branch"
   # The word of tehas work for how the container ended: the one file of the
   # cycle that says an end at all when the runner wrote no result.
   [ -z "$word" ] || printf '%s\n' "$word" >"$fx/status"
@@ -219,7 +219,6 @@ died() { # [step...] ; words: rc=<n> the exit of the container (134 for a
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"
 : >"$TEHAS_HOME/state/cycles/7.result.json"
 echo '{"roles":[],"reason":"","reviewHeld":false}' >"$TEHAS_HOME/state/cycles/7.progress.json"
-[ -s "$T/fx/branch" ] && cat "$T/fx/branch" >"$TEHAS_HOME/state/cycles/7.branch"
 [ -s "$T/fx/status" ] && cat "$T/fx/status" >"$TEHAS_HOME/state/cycles/7.status"
 printf "%s\n" '@RC@' >"$TEHAS_HOME/state/cycles/7.runner_exit"
 # The name tehas work gives its log: the UTC time of its start, to the second.

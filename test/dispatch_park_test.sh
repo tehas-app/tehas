@@ -28,10 +28,23 @@ t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
 
 t_case "a retry tick writes the approval record with the tick's time, before the label changes"
-t_eq "$(jq -c '[.by, .how, .at]' "$T/calls/approved.at-mark" 2>&1)" '["alice","retry-tick","2026-01-01T01:00:00Z"]'
+t_eq "$(at_mark '[.by, .how, .at, .comment_id]')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'
 
 t_case "the question that was answered is used up by the start"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
+t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .recorded] | tostring')" '[false,false]'
+
+t_case "a tick counts once: the next poll finds its question off the record and starts nothing"
+parked
+comments 7 "$(park_body x ' ')" alice
+: >"$fx/patch-fails"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: a box was ticked in a question this host has no record of"
+t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 2
 
 t_case "a retry waits while every slot is taken, and the tick stays"
 parked
@@ -42,7 +55,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: 1 cycles are running (limit 1)"
 release
@@ -55,6 +68,9 @@ t_run "$dispatch"
 t_eq "$t_rc" 1
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "Tehas could not start the cycle for this issue"
+# The start took the question off the record and spent the park's retry before
+# it marked the issue, and its unit never came up: the park asks for nothing.
+t_eq "$(park_of '[.question, .retries]')" '[null,1]'
 
 t_case "the comments are read a hundred at a time"
 t_contains "$(t_calls gh)" "comments(last: 100)"
@@ -67,7 +83,7 @@ t_contains "$t_out" "would run a cycle for #7 (retry ticked by alice)"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "a retry ticked by the bot or a stranger starts nothing and is undone"
 for other in tehas-bot mallory ""; do
@@ -105,23 +121,33 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
 t_lacks "$(t_calls gh)" "needs-human-attention"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
+# Answered by the person who ticked it, and on record as such.
+t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .recorded, .answered] | tostring')" '[false,true,true]'
 
 t_case "leave it parked keeps the question on record while its label cannot be removed"
 parked
 comments 7 "$(park_body ' ' x)" alice
 : >"$fx/edit-fails"
 t_run "$dispatch"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:question"
 rm -f "$fx/edit-fails"
+
+t_case "a leave it parked whose answer the store would not take is said in the log"
+parked
+comments 7 "$(park_body ' ' x)" alice
+store_refuses "question-answered 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
+t_contains "$t_out" "WARN: could not record the answer to the question of #7 (busy)"
 
 t_case "a dry run of leave it parked changes nothing"
 parked
 comments 7 "$(park_body ' ' x)" alice
 t_run "$dispatch --dry-run"
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "a comment from an allowed account on a parked issue is discussion, not an answer"
 parked
@@ -194,7 +220,7 @@ t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "issue comment 7"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "and a dry run of that tick says the same and changes nothing"
 parked
@@ -207,7 +233,7 @@ t_contains "$t_out" "skip #7: it is an epic with 13 sub-issues open, and an epic
 t_lacks "$t_out" "would run a cycle"
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "a retry tick on an issue whose sub-issues are all closed starts the cycle"
 parked
@@ -241,7 +267,7 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: could not mark #7 as running, not starting a cycle"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 rm -f "$fx/edit-fails-on" "$T"/calls/*
 t_run "$dispatch"
 t_eq "$t_rc" 0
@@ -256,7 +282,53 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "WARN: could not untick the retry on #7; its question is no longer on record, so it starts nothing more"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
+
+t_case "a start whose question cannot be taken off the record starts nothing, and its tick and question stay"
+parked
+comments 7 "$(park_body x ' ')" alice
+store_refuses "question-answered 7 --id 4001 --withdraw" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: #7: the question of its park could not be taken off the record (busy), not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit 7"
+t_lacks "$(t_calls gh)" "api -X PATCH"
+t_eq "$(park_q)" 4001
+t_eq "$(t_row approval-current 7 -- '.approval')" null
+
+t_case "a withdraw that timed out after it was done puts the question back, and the next poll starts the retry"
+parked
+comments 7 "$(park_body x ' ')" alice
+bin=$T/home/tehas/libexec/store
+rm -f "$bin"
+printf '%s\n' '#!/usr/bin/env bash' \
+  "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+  'if [ "${1:-}" = question-answered ]; then' \
+  "  $(t_q "$T_STORE") \"\$@\" >/dev/null 2>&1; exit 124" \
+  'fi' \
+  "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+chmod 755 "$bin"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not be taken off the record (timeout)"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(park_q)" 4001
+rm -f "$bin" "$T"/calls/*
+cp "$T_STORE" "$bin"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+
+t_case "a retry the store would not spend once the issue is marked is a warning, and the cycle starts"
+parked
+comments 7 "$(park_body x ' ')" alice
+store_refuses "park-retry 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: #7: the retry of its park could not be spent (busy)"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(park_q)" none
 
 t_case "a retry ticked on an issue that is not parked starts nothing"
 for have in "tehas:question" "needs-human-attention tehas:question tehas:running" "needs-human-attention tehas:question tehas:awaiting-merge"; do
@@ -271,7 +343,7 @@ for have in "tehas:question" "needs-human-attention tehas:question tehas:running
   t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
   t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Retry was ticked, but this issue is not parked, so nothing was started."
   t_contains "$t_out" "skip #7: a retry was ticked but the issue is not parked"
-  t_eq "$(cat "$park_id")" 4001
+  t_eq "$(park_q)" 4001
 done
 
 t_case "when that tick cannot be undone, nothing is said"
@@ -303,7 +375,7 @@ t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "and so does a tehas:ready applied to that closed issue, said once"
 parked
@@ -338,7 +410,7 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_contains "$(t_calls gh)" "issue comment 9 --repo acme/widget --body This question is not one the factory is waiting on. To retry, apply \`tehas:ready\`."
-t_eq "$(find "$T/home/tehas/state" -name 'park-*' | wc -l)" 0
+t_eq "$(park_q 9)" none
 
 t_case "and when its box cannot be unticked nothing starts and nothing is said"
 unrecorded
@@ -364,23 +436,60 @@ t_run "$dispatch"
 t_lacks "$(t_calls gh)" "api -X"
 t_lacks "$(t_calls gh)" "issue comment"
 
-t_case "a park id of another issue is no record for this one"
+t_case "a question on record of another issue is no record for this one"
 unrecorded
-mkdir -p "$T/home/tehas/state"
-echo 4001 >"$park_id"
+# 4001 is the question of #7's park. The tick on #9 is in a comment of that id.
+t_ended "$T/home/tehas" 7 alice label --parked
+t_park "$T/home/tehas" 7 failed 4001
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "This question is not one the factory is waiting on."
+t_eq "$(park_q)" 4001
 
-t_case "a park id file that holds no number is no record"
-for junk in "" "4001 x" "abc"; do
+t_case "a tick in a question taken off the record starts nothing"
+# As the cycle leaves it when the label tehas:question could not be added.
+parked
+comments 7 "$(park_body x ' ')" alice
+TEHAS_HOME=$T/home/tehas "$T_STORE" question-answered 7 --id 4001 --withdraw >/dev/null
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: a box was ticked in a question this host has no record of"
+t_contains "$(t_calls gh)" "This question is not one the factory is waiting on."
+
+t_case "a question of an earlier attempt is not honoured after a new start"
+parked
+comments 7 "$(park_body x ' ')" alice
+# A later cycle of #7, by hand, that ended without a park.
+t_ended "$T/home/tehas" 7 -
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: a box was ticked in a question this host has no record of"
+t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .recorded] | tostring')" '[false,true]'
+
+t_case "a question on record that could not be read skips the issue: no tick counts and none is undone"
+for refused in "park-show 7" "question-known 7"; do
   parked
-  comments 7 "$(park_body x ' ')" alice
-  printf '%s\n' "$junk" >"$park_id"
+  # A stranger's tick, which a poll that read the record would undo.
+  comments 7 "$(park_body x ' ')" mallory
+  store_refuses "$refused" 1 'store: busy #7: the database is locked'
   t_run "$dispatch"
+  t_eq "$t_rc" 0
   t_eq "$(t_calls fake-start)" ""
-  t_contains "$(t_calls gh)" "This question is not one the factory is waiting on."
+  t_contains "$t_out" "skip #7: its question on record could not be read (busy)"
+  t_lacks "$(t_calls gh)" "api -X PATCH"
+  t_lacks "$(t_calls gh)" "issue comment"
+  t_lacks "$(t_calls gh)" "comments(last"
 done
+
+t_case "a store that cannot be used for the question on record stops the poll at 78, and nothing is undone"
+parked
+comments 7 "$(park_body x ' ')" mallory
+store_refuses "park-show 7" 78 'store: corrupt: the file is not a database'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+t_lacks "$(t_calls gh)" "api -X PATCH"
 
 t_case "a tick in another bot comment than the question on record starts nothing"
 parked
@@ -443,12 +552,12 @@ issue_body() { # <body>
     body: $b}}}}' >"$fx/edit-7.json"
 }
 
-# The park of the cycle that just stopped, as tehasbot cycle writes it: the
-# body that start was approved on, the cap it stopped on, and nothing to say it
-# was an outage. Issue 7 carries tehas:ready again, by alice.
-parked_again() { # <body of the issue> [<park as jq with $SUM>, or nothing for the one of that body>]
-  local s
-  parked
+# The park of the cycle that just stopped, on record: alice's label started it
+# on "Words.", the body its approval bound, and it parked on the reason given
+# [intent-park], or by hand when the second word is -. Issue 7 carries
+# tehas:ready again, by alice, with the body given.
+parked_again() { # <body of the issue> [<park reason> [<- for a cycle by hand>]]
+  parked "${2:-intent-park}" "${3:-alice}"
   # The endpoint answers: the hold of no resources is asked at rule 3, before a
   # candidate is read, so without it no start is weighed at all. curl is asked
   # for real unless mesh_curl stands in for it, and models.json is the host's
@@ -464,15 +573,6 @@ parked_again() { # <body of the issue> [<park as jq with $SUM>, or nothing for t
     >"$fx/work-7.json"
   echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
     >"$fx/ready.json"
-  mkdir -p "$cycles_dir"
-  s=$(printf '%s' "$1" | sha256sum | cut -d' ' -f1)
-  if [ -n "${2:-}" ]; then
-    jq -cn --arg SUM "$s" "$2" >"$cycles_dir/7.park"
-  else
-    jq -cn --arg SUM "$s" \
-      '{cap: "intent-park", reason: "already-implemented", provider: false, retry: false,
-        started: 1767225600, body_sha256: $SUM}' >"$cycles_dir/7.park"
-  fi
 }
 
 # What a poll decided, from the poll that starts here. t_calls reads one file
@@ -488,7 +588,7 @@ holds() { # <body>: one poll on an issue parked on that text
   t_eq "$t_rc" 0
   t_eq "$(t_calls fake-start)" ""
   t_lacks "$(t_calls gh)" "issue edit 7"
-  t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 1
+  t_eq "$(park_of '[.attempt, .retries, .question]')" '[1,0,4001]'
 }
 
 t_case "a relabelled start on the body its last cycle parked on is held, said once on the issue"
@@ -496,7 +596,7 @@ parked_again "Words."
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Not started: the last cycle parked on \`intent-park\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
-t_eq "$(jq -r .held "$cycles_dir/7.park")" "true"
+t_eq "$(park_of '.told_at != null')" true
 t_eq "$(grep -c '^issue comment 7' <<<"$(t_calls gh)")" 1
 
 t_case "and the next poll of the same park only logs, with no comment"
@@ -516,7 +616,34 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "issue comment 7"
 t_lacks "$(t_calls gh)" "api -X"
-t_eq "$(jq -r '.held | type' "$cycles_dir/7.park")" "null"
+t_eq "$(park_of .told_at)" null
+
+t_case "a hold whose tell the store would not take tells it again on the next poll, and says so"
+parked_again "Words."
+store_refuses "park-told 7" 1 'store: busy #7: the database is locked'
+holds "Words."
+t_contains "$t_out" "WARN: could not record the hold on the park of #7 (busy)"
+holds "Words."
+t_eq "$(grep -c '^issue comment 7' <<<"$(t_calls gh)")" 1
+t_eq "$(park_of .told_at)" null
+
+t_case "a park that could not be read holds the start for this poll"
+parked_again "Words, and more."
+store_refuses "park-show 7" 1 'store: busy #7: the database is locked'
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its park on record could not be read (busy)"
+t_lacks "$(t_calls gh)" "issue edit 7"
+
+t_case "a park a start has spent holds nothing"
+parked_again "Words."
+TEHAS_HOME=$T/home/tehas "$T_STORE" park-retry 7 >/dev/null
+new_poll
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "its last cycle parked on"
 
 # The same hold asks nothing of an urgent or tehas:next issue either: the hold
 # is of the poll, where its kind is settled, not of the kind itself.
@@ -525,15 +652,14 @@ parked_again "Words."
 label_events 7 "tehas:urgent=alice"
 holds "Words."
 
-t_case "a changed body starts, and the park of the held go goes with the start"
-parked_again "Words, and more." '{cap: "intent-park", provider: false, retry: false,
-  started: 1767225600, body_sha256: "0000000000000000000000000000000000000000000000000000000000000000"}'
+t_case "a changed body starts, and the park of the held go is not current after the start"
+parked_again "Words, and more."
 new_poll
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
 
 t_case "a ticked retry on the body its last cycle parked on starts all the same"
 parked_again "Words."
@@ -544,45 +670,144 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
 t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
+
+# outage_parked [<who started the cycle: alice, carol, or - for by hand>]:
+# #7's last cycle parked by a provider outage, on "Words.". Only rule 4a asks
+# for it: no label of a person's queues it.
+outage_parked() {
+  parked_again "Words." provider-outage "${1:-alice}"
+  echo '[]' >"$fx/ready.json"
+  echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+  new_poll
+}
 
 t_case "a park of a provider outage is retried as today, on its own body"
 # Rule 4a's own path, on an issue whose park names its body: the hold of 4c is
-# what would refuse this start, and provider true is what leaves it to 4a. The
-# start rests on the account that started the parked cycle, kept beside the
-# park, and the issue carries no tehas:ready for the label's path.
-parked_again "Words." '{cap: "step-failed:adversarial", reason: "Connection error.",
-  provider: true, retry: true, started: 1767225600, body_sha256: $SUM}'
-echo alice >"$cycles_dir/7.by"
-echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' \
-  >"$fx/ready.json"
-echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+# what would refuse this start, and the outage is what leaves it to 4a. The
+# start rests on the account that started the parked cycle, and the issue
+# carries no tehas:ready for the label's path.
+outage_parked
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (requeued by alice)"
+t_lacks "$t_out" "its last cycle parked on"
+t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
+t_eq "$(park_of)" null
+t_eq "$(at_mark '[.by, .how] | tostring')" '["alice","outage-retry"]'
+t_eq "$(t_row cycle-show 7 -- '[.cycle.started_by, .cycle.requeued] | tostring')" '["alice",true]'
+
+t_case "the retry rests on who started the parked cycle, not on a later approval of another account"
+outage_parked
+# bob's approval, later and never used: the retry is alice's.
+t_approve "$T/home/tehas" 7 bob label 1767300000
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$t_out" "start #7 (requeued by alice)"
+t_eq "$(at_mark .by)" alice
+
+t_case "a retry whose account may no longer label spends it, and starts nothing"
+outage_parked carol
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+t_eq "$(park_of '[.retries, .automatic]')" '[1,false]'
+new_poll
+t_run "$dispatch"
+t_lacks "$t_out" "its retry after a provider outage"
+
+t_case "a dry run of that leaves the retry owed"
+outage_parked carol
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+t_eq "$(park_of '[.retries, .automatic]')" '[0,true]'
+
+t_case "an open planning session holds the retry after an outage, and spends it (A13)"
+outage_parked
+t_plan "$T/home/tehas" 7 '{"turns":1,"comment":4002}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
+t_eq "$(park_of '[.retries, .automatic]')" '[1,false]'
+
+t_case "one retry after an outage, then a person: the retry's own outage park owes none"
+outage_parked
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+# The retry's cycle (attempt 2, requeued) is parked by an outage too.
+TEHAS_HOME=$T/home/tehas flock -w 5 "$cycles_dir/7.lock" "$T_STORE" cycle-end 7 --attempt 2 --status handoff \
+  --provider --parked >/dev/null
+t_park "$T/home/tehas" 7 provider-outage 4009
+t_eq "$(park_of '[.attempt, .automatic]')" '[2,false]'
+new_poll
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$t_out" "its retry after a provider outage"
+
+t_case "an outage park of a cycle started by hand owes no retry"
+outage_parked -
+t_eq "$(park_of .automatic)" false
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$t_out" "provider outage"
+
+t_case "a retry whose unit never comes up leaves no retry behind"
+outage_parked
+: >"$fx/start-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(park_of '[.retries, .automatic]')" '[1,false]'
+rm -f "$fx/start-fails"
+new_poll
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a retry after an outage whose issue cannot be marked is still owed, and the next poll starts it"
+outage_parked
+printf '%s' '--add-label tehas:running' >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: could not mark #7 as running, not starting a cycle"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(park_of '[.retries, .automatic]')" '[0,true]'
+rm -f "$fx/edit-fails-on" "$T"/calls/*
+new_poll
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(park_of)" null
+
+t_case "a busy store keeps the retry after an outage for the next poll: nothing starts, the park stays"
+outage_parked
+store_refuses "park-show --automatic" 1 'store: busy: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the state store could not list the parks owed a retry (busy)"
+t_eq "$(park_of '[.retries, .automatic]')" '[0,true]'
+t_lacks "$(t_calls gh)" "issue edit 7"
+
+t_case "a store that cannot be used for the retry after an outage stops the poll at 78"
+outage_parked
+store_refuses "park-show --automatic" 78 'store: corrupt: the file is not a database'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the state store could not list the parks owed a retry (corrupt)"
+t_lacks "$(t_calls gh)" "issue edit 7"
+
+t_case "a park of a cycle started by hand names no body and starts as today"
+# Nothing bound a body for a run by hand: no reason to hold.
+parked_again "Words." intent-park -
+t_eq "$(park_of .body_sha256)" null
 new_poll
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$t_out" "its last cycle parked on"
 t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
-
-t_case "a park of a cycle that named no body starts as today"
-# A park that says nothing of its body is no reason to hold: this issue's cycle
-# ended before the field existed, and its start rests on the label.
-parked_again "Words." '{cap: "intent-park", provider: false, retry: false, started: 1767225600}'
-new_poll
-t_run "$dispatch"
-t_eq "$t_rc" 0
-t_eq "$(t_calls fake-start)" "7"
-t_lacks "$t_out" "its last cycle parked on"
-t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
-
-t_case "and so does a park whose body is no hash"
-parked_again "Words." '{cap: "intent-park", provider: false, retry: false, started: 1767225600,
-  body_sha256: "not-a-hash"}'
-new_poll
-t_run "$dispatch"
-t_eq "$t_rc" 0
-t_eq "$(t_calls fake-start)" "7"
-t_lacks "$t_out" "its last cycle parked on"
 
 t_done

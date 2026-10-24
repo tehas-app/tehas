@@ -25,10 +25,11 @@ New code goes in new files, so the #595 change to `src/tests.rs` merges cleanly:
 | `src/verbs.rs` | argument parsing, value grammars and cleaning, the output line, the store open for data verbs, the issues stub, the error mapping |
 | `src/lock.rs` | the cycle lock probe |
 | `src/cycle.rs` | `cycle-start`, `cycle-image`, `cycle-end`, `cycle-show`, `cycle-note`, `cycle-stop-asked` |
-| `src/park.rs` | `park`, `park-show`, `park-retry`, `question-asked`, `question-known`, `question-answered` |
+| `src/park.rs` | `park`, `park-show`, `park-retry`, `park-told`, `question-asked`, `question-known`, `question-answered` |
 | `src/approval.rs` | `approval-record`, `approval-current` |
-| `src/plan.rs` | `plan-begin`, `plan-answer`, `plan-end`, `plan-show` |
-| `src/verbs_tests.rs`, `src/lock_tests.rs`, `src/cycle_tests.rs`, `src/park_tests.rs`, `src/approval_tests.rs`, `src/plan_tests.rs` | the tests, `#[cfg(test)] mod` from main.rs |
+| `src/plan.rs` | `plan-begin`, `plan-answer`, `plan-end`, `plan-note`, `plan-show` |
+| `src/history.rs` | `history-show` |
+| `src/verbs_tests.rs`, `src/lock_tests.rs`, `src/cycle_tests.rs`, `src/park_tests.rs`, `src/approval_tests.rs`, `src/plan_tests.rs`, `src/history_tests.rs`, `src/schema_tests.rs` | the tests, `#[cfg(test)] mod` from main.rs |
 
 `main.rs` changes only: the `mod` lines, one `Verb::Record(verbs::Call)`
 variant, `parse` falls through to `verbs::parse(args)` for a verb name it does
@@ -48,9 +49,11 @@ refused, and `started_by = 'a'`, still allowed).
 `std::fs::File::try_lock` (stable in 1.89; the host pin is 1.99). No new crate.
 No `unsafe`, no `libc`.
 
-`schema.sql`: still `user_version` 1, because no host has a `tehas.db` yet
-(`install.sh` does not run the store). Changes, each mirrored in spec section 3
-in the same PR (section 7):
+`schema.sql`: `user_version` 2. `install.sh` runs `store init` or
+`store migrate`, and `db::migrate` steps a store at 1 to 2 (D29). The changes
+below were made to schema 1 in the first unit, before any host had a
+`tehas.db`; D29's additions are the step to 2. Each is mirrored in spec
+section 3 in the same PR (section 7):
 
 - `cycles.how` CHECK gains `'hand'`; `cycles.started_by` loses NOT NULL (D12).
 - `cycle_history` gains `started_at INTEGER, rc INTEGER, cap TEXT, park_reason TEXT, failure_kind TEXT, failure_cause TEXT, provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0` (D1).
@@ -127,27 +130,30 @@ rule 5).
 ### Opening the store
 
 - **Files first.** Every file argument (`--result`, `--progress`,
-  `--settings`, `--brief-file`) is read, size-checked and parsed **before** the
+  `--settings`, `--brief-file`, `--input-file`, `--text-file`) is read, size-checked and parsed **before** the
   store is opened, so no other writer waits behind a 16 MiB parse. Only the
   comparison with a row (G3) happens inside the transaction. The read:
   `symlink_metadata` must say regular file (a link, directory or device is
   refused), open, `metadata()` of the open file must have the same dev and
   inode, size within the bound, read at most bound + 1 bytes. Bounds: result
-  16 MiB, progress 1 MiB, settings 64 KiB (`lib/improve.sh:88`), brief 1 MiB.
-  How a refused file ends is stated per verb.
+  16 MiB, progress 1 MiB, settings 64 KiB (`lib/improve.sh:88`), brief 1 MiB,
+  approval inputs 1 MiB, answer text 1 MiB (D30, D34). How a refused file
+  ends is stated per verb.
 - **Writers:** `db::lock(file)` (BEGIN IMMEDIATE, busy timeout 5 s), every
   read and write of the verb, the issues stub first where the verb has one,
   then COMMIT. On any error, ROLLBACK: nothing is committed, the stub included.
 - **Readers** (`cycle-show`, `park-show`, `question-known`,
-  `approval-current`, `plan-show`): `db::open_look` (read only, busy timeout
+  `approval-current`, `plan-show`, `history-show`): `db::open_look` (read only, busy timeout
   1 s), write nothing. A bounded wait, not zero: in WAL mode the last
   connection to close takes an exclusive lock to checkpoint and remove the
   `-wal`, and every store call is its own process, so a reader that opens at
   that moment would otherwise get `busy` at once.
-- After open, a data verb requires `PRAGMA user_version` = 1. A file at 0 (made
-  by a `touch`, never migrated) is 78 with the word `unreadable` and the detail
-  `the store holds no schema; run store migrate` (spec section 4's table: the
-  file is there and cannot be used; `missing` stays "no file at all").
+- After open, a data verb requires `PRAGMA user_version` = 2, the version this
+  binary writes (D29). A file at 0 (made by a `touch`, never migrated) is 78
+  with the word `unreadable` and the detail `the store holds no schema; run
+  store migrate` (spec section 4's table: the file is there and cannot be used;
+  `missing` stays "no file at all"). A file at 1 is 78 `unreadable` with `the
+  store is at schema 1, this store writes 2; run store migrate`.
 - **Error mapping** (`verbs.rs`, db.rs's `classify` unchanged): `Busy` is exit
   1 `busy`. An SQLite constraint failure (`SQLITE_CONSTRAINT`, any extended
   code) is exit 1 with the word `conflict` and the message SQLite gave, never
@@ -181,10 +187,10 @@ Row objects used below:
 
 - **cycle**: `{"issue","attempt","started_at","started_by","how","requeued"(bool),"rukas_commit","image","branch","end_reason","ended_at","oom_kills","forks_refused","stalled_seconds","timed_out"(bool),"runner_exit","watched"(bool),"host_saw","stop_asked_at","stop_said_times","settings":{key:value},"quiet":{"said_for","at"}|null}`
 - **lock**: `{"state":"free"|"held"|"unknown","probe_rc":0|1|2,"file":bool,"seen_at":<now>}` plus `"why"` when `probe_rc` is 2
-- **approval**: `{"issue","at","by","how","label","body_sha256","title_sha256","comment_id","refresh_pr","refresh_head","used_at","used_by"}`
-- **park**: `{"issue","attempt","at","reason","step","pr","retries","started_at","started_by","automatic"(bool),"question":<id>|null}`
+- **approval**: `{"issue","at","by","how","label","body_sha256","title_sha256","comment_id","refresh_pr","refresh_head","used_at","used_by","input":{...}|null}`
+- **park**: `{"issue","attempt","at","reason","step","pr","retries","started_at","started_by","automatic"(bool),"question":<id>|null,"told_at","body_sha256"}`
 - **question**: `{"id","issue","attempt","kind","posted_at","body_sha256","answered_at","answered_by"}`
-- **planning**: `{"issue","session","turns","options":[...],"pending"(bool),"pending_outcome","failed"(bool),"running"(bool),"started_at","comment_id","lost"(bool),"by","label","brief","turn_rc","opened_at","ended_at","answers":[{"turn","by","fixer"(bool)}],"filed":[<url>...]}`
+- **planning**: `{"issue","session","turns","options":[...],"pending"(bool),"pending_outcome","failed"(bool),"running"(bool),"started_at","comment_id","lost"(bool),"by","label","brief","turn_rc","opened_at","ended_at","answers":[{"turn","by","fixer"(bool)}],"filed":[<url>...],"answer":<text>|null,"notes":{"fixer_refused":[<id>...],"held":[<id>...]}}`
 
 ### Exit statuses (every verb)
 
@@ -210,17 +216,35 @@ taking `--poll-at` and `--before` from the poll, in the same transaction
 (section 5 rule 1), and adds exit 5 then. A1, A2 and A3 are owned by #254; the
 tests named for them here are **partial** (the store half only).
 
-### Stays a file in this unit
+### Stays a file
 
-No verb here writes or replaces these; #250 and #251 decide each:
+The final list, after #250 and #251 (the plan's decision 4,
+`docs/plans/2026-10-24-store-callers.md`). No verb writes or replaces these:
 
-- `state/cycles/<n>.lock` (C5, C7) and `state/plan-<n>.json.lock` (a turn's liveness proof, spec 3.5).
-- `.done`: written by the dispatcher (`dispatch:2028`), read by the cycle (`cycle:1010-1012`), which passes the word on as `--status`.
-- `.stopped`, `.stopped.new`: written by `tehas stop` (`stop:166-187`), read by the cycle (`cycle:740-751`).
-- work's handoff files: `.runner_exit`, `.status`, `.oom`, `.forks`, `.stalled`, `.timed`, `.nostart`, `.cid`, `.image`, `.settings`, `.result.json`, `.progress.json`, `.manifest.json`, `.images.md`, `.retry-context.md`. The verbs take their values; how `work` hands them to `cycle` is #250's.
-- planning: `.out` and `.keep/` (a container reads or writes them; the row names `.out` in `pending_outcome`), `.rc`, `.answer` (the reply text; the schema has no column for it, D27), `.turn` (the export copy, `planning.sh:242-245`), and the brief file `libexec/plan --brief <file>` reads (`dispatch:2858`): the caller writes it from `plan-show`'s `brief` each turn.
-- `state/park-<n>.json`: the body handed to `q_render`, not a record.
-- `state/refined.jsonl` (D9) and `state/cycles/plan-<n>.history.jsonl` until the import (D18).
+- The locks: `state/cycles/<n>.lock` (C5, C7) and `state/plan-<n>.json.lock`
+  (a turn's liveness proof, spec 3.5).
+- `.done`: written by the dispatcher, read by the cycle, which passes the word
+  on as `--status`.
+- `.stopped`, `.stopped.new`: written by `tehas stop`, read by the cycle.
+- work's handoff files: `.runner_exit`, `.status`, `.oom`, `.forks`,
+  `.stalled`, `.timed`, `.nostart`, and the container's `.result.json` and
+  `.progress.json`, kept to the next start for `tehas export`.
+- What a container is given: `.cid`, `.manifest.json`, `.images.md`,
+  `.retry-context.md`.
+- planning: `.out` and `.rc`, and the runner's `.keep/` directory, which
+  moved out of `state/` to `$TEHAS_WORK_DIR-plan-<n>.keep` beside the
+  workspace. The brief file `libexec/plan --brief <file>` reads is in `tmp/`
+  until the turn ends.
+- `state/refined.jsonl` (D9).
+
+These moved, and the importer (spec 2026-10-21 section 7) takes what an older
+tehas left: `.image` and `.settings` (work calls `cycle-image`), `.taken`,
+`.by`, `.requeued`, `.rukas`, `.branch`, `.approved.json`, `.park`, `.quiet`,
+`<n>.history.jsonl`, `state/park-<n>.id`, `state/plan-<n>.json` with its
+`.brief`, `.answer` and `.turn` (`plan-answer --text-file` keeps the reply,
+D34; the export reads `plan-show`), and both plan history paths.
+`state/park-<n>.json`, the body handed to `q_render`, is a `mktemp` file. A
+poll that finds any of the old files stops with 78 (`libexec/dispatch`).
 
 ## 1. The lock probe (`src/lock.rs`)
 
@@ -479,12 +503,16 @@ cycle was last heard from, the episode's key.
   - An ask (no switch): when `stop_asked_at` is NULL or older than the note's
     `at`, this is the episode's first ask: `stop_said_times = 1`; otherwise
     `stop_said_times += 1`. Then `stop_asked_at = now`.
-  - `--said-only` (the "asks no more" line, `dispatch:1971`): `stop_asked_at =
-    now`, the count unchanged, so the line is said once per its own interval.
+  - `--said-only` (the "asks no more" line after its first time,
+    `dispatch:1971`): `stop_asked_at = now`, the count unchanged, so the line
+    is said once per its own interval. The first line is recorded as an ask
+    (D36).
 - JSON: `"times":N,"asked_at":now`.
-- The caller's rule for the next ask or say, unchanged from today: when
-  `times < quiet_asks`, at `stop_asked_at + quiet_retry`; else at
-  `stop_asked_at + quiet_retry * quiet_asks`.
+- The caller's rule for the next ask or say, unchanged in timing from today:
+  when `times <= quiet_asks`, at `stop_asked_at + quiet_retry`; else at
+  `stop_asked_at + quiet_retry * quiet_asks`. The caller records an ask before
+  it asks systemd to stop the unit, and allows one second for the store's
+  clock (D36).
 - Replaces with `cycle-note` the writes at `dispatch:1971` and `:1982`.
 - Invariant: C6 (the store half).
 
@@ -534,6 +562,10 @@ Called by `park()` in `libexec/cycle` (`:1041`).
   retries = 0 AND cycles.requeued = 0 AND cycles.how <> 'hand' AND
   cycles.started_by IS NOT NULL` (today's `.retry`, `cycle:1048`, `:1205`);
   `question` is the park question on record.
+- `told_at`: when `park-told` said the hold, or `null`. `body_sha256`: the
+  body the parked attempt's approval bound (the approval with `used_by` =
+  the park's attempt), `null` for a run by hand or a start that never ran
+  (D32).
 - `--automatic`: `"parks":[<park>...]`, every current park with `automatic`
   true, ordered by issue. It replaces rule 4a's loop over
   `tehas_cycle_note_files park` (`dispatch:2878`).
@@ -556,6 +588,17 @@ Called by `park()` in `libexec/cycle` (`:1041`).
   - by rule 4a for a park that can start nothing (`dispatch:2894`);
   - by `tehas stop` (`stop:114`).
 - Invariant: C12 (one automatic retry, then a person).
+
+### park-told
+
+`store park-told <issue> [--json]` (D32)
+
+- Preconditions (exit 1): `nopark` no current park.
+- One transaction: `told_at = now` on the current park when it has none.
+- JSON: `"said":true` the first time, `false` when `told_at` was set already,
+  and `"park":<park>`.
+- Replaces `park_holds`'s `.held = true` in `.park` (`dispatch:1799-1805`).
+  A new attempt's park starts untold.
 
 ### question-asked
 
@@ -619,7 +662,7 @@ of the latest start. Order never depends on `at`, which mixes GitHub's clock
 ```
 store approval-record <issue> --at <unix> --by <account> --how <how> [--label <label>]
   --body-sha <sha256> [--title-sha <sha256>] [--comment-id <id>]
-  [--refresh-pr N --refresh-head <sha>] [--json]
+  [--refresh-pr N --refresh-head <sha>] [--input-file <file>] [--json]
 store approval-record <issue> --undo --at <unix> [--json]
 ```
 
@@ -643,10 +686,15 @@ Called by `approved_record` (`dispatch:1240`), before the label.
   (`dispatch:1382-1393`) for every give-up after the record (`:1546`, `:1562`,
   `:1584`): the record put back is the previous one, which is still `current`.
 - JSON: `"approval":<approval>` or `"undone":bool`.
+- `--input-file`: the cycle's inputs, read before the lock (a regular file,
+  1 MiB). Exit 1 `input` when it is refused, over the bound, not UTF-8, not a
+  JSON object, or holds a key other than `links`, `comment_links`,
+  `retry_context` (arrays) and `refresh_of` (an object or null). Stored in
+  `input_json` and answered as the approval's `input`; without the flag the
+  row has none. `--undo` removes them with the row (D30).
 - Replaces the authorisation fields of `approved_record`
-  (`dispatch:1240-1270`). The cycle's inputs in the same file (`links`,
-  `comment_links`, `retry_context`, `refresh_of.base_sha`, `.branch`) have no
-  column: D2.
+  (`dispatch:1240-1270`), and with `--input-file` its inputs (`links`,
+  `comment_links`, `retry_context`, `refresh_of`): D2, D30.
 - Invariants: A3, F3 (the approval binds `body_sha256` and `title_sha256`).
 
 ### approval-current
@@ -656,6 +704,7 @@ Called by `approved_record` (`dispatch:1240`), before the label.
 - JSON:
   - `"approval"`: the unused approval, or `null` (the spec's "the open
     approval, or `{"approval":null}`"). A3: it is the one start still owed.
+    Each approval object carries its `input` (D30).
   - `"current"`: the used row with the highest `used_by`, or `null`. It is
     what `.approved.json` is for its readers after a start
     (`libexec/cycle:1190-1216`, `:1242`, `lib/fixer.sh:86`,
@@ -719,16 +768,19 @@ The first turn of a session (`plan_turn ... first`, `planning.sh:369-372`).
 
 ### plan-answer
 
-`store plan-answer <issue> --turn N --by <account> [--fixer] [--json]`
+`store plan-answer <issue> --turn N --by <account> [--fixer] [--text-file <file>] [--json]`
 `store plan-answer <issue> --turn N --undo [--json]`
 
 The begin of a later turn, which is an answer (`plan_turn ... next`,
 `planning.sh:374-380`). One write today, one transaction here (D7).
 
-- 64: grammars; `--undo` with `--by` or `--fixer`.
-- Preconditions (exit 1): `noplan` no open session; `turn` N is not
-  `turns + 1`, or the session is running, or `session` is NULL, or `lost` is 1.
-- One transaction: `planning_answers (issue, N, by, fixer)`; `planning`
+- 64: grammars; `--undo` with `--by`, `--fixer` or `--text-file`.
+- Preconditions (exit 1): `answer` the `--text-file` is refused, over 1 MiB
+  or not UTF-8 (read before the lock); `noplan` no open session; `turn` N is
+  not `turns + 1`, or the session is running, or `session` is NULL, or `lost`
+  is 1.
+- One transaction: `planning_answers (issue, N, by, fixer, text)`, `text`
+  the file's text or NULL (D34); `planning`
   `running = 1`, `started_at = now`, `pending = 0`, `comment_id = NULL`; the
   question that was `comment_id` gets `answered_at = now`, `answered_by = --by`.
 - JSON: `"turn":N,"planning":<planning>`.
@@ -787,7 +839,8 @@ store plan-end <issue> --close [--json]
        `planning_filed` is kept (`planning.sh:308-311`; D8). A `finished`
        without `--session` lands here, as today's `ok=0`.
     4. no session at all: `turns = N`, `running = 0`, `turn_rc`, `ended_at =
-       now` (`planning.sh:313-332`, the record goes).
+       now` (`planning.sh:313-332`, the record goes); its notes are removed
+       (D33).
 - `pending_outcome` is stored relative to `$TEHAS_HOME` (for example
   `state/plan-12.json.out`): the row names the file the container's outcome is
   in until it is posted (#251).
@@ -800,7 +853,7 @@ exit 0, unchanged. `"planning":<planning>|null`.
 **Close** (`plan_end`, `planning.sh:93-105`; the turn limit at `:358`;
 `plan_lost`): the open session gets `ended_at = now`, `running = 0`, `pending
 = 0`, `pending_outcome = NULL`, `comment_id = NULL`; its unanswered plan
-questions are withdrawn (deleted). No open session: exit 0, `"closed":false`.
+questions are withdrawn (deleted) and its notes removed (D33). No open session: exit 0, `"closed":false`.
 `"closed":true,"planning":<planning>`.
 
 - Replaces: `lib/planning.sh:104`, `:148`, `:186-194` (the history line),
@@ -823,7 +876,43 @@ questions are withdrawn (deleted). No open session: exit 0, `"closed":false`.
   `libexec/export:255`, `libexec/plan`), and `plan_filed`
   (`planning.sh:111-116`): `filed` holds the URLs, so the "Already filed in
   this session" line (`:411-414`) is unchanged.
+- `answer`: the text of the answer of the turn that is running (`turns + 1`)
+  or whose outcome waits to be posted (`turns`, `pending`), else `null`.
+  `notes`: the session's `plan-note` ids by kind, oldest first (D33, D34).
 - Invariant: A13.
+
+### plan-note
+
+`store plan-note <issue> --kind fixer-refused|held --id <comment id> [--json]` (D33)
+
+- 64: grammars; `--kind` outside the set (the word on stderr).
+- Preconditions (exit 1): `noplan` no open session.
+- One transaction: `planning_notes (issue, kind, id, at = now)`, kept when
+  it is there already.
+- JSON: `"said":true` when the note is new, `false` when it was there, and
+  `"planning":<planning>`.
+- The notes go with the session: `plan-begin` replacing it and `plan-begin
+  --undo` delete the row (the notes cascade), `plan-end --close` and a turn
+  end that leaves no session delete them (B4).
+- Replaces the record's `fixer_refused` and `held` lists
+  (`dispatch:1191-1194`, `:1209-1212`).
+
+### history-show
+
+`store history-show [<issue>] [--kind cycle|plan] [--how <how>] [--json]`. Read only (D31).
+
+- 64: `<issue>` not a number; `--kind` or `--how` outside its set (`--how` is
+  a `cycles.how` word: `label`, `refresh`, `retry-tick`, `outage-retry`,
+  `fixer`, `hand`); `--how` with `--kind plan`.
+- JSON: `"rows":[...]`, oldest first by `at`, then issue, then id. A cycle row
+  is `{"kind":"cycle","id","issue","attempt","at","status","step","by","how","pr","started_at","rc","cap","park_reason","failure_kind","failure_cause","provider"(bool),"parked"(bool)}`;
+  a plan row is `{"kind":"plan","id","issue","turn","at","outcome","session","started_at","rc","by","label","filed":[<url>...]}`.
+  The two tables number their ids apart, so the id orders rows of one kind.
+- `--how` keeps the cycle rows started that way; a plan row has no `how`, so
+  none is kept.
+- Replaces the readers of the history files: `libexec/history:96-101`,
+  `tehas_cycle_history` (`lib/fixer.sh:158-162`, used by `lib/refresh.sh:83`)
+  and the analytics run's facts.
 
 ## 6. Tests
 
@@ -1063,6 +1152,86 @@ stays in this unit; #251 adds a column if it wants the row. No spec change.
 
 **D28. `conflict`.** A constraint failure is exit 1 `conflict`, not 78. **Spec
 change:** the common rules name the word.
+
+D29 on were added by the plan for the callers
+(`docs/plans/2026-10-24-store-callers.md`, unit 1), after the verbs above were
+on main.
+
+**D29. Schema 2 (sign-off).** Schema 1 is on main and `install.sh` writes it,
+so the additions below are a real step, not an edit of schema 1. `db::migrate`
+steps from 1 to 2 in one transaction with `meta.schema` and `user_version`:
+`approvals.input_json TEXT`, `parks.told_at INTEGER`, `planning_answers.text
+TEXT`, and the table `planning_notes (issue, kind, comment_id, at)` keyed
+`(issue, kind, comment_id)`, referencing `planning (issue)` ON DELETE CASCADE,
+`kind` in `fixer-refused`, `held`. ADD COLUMN and CREATE TABLE lose no row. A
+store at 0 still goes straight to 2. Each added column comes last in its table
+in `schema.sql` too, so a migrated store and one `init` made hold the same
+columns, which a test pins. The data verbs require 2; a store at 1 is 78
+`unreadable` until it is migrated. `check` reports a store at 1 as it is,
+without the tables it lacks. **Spec change:** section 3's DDL and the version
+line.
+
+**D30. The approval's inputs are a column (sign-off).** D2 left the choice to
+#250. `approval-record --input-file` stores them in `approvals.input_json`, so
+the inputs and their approval are written, undone and pruned in one
+transaction, and no file can belong to another approval. The object may hold
+only `links`, `comment_links`, `retry_context` and `refresh_of`; the readers
+in `lib/attachments.sh` still check the entries. The rest of today's file
+(`rests_on`, `fixer_starts`, `refreshes`, `title_sha256`) comes from
+`approval-current`. **Spec change:** 3.4's DDL.
+
+**D31. `history-show` (sign-off).** No verb read `cycle_history` or
+`plan_history`, and three readers need them (`libexec/history`,
+`tehas_cycle_history`, the analytics run). A read verb over both, with the
+filters those readers use. **Spec change:** a row in section 4's table.
+
+**D32. The park's tell is a column (sign-off).** `park_holds` writes `.held =
+true` into `.park` once it has said the hold, and `cycle-note` refuses an
+ended cycle by design. `parks.told_at` and `park-told` replace it, and
+`park-show` gives `told_at` and the `body_sha256` the hold compares (today
+copied into `.park`; now the used approval's, which binds the same text).
+**Spec change:** 3.7's DDL and a row in section 4.
+
+**D33. Planning notes (sign-off).** The planning record's `fixer_refused` and
+`held` lists had no column. `planning_notes` holds them, bounded by the
+session (B4), and `plan-note` writes one. **Spec change:** 3.5's DDL and a row
+in section 4.
+
+**D34. The answer text is a row (sign-off).** Replaces D27: #251 says "the
+answer and the brief are rows". `plan-answer --text-file` stores the reply in
+`planning_answers.text` (1 MiB: a GitHub comment is up to 65,536 characters
+of up to four bytes each, plus the caller's prefix), and `plan-show` returns the answer of the
+running or pending turn. The `.answer` file goes when #251's caller moves.
+**Spec change:** 3.5's DDL.
+
+**D35. A test clock.** A build with debug assertions takes `now` from
+`TEHAS_STORE_TEST_NOW` when it is set (a Unix time; anything else is 78), the
+same gate as `test-write`. `install.sh` builds with `--release`, which never
+reads it. The shell tests use it instead of `touch -d`. No spec change.
+
+**D36. The first "asks no more" line counts (sign-off).** Today the line comes
+`quiet_retry` after the last ask, then once per `quiet_retry * quiet_asks`.
+With only `stop_said_times` and `stop_asked_at`, a `--said-only` line cannot be
+told from the last ask, so the poll records the first line as an ask
+(`times = quiet_asks + 1`) and later lines with `--said-only`. The caller's
+rule is `times <= quiet_asks`, and a count past `quiet_asks` means the line
+was said; readers of `stop_said_times` (the reconciler, C6) read it so. The
+other way, a column for when the line was said, changes the schema; left to
+the owner. The poll also records each ask before the stop, not after, and
+lets an ask come one second early: the store dates a record by its own clock,
+a moment after the poll read its own, and the old file took the poll's time.
+Without both, a slow stop (up to 35 s) or a crossed second put each ask off a
+whole poll. **Spec change:** the caller's rule in `cycle-stop-asked`.
+
+**D37. A quiet cycle with no open record (sign-off).** The poll does not stop
+a unit that holds its lock while its record is absent (`nocycle`, before
+`cycle-start`) or ended (after `cycle-end`, while the cycle reports): without
+a start on record its live file may be the issue's previous cycle's. Today's
+poll stopped such a unit after 20 minutes. It now says on every poll that the
+unit holds its lock with no open record and how a person stops it. Whether
+the poll should stop it again, as before, is the owner's call. A store that
+answers 64 or 78 to `cycle-note` or `cycle-stop-asked` ends the poll with 78,
+as every other store call in `dispatch` does.
 
 ## 8. Rejected critique
 

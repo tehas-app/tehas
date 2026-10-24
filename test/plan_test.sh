@@ -339,6 +339,9 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
     "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
     | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
   features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
+# tehas work reads its approval from the state store: nothing on record, a run
+# by hand.
+t_store_home "$T/home/tehas"
 t_run "$T_ROOT/libexec/work 7"
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
@@ -408,6 +411,14 @@ t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --confirm "
 t_eq "$(cat "$T/calls/answer.seen" 2>/dev/null)" ""
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123","text":"Filed https://github.com/acme/widget/issues/41: Faster search.","question":null,"filed":["https://github.com/acme/widget/issues/41"]}'
 t_eq "$(cat "$T/keep/exit")" 0
+
+t_case "a filed address with a line end in it is not filed"
+for url in 'https://github.com/acme\nwidget/issues/41' 'https://github.com/acme/widget/issues/41\n'; do
+  rm -f "$T"/calls/*
+  turn_doc 0 "{\"session\":{\"id\":\"abc-123\",\"turn\":2},\"title\":\"Faster search\",\"url\":\"$url\"}"
+  t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+  t_eq "$(jq -c '.filed // []' "$T/out.json")" '[]'
+done
 
 t_case "the confirm also follows the line of what the session already filed"
 printf 'Already filed in this session: https://github.com/acme/widget/issues/40\n\nalice chose: File this plan\n' >"$T/answer.md"
@@ -484,6 +495,13 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 2
 t_contains "$t_out" "the turn said and asked nothing"
 t_eq "$(jq -c . "$T/out.json")" '{"session":"abc-123"}'
+
+t_case "a session id longer than the store keeps is no session"
+reset
+turn_doc 11 "{\"session\":{\"id\":\"$(printf 'a%.0s' {1..129})\"},\"text\":\"Hm.\",\"questions\":[]}"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 2
+t_contains "$t_out" "the session id is unknown"
 
 t_case "a turn that runs out of time is stopped and leaves its session"
 first_turn_ran
@@ -663,6 +681,29 @@ t_eq "$(cat "$T/calls/sessions.given")" "./abc-123/session.json"
 t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
 t_eq "$(cat "$T/keep/commit")" "$pinned"
 
+# #251: the start of a turn removes $tree.state, the turn's own state beside the
+# workspace, and the workspace itself. pi-rukas keeps the session in the
+# clone's git directory, which the turn carries out to the keep directory the
+# dispatcher gives, outside state/. So the next turn resumes it.
+t_case "turn 2 resumes the session turn 1 kept, in the keep directory the dispatcher gives"
+reset
+keep=$T/home/tehas/work/widget-plan-7.keep
+rm -rf "$keep"
+runner_keeps '{"turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(find "$tree" "$tree.state" -maxdepth 0 2>/dev/null | wc -l)" 0
+t_eq "$(cat "$keep/plan-sessions/abc-123/session.json")" '{"turn":1}'
+rm -f "$fx/keeps" "$T"/calls/*
+printf 'Adopt all\n' >"$keep/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $keep --session abc-123 --answer $keep/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --answer $ws/.tehas/answer.md "
+t_eq "$(cat "$T/calls/sessions.first")" '{"turn":1}'
+t_eq "$(cat "$T/calls/answer.seen")" "Adopt all"
+t_eq "$(find "$T/home/tehas/state" -name 'plan-*' 2>/dev/null | wc -l)" 0
+rm -rf "$keep"
+
 t_case "a later turn whose commit is gone, or was never noted, starts at the tip and says so"
 first_turn_ran
 for pin in 0123456789abcdef0123456789abcdef01234567 "not a commit"; do
@@ -779,6 +820,15 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas started no planning session: $A/9999 could not be fetched."
 t_eq "$([ -e "$T/keep/images" ] && echo left)" ""
 t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+
+t_case "a first turn that stops before its workspace, in a home with no work directory, leaves that directory marked as tehas's"
+images_on
+issue_is "Look ![shot]($A/9999)"
+rm -rf "$T/home/tehas/work"
+t_run "$plan 7 --out $T/out.json --keep $ws-plan-7.keep --brief $T/brief.md"
+t_eq "$t_rc" 4
+t_eq "$([ -f "$T/home/tehas/work/.tehas-workspaces" ] && echo marked)" marked
+rm -rf "$ws-plan-7.keep"
 
 t_case "an outsider's issue gives its images when an allowed account applied tehas:plan, and not otherwise"
 for who in alice mallory; do

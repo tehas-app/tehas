@@ -82,23 +82,32 @@ pub fn probe(home: &Path, issue: i64, open_row: bool) -> Lock {
         Err(e) if e.kind() == ErrorKind::NotFound => return absent(),
         Err(e) => return Lock::unknown(false, format!("state/cycles: {e}")),
     }
-    let file = path(home, issue);
-    let before = match fs::symlink_metadata(&file) {
+    probe_file(&path(home, issue)).unwrap_or_else(absent)
+}
+
+/// Steps 2 to 4 of the probe for one lock file, by its path: None when there
+/// is no such file. The cycle lock and the planning turn's lock
+/// (`state/plan-<n>.json.lock`) are probed the same way.
+pub fn probe_file(file: &Path) -> Option<Lock> {
+    let name = file
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let before = match fs::symlink_metadata(file) {
         Ok(m) if m.file_type().is_file() => m,
-        Ok(_) => return Lock::unknown(true, format!("{issue}.lock is not a regular file")),
-        Err(e) if e.kind() == ErrorKind::NotFound => return absent(),
-        Err(e) => return Lock::unknown(true, format!("{issue}.lock: {e}")),
+        Ok(_) => return Some(Lock::unknown(true, format!("{name} is not a regular file"))),
+        Err(e) if e.kind() == ErrorKind::NotFound => return None,
+        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
     };
-    let f = match File::open(&file) {
+    let f = match File::open(file) {
         Ok(f) => f,
-        Err(e) => return Lock::unknown(true, format!("{issue}.lock: {e}")),
+        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
     };
     match f.metadata() {
         Ok(m) if m.dev() == before.dev() && m.ino() == before.ino() => {}
-        Ok(_) => return Lock::unknown(true, format!("{issue}.lock was replaced")),
-        Err(e) => return Lock::unknown(true, format!("{issue}.lock: {e}")),
+        Ok(_) => return Some(Lock::unknown(true, format!("{name} was replaced"))),
+        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
     }
-    match f.try_lock() {
+    Some(match f.try_lock() {
         Ok(()) => {
             let _ = f.unlock();
             Lock::free(true)
@@ -108,8 +117,8 @@ pub fn probe(home: &Path, issue: i64, open_row: bool) -> Lock {
             file: true,
             why: None,
         },
-        Err(TryLockError::Error(e)) => Lock::unknown(true, format!("{issue}.lock: {e}")),
-    }
+        Err(TryLockError::Error(e)) => Lock::unknown(true, format!("{name}: {e}")),
+    })
 }
 
 /// The issues named by lock files in `state/cycles`. A missing directory lists

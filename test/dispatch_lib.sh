@@ -117,10 +117,13 @@ case "$1 $2" in
       *) cat "$T/fx/edit-$n.json" 2>/dev/null || cat "$T/fx/edit.json" || exit 1 ;;
     esac ;;
   "issue edit")
-    # What the host had on record at the moment an issue was marked as planning.
-    case "$*" in *"--add-label tehas:planning"*) cat "$T/home/tehas/state/plan-$3.json" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
-    # And the approval record at the moment an issue was marked as running.
-    case "$*" in *"--add-label tehas:running"*) cat "$T/home/tehas/state/cycles/$3.approved.json" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
+    # What the host had on record at the moment an issue was marked as planning:
+    # the session as the store gives it.
+    case "$*" in *"--add-label tehas:planning"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$3" >"$T/calls/record.at-mark" 2>/dev/null ;; esac
+    # And the approval on record at the moment an issue was marked as running,
+    # as tehas_approval_view shapes it: .approval the one waiting, .current the
+    # one of the last start.
+    case "$*" in *"--add-label tehas:running"*) TEHAS_HOME=$T/home/tehas "$T/store-bin" approval-current "$3" >"$T/calls/approved.at-mark" 2>/dev/null ;; esac
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
@@ -140,12 +143,17 @@ case "$1 $2" in
     else echo "[]"; fi ;;
 esac'
 # Stands in for systemctl --user start tehas-cycle@<issue>.service. A real
-# cycle says it holds its lock by writing the .taken file. This one fails or
-# stays silent when a case asks it to.
+# cycle says it holds its lock by starting its record on the state store,
+# under the lock: this one does the same with the real store, and lets go.
+# It fails or stays silent when a case asks it to, and with start-refused
+# ends the record as a cycle that refused its number does.
 default_start() {
   t_stub fake-start '[ ! -e "$T/fx/start-fails" ] || exit 1
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/start.fd8"
-[ -e "$T/fx/start-silent" ] || : >"$TEHAS_HOME/state/cycles/$1.taken"'
+[ ! -e "$T/fx/start-silent" ] || exit 0
+flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >>"$T/calls/cycle-start" 2>&1 || exit 0
+[ ! -e "$T/fx/start-refused" ] ||
+  flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-end "$1" --attempt "$(TEHAS_HOME=$TEHAS_HOME "$T/store-bin" cycle-show "$1" | jq .cycle.attempt)" --refused >/dev/null 2>&1'
 }
 default_start
 t_stub fake-status
@@ -158,7 +166,7 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # Writes a recorded outcome where the dispatcher asked for it. A failing turn
 # leaves what the file plan-fails holds, if anything.
-t_stub fake-plan 'cat "$T/home/tehas/state/plan-$1.json" >"$T/calls/record.at-turn" 2>/dev/null
+t_stub fake-plan 'TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$1" >"$T/calls/record.at-turn" 2>/dev/null
 [ ! -e "/proc/$$/fd/8" ] || : >"$T/calls/plan.fd8"
 out=""
 while [ "$#" -gt 0 ]; do [ "$1" = --out ] && out=$2; shift; done
@@ -277,10 +285,15 @@ cid() { # <issue> <hex digit> <bytes in use>
   slice_child "$(slice_id "$2")" "$3" 0 $((2 * gib))
 }
 dispatch_json=$T/home/tehas/live/dispatch.json
+# No case leaves the old file of a record that is on the store.
+t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
-  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
+  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" \
+    "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
+  # The state store a poll runs, with nothing on record.
+  t_store_home "$T/home/tehas"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
   # reserve, so the slots and the review cap decide unless a case says more.
   slice_show $((20 * gib))
@@ -356,18 +369,30 @@ comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
      lastEditedAt: (if $ed == "" then null else "2026-01-01T01:00:00Z" end),
      editor: (if $ed == "" then null else {login: $ed} end)}] + $after)}}}}}' >"$fx/comments-$1.json"
 }
+# comments_of <issue> <id> <question body> <editor or "">: the same, the bot's
+# question being the comment <id>, as a poll of this run posted it.
+comments_of() {
+  comments "$1" "$3" "$4"
+  jq --argjson id "$2" '.data.repository.issue.comments.nodes[0].databaseId = $id' "$fx/comments-$1.json" >"$fx/comments-$1.new" &&
+    mv "$fx/comments-$1.new" "$fx/comments-$1.json"
+}
 park_body() { # <retry box> <leave box>
   printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
 }
-park_id=$T/home/tehas/state/park-7.id
+# park_q [<issue>]: the question of the issue's current park on record [#7],
+# none without one.
+park_q() { t_row park-show "${1:-7}" -- '.park.question // "none"'; }
+# park_of [<jq of the park>]: #7's current park on record.
+park_of() { t_row park-show 7 -- ".park | ${1:-.} | tostring"; }
 # Issue 7 is parked with a question the host has on record, and nothing else
-# is queued.
-parked() {
+# is queued. Its last cycle started on alice's label of "Words." (or by hand)
+# and parked on the cap given [failed]; the park's question is the comment 4001.
+parked() { # [<reason> [<who started the cycle: alice, or - for by hand>]]
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
-  mkdir -p "$T/home/tehas/state"
-  echo 4001 >"$park_id"
+  t_ended "$T/home/tehas" 7 "${2:-alice}" label --parked
+  t_park "$T/home/tehas" 7 "${1:-failed}" 4001
 }
 
 plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]
@@ -380,7 +405,19 @@ plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]
   printf 'Two ways.\n\nAdopt?\n\n%s- [%s] Adopt all\n  Apply all five\n- [%s] Change some\n- [%s] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=%s -->\n' \
     "$extra" "$1" "$2" "$3" "${4:-1}"
 }
+# The files a planning turn of issue 7 passes on are named after this; its
+# record is on the store.
 record=$T/home/tehas/state/plan-7.json
+# What the session carries from one turn to the next, beside the workspace.
+keep=$T/home/tehas/work/widget-plan-7.keep
+# rec: issue 7's session as the store has it, in the shape its record file
+# had (tehas_plan_shape); null when there is none. rec_open: "open" while one
+# is open, else "none".
+plan_shape=$(bash -c '. "$1"; printf "%s" "$tehas_plan_shape"' _ "$T_ROOT/lib/store.sh")
+rec() { t_row plan-show 7 -- "$plan_shape" | jq -c .; }
+rec_open() { t_row plan-show 7 -- 'if .planning != null and .planning.ended_at == null then "open" else "none" end'; }
+# The session's brief, and the answer the turn running was given, on record.
+rec_brief() { t_row plan-show 7 -- '.planning.brief // "" | rtrimstr("\n")'; }
 # Issue 7 is labelled for planning by alice and nothing else is queued.
 to_plan() {
   reset
@@ -425,8 +462,7 @@ planning() {
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7}]' >"$fx/asking.json"
-  mkdir -p "$T/home/tehas/state"
-  echo '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}' >"$record"
+  t_plan "$T/home/tehas" 7 '{"session":"abc-123","turns":1,"options":["Adopt all","Change some"],"pending":false,"failed":false,"comment":4001}'
 }
 plan_calls() { t_calls fake-plan; }
 # What the fake runner writes for the turn it is asked to run: the agent's
@@ -456,8 +492,37 @@ git init -q -b main "$upstream"
 git -C "$upstream" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m first
 git clone -q "$upstream" "$checkout"
 
-# The approval record of a start on issue 7.
-approved_file=$T/home/tehas/state/cycles/7.approved.json
+# at_mark [<jq filter>]: the approval that waited on record when the issue was
+# marked running: its time as GitHub writes one, its fields and its inputs.
+# Keys sorted, as the store keeps the inputs: compare with sorted().
+at_mark() {
+  jq -crS "(.approval | if . == null then null else {at: (.at | todate), by, how, label, body_sha256, title_sha256,
+    comment_id, refresh_pr, refresh_head} + (.input // {}) end) | ${1:-.}" "$T/calls/approved.at-mark" 2>&1
+}
+# past <issue> <by> <how> <at> [<cycle-end args>...]: a cycle of the issue on
+# record that has ended, started on <by>'s approval of that how, given at the
+# time <at> (as GitHub writes one).
+past() {
+  local n=$1 by=$2 how=$3 at a home=$T/home/tehas
+  at=$(date -u -d "$4" +%s)
+  shift 4
+  a=$(t_row cycle-show "$n" -- '.cycle.attempt // 0')
+  t_approve "$home" "$n" "$by" "$how" "$at"
+  t_started "$home" "$n"
+  TEHAS_HOME=$home flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" --attempt $((a + 1)) \
+    --status "${PAST_STATUS:-handoff}" "$@" >/dev/null || t_bad "past: the store refused the end of #$n"
+}
+# sorted <json>: the same value with its keys sorted, on one line.
+sorted() { jq -cS . <<<"$1"; }
+# approval [<jq filter> [<issue>]]: what the store has of the approvals of
+# issue 7 [.current, the one its last start used], in the shape
+# tehas_approval_view gives the readers (at as a time, rests_on, the inputs).
+approval() {
+  local t_got
+  t_got=$(TEHAS_HOME=$T/home/tehas bash -c '. "$1"; f=$(tehas_approval_view "$2") && cat "$f" && rm -f "$f"' _ \
+    "$T_ROOT/lib/store.sh" "${2:-7}") || { echo none; return 0; }
+  jq -cr "${1:-.}" <<<"$t_got"
+}
 
 # icomment <id> <login> <created> <updated> <body>: one comment as REST lists it.
 icomment() {
@@ -531,3 +596,36 @@ limit() { # <cycles> [<plan true|false>] [<until or "">] [<reason>]: the limit t
 
 # Issue 7's body is "Words." in the fixer's and the refresh's cases.
 WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
+
+# store_refuses <args> <rc> <line>: the installed store answers <rc> with
+# <line> on stderr for each call whose arguments are <args> or begin with
+# <args> and a space, and runs the real store for every other call. Each call
+# is noted in t_calls store.
+store_refuses() {
+  local bin=$T/home/tehas/libexec/store
+  rm -f "$bin"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    "a=\"\$*\" p=$(t_q "$1")" \
+    'if [ "$a" = "$p" ] || [ "${a#"$p "}" != "$a" ]; then' \
+    "  printf '%s\\n' $(t_q "$3") >&2; exit $(t_q "$2")" \
+    'fi' \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}
+# open_read_fails_again: the open planning sessions are read once, and every
+# read of them after that answers busy, as after a planning write of the poll.
+# With a session on #9 whose issue no longer asks, the poll ends it, which is
+# such a write.
+open_read_fails_again() {
+  local bin=$T/home/tehas/libexec/store
+  t_plan "$T/home/tehas" 9 '{"turns":1,"comment":4009}'
+  rm -f "$bin"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "if [ \"\$*\" = 'plan-show --open' ] && [ -e $(t_q "$T/calls/open-read") ]; then" \
+    "  echo 'store: busy #0: the database is locked' >&2; exit 1" \
+    'fi' \
+    "[ \"\$*\" != 'plan-show --open' ] || : >$(t_q "$T/calls/open-read")" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
+  chmod 755 "$bin"
+}

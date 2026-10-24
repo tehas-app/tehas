@@ -111,6 +111,7 @@ files="./.bashrc
 ./tehas/lib/sandbox.sh
 ./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
+./tehas/lib/store.sh
 ./tehas/lib/top.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/unzip.sh

@@ -525,7 +525,7 @@ fn start(
 }
 
 /// What `--settings` came to before the store was opened.
-enum SettingsIn {
+pub enum SettingsIn {
     Good(Vec<(String, String)>),
     Refused,
     Secret,
@@ -535,10 +535,19 @@ fn read_settings(path: &Path) -> SettingsIn {
     let Ok((bytes, _)) = verbs::read_file(path, SETTINGS_BOUND) else {
         return SettingsIn::Refused;
     };
-    if secret(&bytes) {
+    settings_of(&bytes)
+}
+
+/// The settings a file's bytes hold, judged as `cycle-image` judges them. The
+/// import reads `state/cycles/<n>.settings` with it.
+pub fn settings_of(bytes: &[u8]) -> SettingsIn {
+    if bytes.len() as u64 > SETTINGS_BOUND {
+        return SettingsIn::Refused;
+    }
+    if secret(bytes) {
         return SettingsIn::Secret;
     }
-    let Ok(Value::Object(top)) = serde_json::from_slice::<Value>(&bytes) else {
+    let Ok(Value::Object(top)) = serde_json::from_slice::<Value>(bytes) else {
         return SettingsIn::Refused;
     };
     let mut rows = Vec::new();

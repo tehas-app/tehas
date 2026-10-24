@@ -550,6 +550,26 @@ t_eq "$([ -e "$tmp/node-compile-cache/blob" ] && echo there)" ""
 t_eq "$([ -e "$tmp/tehas-test.OLD" ] && echo there)" ""
 t_eq "$([ -e "$tmp/improve/record.json" ] && echo there)" "there"
 
+t_case "an analytics facts file of that age goes, a young one and other names stay"
+# A call's facts file outlives it only when the caller was killed during it.
+reset
+echo old >"$tmp/analytics-facts.OLD"
+echo new >"$tmp/analytics-facts.NEW"
+echo old >"$tmp/approval.OLD"
+mkdir -p "$tmp/analytics-facts.DIR"
+ln -s "$T/outside-facts" "$tmp/analytics-facts.LINK"
+echo stay >"$T/outside-facts"
+age "$tmp/analytics-facts.OLD" "$tmp/approval.OLD" "$tmp/analytics-facts.DIR" "$T/outside-facts"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$tmp/analytics-facts.OLD" ] && echo there)" ""
+t_eq "$([ -e "$tmp/analytics-facts.NEW" ] && echo there)" "there"
+t_eq "$([ -e "$tmp/approval.OLD" ] && echo there)" "there"
+t_eq "$([ -d "$tmp/analytics-facts.DIR" ] && echo there)" "there"
+t_eq "$([ -L "$tmp/analytics-facts.LINK" ] && echo there)" "there"
+t_eq "$([ -e "$T/outside-facts" ] && echo there)" "there"
+t_contains "$t_out" "removed $tmp/analytics-facts.OLD: host scratch"
+
 t_case "young host scratch stays"
 reset
 echo new >"$tmp/dl/tool.tar.gz"

@@ -169,6 +169,8 @@ t_eq "$(jq -r '.last | keys_unsorted | join(" ")' "$T_ROOT/preview/live/running.
 t_case "the preview's sample health.json has the keys tehasbot health writes from the samples beside it"
 sample=$T/home/sample
 mkdir -p "$sample/live"
+# The state store health reads the planning turns from, with none on record.
+t_store_home "$sample"
 cp "$T_ROOT/preview/live/running.json" "$sample/live/"
 # The sample health file was written when its snapshot was: a fresh one.
 jq '.generatedAt = (now | todate)' "$T_ROOT/preview/live/status.json" >"$sample/live/status.json"

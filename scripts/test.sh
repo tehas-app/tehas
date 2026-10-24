@@ -7,12 +7,19 @@
 #      the run passes on the test files alone.
 #   2. the shell tests in test/*_test.sh
 #
+# Before the tests start, the state store (console/store) is built once, offline,
+# into console/target/shell: a target directory of its own, because
+# scripts/verify.sh runs the workspace's cargo test in console/target at the
+# same time. The test files are told where it is in T_STORE_BIN, or why there is
+# none in T_STORE_WHY (test/lib.sh, t_store). A test that needs the store fails
+# without it.
+#
 # Where a single quote is the point of a line - an assertion that some text is
 # a literal - SC2016 is wrong about it. The manual states the policy for
 # suppressions: host/docs/tools.md, under scripts/test.sh.
 #
-# Both need bash, git, jq and shellcheck: no sandbox image, no product
-# checkout and no network. It belongs to a checkout of the platform and is not
+# Both need bash, git, jq and shellcheck, and the tests of the store's callers
+# need cargo: no sandbox image, no product checkout and no network. It belongs to a checkout of the platform and is not
 # installed on a host: there is no test/ directory there.
 #
 # Usage: scripts/test.sh [path...]
@@ -93,6 +100,20 @@ limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
 [[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
 out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
+
+unset T_STORE_BIN T_STORE_WHY
+store_why=""
+if [ ! -f "$root/console/Cargo.toml" ]; then
+  store_why="this checkout has no console/Cargo.toml"
+elif ! command -v cargo >/dev/null 2>&1; then
+  store_why="cargo is not installed"
+elif cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
+  --target-dir "$root/console/target/shell" -p store >"$out/store-build.log" 2>&1; then
+  export T_STORE_BIN=$root/console/target/shell/debug/store
+else
+  store_why="the store did not build offline: $(tail -n 1 "$out/store-build.log")"
+fi
+[ -z "$store_why" ] || export T_STORE_WHY=$store_why
 
 # The slowest files first, so none of them starts last and holds the run. A
 # fixed list, the same on every host; the rest follow in name order, and the

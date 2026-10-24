@@ -1285,11 +1285,11 @@ for want in \
   'dev	336	PI_ENSEMBLE_IMAGE	pi	' \
   'improve	272	PI_ENSEMBLE_IMAGE	pi	' \
   'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
-  'plan	249	PI_ENSEMBLE_IMAGE	$runner	' \
-  'plan	436	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	464	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	697	PI_ENSEMBLE_IMAGE	git	' \
-  'work	805	PI_ENSEMBLE_IMAGE	$runner	'; do
+  'plan	252	PI_ENSEMBLE_IMAGE	$runner	' \
+  'plan	446	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	526	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	756	PI_ENSEMBLE_IMAGE	git	' \
+  'work	890	PI_ENSEMBLE_IMAGE	$runner	'; do
   case "
 $records
 " in *"

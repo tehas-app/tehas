@@ -63,10 +63,14 @@
 #              That file holds the limit in seconds, who stopped the cycle
 #              (tehas or runner) and the step it was in.
 #              3 the sandbox cannot push to the repository; no cycle was started.
-#              4 no cycle was started. Where the dispatcher left its approval
-#                record: the issue's text is not the text that record approved,
-#                the record could not be read, or the issue could not be read
-#                for its text. Where the instance gives a cycle the issue's
+#              4 no cycle was started. Where the dispatcher recorded its
+#                approval: the issue's text is not the text it approved, the
+#                approval could not be read, or the issue could not be read for
+#                its text. Under tehasbot cycle (TEHAS_CYCLE_ATTEMPT set): no
+#                approval of that start is on record and it was no start by
+#                hand, the state store could not be read, or the image the
+#                container starts from could not be put on the cycle's
+#                record. Where the instance gives a cycle the issue's
 #                images or files: one could not be fetched, the issue could not
 #                be read for them, or a file is not the one first fetched for
 #                that approval. In both cases the issue is told which, with no
@@ -88,7 +92,8 @@
 #              with no result, or ended at the time limit leaves no such note.
 #
 #             64 no bot token or no git identity; no cycle was started.
-#             78 the instance settings are invalid, tehas.slice is not
+#             78 the instance settings are invalid, the state store is not
+#                installed, tehas.slice is not
 #                usable on this host, the image does not support what the
 #                cycle is given, or the product names no gate in
 #                .pi/verify-cmd and holds neither package.json nor Cargo.toml
@@ -145,11 +150,11 @@
 #             Comments only with TEHAS_WORK_COMMENTS=1, and only from the
 #             record: see below. Only when an allowed
 #             account approved the start, or the issue was opened by an owner,
-#             member or collaborator. Where the dispatcher left its approval
-#             record, state/cycles/<issue>.approved.json, the links are the
-#             record's and the approver its own; a body whose hash is not the
-#             record's stops the start. By hand, without a record, the links are
-#             the body's and the approver is who applied the last tehas:ready.
+#             member or collaborator. Where the dispatcher recorded its
+#             approval on the state store, the links are the approval's and
+#             the approver its own; a body whose hash is not the approval's
+#             stops the start. By hand, without one, the links are the body's
+#             and the approver is who applied the last tehas:ready.
 #   types     png, jpg, webp and gif, told by the file's first bytes. Not svg:
 #             it is text and can carry instructions.
 #   how much  At most 8 images and 10 megabytes together.
@@ -246,11 +251,20 @@
 # Without a usable slice nothing is cloned and nothing starts. The check that
 # the sandbox can push is a container of a few seconds and is not in the slice.
 #
+# Which approval is this start's: under tehasbot cycle, TEHAS_CYCLE_ATTEMPT
+# names the attempt the state store gave the start, and only the approval that
+# attempt used counts (tehas_approval_view, lib/store.sh). A start the store
+# has on record as one by hand is a run by hand. Anything else stops the start
+# with exit 4: a store that cannot be read is never taken for a run by hand.
+# Run on its own (tehas work by hand), the approval of the issue's latest start
+# counts, and none is a run by hand.
+#
 # As the container starts, the image's id and the pi-rukas commit of its label
-# tehas.rukas go to state/cycles/<issue>.image, one line, for the cycle's
-# record. So do, in state/cycles/<issue>.settings, the PI_ENSEMBLE_* values the
-# container is given, the TEHAS_* settings that shape a cycle and how many
-# cycles hold their lock, this one with them (lib/improve.sh).
+# tehas.rukas go on the cycle's record on the state store (cycle-image), for
+# the cycle's report. So do the PI_ENSEMBLE_* values the container is given,
+# the TEHAS_* settings that shape a cycle and how many cycles hold their lock,
+# this one with them (lib/improve.sh). Only under tehasbot cycle: a run on its
+# own has no attempt to put them on.
 #
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
@@ -336,8 +350,15 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/github-app.sh"
 # shellcheck source=lib/sizing.sh
 . "$here/../lib/sizing.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
+# Every start reads an approval from the store.
+if ! tehas_store_ready; then
+  echo "tehas work: ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
 tehas_sandbox_settings_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
@@ -376,8 +397,7 @@ timed_file=$TEHAS_HOME/state/cycles/$issue.timed
 # The ledger of the sizes tehas work records at an approved start, kept by
 # tehas_size_record (lib/sizing.sh), which says what it holds and how long.
 sizes_file=$TEHAS_HOME/state/sizes.jsonl
-# What the dispatcher approved, and the manifest of the last fetch, kept.
-record=$TEHAS_HOME/state/cycles/$issue.approved.json
+# The manifest of the last fetch, kept.
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 result_file=$TEHAS_HOME/state/cycles/$issue.result.json
 progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
@@ -390,8 +410,6 @@ status_file=$TEHAS_HOME/state/cycles/$issue.status
 # stream: its own exit status, one line of plain digits. Read and removed by
 # tehasbot cycle.
 nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
-image_file=$TEHAS_HOME/state/cycles/$issue.image
-settings_file=$TEHAS_HOME/state/cycles/$issue.settings
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 grace=${TEHAS_WORK_GRACE:-300}
@@ -413,6 +431,50 @@ mkdir -p "$TEHAS_HOME/logs" "$TEHAS_HOME/state/cycles"
 lock=$TEHAS_HOME/state/cycles/$issue.lock
 [ /dev/fd/9 -ef "$lock" ] 2>/dev/null || exec 9>"$lock"
 flock -n 9 || { echo "tehas work: a cycle for #$issue is running, not starting another" >&2; exit 5; }
+
+# What the dispatcher approved for this start, from the state store, as a
+# private file in the shape the readers below know (tehas_approval_view). It
+# goes when this command ends. Read before anything of the cycle is written;
+# what stops a start for it is said below, with the issue's text.
+record=""
+record_why=""
+attempt=${TEHAS_CYCLE_ATTEMPT:-}
+trap 'rm -f "${record:-}"' EXIT
+if [ -n "$attempt" ]; then
+  if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
+    record_why="its start names no attempt this host can read"
+  else
+    record=$(tehas_approval_view "$issue" "$attempt")
+    case $? in
+      0) ;;
+      1)
+        # None used by this start: a start by hand, as the store has it, or
+        # one whose approval is gone.
+        record=""
+        if ! tehas_store cycle-show "$issue"; then
+          record_why="the approval of this start could not be read"
+        elif [ "$(jq -r --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .how' \
+          <<<"$tehas_store_out" 2>/dev/null)" != hand ]; then
+          record_why="no approval of this start is on record"
+        fi
+        ;;
+      *)
+        record=""
+        record_why="the approval of this start could not be read"
+        ;;
+    esac
+  fi
+else
+  record=$(tehas_approval_view "$issue")
+  case $? in
+    0) ;;
+    1) record="" ;;
+    *)
+      record=""
+      record_why="the approval of this issue could not be read"
+      ;;
+  esac
+fi
 
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled in lib/sandbox.sh, which tehas dev uses too.
@@ -540,7 +602,9 @@ text_why="" # why this start stops, empty when the text is the approved one
 text_path="" # the record that could not be read, when that is the reason
 issue_now="" # the issue as GitHub answers for it now, read once for all of it
 measured=0 # 1 when this start had an approval record, and so a body to measure
-if tehas_record_is_file "$record"; then
+if [ -n "$record_why" ]; then
+  text_why=$record_why
+elif tehas_record_is_file "$record"; then
   measured=1
   # Bounded like every other call before the container: a network that swallows
   # this read must not hold the issue's lock and its slot for ever. gh's own
@@ -564,12 +628,7 @@ if tehas_record_is_file "$record"; then
     esac
   fi
 else
-  # No record, or something at that path that is not a plain file: a link or a
-  # directory. Both are read as no record, which is how the images below read
-  # them too, but it would be wrong to say nothing is here when something is.
-  said="tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval"
-  [ ! -e "$record" ] || said+=" ($record is not a record this command can read)"
-  echo "$said" >&2
+  echo "tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval" >&2
 fi
 if [ -n "$text_why" ]; then
   # The path of the record stays on the host. What the issue is told names which
@@ -740,7 +799,7 @@ fi
 # Docker refuses a cid file that is already there. One is left only by a cycle
 # that was killed outright, and so is a count of kills, and so is the name a
 # write of one of these files was made beside before it was moved into place.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$image_file" "$settings_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
+rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
   "$nostart_file" "$nostart_file.new" \
   "$runner_exit_file.new" "$status_file.new"
 # A container under this name outlived the client that started it: this
@@ -759,19 +818,45 @@ stop_container() {
 }
 
 # The image the cycle runs, as the container starts: a rebuild or a new pin
-# while the cycle runs does not change what it ran.
-image_id="" image_rukas=""
-read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
-  --format '{{.Id}} {{index .Config.Labels "tehas.rukas"}}' "$image" 2>/dev/null)
-if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
-  printf '%s %s\n' "$image_id" "$image_rukas" >"$image_file" || echo "tehas work: could not write $image_file" >&2
+# while the cycle runs does not change what it ran. On the cycle's record with
+# what the container is given of the settings, and how many cycles run now,
+# this one with them. A record that is not this start's, or has ended, is no
+# start to run; a store that is only busy costs the record, not the cycle.
+if [ -n "$attempt" ]; then
+  image_id="" image_rukas=""
+  read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
+    --format '{{.Id}} {{index .Config.Labels "tehas.rukas"}}' "$image" 2>/dev/null)
+  if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+    image_args=("$issue" --attempt "$attempt" --image "$image_id")
+    [ -z "$image_rukas" ] || image_args+=(--rukas "$image_rukas")
+    settings_file=""
+    [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+    if [ -d "$TEHAS_HOME/tmp" ] && [ ! -L "$TEHAS_HOME/tmp" ] &&
+      settings_file=$(mktemp "$TEHAS_HOME/tmp/settings.XXXXXX" 2>/dev/null) &&
+      tehas_improve_settings "$settings_file" "$(tehas_cycles_running | wc -l)" "${envs[@]}" "${image_opts[@]}"; then
+      image_args+=(--settings "$settings_file")
+    else
+      echo "tehas work: the settings of this cycle could not be written for its record" >&2
+    fi
+    tehas_store cycle-image "${image_args[@]}"
+    image_rc=$?
+    [ -z "$settings_file" ] || rm -f "$settings_file"
+    case "$image_rc $tehas_store_word" in
+      0\ *) ;;
+      "1 busy" | "1 timeout")
+        echo "tehas work: the image of #$issue is not on its record: the state store did not answer ($tehas_store_word)" >&2
+        ;;
+      *)
+        echo "tehas work: the state store did not take the image of this start ($tehas_store_line), not starting a cycle" >&2
+        timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
+          --body "Tehas started no cycle: its record on this host could not be updated as it started. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
+          echo "tehas work: the comment on #$issue failed" >&2
+        exit 4
+        ;;
+    esac
+  fi
 fi
-
-# What the container is given of the settings, and how many cycles run now,
-# this one with them, for the cycle's record.
-tehas_improve_settings "$settings_file" "$(tehas_cycles_running | wc -l)" "${envs[@]}" "${image_opts[@]}" ||
-  echo "tehas work: could not write $settings_file" >&2
 
 # Set before the container starts, so no signal falls between. A stop ends the
 # loop and is recorded as interrupted, not as running.

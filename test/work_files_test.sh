@@ -121,29 +121,17 @@ t_eq "$t_rc" 2
 t_lacks "$t_out" "gives a cycle none"
 t_eq "$(kept_manifests)" 0
 
-t_case "a record that is not of the shape tehas work reads starts no cycle: exit 4, nothing kept, and the issue is told"
+t_case "an approval the store cannot read starts no cycle: exit 4, nothing kept, and the issue is told"
 images_off
-mkdir -p "$(dirname "$record")"
-echo '{"at": 1, "links": ["x"]}' >"$record"
+record_is alice "![shot]($A/1111)" "$A/1111"
+t_store_answers approval-current 1 'store: busy #7: the database is locked'
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 4
 t_lacks "$t_out" "gives a cycle none"
-t_contains "$t_out" "tehas work: the approval record could not be read ($record), not starting a cycle"
+t_contains "$t_out" "tehas work: the approval of this issue could not be read, not starting a cycle"
 t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(gapline)" ""
-t_eq "$(kept_manifests)" 0
-
-t_case "an approval whose at is not one line is not read, so no line can name the wrong approval"
-images_off
-mkdir -p "$(dirname "$record")"
-jq -n '{at: "2026-10-14T00:00:00Z\nby someone", by: "alice", how: "label",
-  links: ["'"$A"'/1111"]}' >"$record"
-issue_is "![shot]($A/1111)" NONE
-t_run "$work 7"
-t_eq "$t_rc" 4
-t_lacks "$t_out" "gives a cycle none"
-t_contains "$t_out" "could not be read"
 t_eq "$(kept_manifests)" 0
 
 t_case "a manifest kept for the issue that is not JSON says so once, and the cycle starts"
@@ -171,9 +159,8 @@ t_eq "$(kept_manifests)" 0
 t_case "a record written while the instance took links from comments keeps them, each with its source"
 images_off
 record_is alice "![shot]($A/1111)" "$A/1111"
-jq '.comment_links = [{link: "'"$A"'/2222", source: "comment:51", by: "alice"},
-  {link: "https://example.com/y.png", source: "comment:52", by: "alice"}]' "$record" >"$record.new" &&
-  mv "$record.new" "$record"
+record_edit '.comment_links = [{link: "'"$A"'/2222", source: "comment:51", by: "alice"},
+  {link: "https://example.com/y.png", source: "comment:52", by: "alice"}]'
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 2

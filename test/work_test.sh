@@ -393,7 +393,7 @@ echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$work 7"
 t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_app"
-run_args=$(cat "$(find "$T/calls" -name 'docker.args.*' | head -n 1)")
+run_args=$(cycle_args)
 t_contains "$run_args" "$T/home/tehas/state/github:/run/tehas/github:ro"
 t_lacks "$run_args" "github-app.pem"
 cp "$T/instance.env.before" "$TEHAS_INSTANCE_DIR/instance.env"
@@ -401,8 +401,10 @@ rm -f "$T/home/tehas/state/github/token" "$T/home/tehas/state/github/token.expir
 
 t_case "without a GitHub App the container is given no token directory"
 rm -f "$T"/calls/*
+T_ENV=("${env_ok[@]}")
 t_run "$work 7"
-run_args=$(cat "$(find "$T/calls" -name 'docker.args.*' | head -n 1)" 2>/dev/null)
+run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
+t_contains "$run_args" "pi-rukas-headless"
 t_lacks "$run_args" "/run/tehas/github"
 
 t_done

@@ -134,21 +134,6 @@ impl Host {
         )
         .unwrap();
         self.put(
-            "state/cycles/7.approved.json",
-            &json!({"at": iso(started - 90), "by": "someone", "how": "label"}).to_string(),
-        );
-        self.put("state/cycles/7.rukas", "abcdef1\n");
-        // The settings snapshot as lib/improve.sh writes it: a model with
-        // dots, a provider word, and a host value it withheld.
-        self.put(
-            "state/cycles/7.settings",
-            &json!({"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "qwen3.5-coder-32b",
-                                  "PI_ENSEMBLE_SUBAGENT_PROVIDER": "fleet",
-                                  "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
-                    "host": {"TEHAS_WORK_TIMEOUT": "21600"}, "concurrentCycles": 2})
-            .to_string(),
-        );
-        self.put(
             "state/cycles/7.progress.json",
             &json!({"roles": [{"role": "ops", "dispatches": 1, "turns": 3, "input": 100,
                                "output": 10, "cacheRead": 5},
@@ -178,19 +163,34 @@ impl Host {
             &json!({"generatedAt": iso(now), "totals": {"watts": 250.0}}).to_string(),
         );
         self.put("docs/version.txt", "v0.7.22+1234abc\n");
+        // The run's facts as lib/analytics.sh gives them: the history line,
+        // the approval, the settings snapshot as lib/improve.sh writes it (a
+        // model with dots, a provider word, and a host value it withheld) and
+        // the image's commit.
+        fs::create_dir_all(self.home.join("tmp")).unwrap();
         self.put(
-            "state/cycles/7.history.jsonl",
-            &format!(
-                "{}\n",
-                json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff",
-                       "parked": true, "pr": "https://github.com/o/r/pull/3"})
-            ),
+            "tmp/facts.json",
+            &json!({"line": {"at": iso(started + 30), "started": started, "rc": 10,
+                             "status": "handoff", "parked": true,
+                             "pr": "https://github.com/o/r/pull/3"},
+                    "attempt": 1,
+                    "approval": {"at": iso(started - 90), "how": "label"},
+                    "settings": {"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "qwen3.5-coder-32b",
+                                               "PI_ENSEMBLE_SUBAGENT_PROVIDER": "fleet",
+                                               "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
+                                 "host": {"TEHAS_WORK_TIMEOUT": "21600"},
+                                 "concurrentCycles": 2},
+                    "rukas": "abcdef1"})
+            .to_string(),
         );
+        let facts = self.home.join("tmp/facts.json");
         let image = format!("sha256:{}", "ab".repeat(32));
         for args in [
             vec![
                 "run",
                 "7",
+                "--facts",
+                facts.to_str().unwrap(),
                 "--image",
                 image.as_str(),
                 "--oom",

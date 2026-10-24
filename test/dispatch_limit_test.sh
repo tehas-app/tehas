@@ -106,7 +106,7 @@ planning
 limit 3 false
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "--session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "--session abc-123 --answer $keep/answer.md"
 
 t_case "limit: an expired limit holds an answer too, and a retry tick"
 planning

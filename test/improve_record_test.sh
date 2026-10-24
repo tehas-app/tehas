@@ -45,19 +45,19 @@ t_eq "$(sed -n 2p "$r/stream.jsonl" | jq '.text | length')" 2006
 t_case "the record names the pi-rukas commit tehasbot cycle noted at the start"
 t_eq "$(jq -c .rukas "$r/cycle.json")" null
 reset
-mkdir -p "$home/state/cycles"
-echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
+t_store_home "$home"
+t_started "$home" 7 --by-hand --rukas fedcba9876543210fedcba9876543210fedcba98
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -r .rukas "$base/window/$REC/cycle.json")" fedcba9876543210fedcba9876543210fedcba98
 
-t_case "a note that is not a commit records null, whatever versions.env says"
-echo 'not a commit' >"$home/state/cycles/7.rukas"
+t_case "a record that cannot be read gives null, whatever versions.env says"
 printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
+t_store_answers cycle-show 1 'store: busy #7: the database is locked'
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$(jq -c .rukas "$base/window/$REC/cycle.json")" null
-rm -rf "$home/state/cycles" "$home/versions.env"
+t_eq "$(jq -c '[.rukas, .settings]' "$base/window/$REC/cycle.json")" '[null,null]'
+rm -rf "$home/libexec" "$home/versions.env"
 
 t_case "the build commit of the runner's result is recorded beside the label's, and only a full commit"
 cycle_log
@@ -68,8 +68,8 @@ lib "tehas_improve_record 7 $started 0 handoff review '' 0 '' '' '' '' 1ca933e"
 t_eq "$(jq -c .buildCommit "$base/window/$REC/cycle.json")" null
 
 t_case "the image and its commit, as the container started, win over both"
-mkdir -p "$home/state/cycles"
-echo fedcba9876543210fedcba9876543210fedcba98 >"$home/state/cycles/7.rukas"
+t_store_home "$home"
+t_started "$home" 7 --by-hand --rukas fedcba9876543210fedcba9876543210fedcba98
 printf '%s\n' "PI_RUKAS_COMMIT=0123456789abcdef0123456789abcdef01234567" >"$home/versions.env"
 img=sha256:$(printf 'e%.0s' {1..64})
 cycle_log
@@ -81,7 +81,7 @@ t_eq "$(jq -c '[.image, .rukas]' "$base/window/$REC/cycle.json")" '[null,"fedcba
 cycle_log
 lib "tehas_improve_record 7 $started 0 handoff review"
 t_eq "$(jq -c '.image' "$base/window/$REC/cycle.json")" null
-rm -rf "$home/state/cycles" "$home/versions.env"
+rm -rf "$home/state" "$home/libexec" "$home/versions.env"
 
 t_case "the cap and its reason are recorded, reduced, and null when there are none"
 cycle_log
@@ -233,12 +233,20 @@ settings "PI_ENSEMBLE_X=1" 1 "$opts"
 t_eq "$(jq -c '[.container[]] | unique' "$home/s.json")" '["[withheld]"]'
 t_eq "$(jq -c '.container | length' "$home/s.json")" 16
 
+# on_record <settings JSON>: a cycle of issue 7 started, its image and these
+# settings on its record as tehas work puts them there.
+on_record() {
+  t_store_home "$home"
+  t_started "$home" 7 --by-hand
+  printf '%s\n' "$1" >"$T/settings.json"
+  TEHAS_HOME=$home flock -w 5 "$home/state/cycles/7.lock" "$T_STORE" cycle-image 7 --attempt 1 \
+    --image "sha256:$(printf 'e%.0s' {1..64})" --settings "$T/settings.json" >/dev/null
+}
+
 t_case "the record carries this cycle's settings, the count and the provider retry line"
 reset
 cycle_log
-mkdir -p "$home/state/cycles"
-echo '{"container":{"PI_ENSEMBLE_MAX_WORKSTREAMS":"1"},"host":{"TEHAS_WORK_TIMEOUT":"21600"},"concurrentCycles":4}' \
-  >"$home/state/cycles/7.settings"
+on_record '{"container":{"PI_ENSEMBLE_MAX_WORKSTREAMS":"1"},"host":{"TEHAS_WORK_TIMEOUT":"21600"},"concurrentCycles":4}'
 printf '%s\n' "preflight ok" "provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset" \
   >"$home/logs/work-$REC.jsonl.preflight"
 lib "tehas_improve_record 7 $started 0 handoff review"
@@ -246,16 +254,18 @@ r=$base/window/$REC
 t_eq "$(jq -c '[.settings, .concurrentCycles, .providerRetry]' "$r/cycle.json")" \
   '[{"container":{"PI_ENSEMBLE_MAX_WORKSTREAMS":"1"},"host":{"TEHAS_WORK_TIMEOUT":"21600"}},4,"provider retry: timeoutMs=600000 maxRetries=8 maxRetryDelayMs=60000 httpIdleTimeoutMs=unset"]'
 
-t_case "an earlier cycle's settings, a link, or a file of another shape give null"
-for kind in old link shape; do
+t_case "an earlier cycle's settings, settings of another shape, or a secret's give null"
+for kind in old shape secret; do
   reset
   cycle_log
-  mkdir -p "$home/state/cycles"
-  f=$home/state/cycles/7.settings
   case $kind in
-    old) echo '{"container":{},"host":{},"concurrentCycles":1}' >"$f"; touch -d '2 hours ago' "$f" ;;
-    link) echo '{"container":{},"host":{},"concurrentCycles":1}' >"$T/elsewhere"; ln -s "$T/elsewhere" "$f" ;;
-    shape) echo '{"container":{"A":1},"host":{},"concurrentCycles":1}' >"$f" ;;
+    old)
+      on_record '{"container":{"PI_ENSEMBLE_X":"1"},"host":{},"concurrentCycles":1}'
+      # The next start clears what the last one had on record.
+      t_started "$home" 7 --by-hand
+      ;;
+    shape) on_record '{"container":{"A":1},"host":{},"concurrentCycles":1}' ;;
+    secret) on_record "{\"container\":{\"PI_ENSEMBLE_X\":\"ghp_$(printf 'a%.0s' {1..36})\"},\"host\":{},\"concurrentCycles\":1}" ;;
   esac
   lib "tehas_improve_record 7 $started 0 handoff review"
   t_eq "$(jq -c '[.settings, .concurrentCycles, .providerRetry]' "$base/window/$REC/cycle.json")" '[null,null,null]'

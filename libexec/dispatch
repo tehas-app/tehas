@@ -22,8 +22,10 @@
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
-# malformed; 1 a call to GitHub failed or its answer could not be read, systemd
-# cannot load the cycle unit (before any label changes), or a cycle could not be
+# malformed, or the state store is not installed or cannot be used (before any
+# call to GitHub when it is not installed); 1 a call to GitHub failed or its
+# answer could not be read, the state store could not be read, systemd cannot
+# load the cycle unit (before any label changes), or a cycle could not be
 # started.
 #
 # Rules, in order:
@@ -45,7 +47,7 @@
 #      in a lane of their own: at most TEHAS_REFRESH_SLOTS of them, not
 #      counted against TEHAS_TICKET_CONCURRENCY, and new cycles leave as many
 #      containers of the slice's room as the lane has free. A running cycle is
-#      a refresh when its approval record has how "refresh".
+#      a refresh when the state store says it started as one.
 #      An open issue marked tehas:running whose cycle holds no lock on this
 #      host is handed to a human, once a fresh read shows it still marked.
 #      Nothing is started for it. A closed one only loses the mark. A cycle
@@ -78,20 +80,24 @@
 #      parked issue that GitHub still says is open, and it is unticked when it
 #      is used. A tick on an issue closed since its cycle stopped starts
 #      nothing. A comment is a
-#      question only if this host has its id on record, in $TEHAS_HOME/state:
-#      the planning record, or park-<issue>.id.
+#      question only if this host has its id on record on the state store:
+#      the question of the issue's open planning session, or of its current
+#      park (question-known). A record that could not be read skips the issue
+#      for this poll: no tick counts and none is undone.
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
-#      account that started the parked one. A second such park waits.
+#      account that started the parked one (park-show --automatic). Any start
+#      of the issue spends that one retry (park-retry), and so does a park that
+#      can start nothing. A second such park waits.
 #   4c. A fresh tehas:ready on an issue whose last cycle parked asks for nothing
-#      while the issue still carries the body that cycle ran on. The park names
-#      it as body_sha256, copied from the approval record of that start; when
-#      the two are equal and the park was no provider outage the poll starts no
-#      cycle, leaves the park and the labels where they are, and logs why. It
-#      says so on the issue once for that park and keeps its word in the park as
-#      held; later polls only log. A body that changed, a tick of "Retry from a
-#      clean start", the retry rule 4a makes and a park that names no
-#      body_sha256 all start as they did.
+#      while the issue still carries the body that cycle ran on: the body its
+#      start's approval bound, as the store names it for the park. When the two
+#      are equal, the park was no provider outage and no start has spent it,
+#      the poll starts no cycle, leaves the park and the labels where they are,
+#      and logs why. It says so on the issue once for that park (park-told);
+#      later polls only log. A body that changed, a tick of "Retry from a clean
+#      start", the retry rule 4a makes and a park of a run by hand all start as
+#      they did.
 #   4b. A refresh request, state/refresh/<issue>.json from tehasbot refresh,
 #      starts a cycle that merges the branch into the bot's pull request of
 #      that issue and pushes to the same branch, on the word of the person
@@ -128,7 +134,8 @@
 #      whose tehas:plan or tehas:refine label was applied by an
 #      allowed account starts a session, a parked one included: as with
 #      tehas:ready, tehas:question is no bar to asking for a session, and the
-#      start takes it off. tehas:planning and tehas:running are. Neither waits
+#      start takes it off. tehas:planning and tehas:running are, and so is a
+#      turn running on record (plan-begin refuses it). Neither waits
 #      for rule 2, the cap of
 #      rule 3 or the slice's room: a planning turn opens no pull request. A
 #      slice that cannot be used holds them too, before a label or a comment
@@ -136,7 +143,8 @@
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. It never names the bot: every poll
 #      reads its own login and stops when it is listed. An issue with an open
-#      planning session is not eligible until it is ended. It is eligible only
+#      planning session on record is not eligible until it is ended; while the
+#      open sessions cannot be read, no issue is. It is eligible only
 #      while GitHub says the number is an open issue: a closed issue and a pull
 #      request start nothing, whatever label they carry. Nothing else the issue
 #      carries holds it back: tehas's labels of an earlier outcome go with
@@ -255,13 +263,19 @@
 # (seconds the fetch of the checkout may take [120]) and TEHAS_CHECK_WAIT
 # (seconds the read of TEHAS_BRANCH_CHECK may take [30]).
 #
-# Before a start changes any label, the poll writes what it rests on to
-# $TEHAS_HOME/state/cycles/<issue>.approved.json: {at, by, how, body_sha256,
-# title_sha256, links}. Who approved and when, by the label or a retry tick, a
-# sha256 of the body that approval was checked against (carriage returns
-# dropped), a sha256 of the issue's title held the same way, and the
-# links to GitHub's attachment storage in that body. An answer that names no
-# title records no title_sha256, and tehas work then checks the body alone. With TEHAS_WORK_COMMENTS=1
+# Before a start changes any label, the poll records what it rests on in the
+# state store (lib/store.sh, approval-record): who approved and when, by the
+# label or a retry tick, how, a sha256 of the body that approval was checked
+# against (carriage returns dropped), a sha256 of the issue's title held the
+# same way, and as the start's inputs the links to GitHub's attachment storage
+# in that body. An answer that names no title records no title sha256, and
+# tehas work then checks the body alone. The time is when the approval was
+# given, as GitHub says, except for a refresh and the retry after an outage,
+# which are on record at the time the poll decided them. An issue has one
+# approval waiting at most, and an approval starts one cycle: the cycle's own
+# start uses it (cycle-start), and a second poll that finds the same approval
+# used starts nothing. tehas work and the cycle read it back in the shape
+# below (tehas_approval_view). With TEHAS_WORK_COMMENTS=1
 # it adds comment_links, [{link, source, by}]: the links in the issue's comments
 # that an allowed account wrote and nobody edited after the approval, source
 # "comment:<id>". On a retry tick it adds the links of the comments allowed
@@ -277,8 +291,16 @@
 # that approval as rests_on, the refreshes since it as refreshes, what it
 # refreshes as refresh_of {pr, head_sha, base_sha, branch}, the fixer's starts
 # carried on as fixer_starts, and one fixed retry_context entry, source
-# "refresh", the task tehas sets it: no comment text. A record that cannot be
-# written, or comments that cannot be read, start nothing, exit 1.
+# "refresh", the task tehas sets it: no comment text. An approval that cannot
+# be recorded, or comments that cannot be read, start nothing, exit 1. A start
+# that gives up after the record takes the approval off it again.
+#
+# Before the label the poll reads the attempt on record for the issue; then it
+# starts the unit and waits up to TEHAS_CYCLE_START_WAIT seconds, by the clock,
+# for a later attempt: the cycle starts its record once it holds its lock. A
+# store that is busy is asked again within the wait. With no new attempt by
+# then, a cycle that holds the issue's lock is taken as started, and anything
+# else is a start that did not happen.
 #
 # A real poll that gets as far as rule 3 writes $TEHAS_HOME/live/dispatch.json:
 # what holds cycles back, if anything, and the slice's numbers. Once the model
@@ -369,6 +391,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/refresh.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 # Sourced after tehas_load, as lib/questions.sh is below: the measure builds
 # the tick of markdown into a jq program with a `file` of its own, and a
@@ -424,6 +448,25 @@ if ! flock -n 8; then
   exit 0
 fi
 date +%s >"$taken" || log "WARN: could not write $taken"
+# The records a poll reads and writes are in the state store. Without it no
+# label is read, and none changes.
+if ! tehas_store_ready; then
+  log "ERROR: the state store is not installed (run install.sh)"
+  exit 78
+fi
+# The record files of an older tehas. install.sh imports them; one still here
+# is an import that stopped, or a cycle that ran the old code across the
+# update. The store has no row for it, and no row is not "none" (D2). The
+# carriers, the .new of a killed writer and state/dispatch.taken never match.
+old_records=('state/cycles/[1-9]*.'{approved.json,park,by,requeued,taken,rukas,quiet,image,settings,branch,history.jsonl}
+  'state/park-[1-9]*.'{id,json} 'state/plan-[1-9]*.json' 'state/plan-[1-9]*.json.'{brief,answer,turn,keep}
+  'state/cycles/plan-[1-9]*.history.jsonl' 'state/plan-[1-9]*.history.jsonl')
+for old in "${old_records[@]}"; do
+  if old=$(cd "$TEHAS_HOME" && compgen -G "$old"); then
+    log "ERROR: records of an older tehas at $TEHAS_HOME/${old%%$'\n'*}; run install.sh again"
+    exit 78
+  fi
+done
 
 # Every real poll that holds the lock ends with one sample of the factory and
 # a prune in its analytics, after its live files are written, however it
@@ -1156,13 +1199,21 @@ fixer_ok() {
   unchanged_since "$n" "$at" "the fixer applied tehas:ready" "the fixer or a person applies it again" || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) ||
     { log "ERROR: the text of #$n could not be read for its hash"; exit 1; }
-  if tehas_fixer_grant "$n" "$sum"; then
-    # The body hash does not cover the title: a rename since the person's
-    # approval was not approved either.
-    unchanged_since "$n" "$(jq -r .at <<<"$tehas_fixer_rests_on")" "$(jq -r .by <<<"$tehas_fixer_rests_on") approved it" \
-      "a person applies tehas:ready" && return 0
-    tehas_fixer_why="its title or text was changed since $(jq -r .by <<<"$tehas_fixer_rests_on") approved it"
-  fi
+  tehas_fixer_grant "$n" "$sum"
+  case $? in
+    0)
+      # The body hash does not cover the title: a rename since the person's
+      # approval was not approved either.
+      unchanged_since "$n" "$(jq -r .at <<<"$tehas_fixer_rests_on")" "$(jq -r .by <<<"$tehas_fixer_rests_on") approved it" \
+        "a person applies tehas:ready" && return 0
+      tehas_fixer_why="its title or text was changed since $(jq -r .by <<<"$tehas_fixer_rests_on") approved it"
+      ;;
+    2)
+      # Could not look: the label stays, and the next poll asks again.
+      log "skip #$n: tehas:ready from the fixer waits: $tehas_fixer_why"
+      return 1
+      ;;
+  esac
   log "skip #$n: tehas:ready from the fixer starts nothing: $tehas_fixer_why"
   if [ "$dry" = 1 ]; then
     log "would take tehas:ready off #$n"
@@ -1176,19 +1227,20 @@ fixer_ok() {
   return 1
 }
 
-# fixer_answer_ok <issue> <record> <answer> tick|reply: the fixer answered a
-# planning question. 0 when the answer may run the turn (tehas_fixer_answer in
-# lib/fixer.sh, a marked reply, never the way out). Otherwise it is an
-# outsider's: a tick is undone with a note, as a stranger's is, and a reply is
-# logged and said on the issue once, its id kept in the record's fixer_refused.
+# fixer_answer_ok <issue> <session> <answer> tick|reply: the fixer answered a
+# planning question. <session> is the open session as plan_view writes it. 0
+# when the answer may run the turn (tehas_fixer_answer in lib/fixer.sh, a
+# marked reply, never the way out). Otherwise it is an outsider's: a tick is
+# undone with a note, as a stranger's is, and a reply is logged and said on the
+# issue once, its id noted with the session (plan-note --kind fixer-refused).
 fixer_answer_ok() {
-  local n=$1 st=$2 ans=$3 said=$4 why="" id
+  local n=$1 view=$2 ans=$3 said=$4 why="" id
   # The way out is a person's, whether the fixer's tick or its reply is used.
   if [ "$(jq -r .tick.status <<<"$ans")" = fixer ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
     why="it ticked End this planning session, which only a person may"
   elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
     why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
-  elif ! tehas_fixer_answer "$st"; then
+  elif ! tehas_fixer_answer "$view"; then
     why=$tehas_fixer_why
   else
     return 0
@@ -1200,31 +1252,35 @@ fixer_answer_ok() {
     return 1
   fi
   id=$(jq -r '.fixer_reply.id | tostring' <<<"$ans")
-  jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 1
+  [[ $id =~ ^[1-9][0-9]{0,15}$ ]] || return 1
+  jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 1
   log "skip #$n: the fixer's answer runs no turn: $why"
   [ "$dry" = 0 ] || return 1
-  if jq -c --argjson id "$id" '.fixer_refused = (.fixer_refused // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
-    say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
+  if plan_store plan-note "$n" --kind fixer-refused --id "$id"; then
+    [ "$(tehas_store_get .said)" != true ] ||
+      say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
   else
-    log "WARN: the record of #$n could not be updated"
+    log "WARN: the record of #$n could not be updated ($tehas_store_word)"
   fi
   return 1
 }
 
-# fixer_held <issue> <record> <answer>: the fixer saved the ticked question
+# fixer_held <issue> <session> <answer>: the fixer saved the ticked question
 # after someone else edited it, so the tick may be a person's. It is neither
 # used nor undone: a person ticks again or replies. Said once a question, its
-# id kept in the record's held.
+# id noted with the session (plan-note --kind held).
 fixer_held() {
-  local n=$1 st=$2 ans=$3 id
-  id=$(jq -r .comment <<<"$ans")
-  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$st" >/dev/null 2>&1 || return 0
+  local n=$1 view=$2 ans=$3 id
+  id=$(jq -r '.comment | tostring' <<<"$ans")
+  [[ $id =~ ^[1-9][0-9]{0,15}$ ]] || return 0
+  jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 0
   log "skip #$n: the fixer saved the question after another account did, so who ticked it is not known"
   [ "$dry" = 0 ] || return 0
-  if jq -c --argjson id "$id" '.held = (.held // []) + [$id]' "$st" >"$st.new" && mv "$st.new" "$st"; then
-    say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
+  if plan_store plan-note "$n" --kind held --id "$id"; then
+    [ "$(tehas_store_get .said)" != true ] ||
+      say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
   else
-    log "WARN: the record of #$n could not be updated"
+    log "WARN: the record of #$n could not be updated ($tehas_store_word)"
   fi
 }
 
@@ -1290,19 +1346,26 @@ refresh_checkout() {
 # the gh issue edit options that take it out of the queue it came from. For
 # the approval record: when it was given and how, in one word.
 picked=()
-declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=() rests_on=() fixer_starts=()
-# A refresh's: the pull request to mark, its address, and the record's
-# refreshes and refresh_of.
-declare -A refresh_pr=() refresh_url=() refreshes=() refresh_of=()
+declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=() given_comment=()
+# The time of the approval each start recorded, epoch seconds, by which a
+# start that gives up takes it off the record again.
+declare -A recorded_at=()
+# A refresh's: the pull request to mark, its address, and what it refreshes.
+# The store counts the refreshes and the fixer's starts from the approvals.
+declare -A refresh_pr=() refresh_url=() refresh_of=()
 
-# approved_record <issue>: write state/cycles/<issue>.approved.json. Returns 1
-# when it could not be written.
+# approved_record <issue>: record the approval of a start in the state store,
+# its inputs with it, and its time in recorded_at. Returns 1 when it could not
+# be recorded, with the store's word in record_word when the store said no:
+# "used" is an approval that started a cycle already.
+record_word=""
 approved_record() {
-  local n=$1 file=$TEHAS_HOME/state/cycles/$1.approved.json sum tsum from='[]' retry=null
+  local n=$1 sum tsum from='[]' retry=null at input dir rc
+  local -a args
+  record_word=""
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
-  # The title of the same answer. An answer that names none binds none, which is
-  # the shape of every record written before titles were bound.
+  # The title of the same answer. An answer that names none binds none.
   tsum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_title_sha256 2>/dev/null) || tsum=""
   if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
     from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
@@ -1315,19 +1378,44 @@ approved_record() {
     retry=$(fixer_note "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   fi
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
-  jq --arg at "${given_at[$n]}" --arg by "${starter[$n]}" --arg how "${given_how[$n]}" --arg sum "$sum" \
-    --arg title "$tsum" \
-    --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
-    --argjson rests "${rests_on[$n]:-null}" --argjson starts "${fixer_starts[$n]:-0}" \
-    --argjson refreshes "${refreshes[$n]:-0}" --argjson of "${refresh_of[$n]:-null}" \
-    "$(tehas_attachment_links)"'{at: $at, by: $by, how: $how, body_sha256: $sum,
-      links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
-      + (if $title == "" then {} else {title_sha256: $title} end)
+  # When the approval was given, as GitHub said. A refresh and the retry after
+  # an outage rest on an approval that is on record already: they are on record
+  # at the time the poll decided them, and so is an approval whose time GitHub
+  # did not say.
+  at=""
+  case ${given_how[$n]} in
+    refresh | outage-retry) ;;
+    *) [ -z "${given_at[$n]}" ] || at=$(date -u -d "${given_at[$n]}" +%s 2>/dev/null) || at="" ;;
+  esac
+  [[ $at =~ ^[1-9][0-9]{0,10}$ ]] || at=$EPOCHSECONDS
+  dir=$TEHAS_HOME/tmp
+  [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
+  [ -d "$dir" ] && [ ! -L "$dir" ] && input=$(mktemp "$dir/approval-input.XXXXXX" 2>/dev/null) || return 1
+  if ! jq --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
+    --arg how "${given_how[$n]}" --argjson of "${refresh_of[$n]:-null}" \
+    "$(tehas_attachment_links)"'{links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
-      + if $how == "fixer" then {rests_on: $rests, fixer_starts: $starts} else {} end
-      + if $how == "refresh" then {rests_on: $rests, fixer_starts: $starts, $refreshes, refresh_of: $of} else {} end' \
-    <<<"${text_of[$n]}" >"$file.new" 2>/dev/null && mv "$file.new" "$file"
+      + if $how == "refresh" then {refresh_of: $of} else {} end' \
+    <<<"${text_of[$n]}" >"$input" 2>/dev/null; then
+    rm -f "$input"
+    return 1
+  fi
+  args=("$n" --at "$at" --by "${starter[$n]}" --how "${given_how[$n]}" --body-sha "$sum" --input-file "$input")
+  case ${given_how[$n]} in label | fixer) args+=(--label tehas:ready) ;; esac
+  [ -z "$tsum" ] || args+=(--title-sha "$tsum")
+  [[ ${given_comment[$n]:-} =~ ^[1-9][0-9]{0,15}$ ]] && args+=(--comment-id "${given_comment[$n]}")
+  [ -z "${refresh_pr[$n]:-}" ] ||
+    args+=(--refresh-pr "${refresh_pr[$n]}" --refresh-head "$(jq -r .head_sha <<<"${refresh_of[$n]}")")
+  tehas_store approval-record "${args[@]}"
+  rc=$?
+  rm -f "$input"
+  if [ "$rc" != 0 ]; then
+    record_word=$tehas_store_word
+    [ -n "$record_word" ] || record_word=unusable
+    return 1
+  fi
+  recorded_at[$n]=$at
 }
 
 # A jq definition, `window`: of the comments as the REST API lists them, one
@@ -1435,19 +1523,79 @@ refresh_unmark() {
   [[ $out == *"Not Found"* ]]
 }
 
-# restore_record <issue> <json>: put the approval record back as it was. A
-# start that gives up after writing it must leave the count of refreshes it
-# found there, not one for a refresh that never ran. With nothing to put back
-# the record goes: a host that had none has none still.
+# restore_record <issue>: take the approval this poll recorded off the record
+# again. A start that gives up after recording it must leave what was there
+# before: the approval of the issue's last start is still the one its readers
+# count on, and no refresh is counted that never ran. The undo is safe to
+# repeat, so a busy store is asked again. Returns 1 when the approval stays.
 restore_record() {
-  local file=$TEHAS_HOME/state/cycles/$1.approved.json
-  if [ -n "$2" ]; then
-    if printf '%s\n' "$2" >"$file.new" 2>/dev/null && mv "$file.new" "$file"; then
-      return 0
-    fi
-    log "WARN: could not put back the approval record of #$1"
+  [ -n "${recorded_at[$1]:-}" ] || return 0
+  tehas_store_try 3 approval-record "$1" --undo --at "${recorded_at[$1]}" && return 0
+  log "WARN: could not take the approval of #$1 off the record ($tehas_store_word)"
+  return 1
+}
+
+# park_unask <issue>: take the question of the issue's current park off the
+# record, so its boxes answer for nothing that starts now. An issue with no
+# park, or no question, has nothing to take. The id taken is left in
+# park_unasked[<issue>] for park_reask. Returns 1 when the store could not do
+# it, with its word.
+declare -A park_unasked=()
+park_unask() {
+  local q
+  park_unasked[$1]=""
+  park_now=false
+  tehas_store park-show "$1" || return 1
+  [ "$(tehas_store_get '.park != null')" = true ] || return 0
+  park_now=true
+  q=$(tehas_store_get '.park.question // empty') || return 1
+  [ -n "$q" ] || return 0
+  if tehas_store question-answered "$1" --id "$q" --withdraw; then
+    park_unasked[$1]=$q
+    return 0
+  fi
+  [ "$tehas_store_word" = unknown ] && return 0
+  local rc=$tehas_store_rc word=$tehas_store_word line=$tehas_store_line
+  # A withdraw that timed out may have been done all the same: the question
+  # goes back, which changes nothing when it never left.
+  if [ "$word" = timeout ]; then
+    park_unasked[$1]=$q
+    park_reask "$1"
+  fi
+  tehas_store_said "$rc" "$word" "$line"
+  return 1
+}
+
+# park_spend <issue>: once a start is marked, and before its unit is started,
+# the one retry of the issue's current park is spent, so a unit that never
+# comes up leaves no retry behind. A mark that fails spends nothing: the next
+# poll still owes the retry. A store that does not spend it is a warning: the
+# cycle's start makes a new attempt, and the old park is no longer current.
+park_spend() {
+  [ "$park_now" = true ] || return 0
+  tehas_store_try 3 park-retry "$1" && return 0
+  [ "$tehas_store_word" = unparked ] && return 0
+  log "WARN: #$1: the retry of its park could not be spent ($tehas_store_word)"
+}
+
+# park_reask <issue>: a start given up after park_unask puts the question it
+# took back on the record, so the tick in it still counts on the next poll.
+park_reask() {
+  local q=${park_unasked[$1]:-}
+  [ -n "$q" ] || return 0
+  park_unasked[$1]=""
+  tehas_store_try 3 question-asked "$1" --id "$q" --kind park && return 0
+  log "WARN: could not put the park question of #$1 back on the record ($tehas_store_word): its boxes start nothing now"
+  return 1
+}
+
+# stop_unit <issue>: stop the issue's cycle unit and wait for it, so a unit
+# that comes up late cannot use an approval left on record.
+stop_unit() {
+  if [ -n "${TEHAS_CYCLE_STOP_CMD:-}" ]; then
+    timeout -k 5 30 "$TEHAS_CYCLE_STOP_CMD" "$1" 8>&-
   else
-    rm -f "$file"
+    timeout -k 5 30 systemctl --user stop "tehas-cycle@$1.service" 8>&-
   fi
 }
 
@@ -1465,19 +1613,28 @@ units_ok() {
   fi
 }
 
-# start_cycle <issue>: 0 once the cycle says it holds its lock, by writing
-# the .taken file. Looking at the lock would miss a cycle that ended within
-# the wait. The poll's own lock is not passed on: a cycle outlives the poll.
+# start_cycle <issue> <attempt before>: 0 once the cycle's start is on record:
+# an attempt later than the one read before the label. Looking at the lock
+# would miss a cycle that ended within the wait, and a cycle that refused its
+# number after its start still came up. The wait is by the clock: a store
+# that is busy is asked again until it ends. One that cannot be used ends it,
+# and the lock decides. The poll's own lock is not passed on: a cycle outlives
+# the poll.
 start_cycle() {
-  local n=$1 taken=$TEHAS_HOME/state/cycles/$1.taken i
-  rm -f "$taken"
+  local n=$1 before=$2 got deadline
   if [ -n "${TEHAS_CYCLE_START_CMD:-}" ]; then
     "$TEHAS_CYCLE_START_CMD" "$n" 8>&- || return 1
   else
     systemctl --user start "tehas-cycle@$n.service" 8>&- || return 1
   fi
-  for ((i = 0; i < start_wait * 2; i++)); do
-    [ -e "$taken" ] && return 0
+  deadline=$((SECONDS + start_wait))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if tehas_store cycle-show "$n"; then
+      got=$(tehas_store_get '.cycle.attempt // 0')
+      [[ $got =~ ^[0-9]{1,9}$ ]] && [ "$got" -gt "$before" ] && return 0
+    elif [ "$tehas_store_word" != busy ] && [ "$tehas_store_word" != timeout ]; then
+      break
+    fi
     sleep 0.5
   done
   # A loaded host, or a unit still active from before, can start a cycle late.
@@ -1576,15 +1733,15 @@ index_launch() {
 # after it in the queue are for the next poll: each caller ends the poll on
 # this call, so a later step of a caller cannot act as the start had worked.
 start_cycles() {
-  local n failed=0 accepted previous
+  local n failed=0 accepted before done_any=0
   local -a out
   [ "$fetched" = 1 ] || refresh_checkout
 
   for n in "${picked[@]}"; do
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
-    # A refresh marks its pull request before the approval record is written,
-    # so a start that cannot mark it leaves no record for tehas_refresh_count
+    # A refresh marks its pull request before its approval is recorded, so a
+    # start that cannot mark it leaves no approval for tehas_refresh_count
     # to read as a refresh: the limit is not spent on starts that never were.
     # A mark a person cannot see is worse than no refresh: it tells them to
     # merge or push to a pull request a cycle is about to rewrite.
@@ -1593,55 +1750,79 @@ start_cycles() {
       failed=1
       continue
     fi
-    # The record a refresh is about to replace, so a start that fails after
-    # this point puts back the count it had rather than leave one for a
-    # refresh that never ran. The refresh request file goes only once the
-    # cycle has started, which is what makes a start at all.
-    previous=""
-    if [ -n "${refresh_pr[$n]:-}" ] && [ -e "$TEHAS_HOME/state/cycles/$n.approved.json" ]; then
-      previous=$(cat "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || previous=""
-    fi
+    # The refresh request file goes only once the cycle has started, which is
+    # what makes a start at all.
     if ! approved_record "$n"; then
-      rm -f "$TEHAS_HOME/state/cycles/$n.approved.json.new"
-      restore_record "$n" "$previous"
-      log "ERROR: could not write the approval record of #$n, not starting a cycle"
+      case $record_word in
+        used)
+          # This approval started a cycle already (A3): it starts no other.
+          log "skip #$n: its approval of ${given_at[$n]:-now} started a cycle already"
+          continue
+          ;;
+        "" | busy | timeout | conflict | input) ;;
+        *)
+          log "ERROR: the state store cannot be used, not starting a cycle for #$n: $tehas_store_line"
+          [ "$done_any" = 1 ] || exit 78
+          failed=1
+          break
+          ;;
+      esac
+      log "ERROR: could not write the approval record of #$n${record_word:+ ($record_word)}, not starting a cycle"
       failed=1
       continue
     fi
-    # In the factory's analytics: ready, at the time the record says it was
-    # accepted, and without one at all when the record has no time. The
-    # program keeps the first one of each issue. A failure is a warning.
-    accepted=$(jq -r '.at | strings | fromdateiso8601? | floor | tostring' \
-      "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null) || accepted=""
-    [[ $accepted =~ ^[0-9]{1,12}$ ]] || accepted=""
+    # The attempt on record before the label: the start waited for is a later
+    # one. A start that cannot know it changes nothing.
+    if ! tehas_cycle_attempt "$n"; then
+      log "ERROR: #$n: the store could not say which attempt is on record ($tehas_store_word), not starting a cycle"
+      restore_record "$n"
+      failed=1
+      continue
+    fi
+    before=$tehas_cycle_attempt_is
+    # The question of the park this start answers goes before the label: a
+    # tick in it would start the issue again.
+    if ! park_unask "$n"; then
+      log "ERROR: #$n: the question of its park could not be taken off the record ($tehas_store_word), not starting a cycle"
+      restore_record "$n"
+      failed=1
+      continue
+    fi
+    # In the factory's analytics: ready, at the time the approval was given,
+    # and without one at all when GitHub named none. The program keeps the
+    # first one of each issue. A failure is a warning.
+    accepted=""
+    case ${given_how[$n]} in
+      refresh | outage-retry) accepted=${recorded_at[$n]} ;;
+      *) [ -z "${given_at[$n]}" ] || accepted=${recorded_at[$n]} ;;
+    esac
     tehas_analytics event "$n" ready ${accepted:+--at "$accepted"}
     # The cycle starts only once the issue is marked as taken. If the label
     # cannot be changed, the issue would stay in its queue and every later
     # poll would start the same issue again.
     if ! gh issue edit "$n" --repo "$repo" --add-label tehas:running "${out[@]}" >/dev/null 2>&1; then
-      restore_record "$n" "$previous"
+      restore_record "$n"
+      park_reask "$n"
       log "ERROR: could not mark #$n as running, not starting a cycle"
       failed=1
       continue
     fi
+    done_any=1
+    park_spend "$n"
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
-    # A park question of an earlier cycle is used up by this start, whichever
-    # way it came about. Its boxes must not answer for the new cycle.
-    rm -f "$(park_id "$n")"
-    # So is its park. Who authorised this start is kept for a retry after a
-    # provider outage, and the retry itself is marked for its cycle.
-    rm -f "$TEHAS_HOME/state/cycles/$n.park" "$TEHAS_HOME/state/cycles/$n.requeued"
-    printf '%s\n' "${starter[$n]}" >"$TEHAS_HOME/state/cycles/$n.by" || log "WARN: could not record who started #$n"
-    [ "${verb[$n]}" != requeued ] || : >"$TEHAS_HOME/state/cycles/$n.requeued"
     if [ -n "${refresh_pr[$n]:-}" ]; then
       say "$n" "Tehas refresh started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC: ${refresh_url[$n]} conflicts with \`$(jq -r .branch <<<"${refresh_of[$n]}")\`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @${starter[$n]}'s ${how[$n]}. This issue is owned by the cycle until \`tehas:running\` is removed."
     else
       say "$n" "Tehas cycle started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${starter[$n]}'s ${how[$n]}). This issue is owned by the cycle until \`tehas:running\` is removed."
     fi
-    if start_cycle "$n"; then
+    if start_cycle "$n" "$before"; then
       tehas_analytics event "$n" started
     else
-      restore_record "$n" "$previous"
+      # A unit that comes up after this finds its approval gone and runs
+      # nothing. When the approval stays on record, the unit is stopped.
+      if ! restore_record "$n" && ! stop_unit "$n" >/dev/null 2>&1; then
+        log "WARN: could not stop tehas-cycle@$n.service: a late start may still use its approval"
+      fi
       log "ERROR: the cycle for #$n did not start"
       gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1 ||
         log "WARN: label change on #$n failed"
@@ -1713,7 +1894,9 @@ refresh_ok() {
   head=$(jq -r .head_sha <<<"$req")
   base=$(jq -r .base_sha <<<"$req")
   if tehas_cycle_running "$n"; then refresh_drop "$n" "a cycle runs on it"; return 1; fi
-  if [ -e "$(plan_state "$n")" ]; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
+  # A list that could not be read is no reason to drop the request.
+  if ! plan_sessions; then log "wait #$n: the open planning sessions could not be read ($plan_open_word)"; return 1; fi
+  if plan_open "$n"; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
   [[ $have == *" tehas:awaiting-merge "* || $have == *" needs-human-attention "* ]] ||
@@ -1725,9 +1908,25 @@ refresh_ok() {
   for l in tehas:running tehas:question tehas:fixer-escalated tehas:plan tehas:planning; do
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
-  # The person whose approval the pull request's cycle rests on.
-  record=$TEHAS_HOME/state/cycles/$n.approved.json
-  rests=$(tehas_fixer_base "$record") ||
+  # The person whose approval the pull request's cycle rests on, and the
+  # starts counted on it, from the approval of the issue's latest start. An
+  # approval that cannot be read decides nothing: the request waits.
+  record=$(tehas_approval_view "$n")
+  case $? in
+    0) ;;
+    1)
+      refresh_drop "$n" "this host has no approval of a person's that its pull request rests on"
+      return 1
+      ;;
+    *)
+      log "wait #$n: its approval could not be read"
+      return 1
+      ;;
+  esac
+  rests=$(tehas_fixer_base "$record") || rests=""
+  count=$(tehas_refresh_count "$record" "${rests:-null}") || count=""
+  rm -f "$record"
+  [ -n "$rests" ] ||
     { refresh_drop "$n" "this host has no approval of a person's that its pull request rests on"; return 1; }
   by=$(jq -r .by <<<"$rests")
   at=$(jq -r .at <<<"$rests")
@@ -1758,17 +1957,23 @@ refresh_ok() {
     busy) log "wait #$n: pull request #$pr carries tehas:refreshing"; return 1 ;;
     *) refresh_drop "$n" "$why"; return 1 ;;
   esac
-  count=$(tehas_refresh_count "$record" "$rests")
   [[ $count =~ ^[0-9]{1,6}$ ]] ||
     { refresh_drop "$n" "its approval record does not say how many refreshes there were"; return 1; }
   if [ "$count" -ge "$TEHAS_REFRESH_MAX" ]; then
     refresh_say "$n" "cap $at $count" "it was refreshed $count times since $by approved it, the limit"
     return 1
   fi
-  if tehas_refresh_parked "$n" "$rests"; then
-    refresh_say "$n" "park $at" "a refresh of it since $by approved it parked"
-    return 1
-  fi
+  tehas_refresh_parked "$n" "$rests"
+  case $? in
+    0)
+      refresh_say "$n" "park $at" "a refresh of it since $by approved it parked"
+      return 1
+      ;;
+    2)
+      log "wait #$n: its history could not be read"
+      return 1
+      ;;
+  esac
   image_ok "$n" || return 1
   image_missing_ok "$n" || return 1
   b=$(jq -r '.baseRefName | strings' <<<"$node" | tr -cd 'A-Za-z0-9._/-')
@@ -1777,9 +1982,6 @@ refresh_ok() {
   how[$n]="approval of $at"
   given_at[$n]=$at
   given_how[$n]=refresh
-  rests_on[$n]=$rests
-  fixer_starts[$n]=$(tehas_fixer_starts "$record") || fixer_starts[$n]=0
-  refreshes[$n]=$((count + 1))
   refresh_pr[$n]=$pr
   refresh_url[$n]=$(jq -r '.url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))' <<<"$node")
   refresh_of[$n]=$(jq -n -c --argjson pr "$pr" --arg head "$head" --arg base "$base" --arg branch "${b:-$branch}" \
@@ -1790,41 +1992,43 @@ refresh_ok() {
 }
 
 # park_holds <issue>: does this issue's park hold a fresh tehas:ready back?
-# The park of its last cycle names the body that cycle ran on, copied from the
-# approval record of that start by tehasbot cycle. The same text now, on a park
-# that was no provider outage, is the same ask the cycle already spent, so the
-# poll starts nothing and says the reason in its log. A park of an outage is
-# held by rule 4a's own rules, not here; a park that names no body, or one that
-# is no hash, holds nothing, so an issue whose cycle ended before this field
-# existed starts as it did. The comment is the one thing kept off the loop of
-# polls: the park then says it has told, and the log carries the hold after it.
-# Called once an issue is picked, where the text of the issue is the answer
-# unchanged_since passed it, so no read of GitHub is spent on an issue this
-# would hold in any case. The park's "held" is written in place and read by no
-# other command: lib/cycles.sh names the file's two other tellers, park_id and
-# the retry of rule 4a, and this is the third. Returns 0 when the issue is held.
+# The current park of its last cycle names the body that cycle ran on: the one
+# its start's approval bound, as the store has it. The same text now, on a park
+# that was no provider outage and that no start has spent, is the same ask the
+# cycle already spent, so the poll starts nothing and says the reason in its
+# log. A park of an outage is held by rule 4a's own rules, not here; a park
+# that names no body (a run by hand) holds nothing. The comment is the one
+# thing kept off the loop of polls: the park then says it has told
+# (park-told), and the log carries the hold after it. Called once an issue is
+# picked, where the text of the issue is the answer unchanged_since passed it,
+# so no read of GitHub is spent on an issue this would hold in any case. A park
+# that could not be read holds the issue for this poll. Returns 0 when the
+# issue is held.
 park_holds() {
-  local n=$1 pf=$TEHAS_HOME/state/cycles/$1.park sum held cap now
-  [ -f "$pf" ] && [ ! -L "$pf" ] || return 1
-  sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' "$pf" 2>/dev/null) || sum=""
-  [ -n "$sum" ] || return 1
-  [ "$(jq -r '.provider' "$pf" 2>/dev/null)" != true ] || return 1
+  local n=$1 sum told cap now
   [ -n "${text_of[$n]:-}" ] || return 1
+  if ! tehas_store park-show "$n"; then
+    if [ "$tehas_store_rc" = 1 ]; then
+      log "skip #$n: its park on record could not be read ($tehas_store_word)"
+      return 0
+    fi
+    log "ERROR: the state store cannot be used: $tehas_store_line"
+    exit 78
+  fi
+  read -r sum told cap < <(tehas_store_get '.park
+    | select(. != null and .reason != "provider-outage" and .retries == 0
+        and ((.body_sha256 | type) == "string") and (.body_sha256 | test("^[0-9a-f]{64}$")))
+    | [.body_sha256, (.told_at != null), .reason] | map(tostring) | join(" ")')
+  [ -n "${sum:-}" ] || return 1
   now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
   [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$now" = "$sum" ] || return 1
-  cap=$(jq -r '.cap | strings' "$pf" 2>/dev/null) || cap=""
-  held=$(jq -r '.held' "$pf" 2>/dev/null) || held=""
-  if [ "$held" != true ] && [ "$dry" = 0 ]; then
+  if [ "$told" != true ] && [ "$dry" = 0 ]; then
     say "$n" "Not started: the last cycle parked on \`${cap:-nothing}\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
     # The record of the tell follows the comment: a park nobody was told about
     # has not told, and the next poll tells it. With no record the poll tells it
     # again, once more than the once asked for, and says so.
-    if jq -c '.held = true' "$pf" >"$pf.new" 2>/dev/null && mv "$pf.new" "$pf" 2>/dev/null; then
-      held=true
-    else
-      log "WARN: could not record the hold on the park of #$n"
-    fi
+    tehas_store park-told "$n" || log "WARN: could not record the hold on the park of #$n ($tehas_store_word)"
   fi
   log "hold #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since"
   return 0
@@ -1848,7 +2052,7 @@ report_demand() {
   fi
   for n in $list; do
     [ "$n" = "$control" ] && continue
-    if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+    if plan_open "$n" || tehas_cycle_running "$n"; then continue; fi
     if ! ev=$(gh api "repos/$repo/issues/$n/events?per_page=100" --paginate 2>/dev/null) ||
       ! line=$(tehas_label_actor tehas:ready <<<"$ev"); then
       rm -f "$file"
@@ -1880,7 +2084,7 @@ report_demand() {
   fi
   if [ -z "$held" ]; then
     for n in $list; do
-      if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then continue; fi
+      if plan_open "$n" || tehas_cycle_running "$n"; then continue; fi
       at=$(jq -r '.at | strings' "$(tehas_refresh_dir)/$n.json" 2>/dev/null) || at=""
       waiting=$((waiting + 1))
       if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
@@ -1949,6 +2153,18 @@ fi
 # however it ends: the trap above runs libexec/tidy from here on.
 tidy_on=1
 
+# The open planning sessions, read once before the poll acts: an open session
+# holds its issue out of every start (plan_open). A list that cannot be read
+# ends the poll. Read again after a planning write of this poll, a list that
+# cannot be read then holds every issue (lib/planning.sh).
+plan_sessions_must() {
+  plan_sessions && return 0
+  log "ERROR: the state store could not list the open planning sessions ($tehas_store_word)"
+  [ "$tehas_store_rc" = 1 ] && exit 1
+  exit 78
+}
+plan_sessions_must
+
 # The demand is read from a repository that answers to its name, and the
 # health file the snapshot above wrote is written again with it.
 if [ "$dry" = 0 ]; then
@@ -2000,88 +2216,156 @@ fi
 # a long gate in the container. A cycle that took its lock lately counts as
 # heard from: the live file may be its issue's last cycle's.
 #
-# state/cycles/<issue>.quiet is what keeps such an episode said once. Its whole
-# rule is here, and nowhere else:
-#   written  when this poll asks that cycle's unit to stop, whether or not the
-#            ask worked: the time the cycle was last heard from, how many asks
-#            there have been, and when the poll next says or asks about the
-#            episode. systemctl --no-block answers as soon as it accepts the
-#            stop job, so the note means the stop was asked, not that the unit
-#            stopped; what ends a unit that ignores the job is the unit's own
-#            TimeoutStopSec and RuntimeMaxSec.
-#   re-asked for the same last-heard time at most once per quiet_retry, up to
-#            quiet_asks asks. After that the poll says the episode is a person's
-#            and asks no more, so one unit whose stop never completes cannot
-#            put a 35s wait in front of every cycle start on every poll.
-#   removed  when the cycle is heard from again, and by retire_quiet_notes once
-#            the poll can tell that no cycle holds that issue's lock.
+# The state store keeps such an episode said once. Its whole rule is here, and
+# nowhere else:
+#   the episode  is the time the cycle was last heard from: cycle-note keeps one
+#                per cycle, a later time is a new episode, and the cycle's next
+#                start removes it. It says how many times the poll has asked in
+#                this episode, and when it last asked or said.
+#   an ask       is recorded with cycle-stop-asked before the stop is asked,
+#                whether or not the stop then works, so a slow stop does not
+#                move the next ask. systemctl --no-block answers as soon as it
+#                accepts the stop job, so the record means the stop was asked,
+#                not that the unit stopped; what ends a unit that ignores the
+#                job is the unit's own TimeoutStopSec and RuntimeMaxSec.
+#   re-asked     at most once per quiet_retry, up to quiet_asks asks. After that
+#                the poll says the episode is a person's and asks no more, so
+#                one unit whose stop never completes cannot put a 35s wait in
+#                front of every cycle start on every poll. The first time it
+#                says so is recorded as one more (quiet_asks + 1), which is how
+#                a later poll tells it from the last ask; after that the line is
+#                said once per quiet_retry * quiet_asks (--said-only). The
+#                store dates a record by its own clock, a moment after the
+#                poll's: each wait is one second short, so a record that
+#                crossed a second does not put the next ask off a whole poll.
+# A poll that cannot record the episode asks nothing. A cycle with no open
+# record is not the poll's to stop: it may be starting, or reporting after its
+# end. While it stays quiet, every poll says so, for a person to stop it. A
+# store that cannot be used ends the poll.
 quiet_bound=1200 quiet_retry=600 quiet_asks=6
 
-# Notes of issues no cycle holds any more: the episode is over, so the note
-# goes, and a note of a cycle long ended answers nothing about that issue's
-# next cycle. Called once per poll, after the stuck loop below and before the
-# loop that stops a cycle whose work is done: that loop releases locks later in
-# the same poll, so the note of such a cycle goes on the next poll. A poll that
-# cannot tell whether a lock is free removes nothing.
-retire_quiet_notes() {
-  local f n
-  for f in $(tehas_cycle_note_files quiet); do
-    n=${f##*/}
-    n=${n%.quiet}
-    tehas_cycle_lock_free "$n" || continue
-    [ "$dry" = 1 ] && continue
-    rm -f "$f" || log "WARN: could not remove $f"
-  done
+# quiet_due <times> <asked>: what the poll does now about an episode it has
+# asked about <times> times, last at <asked>: stop, wait, again or line.
+quiet_due() {
+  local next=$(($2 + quiet_retry))
+  [ "$1" -le "$quiet_asks" ] || next=$(($2 + quiet_retry * quiet_asks))
+  if [ "$1" = 0 ]; then
+    echo stop
+  elif [ "$now" -lt $((next - 1)) ]; then
+    echo wait
+  elif [ "$1" -lt "$quiet_asks" ]; then
+    echo again
+  else
+    echo line
+  fi
 }
 
-for n in $(tehas_cycles_running); do
+# After a store call the quiet loop could not use: a refusal, busy or a
+# timeout (1) is the caller's to say; anything else ends the poll.
+quiet_store_usable() {
+  [ "$tehas_store_rc" = 1 ] && return 0
+  log "ERROR: the state store cannot be used: $tehas_store_line"
+  exit 78
+}
+
+# When each running cycle started, as the state store has it: read once a
+# poll, the first time a loop below needs it, into took_at. A lock held with
+# no open row on record is 0. A list that cannot be read ends the poll before
+# it acts on any cycle.
+# How each started is kept beside it in took_how, for the refresh scan, and
+# its quiet episode in quiet_for, quiet_at, quiet_asked and quiet_times, for a
+# dry run to say what the poll would do.
+declare -A took_at=() took_how=() quiet_for=() quiet_at=() quiet_asked=() quiet_times=()
+took_read=0
+running_starts() {
+  local line
+  [ "$took_read" = 0 ] || return 0
+  if ! tehas_store cycle-show --running; then
+    log "ERROR: the state store could not list the running cycles ($tehas_store_word)"
+    [ "$tehas_store_rc" = 1 ] && exit 1
+    exit 78
+  fi
+  while read -r line; do
+    [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)\ ([A-Za-z0-9_.:-]{1,64})\ ([0-9]{1,12})\ ([0-9]{1,12})\ ([0-9]{1,6})$ ]] || continue
+    took_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
+    took_how[${BASH_REMATCH[1]}]=${BASH_REMATCH[3]}
+    quiet_for[${BASH_REMATCH[1]}]=${BASH_REMATCH[4]}
+    quiet_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[5]}
+    quiet_asked[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]}
+    quiet_times[${BASH_REMATCH[1]}]=${BASH_REMATCH[7]}
+  done < <(tehas_store_get '.cycles[] | "\(.issue) \(.cycle
+    | if . != null and .ended_at == null
+      then "\(.started_at) \(.how) \(.quiet.said_for // "-") \(.quiet.at // 0) \(.stop_asked_at // 0) \(.stop_said_times // 0)"
+      else "0  - 0 0 0" end)"')
+  took_read=1
+}
+
+quiet_running=$(tehas_cycles_running)
+[ -z "$quiet_running" ] || running_starts
+for n in $quiet_running; do
   now=$EPOCHSECONDS
   heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
   [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
-  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || took=0
-  [[ $took =~ ^[0-9]{1,12}$ ]] || took=0
+  took=${took_at[$n]:-0}
   [ "$took" -le "$heard" ] || heard=$took
-  note=$TEHAS_HOME/state/cycles/$n.quiet
-  if [ -L "$note" ] || { [ -e "$note" ] && [ ! -f "$note" ]; }; then
-    # Not a plain file: no note. A link goes and what it points at stays; what
-    # the poll cannot remove is said, and this cycle keeps no record.
-    if ! rm -f "$note" 2>/dev/null; then
-      log "WARN: $note is not a note file and could not be removed: the poll keeps no record for #$n"
-      continue
-    fi
-    log "WARN: $note is not a note file: the poll removed it"
-  fi
   if [ "$heard" = 0 ]; then
-    # Nothing is known about this cycle: neither its live file nor its
-    # <issue>.taken could be read. Nothing is said, and no note stands or goes.
+    # Nothing is known about this cycle: neither its live file nor its start
+    # on record could be read. Nothing is said or recorded.
     continue
   fi
-  if [ $(( now - heard )) -le "$quiet_bound" ]; then
-    # Heard from: no episode outstanding, so a note of an earlier one goes.
-    [ "$dry" = 1 ] || rm -f "$note" || log "WARN: could not remove $note"
-    continue
-  fi
+  # Heard from: no episode outstanding. One on record stays until the next
+  # episode or the next start replaces it.
+  [ $((now - heard)) -gt "$quiet_bound" ] || continue
   why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
+  norecord="WARN: $why, and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop $n or systemctl --user stop tehas-cycle@$n.service"
+  if [ "$took" = 0 ]; then
+    log "$norecord"
+    continue
+  fi
   if [ "$dry" = 1 ]; then
-    log "would stop tehas-cycle@$n.service: $why"
+    asks=0 asked=${quiet_asked[$n]:-0}
+    if [ "${quiet_for[$n]:-}" = "$heard" ] && [ "$asked" -ge "${quiet_at[$n]:-0}" ]; then
+      asks=${quiet_times[$n]:-0}
+    fi
+    case $(quiet_due "$asks" "$asked") in
+      stop) log "would stop tehas-cycle@$n.service: $why" ;;
+      again) log "would ask tehas-cycle@$n.service to stop again: $why" ;;
+      line) log "would say that tehas-cycle@$n.service needs a person and ask no more: $why" ;;
+    esac
     continue
   fi
-  noted="" asks=0 next=0
-  if [ -f "$note" ] && [ ! -L "$note" ]; then
-    read -r noted asks next <"$note" || true
+  if ! tehas_store cycle-note "$n" --kind quiet --said-for "$heard"; then
+    quiet_store_usable
+    case $tehas_store_word in
+      ended | nocycle) log "$norecord" ;;
+      *) log "WARN: $why, but the state store could not record it ($tehas_store_word), so the poll asks nothing this time" ;;
+    esac
+    continue
   fi
-  [[ $asks =~ ^[0-9]+$ ]] && [[ $next =~ ^[0-9]+$ ]] || noted=""
-  [ "$noted" = "$heard" ] || asks=0
-  if [ "$asks" = 0 ]; then
-    log "WARN: $why: stopping tehas-cycle@$n.service"
-  elif [ "$now" -lt "$next" ]; then
+  asks=$(tehas_store_get '.times') || asks=""
+  asked=$(tehas_store_get '.stop_asked_at // 0') || asked=""
+  if ! [[ $asks =~ ^[0-9]{1,6}$ ]] || ! [[ $asked =~ ^[0-9]{1,12}$ ]]; then
+    log "WARN: $why, but the state store's record of it does not read as one, so the poll asks nothing this time"
     continue
-  elif [ "$asks" -lt "$quiet_asks" ]; then
-    log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again"
-  else
-    log "WARN: $why: the poll asked ${asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
-    echo "$heard $asks $(( now + quiet_retry * quiet_asks ))" >"$note" || log "WARN: could not write $note"
-    continue
+  fi
+  case $(quiet_due "$asks" "$asked") in
+    wait) continue ;;
+    stop) log "WARN: $why: stopping tehas-cycle@$n.service" ;;
+    again) log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again" ;;
+    line)
+      log "WARN: $why: the poll asked ${quiet_asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
+      only=()
+      [ "$asks" = "$quiet_asks" ] || only=(--said-only)
+      if ! tehas_store cycle-stop-asked "$n" "${only[@]}"; then
+        quiet_store_usable
+        log "WARN: the state store did not record that the poll asks no more of tehas-cycle@$n.service ($tehas_store_word)"
+      fi
+      continue
+      ;;
+  esac
+  if ! tehas_store cycle-stop-asked "$n"; then
+    quiet_store_usable
+    log "WARN: the state store did not record the stop of tehas-cycle@$n.service ($tehas_store_word): the poll asks again"
   fi
   # Without waiting for it: the cycle reports as it stops, and the poll holds
   # its lock meanwhile.
@@ -2091,13 +2375,9 @@ for n in $(tehas_cycles_running); do
   else
     timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&- || rc=$?
   fi
-  echo "$heard $(( asks + 1 )) $(( now + quiet_retry ))" >"$note" ||
-    log "WARN: could not write $note"
   [ "$rc" = 0 ] ||
     log "WARN: could not stop tehas-cycle@$n.service (exit $rc): it holds its slot, and the poll asks again"
 done
-
-retire_quiet_notes
 
 # A cycle whose work is done holds its slot for nothing: its issue is closed,
 # or the bot's pull request for it is merged or closed, and the cycle may
@@ -2109,12 +2389,14 @@ retire_quiet_notes
 done_wait=${TEHAS_CYCLE_DONE_WAIT:-330}
 running=$(tehas_cycles_running)
 if [ -n "$running" ]; then
+  running_starts
   gh_json pr list --repo "$repo" --author "$bot" --state all --json url,state,body,headRefName,createdAt --limit 100
   bot_prs=$json
   jq -e 'type == "array"' >/dev/null 2>&1 <<<"$bot_prs" || { log "ERROR: unreadable list of the bot's pull requests"; exit 1; }
 fi
 for n in $running; do
-  took=$(stat -c %Y "$TEHAS_HOME/state/cycles/$n.taken" 2>/dev/null) || continue
+  took=${took_at[$n]:-0}
+  [ "$took" != 0 ] || continue
   gh_json api "repos/$repo/issues/$n"
   if [ "$(jq -r '.state // "" | ascii_downcase' <<<"$json")" = closed ]; then
     done_why=closed
@@ -2162,9 +2444,9 @@ cycles=$count
 lane=""
 if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] && [ "$TEHAS_REFRESH_SLOTS" -gt 0 ]; then
   refreshing=0
+  [ -z "$running" ] || running_starts
   for n in $running; do
-    [ "$(jq -r '.how // "" | strings' "$TEHAS_HOME/state/cycles/$n.approved.json" 2>/dev/null)" != refresh ] ||
-      refreshing=$((refreshing + 1))
+    [ "${took_how[$n]:-}" != refresh ] || refreshing=$((refreshing + 1))
   done
   cycles=$((count - refreshing))
   lane=$((TEHAS_REFRESH_SLOTS - refreshing))
@@ -2252,20 +2534,41 @@ done
 # apply the label. Left in place it tells a person not to merge a pull request
 # nobody works on. Asked where refreshes are on, or a refresh was ever started
 # here: a host that never refreshed has no such mark of its own to clear.
+# The issues a refresh of this host may own: those with a refresh in their
+# history, and those whose running cycle is one. The owner of a pull request is
+# the one whose latest start is a refresh of it. A record that cannot be read
+# clears nothing this poll: a mark is never taken off on a guess.
 refreshing=""
-if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || grep -Elqs '"how": ?"refresh"' "$TEHAS_HOME"/state/cycles/*.approved.json; then
-  gh_json pr list --repo "$repo" --state open --label tehas:refreshing --limit 1000 --json number,labels
-  refreshing=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:refreshing")) | .number | numbers' <<<"$json") ||
-    { log "ERROR: unreadable list of pull requests marked as refreshing"; exit 1; }
+refresh_from=""
+declare -A refresh_owner=()
+if tehas_store history-show --kind cycle --how refresh; then
+  refresh_from=$(tehas_store_get '[.rows[].issue] | unique | .[]')
+  # The running cycles, as the loops above read them where any runs.
+  for n in "${!took_how[@]}"; do
+    [ "${took_how[$n]}" != refresh ] || refresh_from+=$'\n'"$n"
+  done
+  refresh_from=$(sort -nu <<<"$refresh_from")
+  if [ "$TEHAS_REFRESH_CONFLICTS" = 1 ] || [ -n "$refresh_from" ]; then
+    gh_json pr list --repo "$repo" --state open --label tehas:refreshing --limit 1000 --json number,labels
+    refreshing=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:refreshing")) | .number | numbers' <<<"$json") ||
+      { log "ERROR: unreadable list of pull requests marked as refreshing"; exit 1; }
+  fi
+  if [ -n "$refreshing" ]; then
+    for n in $refresh_from; do
+      if ! tehas_store approval-current "$n"; then
+        log "WARN: the approval of #$n could not be read ($tehas_store_word), so no pull request is cleared of tehas:refreshing this poll"
+        refreshing=""
+        break
+      fi
+      pr=$(tehas_store_get '.current | select(. != null and .how == "refresh") | .refresh_pr // empty')
+      [[ ! $pr =~ ^[1-9][0-9]{0,9}$ ]] || refresh_owner[$pr]=$n
+    done
+  fi
+else
+  log "WARN: the history of refreshes could not be read ($tehas_store_word), so no pull request is cleared of tehas:refreshing this poll"
 fi
 for pr in $refreshing; do
-  owner=""
-  for f in $(tehas_cycle_note_files approved.json); do
-    if [ "$(jq -r --argjson pr "$pr" '.how == "refresh" and .refresh_of.pr == $pr' "$f" 2>/dev/null)" = true ]; then
-      owner=${f##*/}
-      owner=${owner%.approved.json}
-    fi
-  done
+  owner=${refresh_owner[$pr]:-}
   why=""
   if [ -z "$owner" ]; then
     why="no refresh on this host names it"
@@ -2424,7 +2727,7 @@ count_waiting() {
   list=$(jq -r '.[].number | tonumber? // empty' <<<"$ready_json") || { log "ERROR: unreadable list of ready issues"; exit 1; }
   waiting=0
   for n in $list; do
-    [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n" || waiting=$((waiting + 1))
+    plan_open "$n" || tehas_cycle_running "$n" || waiting=$((waiting + 1))
   done
 }
 
@@ -2607,22 +2910,19 @@ fi
 # bot's question comment, or for a planning session a reply after it, and it
 # counts only from an allowed account.
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
-# poll does not wait for it. A running record is a turn still in flight (its
-# unit holds state/plan-<issue>.json.lock), one that ended and left its exit
-# status, which is posted now, or one that was cut off, for example by a
-# restart of the host, which is reported as a failed turn. While one turn is
-# in flight no other starts.
+# poll does not wait for it. A session running on record is a turn still in
+# flight (its unit holds state/plan-<issue>.json.lock), one that ended and
+# left its exit status, which is posted now, or one that was cut off, for
+# example by a restart of the host, which is reported as a failed turn. While
+# one turn is in flight no other starts.
 fresh=" "
 plan_busy=""
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
-  [ "$(jq -r '.running // false' "$st" 2>/dev/null)" = true ] || continue
+plan_sessions_must
+for n in $(jq -r '.[] | select(.running == true) | .issue' <<<"$plan_open_json"); do
   if plan_in_flight "$n"; then
     plan_busy=$n
   elif [ "$dry" = 1 ]; then
-    if [ -f "$st.rc" ]; then
+    if [ -f "$(plan_state "$n").rc" ]; then
       log "would post the planning turn of #$n that ended"
     else
       log "would report the cut-off planning turn of #$n"
@@ -2635,12 +2935,9 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
 done
 # A planning turn whose outcome could not be posted is posted first: its
 # session is waiting on a comment nobody has seen.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
+plan_sessions_must
+for n in $(jq -r '.[] | select(.pending == true) | .issue' <<<"$plan_open_json"); do
   case "$fresh" in *" $n "*) continue ;; esac
-  [ "$(jq -r '.pending // false' "$st" 2>/dev/null)" = true ] || continue
   if [ "$dry" = 1 ]; then
     log "would post the waiting planning turn of #$n"
   else
@@ -2649,22 +2946,20 @@ for st in "$TEHAS_HOME"/state/plan-*.json; do
   # Its question label is newer than the list read below.
   fresh="$fresh$n "
 done
+open_sessions=$(jq -r '.[].issue' <<<"$plan_open_json")
 
 gh_json issue list --repo "$repo" --state open --label tehas:question --limit 1000 --json number,labels
 asking_json=$json
 asking=$(jq -r 'map(.number) | sort | .[]' <<<"$asking_json") || { log "ERROR: unreadable list of issues with a question"; exit 1; }
 # A session whose issue was closed, or whose question label was taken off by
-# hand, is over. Its record goes without a comment. A record that was running
-# or waiting to be posted when this poll began is in $fresh, whatever became
-# of it above, so it is never taken for a session that is over.
-for st in "$TEHAS_HOME"/state/plan-*.json; do
-  [ -f "$st" ] || continue
-  plan_record_number "$st" || continue
-  n=$plan_n
+# hand, is over. It ends without a comment. A session that was running or
+# waiting to be posted when this poll began is in $fresh, whatever became of
+# it above, so it is never taken for a session that is over.
+for n in $open_sessions; do
   case "$fresh" in *" $n "*) continue ;; esac
   case " ${asking//$'\n'/ } " in
     *" $n "*) ;;
-    *) [ "$dry" = 1 ] || rm -rf "$st" "$st.out" "$st.answer" "$st.brief" "$st.keep" ;;
+    *) [ "$dry" = 1 ] || plan_close "$n" || true ;;
   esac
 done
 for n in $asking; do
@@ -2673,26 +2968,40 @@ for n in $asking; do
   control_ask "$n" "its question was answered" && continue
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
-  # files, before a comment is read: the planning record's, else the parked
-  # cycle's. Everything on the issue can be written with the bot's token.
-  st=$(plan_state "$n")
+  # record on the state store, before a comment is read: the question of the
+  # open planning session, else the question of the parked cycle, which the
+  # store must still know as this issue's question on record. Everything on
+  # the issue can be written with the bot's token. A record that could not be
+  # read decides nothing: a tick then neither counts nor is undone.
   qid=""
   qkind=""
-  if [ -f "$st" ]; then
-    qid=$(jq -r '.comment // ""' "$st" 2>/dev/null) || qid=""
-    qkind=plan
-  fi
-  case "$qid" in '' | *[!0-9]*) qid="" ;; esac
-  if [ -z "$qid" ]; then
-    qid=$(cat "$(park_id "$n")" 2>/dev/null) || qid=""
-    qkind=park
-    case "$qid" in
-      '' | *[!0-9]*)
+  plan_row=null
+  if tehas_store plan-show "$n"; then
+    plan_row=$(tehas_store_get '.planning | if type == "object" and .ended_at == null then . else null end') || plan_row=null
+    [ -n "$plan_row" ] || plan_row=null
+    qid=$(jq -r '.comment_id // empty | tostring' <<<"$plan_row")
+    [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
+    if [ -z "$qid" ] && tehas_store park-show "$n"; then
+      qid=$(tehas_store_get '.park.question // empty | tostring')
+      [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
+    fi
+    if tehas_store_looked && [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
+      if [ "$(tehas_store_get '.known')" = true ]; then
+        qkind=$(tehas_store_get '.kind // ""')
+      else
         qid=""
-        qkind=""
-        ;;
-    esac
+      fi
+    fi
   fi
+  if ! tehas_store_looked; then
+    if [ "$tehas_store_rc" != 1 ]; then
+      log "ERROR: the state store cannot be used: $tehas_store_line"
+      exit 78
+    fi
+    log "skip #$n: its question on record could not be read ($tehas_store_word)"
+    continue
+  fi
+  case "$qkind" in park | plan) ;; *) qid="" qkind="" ;; esac
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
     -f query='query($owner: String!, $name: String!, $number: Int!) {
@@ -2754,7 +3063,8 @@ for n in $asking; do
         # next poll reads the same tick and tries again.
         if [ "$dry" = 0 ]; then
           if gh issue edit "$n" --repo "$repo" --remove-label tehas:question >/dev/null 2>&1; then
-            rm -f "$(park_id "$n")"
+            tehas_store_try 3 question-answered "$n" --id "$qid" --by "$by" ||
+              log "WARN: could not record the answer to the question of #$n ($tehas_store_word)"
           else
             log "WARN: label change on #$n failed: --remove-label tehas:question"
           fi
@@ -2809,6 +3119,7 @@ for n in $asking; do
       how[$n]="retry tick"
       given_at[$n]=$(jq -r .tick.at <<<"$ans")
       given_how[$n]="retry-tick"
+      given_comment[$n]=$(jq -r '.comment // "" | tostring' <<<"$ans")
       # The park: when the question was asked.
       given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
       # needs-human-attention stays: the cycle's --restart is the answer it
@@ -2818,10 +3129,11 @@ for n in $asking; do
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
       [[ $have == *" tehas:fixer-escalated "* ]] && drop[$n]+=" --remove-label tehas:fixer-escalated"
-      # One tick is one start. The issue is marked first: when that fails the
-      # poll ends here and the tick stays, so the next poll tries again. Once
-      # it is marked the start has removed the question from the record, so
-      # the tick can start nothing more. It is unticked then, so the comment
+      # One tick is one start. The start takes the question off the record
+      # and then marks the issue: when the mark fails the question goes back
+      # on record, the poll ends here and the tick stays, so the next poll
+      # tries again. Once the issue is marked the question is off the record,
+      # so the tick can start nothing more. It is unticked then, so the comment
       # shows it was taken; a failure there is only a warning.
       # A start that failed before the issue was marked has spent nothing: the
       # tick stays, and the next poll tries again, as the comment above says.
@@ -2845,7 +3157,10 @@ for n in $asking; do
       elif [ "$tick" = one ]; then
         :
       elif [ "$tick" = held ]; then
-        fixer_held "$n" "$st" "$ans"
+        if pview=$(plan_view "$n"); then
+          fixer_held "$n" "$pview" "$ans"
+          rm -f "$pview"
+        fi
         continue
       elif [ "$(jq -r '.fixer_reply != null' <<<"$ans")" = true ]; then
         fixer_said=reply
@@ -2854,7 +3169,7 @@ for n in $asking; do
       else
         continue
       fi
-      if [ ! -f "$st" ]; then
+      if [ "$plan_row" = null ]; then
         [ "$dry" = 1 ] || plan_end "$n" "The record of this planning session is gone from the host, so it cannot continue. Apply \`tehas:plan\` to start a new one."
         continue
       fi
@@ -2862,13 +3177,20 @@ for n in $asking; do
       # bot question must not run a turn. With an id on record the comment was
       # chosen by it and this always holds. It stops the case of a record that
       # names no question, where the newest question of the bot was read.
-      if [ "$(jq -r '.comment // ""' "$st" 2>/dev/null)" != "$(jq -r .comment <<<"$ans")" ]; then
+      if [ "$(jq -r '.comment_id // ""' <<<"$plan_row")" != "$(jq -r .comment <<<"$ans")" ]; then
         log "skip #$n: the question answered is not the one this session is waiting on"
         continue
       fi
       speaker="The operator"
       if [ -n "$fixer_said" ]; then
-        fixer_answer_ok "$n" "$st" "$ans" "$fixer_said" || continue
+        if ! pview=$(plan_view "$n"); then
+          log "skip #$n: its planning session on record could not be read"
+          continue
+        fi
+        fixer_answer_ok "$n" "$pview" "$ans" "$fixer_said"
+        fixer_ok_rc=$?
+        rm -f "$pview"
+        [ "$fixer_ok_rc" = 0 ] || continue
         speaker="The fixer"
         by=$TEHAS_FIXER_LOGIN
         if [ "$fixer_said" = reply ]; then
@@ -2887,7 +3209,7 @@ $reply"
           if [ "$idx" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
             choice="End this planning session"
           else
-            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+            choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' <<<"$plan_row" 2>/dev/null) || choice=""
             [ -n "$choice" ] || choice="a box that matches no option on record"
           fi
           text="$text
@@ -2905,7 +3227,7 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
           [ "$dry" = 1 ] || plan_end "$n" "Planning session ended by $by."
           continue
         fi
-        choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' "$st" 2>/dev/null) || choice=""
+        choice=$(jq -r --argjson i "$idx" '.options[$i] // ""' <<<"$plan_row" 2>/dev/null) || choice=""
         if [ -z "$choice" ]; then
           log "skip #$n: the ticked box matches no option on record"
           continue
@@ -2929,9 +3251,15 @@ A box was also ticked, by $(jq -r .tick.by <<<"$ans"): $choice"
         log "would run a planning turn for #$n (answer from $from)"
         exit 0
       fi
-      printf '%s\n' "$text" >"$st.answer"
+      # The answer goes to the store as it is; the turn is given it from there.
+      [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+      if ! answer_file=$(mktemp "$TEHAS_HOME/tmp/plan-answer.XXXXXX") || ! printf '%s\n' "$text" >"$answer_file"; then
+        [ -z "${answer_file:-}" ] || rm -f "$answer_file"
+        log "ERROR: could not write the answer for #$n, not starting a turn"
+        exit 1
+      fi
       log "planning #$n continues (answer from $from)"
-      plan_turn "$n" next "$st.answer" "$reply_id" "$by"
+      plan_turn "$n" next "$answer_file" "$reply_id" "$by"
       "$status_cmd"
       exit 0
       ;;
@@ -2995,22 +3323,27 @@ for entry in $plans; do
     log "would start a planning session for #$n (labelled by $who${refine:+, to refine it})"
     exit 0
   fi
-  st=$(plan_state "$n")
-  # The park's question goes with the label that asked: plan_turn takes
-  # tehas:question off, and its boxes must not answer for the new session.
-  rm -rf "$st" "$st.out" "$st.answer" "$st.keep" "$(park_id "$n")"
-  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
-    { log "ERROR: unreadable text of #$n"; exit 1; }
+  # The approved text, kept for the turn's unit until the turn ends. The
+  # session's start takes the park's question off the record with it: its
+  # boxes must not answer for the new session.
+  [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+  if ! brief_file=$(mktemp "$TEHAS_HOME/tmp/plan-$n.brief.XXXXXX"); then
+    log "ERROR: could not write the brief of #$n"
+    exit 1
+  fi
+  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$brief_file" ||
+    { rm -f "$brief_file"; log "ERROR: unreadable text of #$n"; exit 1; }
   # The brief goes after the issue's text, so the first line is still the title
   # the planner is asked to plan. The last line names the issue under discussion:
   # without it the planner matches its own issue as the duplicate of the plan and
   # stops at turn 1 (issue 542).
-  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$st.brief"; then
+  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$brief_file"; then
+    rm -f "$brief_file"
     log "ERROR: could not write the brief of #$n"
     exit 1
   fi
   log "start planning #$n (labelled by $who${refine:+, to refine it})"
-  plan_turn "$n" first "$st.brief"
+  plan_turn "$n" first "$brief_file"
   "$status_cmd"
   exit 0
 done
@@ -3022,28 +3355,45 @@ if [ "$want" = 0 ]; then
 fi
 
 # 4a. A cycle a provider outage parked starts again once, without a tick, now
-# that nothing holds cycles back and the model endpoint answers. tehasbot cycle
-# asks for it in state/cycles/<issue>.park. The start rests on the account that
-# authorised the cycle that parked, while it is still allowed and nobody else
-# changed the text since that cycle began. A park file that cannot start
-# anything goes; a second park of the kind waits for a person.
-for pf in $(tehas_cycle_note_files park); do
-  n=${pf##*/}
-  n=${n%.park}
-  [ "$want" -gt 0 ] || continue
-  [ "$(jq -r '.retry == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+# that nothing holds cycles back and the model endpoint answers. The store
+# lists the parks that owe one (park-show --automatic): an outage park of a
+# cycle started on an approval, not itself that retry, whose retry no start
+# has spent. The start rests on the account that started the cycle that parked,
+# as its start on record names it, while it is still allowed and nobody else
+# changed the text since that cycle began. A park that cannot start anything
+# has its retry spent (park-retry); a second park of the kind waits for a
+# person. A list that cannot be read ends the poll before anything is done.
+owed=()
+if [ "$want" -gt 0 ]; then
+  if ! tehas_store park-show --automatic; then
+    log "ERROR: the state store could not list the parks owed a retry ($tehas_store_word)"
+    [ "$tehas_store_rc" = 1 ] && exit 1
+    exit 78
+  fi
+  mapfile -t owed < <(tehas_store_get '.parks[] | select((.issue | type) == "number" and (.started_at | type) == "number")
+    | "\(.issue) \(.started_at) \(.started_by // "")"')
+fi
+for owed_line in "${owed[@]}"; do
+  read -r n started by <<<"$owed_line"
+  [[ $n =~ ^[1-9][0-9]{0,9}$ ]] && [[ $started =~ ^[0-9]{1,11}$ ]] || continue
   ! tehas_cycle_running "$n" || continue
   gh_json issue view "$n" --repo "$repo" --json state,labels
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
-  by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
   # A label of a person's decides it, in rule 6 or by waiting.
   [[ $have != *" tehas:ready "* ]] || continue
   control_ask "$n" "a cycle its provider outage parked asked to start again" && continue
+  # A list that could not be read is no reason to spend the retry.
+  if ! plan_sessions; then
+    log "wait #$n: the open planning sessions could not be read ($plan_open_word)"
+    continue
+  fi
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
-    [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
-    ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
+    [[ $have == *" tehas:running "* ]] || plan_open "$n" || ! tehas_allowed_labeler "$by" ||
+    ! unchanged_since "$n" "$(date -u -d "@$started" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
     log "skip #$n: its retry after a provider outage is not started; it waits for a person"
-    [ "$dry" = 1 ] || rm -f "$pf"
+    if [ "$dry" = 0 ] && ! tehas_store park-retry "$n" && [ "$tehas_store_word" != unparked ]; then
+      log "WARN: the retry of #$n after a provider outage could not be spent on record ($tehas_store_word)"
+    fi
     continue
   fi
   if [ "$dry" = 1 ]; then
@@ -3056,8 +3406,9 @@ for pf in $(tehas_cycle_note_files park); do
   starter[$n]=$by
   verb[$n]=requeued
   # The text was checked unchanged since the parked cycle began, so the
-  # approval record stands on that time.
-  given_at[$n]=$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)
+  # approval record stands on that time. The store records the approval of
+  # this retry at now: it is the poll's own decision.
+  given_at[$n]=$(date -u -d "@$started" +%FT%TZ)
   given_how[$n]=outage-retry
   how[$n]="start of the cycle a provider outage parked"
   drop[$n]=""
@@ -3083,7 +3434,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) |
 urgent=()
 for n in $carrying; do
   [ "$want" -gt 0 ] || break
-  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+  if plan_open "$n" || tehas_cycle_running "$n"; then
     continue
   fi
   label_actor "$n" tehas:urgent
@@ -3098,7 +3449,7 @@ carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:next")) | .
 next=()
 for n in $carrying; do
   [ "$want" -gt 0 ] || break
-  if [ -e "$(plan_state "$n")" ] || tehas_cycle_running "$n"; then
+  if plan_open "$n" || tehas_cycle_running "$n"; then
     continue
   fi
   order_label "$n" tehas:next && next+=("$n")
@@ -3152,7 +3503,11 @@ while read -r kind n; do
   # session's question, and the session would then end with nobody told. The
   # record counts as well as the label: between turns only the record shows
   # that a session is open.
-  if [ -e "$(plan_state "$n")" ] || [[ $have == *" tehas:planning "* ]]; then
+  if ! plan_sessions; then
+    log "skip #$n: the open planning sessions could not be read ($plan_open_word)"
+    continue
+  fi
+  if plan_open "$n" || [[ $have == *" tehas:planning "* ]]; then
     log "skip #$n: a planning session is open on it; end it first"
     continue
   fi
@@ -3220,8 +3575,6 @@ while read -r kind n; do
     verb[$n]="labelled by the fixer"
     how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_fixer_rests_on")'s approval of $(jq -r .at <<<"$tehas_fixer_rests_on")"
     given_how[$n]=fixer
-    rests_on[$n]=$tehas_fixer_rests_on
-    fixer_starts[$n]=$tehas_fixer_count
   fi
   drop[$n]="--remove-label tehas:ready"
   # What an earlier cycle left on the issue goes with the start. Only what

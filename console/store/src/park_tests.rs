@@ -99,7 +99,8 @@ fn park_records_the_park_and_its_question() {
     assert_eq!(
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
-               "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001})
+               "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
+               "told_at":null,"body_sha256":SHA})
     );
     assert_eq!(
         one::<String>(
@@ -698,5 +699,92 @@ fn only_the_newest_park_question_is_on_record() {
     assert_eq!(
         (v["known"].clone(), v["recorded"].clone()),
         (json!(false), json!(true))
+    );
+}
+
+// --- park-told and what park-show says of the hold --------------------------------
+
+#[test]
+fn park_told_says_once() {
+    let home = home("park-told");
+    let a = parked(&home, 50, "alice", "label", "too-large");
+    assert_eq!(
+        ok(&home, &["park-show", "50"])["park"]["told_at"],
+        Value::Null
+    );
+    let v = ok(&home, &["park-told", "50"]);
+    assert_eq!(v["said"], true);
+    assert_eq!(v["park"]["told_at"], NOW);
+    assert_eq!(v["park"]["attempt"], a);
+    let v = ok_at(&home, NOW + 60, &["park-told", "50"]);
+    assert_eq!(v["said"], false);
+    assert_eq!(v["park"]["told_at"], NOW);
+    assert_eq!(ok(&home, &["park-show", "50"])["park"]["told_at"], NOW);
+}
+
+#[test]
+fn park_told_needs_a_current_park() {
+    let home = home("park-told-none");
+    assert_eq!(refused(&home, &["park-told", "51"]), (1, "nopark".into()));
+    let (_l, a) = start(&home, 51);
+    assert_eq!(refused(&home, &["park-told", "51"]), (1, "nopark".into()));
+    end(&home, 51, a, "failed");
+    park(&home, 51, a, "failed", &[]).unwrap();
+    ok(&home, &["park-told", "51"]);
+    // A new start: the old park is not current, and its tell is not this one's.
+    drop(_l);
+    let (_l, b) = start(&home, 51);
+    assert_eq!(refused(&home, &["park-told", "51"]), (1, "nopark".into()));
+    end(&home, 51, b, "failed");
+    park(&home, 51, b, "failed", &[]).unwrap();
+    assert_eq!(ok(&home, &["park-told", "51"])["said"], true);
+    assert_eq!(count(&home, "issues WHERE issue = 51"), 1);
+}
+
+#[test]
+fn park_told_usage() {
+    for args in [
+        &["park-told"][..],
+        &["park-told", "x"][..],
+        &["park-told", "1", "--id", "2"][..],
+        &["park-told", "1", "2"][..],
+    ] {
+        assert!(usage(args).starts_with("usage park-told: "), "{args:?}");
+    }
+}
+
+#[test]
+fn park_show_names_the_body_the_parked_attempt_was_approved_on() {
+    let home = home("park-body");
+    parked(&home, 52, "alice", "label", "too-large");
+    // A later approval of another text is not the one the park rests on.
+    ok(
+        &home,
+        &[
+            "approval-record",
+            "52",
+            "--at",
+            &next_at().to_string(),
+            "--by",
+            "bob",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA_B,
+        ],
+    );
+    assert_eq!(ok(&home, &["park-show", "52"])["park"]["body_sha256"], SHA);
+    // A run by hand used no approval.
+    let _lock = hold(&home, 53);
+    let a = ok(&home, &["cycle-start", "53", "--by-hand"])["attempt"]
+        .as_i64()
+        .unwrap();
+    end(&home, 53, a, "failed");
+    park(&home, 53, a, "failed", &[]).unwrap();
+    assert_eq!(
+        ok(&home, &["park-show", "53"])["park"]["body_sha256"],
+        Value::Null
     );
 }

@@ -16,8 +16,24 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 pub const SCHEMA: &str = include_str!("schema.sql");
+
+/// The step from schema 1 to 2: columns and a table added, nothing changed or
+/// removed, so no row of a v1 store can be lost. Each column comes last in its
+/// table in schema.sql too, so the two ways to schema 2 agree.
+const STEP_2: &str = "
+ALTER TABLE approvals ADD COLUMN input_json TEXT;
+ALTER TABLE parks ADD COLUMN told_at INTEGER;
+ALTER TABLE planning_answers ADD COLUMN text TEXT;
+CREATE TABLE planning_notes (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
+);
+";
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
@@ -64,7 +80,7 @@ fn read_wait(tries: i32) -> bool {
     busy_wait(tries, READ_WAIT)
 }
 
-/// The indexes of schema v1 by name, so the test that pins the schema can name
+/// The indexes of the schema by name, so the test that pins the schema can name
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
@@ -85,7 +101,7 @@ pub const COUNTED_INDEXES: [&str; 11] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 39] = [
+pub const COUNTED_TABLES: [&str; 40] = [
     "meta",
     "issues",
     "cycles",
@@ -96,6 +112,7 @@ pub const COUNTED_TABLES: [&str; 39] = [
     "planning",
     "planning_answers",
     "planning_filed",
+    "planning_notes",
     "cycle_settings",
     "cycle_notes",
     "cycle_results",
@@ -522,9 +539,9 @@ fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
-    // This binary writes one version and has no migration: anything above it
-    // is a database this command must not touch. A file made but not yet
-    // written has 0 and is the store's own to fill.
+    // Anything above the version this binary writes is a database this
+    // command must not touch. A file made but not yet written has 0 and is the
+    // store's own to fill; one below is `migrate`'s to bring forward.
     if version > SCHEMA_VERSION {
         return Err(DbError::Future(version));
     }
@@ -620,7 +637,7 @@ pub fn guard(file: &Path) -> DbError {
         .unwrap_or_else(|| DbError::Unreadable(format!("{} passed every check", file.display())))
 }
 
-/// Writes schema v1 into the connection and the row of `meta` that says when
+/// Writes the schema into the connection and the row of `meta` that says when
 /// it was made and by which binary. One transaction: a failure commits nothing
 /// and leaves the file as empty as it was. An empty file is not the same thing
 /// as a file holding a schema: SQLite gives a file of no bytes at all its own
@@ -676,13 +693,12 @@ pub fn write_schema(
     tx.commit().map_err(classify)
 }
 
-/// The one migration this binary holds: from schema 0, an SQLite file with no
-/// tables and a `user_version` of 0 (what SQLite makes of an empty file), to
-/// schema 1. `write_schema` is the whole of it: it lays schema.sql, writes the
-/// rows of `meta` -- `schema` among them -- and sets `user_version`, all in one
-/// transaction, so the version and the `meta` row move together. A database
-/// `init` made is already at 1 and has nothing to run. A later part of the epic
-/// adds a step for each version above 1.
+/// The steps this binary holds. From schema 0, an SQLite file with no tables
+/// and a `user_version` of 0 (what SQLite makes of an empty file),
+/// `write_schema` is the whole of it: it lays schema.sql at the version this
+/// binary writes, writes the rows of `meta` -- `schema` among them -- and sets
+/// `user_version`, all in one transaction. From schema 1 it is `step_2`. A
+/// database already at SCHEMA_VERSION has nothing to run.
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
 /// carries the path of the database the step gave up on.
@@ -696,30 +712,55 @@ pub fn migrate(
     match from {
         // Already what this binary writes: the verb reports it and runs
         // nothing, so a migration is safe to call on a database that does not
-        // need one -- which is what a person does next, because `init` made
-        // this file at 1 and nothing in the world of schema 1 moves it.
-        v if v == SCHEMA_VERSION => return Ok(()),
-        0 => {}
-        v => {
-            return Err(DbError::Corrupt(format!(
-                "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
-                file.display()
-            )))
-        }
+        // need one.
+        v if v == SCHEMA_VERSION => Ok(()),
+        // Each step is asked for outside any transaction of the caller's,
+        // which is why `migrate` gives its own lock back before it comes here:
+        // SQLite will not run `VACUUM INTO` from within one, and the two would
+        // not nest.
+        0 => write_schema(
+            conn,
+            now,
+            &settings.version,
+            &settings.commit,
+            &settings.instance,
+            &settings.repo,
+        ),
+        1 => step_2(conn),
+        v => Err(DbError::Corrupt(format!(
+            "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
+            file.display()
+        ))),
     }
-    // The step is `write_schema`'s own transaction: a failure in it commits
-    // nothing and leaves the file as empty as it was. It is asked for outside
-    // any transaction of the caller's, which is why `migrate` gives its own lock
-    // back before it comes here -- SQLite will not run `VACUUM INTO` from within
-    // one, and the two would not nest.
-    write_schema(
-        conn,
-        now,
-        &settings.version,
-        &settings.commit,
-        &settings.instance,
-        &settings.repo,
-    )
+}
+
+/// Schema 1 to 2 in one transaction with `meta.schema` and `user_version`: a
+/// failure commits nothing and leaves the store at 1 with every row.
+fn step_2(conn: &mut Connection) -> Result<(), DbError> {
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(classify)?;
+    // Read again under the lock: another migrate may have run in between.
+    let held: i64 = tx
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .map_err(classify)?;
+    if held != 1 {
+        return Err(DbError::Corrupt(format!(
+            "the step from schema 1 found schema {held}"
+        )));
+    }
+    tx.execute_batch(STEP_2).map_err(classify)?;
+    let n = tx
+        .execute("UPDATE meta SET value = '2' WHERE key = 'schema'", [])
+        .map_err(classify)?;
+    if n != 1 {
+        return Err(DbError::Corrupt(
+            "the store at schema 1 has no schema row in meta".to_string(),
+        ));
+    }
+    tx.pragma_update(None, "user_version", 2)
+        .map_err(classify)?;
+    tx.commit().map_err(classify)
 }
 
 /// The name of a backup this verb writes, given the version it came from and
@@ -876,6 +917,21 @@ pub fn check(conn: &Connection) -> Result<Report, DbError> {
     };
     let mut counts = Vec::with_capacity(COUNTED_TABLES.len());
     for table in COUNTED_TABLES {
+        // A store not yet migrated lacks the tables of the later versions; it
+        // is reported as it is. At the version this binary writes, a missing
+        // table is the error the count below gives.
+        if schema < SCHEMA_VERSION {
+            let there: bool = conn
+                .query_row(
+                    "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .map_err(classify)?;
+            if !there {
+                continue;
+            }
+        }
         // The name is one of COUNTED_TABLES, never a caller's word.
         let n: i64 = conn
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))

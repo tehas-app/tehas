@@ -25,13 +25,16 @@
 #                                 a refresh resting on that approval, else 0
 #   tehas_refresh_parked <issue> <base>
 #                                 0 when a refresh of the issue parked since
-#                                 the approval <base>, by its history lines
+#                                 the approval <base>, by its history on the
+#                                 state store; 1 when none did; 2 when the
+#                                 history could not be read, which is no
+#                                 answer to start on
 #   tehas_refresh_continues       0 when the sandbox image's pi-rukas takes
 #                                 --continue-pr: its --capabilities answer has
 #                                 features.continuePr. Asked once per command
 #
-# Needs TEHAS_HOME, lib/fixer.sh for the history and lib/headless.sh for the
-# answer. Sourcing it does nothing.
+# Needs TEHAS_HOME, lib/fixer.sh and lib/store.sh for the history and
+# lib/headless.sh for the answer. Sourcing it does nothing.
 
 tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_HOME"; }
 
@@ -85,8 +88,10 @@ tehas_refresh_count() { # <record> <base>
 }
 
 tehas_refresh_parked() { # <issue> <base>
-  tehas_cycle_history "$1" | jq -se --argjson base "$2" \
-    'any(.[]; .how == "refresh" and .parked == true and ((.started // 0) | todate) >= $base.at)' >/dev/null 2>&1
+  local lines
+  lines=$(tehas_cycle_history "$1") || return 2
+  jq -se --argjson base "$2" \
+    'any(.[]; .how == "refresh" and .parked == true and ((.started // 0) | todate) >= $base.at)' <<<"$lines" >/dev/null 2>&1
 }
 
 tehas_refresh_asked=""

@@ -54,25 +54,27 @@ t_contains "$t_out" "removed: $th/libexec/console.ts"
 t_eq "$([ -e "$th/libexec/console.ts" ] || echo gone)" "gone"
 t_eq "$([ -x "$th/libexec/console" ] && echo there)" "there"
 
-t_case "while a cycle runs they stay, and the install says to come back"
+t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
 old_layout
 mkdir -p "$th/state"
 lock=$th/state/dispatch.lock
 bash -c 'exec 8>"$1"; flock 8; exec sleep 60' _ "$lock" &
 holder=$!
 for _ in $(seq 50); do flock -n "$lock" true || break; sleep 0.1; done
-t_run "$install"
-t_eq "$t_rc" 0
-t_contains "$t_out" "later: ./install.sh again when the running cycle has ended"
-# Not a step: `tehas update` must not take it for one it does not know.
-t_lacks "$t_out" "next: ./install.sh"
+rm -f "$th/bin/tehas"
+t_run "export TEHAS_DISPATCH_LOCK_WAIT=0; $install"
+t_eq "$t_rc" 1
+t_contains "$t_out" "tehas: a poll is running ($lock still held after 0s); nothing was installed"
 t_lacks "$t_out" "removed: $th/bin/tehas-dispatch"
 t_eq "$([ -e "$th/bin/tehas-status" ] && echo there)" "there"
+t_eq "$([ -e "$th/bin/tehas" ] || echo gone)" "gone"
 kill "$holder" 2>/dev/null
 wait "$holder" 2>/dev/null
 t_run "$install"
+t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/bin/tehas-status"
 t_eq "$([ -e "$th/bin/tehas-status" ] || echo gone)" "gone"
+t_eq "$([ -e "$th/bin/tehas" ] && echo there)" "there"
 t_eq "$(flock -n "$lock" true && echo free)" "free"
 
 t_case "they stay while systemd has not reloaded its units"

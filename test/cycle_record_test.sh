@@ -26,35 +26,34 @@ reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
 image_id=sha256:$(printf 'e%.0s' {1..64})
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
-echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+# What tehas work puts on the cycle's record as the container starts.
+image_work() { # <image> [<pi-rukas commit>]
+  printf '%s\n' 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' \
+    "\"\$T/store-bin\" cycle-image 7 --attempt \"\$TEHAS_CYCLE_ATTEMPT\" --image $1 ${2:+--rukas $2} >/dev/null; exit 2" >"$fx/work.sh"
+}
+image_work "$image_id" 0123456789abcdef0123456789abcdef01234567
 t_run "$cycle 7"
 t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   "[\"$image_id\",\"0123456789abcdef0123456789abcdef01234567\"]"
-t_eq "$(find "$state/7.image" 2>/dev/null | wc -l)" 0
+t_eq "$(t_row cycle-show 7 -- .cycle.image)" "$image_id"
 
-t_case "without that file the record falls back, and one left by an earlier cycle is not this cycle's"
+t_case "without an image on record the record falls back, and an earlier cycle's is not this cycle's"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
-mkdir -p "$state"
-echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$state/7.image"
+image_work "$image_id" 0123456789abcdef0123456789abcdef01234567
+t_run "$cycle 7"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   "[null,\"$(printf 'c%.0s' {1..40})\"]"
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.image] | tostring')" '[2,null]'
 
-t_case "an image file that is a link, or does not hold an id, is not read"
+t_case "an image that is no image id is not on record"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 printf 'c%.0s' {1..40} >"$fx/image.label"
-echo "$image_id 0123456789abcdef0123456789abcdef01234567" >"$T/elsewhere"
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
-ln -sf "$T/elsewhere" "$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
-t_run "$cycle 7"
-t_eq "$(jq -c '.image' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" null
-echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
-echo "sha256:short \`x\` 0123456" >"$TEHAS_HOME/state/cycles/7.image"; exit 2' >"$fx/work.sh"
+image_work "sha256:short"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.image, .rukas]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "[null,\"$(printf 'c%.0s' {1..40})\"]"
 rm -f "$fx/image.label"
@@ -125,7 +124,7 @@ t_contains "$t_out" "status=stalled"
 t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
 t_contains "$(t_calls gh)" "needs-human-attention"
 t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
-t_eq "$(jq -r .cap "$state/7.park")" stall
+t_eq "$(park_of .reason)" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
@@ -144,7 +143,7 @@ echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["unknown","no-step","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
-t_eq "$(jq -r .cap "$state/7.park")" runner-never-started
+t_eq "$(park_of .reason)" runner-never-started
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `runner-never-started`.'
 t_contains "$(t_calls gh)" "no step started, the container of the cycle ended before the driver wrote an event"
 t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
@@ -246,7 +245,7 @@ echo '{}' >"$fx/progress.json"
 jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 t_contains "$(t_calls gh)" 'cap `wall-clock`'
 t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=wall-clock -->'
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
@@ -271,7 +270,7 @@ ended running commit-pr -
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 runner commit-pr >"$TEHAS_HOME/state/cycles/7.timed"; exit 30' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["timeout","commit-pr","wall-clock",30]'
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 
 t_case "the step in the time limit's file is read as a word"
 reset
@@ -302,7 +301,7 @@ t_run "$cycle 7"
 rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
 t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["timeout","develop","wall-clock"]'
 t_eq "$(jq -r .capReason "$rec")" "tehas work stopped the container at the time limit of 21600s, step develop in flight; the runner had named the cap verify-failed:develop; fence violated"
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `wall-clock`.'
 t_lacks "$(t_calls gh)" 'pi-rukas stopped on the cap'
 
@@ -323,7 +322,7 @@ ended handoff develop feature/x deadline
 echo 'echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_eq "$(jq -r .cap "$state/7.park")" deadline
+t_eq "$(park_of .reason)" deadline
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `deadline`.'
 
 t_case "a stall file beside a state that names an end leaves the end as it is"
@@ -444,19 +443,39 @@ t_run "$cycle 7"
 t_contains "$t_out" "status=running"
 t_lacks "$(t_calls gh)" "None of its logs changed"
 
-t_case "the pi-rukas a cycle starts with is on record beside its lock, and nothing writes state/rukas-proven"
+t_case "the pi-rukas a cycle starts with is on its record, and nothing writes state/rukas-proven"
 reset
 rukas=$(printf 'c%.0s' {1..40})
 echo "$rukas" >"$fx/image.label"
 ended merged commit-pr feature/x
 merged_pr
+# On record before tehas work runs.
+echo '"$T/store-bin" cycle-show 7 | jq -r .cycle.rukas_commit >"$T/calls/rukas.at-work"' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(cat "$state/7.rukas")" "$rukas"
+t_eq "$(cat "$T/calls/rukas.at-work")" "$rukas"
+t_eq "$(t_row cycle-show 7 -- .cycle.rukas_commit)" "$rukas"
+rm -f "$fx/work.sh"
 ended handoff commit-pr feature/x
 echo OPEN >"$fx/pr-state"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Pull request waiting for a human"
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
+
+t_case "an end the store will not take is an ERROR with its arguments, the cycle is still reported, and the next start replaces the open row"
+reset
+ended handoff commit-pr feature/x
+t_store_answers cycle-end 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "ERROR: the end of #7 is not on record (busy: store: busy #7: the database is locked): cycle-end 7 --attempt 1 --status handoff"
+t_eq "$(t_calls store | grep -c '^cycle-end')" 5
+t_eq "$(t_calls fake-status | wc -l)" 1
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.ended_at] | tostring')" '[1,null]'
+rm -f "$T/home/tehas/libexec/store"
+cp "$T_STORE" "$T/home/tehas/libexec/store"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, (.cycle.ended_at != null)] | tostring')" '[2,true]'
 
 t_case "the end of a cycle starts one poll of the dispatcher, and leaves the request for the path unit"
 reset
@@ -606,7 +625,7 @@ reset
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(find "$T/home/tehas/tmp" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/home/tehas/tmp" -type f 2>/dev/null | wc -l)" 0
 
 t_case "a record that cannot be written changes nothing about the cycle's report"
 reset
@@ -620,25 +639,32 @@ t_eq "$(t_calls fake-status | wc -l)" 1
 t_eq "$(find "$T/home/tehas/tmp/improve/window" -mindepth 1 2>/dev/null | wc -l)" 0
 
 # The analytics program, where install.sh puts it. Each call notes how many
-# history lines the issue had and whether the status was refreshed yet.
+# history lines the issue had and whether the status was refreshed yet, and a
+# run keeps its facts.
 analytics_stub() { # [<bash body>]
-  t_stub_analytics 'printf "%s %s\n" "$(wc -l <"$TEHAS_HOME/state/cycles/7.history.jsonl" 2>/dev/null || echo 0)" \
+  t_stub_analytics 'printf "%s %s\n" "$("$T/store-bin" history-show 7 | jq ".rows | length")" \
   "$([ -e "$T/calls/fake-status" ] && echo late || echo early)" >>"$T/calls/analytics.moment"
+[ "$1 $3" != "run --facts" ] || cp "$4" "$T/calls/analytics.facts"
 '"${1:-}"
 }
+# The calls, without the facts file's name, which is new each time.
+analytics_calls() { t_calls analytics | sed 's/ --facts [^ ]*//'; }
 
 t_case "the cycle records its run and its end in analytics after the history line, with what it read and removed"
 reset
 analytics_stub
 image_id=sha256:$(printf 'e%.0s' {1..64})
-echo 'echo "'"$image_id"' 0123456789abcdef0123456789abcdef01234567" >"$TEHAS_HOME/state/cycles/7.image"
+echo '"$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image '"$image_id"' --rukas 0123456789abcdef0123456789abcdef01234567 >/dev/null
 echo 3 >"$TEHAS_HOME/state/cycles/7.oom"; echo 2 >"$TEHAS_HOME/state/cycles/7.forks"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "run 7 --image $image_id --rukas-image 0123456789abcdef0123456789abcdef01234567 --oom 3 --forks 2
+t_eq "$(analytics_calls)" "run 7 --image $image_id --rukas-image 0123456789abcdef0123456789abcdef01234567 --oom 3 --forks 2
 event 7 ended"
 t_eq "$(cat "$T/calls/analytics.moment")" "1 early
 1 early"
+t_eq "$(jq -c '[.line.rc, .line.status, .line.how, .line.parked, .attempt, .rukas]' "$T/calls/analytics.facts")" \
+  '[2,"unknown","hand",true,1,"0123456789abcdef0123456789abcdef01234567"]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .how, .parked] | tostring')" '[2,"unknown","hand",true]'
 t_lacks "$t_out" "analytics"
 
 t_case "an option with no value is left out of the run"
@@ -646,7 +672,7 @@ reset
 analytics_stub
 ended handoff commit-pr feature/x
 t_run "$cycle 7"
-t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+t_eq "$(analytics_calls)" "run 7 --oom 0 --forks 0
 event 7 ended"
 
 t_case "a cycle stopped by a signal is recorded too"
@@ -655,7 +681,7 @@ analytics_stub
 echo 'kill -TERM "$PPID"; sleep 1; exit 143' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "run 7 --oom 0 --forks 0
+t_eq "$(analytics_calls)" "run 7 --oom 0 --forks 0
 event 7 ended"
 
 t_case "with TEHAS_ANALYTICS off the cycle calls no analytics"
@@ -681,7 +707,7 @@ t_contains "$t_out" "WARN analytics event: exit 70"
 t_contains "$t_out" "done #7 rc=10 status=handoff"
 t_eq "$(t_calls gh)" "$without"
 t_eq "$(t_calls fake-status | wc -l)" 1
-t_eq "$(wc -l <"$state/7.history.jsonl")" 1
+t_eq "$(t_row history-show 7 -- '.rows | length')" 1
 
 t_case "an analytics that hangs is cut off, and the cycle is reported"
 reset
@@ -712,7 +738,7 @@ T_ENV=()
 tree=$T/tree
 mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
-cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/cycles.sh" "$T_ROOT/lib/improve.sh" "$T_ROOT/lib/analytics.sh" "$tree/lib/"
+cp "$T_ROOT"/lib/*.sh "$tree/lib/"
 for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"

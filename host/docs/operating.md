@@ -466,14 +466,16 @@ anything.
 
 A new `tehas:ready` on an issue whose last cycle parked asks for nothing while
 the issue still carries the body that cycle ran on. The dispatcher compares the
-park's hash of that body with the issue's text now, and when they are equal and
-the park was not a provider outage it starts no cycle, leaves the park and the
-labels as they are, and says so in the poll's log. Once per park it also posts
-one comment: edit the body, or tick `Retry from a clean start`. The tick is the
+hash of the body that cycle's approval bound, as the state store keeps it for
+the park, with the issue's text now, and when they are equal and the park was
+not a provider outage it starts no cycle, leaves the park and the labels as
+they are, and says so in the poll's log. Once per park it also posts one
+comment: edit the body, or tick `Retry from a clean start`. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
 did, and so does a start after any change to the body. A park of a provider
-outage is held by its own rule instead, and a park left by a cycle that ended
-before the hash existed holds nothing.
+outage is held by its own rule instead, and a park of a cycle started by hand,
+which no approval bound to a body, holds nothing. A park that cannot be read
+holds the issue for that poll.
 
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
@@ -481,8 +483,10 @@ An issue closed since its cycle stopped is not work. Neither the tick nor a new
 A cycle that a provider outage parked says so in its comment: `parked by a
 provider outage`, with the cap. Nothing needs doing: once the model endpoint
 answers, the dispatcher starts the issue again on its own and says so on the
-issue. It does that once. If that cycle is parked by an outage too, the issue
-waits for a tick or a label like any other.
+issue, on the word of whoever started the cycle that parked. It does that
+once. If that cycle is parked by an outage too, the issue waits for a tick or a
+label like any other, and so does a cycle started by hand. `tehas stop` on the
+issue gives up that one retry.
 
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be
@@ -607,7 +611,7 @@ dispatcher's log says so.
    account outside the list, the bot's included, is taken off.
 
 pi-rukas's record of a session is kept on the host, in
-`~/tehas/state/plan-<issue>.json.keep/plan-sessions`, and carried into each
+`~/tehas/work/<name>-plan-<issue>.keep/plan-sessions`, and carried into each
 turn. If it is gone, for example after the host was rebuilt, the session cannot
 go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
@@ -973,8 +977,9 @@ stack is filed as an issue of its own in that repository.
 - **The model reads what each cycle ran with**: the `PI_ENSEMBLE_*`
   variables its container was given, the `TEHAS_*` settings that shape a
   cycle, how many cycles were running as its container started, and the
-  provider retry line of its preflight log. `tehas work` leaves the first
-  three in `~/tehas/state/cycles/<issue>.settings`. What the model reads may
+  provider retry line of its preflight log. `tehas work` puts the first
+  three on the cycle's record in the state store as the container starts.
+  What the model reads may
   reach a public issue, so only short plain values are written: numbers,
   booleans and words of letters, digits and `_.,:=-`. Any other value is
   `[withheld]`: every URL, host, path and address, anything that may be a
@@ -1090,8 +1095,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   host, and the cache of anything else on it is made again too. No image and no
   volume is removed by this step.
 - the host's scratch: old files under `~/tehas/tmp/dl` and
-  `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
-  directories. Nothing elsewhere under `~/tehas`, and nothing outside it: not
+  `~/tehas/tmp/node-compile-cache`, old `~/tehas/tmp/analytics-facts.*` files
+  an analytics call left when its caller was killed, and old
+  `~/tehas/tmp/tehas-test.*` directories. Nothing elsewhere under `~/tehas`, and nothing outside it: not
   `~/tehas/dev`, so the build output a manual session keeps in
   `<name>.state/target` is walked for no build-output name. It is the one build
   output on the host with no automated reclaim, and a person's call: `du -sh
@@ -1195,10 +1201,9 @@ what the account may do, and this section is that.
   ticked a box, so a tick the fixer saved after another account edited the
   question is held: it is neither used nor unticked, and the bot asks a
   person, once, to tick again or reply. To overrule it, reply or tick before the next
-  poll, or reply to the next question. The planning record,
-  `~/tehas/state/plan-<issue>.json`, keeps who started the session (`by`)
-  and who answered each turn (`answers`). A session started before tehas
-  kept these takes no answer from the fixer.
+  poll, or reply to the next question. The session on the state store
+  (`plan-show`) keeps who started it and who answered each turn, and
+  whether the fixer did.
 - **`tehas:fixer-escalated`** is the fixer's word that a person decides.
   The factory does nothing on it; a start takes it off.
 - **It may order the queue** with `tehas:next` and `tehas:blocked`, and
@@ -1206,14 +1211,13 @@ what the account may do, and this section is that.
   [What happens next](#3-what-happens-next)). Neither starts anything: an
   issue still needs a `tehas:ready` that counts. When to apply them, and how
   many, is the fixer's to decide, not the factory's.
-- **Each cycle's end leaves a line** in
-  `~/tehas/state/cycles/<issue>.history.jsonl`, the last 50: when, its
-  status, last step, cap, park reason, failure, whether a provider outage
-  stopped it, whether it parked, its pull request and who started it. A
-  planning turn leaves one of its own in
-  `~/tehas/state/plan-<issue>.history.jsonl`, with `kind` `plan`. `tehas
-  history` lists both, oldest first, and `tehas export` copies what a cycle
-  left behind. A fixer reads GitHub, not these files.
+- **Each cycle's end leaves a line** of history in the state store
+  (`~/tehas/state/tehas.db`), the last 50 of each issue: when, its status,
+  last step, cap, park reason, failure, whether a provider outage stopped
+  it, whether it parked, its pull request, who started it and how. A
+  planning turn leaves one of its own in the store too, with `kind` `plan`.
+  `tehas history` lists both, oldest first, and `tehas export` copies what a
+  cycle left behind. A fixer reads GitHub, not these records.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
@@ -1255,7 +1259,8 @@ counts. Each run writes one line to `~/tehas/logs/refresh.log`:
 
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
-rests on (the approval record's `by`, or its `rests_on.by` after the fixer):
+rests on (the `by` of the approval of the issue's last start, or the person's
+approval it rests on after the fixer):
 
 - the issue is open, carries `tehas:awaiting-merge` or `needs-human-attention`
   and none of `tehas:running`, `tehas:question`, `tehas:fixer-escalated`,
@@ -1364,7 +1369,16 @@ the `Adopter action` of each release between, do what they ask, then run
 `tehas update`. `tehas update --to <version>` goes back (see
 [Rolling back tehas](/host#rolling-back-tehas)). An update that changes a unit
 restarts the units that run, and that can end a running cycle: pause and let
-the cycles finish first (see [Pause and resume](#pause-and-resume)). How it works is in
+the cycles finish first (see [Pause and resume](#pause-and-resume)). An update
+that moves records into the state store refuses while a cycle or a planning turn
+runs and records of the older tehas are there, and installs nothing: drain first
+with `tehas drain --wait 3600`, let planning turns end, update, then
+`tehas limit clear` (see [tehas drain](/tools#tehas-drain), and `install.sh` in
+[the tools](/tools)). The update moves each old record file it imported to
+`~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
+While a record file of the older tehas is still in `state/`, every poll stops
+with exit 78 and logs `ERROR: records of an older tehas at <path>; run
+install.sh again`: run `install.sh` again, and it imports what is left. How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).

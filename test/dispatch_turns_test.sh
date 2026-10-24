@@ -15,7 +15,7 @@ echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]}]
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:question')" 1
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 
 t_case "the question label is only taken off an issue that carries it"
 reset
@@ -116,7 +116,7 @@ t_lacks "$(t_calls gh)" "--limit 100 "
 
 t_case "an answer on a question the session is not waiting on runs no turn"
 planning
-jq '.comment = 9999' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"comment":9999}'
 comments 7 "$(plan_body x ' ' ' ')" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -126,21 +126,21 @@ t_contains "$t_out" "skip #7: its question is not among the last 100 comments"
 
 t_case "an answer to a session whose record names no question runs no turn"
 planning
-jq 'del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"]}'
 comments 7 "$(plan_body x ' ' ' ')" alice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_contains "$t_out" "skip #7: the question answered is not the one this session is waiting on"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 
 t_case "a newer stray bot comment with a plan marker does not lock the session out"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice "$(jq -nc --arg b "$(plan_body ' ' ' ' ' ' | sed 's/turn=1/turn=5/')" '[{databaseId: 4009, author: {login: "tehas-bot"}, body: $b,
   createdAt: "2026-01-01T02:00:00Z", lastEditedAt: null, editor: null}]')"
 t_run "$dispatch"
-t_contains "$(plan_calls)" "7 --out $record.out --keep $record.keep --session abc-123 --answer $record.answer"
-t_eq "$(cat "$record.answer")" "The operator chose: Change some"
+t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --session abc-123 --answer $keep/answer.md"
+t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "a planning question on record whose marker is a park marker runs no turn and no cycle"
 planning
@@ -156,24 +156,24 @@ planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 printf '%s' '--add-label tehas:question' >"$fx/edit-fails-on"
 t_run "$dispatch"
-t_eq "$(jq -r '[.comment, .pending] | @tsv' "$record")" "4002	true"
+t_eq "$(rec | jq -r '[.comment, .pending] | @tsv')" "4002	true"
 t_eq "$([ -s "$record.out" ] && echo kept)" kept
 rm -f "$T"/calls/* "$fx/edit-fails-on"
 echo '[]' >"$fx/asking.json"
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c 'issues/7/comments')" 0
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:question"
-t_eq "$(jq -r .pending "$record")" false
+t_eq "$(rec | jq -r .pending)" false
 t_eq "$([ -e "$record.out" ] && echo left)" ""
 
 t_case "a later turn cut off by a restart is reported and can be answered"
 planning
 echo '[]' >"$fx/asking.json"
-jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true}'
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "This planning turn did not finish: it was cut off"
 t_contains "$(t_calls gh)" "--add-label tehas:question --add-label needs-human-attention"
-t_eq "$(jq -r '[.session, .turns, .failed, .running] | @tsv' "$record")" "abc-123	2	true	false"
+t_eq "$(rec | jq -r '[.session, .turns, .failed, .running] | @tsv')" "abc-123	2	true	false"
 t_eq "$(plan_calls)" ""
 
 t_case "the container of a cut-off turn is removed before the turn is reported"
@@ -184,7 +184,7 @@ echo 7 >"$fx/plan-runs"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "planning #7: turn 1 runs as tehas-plan-7.service"
-t_eq "$(jq -r .running "$record")" true
+t_eq "$(rec | jq -r .running)" true
 t_lacks "$(t_calls gh)" "kind=plan"
 echo '[{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
 echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
@@ -192,7 +192,7 @@ rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "8"
-t_eq "$(jq -r .running "$record")" true
+t_eq "$(rec | jq -r .running)" true
 t_lacks "$(t_calls gh)" "kind=plan"
 t_eq "$(plan_calls)" ""
 
@@ -206,7 +206,7 @@ rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
-t_eq "$(jq -r '[.session, .turns, .running] | @tsv' "$record")" "abc-123	1	false"
+t_eq "$(rec | jq -r '[.session, .turns, .running] | @tsv')" "abc-123	1	false"
 t_eq "$([ -e "$record.rc" ] && echo left)" ""
 rm -f "$fx/plan-runs"
 rm -f "$T"/calls/*
@@ -217,24 +217,23 @@ t_eq "$(plan_calls)" ""
 t_case "a turn's exit status other than 0 is reported as a failed turn"
 planning
 echo '[]' >"$fx/asking.json"
-jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true}'
 echo 2 >"$record.rc"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "This planning turn did not finish: it exited with status 2"
-t_eq "$(jq -r '[.turns, .failed, .running] | @tsv' "$record")" "2	true	false"
+t_eq "$(rec | jq -r '[.turns, .failed, .running] | @tsv')" "2	true	false"
 t_lacks "$(t_calls docker)" "rm -f tehas-plan-7"
 
 t_case "an answer waits while another session's turn runs"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
-echo '{"session":"xyz","turns":1,"options":[],"pending":false,"failed":false,"running":true}' >"$T/home/tehas/state/plan-9.json"
+t_plan "$T/home/tehas" 9 '{"session":"xyz","turns":1,"running":true}'
 echo 9 >"$fx/plan-runs"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "planning #7 waits: the turn of #9 is still running"
 t_eq "$(plan_calls)" ""
-t_eq "$(jq -r .turns "$record")" 1
-rm -f "$T/home/tehas/state/plan-9.json"
+t_eq "$(rec | jq -r .turns)" 1
 
 t_case "a turn whose unit cannot start is reported as a failed turn"
 planning
@@ -243,7 +242,7 @@ t_stub fake-plan-start 'exit 1'
 t_run "$dispatch"
 t_contains "$t_out" "ERROR: could not start the planning turn of #7"
 t_contains "$(t_calls gh)" "This planning turn did not finish: it could not be started as a unit"
-t_eq "$(jq -r '[.failed, .running] | @tsv' "$record")" "true	false"
+t_eq "$(rec | jq -r '[.failed, .running] | @tsv')" "true	false"
 t_stub fake-plan-start 'n=$1; shift
 [ ! -e "$T/fx/plan-runs" ] || exit 0
 "$@"'
@@ -268,14 +267,14 @@ t_eq "$(( $(date +%s) - began < 20 ))" 1
 t_contains "$t_out" "planning #7: turn 1 runs as tehas-plan-7.service"
 for _ in $(seq 50); do ! flock -n "$record.lock" true 2>/dev/null && break; sleep 0.1; done
 t_eq "$(flock -n "$record.lock" true 2>/dev/null && echo free || echo held)" held
-t_eq "$(jq -r '.running, (.startedAt | test("^[0-9-]+T[0-9:]+Z$"))' "$record" | paste -sd ' ')" "true true"
+t_eq "$(rec | jq -r '.running, (.startedAt | test("^[0-9-]+T[0-9:]+Z$"))' | paste -sd ' ')" "true true"
 # The first poll took tehas:plan off; a label put back by hand finds the turn running.
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-plan-start)" ""
 t_lacks "$(t_calls gh)" "kind=plan"
-t_eq "$(jq -r .running "$record")" true
+t_eq "$(rec | jq -r .running)" true
 t_case "a turn that ends writes its status and asks for a poll, which posts its outcome"
 rm -f "$T/home/tehas/state/dispatch.again"
 : >"$fx/plan-done"
@@ -287,7 +286,7 @@ echo '[]' >"$fx/plans.json"
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
-t_eq "$(jq -r '[.turns, .running] | @tsv' "$record")" "1	false"
+t_eq "$(rec | jq -r '[.turns, .running] | @tsv')" "1	false"
 t_stub fake-plan-start 'n=$1; shift
 [ ! -e "$T/fx/plan-runs" ] || exit 0
 "$@"'
@@ -296,35 +295,38 @@ mv "$T/bin/fake-plan.keep" "$T/bin/fake-plan"
 t_case "a first turn cut off by a restart ends visibly"
 planning
 echo '[]' >"$fx/asking.json"
-echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+t_plan "$T/home/tehas" 7 '{"turns":0,"running":true}'
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label needs-human-attention"
 t_contains "$(t_calls gh)" "could not start"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
 
 t_case "a first turn cut off by a restart says nothing while its label change fails"
 planning
 echo '[]' >"$fx/asking.json"
-echo '{"session":"","turns":0,"options":[],"pending":false,"failed":false,"running":true}' >"$record"
+t_plan "$T/home/tehas" 7 '{"turns":0,"running":true}'
 : >"$fx/edit-fails"
+lines=$(t_row history-show 7 --kind plan -- '.rows | length')
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$(jq -r .running "$record")" true
+t_eq "$(rec | jq -r .running)" true
+# No end is on record: the next poll finds the same turn.
+t_eq "$(t_row history-show 7 --kind plan -- '.rows | length')" "$lines"
 
 t_case "a record of a turn in flight or waiting to be posted is not cleaned up"
 planning
 echo '[]' >"$fx/asking.json"
-jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true}'
 t_run "$dispatch --dry-run"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 planning
 echo '[]' >"$fx/asking.json"
-jq '.pending = true | del(.comment)' "$record" >"$record.new" && mv "$record.new" "$record"
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"pending":true}'
 cp "$fx/plan-result.json" "$record.out"
 : >"$fx/post-fails"
 t_run "$dispatch"
-t_eq "$([ -e "$record" ] && echo kept)" kept
-t_eq "$(jq -r .pending "$record")" true
+t_eq "$(rec_open)" open
+t_eq "$(rec | jq -r .pending)" true
 
 t_case "the end of a session is said once"
 planning
@@ -332,16 +334,16 @@ comments 7 "$(plan_body ' ' ' ' x)" alice
 printf '%s' '--remove-label needs-human-attention' >"$fx/edit-fails-on"
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$([ -e "$record" ] && echo kept)" kept
+t_eq "$(rec_open)" open
 rm -f "$T"/calls/* "$fx/edit-fails-on"
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c 'Planning session ended by alice.')" 1
 t_contains "$(t_calls gh)" "--remove-label needs-human-attention"
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
 
 t_case "a session whose record is gone is not announced while its labels cannot be removed"
 planning
-rm "$record"
+TEHAS_HOME=$T/home/tehas "$T_STORE" plan-end 7 --close >/dev/null
 comments 7 "$(plan_body x ' ' ' ')" alice
 : >"$fx/edit-fails"
 t_run "$dispatch"
@@ -350,26 +352,14 @@ t_lacks "$(t_calls gh)" "issue comment"
 t_case "a dry run reports a cut-off turn and changes nothing"
 planning
 echo '[]' >"$fx/asking.json"
-jq '.running = true' "$record" >"$record.new" && mv "$record.new" "$record"
-before=$(cat "$record")
+t_plan "$T/home/tehas" 7 '{"turns":1,"options":["Adopt all","Change some"],"running":true}'
+before=$(rec)
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would report the cut-off planning turn of #7"
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls gh)" "api -X"
-t_eq "$(cat "$record")" "$before"
-
-t_case "a file in the state directory that is not a session record is left alone"
-reset
-echo '[]' >"$fx/ready.json"
-mkdir -p "$T/home/tehas/state"
-echo '{"running":true}' >"$T/home/tehas/state/plan-x.json"
-echo 'not json' >"$T/home/tehas/state/plan-9.json"
-t_run "$dispatch"
-t_eq "$([ -e "$T/home/tehas/state/plan-x.json" ] && [ -e "$T/home/tehas/state/plan-9.json" ] && echo kept)" kept
-t_lacks "$(t_calls gh)" "issue comment"
-t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(grep -c 'planning record of #9 is not readable' <<<"$t_out")" 1
+t_eq "$(rec)" "$before"
 
 t_case "a bot account in the allowed list stops the poll before any question is read"
 parked

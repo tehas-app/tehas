@@ -128,7 +128,7 @@ red_instance
 checks completed failure
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_contains "$(plan_calls)" "--session abc-123 --answer $record.answer"
+t_contains "$(plan_calls)" "--session abc-123 --answer $keep/answer.md"
 
 t_case "red: a running cycle goes on"
 reset

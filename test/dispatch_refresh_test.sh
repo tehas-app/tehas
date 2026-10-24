@@ -15,7 +15,6 @@
 refresh_dir=$T/home/tehas/state/refresh
 rhead=$(printf 'a%.0s' {1..40})
 rbase=$(printf 'c%.0s' {1..40})
-ALICE_RECORD="{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"label\",\"body_sha256\":\"$WSUM\",\"links\":[]}"
 # pull <jq changes>: pull request 50 as GitHub answers for it now.
 pull() {
   jq -n --arg head "$rhead" --arg base "$rbase" '{data: {repository: {pullRequest: {state: "OPEN", number: 50,
@@ -31,7 +30,7 @@ pull() {
 issue7() {
   printf '%s\n' tehas:awaiting-merge "$@" | jq -R '{name: .}' | jq -s '{number: 7, state: "open", labels: .}' >"$fx/work-7.json"
 }
-refresh_setup() { # [<approval record of the last start>]
+refresh_setup() { # [<instance settings>...]
   reset
   rm -rf "$refresh_dir" "$fx"/pull-* "$fx"/refreshing.json "$fx"/caps.json "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
   slots 2 TEHAS_REFRESH_CONFLICTS=1 "$@"
@@ -45,13 +44,23 @@ refresh_setup() { # [<approval record of the last start>]
   echo '{"verbs":{"work":{"flags":["--json","--timeout","--restart","--continue-pr"]}},"features":{"continuePr":true}}' >"$fx/caps.json"
   mkdir -p "$refresh_dir" "$T/home/tehas/state/cycles"
   jq -n --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-17T09:00:00Z", pr: 50, head_sha: $h, base_sha: $b}' >"$refresh_dir/7.json"
-  printf '%s\n' "$ALICE_RECORD" >"$approved_file"
+  # alice's label started the last cycle, which waits for a merge.
+  past 7 alice label 2026-10-01T00:00:00Z
 }
-# The approval record of a refresh that started on alice's approval.
-refresh_record() { # <refreshes>
-  jq -n --argjson r "$1" --arg sum "$WSUM" --arg h "$rhead" --arg b "$rbase" '{at: "2026-10-01T00:00:00Z", by: "alice", how: "refresh",
-    body_sha256: $sum, links: [], rests_on: {at: "2026-10-01T00:00:00Z", by: "alice", how: "label", body_sha256: $sum},
-    fixer_starts: 0, refreshes: $r, refresh_of: {pr: 50, head_sha: $h, base_sha: $b, branch: "main"}}' >"$approved_file"
+# Refreshes on alice's approval that ran and ended, the last one parked when
+# asked.
+refresh_record() { # <refreshes> [parked]
+  local i a parked
+  for ((i = 1; i <= $1; i++)); do
+    a=$(t_row cycle-show 7 -- '.cycle.attempt // 0')
+    t_approve "$T/home/tehas" 7 alice refresh $(($(date -u -d 2026-10-02T00:00:00Z +%s) + i)) \
+      --refresh-pr 50 --refresh-head "$rhead"
+    t_started "$T/home/tehas" 7
+    parked=()
+    [ "$i" != "$1" ] || [ "${2:-}" != parked ] || parked=(--parked)
+    TEHAS_HOME=$T/home/tehas flock -w 5 "$T/home/tehas/state/cycles/7.lock" "$T_STORE" cycle-end 7 --attempt $((a + 1)) \
+      --status handoff "${parked[@]}" >/dev/null || t_bad "refresh_record: no end"
+  done
 }
 # A refresh started nothing, and its request is gone.
 refresh_dropped() { # <why in the log>
@@ -61,10 +70,14 @@ refresh_dropped() { # <why in the log>
   t_contains "$t_out" "drop the refresh of #7: $1"
   t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 0
 }
-# A running refresh: a cycle whose approval record has how "refresh".
+# A running refresh: an open cycle the state store says started as one, on
+# alice's approval of an earlier cycle.
 running_refresh() { # <issue>
+  past "$1" alice label 2026-09-30T00:00:00Z
+  t_approve "$T/home/tehas" "$1" alice refresh "$(date -u -d 2026-10-01T00:00:00Z +%s)" \
+    --refresh-pr 50 --refresh-head "$rhead"
+  t_started "$T/home/tehas" "$1"
   hold "$1"
-  jq -n '{at: "2026-10-01T00:00:00Z", by: "alice", how: "refresh"}' >"$T/home/tehas/state/cycles/$1.approved.json"
 }
 # The REST call of rule 4b that marks a pull request, and the one that takes
 # the mark off.
@@ -81,7 +94,7 @@ marked_refreshing() { echo '[{"number":50,"labels":[{"name":"tehas:refreshing"}]
 # when it wrote none at all, which is what a start that never ran leaves.
 record_refreshes() {
   local r
-  r=$(jq -r '.refreshes // "none"' "$approved_file" 2>/dev/null) || r=none
+  r=$(approval '.refreshes // "none"')
   printf '%s\n' "$r"
 }
 
@@ -105,15 +118,18 @@ t_contains "$(t_calls gh)" "https://github.com/acme/widget/pull/50 conflicts wit
 t_contains "$(t_calls gh)" "It rests on @alice's approval of 2026-10-01T00:00:00Z."
 
 t_case "the approval record of a refresh: by the person, rests_on, refreshes, refresh_of, and a fixed retry_context"
-t_eq "$(jq -c '[.by, .how, .at, .body_sha256 == $s, .rests_on.by, .rests_on.how, .refreshes, .fixer_starts, .refresh_of.pr, .refresh_of.head_sha == $h, .refresh_of.base_sha == $b, .refresh_of.branch]' \
-  --arg s "$WSUM" --arg h "$rhead" --arg b "$rbase" "$approved_file")" \
+t_eq "$(approval "[.by, .how, .at, .body_sha256 == \"$WSUM\", .rests_on.by, .rests_on.how, .refreshes, .fixer_starts, .refresh_of.pr, .refresh_of.head_sha == \"$rhead\", .refresh_of.base_sha == \"$rbase\", .refresh_of.branch]")" \
   '["alice","refresh","2026-10-01T00:00:00Z",true,"alice","label",1,0,50,true,true,"main"]'
-t_eq "$(jq -c '[.retry_context[] | {source, by}]' "$approved_file")" '[{"source":"refresh","by":"tehas"}]'
-t_eq "$(jq -r '.retry_context[0].text' "$approved_file")" \
+t_eq "$(approval '[.retry_context[] | {source, by}]')" '[{"source":"refresh","by":"tehas"}]'
+t_eq "$(approval '.retry_context[0].text')" \
   'This pull request conflicts with `main`. Merge `main` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.'
 
 t_case "the record was on disk before the issue was marked, and after the mark"
-t_eq "$(jq -r .how "$T/calls/approved.at-mark")" refresh
+t_eq "$(at_mark .how)" refresh
+# On record at the time the poll decided it: the time of the approval it rests
+# on is the key of a row that started a cycle already.
+t_eq "$(($(t_row approval-current 7 -- .current.at) > $(date -u -d 2026-10-01T00:00:00Z +%s)))" 1
+t_eq "$(at_mark '[.refresh_pr, .refresh_head]')" "[50,\"$rhead\"]"
 # The mark of the pull request comes before the mark of the issue, so the
 # record that says refresh is on disk between them: no poll leaves one whose
 # record says refresh and whose issue is not marked.
@@ -189,15 +205,14 @@ refresh_setup
 refresh_record 1
 t_run "$dispatch"
 t_eq "$(started)" "7 "
-t_eq "$(jq -c '[.refreshes, .rests_on.by]' "$approved_file")" '[2,"alice"]'
+t_eq "$(approval '[.refreshes, .rests_on.by]')" '[2,"alice"]'
 
 t_case "a refresh of a fixer's start rests on the person's approval and keeps the fixer's count"
 refresh_setup TEHAS_FIXER_LOGIN=tehas-fixer
-jq -n --arg sum "$WSUM" '{at: "2026-10-02T00:00:00Z", by: "tehas-fixer", how: "fixer", body_sha256: $sum, links: [],
-  rests_on: {at: "2026-10-01T00:00:00Z", by: "alice", how: "label", body_sha256: $sum}, fixer_starts: 1}' >"$approved_file"
+past 7 tehas-fixer fixer 2026-10-02T00:00:00Z
 t_run "$dispatch"
 t_eq "$(started)" "7 "
-t_eq "$(jq -c '[.by, .how, .rests_on.by, .fixer_starts, .refreshes]' "$approved_file")" '["alice","refresh","alice",1,1]'
+t_eq "$(approval '[.by, .how, .rests_on.by, .fixer_starts, .refreshes]')" '["alice","refresh","alice",1,1]'
 
 t_case "a start whose pull request label fails starts nothing and marks no issue"
 refresh_setup
@@ -208,6 +223,24 @@ t_eq "$(started)" ""
 t_lacks "$(t_calls gh)" "issue edit 7"
 t_lacks "$(t_calls gh)" "pr edit"
 t_contains "$t_out" "could not mark pull request #50 as refreshing"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "a planning session open on the issue drops the refresh (A13)"
+refresh_setup
+# The session waits on its question, which nobody has answered.
+t_plan "$T/home/tehas" 7 '{"turns":1,"comment":4001}'
+echo '[{"number":7}]' >"$fx/asking.json"
+comments 7 "$(plan_body ' ' ' ' ' ')" ""
+t_run "$dispatch"
+refresh_dropped "a planning session is open on it"
+
+t_case "open planning sessions that cannot be read again keep the refresh waiting: the request stays"
+refresh_setup
+open_read_fails_again
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
+t_lacks "$t_out" "drop the refresh of #7"
 t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "with the setting off a request starts nothing"
@@ -344,7 +377,7 @@ edits=$(label_pair)
 t_contains "$edits" "$mark_call"
 t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running"
 t_lacks "$edits" "--remove-label"
-t_eq "$(jq -r .how "$approved_file")" refresh
+t_eq "$(approval .how)" refresh
 
 t_case "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's"
 refresh_setup
@@ -363,15 +396,36 @@ t_eq "$(started)" ""
 
 t_case "no person's approval on record drops the refresh"
 refresh_setup
-rm -f "$approved_file"
+t_store_db "$T/home/tehas"
 t_run "$dispatch"
 refresh_dropped "this host has no approval of a person's"
 
 t_case "an approval by an account no longer allowed drops the refresh"
 refresh_setup
-sed 's/"alice"/"bob"/' "$approved_file" >"$approved_file.new" && mv "$approved_file.new" "$approved_file"
+t_store_db "$T/home/tehas"
+past 7 bob label 2026-10-01T00:00:00Z
 t_run "$dispatch"
 refresh_dropped "this host has no approval of a person's"
+
+t_case "an approval the store cannot read keeps the refresh waiting: the request stays"
+refresh_setup
+store_refuses "approval-current 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: its approval could not be read"
+t_lacks "$t_out" "drop the refresh of #7"
+t_lacks "$(t_calls gh)" "$mark_call"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
+t_case "a history the store cannot read keeps the refresh waiting: the request stays"
+refresh_setup
+store_refuses "history-show 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: its history could not be read"
+t_lacks "$t_out" "drop the refresh of #7"
+t_lacks "$(t_calls gh)" "$mark_call"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 t_case "a pull request that carries tehas:refreshing waits"
 refresh_setup
@@ -401,8 +455,7 @@ t_eq "$(started)" "7 "
 
 t_case "after a refresh that parked a refresh is held and said on the issue once"
 refresh_setup
-refresh_record 1
-echo '{"at":"2026-10-10T00:00:00Z","started":1791590400,"how":"refresh","parked":true,"status":"handoff"}' >"$T/home/tehas/state/cycles/7.history.jsonl"
+refresh_record 1 parked
 t_run "$dispatch"
 t_eq "$(started)" ""
 t_contains "$t_out" "a refresh of it since alice approved it parked"
@@ -413,7 +466,8 @@ t_eq "$(t_calls gh | grep -c 'issue comment 7 .*does not refresh')" 1
 
 t_case "a park of a cycle that was no refresh does not hold one"
 refresh_setup
-echo '{"at":"2026-10-10T00:00:00Z","started":1791590400,"how":"label","parked":true,"status":"handoff"}' >"$T/home/tehas/state/cycles/7.history.jsonl"
+t_store_db "$T/home/tehas"
+past 7 alice label 2026-10-01T00:00:00Z --parked
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 
@@ -625,5 +679,25 @@ t_case "a host that never refreshed does not ask for the mark"
 reset
 t_run "$dispatch"
 t_lacks "$(t_calls gh)" "tehas:refreshing"
+
+t_case "a history of refreshes the store cannot read clears no mark"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+store_refuses "history-show --kind cycle --how refresh" 1 'store: busy: the database is locked'
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "$unmark_call"
+t_contains "$t_out" "WARN: the history of refreshes could not be read (busy)"
+
+t_case "an approval the store cannot read clears no mark"
+refresh_setup
+rm -f "$refresh_dir/7.json"
+refresh_record 1
+marked_refreshing
+store_refuses "approval-current 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "$unmark_call"
+t_contains "$t_out" "WARN: the approval of #7 could not be read (busy)"
 
 t_done

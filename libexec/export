@@ -14,7 +14,8 @@
 #   transcripts/       the agents' transcripts of that cycle, under the name the
 #                      console found them by
 #   protolab/          the ticket's page and its files, when the ticket has one
-#   plan.json          the planning session's record, for a kind: plan line
+#   plan.json          the planning session on the state store, for a kind:
+#                      plan line, as plan-show gives it
 #
 # Every text file goes through the console's mask, the one masker tehas has
 # (console --mask), with the same names of the host it is given when a cycle
@@ -49,10 +50,13 @@
 #
 #   {"api": 1, "cycles": [...], "next": "1760700300-7", "to": "/home/boss/archive"}
 #
-# Exit: 0 copied, also when there was nothing to copy; 64 a bad argument, an
-# export into the factory's own home or a directory that cannot be made, which
-# copies nothing; 78 the instance settings are missing or malformed, which
-# copies nothing.
+# Exit: 0 copied, also when there was nothing to copy; 1 the state store did
+# not answer (busy) for the history, which copies nothing, or a cycle could not
+# be written, a planning turn whose session the store did not give among them,
+# which the others are copied without; 64 a bad argument,
+# an export into the factory's own home or a directory that cannot be made,
+# which copies nothing; 78 the instance settings are missing or malformed, or
+# the state store is not installed or cannot be used, which copies nothing.
 set -uo pipefail
 
 usage() {
@@ -92,7 +96,14 @@ done
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
+# The cycles to copy are the history's, on the state store.
+if ! tehas_store_ready; then
+  echo "tehas export: ERROR: the state store is not installed (run install.sh)" >&2
+  exit 78
+fi
 
 # Never an export into the factory's own home: it would put copies of logs
 # where the dashboard and the units look for the originals. $TEHAS_HOME is what
@@ -185,7 +196,7 @@ done < <(tehas_models | while read -r model_provider _; do
   jq -r --arg p "$model_provider" '.providers[$p] | .baseUrl, .backupBaseUrl | strings' "$HOME/.pi/agent/models.json" 2>/dev/null
 done)
 add_private "$(git config --global user.email 2>/dev/null || true)"
-# The name a planning turn's session record is exported under.
+# The name a planning turn's session is exported under.
 plan_copy=plan.json
 
 cycles=$abs/cycles
@@ -241,18 +252,26 @@ while IFS= read -r line; do
   chmod 644 "$out/history.json" 2>/dev/null || true
 
   if [ "$kind" = plan ]; then
-    # The record as the turn left it. A turn that never came into being leaves
-    # only the copy plan_finish made of it, since the live record is removed;
-    # for a turn that went on the live record is the whole session and is the
-    # one that stands. So the copy, when it is there, is what is exported, and
-    # the live record is taken only when there is no copy - which is every turn
-    # of a session still going on, and every line written before the copy was
-    # kept. An export that finds neither has no more of the session than its
-    # line of history. The copy of a turn is a file of its own name, beside the
-    # record, so nothing reads it as the record.
-    copy_in "$TEHAS_HOME/state/plan-$issue.turn" "$out" "$plan_copy"
-    [ -f "$out/$plan_copy" ] ||
-      copy_in "$TEHAS_HOME/state/plan-$issue.json" "$out" "$plan_copy"
+    # The session as the store has it: an ended one stays until the next
+    # tehas:plan of the issue replaces it, so a turn that never came into being
+    # still brings the session it names. A session replaced since has no more
+    # than its line of history: the store keeps one session an issue, so one
+    # opened after the turn ended is another's. One the store could not read is
+    # a cycle not written.
+    if ! tehas_store plan-show "$issue"; then
+      [ "$tehas_store_rc" = 1 ] || echo "tehas export: ERROR: the state store cannot be used: $tehas_store_line" >&2
+      failed="$failed $cursor"
+      continue
+    fi
+    ended=$(jq -r '.ended | fromdateiso8601' <<<"$line" 2>/dev/null) || ended=""
+    [[ $ended =~ ^[0-9]+$ ]] || ended=0
+    if [ "$(tehas_store_get ".planning | select(type == \"object\" and (.opened_at | type) == \"number\"
+        and .opened_at <= $ended) | type")" = object ]; then
+      session_file=$(mktemp "$out/.tehas-plan.XXXXXX") || { failed="$failed $cursor"; continue; }
+      tehas_store_get '.planning' >"$session_file"
+      copy_in "$session_file" "$out" "$plan_copy" || failed="$failed $cursor"
+      rm -f "$session_file"
+    fi
   else
     copy_in "$TEHAS_HOME/state/cycles/$issue.result.json" "$out/logs" result.json
     copy_in "$TEHAS_HOME/state/cycles/$issue.progress.json" "$out/logs" progress.json

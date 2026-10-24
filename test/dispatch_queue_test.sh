@@ -101,8 +101,8 @@ notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
 states 12=CLOSED
 t_run "$dispatch"
 t_eq "$(started)" "7 "
-t_eq "$(cat "$cycles_dir/7.by")" alice
-t_eq "$(jq -r '"\(.by) \(.at)"' "$approved_file")" "alice 2026-10-01T00:00:00Z"
+t_eq "$(t_row cycle-show 7 -- .cycle.started_by)" alice
+t_eq "$(approval '"\(.by) \(.at)"')" "alice 2026-10-01T00:00:00Z"
 t_lacks "$t_out" "authorized by @tehas-fixer"
 
 t_case "one open blocker of two holds the issue"
@@ -299,8 +299,7 @@ ready_at 7 mallory 2026-10-17T08:00:00Z
 ready_at 8 alice 2026-10-17T08:30:00Z
 ready_at 9 alice 2026-10-17T09:00:00Z
 ready_at 10 alice 2026-10-17T10:00:00Z
-mkdir -p "$T/home/tehas/state"
-echo '{"comment":1}' >"$T/home/tehas/state/plan-9.json"
+t_plan "$T/home/tehas" 9 '{"turns":1,"comment":1}'
 slots 2
 hold 8
 hold 5

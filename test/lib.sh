@@ -23,9 +23,80 @@
 #                                    the MCP server and the store into a scratch
 #                                    checkout, and name its commit (t_tree_commit)
 #   t_tree_commit DIR                write COMMIT, as a release tree carries it
-#   t_store                          build the real store once per run, in
-#                                    $T_STORE; 1 when it cannot (t_store_why)
+#   t_store                          the real store, built once per run of
+#                                    the tests, in $T_STORE; 1 when there is
+#                                    none (t_store_why)
 #   t_store_db HOME                  a fresh database in HOME/state/tehas.db
+#   t_store_home HOME                the real store installed at
+#                                    HOME/libexec/store and a fresh database;
+#                                    a failure when there is no store
+#   t_row VERB ARGS... -- JQ         a read verb of the real store against the
+#                                    home of t_store_home, and jq -r JQ of its
+#                                    answer
+#   t_at EPOCH VERB ARGS...          the real store at that time, against that
+#                                    home (TEHAS_STORE_TEST_NOW)
+#   t_store_answers VERB RC LINE [TIMES]
+#                                    the installed store answers VERB with RC
+#                                    and LINE (or never answers: RC hang) for
+#                                    its first TIMES calls, and runs the real
+#                                    store otherwise; t_calls store
+#   t_approve HOME N BY HOW [AT] [ARGS...]
+#                                    an approval of issue N on record, as the
+#                                    dispatcher records it: at AT [1760000000],
+#                                    the body hash of "Words." ($T_WSUM) unless
+#                                    ARGS give one, tehas:ready for label and
+#                                    fixer
+#   t_started HOME N [ARGS...]       a cycle start of issue N on record, made
+#                                    under the issue's lock as the cycle makes
+#                                    it; TEHAS_STORE_TEST_NOW sets its time
+#   t_ended HOME N BY [HOW] [ARGS...]
+#                                    a cycle of issue N on record that has
+#                                    ended (cycle-end ARGS, status failed
+#                                    unless given), started on BY's approval
+#                                    of HOW [label], or by hand when BY is -
+#   t_record HOME N JSON             on a fresh store, the approval JSON
+#                                    describes in the shape the record file had
+#                                    (tehas_approval_view's), used by a start of
+#                                    issue N: with the person's approval it rests
+#                                    on, and the fixer's and the refreshes'
+#                                    starts it counts, as ended starts before it
+#   t_history_end HOME N END [FIELDS]
+#                                    one end of a cycle of issue N on the store
+#                                    at END (epoch seconds), with FIELDS in the
+#                                    shape the line of history had before the
+#                                    store (started [a minute before], rc,
+#                                    status, step, cap, park_reason,
+#                                    failure_kind, failure_cause, provider,
+#                                    parked, pr as an address, by and how; by
+#                                    hand without by)
+#   t_park HOME N REASON [QID|-] [ARGS...]
+#                                    the cycle of issue N on record parked on
+#                                    REASON (park ARGS), with the park question
+#                                    QID on record when one is given
+#   t_plan HOME N JSON               on a fresh session of issue N, the planning
+#                                    session JSON describes in the shape its
+#                                    record file had (tehas_plan_shape): made
+#                                    by the planning verbs, as the dispatcher
+#                                    makes one. by [alice], label
+#                                    [tehas:plan], turns, session [abc-123],
+#                                    options and filed of the last turn,
+#                                    failed, pending, comment (the open
+#                                    question), running (a turn after the
+#                                    last), lost, answers (who answered each
+#                                    later turn, and whether the fixer did),
+#                                    fixer_refused and held; startedAt is when
+#                                    the turn that runs began
+#   t_plan_end HOME N END [FIELDS]   one end of a first planning turn of issue N
+#                                    on the store at END (epoch seconds), with
+#                                    FIELDS in the shape its line of history had
+#                                    (started [a minute before], rc, status, by
+#                                    [alice], label, filed); by hand of nobody
+#                                    else, and the session ended unless it was
+#                                    finished
+#   t_no_old_state HOME              a failure for each old record file in
+#                                    HOME that t_old_state names
+#   t_after                          a command run as each case ends, by
+#                                    t_case and t_done
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
 #   t_done                           print the tally, exit 1 if anything failed
 #
@@ -48,7 +119,9 @@ t_rc=0
 T_MINIMAL=(TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
   PI_ENSEMBLE_SUBAGENT_MODEL=test-model PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider)
 
+t_after=""
 t_case() {
+  [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
   t_name=$1
   t_count=$((t_count + 1))
 }
@@ -161,15 +234,19 @@ case $pkg in analytics) art=an ;; *) art=a ;; esac
 echo "$art $pkg built from ${CONSOLE_BUILD:-source}" >"$CARGO_TARGET_DIR/${triple}release/$pkg"'
   # The store is run by install.sh, so what the stub builds for it is a program:
   # it records each call in t_calls store and answers as the store does, or
-  # fails with the store's own word when STORE_RC is set. STORE_BIN names a real
+  # fails with the store's own word when STORE_RC is set, at every verb but the
+  # dry run install.sh asks before its copies. STORE_BIN names a real
   # store to hand over instead (t_store).
   cat >"$T/store-stand-in" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T/calls/store"
-if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
+if [ "${STORE_RC:-0}" != 0 ] && [ "$*" != "import --dry-run" ]; then echo "store: corrupt the database: a stand-in" >&2; exit "$STORE_RC"; fi
 case $1 in
   init) echo '{"api":1,"verb":"init","ok":true,"schema":1,"created":true}' ;;
   migrate) printf '{"api":1,"verb":"migrate","ok":true,"from":1,"to":1,"backup":"%s/tehas-1-0.db"}\n' "$3" ;;
+  import) dry=false
+    [ "${2:-}" != --dry-run ] || dry=true
+    printf '{"api":1,"verb":"import","ok":true,"imported":{},"moved":0,"held":[],"dry_run":%s}\n' "$dry" ;;
 esac
 EOF
 }
@@ -188,20 +265,30 @@ t_console_source() {
 T_COMMIT=0123456789abcdef0123456789abcdef01234567
 t_tree_commit() { printf '%s\n' "$T_COMMIT" >"$1/COMMIT"; }
 
-# t_store: the store program of this checkout, built once per run of the tests
-# and kept in $T_STORE. cargo builds it offline into the workspace's own target
-# directory, where the gate's cargo test builds the same crates. Returns 1 with
-# the reason in $t_store_why when there is no cargo or the build fails, and the
-# case then says t_skip.
+# t_store: the store program of this checkout, in $T_STORE. scripts/test.sh
+# builds it once before it starts the test files and names it in T_STORE_BIN,
+# or says in T_STORE_WHY why there is none. A test file run alone builds it
+# itself. Both build offline into console/target/shell, not the workspace's
+# own target directory: the gate's cargo test holds that one's lock while the
+# shell tests run. Returns 1 with the reason in $t_store_why.
 T_STORE=$T/store-bin
 t_store_why=""
 t_store() {
   [ -x "$T_STORE" ] && return 0
+  if [ -n "${T_STORE_BIN:-}" ]; then
+    cp "$T_STORE_BIN" "$T_STORE" && return 0
+    t_store_why="the store built for this run cannot be copied: $T_STORE_BIN"
+    return 1
+  fi
+  if [ -n "${T_STORE_WHY:-}" ]; then
+    t_store_why=$T_STORE_WHY
+    return 1
+  fi
   if ! command -v cargo >/dev/null 2>&1; then
     t_store_why="cargo is not installed"
     return 1
   fi
-  local target=${CARGO_TARGET_DIR:-$T_ROOT/console/target}
+  local target=$T_ROOT/console/target/shell
   if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
     --target-dir "$target" -p store >"$T/store-build.log" 2>&1; then
     t_store_why="the store did not build offline: $(tail -n 1 "$T/store-build.log")"
@@ -216,6 +303,291 @@ t_store_db() {
   mkdir -p "$1"
   TEHAS_HOME=$1 "$T_STORE" init --version v0.0.0 --commit "$T_COMMIT" --instance instance \
     --repo acme/widget >/dev/null
+}
+# t_store_home <home>: the home a command runs the store in. A record test
+# fails without the store rather than skip: the gate needs cargo anyway. The
+# binary is a hard link to $T_STORE, so a case that changes it removes it
+# first, as t_store_answers does.
+t_store_at=""
+t_store_home() {
+  t_store_at=$1
+  if ! t_store; then
+    t_bad "no store: $t_store_why"
+    return 1
+  fi
+  mkdir -p "$1/libexec"
+  rm -f "$1/libexec/store" "$T/store-answers.n"
+  ln "$T_STORE" "$1/libexec/store" 2>/dev/null || cp "$T_STORE" "$1/libexec/store"
+  t_store_db "$1" || t_bad "the store's init failed in $1"
+}
+# t_row <verb> <args...> -- <jq filter>: what the store has on record, through
+# its read verbs only. On a refusal it prints the store's own line and
+# returns 1.
+t_row() {
+  local t_args=() t_got
+  case ${1:-} in
+    cycle-show | park-show | question-known | approval-current | plan-show | history-show | check) ;;
+    *)
+      t_bad "t_row reads, and ${1:-nothing} is not a read verb"
+      return 64
+      ;;
+  esac
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do
+    t_args+=("$1")
+    shift
+  done
+  if [ "$#" != 2 ]; then
+    t_bad "t_row: no -- <jq filter> after ${t_args[*]}"
+    return 64
+  fi
+  t_got=$(TEHAS_HOME=$t_store_at "$T_STORE" "${t_args[@]}" 2>&1) || {
+    printf '%s\n' "$t_got"
+    return 1
+  }
+  jq -r "$2" <<<"$t_got"
+}
+# t_at <epoch> <verb> <args...>: the store with its clock at <epoch>, which a
+# debug build takes from TEHAS_STORE_TEST_NOW.
+t_at() {
+  TEHAS_HOME=$t_store_at TEHAS_STORE_TEST_NOW=$1 "$T_STORE" "${@:2}"
+}
+t_q() { printf %q "$1"; }
+# t_store_answers <verb> <rc> <line> [<times>]: a store at the home of
+# t_store_home that answers <verb> with <rc>, and <line> on stdout for 0 and
+# on stderr otherwise, for its first <times> calls (all when not given).
+# <rc> hang is a store that never answers. Every other call goes to the real
+# store. Each call is noted in t_calls store.
+t_store_answers() {
+  local t_bin=$t_store_at/libexec/store t_times=${4:-all} t_answer
+  case $2 in
+    hang) t_answer="exec $(printf %q "$(command -pv sleep)") 600" ;;
+    0) t_answer="printf '%s\\n' $(printf %q "$3"); exit 0" ;;
+    *) t_answer="printf '%s\\n' $(printf %q "$3") >&2; exit $(printf %q "$2")" ;;
+  esac
+  rm -f "$t_bin" "$T/store-answers.n"
+  mkdir -p "${t_bin%/*}"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
+    "if [ \"\${1:-}\" = $(t_q "$1") ]; then" \
+    "  n=\$((\$(cat $(t_q "$T/store-answers.n") 2>/dev/null || echo 0) + 1))" \
+    "  echo \"\$n\" >$(t_q "$T/store-answers.n")" \
+    "  if [ $(t_q "$t_times") = all ] || [ \"\$n\" -le $(t_q "$t_times") ]; then" \
+    "    $t_answer" \
+    "  fi" \
+    "fi" \
+    "exec $(t_q "$T_STORE") \"\$@\"" >"$t_bin"
+  chmod 755 "$t_bin"
+}
+T_WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
+t_approve() { # <home> <issue> <by> <how> [<at>] [<approval-record args>...]
+  local t_home=$1 t_n=$2 t_by=$3 t_how=$4 t_when=${5:-1760000000} t_args
+  if [ "$#" -ge 5 ]; then shift 5; else shift "$#"; fi
+  t_args=(approval-record "$t_n" --at "$t_when" --by "$t_by" --how "$t_how")
+  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  case " $* " in *" --body-sha "*) ;; *) t_args+=(--body-sha "$T_WSUM") ;; esac
+  TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" "$@" >/dev/null ||
+    t_bad "t_approve: the store refused ${t_args[*]} $*"
+}
+t_started() { # <home> <issue> [<cycle-start args>...]
+  local t_home=$1 t_n=$2
+  shift 2
+  mkdir -p "$t_home/state/cycles"
+  TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-start "$t_n" "$@" >/dev/null ||
+    t_bad "t_started: the store refused cycle-start $t_n $*"
+}
+t_ended() { # <home> <issue> <by|-> [<how>] [<cycle-end args>...]
+  local t_home=$1 t_n=$2 t_by=$3 t_how=${4:-label} t_a
+  if [ "$#" -ge 4 ]; then shift 4; else shift "$#"; fi
+  t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+  if [ "$t_by" = - ]; then
+    t_started "$t_home" "$t_n" --by-hand
+  else
+    t_approve "$t_home" "$t_n" "$t_by" "$t_how" $((1700000000 + t_a))
+    t_started "$t_home" "$t_n"
+  fi
+  case " $* " in *" --status "*) ;; *) set -- --status failed "$@" ;; esac
+  TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-end "$t_n" --attempt $((t_a + 1)) "$@" >/dev/null ||
+    t_bad "t_ended: the store refused cycle-end $t_n $*"
+}
+
+t_record() { # <home> <issue> <JSON>
+  local t_home=$1 t_n=$2 t_j=$3 t_how t_at t_last=0 t_base t_k t_count t_in=$T/record-input.json
+  local -a t_args
+  t_store_db "$t_home"
+  t_how=$(jq -r .how <<<"$t_j")
+  t_at=$(date -u -d "$(jq -r .at <<<"$t_j")" +%s)
+  t_base=$(jq -c '.rests_on // empty' <<<"$t_j")
+  # _t_used <by> <how> <at> [<approval-record args>...]: an approval a start used, and its end.
+  _t_used() {
+    local t_a
+    t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+    t_approve "$t_home" "$t_n" "$@"
+    t_started "$t_home" "$t_n"
+    TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-end "$t_n" --attempt $((t_a + 1)) \
+      --status handoff >/dev/null || t_bad "t_record: the store refused the end of an earlier start"
+    t_last=$3
+  }
+  if { [ "$t_how" = fixer ] || [ "$t_how" = refresh ]; } && [ -n "$t_base" ]; then
+    _t_used "$(jq -r .by <<<"$t_base")" "$(jq -r .how <<<"$t_base")" "$(date -u -d "$(jq -r .at <<<"$t_base")" +%s)" \
+      --body-sha "$(jq -r .body_sha256 <<<"$t_base")"
+    t_count=$(jq -r '.fixer_starts // 0' <<<"$t_j")
+    [ "$t_how" != fixer ] || t_count=$((t_count - 1))
+    for ((t_k = 0; t_k < t_count; t_k++)); do _t_used tehas-fixer fixer $((t_last + 10)); done
+    if [ "$t_how" = refresh ]; then
+      t_count=$(jq -r '.refreshes // 1' <<<"$t_j")
+      for ((t_k = 1; t_k < t_count; t_k++)); do
+        _t_used "$(jq -r .by <<<"$t_j")" refresh $((t_last + 10)) --refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})"
+      done
+    fi
+  fi
+  [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
+  jq --arg how "$t_how" '{links: (.links // [])}
+    + with_entries(select(.key == "comment_links" or .key == "retry_context"))
+    + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
+  t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
+    --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")
+  case $t_how in label | fixer) t_args+=(--label tehas:ready) ;; esac
+  t_k=$(jq -r '.title_sha256 // ""' <<<"$t_j")
+  [ -z "$t_k" ] || t_args+=(--title-sha "$t_k")
+  [ "$t_how" != refresh ] ||
+    t_args+=(--refresh-pr "$(jq -r '.refresh_of.pr // 50' <<<"$t_j")" --refresh-head "$(jq -r '.refresh_of.head_sha // ("a" * 40)' <<<"$t_j")")
+  TEHAS_HOME=$t_home "$T_STORE" "${t_args[@]}" >/dev/null || t_bad "t_record: the store refused ${t_args[*]}"
+  t_started "$t_home" "$t_n"
+}
+
+t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
+  local home=$1 n=$2 e=$3 x=${4:-'{}'} started a
+  local -a t_end=()
+  started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
+  a=$(TEHAS_HOME=$home "$T_STORE" cycle-show "$n" | jq '.cycle.attempt // 0')
+  if [ "$(jq -r '.by // ""' <<<"$x")" != "" ]; then
+    t_approve "$home" "$n" "$(jq -r .by <<<"$x")" "$(jq -r '.how // "label"' <<<"$x")" $((started - 1 - a))
+    TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n"
+  else
+    TEHAS_STORE_TEST_NOW=$started t_started "$home" "$n" --by-hand
+  fi
+  mapfile -t t_end < <(jq -r '
+    "--status", (.status // "unknown"),
+    (if .rc != null then ("--rc", (.rc | tostring)) else empty end),
+    (if .step != null then ("--step", .step) else empty end),
+    (if .cap != null then ("--cap", .cap) else empty end),
+    (if .park_reason != null then ("--park-reason", .park_reason) else empty end),
+    (if .failure_kind != null then ("--failure-kind", .failure_kind) else empty end),
+    (if .failure_cause != null then ("--failure-cause", .failure_cause) else empty end),
+    (if .provider == true then "--provider" else empty end),
+    (if .parked == true then "--parked" else empty end),
+    (if .pr != null then ("--pr", (.pr | sub(".*/"; ""))) else empty end)' <<<"$x")
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" \
+    --attempt $((a + 1)) "${t_end[@]}" >/dev/null || t_bad "t_history_end: the store refused the end of #$n"
+}
+t_park() { # <home> <issue> <reason> [<question id>|-] [<park args>...]
+  local t_home=$1 t_n=$2 t_why=$3 t_q=${4:--} t_a
+  if [ "$#" -ge 4 ]; then shift 4; else shift "$#"; fi
+  t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+  TEHAS_HOME=$t_home "$T_STORE" park "$t_n" --attempt "$t_a" --reason "$t_why" "$@" >/dev/null ||
+    t_bad "t_park: the store refused park $t_n --attempt $t_a --reason $t_why $*"
+  [ "$t_q" = - ] || TEHAS_HOME=$t_home "$T_STORE" question-asked "$t_n" --id "$t_q" --kind park >/dev/null ||
+    t_bad "t_park: the store refused the question $t_q of #$t_n"
+}
+
+t_plan() { # <home> <issue> <JSON>
+  local t_home=$1 t_n=$2 t_j=$3 t_turns t_t t_s t_at t_by t_brief=$T/plan-brief.md
+  local -a t_args
+  _t_s() { TEHAS_HOME=$t_home "$T_STORE" "$@" >/dev/null || t_bad "t_plan: the store refused $*"; }
+  # _t_when <epoch or empty> <verb...>: at that time, or now.
+  _t_when() {
+    local when=$1
+    shift
+    if [ -n "$when" ]; then TEHAS_HOME=$t_home TEHAS_STORE_TEST_NOW=$when "$T_STORE" "$@" >/dev/null || t_bad "t_plan: the store refused $*"
+    else _t_s "$@"; fi
+  }
+  t_turns=$(jq -r '.turns // 0' <<<"$t_j")
+  t_s=$(jq -r '.session // "" | if . == "" then "abc-123" else . end' <<<"$t_j")
+  t_at=""
+  [ "$(jq -r '.startedAt // ""' <<<"$t_j")" = "" ] || t_at=$(date -u -d "$(jq -r .startedAt <<<"$t_j")" +%s)
+  printf '# Faster search\n\nMake it fast.\n' >"$t_brief"
+  # Who answered turn <t>, as the dispatcher records it.
+  _t_answer() {
+    t_by=$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].by // "alice"' <<<"$t_j")
+    t_args=(plan-answer "$t_n" --turn "$1" --by "$t_by" --text-file "$t_brief")
+    [ "$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].fixer // false' <<<"$t_j")" != true ] ||
+      t_args+=(--fixer)
+    _t_when "${2:-}" "${t_args[@]}"
+  }
+  t_args=(plan-begin "$t_n" --by "$(jq -r '.by // "alice"' <<<"$t_j")" --label "$(jq -r '.label // "tehas:plan"' <<<"$t_j")" --brief-file "$t_brief")
+  if [ "$t_turns" = 0 ]; then _t_when "$t_at" "${t_args[@]}"; else _t_s "${t_args[@]}"; fi
+  for ((t_t = 1; t_t <= t_turns; t_t++)); do
+    [ "$t_t" = 1 ] || _t_answer "$t_t"
+    if [ "$t_t" -lt "$t_turns" ]; then
+      _t_s plan-end "$t_n" --turn "$t_t" --outcome finished --rc 0 --session "$t_s"
+      _t_s plan-end "$t_n" --posted
+    elif [ "$(jq -r '.failed // false' <<<"$t_j")" = true ]; then
+      _t_s plan-end "$t_n" --turn "$t_t" --outcome failed --rc 2 --session "$t_s"
+    else
+      t_args=(plan-end "$t_n" --turn "$t_t" --outcome finished --rc 0 --session "$t_s")
+      mapfile -t -O "${#t_args[@]}" t_args < <(jq -r '((.options // [])[] | "--option", .), ((.filed // [])[] | "--filed", .)' <<<"$t_j")
+      _t_s "${t_args[@]}"
+    fi
+  done
+  if [ "$t_turns" -gt 0 ]; then
+    [ "$(jq -r '.comment // ""' <<<"$t_j")" = "" ] ||
+      _t_s question-asked "$t_n" --id "$(jq -r .comment <<<"$t_j")" --kind plan
+    [ "$(jq -r '.pending // false' <<<"$t_j")" = true ] || _t_s plan-end "$t_n" --posted
+    [ "$(jq -r '.running // false' <<<"$t_j")" != true ] || _t_answer $((t_turns + 1)) "$t_at"
+  fi
+  [ "$(jq -r '.lost // false' <<<"$t_j")" != true ] ||
+    _t_s plan-end "$t_n" --turn $((t_turns + 1)) --outcome lost --rc 2
+  while read -r t_by; do
+    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind fixer-refused --id "$t_by"
+  done < <(jq -r '(.fixer_refused // [])[]' <<<"$t_j")
+  while read -r t_by; do
+    [ -z "$t_by" ] || _t_s plan-note "$t_n" --kind held --id "$t_by"
+  done < <(jq -r '(.held // [])[]' <<<"$t_j")
+}
+t_plan_end() { # <home> <issue> <epoch of the end> [<fields>]
+  local home=$1 n=$2 e=$3 x=${4:-'{}'} started outcome brief=$T/plan-brief.md
+  local -a t_end=()
+  started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
+  outcome=$(jq -r '.status // "finished"' <<<"$x")
+  printf '# Faster search\n' >"$brief"
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$started "$T_STORE" plan-begin "$n" --by "$(jq -r '.by // "alice"' <<<"$x")" \
+    --label "$(jq -r '.label // "tehas:plan"' <<<"$x")" --brief-file "$brief" >/dev/null ||
+    t_bad "t_plan_end: the store refused the begin of #$n"
+  t_end=(--outcome "$outcome")
+  case $outcome in
+    finished) t_end+=(--rc 0 --session abc-123) ;;
+    failed) t_end+=(--rc "$(jq -r '.rc // 2' <<<"$x")") ;;
+  esac
+  mapfile -t -O "${#t_end[@]}" t_end < <(jq -r '(.filed // [])[] | "--filed", .' <<<"$x")
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e "$T_STORE" plan-end "$n" --turn 1 "${t_end[@]}" >/dev/null ||
+    t_bad "t_plan_end: the store refused the end of #$n"
+}
+
+# The old record files a group moved onto the store no longer has, as globs
+# under a home. Each group that moves adds its own.
+t_old_state=(
+  # The cycle's records: its start, its approval, its image and settings,
+  # its branch and its history.
+  'state/cycles/*.taken' 'state/cycles/*.by' 'state/cycles/*.requeued' 'state/cycles/*.rukas'
+  'state/cycles/*.image' 'state/cycles/*.settings' 'state/cycles/*.branch'
+  'state/cycles/*.approved.json' 'state/cycles/*.approved.json.new' 'state/cycles/[1-9]*.history.jsonl'
+  # The park, its question and the body of the question posted.
+  'state/cycles/*.park' 'state/cycles/*.park.new' 'state/park-*.id' 'state/park-*.json'
+  # The quiet-cycle episode.
+  'state/cycles/*.quiet'
+  # The planning session: its record, its brief and answer, the copy a turn
+  # left, the directory it kept in state/ and its history.
+  'state/plan-*.json' 'state/plan-*.json.new' 'state/plan-*.json.brief' 'state/plan-*.json.answer'
+  'state/plan-*.json.answer.new' 'state/plan-*.json.keep' 'state/plan-*.turn'
+  'state/cycles/plan-*.history.jsonl' 'state/plan-*.history.jsonl'
+)
+t_no_old_state() { # <home>
+  local t_glob t_file
+  for t_glob in "${t_old_state[@]}"; do
+    for t_file in "$1"/$t_glob; do
+      if [ -e "$t_file" ] || [ -L "$t_file" ]; then t_bad "an old record file is there: ${t_file#"$1"/}"; fi
+    done
+  done
 }
 
 # A scratch cgroup tree for lib/slice.sh, under $T_CGROUP. A test that uses
@@ -287,6 +659,7 @@ no_wait="export TEHAS_UPDATE_LOCK_WAIT=0; "
 
 t_done() {
   local line
+  [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
   line="$(basename "$0"): $t_count cases, "
   [ "$t_skipped" = 0 ] || line=$line"$t_skipped skipped, "
   echo "$line$t_failed failed"

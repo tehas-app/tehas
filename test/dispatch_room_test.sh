@@ -21,7 +21,7 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 t_contains "$t_out" "holding: tehas.slice has no room for another cycle (19.5 GiB of 20.0 GiB promised, each cycle is given 2g)"
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
@@ -219,13 +219,13 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "no slice: a waiting planning answer is left as it is, no label is edited, no comment"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 no_slice
-before=$(cat "$record")
+before=$(rec)
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(plan_calls)" ""
@@ -233,8 +233,8 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls gh)" "api -X"
 t_lacks "$(t_calls gh)" "/comments -f"
-t_eq "$(cat "$record")" "$before"
-t_eq "$([ -e "$record.answer" ] && echo written)" ""
+t_eq "$(rec)" "$before"
+t_eq "$(find "$T/home/tehas/tmp" -name 'plan-answer.*' 2>/dev/null | wc -l)" 0
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: no slice file on this host"
 t_lacks "$t_out" "would run a planning turn"
@@ -250,7 +250,7 @@ no_slice
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
 t_contains "$(t_calls gh)" "Planning session ended by alice."
-t_eq "$([ -e "$record" ] && echo kept)" ""
+t_eq "$(rec_open)" none
 
 t_case "no slice: a plan label starts no session and keeps its label"
 to_plan
@@ -260,7 +260,8 @@ t_eq "$t_rc" 0
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$([ -e "$record" ] || [ -e "$record.brief" ] && echo written)" ""
+t_eq "$(rec)" null
+t_eq "$(find "$T/home/tehas/tmp" -name 'plan-7.brief.*' 2>/dev/null | wc -l)" 0
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "holding: no slice file on this host"
 t_lacks "$t_out" "would start a planning session"

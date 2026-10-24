@@ -31,7 +31,7 @@ t_contains "$(t_calls gh)" 'Tehas cycle stopped: its state says `merged`, but th
 t_lacks "$(t_calls gh)" "The change was merged"
 t_eq "$(find "$workdir" "$workdir.before-retry" -maxdepth 0 | wc -l)" 2
 t_eq "$(find "$T/home/tehas/state/rukas-proven" 2>/dev/null | wc -l)" 0
-t_eq "$(cat "$park_id")" 4002
+t_eq "$(park_q)" 4002
 rm -f "$fx/image.label"
 
 t_case "a merged state whose branch has only an open pull request is parked, and the comment names it"
@@ -92,7 +92,20 @@ t_contains "$t_out" "WARN: the result of #7 is a link, it is not read"
 t_contains "$(t_calls gh)" 'status `unknown`'
 t_lacks "$(t_calls gh)" "pr list"
 t_lacks "$(t_calls gh)" "The change was merged"
+# The end is on record all the same, and the store keeps nothing through the
+# link (F7).
+t_contains "$t_out" "WARN: the result of #7 is not on record: refused"
+t_eq "$(t_row cycle-show 7 -- '[(.cycle.ended_at != null), .cycle.end_reason] | tostring')" '[true,"unknown"]'
+t_eq "$(t_row history-show 7 -- '.rows | length')" 1
 rm -rf "$T/elsewhere"
+
+t_case "a progress older than the cycle's start is not on record as its own (G3)"
+reset
+ended handoff commit-pr feature/x
+echo 'touch -d "@$(($(date +%s) - 3600))" "$TEHAS_HOME/state/cycles/7.progress.json"' >"$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: the progress of #7 is not on record: stale"
+t_lacks "$t_out" "the result of #7 is not on record"
 
 t_case "a state file the cycle left in its workspace is not read: only the runner's result is"
 reset
@@ -136,7 +149,7 @@ t_contains "$(t_calls gh)" 'Tehas cycle ended: its pull request https://github.c
 t_contains "$(t_calls gh)" "runner exit 2"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "issues/7/comments"
-t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
+t_eq "$(park_q)" none
 t_contains "$t_out" "done #7 rc=2 status=merged"
 t_contains "$t_out" "pr=https://github.com/acme/widget/pull/9"
 t_eq "$(find "$workdir" -maxdepth 0 2>/dev/null | wc -l)" 1
@@ -159,7 +172,7 @@ t_contains "$(t_calls gh)" "The workspace is kept at \`$kept_here\`"
 t_contains "$(t_calls gh)" 'To retry, apply `tehas:ready`.'
 t_lacks "$(t_calls gh)" "issues/7/comments"
 t_lacks "$(t_calls gh)" "tehas:question"
-t_eq "$(find "$park_id" 2>/dev/null | wc -l)" 0
+t_eq "$(park_q)" none
 t_eq "$(find "$workdir" -maxdepth 0 | wc -l)" 1
 
 t_case "an open pull request beside a closed one is the cycle's"

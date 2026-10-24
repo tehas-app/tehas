@@ -2,12 +2,14 @@
 //! versions, for the dashboard's report and for a program that fetches the
 //! database. All of tehas's SQL is here; the bash commands only call this.
 //!
-//!   analytics run <issue> [--image <id>] [--rukas-image <commit>]
-//!                 [--oom <n>] [--forks <n>]
+//!   analytics run <issue> --facts <file> [--image <id>]
+//!                 [--rukas-image <commit>] [--oom <n>] [--forks <n>]
 //!     Records the run of the issue that ended last: its row in runs, its
-//!     steps and its roles, from what the cycle left on the host (run.rs
-//!     lists the files). Call it after libexec/cycle wrote the history line.
-//!     The options are what libexec/cycle read and removed before that: the
+//!     steps and its roles, from the facts its caller wrote to <file> (the
+//!     history line, the attempt, the approval, the settings and the image's
+//!     commit) and what the cycle left on the host (run.rs lists both). Call
+//!     it after libexec/cycle wrote the history line. The other options are
+//!     what libexec/cycle read and removed before that: the
 //!     image the container started from (sha256:<64 hex>), the pi-rukas
 //!     commit of its label (7 to 40 hex), and how many processes were killed
 //!     for memory and how many forks were refused. A value of another shape
@@ -18,9 +20,10 @@
 //!     when it happened, now when not given: the dispatcher records ready at
 //!     the start, with the time tehas:ready was accepted. A time more than a
 //!     minute ahead of now is a usage error.
-//!   analytics plan <issue> --rc <rc> [--rukas-image <commit>]
+//!   analytics plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>]
 //!     Records the planning turn of the issue that ended: its row in runs,
-//!     kind plan, from its record (plan.rs lists the files), with no usage.
+//!     kind plan, from its record, which its caller wrote to <file>, and the
+//!     turn's output (plan.rs lists both), with no usage.
 //!     lib/planning.sh calls it as plan_finish begins, before the record is
 //!     rewritten. <rc> is how the turn's unit ended: its exit status, or
 //!     interrupted, not-started or not-readable. The commit is that of the
@@ -60,8 +63,11 @@
 //! as it is. TEHAS_HOME comes from the
 //! environment and has no default.
 //!
-//! Exit: 0 done; 64 usage; 65 nothing to record: the issue has no history
-//! line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the export file
+//! A facts file is read as a host file is: a regular file, not through a
+//! link, at most 16 MiB of one JSON value. One that is not is no facts.
+//!
+//! Exit: 0 done; 64 usage; 65 nothing to record: no facts, facts with no
+//! history line, or no planning turn in flight; 70 the database could not be opened, written or read; 73 the export file
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 #[path = "../../src/mask.rs"]
@@ -91,7 +97,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -172,7 +178,12 @@ fn epoch(s: &str) -> Option<i64> {
 /// How far ahead of now an event's --at may be: clocks differ a little.
 const AT_AHEAD: i64 = 60;
 
-// The options of run, each at most once.
+// The path of --facts: not empty and not an option.
+fn facts(v: &str) -> Option<PathBuf> {
+    (!v.is_empty() && !v.starts_with('-')).then(|| PathBuf::from(v))
+}
+
+// The options of run, each at most once, --facts required.
 fn given(args: &[String]) -> Option<run::Given> {
     let count = |s: &str| {
         (s == "0" || (!s.starts_with('0') && s.len() <= 9 && s.bytes().all(|b| b.is_ascii_digit())))
@@ -195,13 +206,16 @@ fn given(args: &[String]) -> Option<run::Given> {
             }
             "--oom" if g.oom.is_none() => g.oom = Some(count(v)?),
             "--forks" if g.forks.is_none() => g.forks = Some(count(v)?),
+            "--facts" if g.facts.is_none() => g.facts = Some(facts(v)?),
             _ => return None,
         }
     }
+    g.facts.as_ref()?;
     Some(g)
 }
 
-// The options of plan: --rc once and required, --rukas-image at most once.
+// The options of plan: --rc and --facts once and required, --rukas-image at
+// most once.
 fn plan_given(args: &[String]) -> Option<plan::Given> {
     let mut rc: Option<String> = None;
     let mut g = plan::Given::default();
@@ -221,9 +235,11 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
                 run::is_hex(v, 7, 40).then_some(())?;
                 g.rukas_image = Some(v.to_string());
             }
+            "--facts" if g.facts.is_none() => g.facts = Some(facts(v)?),
             _ => return None,
         }
     }
+    g.facts.as_ref()?;
     g.rc = rc?;
     Some(g)
 }

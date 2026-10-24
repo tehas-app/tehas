@@ -92,8 +92,11 @@ t_eq "$(cmp -s "$build/analytics" "$th/libexec/analytics" && echo same)" same
 t_eq "$(cmp -s "$build/mcp" "$th/libexec/tehas-mcp" && echo same)" same
 t_eq "$(cmp -s "$T/bin/store" "$th/libexec/store" && echo same)" same
 # The store is run with what the release says it is: the tag, and the commit
-# from its COMMIT file.
-t_eq "$(t_calls store)" "init --version v9.9.9 --commit $T_COMMIT --instance instance --repo acme/widget"
+# from its COMMIT file, and then imports what an older tehas left, which it
+# judged before the copies.
+t_eq "$(t_calls store)" "import --dry-run
+init --version v9.9.9 --commit $T_COMMIT --instance instance --repo acme/widget
+import"
 t_eq "$(cat "$th/libexec/console.stamp")" "release $(sha256sum <"$build/console" | cut -d' ' -f1)"
 t_eq "$(t_calls cargo)" ""
 t_eq "$(cat "$th/docs/version.txt")" v9.9.9

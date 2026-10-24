@@ -200,6 +200,21 @@ Run `tehas dispatch --dry-run` and read what it prints.
   stop it now: `tehas stop N`, which clears what the cycle left on the host as
   well, or `systemctl --user stop tehas-cycle@N.service` on its own, and read
   `journalctl --user -u tehas-cycle@N`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s, but the state store could not record it (<word>),
+  so the poll asks nothing this time`: the poll keeps each stuck cycle's asks
+  in the state store, and the store was busy or did not answer in time. That
+  passes on its own: a later poll asks. A store that cannot be used ends the
+  poll with `ERROR: the state store cannot be used: ...` instead; look at it
+  with `TEHAS_HOME=~/tehas ~/tehas/libexec/store check`. Meanwhile, stop the
+  cycle with `tehas stop N`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s, and the state store has no open record of it, so
+  the poll does not stop it`: the unit holds its lock before its record
+  starts or after it ended, for example while it reports. A line on one poll
+  can be a cycle starting. When every poll says it, the unit is stuck and
+  holds a slot: stop it with `tehas stop N` and read
+  `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
@@ -207,6 +222,24 @@ Run `tehas dispatch --dry-run` and read what it prints.
   cannot start units, so it changed no label. Run `install.sh` on the host so
   its units step installs the cycle unit. Run `tehas dispatch` in the tehas
   user's own session, not in a `sudo -iu` shell, which has no user bus.
+- `ERROR: the state store is not installed (run install.sh)`: the poll, a
+  cycle, `tehas work`, `tehas stop`, `tehas history` and `tehas export` need
+  `~/tehas/libexec/store` and `~/tehas/state/tehas.db`, and stop at exit 78 before they ask GitHub
+  anything. Run `install.sh`, which builds the store and makes the database.
+- `ERROR: the cycle for #N did not start`: the unit did not put a new attempt
+  on record within `TEHAS_CYCLE_START_WAIT` and holds no lock. The approval is
+  taken off the record, or the unit is stopped when the store keeps it, and
+  the issue gets `needs-human-attention`. Read
+  `~/tehas/logs/dispatch.log` for the cycle's own line: `refuse #N: the state
+  store refused the start` (exit 77) is a unit started with no approval
+  waiting, such as one started by hand with `systemctl`; `the state store did
+  not take the start (busy)` (exit 75) is a store that stayed busy, and
+  `the state store took the start only after it timed out` (exit 75) is a
+  start the store recorded too late: it is ended as refused and nothing ran.
+- `skip #N: its approval of <time> started a cycle already`: the label event
+  this poll read started a cycle already. A new `tehas:ready` asks for another.
+- `ERROR: the state store could not list the running cycles (busy)`: the poll
+  ended before it acted on any cycle, exit 1. The next poll asks again.
 - `another poll holds the dispatcher's lock`: a poll is under way. Try again
   in a minute. A running cycle, a planning turn and an index run do not hold
   this lock.
@@ -367,6 +400,28 @@ the row above is not an oversight: pi-rukas does not halt a cycle for a policy
 edit. The edit ships and you see it in the diff, and the cycle is judged
 against the doctrine at the commit it started from, so an edit of its own
 changes nothing for that cycle. See [Operating tehas](/operating).
+
+### A tick in the park comment starts nothing
+
+A box counts only in the question this host has on record for the issue's
+current park, on the state store. The poll's log says which case it is:
+
+- `skip #N: a box was ticked in a question this host has no record of`: the
+  comment is not that question. It may be the question of an earlier cycle (a
+  start takes its question off the record), one a `tehas:plan` session or
+  `tehas stop` took off, one whose `tehas:question` label could not be added
+  when it was posted, or a comment with a copied marker. The poll unticks it
+  and comments that the factory is not waiting on it. Apply `tehas:ready` to
+  start a cycle.
+- `skip #N: its question on record could not be read (<word>)`: the state
+  store was busy. Nothing was ticked or unticked; the next poll reads it
+  again. A store that cannot be used stops the poll with exit 78 instead: see
+  `~/tehas/logs/dispatch.log`.
+- `skip #N: the question on record does not belong to this issue`: the
+  comment's marker names another issue or kind. Nothing is changed.
+- `WARN: could not record the park question of #N, its boxes will not work`
+  in the cycle's log: the question was posted while the store did not take
+  it. Apply `tehas:ready`.
 
 
 ## A cycle stops at a cap

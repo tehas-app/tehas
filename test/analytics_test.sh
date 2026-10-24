@@ -97,9 +97,116 @@ t_eq "$(t_calls analytics)" ""
 t_eq "$([ -e "$T/out" ] && echo there || echo none)" none
 T_ENV=()
 
+# A stub that keeps the facts it was given and how they were kept.
+facts_stub() {
+  t_stub_analytics 'while [ "$#" -gt 0 ] && [ "$1" != --facts ]; do shift; done
+cp "$2" "$T/calls/facts.json"; stat -c %a "$2" >"$T/calls/facts.mode"; echo "$2" >"$T/calls/facts.path"'
+}
+cycles=$T/home/tehas/state/cycles
+mkdir -p "$cycles"
+now=$(date +%s)
+
+home=$T/home/tehas
+# With the store: a run's approval, settings and commit are on the cycle's
+# record.
+scall="$call; . \"\$T_ROOT/lib/store.sh\""
+
+t_case "a run's facts are the cycle's line and attempt, and the approval, the settings and the commit on record"
+rm -f "$T"/calls/*
+facts_stub
+T_ENV=(TEHAS_ANALYTICS=on)
+t_store_home "$home"
+t_approve "$home" 7 alice retry-tick "$(date -u -d 2026-10-24T10:59:00Z +%s)"
+t_started "$home" 7 --rukas abcdef1
+echo '{"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "m"}, "host": {"TEHAS_WORK_TIMEOUT": "60"}, "concurrentCycles": 2}' >"$T/settings.json"
+TEHAS_HOME=$home flock -w 5 "$cycles/7.lock" "$T_STORE" cycle-image 7 --attempt 1 \
+  --image "sha256:$(printf 'e%.0s' {1..64})" --settings "$T/settings.json" >/dev/null
+line=$(jq -n -c --argjson s $((now - 600)) '{at: "2026-10-24T11:00:00Z", started: $s, rc: 0, status: "merged", how: "retry-tick", pr: "https://github.com/o/r/pull/3"}')
+printf '%s\n' "$line" >"$T/line.json"
+t_run "$scall; tehas_analytics_run 7 1 \"\$(cat \"\$T/line.json\")\" --oom 0 --forks 1; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+facts=$(cat "$T/calls/facts.path")
+t_eq "$(t_calls analytics)" "run 7 --facts $facts --oom 0 --forks 1"
+t_eq "$(jq -c . "$T/calls/facts.json")" "$(jq -n -c --argjson l "$line" '{line: $l,
+  attempt: 1, approval: {at: "2026-10-24T10:59:00Z", how: "retry-tick"},
+  settings: {container: {PI_ENSEMBLE_SUBAGENT_MODEL: "m"}, host: {TEHAS_WORK_TIMEOUT: "60"}, concurrentCycles: 2},
+  rukas: "abcdef1"}')"
+t_eq "$(cat "$T/calls/facts.mode")" 600
+t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
+t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
+
+t_case "a fact the store has none of for this attempt, or cannot give, is null"
+rm -f "$T"/calls/*
+t_run "$scall; tehas_analytics_run 7 2 \"\$(cat \"\$T/line.json\")\"; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_eq "$(jq -c '[.attempt, .approval, .settings, .rukas, .line.status]' "$T/calls/facts.json")" '[2,null,null,null,"merged"]'
+t_store_answers cycle-show 1 'store: busy #7: the database is locked'
+t_run "$scall; tehas_analytics_run 7 1 \"\$(cat \"\$T/line.json\")\""
+t_eq "$(jq -c '[.approval.how, .settings, .rukas]' "$T/calls/facts.json")" '["retry-tick",null,null]'
+t_store_answers approval-current 78 'store: corrupt: the file is not a database'
+t_run "$scall; tehas_analytics_run 7 1 \"\$(cat \"\$T/line.json\")\""
+t_eq "$(jq -c '[.approval, .settings.concurrentCycles]' "$T/calls/facts.json")" '[null,2]'
+t_store_home "$home"
+t_run "$scall; tehas_analytics_run 7 x '[1]'; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_eq "$(jq -c '[.line, .attempt, .approval, .settings, .rukas]' "$T/calls/facts.json")" '[null,null,null,null,null]'
+t_eq "$(find "$T/home/tehas/tmp" -type f | wc -l)" 0
+
+t_case "a history line longer than a command's argument may be is given whole"
+rm -f "$T"/calls/*
+jq -n -c --argjson s "$now" '{started: $s, rc: 2, status: "failed", failure_cause: ("x" * 200000)}' >"$T/line.json"
+t_run "$scall; tehas_analytics_run 7 1 \"\$(cat \"\$T/line.json\")\"; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_eq "$(jq -c '[(.line.failure_cause | length), .attempt]' "$T/calls/facts.json")" '[200000,1]'
+
+t_case "a planning turn's facts are its session on the state store, in the shape its record had"
+rm -f "$T"/calls/*
+t_store_home "$home"
+t_plan "$home" 7 '{"session":"s","turns":1,"running":true,"startedAt":"2026-10-24T11:00:00Z","label":"tehas:refine"}'
+t_run "$scall; tehas_analytics_plan 7 --rc 0 --rukas-image abcdef1; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+facts=$(cat "$T/calls/facts.path")
+t_eq "$(t_calls analytics)" "plan 7 --facts $facts --rc 0 --rukas-image abcdef1"
+t_eq "$(jq -c . "$T/calls/facts.json")" '{"session":"s","turns":1,"options":[],"pending":false,"failed":false,"running":true,"startedAt":"2026-10-24T11:00:00Z","by":"alice","label":"tehas:refine","answers":[{"turn":2,"by":"alice","fixer":false}]}'
+t_eq "$(cat "$T/calls/facts.mode")" 600
+t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
+t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
+t_store_answers plan-show 1 'store: busy #7: the database is locked'
+t_run "$scall; tehas_analytics_plan 7 --rc 0"
+t_eq "$(cat "$T/calls/facts.json")" null
+t_store_home "$home"
+t_run "$scall; tehas_analytics_plan 7 --rc 0"
+t_eq "$(cat "$T/calls/facts.json")" null
+
+t_case "facts that cannot be written are one WARN line, and the program is not called"
+rm -f "$T"/calls/*
+rm -rf "$T/home/tehas/tmp"
+: >"$T/home/tehas/tmp"
+t_run "$scall; tehas_analytics_run 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_contains "$t_out" "WARN analytics run: no facts written"
+t_contains "$t_out" "WARN analytics plan: no facts written"
+t_contains "$t_out" "rc=0"
+t_eq "$(t_calls analytics)" ""
+rm -f "$T/home/tehas/tmp"
+
+t_case "with TEHAS_ANALYTICS off, or no program, no facts are made and nothing is called"
+rm -rf "$T"/calls/* "$T/home/tehas/tmp"
+facts_stub
+T_ENV=(TEHAS_ANALYTICS=off)
+t_run "$scall; tehas_analytics_run 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+rm -f "$bin"
+T_ENV=(TEHAS_ANALYTICS=on)
+t_run "$scall; tehas_analytics_run 7 1 '{}'; tehas_analytics_plan 7 --rc 0; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_eq "$(t_calls analytics)" ""
+t_eq "$([ -e "$T/home/tehas/tmp" ] && echo made || echo none)" none
+T_ENV=()
+
 t_case "sourcing it defines and runs nothing else"
+rm -f "$T"/calls/*
 t_run '. "$T_ROOT/lib/analytics.sh"; declare -F | wc -l; ls "$T/calls" | wc -l'
-t_eq "$t_out" "3
+t_eq "$t_out" "7
 0"
 
 t_done

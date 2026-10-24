@@ -3,7 +3,7 @@
 //! with, the store opened for a writer or a reader, the issues stub and the
 //! mapping of an error to its exit.
 
-use crate::{approval, cycle, db, park, plan};
+use crate::{approval, cycle, db, history, park, plan};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs::File;
@@ -20,6 +20,7 @@ pub enum Call {
     Park(park::Call),
     Approval(approval::Call),
     Plan(plan::Call),
+    History(history::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -36,7 +37,10 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = approval::parse(name, rest) {
         return Some(r.map(Call::Approval));
     }
-    plan::parse(name, rest).map(|r| r.map(Call::Plan))
+    if let Some(r) = plan::parse(name, rest) {
+        return Some(r.map(Call::Plan));
+    }
+    history::parse(name, rest).map(|r| r.map(Call::History))
 }
 
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
@@ -45,6 +49,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Park(c) => park::run(home, c, now),
         Call::Approval(c) => approval::run(home, c),
         Call::Plan(c) => plan::run(home, c, now),
+        Call::History(c) => history::run(home, c),
     }
 }
 
@@ -452,10 +457,18 @@ pub fn refuse(word: &str, issue: i64, why: &str) -> Fail {
     (1, format!("{word} #{issue}: {why}"))
 }
 
-fn no_schema() -> Fail {
-    crate::line(db::DbError::Unreadable(
-        "the store holds no schema; run store migrate".to_string(),
-    ))
+/// A store below the version this binary writes. 0 holds no schema at all;
+/// a lower version is one `migrate` has not brought forward yet.
+fn no_schema(held: i64) -> Fail {
+    let why = if held == 0 {
+        "the store holds no schema; run store migrate".to_string()
+    } else {
+        format!(
+            "the store is at schema {held}, this store writes {}; run store migrate",
+            db::SCHEMA_VERSION
+        )
+    };
+    crate::line(db::DbError::Unreadable(why))
 }
 
 fn schema(conn: &Connection) -> Result<(), Fail> {
@@ -465,7 +478,7 @@ fn schema(conn: &Connection) -> Result<(), Fail> {
     if v == db::SCHEMA_VERSION {
         Ok(())
     } else {
-        Err(no_schema())
+        Err(no_schema(v))
     }
 }
 
@@ -473,7 +486,7 @@ fn schema(conn: &Connection) -> Result<(), Fail> {
 /// it a header.
 fn not_empty(file: &Path) -> Result<(), Fail> {
     match std::fs::symlink_metadata(file) {
-        Ok(m) if m.is_file() && m.len() == 0 => Err(no_schema()),
+        Ok(m) if m.is_file() && m.len() == 0 => Err(no_schema(0)),
         _ => Ok(()),
     }
 }
@@ -560,4 +573,27 @@ pub fn read_file(path: &Path, bound: u64) -> Result<(Vec<u8>, i64), FileErr> {
         return Err(FileErr::TooLarge);
     }
     Ok((bytes, m.mtime()))
+}
+
+/// A text file argument, read before the store is opened. Exit 1 with `word`
+/// when it is not a regular file, is over `bound` (`said` names the bound) or
+/// is not UTF-8.
+pub fn read_text(
+    path: &Path,
+    bound: u64,
+    said: &str,
+    issue: i64,
+    word: &str,
+    what: &str,
+) -> Result<String, Fail> {
+    match read_file(path, bound) {
+        Ok((bytes, _)) => String::from_utf8(bytes)
+            .map_err(|_| refuse(word, issue, &format!("{what} is not UTF-8"))),
+        Err(FileErr::TooLarge) => Err(refuse(word, issue, &format!("{what} is over {said}"))),
+        Err(FileErr::Refused) => Err(refuse(
+            word,
+            issue,
+            &format!("{what} is not a regular file"),
+        )),
+    }
 }

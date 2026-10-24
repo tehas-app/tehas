@@ -10,9 +10,12 @@ SUM=$(printf 'a%.0s' {1..64})
 OTHER=$(printf 'b%.0s' {1..64})
 
 # lib <snippet>: run it with the settings and the fixer's library loaded.
-lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/fixer.sh"; tehas_load || exit 78; '"$1"; }
-# record <issue> <JSON>: the approval record of the issue's last start.
-record() { mkdir -p "$cycles"; printf '%s\n' "$2" >"$cycles/$1.approved.json"; }
+lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/store.sh"; . "$T_ROOT/lib/fixer.sh"; tehas_load || exit 78; '"$1"; }
+# record <issue> <JSON>: the approval of the issue's last start, on the store.
+record() { t_record "$home" "$1" "$2"; }
+# view <issue>: that approval as its readers have it, in a file; then <snippet>
+# with the path in $v.
+view() { lib "v=\$(tehas_approval_view $1) || { echo none; exit 0; }; $2"; }
 person() { echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"${1:-alice}\",\"how\":\"label\",\"body_sha256\":\"$SUM\",\"links\":[]}"; }
 by_fixer() { # <starts> [<rests_on>]
   echo "{\"at\":\"2026-10-02T00:00:00Z\",\"by\":\"tehas-fixer\",\"how\":\"fixer\",\"body_sha256\":\"$SUM\",\"links\":[],\"fixer_starts\":$1,\"rests_on\":${2:-$(person)}}"
@@ -33,8 +36,9 @@ t_eq "$t_out" "off
 nobody"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
+t_store_home "$home"
+
 t_case "with no approval record the fixer may not start an issue"
-rm -rf "$cycles"
 grant
 t_eq "$t_out" "no: no person approved an earlier cycle of it, so the fixer may not start one"
 
@@ -64,41 +68,51 @@ by_refresh() { # <refreshes> [<fixer starts>]
 
 t_case "a refresh rests on the person's approval, and carries the fixer's count on"
 record 7 "$(by_refresh 1 1)"
-lib "tehas_fixer_base $cycles/7.approved.json | jq -c '[.by, .how]'; tehas_fixer_starts $cycles/7.approved.json"
+view 7 'tehas_fixer_base "$v" | jq -c "[.by, .how]"; tehas_fixer_starts "$v"'
 t_eq "$t_out" '["alice","label"]
 1'
 grant
 t_eq "$t_out" "yes 2 alice"
 record 7 "$(by_refresh 1)"
-lib "tehas_fixer_starts $cycles/7.approved.json"
+view 7 'tehas_fixer_starts "$v"'
 t_eq "$t_out" 0
 
 t_case "the refreshes a record counts since an approval"
 record 7 "$(by_refresh 2)"
-lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'; tehas_refresh_count $cycles/7.approved.json '$(person bob)'"
+view 7 ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count \"\$v\" '$(person)'; tehas_refresh_count \"\$v\" '$(person bob)'"
 t_eq "$t_out" "2
 0"
 record 7 "$(person)"
-lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count $cycles/7.approved.json '$(person)'"
+view 7 ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_count \"\$v\" '$(person)'"
 t_eq "$t_out" 0
 
-t_case "a refresh parked since an approval, by the history; one before it, or no refresh, does not count"
-rm -rf "$cycles"
-mkdir -p "$cycles"
-printf '%s\n' '{"how":"refresh","parked":true,"started":1790726400}' >"$cycles/7.history.jsonl"
-lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
-t_eq "$t_out" ""
-printf '%s\n' '{"how":"label","parked":true,"started":1791590400}' '{"how":"refresh","parked":false,"started":1791590400}' >"$cycles/7.history.jsonl"
-lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
-t_eq "$t_out" ""
-printf '%s\n' '{"how":"refresh","parked":true,"started":1791590400}' >>"$cycles/7.history.jsonl"
-lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)' && echo parked"
-t_eq "$t_out" "parked"
+# ended_at <epoch> <how> [<cycle-end args>...]: a cycle of issue 7 started at
+# that time and ended, on alice's approval of that how.
+ended_at() {
+  local at=$1 how=$2 a pr=()
+  shift 2
+  a=$(t_row cycle-show 7 -- '.cycle.attempt // 0')
+  [ "$how" != refresh ] || pr=(--refresh-pr 50 --refresh-head "$(printf 'a%.0s' {1..40})")
+  t_approve "$home" 7 alice "$how" $((at + a)) "${pr[@]}"
+  TEHAS_STORE_TEST_NOW=$at t_started "$home" 7
+  TEHAS_HOME=$home flock -w 5 "$cycles/7.lock" "$T_STORE" cycle-end 7 --attempt $((a + 1)) --status handoff "$@" >/dev/null
+}
+parked_since() { lib ". \"\$T_ROOT/lib/refresh.sh\"; tehas_refresh_parked 7 '$(person)'; echo \$?"; printf '%s\n' "$t_out"; }
 
-t_case "a count too large to compare is no count"
-record 7 "$(by_fixer 100000000000000000000)"
-grant
-t_eq "$t_out" "no: its approval record does not say how many cycles the fixer started"
+t_case "a refresh parked since an approval, by the history; one before it, or no refresh, does not count"
+t_store_db "$home"
+ended_at 1790726400 refresh --parked
+t_eq "$(parked_since)" 1
+ended_at 1791590400 label --parked
+ended_at 1791590400 refresh
+t_eq "$(parked_since)" 1
+ended_at 1791590400 refresh --parked
+t_eq "$(parked_since)" 0
+
+t_case "a history that cannot be read is no answer: 2, and nothing is taken as parked"
+t_store_answers history-show 1 'store: busy #7: the database is locked'
+t_eq "$(parked_since)" 2
+t_store_home "$home"
 
 t_case "a body that is not the one the person approved starts nothing"
 record 7 "$(person)"
@@ -110,26 +124,31 @@ record 1 "$(person)"
 grant 1
 t_eq "$t_out" "no: it is the control issue"
 
-t_case "an approval by an account no longer allowed, or one of the shape tehas does not know, grants nothing"
-for bad in "$(person mallory)" "$(by_fixer 1 null)" "$(by_fixer 1 "$(by_fixer 1)")" "$(by_fixer 0)" "$(by_fixer '"1"')" \
-  '{"by":"alice","how":"label"}' 'not json' "$(person | jq -c '.how = "fixer"')"; do
+t_case "an approval by an account no longer allowed, or a fixer's that rests on no person's, grants nothing"
+for bad in "$(person mallory)" "$(by_fixer 1 null)" "$(by_fixer 1 "$(by_fixer 1)")" "$(person | jq -c '.how = "fixer"')"; do
   record 7 "$bad"
   grant
   t_contains "$t_out" "no: "
 done
 
-t_case "a record that is a link grants nothing"
-person >"$T/elsewhere.json"
-rm -f "$cycles/7.approved.json"
-ln -s "$T/elsewhere.json" "$cycles/7.approved.json"
+t_case "an approval that started nothing grants nothing"
+t_store_db "$home"
+t_approve "$home" 7 alice label
 grant
 t_contains "$t_out" "no: no person approved"
-rm -f "$cycles/7.approved.json"
+
+t_case "approvals the store cannot read decide nothing: 2, and the fixer's label waits"
+record 7 "$(person)"
+t_store_answers approval-current 1 'store: busy #7: the database is locked'
+lib "tehas_fixer_grant 7 $SUM; echo \"\$? \$tehas_fixer_why\""
+t_eq "$t_out" "2 its approvals on the state store could not be read"
+t_store_home "$home"
 
 # --- Planning answers --------------------------------------------------------
-# session <JSON>: the planning record of issue 7.
-session() { mkdir -p "$home/state"; printf '%s\n' "$1" >"$home/state/plan-7.json"; }
-answer() { lib "if tehas_fixer_answer \"\$TEHAS_HOME/state/plan-7.json\"; then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
+# session <JSON>: the planning session of issue 7, as plan_view writes it.
+view=$T/plan-view.json
+session() { printf '%s\n' "$1" >"$view"; }
+answer() { lib "if tehas_fixer_answer $(t_q "$view"); then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
 p=false
 f=true
 turns() { # fixer flags of the answers so far, oldest first
@@ -174,15 +193,15 @@ for bad in '"lots"' '[{"turn":2,"by":"alice"}]' '[1]' '{}'; do
   t_eq "$t_out" "no: its record does not say who answered its turns"
 done
 
-t_case "a record that is a link, or none, takes no fixer answer; nor does an instance with no fixer"
-rm -f "$home/state/plan-7.json"
+t_case "a session that is a link, or none, takes no fixer answer; nor does an instance with no fixer"
+rm -f "$view"
 answer
 t_contains "$t_out" "no: "
 echo '{"session":"s","turns":1,"by":"alice"}' >"$T/elsewhere-plan.json"
-ln -s "$T/elsewhere-plan.json" "$home/state/plan-7.json"
+ln -s "$T/elsewhere-plan.json" "$view"
 answer
 t_contains "$t_out" "no: "
-rm -f "$home/state/plan-7.json"
+rm -f "$view"
 session '{"session":"s","turns":1,"by":"alice"}'
 t_instance "${T_MINIMAL[@]}"
 answer
@@ -190,11 +209,18 @@ t_eq "$t_out" "no: there is no fixer"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
 # --- History -----------------------------------------------------------------
-t_case "the history keeps one line per call, the last 50, and skips what is not an object"
-rm -rf "$cycles"
-mkdir -p "$cycles"
-lib 'for i in $(seq 1 55); do tehas_cycle_history_add 7 "{\"n\":$i}"; done; tehas_cycle_history_add 7 "[1]" || echo refused; echo garbage >>"$TEHAS_HOME/state/cycles/7.history.jsonl"; tehas_cycle_history 7 | jq -s -c "[length, .[0].n, .[-1].n]"'
-t_eq "$t_out" "refused
-[50,6,55]"
+t_case "a cycle's history is the store's, in the shape of the lines it had: 51 ends keep 50"
+t_store_db "$home"
+for i in $(seq 1 51); do
+  TEHAS_STORE_TEST_NOW=$((1760000000 + i * 100)) t_started "$home" 7 --by-hand
+  TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((1760000000 + i * 100 + 50)) flock -w 5 "$cycles/7.lock" "$T_STORE" cycle-end 7 \
+    --attempt "$i" --status handoff --rc 10 --pr "$i" >/dev/null
+done
+lib 'tehas_cycle_history 7 | jq -s -c "[length, .[0].started, .[-1].pr, .[-1].how, .[-1].at, (.[-1] | has(\"by\"))]"'
+t_eq "$t_out" "[50,1760000200,\"https://github.com/acme/widget/pull/51\",\"hand\",\"$(date -u -d @$((1760000000 + 51 * 100 + 50)) +%FT%TZ)\",false]"
+t_store_answers history-show 1 'store: busy #7: the database is locked'
+lib 'tehas_cycle_history 7; echo "rc=$?"'
+t_eq "$t_out" "rc=1"
+t_store_home "$home"
 
 t_done
