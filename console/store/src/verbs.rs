@@ -3,7 +3,7 @@
 //! with, the store opened for a writer or a reader, the issues stub and the
 //! mapping of an error to its exit.
 
-use crate::{approval, cycle, db, history, live, park, plan};
+use crate::{approval, cycle, db, history, live, park, plan, upkeep};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fs::File;
@@ -22,6 +22,7 @@ pub enum Call {
     Plan(plan::Call),
     History(history::Call),
     Live(live::Call),
+    Upkeep(upkeep::Call),
 }
 
 /// None for a verb name this part does not know; else the call or the line of
@@ -44,6 +45,9 @@ pub fn parse(args: &[String]) -> Option<Result<Call, String>> {
     if let Some(r) = live::parse(name, rest) {
         return Some(r.map(Call::Live));
     }
+    if let Some(r) = upkeep::parse(name, rest) {
+        return Some(r.map(Call::Upkeep));
+    }
     history::parse(name, rest).map(|r| r.map(Call::History))
 }
 
@@ -55,6 +59,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Plan(c) => plan::run(home, c, now),
         Call::History(c) => history::run(home, c),
         Call::Live(c) => live::run(home, c, now),
+        Call::Upkeep(c) => upkeep::run(home, c, now),
     }
 }
 
