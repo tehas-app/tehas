@@ -850,6 +850,8 @@ line.
 - `secret-shape=<cycle>`: the log holds something shaped like a token, so it
   was kept on the host. Read `~/tehas/logs/work-<cycle>.jsonl` there, and find
   out how a secret got into a log.
+- `not-masked=<cycle>`: `~/tehas/libexec/console` is missing or failed, so
+  the log could not be masked. Run `install.sh`, which builds it.
 - `not-uploaded=<cycle>`: GitHub refused the release or the upload. The bot
   account needs write access to the repository.
 - `not-packed=<cycle>`: one line of the log is over 5 MB compressed.
