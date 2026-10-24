@@ -69,6 +69,10 @@
 #                                    failure_kind, failure_cause, provider,
 #                                    parked, pr as an address, by and how; by
 #                                    hand without by)
+#   t_park HOME N REASON [QID|-] [ARGS...]
+#                                    the cycle of issue N on record parked on
+#                                    REASON (park ARGS), with the park question
+#                                    QID on record when one is given
 #   t_no_old_state HOME              a failure for each old record file in
 #                                    HOME that t_old_state names
 #   t_after                          a command run as each case ends, by
@@ -452,6 +456,15 @@ t_history_end() { # <home> <issue> <epoch of the end> [<fields>]
   TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$e flock -w 5 "$home/state/cycles/$n.lock" "$T_STORE" cycle-end "$n" \
     --attempt $((a + 1)) "${t_end[@]}" >/dev/null || t_bad "t_history_end: the store refused the end of #$n"
 }
+t_park() { # <home> <issue> <reason> [<question id>|-] [<park args>...]
+  local t_home=$1 t_n=$2 t_why=$3 t_q=${4:--} t_a
+  if [ "$#" -ge 4 ]; then shift 4; else shift "$#"; fi
+  t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt // 0')
+  TEHAS_HOME=$t_home "$T_STORE" park "$t_n" --attempt "$t_a" --reason "$t_why" "$@" >/dev/null ||
+    t_bad "t_park: the store refused park $t_n --attempt $t_a --reason $t_why $*"
+  [ "$t_q" = - ] || TEHAS_HOME=$t_home "$T_STORE" question-asked "$t_n" --id "$t_q" --kind park >/dev/null ||
+    t_bad "t_park: the store refused the question $t_q of #$t_n"
+}
 
 # The old record files a group moved onto the store no longer has, as globs
 # under a home. Each group that moves adds its own.
@@ -461,6 +474,8 @@ t_old_state=(
   'state/cycles/*.taken' 'state/cycles/*.by' 'state/cycles/*.requeued' 'state/cycles/*.rukas'
   'state/cycles/*.image' 'state/cycles/*.settings' 'state/cycles/*.branch'
   'state/cycles/*.approved.json' 'state/cycles/*.approved.json.new' 'state/cycles/[1-9]*.history.jsonl'
+  # The park, its question and the body of the question posted.
+  'state/cycles/*.park' 'state/cycles/*.park.new' 'state/park-*.id' 'state/park-*.json'
 )
 t_no_old_state() { # <home>
   local t_glob t_file
