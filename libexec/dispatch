@@ -2165,28 +2165,60 @@ fi
 #                per cycle, a later time is a new episode, and the cycle's next
 #                start removes it. It says how many times the poll has asked in
 #                this episode, and when it last asked or said.
-#   an ask       is recorded with cycle-stop-asked whether or not it worked.
-#                systemctl --no-block answers as soon as it accepts the stop
-#                job, so the record means the stop was asked, not that the
-#                unit stopped; what ends a unit that ignores the job is the
-#                unit's own TimeoutStopSec and RuntimeMaxSec.
+#   an ask       is recorded with cycle-stop-asked before the stop is asked,
+#                whether or not the stop then works, so a slow stop does not
+#                move the next ask. systemctl --no-block answers as soon as it
+#                accepts the stop job, so the record means the stop was asked,
+#                not that the unit stopped; what ends a unit that ignores the
+#                job is the unit's own TimeoutStopSec and RuntimeMaxSec.
 #   re-asked     at most once per quiet_retry, up to quiet_asks asks. After that
 #                the poll says the episode is a person's and asks no more, so
 #                one unit whose stop never completes cannot put a 35s wait in
 #                front of every cycle start on every poll. The first time it
 #                says so is recorded as one more (quiet_asks + 1), which is how
 #                a later poll tells it from the last ask; after that the line is
-#                said once per quiet_retry * quiet_asks (--said-only).
-# A poll that cannot record the episode asks nothing, and a cycle with no open
-# record is not the poll's to stop.
+#                said once per quiet_retry * quiet_asks (--said-only). The
+#                store dates a record by its own clock, a moment after the
+#                poll's: each wait is one second short, so a record that
+#                crossed a second does not put the next ask off a whole poll.
+# A poll that cannot record the episode asks nothing. A cycle with no open
+# record is not the poll's to stop: it may be starting, or reporting after its
+# end. While it stays quiet, every poll says so, for a person to stop it. A
+# store that cannot be used ends the poll.
 quiet_bound=1200 quiet_retry=600 quiet_asks=6
+
+# quiet_due <times> <asked>: what the poll does now about an episode it has
+# asked about <times> times, last at <asked>: stop, wait, again or line.
+quiet_due() {
+  local next=$(($2 + quiet_retry))
+  [ "$1" -le "$quiet_asks" ] || next=$(($2 + quiet_retry * quiet_asks))
+  if [ "$1" = 0 ]; then
+    echo stop
+  elif [ "$now" -lt $((next - 1)) ]; then
+    echo wait
+  elif [ "$1" -lt "$quiet_asks" ]; then
+    echo again
+  else
+    echo line
+  fi
+}
+
+# After a store call the quiet loop could not use: a refusal, busy or a
+# timeout (1) is the caller's to say; anything else ends the poll.
+quiet_store_usable() {
+  [ "$tehas_store_rc" = 1 ] && return 0
+  log "ERROR: the state store cannot be used: $tehas_store_line"
+  exit 78
+}
 
 # When each running cycle started, as the state store has it: read once a
 # poll, the first time a loop below needs it, into took_at. A lock held with
 # no open row on record is 0. A list that cannot be read ends the poll before
 # it acts on any cycle.
-# How each started is kept beside it in took_how, for the refresh scan.
-declare -A took_at=() took_how=()
+# How each started is kept beside it in took_how, for the refresh scan, and
+# its quiet episode in quiet_for, quiet_at, quiet_asked and quiet_times, for a
+# dry run to say what the poll would do.
+declare -A took_at=() took_how=() quiet_for=() quiet_at=() quiet_asked=() quiet_times=()
 took_read=0
 running_starts() {
   local line
@@ -2197,11 +2229,17 @@ running_starts() {
     exit 78
   fi
   while read -r line; do
-    [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)$ ]] || continue
+    [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)\ ([A-Za-z0-9_.:-]{1,64})\ ([0-9]{1,12})\ ([0-9]{1,12})\ ([0-9]{1,6})$ ]] || continue
     took_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
     took_how[${BASH_REMATCH[1]}]=${BASH_REMATCH[3]}
+    quiet_for[${BASH_REMATCH[1]}]=${BASH_REMATCH[4]}
+    quiet_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[5]}
+    quiet_asked[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]}
+    quiet_times[${BASH_REMATCH[1]}]=${BASH_REMATCH[7]}
   done < <(tehas_store_get '.cycles[] | "\(.issue) \(.cycle
-    | if . != null and .ended_at == null then "\(.started_at) \(.how)" else "0 " end)"')
+    | if . != null and .ended_at == null
+      then "\(.started_at) \(.how) \(.quiet.said_for // "-") \(.quiet.at // 0) \(.stop_asked_at // 0) \(.stop_said_times // 0)"
+      else "0  - 0 0 0" end)"')
   took_read=1
 }
 
@@ -2220,15 +2258,29 @@ for n in $quiet_running; do
   fi
   # Heard from: no episode outstanding. One on record stays until the next
   # episode or the next start replaces it.
-  [ $(( now - heard )) -gt "$quiet_bound" ] || continue
+  [ $((now - heard)) -gt "$quiet_bound" ] || continue
   why="the cycle for #$n holds its lock but has not been heard from since $(date -u -d "@$heard" +%FT%TZ), more than ${quiet_bound}s"
+  norecord="WARN: $why, and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop $n or systemctl --user stop tehas-cycle@$n.service"
+  if [ "$took" = 0 ]; then
+    log "$norecord"
+    continue
+  fi
   if [ "$dry" = 1 ]; then
-    log "would stop tehas-cycle@$n.service: $why"
+    asks=0 asked=${quiet_asked[$n]:-0}
+    if [ "${quiet_for[$n]:-}" = "$heard" ] && [ "$asked" -ge "${quiet_at[$n]:-0}" ]; then
+      asks=${quiet_times[$n]:-0}
+    fi
+    case $(quiet_due "$asks" "$asked") in
+      stop) log "would stop tehas-cycle@$n.service: $why" ;;
+      again) log "would ask tehas-cycle@$n.service to stop again: $why" ;;
+      line) log "would say that tehas-cycle@$n.service needs a person and ask no more: $why" ;;
+    esac
     continue
   fi
   if ! tehas_store cycle-note "$n" --kind quiet --said-for "$heard"; then
+    quiet_store_usable
     case $tehas_store_word in
-      ended | nocycle) ;;
+      ended | nocycle) log "$norecord" ;;
       *) log "WARN: $why, but the state store could not record it ($tehas_store_word), so the poll asks nothing this time" ;;
     esac
     continue
@@ -2239,21 +2291,24 @@ for n in $quiet_running; do
     log "WARN: $why, but the state store's record of it does not read as one, so the poll asks nothing this time"
     continue
   fi
-  next=$(( asked + quiet_retry ))
-  [ "$asks" -le "$quiet_asks" ] || next=$(( asked + quiet_retry * quiet_asks ))
-  if [ "$asks" = 0 ]; then
-    log "WARN: $why: stopping tehas-cycle@$n.service"
-  elif [ "$now" -lt "$next" ]; then
-    continue
-  elif [ "$asks" -lt "$quiet_asks" ]; then
-    log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again"
-  else
-    log "WARN: $why: the poll asked ${quiet_asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
-    only=()
-    [ "$asks" = "$quiet_asks" ] || only=(--said-only)
-    tehas_store cycle-stop-asked "$n" "${only[@]}" ||
-      log "WARN: the state store did not record that the poll asks no more of tehas-cycle@$n.service ($tehas_store_word)"
-    continue
+  case $(quiet_due "$asks" "$asked") in
+    wait) continue ;;
+    stop) log "WARN: $why: stopping tehas-cycle@$n.service" ;;
+    again) log "WARN: $why: the poll asks tehas-cycle@$n.service to stop again" ;;
+    line)
+      log "WARN: $why: the poll asked ${quiet_asks} times to stop tehas-cycle@$n.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@$n.service"
+      only=()
+      [ "$asks" = "$quiet_asks" ] || only=(--said-only)
+      if ! tehas_store cycle-stop-asked "$n" "${only[@]}"; then
+        quiet_store_usable
+        log "WARN: the state store did not record that the poll asks no more of tehas-cycle@$n.service ($tehas_store_word)"
+      fi
+      continue
+      ;;
+  esac
+  if ! tehas_store cycle-stop-asked "$n"; then
+    quiet_store_usable
+    log "WARN: the state store did not record the stop of tehas-cycle@$n.service ($tehas_store_word): the poll asks again"
   fi
   # Without waiting for it: the cycle reports as it stops, and the poll holds
   # its lock meanwhile.
@@ -2263,8 +2318,6 @@ for n in $quiet_running; do
   else
     timeout -k 5 30 systemctl --user --no-block stop "tehas-cycle@$n.service" 8>&- || rc=$?
   fi
-  tehas_store cycle-stop-asked "$n" ||
-    log "WARN: the state store did not record the stop of tehas-cycle@$n.service ($tehas_store_word): the poll asks again"
   [ "$rc" = 0 ] ||
     log "WARN: could not stop tehas-cycle@$n.service (exit $rc): it holds its slot, and the poll asks again"
 done

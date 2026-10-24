@@ -203,11 +203,18 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s, but the state store could not record it (<word>),
   so the poll asks nothing this time`: the poll keeps each stuck cycle's asks
-  in the state store, and the store did not take this one. `busy` passes on
-  its own: a later poll asks. Any other word is a store to look at
-  (`TEHAS_HOME=~/tehas ~/tehas/libexec/store check`). Meanwhile, or for a
-  cycle whose record has ended but that still holds its lock (the poll does
-  not stop that one), stop it with `tehas stop N`.
+  in the state store, and the store was busy or did not answer in time. That
+  passes on its own: a later poll asks. A store that cannot be used ends the
+  poll with `ERROR: the state store cannot be used: ...` instead; look at it
+  with `TEHAS_HOME=~/tehas ~/tehas/libexec/store check`. Meanwhile, stop the
+  cycle with `tehas stop N`.
+- `WARN: the cycle for #N holds its lock but has not been heard from since
+  <time>, more than 1200s, and the state store has no open record of it, so
+  the poll does not stop it`: the unit holds its lock before its record
+  starts or after it ended, for example while it reports. A line on one poll
+  can be a cycle starting. When every poll says it, the unit is stuck and
+  holds a slot: stop it with `tehas stop N` and read
+  `journalctl --user -u tehas-cycle@N`.
 - `N cycles running, room for M more`, then `would run a cycle for #N ...`:
   the issues the next poll starts. In the log you may also see `the code index
   stays as it is: a cycle is running on #N`. That is no reason an issue waits.
