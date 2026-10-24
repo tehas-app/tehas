@@ -16,13 +16,29 @@ pub const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 pub const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 pub const IMAGE: &str = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
+/// This process's directory under one root in the temp dir. The first call
+/// removes the directories of test processes that have ended, so scratch homes
+/// do not pile up.
+pub fn scratch_root() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = std::env::temp_dir().join("tehas-store-tests");
+        if let Ok(entries) = fs::read_dir(&root) {
+            for e in entries.flatten() {
+                let pid = e.file_name().to_string_lossy().into_owned();
+                if pid.parse::<u32>().is_ok() && !Path::new("/proc").join(&pid).exists() {
+                    let _ = fs::remove_dir_all(e.path());
+                }
+            }
+        }
+        root.join(std::process::id().to_string())
+    })
+    .clone()
+}
+
 pub fn scratch(name: &str) -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "store-verbs-{}-{}-{name}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::SeqCst)
-    ));
+    let dir = scratch_root().join(format!("verbs-{}-{name}", N.fetch_add(1, Ordering::SeqCst)));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir

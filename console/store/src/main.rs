@@ -70,12 +70,15 @@
 //! verb that refuses says `store: usage <verb>: ...` (64) or
 //! `store: <word> #<issue>: ...` (1). The rest of the 13 groups, state-audit
 //! and the journal are later parts of epic #244; an argument this command does
-//! not know is exit 64.
+//! not know is exit 64. A build with debug assertions also has `test-write`,
+//! the writer its own tests run (src/exercise.rs); a release build does not.
 //!
 //! The database is $TEHAS_HOME/state/tehas.db, mode 0600, made so before
-//! SQLite opens it, in WAL mode with synchronous=FULL, a busy timeout of 5000
-//! ms and foreign_keys ON on every connection. Its directory, state/, is kept
-//! mode 0700: with WAL on, a readable state/ is a readable copy of the store.
+//! SQLite opens it, in WAL mode with synchronous=FULL and foreign_keys ON on
+//! every connection. A connection that writes waits up to 5000 ms for a lock,
+//! asking again every millisecond; one that reads waits up to a second. Its
+//! directory, state/, is kept mode 0700: with WAL on, a readable state/ is a
+//! readable copy of the store.
 //! The path is refused when it is a link or sits under live/ or state/index;
 //! no container sees the file (AGENTS.md rule 4). The store never moves a
 //! damaged file aside: the four classes of failure stop the command with 78
@@ -96,6 +99,8 @@
 mod approval;
 mod cycle;
 mod db;
+#[cfg(debug_assertions)]
+mod exercise;
 mod lock;
 mod park;
 mod plan;
@@ -181,9 +186,17 @@ fn main() -> ExitCode {
 /// as every JSON answer of tehas is written (host/docs/api.md).
 #[derive(Debug, PartialEq, Eq)]
 pub enum Verb {
-    Init { force: bool, settings: Settings },
-    Migrate { backup: PathBuf, settings: Settings },
+    Init {
+        force: bool,
+        settings: Settings,
+    },
+    Migrate {
+        backup: PathBuf,
+        settings: Settings,
+    },
     Check,
+    #[cfg(debug_assertions)]
+    TestWrite(exercise::Write),
     Record(verbs::Call),
 }
 
@@ -270,6 +283,8 @@ fn parse(args: &[String]) -> Option<Verb> {
                 settings: settings(given)?,
             })
         }
+        #[cfg(debug_assertions)]
+        [verb, rest @ ..] if verb == exercise::VERB => exercise::parse(rest).map(Verb::TestWrite),
         _ => None,
     }
 }
@@ -338,8 +353,8 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
     let file = db::path(home);
     match verb {
         Verb::Check => {
-            // Reads only: `check` writes nothing, so it neither waits on a
-            // poll's lock nor leaves a -wal beside a database it is looking at.
+            // Reads only: `check` writes no row, so it does not wait on a
+            // poll's lock. SQLite may still make the -wal and -shm.
             let conn = db::open_read_only(&file).map_err(line)?;
             let report = db::check(&conn).map_err(line)?;
             if report.integrity != "ok" {
@@ -365,6 +380,8 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         }
         Verb::Init { force, settings } => init(&file, *force, settings, now),
         Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
+        #[cfg(debug_assertions)]
+        Verb::TestWrite(w) => exercise::write(&file, w, now),
         Verb::Record(call) => verbs::run(home, call, now),
     }
 }

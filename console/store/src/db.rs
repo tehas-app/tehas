@@ -8,11 +8,12 @@
 //! stderr and leaves the file exactly where a person can read it.
 
 use rusqlite::{params, Connection, ErrorCode, OpenFlags};
+use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 1;
@@ -22,6 +23,46 @@ pub const SCHEMA: &str = include_str!("schema.sql");
 /// up, as the spec's section 4 states it. A database still busy then is exit
 /// 1 with the word `busy`.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long a reader waits. In WAL mode a writer's lock never stops a reader;
+/// what does is SQLite's own brief exclusive steps, the recovery of the -shm
+/// and the checkpoint of the last connection to close, which are over in
+/// milliseconds. Without any wait, tests/concurrency.rs saw a `check` answer
+/// `busy` during a recovery.
+pub const READ_WAIT: Duration = Duration::from_secs(1);
+
+/// How often a waiting connection asks again. SQLite's own busy timeout backs
+/// off to 100 ms between tries, so among writers that keep the lock busy the
+/// one that has waited longest asks least often, and it can lose every turn
+/// until its five seconds are gone: tests/concurrency.rs saw that with eight
+/// writers. Asking every millisecond gives each waiter the same chance.
+const BUSY_POLL: Duration = Duration::from_millis(1);
+
+/// A busy handler: true to try again. `tries` is 0 at the start of each wait,
+/// which is when the clock starts. A process of the store waits on one
+/// connection at a time, so the start is kept per thread.
+pub(crate) fn busy_wait(tries: i32, limit: Duration) -> bool {
+    thread_local! {
+        static SINCE: Cell<Option<Instant>> = const { Cell::new(None) };
+    }
+    let now = Instant::now();
+    if tries == 0 {
+        SINCE.set(Some(now));
+    }
+    if now.duration_since(SINCE.get().unwrap_or(now)) >= limit {
+        return false;
+    }
+    std::thread::sleep(BUSY_POLL);
+    true
+}
+
+fn write_wait(tries: i32) -> bool {
+    busy_wait(tries, BUSY_TIMEOUT)
+}
+
+fn read_wait(tries: i32) -> bool {
+    busy_wait(tries, READ_WAIT)
+}
 
 /// The indexes of schema v1 by name, so the test that pins the schema can name
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
@@ -294,20 +335,15 @@ pub mod pages {
 
 /// The two kinds of call section 4 states: a verb that writes waits up to the
 /// busy timeout for a lock another connection holds, and one that only reads
-/// does not wait at all. The timeout is per-connection and per-thread, so a
-/// reader that never writes cannot sit on a poll's lock for five seconds: that
-/// is the difference between `busy` at once and `busy` after a wait a status
+/// waits at most READ_WAIT, for SQLite's own brief steps. The wait is
+/// per-connection, so a reader cannot sit on a poll's lock for five seconds:
+/// that is the difference between `busy` soon and `busy` after a wait a status
 /// page cannot afford.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     Read,
     Write,
-    /// A data verb that only reads: it waits up to `LOOK_TIMEOUT`, because in
-    /// WAL mode the last connection to close locks the file to checkpoint.
-    Look,
 }
-
-pub const LOOK_TIMEOUT: Duration = Duration::from_millis(1000);
 
 /// Opens the store for reading and writing: the path is guarded, the file must
 /// already be there, and every connection carries the pragmas of section 3.
@@ -375,9 +411,10 @@ pub fn settle(conn: &Connection) -> Result<(), DbError> {
 }
 
 /// The same checks and the same connection as `open`, for the reader that must
-/// not disturb a writer's lock at all: read-only, so the busy timeout is never
-/// paid and no -wal is made beside a file somebody else is writing. `check` is
-/// the verb that reads, and section 4 says so.
+/// not disturb a writer's lock at all: read-only, so it waits at most READ_WAIT
+/// and writes no row. It can still make the -wal and -shm beside the file when
+/// they are absent, at the file's mode. `check` is the verb that reads, and
+/// section 4 says so.
 pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     guard_result(file)?;
     if !file.exists() {
@@ -386,14 +423,10 @@ pub fn open_read_only(file: &Path) -> Result<Connection, DbError> {
     read_only(file, Purpose::Read)
 }
 
-/// `open_read_only` with a busy timeout of `LOOK_TIMEOUT`, for the data verbs
-/// that only read.
+/// The data verbs that only read open as `check` does. READ_WAIT covers the
+/// moment the last connection to close locks the file to checkpoint.
 pub fn open_look(file: &Path) -> Result<Connection, DbError> {
-    guard_result(file)?;
-    if !file.exists() {
-        return Err(DbError::Missing);
-    }
-    read_only(file, Purpose::Look)
+    open_read_only(file)
 }
 
 fn read_only(file: &Path, purpose: Purpose) -> Result<Connection, DbError> {
@@ -457,15 +490,15 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 }
 
 /// What every connection sets, in the one place: the journal mode, the busy
-/// timeout, the durability and the foreign keys. `init` and `check` are the
-/// only readers today and neither writes a row yet, so the busy timeout is
-/// what a lock costs: up to five seconds, then the word `busy`.
+/// handler, the durability and the foreign keys. The handler asks again every
+/// BUSY_POLL, for up to BUSY_TIMEOUT (5 s) on a connection that writes and
+/// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
+/// SQLite's busy_timeout, which then reads 0.
 fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
-    conn.busy_timeout(match purpose {
-        Purpose::Write => BUSY_TIMEOUT,
-        Purpose::Read => Duration::ZERO,
-        Purpose::Look => LOOK_TIMEOUT,
-    })
+    match purpose {
+        Purpose::Write => conn.busy_handler(Some(write_wait)),
+        Purpose::Read => conn.busy_handler(Some(read_wait)),
+    }
     .map_err(classify)?;
     let mode: String = conn
         .query_row("PRAGMA journal_mode", [], |r| r.get(0))
