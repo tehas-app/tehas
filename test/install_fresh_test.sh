@@ -54,7 +54,9 @@ instance
 mkdir -p "$th/state"
 lock=$th/state/update.lock
 # The case below that asks for the same refusal is timed; this one does the
-# steps that cost seconds before it gets to the lock, so it is not.
+# steps that cost seconds before it gets to the lock, so it is not. The exact
+# line is what pins the knob: the 0 in it is the value the case exported, so a
+# wait install.sh made up for itself would name other seconds here.
 t_run "$no_wait exec 8>>'$lock'; flock -n 8 || exit 9; '$install'"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas: another update is running ($lock), still held after 0s; nothing was installed"
@@ -84,21 +86,28 @@ t_contains "$t_out" "another update is running"
 t_eq "$(core_files)" ""
 
 # The other half of the wait: a run that follows one which stopped partway finds
-# the lock held for a moment and gets in once it is let go. The wait is longer
-# than the hold, and the checks below show the wait was taken: a refusal exits 1
-# and names the lock, so a wait that was not taken - a -n restored on either
-# branch, or a wait that never reached the script - is a red case rather than a
-# green one that refused at once. The run is not timed: a fresh install copies
-# the whole tree, so a bound that the copy alone can pass under load measures the
-# install and not the wait. It runs on a home of its own: an install that
-# finished would leave the home below matching this checkout, and the --check
-# after it has nothing left to find.
+# the lock held for a moment and gets in once it is let go. The wait is derived
+# from the hold below, so the two cannot drift apart. A refusal exits 1 and names
+# the lock with the seconds it waited, which is what the line after the run reads:
+# a -n restored on either branch, or a wait the script never asked for, is a red
+# case here rather than a green one that refused at once. Whether that number is
+# the knob's value or the default of 10 is pinned elsewhere: install.sh echoes
+# what lib/update-steps.sh's tehas_update_lock_wait answered, and the refusal case
+# above pins the 0 it echoes for the same knob. It runs on a home of its own: an
+# install that finished would leave the home below matching this checkout, and
+# "--check on a matching install reports six lines and exits 0" after it would
+# have nothing left to find.
 t_case "an install that finds the lock held waits for it and installs when it is let go"
 mkdir -p "$th/state"
 lock=$th/state/update.lock
 late=$T/home/late/tehas
-( exec 6>>"$lock"; flock -n 6; sleep 1 ) & holder=$!
-t_run "export TEHAS_UPDATE_LOCK_WAIT=5; TEHAS_HOME='$late' '$install'"
+# A second shorter than the copy of a fresh install, so the install is stopped at
+# the lock rather than by the holder letting go first; no bound is put on the run,
+# because the copy's own cost would have to fit inside one.
+hold_s=1
+wait_s=$((hold_s + 4))
+( exec 6>>"$lock"; flock -n 6; sleep "$hold_s" ) & holder=$!
+t_run "export TEHAS_UPDATE_LOCK_WAIT=$wait_s; TEHAS_HOME='$late' '$install'"
 wait "$holder"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "another update is running"
