@@ -42,6 +42,18 @@ say() { printf 'install: %s\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0" >&2; exit 64; }
 
+# The architecture in the name of the asset: the same choice as
+# lib/update-release.sh, repeated because this script runs on a host that has
+# nothing of tehas on it yet. Releases are published for x86_64 and aarch64
+# only, so another machine stops before anything is downloaded.
+release_arch() {
+  case "$(uname -m)" in
+    x86_64 | amd64) echo x86_64 ;;
+    aarch64 | arm64) echo aarch64 ;;
+    *) return 1 ;;
+  esac
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) [ "$#" -ge 2 ] || usage; version=$2; shift ;;
@@ -63,7 +75,7 @@ fi
 [ -z "$from" ] || [ -n "$version" ] || { echo "install: --from needs --version" >&2; exit 64; }
 [ "$(id -u)" = 0 ] || { echo "install: run this as root (sudo sh -s -- $user)" >&2; exit 64; }
 
-for tool in tar sha256sum; do
+for tool in tar sha256sum uname; do
   command -v "$tool" >/dev/null 2>&1 || die "$tool is not installed"
 done
 if ! command -v minisign >/dev/null 2>&1; then
@@ -82,7 +94,9 @@ if [ -z "$version" ]; then
   version=${url##*/}
   printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || die "$repo has no release to install"
 fi
-tarball=tehas-$version-linux-x86_64.tar.gz
+arch=$(release_arch) ||
+  die "this machine has no tehas release to install: releases are published for x86_64 and aarch64, and uname -m says $(uname -m)"
+tarball=tehas-$version-linux-$arch.tar.gz
 
 mkdir "$work/dl"
 for f in "$tarball" "$tarball.sha256" "$tarball.minisig"; do

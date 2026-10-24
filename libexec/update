@@ -538,6 +538,11 @@ else
     exit 1
   fi
   target=${to:-$newest}
+  # The asset's name needs this machine's architecture, so an unsupported one is
+  # named here, before the download directory is made: nothing is written and
+  # nothing is switched on a machine that has no release to download. It is said
+  # after the list and the notes above, which ask nothing of a download.
+  tehas_release_arch >/dev/null || exit 1
   # The notes a person reads start at the version the host came from: what is
   # installed, or, for a host that ran from its platform checkout, the tag of
   # that checkout. It has no installed version, so it still has to switch to a
