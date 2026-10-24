@@ -38,7 +38,8 @@
 #       it cannot be read.
 #
 #       Both return 0. Facts are built only where tehas_analytics would call
-#       the program. <file> is a new 0600 file under $TEHAS_HOME/tmp; facts
+#       the program. <file> is a new 0600 file, $TEHAS_HOME/tmp/analytics-facts.*;
+#       one a killed caller left is libexec/clean's. Facts
 #       that cannot be written there are one line "WARN analytics
 #       <subcommand>: no facts written", and the program is not called.
 #
@@ -105,7 +106,7 @@ tehas_analytics_facts() {
   local subcommand=$1 issue=$2 facts=$3 dir=$TEHAS_HOME/tmp file
   shift 3
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
-  if [ ! -d "$dir" ] || [ -L "$dir" ] || ! file=$(mktemp "$dir/facts.XXXXXX" 2>/dev/null); then
+  if [ ! -d "$dir" ] || [ -L "$dir" ] || ! file=$(mktemp "$dir/analytics-facts.XXXXXX" 2>/dev/null); then
     log "WARN analytics $subcommand: no facts written"
     return 0
   fi

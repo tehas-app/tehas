@@ -1073,8 +1073,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   host, and the cache of anything else on it is made again too. No image and no
   volume is removed by this step.
 - the host's scratch: old files under `~/tehas/tmp/dl` and
-  `~/tehas/tmp/node-compile-cache`, and old `~/tehas/tmp/tehas-test.*`
-  directories. Nothing elsewhere under `~/tehas`, and nothing outside it: not
+  `~/tehas/tmp/node-compile-cache`, old `~/tehas/tmp/analytics-facts.*` files
+  an analytics call left when its caller was killed, and old
+  `~/tehas/tmp/tehas-test.*` directories. Nothing elsewhere under `~/tehas`, and nothing outside it: not
   `~/tehas/dev`, so the build output a manual session keeps in
   `<name>.state/target` is walked for no build-output name. It is the one build
   output on the host with no automated reclaim, and a person's call: `du -sh

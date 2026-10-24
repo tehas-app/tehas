@@ -46,7 +46,8 @@
 #                                        the manual says so.
 #   3. host scratch                      files under $TEHAS_HOME/tmp/dl and
 #                                        $TEHAS_HOME/tmp/node-compile-cache,
-#                                        and $TEHAS_HOME/tmp/tehas-test.*
+#                                        $TEHAS_HOME/tmp/analytics-facts.*
+#                                        files, and $TEHAS_HOME/tmp/tehas-test.*
 #                                        directories, that old. Nothing
 #                                        elsewhere under $TEHAS_HOME, and
 #                                        nothing outside it: not $TEHAS_HOME/dev,
@@ -553,8 +554,9 @@ clean_build_cache() {
 }
 
 # --- 3. host scratch ---------------------------------------------------------
-# The downloads bootstrap.sh keeps, the compile cache node leaves behind, and
-# the scratch directories a test run left when its process died. Only these,
+# The downloads bootstrap.sh keeps, the compile cache node leaves behind, the
+# facts file of an analytics call whose caller was killed during it, and the
+# scratch directories a test run left when its process died. Only these,
 # only files and directories directly under them, and nothing elsewhere in
 # $TEHAS_HOME or outside it.
 clean_scratch() {
@@ -578,6 +580,23 @@ clean_scratch() {
     done < <(find -P "$dir" -xdev -mindepth 1 -maxdepth 1 -type f \
       ! -newermt "-$after hours" -print0 2>/dev/null)
   done
+  if [ -d "$tmp" ] && [ ! -L "$tmp" ]; then
+    while IFS= read -r -d '' f; do
+      if [ "$dry" = 1 ]; then
+        log "would remove $f: host scratch untouched for $after hours"
+        continue
+      fi
+      kb=$(bytes_of "$f")
+      if rm -f -- "$f" 2>/dev/null; then
+        freed=$((freed + kb))
+        log "removed $f: host scratch, $kb bytes"
+      else
+        warn "could not remove $f"
+        failed=1
+      fi
+    done < <(find -P "$tmp" -xdev -mindepth 1 -maxdepth 1 -type f -name 'analytics-facts.*' \
+      ! -newermt "-$after hours" -print0 2>/dev/null)
+  fi
   for dir in "$tmp"/tehas-test.*; do
     [ -d "$dir" ] && [ ! -L "$dir" ] || continue
     if [ "$dry" = 1 ]; then

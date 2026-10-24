@@ -21,11 +21,17 @@ empty one above it.
 - The analytics program no longer reads a cycle's history, approval, settings
   and commit files, or a planning record, itself: `analytics run` and
   `analytics plan` take them as facts in a file their caller writes
-  (`--facts <file>`). The rows are the same.
+  (`--facts <file>`). The rows are the same. The file is
+  `tmp/analytics-facts.*`; `tehasbot clean` removes one a killed call left.
 
 ### Adopter action
 
-- None.
+- Update when no cycle is running and no poll is in progress. A cycle or poll
+  that was running keeps the commands it started with, and those call
+  `analytics run` and `analytics plan` without `--facts`: the new program
+  refuses that with exit 64 (`WARN analytics run: exit 64` in the cycle's
+  log), so that run or planning turn is missing from the analytics report.
+  Nothing else about the run changes.
 
 ## v0.11.0 (2026-10-23)
 

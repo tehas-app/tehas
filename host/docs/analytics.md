@@ -89,7 +89,9 @@ stored with tehas's status and its times. A planning turn takes its record
 `state/plan-<n>.json` as its facts, and reads the turn's output
 `state/plan-<n>.json.out` from the host. Facts that are missing, a link, over
 16 MiB or not JSON record nothing, as a run without a history line records
-nothing.
+nothing. The private file is `~/tehas/tmp/analytics-facts.*`, removed after the
+call; one that a caller killed during the call leaves is removed by
+`tehasbot clean` once it is old.
 
 | Column | Source | Since |
 | --- | --- | --- |

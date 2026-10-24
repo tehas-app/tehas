@@ -128,6 +128,7 @@ t_eq "$(jq -c . "$T/calls/facts.json")" "$(jq -n -c --argjson s $((now - 600)) '
   rukas: "abcdef1"}')"
 t_eq "$(cat "$T/calls/facts.mode")" 600
 t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
+t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
 
 t_case "a fact whose file is missing, a link, stale or not JSON is null"
 rm -f "$T"/calls/*
@@ -171,6 +172,7 @@ t_eq "$(t_calls analytics)" "plan 7 --facts $facts --rc 0 --rukas-image abcdef1"
 t_eq "$(jq -c . "$T/calls/facts.json")" '{"session":"s","turns":1,"running":true,"startedAt":"2026-10-24T11:00:00Z","answers":[]}'
 t_eq "$(cat "$T/calls/facts.mode")" 600
 t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
+t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
 mv "$T/home/tehas/state/plan-7.json" "$T/plan-7.json"
 ln -s "$T/plan-7.json" "$T/home/tehas/state/plan-7.json"
 t_run "$call; tehas_analytics_plan 7 --rc 0"

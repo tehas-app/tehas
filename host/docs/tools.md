@@ -2518,8 +2518,8 @@ is logged as a warning while the others still run:
    again too. The next sandbox build is slower after a prune. No image and no
    volume is removed.
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
-   `~/tehas/tmp/node-compile-cache`, and `~/tehas/tmp/tehas-test.*` directories,
-   of that age. Nothing else under `~/tehas`, and nothing outside it: not
+   `~/tehas/tmp/node-compile-cache`, `~/tehas/tmp/analytics-facts.*` files, and
+   `~/tehas/tmp/tehas-test.*` directories, of that age. Nothing else under `~/tehas`, and nothing outside it: not
    `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked.
 4. **Old sandbox images.** The dated tags of the sandbox image whose image was
    made before the age, taken one `docker rmi` at a time. The newest dated tag

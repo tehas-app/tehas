@@ -119,7 +119,8 @@ an unknown is never a reason to take an image away. Volumes are a person's call.
 
 The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
 `bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
-and old `~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
+old `~/tehas/tmp/analytics-facts.*` files a killed analytics call left, and old
+`~/tehas/tmp/tehas-test.*` directories a run left behind. Nothing else
 under `~/tehas` is touched, and nothing outside it: not `~/tehas/tmp/improve`,
 `state`, `logs`, `dev`, `repos`, `preview` or `protolab`. One line per removal and
 a closing line with the bytes freed go to `~/tehas/logs/clean.log`; `tehasbot
