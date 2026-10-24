@@ -642,7 +642,7 @@ fn a_second_run_is_a_no_op_and_a_crash_before_the_move_is_finished_by_the_next()
 }
 
 #[test]
-fn a_file_whose_rows_do_not_read_back_stays() {
+fn a_file_whose_rows_do_not_read_back_stays_with_its_group() {
     let h = host("readback");
     let start = t("2026-10-14T10:00:00Z");
     // The id is already another issue's question, so the park's is not written.
@@ -660,15 +660,136 @@ fn a_file_whose_rows_do_not_read_back_stays() {
         start + 10,
     );
     put(&h, "park-7.id", "12345\n", start + 10);
-    let (code, why) = import(&h, false).unwrap_err();
-    assert_eq!(code, 1);
-    assert!(
-        why.contains("state/park-7.id: its rows did not read back"),
-        "{why}"
+    put(&h, "cycles/8.taken", "", start);
+    for _ in 0..2 {
+        let (code, why) = import(&h, false).unwrap_err();
+        assert_eq!(code, 1);
+        assert!(
+            why.contains("state/park-7.id: its rows did not read back"),
+            "{why}"
+        );
+        assert!(
+            why.contains("state/cycles/7.park: held with park-7.id"),
+            "{why}"
+        );
+        // The whole group stays, so the next run plans the same files again.
+        for rel in ["park-7.id", "cycles/7.park", "cycles/7.taken"] {
+            assert!(there(&h, rel), "{rel}");
+        }
+        assert!(moved(&h, "cycles/8.taken"));
+    }
+    assert_eq!(count(&h, "cycles WHERE issue = 7"), 1);
+    assert_eq!(count(&h, "parks WHERE issue = 7"), 1);
+}
+
+/// What a run that stopped after the cycle's rows, before the rest, leaves:
+/// the store holds the cycle; the files of the later kinds are still there.
+fn three_lines(h: &Path, start: i64) {
+    put(h, "cycles/7.taken", "", start);
+    put(h, "cycles/7.by", "alice\n", start);
+    put(
+        h,
+        "cycles/7.approved.json",
+        &label_record("2026-10-14T09:59:00Z", "alice"),
+        start - 1,
     );
-    assert!(there(&h, "park-7.id"));
-    assert!(moved(&h, "cycles/7.park"));
-    assert!(moved(&h, "cycles/7.taken"));
+    let history = [
+        line("2026-10-14T10:10:00Z", start + 5, "failed"),
+        line("2026-10-14T10:20:00Z", start + 5, "failed"),
+        line("2026-10-14T10:30:00Z", start + 5, "handoff"),
+    ]
+    .join("\n");
+    put(h, "cycles/7.history.jsonl", &history, start + 3600);
+}
+
+fn attempts(h: &Path) -> (i64, i64, Vec<i64>, Vec<i64>) {
+    let c = conn(h);
+    let (attempt, started) = c
+        .query_row(
+            "SELECT attempt, started_at FROM cycles WHERE issue = 7",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let list = |sql: &str| -> Vec<i64> {
+        c.prepare(sql)
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    (
+        attempt,
+        started,
+        list("SELECT attempt FROM cycle_history WHERE issue = 7 ORDER BY at"),
+        list("SELECT used_by FROM approvals WHERE issue = 7 ORDER BY at"),
+    )
+}
+
+#[test]
+fn a_run_after_one_that_wrote_only_the_cycle_keeps_its_attempts() {
+    let start = t("2026-10-14T10:00:00Z");
+    let want = (3, start, vec![1, 2, 3], vec![3]);
+    for start_file_left in [true, false] {
+        let h = host(&format!("partial-{start_file_left}"));
+        three_lines(&h, start);
+        import_ok(&h);
+        assert_eq!(attempts(&h), want);
+        // The cycle's row stays; the later kinds' rows are gone and their
+        // files back, with or without the start file.
+        conn(&h)
+            .execute_batch("DELETE FROM approvals; DELETE FROM cycle_history;")
+            .unwrap();
+        let dir = h.join(format!("state/imported-{}", day(NOW)));
+        let mut back = vec!["cycles/7.approved.json", "cycles/7.history.jsonl"];
+        if start_file_left {
+            back.push("cycles/7.taken");
+        }
+        for rel in back {
+            fs::rename(dir.join(rel), h.join("state").join(rel)).unwrap();
+        }
+        if start_file_left {
+            put(&h, "cycles/7.taken", "", start);
+        }
+        let v = import_ok(&h);
+        assert_eq!(v["imported"]["cycles"], 0, "{v}");
+        assert_eq!(v["imported"]["cycle_history"], 3);
+        assert_eq!(v["imported"]["approvals"], 1);
+        assert_eq!(attempts(&h), want, "start file left: {start_file_left}");
+    }
+}
+
+#[test]
+fn a_file_left_with_no_start_belongs_to_the_row_on_record() {
+    let h = host("leftover");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    put(
+        &h,
+        "cycles/7.park",
+        r#"{"cap":"x","provider":false,"retry":true}"#,
+        start + 10,
+    );
+    import_ok(&h);
+    // The id of the park, left behind by a run that stopped while it moved files.
+    put(&h, "park-7.id", "4242\n", start + 10);
+    let v = import_ok(&h);
+    assert_eq!(v["imported"]["questions"], 1, "{v}");
+    assert_eq!(ok(&h, &["park-show", "7"])["park"]["question"], 4242);
+    assert!(moved(&h, "park-7.id"));
+    // An approval left the same way is the row's start's.
+    put(
+        &h,
+        "cycles/7.approved.json",
+        &label_record("2026-10-14T09:59:00Z", "alice"),
+        start - 1,
+    );
+    import_ok(&h);
+    assert_eq!(
+        one::<i64>(&h, "SELECT used_by FROM approvals WHERE issue = 7"),
+        1
+    );
 }
 
 #[test]
@@ -886,6 +1007,89 @@ fn plan_history_comes_from_both_paths_once() {
     );
     assert!(moved(&h, "cycles/plan-8.history.jsonl"));
     assert!(moved(&h, "plan-8.history.jsonl"));
+}
+
+#[test]
+fn planning_options_are_kept_as_plan_end_keeps_them() {
+    let h = host("options");
+    let long = "x".repeat(500);
+    let mut options: Vec<Value> = vec![
+        Value::String("a\u{1b}[31mred\nline".into()),
+        Value::String(long),
+        Value::Null,
+        Value::String(String::new()),
+    ];
+    options.extend((0..30).map(|i| Value::String(format!("o{i}"))));
+    let record = serde_json::json!({"session":"s","turns":1,"options":options,"by":"alice","label":"tehas:plan"});
+    put(&h, "plan-8.json", &record.to_string(), NOW);
+    import_ok(&h);
+    let got = ok(&h, &["plan-show", "8"])["planning"]["options"].clone();
+    let got: Vec<String> = serde_json::from_value(got).unwrap();
+    assert_eq!(got.len(), 20);
+    assert_eq!(got[0], "a[31mredline");
+    assert_eq!(got[1], "x".repeat(300));
+    assert_eq!((got[2].as_str(), got[3].as_str()), ("-", "-"));
+    assert_eq!(got[19], "o15");
+    assert!(moved(&h, "plan-8.json"));
+}
+
+fn at(i: i64) -> String {
+    format!("2026-10-14T{:02}:{:02}:00Z", 10 + i / 60, i % 60)
+}
+
+#[test]
+fn a_history_keeps_the_fifty_newest_rows() {
+    let h = host("bound");
+    let plan = |i: i64| {
+        format!(
+            r#"{{"at":"{}","rc":"0","status":"finished","turn":{},"by":"alice","label":"tehas:plan"}}"#,
+            at(i),
+            i + 1
+        )
+    };
+    let older: Vec<String> = (0..50).map(plan).collect();
+    let newer: Vec<String> = (50..100).map(plan).collect();
+    put(&h, "plan-8.history.jsonl", &older.join("\n"), NOW);
+    put(&h, "cycles/plan-8.history.jsonl", &newer.join("\n"), NOW);
+    let lines: Vec<String> = (0..50)
+        .map(|i| line(&at(i), t(&at(i)) - 30, "failed"))
+        .collect();
+    put(&h, "cycles/7.history.jsonl", &lines.join("\n"), NOW);
+    let v = import_ok(&h);
+    assert_eq!(v["imported"]["plan_history"], 50, "{v}");
+    assert_eq!(count(&h, "plan_history WHERE issue = 8"), 50);
+    assert_eq!(
+        one::<i64>(&h, "SELECT min(turn) FROM plan_history WHERE issue = 8"),
+        51
+    );
+    assert_eq!(count(&h, "cycle_history WHERE issue = 7"), 50);
+    // A cycle that slipped through leaves one more line: still 50, the oldest gone.
+    put(
+        &h,
+        "cycles/7.history.jsonl",
+        &line(&at(70), t(&at(70)) - 30, "handoff"),
+        NOW,
+    );
+    import_ok(&h);
+    assert_eq!(count(&h, "cycle_history WHERE issue = 7"), 50);
+    assert_eq!(
+        count(
+            &h,
+            &format!("cycle_history WHERE issue = 7 AND at = {}", t(&at(0)))
+        ),
+        0
+    );
+    assert_eq!(
+        one::<i64>(&h, "SELECT max(attempt) FROM cycle_history WHERE issue = 7"),
+        51
+    );
+    for rel in [
+        "plan-8.history.jsonl",
+        "cycles/plan-8.history.jsonl",
+        "cycles/7.history.jsonl",
+    ] {
+        assert!(moved(&h, rel), "{rel}");
+    }
 }
 
 #[test]

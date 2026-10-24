@@ -619,11 +619,13 @@ store one by one.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
-  rows, and each file moves to `state/imported-<YYYYMMDD>/`, under its path in
-  `state/`, once its rows read back. Nothing is deleted. The files a cycle hands
-  to the next step (`result.json`, `progress.json`, a plan's `.out` and the
-  rest) and `state/refined.jsonl` stay where they are. A run again changes
-  nothing that is in the store already.
+  rows, and the files move to `state/imported-<YYYYMMDD>/`, under their paths
+  in `state/`, an issue's files together once all their rows read back. Nothing
+  is deleted. Each history keeps an issue's 50 newest rows, as the store does
+  for new ones. The files a cycle hands to the next step (`result.json`,
+  `progress.json`, a plan's `.out` and the rest) and `state/refined.jsonl` stay
+  where they are. A run again changes nothing that is in the store already, and
+  finishes a run that stopped partway.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from
