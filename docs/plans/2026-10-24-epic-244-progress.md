@@ -42,7 +42,7 @@ Final check against #250 and #251 Done-when (2026-10-24 21:40): every item met, 
 evidence; fast gate rc 0 in both worktrees. One fix from it: 4211af7 (the manual names
 every command that stops at 78 without the store). The workflow ran 50 agents.
 
-Next: branch `epic-244` = `store-callers-old-paths` + origin/main (merge in progress,
+Next: branch `epic-244` = `store-callers-old-paths` + origin/main (merged, follow-up fixes committed; gate re-running,
 conflicts in features.md, tools.md, lib/config.sh, libexec/dispatch,
 test/dispatch_plan_test.sh). Then a draft PR for #250/#251 from `epic-244`, then
 #252 and #257 stacked on `epic-244`.
