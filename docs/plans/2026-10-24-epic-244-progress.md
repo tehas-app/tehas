@@ -77,3 +77,10 @@ snapshot commit to `wip/<branch>` (for example `wip/store-callers-quiet-notes`),
 made with `git stash create`, so the agent's branch and index are not touched.
 To recover it: `git fetch origin wip/<branch>` and
 `git stash apply FETCH_HEAD` on the unit's branch.
+
+## Release number
+
+Another session tagged v0.11.0 from main on 2026-10-24 (PR #668). It carries
+#622: install.sh builds the store and makes tehas.db at schema 1, unused at
+runtime. The #244 set ships under a later version (v0.12.0 unless the owner
+says otherwise); its changelog section must not say v0.11.0.
