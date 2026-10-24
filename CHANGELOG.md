@@ -17,7 +17,7 @@ empty one above it.
   `state/tehas.db` in place, after its backup, and keeps every row: the step
   only adds columns and one table. The store gains the verbs `history-show`,
   `park-told` and `plan-note`, and `approval-record --input-file` and
-  `plan-answer --text-file`. Nothing calls them yet.
+  `plan-answer --text-file`.
 - The analytics program no longer reads a cycle's history, approval, settings
   and commit files, or a planning record, itself: `analytics run` and
   `analytics plan` take them as facts in a file their caller writes
@@ -88,13 +88,19 @@ empty one above it.
 - `install.sh` no longer leaves the commands of the earlier layout for a later
   run while a poll holds the dispatcher's lock: it waits for the lock instead,
   up to `TEHAS_DISPATCH_LOCK_WAIT` seconds (900 by default).
+- A poll that finds a record file of an older tehas in `state/` (one the
+  import did not take, or one a cycle that ran the old code across the update
+  left) stops with exit 78 before it calls GitHub, and logs `ERROR: records of
+  an older tehas at <path>; run install.sh again`. `install.sh` run again
+  imports it.
 
 ### Adopter action
 
 - Before updating, drain: `tehas drain --wait 3600`, and let planning turns
   end. `install.sh` refuses while a cycle or planning turn runs and old records
   are there. After the update, `tehas limit clear`. Remove
-  `~/tehas/state/imported-<YYYYMMDD>/` once satisfied.
+  `~/tehas/state/imported-<YYYYMMDD>/` once satisfied. If the poll logs
+  `records of an older tehas`, run `install.sh` again.
 - A cycle or poll that was running keeps the commands it started with, and
   those call `analytics run` and `analytics plan` without `--facts`: the new
   program refuses that with exit 64 (`WARN analytics run: exit 64` in the

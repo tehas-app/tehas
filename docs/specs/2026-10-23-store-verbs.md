@@ -216,17 +216,35 @@ taking `--poll-at` and `--before` from the poll, in the same transaction
 (section 5 rule 1), and adds exit 5 then. A1, A2 and A3 are owned by #254; the
 tests named for them here are **partial** (the store half only).
 
-### Stays a file in this unit
+### Stays a file
 
-No verb here writes or replaces these; #250 and #251 decide each:
+The final list, after #250 and #251 (the plan's decision 4,
+`docs/plans/2026-10-24-store-callers.md`). No verb writes or replaces these:
 
-- `state/cycles/<n>.lock` (C5, C7) and `state/plan-<n>.json.lock` (a turn's liveness proof, spec 3.5).
-- `.done`: written by the dispatcher (`dispatch:2028`), read by the cycle (`cycle:1010-1012`), which passes the word on as `--status`.
-- `.stopped`, `.stopped.new`: written by `tehas stop` (`stop:166-187`), read by the cycle (`cycle:740-751`).
-- work's handoff files: `.runner_exit`, `.status`, `.oom`, `.forks`, `.stalled`, `.timed`, `.nostart`, `.cid`, `.image`, `.settings`, `.result.json`, `.progress.json`, `.manifest.json`, `.images.md`, `.retry-context.md`. The verbs take their values; how `work` hands them to `cycle` is #250's.
-- planning: `.out` and `.keep/` (a container reads or writes them; the row names `.out` in `pending_outcome`), `.rc`, `.answer` (the reply text; schema 2 has a column for it, D34, which the caller uses once it moves), `.turn` (the export copy, `planning.sh:242-245`), and the brief file `libexec/plan --brief <file>` reads (`dispatch:2858`): the caller writes it from `plan-show`'s `brief` each turn.
-- `state/park-<n>.json`: the body handed to `q_render`, not a record.
-- `state/refined.jsonl` (D9) and `state/cycles/plan-<n>.history.jsonl` until the import (D18).
+- The locks: `state/cycles/<n>.lock` (C5, C7) and `state/plan-<n>.json.lock`
+  (a turn's liveness proof, spec 3.5).
+- `.done`: written by the dispatcher, read by the cycle, which passes the word
+  on as `--status`.
+- `.stopped`, `.stopped.new`: written by `tehas stop`, read by the cycle.
+- work's handoff files: `.runner_exit`, `.status`, `.oom`, `.forks`,
+  `.stalled`, `.timed`, `.nostart`, and the container's `.result.json` and
+  `.progress.json`, kept to the next start for `tehas export`.
+- What a container is given: `.cid`, `.manifest.json`, `.images.md`,
+  `.retry-context.md`.
+- planning: `.out` and `.rc`, and the runner's `.keep/` directory, which
+  moved out of `state/` to `$TEHAS_WORK_DIR-plan-<n>.keep` beside the
+  workspace. The brief file `libexec/plan --brief <file>` reads is in `tmp/`
+  until the turn ends.
+- `state/refined.jsonl` (D9).
+
+These moved, and the importer (spec 2026-10-21 section 7) takes what an older
+tehas left: `.image` and `.settings` (work calls `cycle-image`), `.taken`,
+`.by`, `.requeued`, `.rukas`, `.branch`, `.approved.json`, `.park`, `.quiet`,
+`<n>.history.jsonl`, `state/park-<n>.id`, `state/plan-<n>.json` with its
+`.brief`, `.answer` and `.turn` (`plan-answer --text-file` keeps the reply,
+D34; the export reads `plan-show`), and both plan history paths.
+`state/park-<n>.json`, the body handed to `q_render`, is a `mktemp` file. A
+poll that finds any of the old files stops with 78 (`libexec/dispatch`).
 
 ## 1. The lock probe (`src/lock.rs`)
 

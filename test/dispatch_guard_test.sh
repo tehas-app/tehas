@@ -587,6 +587,51 @@ t_contains "$t_out" "clear #7: tehas:ready off, applied by 'bob'"
 t_lacks "$t_out" "TEHAS_SIZE_MAX_FILES"
 t_lacks "$(t_calls gh)" "--add-label needs-human-attention"
 
+# --- The records of an older tehas ---------------------------------------------
+# install.sh imports them into the store. One still on disk is an import that
+# failed or a cycle that ran old code across the update: the poll would read
+# no record for it and act on that, so it stops before GitHub (D2).
+old_records=(state/cycles/5.approved.json state/cycles/5.park state/cycles/5.by state/cycles/5.requeued
+  state/cycles/5.taken state/cycles/5.rukas state/cycles/5.quiet state/cycles/5.image state/cycles/5.settings
+  state/cycles/5.branch state/cycles/5.history.jsonl state/park-5.id state/park-5.json state/plan-5.json
+  state/plan-5.json.brief state/plan-5.json.answer state/plan-5.json.turn state/plan-5.json.keep/
+  state/cycles/plan-5.history.jsonl state/plan-5.history.jsonl)
+for old in "${old_records[@]}"; do
+  t_case "an old record file $old stops the poll and a dry run at 78 before any call to GitHub"
+  reset
+  rm -f "$T"/home/tehas/state/park-*
+  mkdir -p "$T/home/tehas/state/cycles"
+  case $old in
+    */) mkdir -p "$T/home/tehas/$old" ;;
+    *) echo '{}' >"$T/home/tehas/$old" ;;
+  esac
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "ERROR: records of an older tehas at $T/home/tehas/${old%/}; run install.sh again"
+  t_eq "$(t_calls gh)" ""
+  t_eq "$(t_calls fake-start)" ""
+  t_run "$dispatch --dry-run"
+  t_eq "$t_rc" 78
+  t_eq "$(t_calls gh)" ""
+  rm -rf "${T:?}/home/tehas/$old"
+done
+
+t_case "the poll's own files, the carriers and the imported records do not stop it"
+reset
+rm -f "$T"/home/tehas/state/park-*
+for f in dispatch.taken dispatch.stuck refined.jsonl plan-5.json.out plan-5.json.rc plan-5.json.lock \
+  cycles/5.lock cycles/5.done cycles/5.stopped cycles/5.runner_exit cycles/5.status cycles/5.oom \
+  cycles/5.forks cycles/5.stalled cycles/5.timed cycles/5.nostart cycles/5.result.json \
+  cycles/5.progress.json cycles/5.cid cycles/5.manifest.json cycles/5.images.md \
+  cycles/5.retry-context.md cycles/5.park.new cycles/5.approved.json.new plan-5.json.new \
+  imported-20261024/cycles/5.taken imported-20261024/park-5.id imported-20261024/plan-5.json; do
+  mkdir -p "$(dirname "$T/home/tehas/state/$f")"
+  : >"$T/home/tehas/state/$f"
+done
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "older tehas"
+t_eq "$(t_calls fake-start)" "7"
+rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new
+
 t_done
-
-

@@ -5,6 +5,24 @@
 # are signals between two processes, a container's mount or its output: each
 # is named only by the code that passes it on. Tests, the manual in host/docs/
 # and the records in docs/ may name both.
+#
+# What stays a file, and why (the plan's decision 4; the inventory of
+# docs/specs/2026-10-21-state-store.md sections 1.3 and 1.4):
+# - a cycle's .lock and a planning turn's .json.lock: liveness is the flock;
+# - work's .runner_exit .status .oom .forks .stalled .timed .nostart: how the
+#   container ended, from work to the cycle;
+# - .result.json and .progress.json: the container's output, kept to the next
+#   start for tehas export;
+# - the dispatcher's .done and stop's .stopped: a signal to a running cycle;
+# - .cid .manifest.json .images.md .retry-context.md: what a container is given;
+# - planning's .out and .rc, and the .keep directory beside the workspace;
+# - state/refined.jsonl, the ledger the store does not hold (D9);
+# - state/dispatch.*: the poll's own lock and notes.
+# Every other record moved. install.sh imports the old files (store import),
+# and the poll stops at 78 while one is left (test/dispatch_guard_test.sh).
+# Those two may name the old files, on the lines `allow` lists. The export copy
+# an ended session left, state/plan-<n>.turn, is neither imported nor guarded:
+# nothing reads it.
 # shellcheck disable=SC2016  # the patterns and samples are code, not expanded
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -23,6 +41,19 @@ forbid() {
   forbidden+=("$1")
   forbidden_sample+=("$2")
 }
+
+# allow <file> <line pattern> <why>: lines of code that name an old file
+# because they move it away or stop on it.
+a_file=()
+a_re=()
+allow() {
+  a_file+=("$1")
+  a_re+=("$2")
+}
+allow libexec/dispatch "'state/[a-z/]*(park|plan)?-?\\[1-9\\]\\*" \
+  "the poll stops at 78 while a record file of an older tehas is there"
+allow install.sh 'plan-(<n>|\[0-9\]\*)\.json\.keep|%\.json\.keep' \
+  "install.sh moves a planning session's kept directory out of state/"
 
 # carrier <pattern> <sample> <files that may name it> <why it stays a file>
 c_re=()
@@ -128,8 +159,8 @@ carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
   'lib/planning.sh libexec/health' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'lib/planning.sh libexec/dispatch libexec/health' \
-  "the lock a planning turn holds while it runs"
+  'install.sh lib/planning.sh libexec/dispatch libexec/health' \
+  "the lock a planning turn holds while it runs; install.sh moves no .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
   "lib/planning.sh $an/plan.rs $an/tests.rs" \
   "a planning container's output"
@@ -142,6 +173,10 @@ found=""
 while IFS= read -r f; do
   for re in "${forbidden[@]}"; do
     hits=$(grep -nE -- "$re" "$T_ROOT/$f" 2>/dev/null) || continue
+    for i in "${!a_file[@]}"; do
+      [ "${a_file[i]}" = "$f" ] || continue
+      hits=$(grep -vE -- "^[0-9]+:.*(${a_re[i]})" <<<"$hits") || continue 2
+    done
     found+="$f: $hits"$'\n'
   done
 done < <(code)
@@ -200,5 +235,32 @@ t_contains "$(code)" "libexec/dispatch"
 t_contains "$(code)" "lib/store.sh"
 t_contains "$(code)" "console/analytics/src/run.rs"
 t_contains "$(code)" "install.sh"
+
+t_case "each allowed line is still there"
+for i in "${!a_file[@]}"; do
+  grep -qE -- "${a_re[i]}" "$T_ROOT/${a_file[i]}" || t_bad "${a_file[i]} has no line ${a_re[i]}: take it off the list"
+done
+
+t_case "every file the importer reads is an old record the tests look for, and stops the poll"
+imp=$T_ROOT/console/store/src/import.rs
+names=()
+while IFS= read -r sfx; do names+=("state/cycles/5$sfx"); done < <(
+  sed -n '/^const CYCLE_SUFFIXES/,/^];/p' "$imp" | sed -nE 's/^ *\("(\.[a-z.]+)".*/\1/p')
+while IFS=' ' read -r pre sfx; do names+=("state/${pre}5$sfx"); done < <(
+  sed -n '/^const STATE_NAMES/,/^];/p' "$imp" | sed -nE 's/^ *\("([a-z]+-)", "([a-z.]+)".*/\1 \2/p')
+names+=(state/cycles/plan-5.history.jsonl)
+t_eq "${#names[@]}" 19
+# The samples test/dispatch_guard_test.sh stops a poll with, one per line.
+guard=$(sed -n '/^old_records=(/,/)$/p' "$T_ROOT/test/dispatch_guard_test.sh" | tr -d '()' | tr ' ' '\n' |
+  sed -e 's/^old_records=//' -e 's|/$||' | grep .)
+for name in "${names[@]}"; do
+  hit=no
+  for g in "${t_old_state[@]}"; do
+    # shellcheck disable=SC2053  # the right side is a glob on purpose
+    [[ $name == $g ]] && hit=yes
+  done
+  t_eq "$name: $hit" "$name: yes"
+  t_eq "$name: $(grep -cxF -- "$name" <<<"$guard")" "$name: 1"
+done
 
 t_done

@@ -443,6 +443,19 @@ if ! tehas_store_ready; then
   log "ERROR: the state store is not installed (run install.sh)"
   exit 78
 fi
+# The record files of an older tehas. install.sh imports them; one still here
+# is an import that stopped, or a cycle that ran the old code across the
+# update. The store has no row for it, and no row is not "none" (D2). The
+# carriers, the .new of a killed writer and state/dispatch.taken never match.
+old_records=('state/cycles/[1-9]*.'{approved.json,park,by,requeued,taken,rukas,quiet,image,settings,branch,history.jsonl}
+  'state/park-[1-9]*.'{id,json} 'state/plan-[1-9]*.json' 'state/plan-[1-9]*.json.'{brief,answer,turn,keep}
+  'state/cycles/plan-[1-9]*.history.jsonl' 'state/plan-[1-9]*.history.jsonl')
+for old in "${old_records[@]}"; do
+  if old=$(cd "$TEHAS_HOME" && compgen -G "$old"); then
+    log "ERROR: records of an older tehas at $TEHAS_HOME/${old%%$'\n'*}; run install.sh again"
+    exit 78
+  fi
+done
 
 # Every real poll that holds the lock ends with one sample of the factory and
 # a prune in its analytics, after its live files are written, however it

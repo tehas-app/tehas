@@ -118,10 +118,22 @@ aside and carries on.** It stops with 78 and the word `corrupt` or `unreadable`
 A future reader extending that code path inherits this rule, not the analytics
 one.
 
-**The `state/index/` tree, `state/plan-<n>.json.keep/`, and `~/.pi/agent/`**.
-Directories of other programs' making: the indexer's databases, the runner's
-per-turn payload, pi-rukas's runs and sessions. tehas moves them and does not
-read them.
+**The carriers.** A file one process leaves for the next to pick up once:
+`tehas work`'s `.runner_exit`, `.status`, `.oom`, `.forks`, `.stalled`,
+`.timed` and `.nostart`, which tell the cycle how the container ended; the
+container's `.result.json` and `.progress.json`, kept to the next start for
+`tehas export`; a planning turn's `.out` and `.rc`; and `state/refined.jsonl`,
+the ledger of refined issues. The record the cycle makes of them is a row; the
+file is how the value travels. Two carriers are signals to a cycle that runs:
+the dispatcher's `state/cycles/<n>.done`, which says why the issue is done, and
+`tehas stop`'s `state/cycles/<n>.stopped`, which says a person stopped it. The
+cycle reads each when its container ends and passes the word to `cycle-end`.
+
+**The `state/index/` tree, `~/tehas/work/<name>-plan-<n>.keep/`, and
+`~/.pi/agent/`**. Directories of other programs' making: the indexer's
+databases, the runner's per-turn payload (beside the planning workspace, no
+longer under `state/`), pi-rukas's runs and sessions. tehas moves them and
+does not read them.
 
 ## Rationale
 
