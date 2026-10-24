@@ -3128,8 +3128,35 @@ user`. The pins moved, and the tools on the host, pi-rukas among them, follow
 them only when that runs; until then `--check` says `Dependencies: NOT OK`. It
 is no step of `tehas update`, because it fetches from the network.
 
-It also removes the commands of the earlier layout from `~/tehas/bin`, unless a
-cycle is running that still uses them. See [The host](/host).
+It also removes the commands of the earlier layout from `~/tehas/bin`, once
+systemd has reloaded the units that name them. See [The host](/host).
+
+**The records of an older tehas.** A real run holds `state/dispatch.lock` from
+before its first copy until after the store has imported the old records, so no
+poll starts a cycle or a planning turn in between. A poll that holds the lock
+longer than the `TEHAS_UPDATE_LOCK_WAIT` seconds the run waits for the update
+lock stops the run with exit 1 and `a poll is running ...; nothing was
+installed`. Before the first copy the store the run installs judges the record
+files an older tehas kept under `state/` (`store import --dry-run`, which reads
+the files only), and the run stops with exit 1 and `nothing was installed` when:
+
+- a cycle or planning turn runs while such a file is there: `a cycle or planning
+  turn runs (#N); run tehas drain --wait and let it end, then install again`.
+  It would write more of them after the import;
+- a file would be held, because it is a link, larger than 1 MiB, or does not
+  parse, or a time in it is not `%FT%TZ`: the store's `store: held` line and one
+  line per file, which stays where it is with the other files of its issue. Move
+  each one out of `state/` or mend it, then run again.
+
+After the database is made or migrated, `store import` makes the files rows and
+moves each one to `state/imported-<YYYYMMDD>/`, under its path in `state/`, once
+its rows read back; nothing is deleted. The run prints `store: imported <table>
+<rows>, ...; moved <n> files to ...` when it moved any. An import that fails
+stops the run with exit 1: the files are installed, the database holds what was
+imported, and running `install.sh` again finishes it. Each
+`state/plan-<n>.json.keep` directory then moves to
+`$TEHAS_WORK_DIR-plan-<n>.keep` while no planning turn holds its lock; one held
+stays, with a `later:` line. See [The state store](/host#the-state-store).
 
 One file it reports and never touches: `/usr/local/bin/tehas`, the command an
 account that is not the tehas user types, which `sudo ./bootstrap.sh dev` puts

@@ -1319,7 +1319,12 @@ the `Adopter action` of each release between, do what they ask, then run
 `tehas update`. `tehas update --to <version>` goes back (see
 [Rolling back tehas](/host#rolling-back-tehas)). An update that changes a unit
 restarts the units that run, and that can end a running cycle: pause and let
-the cycles finish first (see [Pause and resume](#pause-and-resume)). How it works is in
+the cycles finish first (see [Pause and resume](#pause-and-resume)). An update
+that moves records into the state store refuses while a cycle or a planning turn
+runs and records of the older tehas are there, and installs nothing: drain first
+with `tehas drain --wait 3600`, let planning turns end, update, then
+`tehas limit clear` (see [tehas drain](/tools#tehas-drain), and `install.sh` in
+[the tools](/tools)). How it works is in
 [Updating tehas](/host#updating-tehas). A host installed from a checkout keeps
 pulling it until it is moved: see
 [Move a checkout host to releases](/host#move-a-checkout-host-to-releases).

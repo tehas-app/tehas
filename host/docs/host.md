@@ -44,6 +44,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/mcp/`                       | The sessions snapshot for the MCP server, `sessions.jsonl`, written by `tehasbot status`. Mode 700: it holds what the agents saw, and is never published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
+| `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
 | `~/tehas/state/index`                | The code index `tehas index` builds, under the name of the tree it was made from. The indexing container is given it to write; no cycle, planning or manual container is given it, and a cycle is given a copy of it in its own state directory |
 | `~/.pi/agent/`                       | Pi user configuration (models, MCP servers)                             |
 | `~/.config/tehas/`                   | Secrets and the `instance-dir` pointer. Never in git                    |
@@ -598,11 +599,12 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 1 (`PRAGMA user_version`), and one
-table with rows, `meta`, which says when the database was made, by which version
-and commit of tehas, and for which instance and repository. The other tables
-are there and empty: no command writes them yet. The host's records are still
-the files of `state/` until the commands are moved to the store one by one.
+What is in it today: the schema, version 2 (`PRAGMA user_version`); the table
+`meta`, which says when the database was made, by which version and commit of
+tehas, for which instance and repository, and when records were last imported
+(`imported_at`); and the records `install.sh` imported from the files of an
+older tehas. No command writes the other tables yet: the commands move to the
+store one by one.
 
 `install.sh` makes and migrates it on every real run, under
 `state/update.lock`:
@@ -614,6 +616,14 @@ the files of `state/` until the commands are moved to the store one by one.
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many.
+- Then it runs `store import`: the records an older tehas kept as files (the
+  cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
+  session's `state/plan-<n>.json` with its brief, answer and history) become
+  rows, and each file moves to `state/imported-<YYYYMMDD>/`, under its path in
+  `state/`, once its rows read back. Nothing is deleted. The files a cycle hands
+  to the next step (`result.json`, `progress.json`, a plan's `.out` and the
+  rest) and `state/refined.jsonl` stay where they are. A run again changes
+  nothing that is in the store already.
 
 The store is told the version and commit of the tree `install.sh` runs from,
 the instance directory's name and `TEHAS_REPO`. A checkout gives the commit from

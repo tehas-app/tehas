@@ -13,11 +13,27 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The store's schema is version 2: the inputs of an approval, when a park
+  hold was said, the text of a planning answer, and a planning session's
+  notes. `install.sh` migrates the database.
+- `install.sh` imports the records an older tehas kept as files under
+  `state/` (the cycle's, the park question ids, the planning sessions) into the
+  store with `store import`, and moves each file to
+  `state/imported-<YYYYMMDD>/` once its rows read back. Nothing is deleted.
+  It holds `state/dispatch.lock` from before its first copy until after the
+  import, and stops before the first copy, installing nothing, while a cycle or
+  planning turn runs and such files are there, or when a file cannot be
+  imported. Each `state/plan-<n>.json.keep` moves to
+  `$TEHAS_WORK_DIR-plan-<n>.keep`.
+- `install.sh` no longer leaves the commands of the earlier layout for a later
+  run while a poll holds the dispatcher's lock: it waits for the lock instead.
 
 ### Adopter action
 
-- None.
+- Before updating, drain: `tehas drain --wait 3600`, and let planning turns
+  end. `install.sh` refuses while a cycle or planning turn runs and old records
+  are there. After the update, `tehas limit clear`. Remove
+  `~/tehas/state/imported-<YYYYMMDD>/` once satisfied.
 
 ## v0.11.0 (2026-10-23)
 

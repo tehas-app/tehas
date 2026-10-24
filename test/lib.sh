@@ -170,6 +170,9 @@ if [ "${STORE_RC:-0}" != 0 ]; then echo "store: corrupt the database: a stand-in
 case $1 in
   init) echo '{"api":1,"verb":"init","ok":true,"schema":1,"created":true}' ;;
   migrate) printf '{"api":1,"verb":"migrate","ok":true,"from":1,"to":1,"backup":"%s/tehas-1-0.db"}\n' "$3" ;;
+  import) dry=false
+    [ "${2:-}" != --dry-run ] || dry=true
+    printf '{"api":1,"verb":"import","ok":true,"imported":{},"moved":0,"held":[],"dry_run":%s}\n' "$dry" ;;
 esac
 EOF
 }
