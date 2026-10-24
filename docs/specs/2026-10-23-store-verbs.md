@@ -485,12 +485,16 @@ cycle was last heard from, the episode's key.
   - An ask (no switch): when `stop_asked_at` is NULL or older than the note's
     `at`, this is the episode's first ask: `stop_said_times = 1`; otherwise
     `stop_said_times += 1`. Then `stop_asked_at = now`.
-  - `--said-only` (the "asks no more" line, `dispatch:1971`): `stop_asked_at =
-    now`, the count unchanged, so the line is said once per its own interval.
+  - `--said-only` (the "asks no more" line after its first time,
+    `dispatch:1971`): `stop_asked_at = now`, the count unchanged, so the line
+    is said once per its own interval. The first line is recorded as an ask
+    (D36).
 - JSON: `"times":N,"asked_at":now`.
-- The caller's rule for the next ask or say, unchanged from today: when
-  `times < quiet_asks`, at `stop_asked_at + quiet_retry`; else at
-  `stop_asked_at + quiet_retry * quiet_asks`.
+- The caller's rule for the next ask or say, unchanged in timing from today:
+  when `times <= quiet_asks`, at `stop_asked_at + quiet_retry`; else at
+  `stop_asked_at + quiet_retry * quiet_asks`. The caller records an ask before
+  it asks systemd to stop the unit, and allows one second for the store's
+  clock (D36).
 - Replaces with `cycle-note` the writes at `dispatch:1971` and `:1982`.
 - Invariant: C6 (the store half).
 
@@ -1186,6 +1190,30 @@ running or pending turn. The `.answer` file goes when #251's caller moves.
 `TEHAS_STORE_TEST_NOW` when it is set (a Unix time; anything else is 78), the
 same gate as `test-write`. `install.sh` builds with `--release`, which never
 reads it. The shell tests use it instead of `touch -d`. No spec change.
+
+**D36. The first "asks no more" line counts (sign-off).** Today the line comes
+`quiet_retry` after the last ask, then once per `quiet_retry * quiet_asks`.
+With only `stop_said_times` and `stop_asked_at`, a `--said-only` line cannot be
+told from the last ask, so the poll records the first line as an ask
+(`times = quiet_asks + 1`) and later lines with `--said-only`. The caller's
+rule is `times <= quiet_asks`, and a count past `quiet_asks` means the line
+was said; readers of `stop_said_times` (the reconciler, C6) read it so. The
+other way, a column for when the line was said, changes the schema; left to
+the owner. The poll also records each ask before the stop, not after, and
+lets an ask come one second early: the store dates a record by its own clock,
+a moment after the poll read its own, and the old file took the poll's time.
+Without both, a slow stop (up to 35 s) or a crossed second put each ask off a
+whole poll. **Spec change:** the caller's rule in `cycle-stop-asked`.
+
+**D37. A quiet cycle with no open record (sign-off).** The poll does not stop
+a unit that holds its lock while its record is absent (`nocycle`, before
+`cycle-start`) or ended (after `cycle-end`, while the cycle reports): without
+a start on record its live file may be the issue's previous cycle's. Today's
+poll stopped such a unit after 20 minutes. It now says on every poll that the
+unit holds its lock with no open record and how a person stops it. Whether
+the poll should stop it again, as before, is the owner's call. A store that
+answers 64 or 78 to `cycle-note` or `cycle-stop-asked` ends the poll with 78,
+as every other store call in `dispatch` does.
 
 ## 8. Rejected critique
 

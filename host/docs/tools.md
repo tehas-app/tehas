@@ -439,7 +439,9 @@ tehas-cycle@N.service` and stops the unit without waiting for it. The cycle
 reports as it stops; a later poll finds the issue as above. This is said and
 done once for each time the cycle was last heard from. The episode and every
 ask are on record in the state store, with the cycle: the time the cycle was
-last heard from, how many times the poll has asked, and when it last asked.
+last heard from, how many times the poll has asked, and when it last asked or
+said. The first "asks no more" line counts as one more, so a record past 6
+asks means the poll has said that line.
 Exit 0 from `systemctl --user --no-block stop` only says systemd accepted the
 stop job, so the record means the stop was asked, not that the unit stopped;
 what ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s)
@@ -451,11 +453,19 @@ and after 6 asks it says the episode needs a person and asks no more, so one
 wedged unit does not hold the poll. That line comes 10 minutes after the last
 ask, and again once an hour while the cycle stays quiet. A cycle heard from
 again ends the episode; when it goes quiet later, that is a new episode and
-the asks count from one. The cycle's next start begins with no episode. When
-the store cannot record the episode, the poll says `WARN: ..., but the state
-store could not record it (<word>), so the poll asks nothing this time` and
-stops nothing on that poll. A cycle whose record has ended, or that has none,
-is not stopped by the poll. A dry run says `would stop`, stops nothing and
+the asks count from one. The cycle's next start begins with no episode. Each ask
+is recorded just before the stop is asked, so a slow stop does not put off the
+next ask. When the store is busy and cannot record the episode, the poll says
+`WARN: ..., but the state store could not record it (<word>), so the poll asks
+nothing this time` and stops nothing on that poll. A store that cannot be used
+ends the poll with `ERROR: the state store cannot be used: ...` and exit 78. A
+cycle whose record has ended, or that has none, may be starting or reporting
+after its end, so the poll does not stop it. While it stays quiet, every poll
+says `WARN: ..., and the state store has no open record of it, so the poll
+does not stop it: if it stays, a person can, with tehas stop N or systemctl
+--user stop tehas-cycle@N.service`. A dry run reads the record and says what
+the poll would do (`would stop`, `would ask ... to stop again`, `would say
+that ... needs a person`, or the line about no open record), stops nothing and
 records nothing. A paused factory does not stop it.
 
 An issue is taken only when an allowed account applied `tehas:ready` and

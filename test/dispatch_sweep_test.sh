@@ -417,6 +417,8 @@ t_run "$dispatch"
 t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
 t_contains "$t_out" "systemctl --user stop tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+# The first line is on record as one more: that tells it from the sixth ask.
+t_eq "$(note_asks)" "7"
 # That line is said again once an hour, and the stop is never asked again.
 t_run "$dispatch"
 t_lacks "$t_out" "holds its lock but"
@@ -431,6 +433,24 @@ ago 3601
 t_run "$dispatch"
 t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+release
+
+t_case "an ask is recorded before the stop, so a slow stop does not put off the next ask"
+reset
+t_stub fake-stop 'sleep 3; date +%s >"$T/calls/stop.done"'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+t_run "$dispatch"
+t_contains "$t_out" "stopping tehas-cycle@9.service"
+asked=$(t_row cycle-show 9 -- .cycle.stop_asked_at)
+t_eq "$(( $(cat "$T/calls/stop.done") - asked >= 3 ))" 1
+# The record is dated a moment after the poll's clock: the poll that comes
+# quiet_retry after the ask, by its own clock, asks again.
+ago 599
+t_run "$dispatch"
+t_contains "$t_out" "the poll asks tehas-cycle@9.service to stop again"
+t_eq "$(note_asks)" "2"
 release
 
 t_case "a quiet cycle that is heard from again is left alone, and a new episode counts its asks from one"
@@ -476,14 +496,82 @@ t_eq "$(t_calls fake-stop)" "9"
 t_eq "$(note_asks)" "1"
 release
 
-t_case "a store that cannot be used stops no quiet cycle"
+t_case "a store that cannot be used ends the poll and stops no quiet cycle"
 reset
 t_stub fake-stop
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
 t_store_answers cycle-note 78 'store: corrupt: the database disk image is malformed'
 t_run "$dispatch"
-t_contains "$t_out" "the state store could not record it (corrupt), so the poll asks nothing this time"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt: the database disk image is malformed"
+t_lacks "$t_out" "so the poll asks nothing this time"
+t_eq "$(t_calls fake-stop)" ""
+t_store_answers cycle-note 64 'store: usage cycle-note: --said-for'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: usage cycle-note"
+t_eq "$(t_calls fake-stop)" ""
+# The episode is taken, and the ask cannot be recorded: nothing is stopped.
+t_store_answers cycle-stop-asked 78 'store: corrupt: the database disk image is malformed'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a store that cannot be used when the poll says a cycle needs a person ends the poll"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+for _ in 1 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+t_eq "$(note_asks)" "6"
+ago 601
+t_store_answers cycle-stop-asked 78 'store: corrupt: the database disk image is malformed'
+t_run "$dispatch"
+t_eq "$t_rc" 78
+t_contains "$t_out" "asks no more"
+t_contains "$t_out" "ERROR: the state store cannot be used: store: corrupt"
+release
+
+t_case "a line the store does not record is said again on the next poll"
+reset
+t_stub fake-stop 'exit 1'
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+seen_long_ago
+for _ in 1 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+ago 601
+t_store_answers cycle-stop-asked 1 'store: busy #9: the database is locked' 1
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "asks no more"
+t_contains "$t_out" "WARN: the state store did not record that the poll asks no more of tehas-cycle@9.service (busy)"
+t_eq "$(note_asks)" "6"
+t_run "$dispatch"
+t_contains "$t_out" "asked 6 times to stop tehas-cycle@9.service and asks no more"
+t_lacks "$t_out" "did not record"
+t_eq "$(note_asks)" "7"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+release
+
+t_case "a quiet cycle whose record does not read as one is asked nothing"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 0 '{"api":1,"verb":"cycle-note","ok":true,"said":true,"episode_at":1,"times":"many","stop_asked_at":null}'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "the state store's record of it does not read as one, so the poll asks nothing this time"
 t_eq "$(t_calls fake-stop)" ""
 release
 
@@ -522,7 +610,7 @@ t_eq "$(note_asks)" "1"
 t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 "
 release
 
-t_case "a quiet cycle whose record has ended is not stopped by the poll"
+t_case "a quiet cycle whose record has ended is not stopped by the poll, which says so for a person"
 reset
 t_stub fake-stop
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
@@ -531,6 +619,40 @@ TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-end 9 --attempt "$(t_row cycle-show 9 
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "stopping tehas-cycle@9.service"
+t_contains "$t_out" "WARN: the cycle for #9 holds its lock but has not been heard from since "
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop 9 or systemctl --user stop tehas-cycle@9.service"
+t_eq "$(t_calls fake-stop)" ""
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "would stop"
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_eq "$(t_calls fake-stop)" ""
+release
+
+t_case "a quiet lock with no cycle on record is not stopped by the poll, which says so for a person"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+hold 9
+heard_at 1300
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_eq "$(t_calls fake-stop)" ""
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "would stop"
+t_contains "$t_out" "and the state store has no open record of it"
+release
+
+t_case "a cycle whose record ends after the poll listed it is not stopped, and that is said"
+reset
+t_stub fake-stop
+T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
+quiet_cycle 1300 3600
+t_store_answers cycle-note 1 'store: nocycle #9: no cycle on record'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "and the state store has no open record of it, so the poll does not stop it"
+t_lacks "$t_out" "could not record it"
 t_eq "$(t_calls fake-stop)" ""
 release
 
@@ -549,9 +671,9 @@ t_lacks "$t_out" "holds its lock but"
 t_eq "$(t_calls fake-stop)" ""
 release
 
-t_case "a dry run says it would stop a quiet cycle, every time, and stops nothing"
+t_case "a dry run says what the poll would do about a quiet cycle, and stops nothing"
 reset
-t_stub fake-stop
+t_stub fake-stop 'exit 1'
 T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 quiet_cycle 1300 3600
 t_run "$dispatch --dry-run"
@@ -560,8 +682,33 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(notes)" ""
+seen_long_ago
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
+# Inside the wait the poll says nothing, and so does the dry run.
+t_run "$dispatch --dry-run"
+t_lacks "$t_out" "holds its lock but"
+ago 601
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would ask tehas-cycle@9.service to stop again: the cycle for #9 holds its lock"
+t_lacks "$t_out" "would stop"
+for _ in 2 3 4 5 6; do
+  ago 601
+  t_run "$dispatch"
+done
+t_eq "$(note_asks)" "6"
+ago 601
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would say that tehas-cycle@9.service needs a person and ask no more"
+t_lacks "$t_out" "would ask"
+t_lacks "$t_out" "would stop"
+t_eq "$(note_asks)" "6"
+t_eq "$(t_calls fake-stop | tr '\n' ' ')" "9 9 9 9 9 9 "
+# A cycle heard from since the episode on record: a new one, which the poll
+# would stop.
+heard_at 1250
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would stop tehas-cycle@9.service"
 release
 
 t_case "the issue's next cycle starts with no quiet episode on record"
