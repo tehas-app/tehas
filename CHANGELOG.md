@@ -18,6 +18,10 @@ empty one above it.
   and `install.sh` leaves the record of steps owed as it is when a copy adds
   nothing to it. The tests of `install.sh`, the status, the update, planning
   and the cycle record fork 15 to 44% fewer processes.
+- A release has a `linux-aarch64` tarball beside the `linux-x86_64` one, with
+  its own `.sha256` and `.minisig`. Its programs are static, cross-built on
+  the x86_64 runner. A host on aarch64 cannot run tehas yet: `bootstrap.sh`
+  and the sandbox image are x86_64 only.
 
 ### Adopter action
 
