@@ -393,3 +393,43 @@ fn cycle_end_keeps_the_last_notice_and_step() {
     let e: Value = serde_json::from_str(&read(&home, "endings.json")).unwrap();
     assert_eq!(e[0]["step"], Value::Null);
 }
+
+#[test]
+fn a_restarted_issue_does_not_show_its_earlier_attempt() {
+    let home = home("publish-restart");
+    let (lock, _) = start_by(&home, 40, "alice", "label", 1000);
+    beat(&home, 1010, 40, true, "running", "build", "Old notice");
+    drop(lock);
+    // The attempt died without an end; the next start replaces it.
+    let (_lock, attempt) = start_by(&home, 40, "alice", "label", 2000);
+    publish(&home, 2000, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v, serde_json::json!({"cycles": [], "last": null}));
+    // Its end is kept as lost, from when it was last heard from.
+    let e: Value = serde_json::from_str(&read(&home, "endings.json")).unwrap();
+    assert_eq!(
+        e,
+        serde_json::json!([{"issue": 40, "status": "lost", "step": "build",
+                            "startedAt": 1000, "updatedAt": 1010 + LOST_AFTER}])
+    );
+    // An end with no heartbeat of its own carries nothing of the earlier one.
+    end_at(&home, 2010, 40, attempt, "failed", None);
+    publish(&home, 2010, &[]).unwrap();
+    let v: Value = serde_json::from_str(&read(&home, "running.json")).unwrap();
+    assert_eq!(v["last"]["step"], "");
+    assert_eq!(v["last"]["statusText"], "");
+}
+
+#[test]
+fn ends_of_the_same_second_stay_in_the_order_they_ended() {
+    let home = home("publish-ties");
+    for issue in [51, 50] {
+        let (lock, attempt) = start_by(&home, issue, "alice", "label", 1000);
+        drop(lock);
+        end_at(&home, 1100, issue, attempt, "merged", None);
+    }
+    publish(&home, 1100, &[]).unwrap();
+    let e: Value = serde_json::from_str(&read(&home, "endings.json")).unwrap();
+    assert_eq!(e[0]["issue"], 51);
+    assert_eq!(e[1]["issue"], 50);
+}

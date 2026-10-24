@@ -451,6 +451,25 @@ fn start(
         let prev = row(c, issue)?;
         let unended = prev.as_ref().is_some_and(|r| r.ended_at.is_none());
         locked(home, issue, unended, 1)?;
+        if let Some(r) = prev.as_ref().filter(|r| r.ended_at.is_none()) {
+            // The attempt this start replaces never ended: it is kept among
+            // the ends as lost, from when it was last heard from.
+            c.execute(
+                "INSERT OR IGNORE INTO endings (issue, started_at, ended_at, status, step)
+                 SELECT ?1, ?2, min(?3, coalesce(max(at) + ?4, ?3)), 'lost',
+                   (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?2
+                    ORDER BY at DESC LIMIT 1)
+                 FROM heartbeats WHERE issue = ?1 AND at >= ?2",
+                params![issue, r.started_at, now, crate::live::LOST_AFTER],
+            )
+            .q()?;
+            c.execute(
+                "DELETE FROM endings WHERE rowid NOT IN
+                   (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
+                [],
+            )
+            .q()?;
+        }
         let approval = if by_hand {
             None
         } else {
@@ -868,9 +887,11 @@ fn end_report(home: &Path, issue: i64, attempt: i64, r: &Report, now: i64) -> Re
             // names none, so the page keeps showing them.
             "INSERT OR REPLACE INTO heartbeats (issue, at, running, step, status, text)
              SELECT ?1, ?2, 0,
-               coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 ORDER BY at DESC LIMIT 1)),
-               ?4, (SELECT text FROM heartbeats WHERE issue = ?1 ORDER BY at DESC LIMIT 1)",
-            params![issue, now, r.step, r.status],
+               coalesce(?3, (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                             ORDER BY at DESC LIMIT 1)),
+               ?4, (SELECT text FROM heartbeats WHERE issue = ?1 AND at >= ?5
+                    ORDER BY at DESC LIMIT 1)",
+            params![issue, now, r.step, r.status, row.started_at],
         )
         .q()?;
         c.execute(

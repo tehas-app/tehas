@@ -244,7 +244,8 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
         .prepare(
             "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at
              FROM heartbeats h JOIN cycles c ON c.issue = h.issue
-             WHERE h.at = (SELECT max(at) FROM heartbeats WHERE issue = h.issue)",
+             WHERE h.at = (SELECT max(at) FROM heartbeats WHERE issue = h.issue)
+               AND h.at >= c.started_at",
         )
         .q()?;
     let rows: Vec<View> = q
@@ -310,6 +311,9 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
             .filter(|v| !known.contains(&(v.issue, v.started_at)))
             .map(View::ending),
     );
+    // Read newest first; a stable sort then keeps ends of the same second
+    // oldest first, as they were recorded.
+    endings.reverse();
     endings.sort_by_key(|e| e.ended_at);
     let cut = endings.len().saturating_sub(ENDINGS);
     endings.drain(..cut);

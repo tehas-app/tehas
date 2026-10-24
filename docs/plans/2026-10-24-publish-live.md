@@ -60,7 +60,10 @@ D5. **`publish` renders the cycle views from the rows.**
 - A running heartbeat older than 120 s whose issue lock is free is shown as
   `lost`, `running: false`. Its `updatedAt` is the heartbeat's time plus 120,
   so the view does not change on every publish. Today the time was the moment
-  it was found. Nothing is written to the tables: `publish` only reads.
+  it was found. `publish` only reads, so the lost end becomes a row when the
+  issue's next `cycle-start` replaces the attempt that never ended.
+- Only heartbeats since the attempt's start count, in the view, in `heard_at`
+  and in what `cycle-end` carries forward.
 - `last`: the finished cycle (newest heartbeat not running, or lost) with the
   newest `updatedAt`.
 - `startedAt` is `cycles.started_at`, the start on record. Today it was the
