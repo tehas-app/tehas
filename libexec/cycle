@@ -282,7 +282,7 @@ fi
 # A busy store committed nothing, so the start is asked again. A store that
 # timed out may have committed it: a start on record since this one began,
 # under this lock, is its own. It is ended as refused and nothing runs.
-start_t0=$(date +%s)
+start_t0=$EPOCHSECONDS
 for try in 1 2 3; do
   tehas_store cycle-start "${start_args[@]}"
   start_rc=$?

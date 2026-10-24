@@ -1387,7 +1387,7 @@ approved_record() {
     refresh | outage-retry) ;;
     *) [ -z "${given_at[$n]}" ] || at=$(date -u -d "${given_at[$n]}" +%s 2>/dev/null) || at="" ;;
   esac
-  [[ $at =~ ^[1-9][0-9]{0,10}$ ]] || at=$(date +%s)
+  [[ $at =~ ^[1-9][0-9]{0,10}$ ]] || at=$EPOCHSECONDS
   dir=$TEHAS_HOME/tmp
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] && input=$(mktemp "$dir/approval-input.XXXXXX" 2>/dev/null) || return 1
