@@ -60,3 +60,11 @@ pull requests.
 #252 and #257 side by side, then #253 (decide plus fixtures, then snapshot plus
 shadow), #254, #256. #254 and #256 each need 7 days of shadow and 7 days live
 on tehas-tehas before the bash they replace is removed.
+
+## Work in progress between commits
+
+Every five minutes the uncommitted work of the unit being built is pushed as a
+snapshot commit to `wip/<branch>` (for example `wip/store-callers-quiet-notes`),
+made with `git stash create`, so the agent's branch and index are not touched.
+To recover it: `git fetch origin wip/<branch>` and
+`git stash apply FETCH_HEAD` on the unit's branch.
