@@ -3501,7 +3501,7 @@ one, so a workflow that checks a tag out into its own workspace points the
 script at the checkout rather than at the runner's copy of the script. It reads
 that tree and its arguments and nothing else: no network, no git, no cargo. It
 builds no console of its own; the workflow compiles it for linux x86_64 and
-aarch64 and hands the binaries over, which is why the pack script needs no toolchain. Which
+hands the binary over, which is why the pack script needs no toolchain. Which
 architecture the binaries are is read from the programs themselves, from the
 two bytes of e_machine at offset 18 of each ELF header, so a release is not
 packed on what whoever ran the workflow believed.
@@ -3612,15 +3612,13 @@ with no such tag it is shown every release.
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
 organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
-build --release --locked` for x86_64, and all four again for aarch64, static
-with musl, with `cargo zigbuild` (0.20.1) and zig 0.14.1, a cross build on the
-x86_64 runner with zig as the C compiler and linker. It runs the pack command
-above once for each architecture (it refuses any program whose e_machine is
-not the one its `--arch` promises), signs both tarballs and
-`host/release/install` (when the tag has one) with minisign, checks every
-signature against `host/release/minisign.pub`, and publishes the release with
-the two tarballs named above, each with its `.sha256` and `.minisig` beside it,
-and `install` with `install.minisig`.
+build --release --locked`, resolves the pins, runs
+the pack command above (which refuses any program whose e_machine is not the
+one its `--arch` promises), signs the tarball and `host/release/install` (when the
+tag has one) with minisign, checks both signatures against
+`host/release/minisign.pub`, and publishes the release with the tarball named
+above, its `.sha256` and `.minisig` beside it, and `install` with
+`install.minisig`.
 
 The release is made as a draft and published only when every file is on it.
 The signing key is the Actions secret `MINISIGN_SECRET_KEY`, the whole secret

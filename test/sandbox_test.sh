@@ -52,6 +52,56 @@ parse() { # <file>
   return "$bad"
 }
 
+# docker_runs <file>: the RUN instructions of a Dockerfile, one per line, with
+# the continuations joined as parse does. The build sees one instruction where
+# the file writes several lines, so a check of what a RUN does has to be asked
+# of the whole of it and not of the line the RUN keyword happens to open.
+docker_runs() { # <file>
+  local file=$1 line joined="" bs=$'\\'
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    while [ "${line%[[:space:]]}" != "$line" ]; do line=${line%[[:space:]]}; done
+    while [ "${line#[[:space:]]}" != "$line" ]; do line=${line#[[:space:]]}; done
+    case "$line" in '' | '#'*) continue ;; esac
+    if [ -z "$joined" ]; then
+      # The continuation of a RUN that is not a RUN: the lines of a heredoc
+      # are no instructions, and only the parser's own last line ends with a
+      # backslash once the heredoc has closed.
+      case "$joined" in *"$bs") ;; *) case "$line" in RUN[[:space:]]*) ;; *) continue ;; esac ;; esac
+      joined=${line#RUN[[:space:]]}
+    else
+      joined+=" $line"
+    fi
+    case "$joined" in
+      *"$bs") joined=${joined%"$bs"} ;;
+      *)
+        echo "$joined"
+        joined=""
+        ;;
+    esac
+  done <"$file"
+  # A RUN whose last line still ends with a backslash has no more lines to
+  # join, so what was read is the whole of what the file holds.
+  [ -n "$joined" ] && echo "$joined"
+  return 0
+}
+
+# gate_tools <file>: the words of the tool list of the build's gate loop, as
+# one line. The loop is a RUN of its own and may be written over several lines,
+# so the list is read from the joined instruction: a list split across a
+# continuation is still read whole, and the words after the `; do` that closes
+# it are no part of it.
+gate_tools() { # <file>
+  docker_runs "$1" | awk '
+    { instr = $0 }
+    instr ~ /^for tool in / {
+      sub(/^for tool in /, "", instr)
+      sub(/;[[:space:]]*do.*$/, "", instr)
+      print instr
+      exit
+    }'
+}
+
 # The RUN of the sandbox image, with the continuations left out: the parser
 # sees three instructions where the build meant one.
 t_case "a RUN that forgets its continuations is named, not read as more instructions"
@@ -112,18 +162,40 @@ t_contains "$(cat "$T_ROOT/lib/headless.sh")" '.name == "PI_ENSEMBLE_ISSUE_IMAGE
 t_case "a cycle can look at a picture: file and a Python image library are installed"
 t_contains "$recipe" 'apt-get install -y -qq --no-install-recommends file python3-pil'
 t_contains "$recipe" "python3 -c 'import PIL'"
-# The apt lists the step fetched do not stay in the image.
-t_eq "$(grep -c 'rm -rf /var/lib/apt/lists/\*' "$dockerfile")" 2
+# The apt lists a step fetched do not stay in the image. The check is asked of
+# each RUN that installs: a count over the whole file is met by one step that
+# cleans up twice while another keeps its lists, and names neither.
+apt_unclean=""
+apt_installs=0
+while IFS= read -r run; do
+  case "$run" in *apt-get\ install*) ;; *) continue ;; esac
+  apt_installs=$((apt_installs + 1))
+  case "$run" in *"rm -rf /var/lib/apt/lists/"*) ;; *) apt_unclean="${apt_unclean}RUN ${run:0:60}
+" ;; esac
+done <<<"$(docker_runs "$dockerfile")"
+  # The count is what the image's recipe holds today: one step that installs.
+  # It is there so a file with no install step at all cannot pass the rule.
+  t_eq "$apt_installs" 1
+t_eq "$apt_unclean" ""
 
 t_case "the wigolo the base ships broken is off PATH, and no tehas prompt names it"
 t_contains "$recipe" 'rm -rf /usr/lib/node_modules/wigolo'
 t_contains "$recipe" 'if command -v wigolo >/dev/null 2>&1; then'
 # The removal is not complete when a launcher survives somewhere else on PATH.
 t_contains "$(sed -n '/rm -rf \/usr\/lib\/node_modules\/wigolo/,/wigolo is off PATH/p' "$dockerfile")" 'exit 1'
-# Only what a cycle runs is searched: the units and the prompts in lib/ and
-# host/pi. The manual names wigolo to say why it is gone. pi-rukas's own recipe
-# preflights the command and says when it is not there.
-t_eq "$(grep -rl -e wigolo "$T_ROOT/lib" "$T_ROOT/host/pi" 2>/dev/null | wc -l)" 0
+# Only what a cycle runs is searched: the units and the prompts in lib/, host/pi
+# and libexec/. The manual names wigolo to say why it is gone. pi-rukas's own
+# recipe preflights the command and says when it is not there.
+# Each directory is checked for itself and has to be there: one grep over
+# several of them reports no file for a directory it refused to open, so a
+# search that never ran read as a clean one.
+wigolo_dirs=""
+for dir in lib host/pi libexec; do
+  [ -d "$T_ROOT/$dir" ] || { wigolo_dirs="$wigolo_dirs $dir"; continue; }
+  hit=$(grep -rl -e wigolo "$T_ROOT/$dir" 2>/dev/null)
+  [ -n "$hit" ] && wigolo_dirs="$wigolo_dirs $dir:$hit"
+done
+t_eq "$wigolo_dirs" ""
 
 t_case "the code indexer in the image is the version versions.env names, not upstream's main"
 versions=$T_ROOT/host/versions.env
@@ -179,8 +251,13 @@ t_eq "$(grep -c -- '--db-path "$db/gate.db"' <<<"$calls")" 3
 t_contains "$(cat "$build")" '--build-arg VIPUNE_MODEL_SHA256_ONNX="$VIPUNE_MODEL_SHA256_ONNX"'
 
 t_case "the image refuses a build that is missing a tool a cycle reaches for"
-gate=$(sed -n 's/^RUN for tool in \(.*\); do.*$/\1/p' "$dockerfile")
-t_eq "$(wc -w <<<"$gate")" 16
+# The list is read out of the gate loop of its own RUN, continuations joined:
+# no count of the tools is kept here, since the loop names them and a number
+# written beside it only says what the list was.
+gate=$(gate_tools "$dockerfile")
+# The read is not vacuous: a RUN for which no words were read matches no tool
+# below, so the loop's own first words are asked for as well.
+t_contains " $gate " ' bash '
 for tool in file python3 rg git jq curl gh node cargo shellcheck codebase-memory-mcp fd find bash pi /opt/pi-rukas/bin/pi-rukas-headless; do
   case " $gate " in *" $tool "*) ;; *) t_bad "$tool is not one of the tools the image checks" ;; esac
 done
