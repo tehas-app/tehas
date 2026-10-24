@@ -709,7 +709,8 @@ issue says the same. A `tehas:plan` session that files is posted as before.
 A cycle that parks at explore as `intent-park` with the reason
 `underspecified` or `too-large` is not yet one cycle's work. The next poll
 refines it once without a label, on the strength of the `tehas:ready` that
-started the cycle, and says so in the session's first comment. It does not
+started the cycle, and says so in the session's first comment. A box of the
+park ticked first wins, even one the factory holds for a free slot. It does not
 wait for a free cycle slot. It does not refine when:
 
 - the factory is paused (it does once the factory is resumed),
@@ -722,7 +723,8 @@ wait for a free cycle slot. It does not refine when:
   (its first line is `Replaces #<n>`),
 - the account that started the cycle may no longer label, or the cycle was
   the fixer's,
-- the text was changed by another account since the cycle began.
+- the text was changed since the cycle parked, by anyone: a person at work on
+  it decides.
 
 Then the issue stays parked for a person, as before, and the log says why.
 An automatic session that reaches its turn limit, or that pi-rukas lost, ends

@@ -28,8 +28,9 @@ refine_park() { # [<park reason>] [<labels besides the park's, space separated>]
   comments 7 "$(park_body ' ' ' ')" ""
   mkdir -p "$cycles_dir"
   echo alice >"$cycles_dir/7.by"
-  jq -cn --arg r "$reason" '{cap: "intent-park", reason: "", park_reason: $r, provider: false, retry: false,
-    refine: true, started: 1767225600}' >"$park_file"
+  jq -cn --arg r "$reason" --arg s "$(printf '%s' "$body" | sha256sum | cut -d' ' -f1)" \
+    '{cap: "intent-park", reason: "", park_reason: $r, provider: false, retry: false,
+    refine: true, started: 1767225600, body_sha256: $s}' >"$park_file"
 }
 new_poll() { rm -f "$T"/calls/*; }
 refused() { # <what the log says>: the poll started nothing and dropped the mark
@@ -52,7 +53,7 @@ t_contains "$(cat "$record.brief")" "$(cat "$T_ROOT/lib/refine-brief.md")"
 t_eq "$(tail -n 1 "$record.brief")" "This request is issue #7 itself. The issue you file replaces #7: #7 is not a duplicate of this plan."
 t_contains "$t_out" "start refining #7 (its cycle parked as underspecified, approved by alice)"
 t_eq "$(jq -c '[.by, .label, .auto]' "$record")" '["alice","tehas:refine",true]'
-t_contains "$(t_calls gh)" "its cycle parked as \`underspecified\`, and @alice's \`tehas:ready\` authorizes one refine."
+t_contains "$(t_calls gh)" "its cycle parked as \`underspecified\`, and the start of that cycle by @alice authorizes one refine."
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:question --remove-label needs-human-attention"
 t_lacks "$(t_calls gh)" "--remove-label tehas:refine"
 t_eq "$(jq -r .refine "$park_file")" false
@@ -146,6 +147,31 @@ refine_park
 jq -n '{data: {repository: {issue: {lastEditedAt: "2026-01-02T00:00:00Z", editor: {login: "mallory"}, body: "Other.", title: "Faster search"}}}}' >"$fx/edit-7.json"
 t_run "$dispatch"
 refused "its text changed since its cycle began"
+
+t_case "an allowed account's edit since the park stops the refine too: a person is working on the text"
+refine_park
+jq -n '{data: {repository: {issue: {lastEditedAt: "2026-01-02T00:00:00Z", editor: {login: "alice"}, body: "Make it fast: 50 ms.", title: "Faster search"}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+refused "its text changed since its cycle parked"
+
+t_case "a Retry ticked while no slot is free is not overridden by the refine"
+refine_park
+comments 7 "$(park_body x ' ')" alice
+hold 9
+t_run "$dispatch"
+release
+t_eq "$(plan_calls)" ""
+t_lacks "$t_out" "start refining #7"
+t_contains "$t_out" "skip #7: not refined: a box of its park question is ticked"
+t_eq "$([ -e "$park_id" ] && echo kept)" kept
+t_lacks "$(t_calls gh)" "--add-label tehas:planning"
+
+t_case "a refine whose first label change fails keeps the park question on record"
+refine_park
+echo "--add-label tehas:planning" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_contains "$t_out" "could not mark #7 as planning"
+t_eq "$([ -e "$park_id" ] && echo kept)" kept
 
 t_case "a paused factory keeps the mark, and refines once it is resumed"
 refine_park
@@ -276,6 +302,26 @@ t_lacks "$(t_calls gh)" "sub_issues"
 t_lacks "$(t_calls gh)" "Replaced by"
 t_eq "$([ -e "$record" ] && echo kept)" ""
 
+t_case "a filed address that is not an issue address is left out, and the session still ends"
+filed_by_refine "$one_part" https://github.com/acme/widget/issues/12 https://github.com/acme/widget/issues/12/ "https://github.com/acme/widget/issues/13#x" "@mallory"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "Replaced by #12."
+t_lacks "$(t_calls gh)" "mallory"
+t_lacks "$(t_calls gh)" "issue view 13"
+t_contains "$(t_calls gh)" "issue close 7"
+t_eq "$([ -e "$record" ] && echo kept)" ""
+
+t_case "the close-or-keep decision is made once: a retry that cannot read the plan still closes"
+filed_by_refine "$one_part" https://github.com/acme/widget/issues/12
+: >"$fx/close-fails"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "--add-label tehas:replaced"
+rm -f "$T"/calls/* "$fx/close-fails" "$fx/issue-12.json"
+echo '[]' >"$fx/refines.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue close 7"
+t_lacks "$(t_calls gh)" "tehas:refined"
+
 t_case "a filed issue of another repository gets no links and is named"
 filed_by_refine "$one_part" https://github.com/acme/widget/issues/12 https://github.com/other/repo/issues/3
 t_run "$dispatch"
@@ -298,9 +344,17 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=plan issue=7 turn=1 -->"
 t_lacks "$(t_calls gh)" "Replaced by"
 
-t_case "later parts are read from the heading, not from a mention"
-t_eq "$(. "$T_ROOT/lib/planning.sh"; printf 'No later parts here.\n## Later parts\n\n- none\n' | plan_later_parts && echo yes || echo no)" no
-t_eq "$(. "$T_ROOT/lib/planning.sh"; printf '### Later parts\n1. Next\n## Evidence\n' | plan_later_parts && echo yes || echo no)" yes
-t_eq "$(. "$T_ROOT/lib/planning.sh"; printf '## Spec\nLater parts: none\n' | plan_later_parts && echo yes || echo no)" no
+t_case "a plan has no later parts only when its Later parts section says none"
+later() { (. "$T_ROOT/lib/planning.sh"; printf '%b' "$1" | plan_later_parts && echo yes || echo no); }
+t_eq "$(later 'No later parts here.\n## Later parts\n\n- none\n')" no
+t_eq "$(later '## Later parts\nNone.\n## Evidence\nx - a:1\n')" no
+t_eq "$(later '## Spec\nLater parts: none\n')" no
+t_eq "$(later '### Later parts\n1. Next\n## Evidence\n')" yes
+t_eq "$(later '## Later Parts\n- Cache it\n')" yes
+t_eq "$(later '**Later parts**\n- Cache it\n')" yes
+t_eq "$(later '## Later parts:\n- Cache it\n')" yes
+t_eq "$(later '### Later parts (not this issue)\n- Cache it\n')" yes
+t_eq "$(later 'Later parts: cache it\n')" yes
+t_eq "$(later '## Deliverables\n1. All of it\n')" yes
 
 t_done

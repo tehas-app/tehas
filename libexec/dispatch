@@ -133,6 +133,10 @@
 #      rule 3 or the slice's room: a planning turn opens no pull request. A
 #      slice that cannot be used holds them too, before a label or a comment
 #      is spent: a turn's container would not start.
+#   5a. A cycle that parked as underspecified or too-large is refined once
+#      without a label, on the approval its cycle started on, unless a person
+#      has acted on the issue since, it had a planning session, a planning
+#      session filed it, or its text changed. It waits as rule 5 does.
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. It never names the bot: every poll
 #      reads its own login and stops when it is listed. An issue with an open
@@ -2614,6 +2618,9 @@ fi
 # in flight no other starts.
 fresh=" "
 plan_busy=""
+# The parked issues with a box of their park question ticked: a person's
+# decision, which rule 5a never overrides, held or not.
+park_ticked=" "
 for st in "$TEHAS_HOME"/state/plan-*.json; do
   [ -f "$st" ] || continue
   plan_record_number "$st" || continue
@@ -2736,6 +2743,7 @@ for n in $asking; do
     park)
       # Only a tick answers a parked cycle: a comment there is discussion.
       [ "$tick" = one ] || continue
+      park_ticked="$park_ticked$n "
       # Only the question on record can start a cycle. A box in any other
       # comment is emptied, so that it cannot be taken for an order given.
       if [ "$qkind" != park ]; then
@@ -3030,6 +3038,12 @@ for pf in $(tehas_cycle_note_files park); do
     break
   fi
   mesh_ok || exit 0
+  case "$park_ticked" in
+    *" $n "*)
+      log "skip #$n: not refined: a box of its park question is ticked"
+      continue
+      ;;
+  esac
   why=""
   by=$(head -c 64 "$TEHAS_HOME/state/cycles/$n.by" 2>/dev/null | head -n 1)
   preason=$(jq -r '.park_reason // "" | strings' "$pf" 2>/dev/null | tr -cd 'a-z-' | head -c 40)
@@ -3054,6 +3068,13 @@ for pf in $(tehas_cycle_note_files park); do
     fi
     if [ -z "$why" ] && ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:refine"; then
       why="its text changed since its cycle began"
+    fi
+    # An edit by anyone since the park, an allowed account's too, is a person
+    # at work on the text: the refine would plan what they are rewriting.
+    if [ -z "$why" ]; then
+      sum=$(jq -r '.body_sha256 // "" | strings' "$pf" 2>/dev/null) || sum=""
+      now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]:-}" | tehas_body_sha256 2>/dev/null) || now=""
+      [ -z "$sum" ] || [ "$sum" = "$now" ] || why="its text changed since its cycle parked"
     fi
   fi
   if [ -n "$why" ]; then
@@ -3083,13 +3104,15 @@ for pf in $(tehas_cycle_note_files park); do
     log "ERROR: could not drop the refine mark of #$n, not refining it"
     exit 1
   fi
-  rm -f "$(park_id "$n")"
   who=$by
   plabel=tehas:refine
   plan_auto=1
   plan_auto_reason=${preason:-underspecified}
   log "start refining #$n (its cycle parked as $plan_auto_reason, approved by $by)"
   plan_turn "$n" first "$st.brief"
+  # The park's question goes once the session holds the issue: a start that
+  # failed leaves its boxes working.
+  rm -f "$(park_id "$n")"
   "$status_cmd"
   exit 0
 done

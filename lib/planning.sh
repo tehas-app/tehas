@@ -193,12 +193,16 @@ plan_replace() {
   local n=$1 st u m body id later text list="" done_key json
   local -a mine=() others=()
   st=$(plan_state "$n")
-  while IFS= read -r u; do
-    case "$u" in
-      "https://github.com/${repo:?}/issues/"*) mine+=("${u##*/}") ;;
-      ?*) others+=("$u") ;;
-    esac
-  done < <(jq -r '(.filed // [])[] | strings' "$st.out" 2>/dev/null)
+  # Only issue addresses, as plan_filed reads them. One of this repository by
+  # its number, whatever the case of the owner and name.
+  while IFS=$'\t' read -r u m; do
+    if [ "${u,,}" = "${repo,,}" ]; then
+      mine+=("$m")
+    else
+      others+=("https://github.com/$u/issues/$m")
+    fi
+  done < <(jq -r '(.filed // [])[] | strings
+      | capture("^https://github\\.com/(?<r>[^/]+/[^/]+)/issues/(?<n>[0-9]+)$") | "\(.r)\t\(.n)"' "$st.out" 2>/dev/null)
   for m in "${mine[@]}"; do
     list="$list${list:+, }#$m"
     done_key=$(jq -r --arg m "$m" '((.replace.edited // []) | index($m)) != null' "$st" 2>/dev/null)
@@ -242,11 +246,19 @@ $body" >/dev/null 2>&1; then
   fi
   # Later parts are read from the first filed issue's body, the plan as it was
   # shown. A body that cannot be read keeps the original open: closing it
-  # wrongly loses the rest of the request.
-  later=1
-  if [ "${#mine[@]}" -gt 0 ] && json=$(gh issue view "${mine[0]}" --repo "$repo" --json body 2>/dev/null) &&
-    body=$(jq -er '.body | strings' <<<"$json" 2>/dev/null); then
-    plan_later_parts <<<"$body" || later=0
+  # wrongly loses the rest of the request. Decided once and kept, so a retry
+  # carries on with the same decision.
+  later=$(jq -r '.replace.later // "" | tostring' "$st" 2>/dev/null) || later=""
+  if [ "$later" != 0 ] && [ "$later" != 1 ]; then
+    later=1
+    if [ "${#mine[@]}" -gt 0 ] && json=$(gh issue view "${mine[0]}" --repo "$repo" --json body 2>/dev/null) &&
+      body=$(jq -er '.body | strings' <<<"$json" 2>/dev/null); then
+      plan_later_parts <<<"$body" || later=0
+    fi
+    if ! { jq -c --argjson l "$later" '.replace.later = $l' "$st" >"$st.new" && mv "$st.new" "$st"; }; then
+      log "WARN: the record of #$n could not be updated"
+      return 1
+    fi
   fi
   if [ "$later" = 1 ]; then
     set -- --add-label tehas:refined
@@ -278,14 +290,29 @@ plan_replace_note() {
   fi
 }
 
-# plan_later_parts: 0 when the plan on stdin lists later parts: a heading named
-# Later parts with a line under it, before the next heading, that is not None.
+# plan_later_parts: 1 only when the plan on stdin says it has no later parts:
+# a Later parts section, as a heading, a bold line or "Later parts:", that
+# holds nothing but None. Any other plan, one without the section included,
+# has later parts as far as tehas can tell, and returns 0.
 plan_later_parts() {
   tr -d '\r' | awk '
-    /^#+[ \t]*[Ll]ater parts[ \t]*$/ { in_it = 1; next }
-    in_it && /^#/ { in_it = 0 }
-    in_it && NF && tolower($0) !~ /^[-*[:space:]]*none\.?[[:space:]]*$/ { found = 1 }
-    END { exit found ? 0 : 1 }'
+    function none(t) { t = tolower(t); gsub(/[-*_.:()[:space:]]/, "", t); return t == "" || t == "none" }
+    {
+      line = tolower($0)
+      head = line
+      sub(/^[#*_[:space:]]+/, "", head)
+      if (head ~ /^later parts/) {
+        seen = 1; in_it = 1
+        rest = substr(head, 12)
+        sub(/^[*_[:space:]]+/, "", rest)
+        if (rest ~ /^\(/) { sub(/^\([^)]*\)/, "", rest) }
+        if (!none(rest)) more = 1
+        next
+      }
+      if (in_it && (line ~ /^#/ || line ~ /^\*\*[^*]+\*\*[[:space:]]*:?[[:space:]]*$/)) in_it = 0
+      if (in_it && !none($0)) more = 1
+    }
+    END { exit (seen && !more) ? 1 : 0 }'
 }
 
 # plan_history <issue> <rc> <turn> <kept> [<record>]: the line tehas history
@@ -358,7 +385,17 @@ plan_refined() {
 }
 
 plan_lost() {
-  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session." "$(plan_hand "$1")"
+  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`$(plan_label "$1")\` again to start a new session." "$(plan_hand "$1")"
+}
+
+# plan_label <issue>: the label that starts a session like this one again:
+# tehas:refine for a refine, labelled or not, else tehas:plan.
+plan_label() {
+  if [ "$(jq -r '.label // ""' "$(plan_state "$1")" 2>/dev/null)" = tehas:refine ]; then
+    echo tehas:refine
+  else
+    echo tehas:plan
+  fi
 }
 
 # plan_hand <issue>: "hand" for a session the factory started on its own. It
@@ -498,7 +535,7 @@ plan_turn() {
   turns=$(jq -r '.turns // 0' "$st" 2>/dev/null) || turns=0
   sid=$(jq -r '.session // ""' "$st" 2>/dev/null) || sid=""
   if [ "$turns" -ge "$TEHAS_PLAN_MAX_TURNS" ]; then
-    plan_end "$n" "This planning session reached its limit of $TEHAS_PLAN_MAX_TURNS turns and was ended. Apply \`tehas:plan\` to start a new one." "$(plan_hand "$n")"
+    plan_end "$n" "This planning session reached its limit of $TEHAS_PLAN_MAX_TURNS turns and was ended. Apply \`$(plan_label "$n")\` to start a new one." "$(plan_hand "$n")"
     return 0
   fi
   # Written down before the turn starts, and before the issue is marked, so
@@ -547,7 +584,7 @@ plan_turn() {
     exit 1
   fi
   if [ "$mode" = first ] && [ -n "${plan_auto:-}" ]; then
-    say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC to refine this issue: its cycle parked as \`${plan_auto_reason:-underspecified}\`, and @${who:?}'s \`tehas:ready\` authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take \`tehas:question\` off while a question waits, or close the issue."
+    say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC to refine this issue: its cycle parked as \`${plan_auto_reason:-underspecified}\`, and the start of that cycle by @${who:?} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take \`tehas:question\` off while a question waits, or close the issue."
     args=(--brief "$input")
   elif [ "$mode" = first ]; then
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`${plabel:-tehas:plan}\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."

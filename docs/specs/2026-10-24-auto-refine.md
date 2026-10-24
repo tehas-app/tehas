@@ -83,7 +83,9 @@ A poll starts the refine session only when all of these hold:
    is still in `TEHAS_ALLOWED_LABELERS`, and the issue's text is unchanged
    since that cycle began (`unchanged_since`, as the outage retry checks).
    That account's `tehas:ready` is the authorisation for the session, and the
-   session's record names it as `by`.
+   session's record names it as `by`. The text must also still have the hash
+   the park recorded (`body_sha256`): an edit since the park, an allowed
+   account's too, is a person at work on it.
 4. The issue has never had a planning session: no session record
    (`state/plan-<issue>.json`), no line in
    `state/cycles/plan-<issue>.history.jsonl`, and no `tehas:refined` or

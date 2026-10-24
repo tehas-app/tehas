@@ -261,6 +261,7 @@ comments 7 "$(plan_body x ' ' ' ')" alice
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "reached its limit of 20 turns"
 t_contains "$(t_calls gh)" "--remove-label tehas:plan --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "Apply \`tehas:refine\` to start a new one."
 t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 
 t_case "a labelled session at its turn limit still takes needs-human-attention off"
