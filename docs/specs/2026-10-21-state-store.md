@@ -1573,8 +1573,9 @@ that was not drained is left as it was.
 
 ### Order
 
-One transaction per kind, in this order, because the kinds reference each
-other:
+One transaction per issue's group (its cycle files, or its planning files),
+the kinds in this order, because they reference each other. The cycle groups
+come before the planning groups:
 
 1. `cycles`, from `state/cycles/<n>.{taken,by,requeued,rukas,image,branch}`, the
    approval and the history: `attempt` counts the history lines, and one more
@@ -1584,7 +1585,11 @@ other:
    its status when that line is newer than `started_at`, else it ended `lost` at
    `started_at`: no cycle runs after a drain. A row on record that started
    earlier than the files say is given the later start; an open row on record
-   that a newer line ends is ended.
+   that a newer line ends is ended. Files whose start is the row on record (the
+   same `.taken` mtime, or a last line that ended it or started within it), or
+   that hold no start at all, belong to that row: their lines are numbered so
+   the one that ended it has its attempt, and their approval, park and park id
+   are of its attempt.
 2. `approvals`, from `.approved.json`: a used row (`used_by` is the attempt), its
    inputs (`links`, `comment_links`, `retry_context`, `refresh_of`) in
    `input_json`, the label `tehas:ready` for `label` and `fixer`, else the `how`
@@ -1597,7 +1602,7 @@ other:
    status of the line that ended the cycle; `retries` 0 when the file owed a
    retry, else 1; `told_at` from `held`.
 4. `questions`, from `state/park-<n>.id`, only when the issue's `.park` is
-   imported: only an id this host recorded becomes a question (F5).
+   imported or the attempt's park is on record: only an id this host recorded becomes a question (F5).
 5. `cycle_settings`, from `.settings`, with the secret-shape filter of
    `cycle-image`.
 6. `cycle_history`, from `state/cycles/<n>.history.jsonl` (the pull request's URL
@@ -1608,6 +1613,12 @@ other:
    `pending_outcome` names `state/plan-<n>.json.out` when it is there.
 8. `plan_history`, from `state/cycles/plan-<n>.history.jsonl` and
    `state/plan-<n>.history.jsonl` (D18), a line in both once.
+
+Both histories keep an issue's 50 newest rows, as `cycle-end` and `plan-end`
+do: the lines are written newest first, a line older than 50 rows on record is
+not written, and the rest is cut to 50. The `options` of a planning record are
+kept as `plan-end` keeps them: at most 20, no control characters, each cut to
+300 bytes, and `-` for one that is empty or not text.
 
 Every writer makes the issues stub first, as the verbs do. `.quiet`,
 `state/park-<n>.json` and `state/plan-<n>.json.turn` are moved with no row. The
@@ -1634,12 +1645,15 @@ its rows are in the store.
   questions, `(issue, at, status, started_at)` for cycle history and `(issue,
   turn, at, outcome)` for plan history, the issue for cycles and planning. A run
   inserts `OR IGNORE`, so running the import twice changes nothing.
-- **A file moves only after its rows read back.** After each kind's commit, each
-  file's rows are read from the store, and only then is the file moved to
-  `state/imported-<YYYYMMDD>/<its path under state/>`, never over a file there
-  (a taken name gets `.1`, `.2`). A file whose rows do not read back stays and is
-  `held`. A crash between the commit and the move is finished by the next run:
-  the rows are there, the files move.
+- **A group's files move only after all its rows read back.** After a group's
+  commit, each of its files' rows are read from the store, and only then are
+  its files moved to `state/imported-<YYYYMMDD>/<its path under state/>`, never
+  over a file there (a taken name gets `.1`, `.2`), the files that say when it
+  started (`.taken`, `plan-<n>.json`) last. When any file's rows do not read
+  back, every file of the group stays and is `held`, so the next run plans the
+  same files. A crash between the commit and the moves, or partway through the
+  moves, is finished by the next run: the rows are there, and the files left
+  belong to the row on record.
 - **A candidate is a regular file, or it is not a candidate.** Before its content
   is parsed, a candidate must be a regular file, not a link, the same file after
   it is opened (device and inode), and within 1 MiB. A link, a directory, a

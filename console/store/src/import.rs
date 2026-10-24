@@ -12,9 +12,12 @@
 //!   directory, a larger file, one that does not parse, and a time that is not
 //!   `%FT%TZ` hold the file and every other file of its issue's group: they
 //!   stay, and the verb exits 1 `held` with one line per file.
-//! - One transaction per kind, in the spec's order; rows by natural key and
-//!   `INSERT OR IGNORE`, so a second run changes nothing. A file moves only
-//!   after its rows are read back from the store.
+//! - One transaction per issue's group (its cycle files, or its planning
+//!   files), the kinds in the spec's order; rows by natural key and `INSERT OR
+//!   IGNORE`, so a second run changes nothing. The group's files move only
+//!   after all its rows are read back from the store, the start files last; a
+//!   file left by a run that stopped is planned against the row on record.
+//! - A history keeps the 50 newest rows of an issue, as the verbs do.
 //! - `--dry-run` reads the files and nothing else: it does not open the store,
 //!   so it works before `init` and `migrate`, and it counts the rows the files
 //!   hold, not the rows a run would add.
@@ -59,8 +62,8 @@ const TABLES: [&str; 11] = [
     "plan_history",
 ];
 
-/// The steps, one transaction each, in the order of spec section 7. `Moved`
-/// is the files that become no row.
+/// The kinds of row in the order of spec section 7, the order of the writes
+/// in a group's transaction. `Moved` is the files that become no row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Step {
     Cycles,
@@ -73,18 +76,6 @@ enum Step {
     PlanHistory,
     Moved,
 }
-
-const STEPS: [Step; 9] = [
-    Step::Cycles,
-    Step::Approvals,
-    Step::Parks,
-    Step::Questions,
-    Step::Settings,
-    Step::CycleHistory,
-    Step::Planning,
-    Step::PlanHistory,
-    Step::Moved,
-];
 
 // --- times -----------------------------------------------------------------------
 
@@ -753,14 +744,13 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
     let m = object(&g.bytes)?;
     let options = match m.get("options") {
         None | Some(Value::Null) => Vec::new(),
+        // Labels the runner wrote, kept as plan-end keeps them; one that is not
+        // text is `-`.
         Some(Value::Array(a)) => a
             .iter()
-            .map(|v| {
-                v.as_str()
-                    .map(str::to_string)
-                    .ok_or("has an option that is not text")
-            })
-            .collect::<Result<_, _>>()?,
+            .take(plan::MAX_OPTIONS)
+            .map(|v| plan::option_label(v.as_str().unwrap_or("")))
+            .collect(),
         Some(_) => return Err("has options that are not a list".to_string()),
     };
     let answers = match m.get("answers") {
@@ -899,6 +889,9 @@ enum Op {
     Filed(i64, String, i64, i64),
     Note(i64, &'static str, i64, i64),
     PlanHistory(i64, PlanLine),
+    /// The issue's history cut to the HISTORY newest rows, as the verbs keep it.
+    TrimCycleHistory(i64),
+    TrimPlanHistory(i64),
 }
 
 impl Op {
@@ -910,13 +903,31 @@ impl Op {
             Op::Park { .. } => "parks",
             Op::Question { .. } => "questions",
             Op::Setting(..) => "cycle_settings",
-            Op::CycleHistory(..) => "cycle_history",
+            Op::CycleHistory(..) | Op::TrimCycleHistory(..) => "cycle_history",
             Op::Planning(..) => "planning",
             Op::Answer(..) => "planning_answers",
             Op::Filed(..) => "planning_filed",
             Op::Note(..) => "planning_notes",
-            Op::PlanHistory(..) => "plan_history",
+            Op::PlanHistory(..) | Op::TrimPlanHistory(..) => "plan_history",
         }
+    }
+
+    /// Whether the answer counts it: a trim writes no row.
+    fn counted(&self) -> bool {
+        !matches!(self, Op::TrimCycleHistory(..) | Op::TrimPlanHistory(..))
+    }
+
+    /// Where it goes in its group's transaction: by step, and a history's
+    /// lines newest first, so a line older than the newest HISTORY on record
+    /// is never written; the trim last.
+    fn order(&self, step: Step) -> (Step, std::cmp::Reverse<i64>) {
+        let at = match self {
+            Op::CycleHistory(_, _, l) => l.at,
+            Op::PlanHistory(_, l) => l.at,
+            Op::TrimCycleHistory(..) | Op::TrimPlanHistory(..) => i64::MIN,
+            _ => 0,
+        };
+        (step, std::cmp::Reverse(at))
     }
 
     /// The rows it wrote: 0 when they were there already.
@@ -1035,7 +1046,8 @@ impl Op {
                        started_at, rc, cap, park_reason, failure_kind, failure_cause, provider, parked)
                      SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
                      WHERE NOT EXISTS (SELECT 1 FROM cycle_history
-                       WHERE issue = ?1 AND at = ?3 AND status = ?4 AND started_at IS ?9)",
+                       WHERE issue = ?1 AND at = ?3 AND status = ?4 AND started_at IS ?9)
+                     AND (SELECT count(*) FROM cycle_history WHERE issue = ?1 AND at >= ?3) < 50",
                     params![
                         issue, attempt, l.at, l.status, l.step, l.by, l.how, l.pr, l.started,
                         l.rc, l.cap, l.park_reason, l.failure_kind, l.failure_cause, l.provider,
@@ -1098,7 +1110,8 @@ impl Op {
                        by_account, label, filed_json)
                      SELECT ?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9
                      WHERE NOT EXISTS (SELECT 1 FROM plan_history
-                       WHERE issue = ?1 AND turn = ?2 AND at = ?3 AND outcome = ?4)",
+                       WHERE issue = ?1 AND turn = ?2 AND at = ?3 AND outcome = ?4)
+                     AND (SELECT count(*) FROM plan_history WHERE issue = ?1 AND at >= ?3) < 50",
                     params![
                         issue,
                         l.turn,
@@ -1112,6 +1125,24 @@ impl Op {
                     ],
                 )
                 .q()?,
+            Op::TrimCycleHistory(issue) => {
+                c.execute(
+                    "DELETE FROM cycle_history WHERE issue = ?1 AND id NOT IN
+                       (SELECT id FROM cycle_history WHERE issue = ?1 ORDER BY at DESC, id DESC LIMIT 50)",
+                    [issue],
+                )
+                .q()?;
+                0
+            }
+            Op::TrimPlanHistory(issue) => {
+                c.execute(
+                    "DELETE FROM plan_history WHERE issue = ?1 AND id NOT IN
+                       (SELECT id FROM plan_history WHERE issue = ?1 ORDER BY at DESC, id DESC LIMIT 50)",
+                    [issue],
+                )
+                .q()?;
+                0
+            }
         })
     }
 
@@ -1148,8 +1179,10 @@ impl Op {
                 "cycle_settings WHERE issue = ?1 AND key = ?2 AND value = ?3",
                 &[issue, k, v],
             ),
+            // A line is kept, or 50 rows as new or newer are.
             Op::CycleHistory(issue, _, l) => yes(
-                "cycle_history WHERE issue = ?1 AND at = ?2 AND status = ?3 AND started_at IS ?4",
+                "cycle_history WHERE issue = ?1 AND ((at = ?2 AND status = ?3 AND started_at IS ?4)
+                   OR (SELECT count(*) FROM cycle_history WHERE issue = ?1 AND at >= ?2) >= 50)",
                 &[issue, &l.at, &l.status, &l.started],
             ),
             Op::Planning(issue, r) => yes(
@@ -1170,15 +1203,17 @@ impl Op {
                 &[issue, kind, id],
             ),
             Op::PlanHistory(issue, l) => yes(
-                "plan_history WHERE issue = ?1 AND turn = ?2 AND at = ?3 AND outcome = ?4",
+                "plan_history WHERE issue = ?1 AND ((turn = ?2 AND at = ?3 AND outcome = ?4)
+                   OR (SELECT count(*) FROM plan_history WHERE issue = ?1 AND at >= ?3) >= 50)",
                 &[issue, &l.turn, &l.at, &l.outcome],
             ),
+            Op::TrimCycleHistory(..) | Op::TrimPlanHistory(..) => Ok(true),
         }
     }
 }
 
-/// A file, the step whose commit it waits for, and the writes that must read
-/// back before it moves. No write: it moves with no row.
+/// A file, the step its rows belong to, and the writes that must read back
+/// before it moves. No write: it moves with no row.
 struct Item {
     found: Found,
     got: Got,
@@ -1186,16 +1221,20 @@ struct Item {
     checks: Vec<Op>,
 }
 
+/// One issue's cycle group or planning group. Its writes commit in one
+/// transaction, in the order of the steps; its files move only once every
+/// write of the group reads back, and then the files that say when it started
+/// (`.taken`, `plan-<n>.json`) move last. So a run that stops anywhere leaves
+/// the next run either the same files or files that name the row on record.
 #[derive(Default)]
-struct Work {
-    ops: BTreeMap<Step, Vec<Op>>,
+struct Group {
+    ops: Vec<(Step, Op)>,
     items: Vec<Item>,
-    held: Vec<(String, String)>,
 }
 
-impl Work {
+impl Group {
     fn op(&mut self, step: Step, op: Op) {
-        self.ops.entry(step).or_default().push(op);
+        self.ops.push((step, op));
     }
 }
 
@@ -1206,6 +1245,8 @@ impl Work {
 struct OnRecord {
     /// attempt, started_at, ended_at
     row: Option<(i64, i64, Option<i64>)>,
+    /// Whether that row's attempt has a park on record.
+    parked: bool,
     max_history: i64,
     keys: BTreeSet<(i64, String, Option<i64>)>,
 }
@@ -1219,6 +1260,16 @@ fn on_record(c: &Connection, issue: i64) -> Result<OnRecord, Fail> {
         )
         .optional()
         .q()?;
+    let parked = match row {
+        Some((attempt, ..)) => c
+            .query_row(
+                "SELECT count(*) > 0 FROM parks WHERE issue = ?1 AND attempt = ?2",
+                params![issue, attempt],
+                |r| r.get(0),
+            )
+            .q()?,
+        None => false,
+    };
     let max_history: i64 = c
         .query_row(
             "SELECT coalesce(max(attempt), 0) FROM cycle_history WHERE issue = ?1",
@@ -1238,6 +1289,7 @@ fn on_record(c: &Connection, issue: i64) -> Result<OnRecord, Fail> {
     }
     Ok(OnRecord {
         row,
+        parked,
         max_history,
         keys,
     })
@@ -1253,7 +1305,7 @@ fn take(files: &mut Files, what: What) -> Option<(Found, Got)> {
 }
 
 /// The cycle group of one issue: its rows and the step each file waits for.
-fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Result<(), String> {
+fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Group) -> Result<(), String> {
     let rel = |f: &Option<(Found, Got)>| f.as_ref().map(|(x, _)| x.rel.clone());
     let taken = take(&mut files, What::Taken);
     let by = take(&mut files, What::By);
@@ -1354,18 +1406,62 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
         }
     }
     let last = lines.len().checked_sub(1);
+    let from_line = if taken.is_some() { None } else { last };
     let start = taken
         .as_ref()
         .map(|(_, g)| g.mtime)
-        .or_else(|| last.map(|i| lines[i].started.unwrap_or(lines[i].at)));
+        .or_else(|| from_line.map(|i| lines[i].started.unwrap_or(lines[i].at)));
+
+    // The row on record the files are of: the same start, or the last line is
+    // the one that ended it or one of its own. No start file left at all is
+    // that row too, so a run after one that stopped partway plans the files it
+    // left against the row it wrote.
+    let matched = rec.row.filter(|&(_, started, ended)| match start {
+        None => true,
+        Some(s) => {
+            s == started
+                || from_line.is_some_and(|i| {
+                    let l = &lines[i];
+                    Some(l.at) == ended
+                        || l.started
+                            .is_some_and(|x| x >= started && ended.is_none_or(|e| x <= e))
+                })
+        }
+    });
 
     // The start the other files belong to: its attempt and when it began.
     // None when the files tell of no start, or of one older than the store's.
     let mut current: Option<(i64, i64, Option<usize>)> = None;
     let mut cycle_op: Option<Op> = None;
-    if let Some(s) = start {
-        let newer = rec.row.is_none_or(|r| s > r.1);
-        if newer {
+    if let Some((attempt, started, ended)) = matched {
+        let ender = last.filter(|&i| {
+            let l = &lines[i];
+            match ended {
+                Some(e) => l.at == e,
+                None => new[i] && l.at > started,
+            }
+        });
+        if let Some(e) = ender {
+            if new[e] {
+                // The lines up to the ender are the attempts up to the row's.
+                let fresh: Vec<usize> = (0..=e).filter(|i| new[*i]).collect();
+                let n = fresh.len() as i64;
+                for (k, i) in fresh.into_iter().enumerate() {
+                    attempts[i] = (attempt - (n - 1 - k as i64)).max(1);
+                }
+            }
+            if ended.is_none() {
+                cycle_op = Some(Op::CycleEnd(
+                    issue,
+                    started,
+                    lines[e].at,
+                    lines[e].reason().to_string(),
+                ));
+            }
+        }
+        current = Some((attempt, started, ender));
+    } else if let Some(s) = start {
+        if rec.row.is_none_or(|r| s > r.1) {
             let ender = last.filter(|i| new[*i] && lines[*i].at >= s);
             let attempt = match ender {
                 Some(i) => attempts[i],
@@ -1398,20 +1494,17 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
                 Some(r) => Op::CycleUpdate(issue, r.1, row),
             });
             current = Some((attempt, s, ender));
-        } else if let Some((attempt, started, ended)) = rec.row {
-            if s == started {
-                current = Some((attempt, s, None));
-            }
-            if ended.is_none() {
-                if let Some(i) = last.filter(|i| new[*i] && lines[*i].at > started) {
-                    attempts[i] = attempt;
-                    cycle_op = Some(Op::CycleEnd(
-                        issue,
-                        started,
-                        lines[i].at,
-                        lines[i].reason().to_string(),
-                    ));
-                }
+        } else if let Some((attempt, started, None)) = rec.row {
+            // Files of an older start: no row of their own, but a newer line
+            // ends the open row on record.
+            if let Some(i) = last.filter(|i| new[*i] && lines[*i].at > started) {
+                attempts[i] = attempt;
+                cycle_op = Some(Op::CycleEnd(
+                    issue,
+                    started,
+                    lines[i].at,
+                    lines[i].reason().to_string(),
+                ));
             }
         }
     }
@@ -1432,7 +1525,7 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
         });
     }
 
-    let push = |w: &mut Work, file: Option<(Found, Got)>, step: Step, ops: Vec<Op>| {
+    let push = |w: &mut Group, file: Option<(Found, Got)>, step: Step, ops: Vec<Op>| {
         if let Some((f, g)) = file {
             for op in &ops {
                 w.op(step, op.clone());
@@ -1457,6 +1550,19 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
                 .map(|r| Op::Approval(issue, r))
                 .collect();
         }
+        let on_record = rec.parked && rec.row.is_some_and(|r| r.0 == attempt);
+        // Only an id of a park on record is a question (F5).
+        if park_v.is_some() || on_record {
+            if let (Some(id), Some((_, g))) = (id_v, &park_id) {
+                question_ops.push(Op::Question {
+                    id,
+                    issue,
+                    attempt,
+                    kind: "park",
+                    posted_at: g.mtime,
+                });
+            }
+        }
         if let Some(p) = &park_v {
             let line = ender.map(|i| &lines[i]);
             park_ops.push(Op::Park {
@@ -1473,16 +1579,6 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
                 retries: if p.retry { 0 } else { 1 },
                 told_at: p.told.then_some(p.at),
             });
-            // Only an id of a park on record is a question (F5).
-            if let (Some(id), Some((_, g))) = (id_v, &park_id) {
-                question_ops.push(Op::Question {
-                    id,
-                    issue,
-                    attempt,
-                    kind: "park",
-                    posted_at: g.mtime,
-                });
-            }
         }
         if let Some(rows) = &settings_v {
             setting_ops = rows
@@ -1495,12 +1591,15 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Work) -> Res
     push(w, park, Step::Parks, park_ops);
     push(w, park_id, Step::Questions, question_ops);
     push(w, settings, Step::Settings, setting_ops);
-    let history_ops = lines
+    let history_ops: Vec<Op> = lines
         .iter()
         .enumerate()
         .filter(|(i, _)| new[*i])
         .map(|(i, l)| Op::CycleHistory(issue, attempts[i], l.clone()))
         .collect();
+    if !history_ops.is_empty() {
+        w.op(Step::CycleHistory, Op::TrimCycleHistory(issue));
+    }
     push(w, history, Step::CycleHistory, history_ops);
     // .quiet, the transient park body: moved, no rows.
     for (f, g) in files {
@@ -1572,7 +1671,7 @@ fn approval_rows(a: &ApprovalIn, attempt: i64, used_at: i64, mtime: i64) -> Vec<
 }
 
 /// The planning group of one issue.
-fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Work) -> Result<(), String> {
+fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Group) -> Result<(), String> {
     let record = take(&mut files, What::Plan);
     let brief = take(&mut files, What::PlanBrief);
     let answer = take(&mut files, What::PlanAnswer);
@@ -1662,6 +1761,9 @@ fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Work) -> Res
             step: if planned { Step::Planning } else { Step::Moved },
             checks: planning_ops.clone(),
         });
+    }
+    if lines.iter().any(|ls| !ls.is_empty()) {
+        w.op(Step::PlanHistory, Op::TrimPlanHistory(issue));
     }
     for ((f, g), ls) in history.into_iter().zip(lines) {
         let ops: Vec<Op> = ls.into_iter().map(|l| Op::PlanHistory(issue, l)).collect();
@@ -1803,15 +1905,18 @@ pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
         })?
     };
     let none = OnRecord::default();
-    let mut w = Work::default();
+    let mut groups: BTreeMap<(bool, i64), Group> = BTreeMap::new();
+    let mut held: Vec<(String, String)> = Vec::new();
     for (issue, files) in cycles {
         if bad.contains_key(&(false, issue)) {
             continue;
         }
         let rec = records.get(&issue).unwrap_or(&none);
-        let mut part = Work::default();
-        match plan_cycle(issue, files, rec, &mut part) {
-            Ok(()) => merge(&mut w, part),
+        let mut g = Group::default();
+        match plan_cycle(issue, files, rec, &mut g) {
+            Ok(()) => {
+                groups.insert((false, issue), g);
+            }
             Err(why) => {
                 let rel = why.split(':').next().unwrap_or("").to_string();
                 bad.insert((false, issue), (rel, why));
@@ -1822,9 +1927,11 @@ pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
         if bad.contains_key(&(true, issue)) {
             continue;
         }
-        let mut part = Work::default();
-        match plan_planning(home, issue, files, &mut part) {
-            Ok(()) => merge(&mut w, part),
+        let mut g = Group::default();
+        match plan_planning(home, issue, files, &mut g) {
+            Ok(()) => {
+                groups.insert((true, issue), g);
+            }
             Err(why) => {
                 let rel = why.split(':').next().unwrap_or("").to_string();
                 bad.insert((true, issue), (rel, why));
@@ -1840,22 +1947,26 @@ pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
             } else {
                 format!("held with {culprit}")
             };
-            w.held.push((rel.clone(), reason));
+            held.push((rel.clone(), reason));
         }
     }
 
+    // The cycle groups first, then the planning groups: the steps' order.
     let day = day(now);
     let mut moved = 0;
-    for step in STEPS {
-        let ops = w.ops.remove(&step).unwrap_or_default();
+    for (_, mut g) in groups {
+        g.ops.sort_by_key(|(step, op)| op.order(*step));
         if dry_run {
-            for op in &ops {
+            for (_, op) in g.ops.iter().filter(|(_, op)| op.counted()) {
                 *counts.entry(op.table()).or_default() += 1;
             }
-        } else if !ops.is_empty() {
+            moved += g.items.len();
+            continue;
+        }
+        if !g.ops.is_empty() {
             let written = verbs::write(home, |c| {
                 let mut written: Vec<(&str, usize)> = Vec::new();
-                for op in &ops {
+                for (_, op) in &g.ops {
                     written.push((op.table(), op.apply(c)?));
                 }
                 Ok(written)
@@ -1864,38 +1975,44 @@ pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
                 *counts.entry(table).or_default() += n;
             }
         }
-        let items: Vec<&Item> = w.items.iter().filter(|i| i.step == step).collect();
-        if items.is_empty() {
+        if g.items.is_empty() {
             continue;
         }
-        if dry_run {
-            moved += items.len();
-            continue;
-        }
-        let held_back: Vec<bool> = verbs::look(home, |c| {
-            items
+        let back: Vec<bool> = verbs::look(home, |c| {
+            g.items
                 .iter()
                 .map(|it| {
                     for op in &it.checks {
                         if !op.holds(c)? {
-                            return Ok(true);
+                            return Ok(false);
                         }
                     }
-                    Ok(false)
+                    Ok(true)
                 })
                 .collect()
         })?;
-        for (it, back) in items.into_iter().zip(held_back) {
-            if back {
-                w.held.push((
-                    it.found.rel.clone(),
-                    "its rows did not read back from the store".to_string(),
-                ));
-                continue;
+        if let Some(first) = back.iter().position(|b| !b) {
+            let culprit = g.items[first].found.rel.clone();
+            for (it, ok) in g.items.iter().zip(back) {
+                let why = if ok {
+                    format!("held with {culprit}")
+                } else {
+                    "its rows did not read back from the store".to_string()
+                };
+                held.push((it.found.rel.clone(), why));
             }
+            continue;
+        }
+        g.items.sort_by_key(|it| {
+            (
+                matches!(it.found.what, What::Taken | What::Plan),
+                std::cmp::Reverse(it.step),
+            )
+        });
+        for it in &g.items {
             match move_file(home, it, &day) {
                 Ok(()) => moved += 1,
-                Err(why) => w.held.push((it.found.rel.clone(), why)),
+                Err(why) => held.push((it.found.rel.clone(), why)),
             }
         }
     }
@@ -1909,27 +2026,20 @@ pub fn run(home: &Path, dry_run: bool, now: i64) -> Result<String, Fail> {
             .map(|_| ())
         })?;
     }
-    if !w.held.is_empty() {
-        w.held.sort();
+    if !held.is_empty() {
+        held.sort();
         let mut msg = format!(
             "held {} files stay where they are, {} {}",
-            w.held.len(),
+            held.len(),
             moved,
             if dry_run { "would move" } else { "moved" }
         );
-        for (rel, why) in &w.held {
+        for (rel, why) in &held {
             msg.push_str(&format!("\n  state/{rel}: {why}"));
         }
         return Err((1, msg));
     }
     Ok(answer(&counts, moved, dry_run))
-}
-
-fn merge(w: &mut Work, part: Work) {
-    for (step, ops) in part.ops {
-        w.ops.entry(step).or_default().extend(ops);
-    }
-    w.items.extend(part.items);
 }
 
 fn answer(counts: &BTreeMap<&str, usize>, moved: usize, dry_run: bool) -> String {

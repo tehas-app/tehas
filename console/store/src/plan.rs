@@ -79,8 +79,23 @@ const TEXT_BOUND: u64 = 1 << 20;
 /// The kinds of `plan-note`, and the keys plan-show lists them under.
 const NOTES: [(&str, &str); 2] = [("fixer-refused", "fixer_refused"), ("held", "held")];
 const NOTE_KINDS: [&str; 2] = [NOTES[0].0, NOTES[1].0];
-const MAX_OPTIONS: usize = 20;
+pub const MAX_OPTIONS: usize = 20;
 const OPTION_BYTES: usize = 300;
+
+/// An option's label as the store keeps it: no control characters, at most
+/// OPTION_BYTES bytes on a character boundary, and `-` for an empty one.
+pub fn option_label(label: &str) -> String {
+    let mut v: String = label.chars().filter(|ch| !ch.is_control()).collect();
+    let mut end = v.len().min(OPTION_BYTES);
+    while !v.is_char_boundary(end) {
+        end -= 1;
+    }
+    v.truncate(end);
+    if v.is_empty() {
+        v = "-".to_string();
+    }
+    v
+}
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
@@ -250,15 +265,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
         .iter()
         .take(MAX_OPTIONS)
         .map(|label| {
-            let mut v: String = label.chars().filter(|ch| !ch.is_control()).collect();
-            let mut end = v.len().min(OPTION_BYTES);
-            while !v.is_char_boundary(end) {
-                end -= 1;
-            }
-            v.truncate(end);
-            if v.is_empty() {
-                v = "-".to_string();
-            }
+            let v = option_label(label);
             if v != *label {
                 c.mark("--option");
             }
