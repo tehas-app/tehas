@@ -5,7 +5,14 @@
 #
 #   tehas_github_app        0 when the instance names an app
 #                           (TEHAS_GITHUB_APP_ID), 1 when it does not
-#   tehas_github_app_key    the path of the app's private key
+#   tehas_github_app_key    the path of the app's private key:
+#                           $TEHAS_GITHUB_APP_KEY when it is set (tehas setup
+#                           checks a key before it installs it), else
+#                           ~/.config/tehas/github-app.pem
+#   tehas_github_app_slug   the app's slug, from GET /app with its JWT
+#   tehas_github_app_mint   GitHub's whole answer for a new installation
+#                           token: the token, its expiry and its permissions.
+#                           Keeps nothing
 #   tehas_github_app_env    with an app: drop GH_TOKEN, put $TEHAS_HOME/shim first
 #                           on PATH and give git a github.com credential helper
 #                           that asks the shim, as environment-level config, so
@@ -34,7 +41,7 @@
 # [https://api.github.com, from the environment; the tests point it away].
 
 tehas_github_app() { [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; }
-tehas_github_app_key() { printf '%s\n' "$HOME/.config/tehas/github-app.pem"; }
+tehas_github_app_key() { printf '%s\n' "${TEHAS_GITHUB_APP_KEY:-$HOME/.config/tehas/github-app.pem}"; }
 tehas_github_dir() { printf '%s\n' "$TEHAS_HOME/state/github"; }
 
 _tehas_b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
@@ -63,23 +70,42 @@ _tehas_github_kept() {
   printf '%s\n' "$token"
 }
 
+tehas_github_app_mint() {
+  local api=${TEHAS_GITHUB_API:-https://api.github.com} key jwt
+  key=$(tehas_github_app_key)
+  [ -r "$key" ] || { echo "tehas: the GitHub App's key is not readable at $key" >&2; return 1; }
+  jwt=$(_tehas_github_jwt) || { echo "tehas: the GitHub App's token could not be signed with $key" >&2; return 1; }
+  curl -fsS --max-time 30 -X POST \
+    -H "Authorization: Bearer $jwt" -H 'Accept: application/vnd.github+json' \
+    "$api/app/installations/$TEHAS_GITHUB_APP_INSTALLATION/access_tokens" 2>/dev/null ||
+    { echo "tehas: GitHub did not give the app a token for installation $TEHAS_GITHUB_APP_INSTALLATION" >&2; return 1; }
+}
+
+tehas_github_app_slug() {
+  local api=${TEHAS_GITHUB_API:-https://api.github.com} key jwt answer slug
+  key=$(tehas_github_app_key)
+  [ -r "$key" ] || { echo "tehas: the GitHub App's key is not readable at $key" >&2; return 1; }
+  jwt=$(_tehas_github_jwt) || { echo "tehas: the GitHub App's token could not be signed with $key" >&2; return 1; }
+  answer=$(curl -fsS --max-time 30 \
+    -H "Authorization: Bearer $jwt" -H 'Accept: application/vnd.github+json' "$api/app" 2>/dev/null) ||
+    { echo "tehas: GitHub did not answer GET /app for app $TEHAS_GITHUB_APP_ID" >&2; return 1; }
+  slug=$(jq -r '.slug // empty | strings' <<<"$answer" 2>/dev/null)
+  [[ $slug =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || { echo "tehas: GitHub's answer for app $TEHAS_GITHUB_APP_ID held no slug" >&2; return 1; }
+  printf '%s\n' "$slug"
+}
+
 tehas_github_token() {
-  local state api=${TEHAS_GITHUB_API:-https://api.github.com} key jwt exchange token expires until
+  local state exchange token expires until
   tehas_github_app || { echo "tehas: no GitHub App is set for this instance (TEHAS_GITHUB_APP_ID)" >&2; return 1; }
   _tehas_github_kept 600 && return 0
   state=$(tehas_github_dir)
-  key=$(tehas_github_app_key)
-  [ -r "$key" ] || { echo "tehas: the GitHub App's key is not readable at $key" >&2; return 1; }
+  [ -r "$(tehas_github_app_key)" ] || { echo "tehas: the GitHub App's key is not readable at $(tehas_github_app_key)" >&2; return 1; }
   mkdir -p "$state" || return 1
   (
     # Another command may have made one while this one waited.
     flock -w 30 9 || { echo "tehas: another command is making the GitHub token" >&2; exit 1; }
     _tehas_github_kept 600 && exit 0
-    jwt=$(_tehas_github_jwt) || { echo "tehas: the GitHub App's token could not be signed with $key" >&2; exit 1; }
-    exchange=$(curl -fsS --max-time 30 -X POST \
-      -H "Authorization: Bearer $jwt" -H 'Accept: application/vnd.github+json' \
-      "$api/app/installations/$TEHAS_GITHUB_APP_INSTALLATION/access_tokens" 2>/dev/null) ||
-      { echo "tehas: GitHub did not give the app a token for installation $TEHAS_GITHUB_APP_INSTALLATION" >&2; exit 1; }
+    exchange=$(tehas_github_app_mint) || exit 1
     token=$(jq -r '.token // empty | strings' <<<"$exchange" 2>/dev/null)
     expires=$(jq -r '.expires_at // empty | strings' <<<"$exchange" 2>/dev/null)
     # date reads an empty string as today's midnight, so an expiry that is not

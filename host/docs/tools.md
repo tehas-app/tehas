@@ -1231,6 +1231,7 @@ exit 78.
 | `--repo <owner/name>` | The product repository |
 | `--labellers "<a> <b>"` | The logins whose labels count. Never the bot |
 | `--token-file <file>` or `-` | The bot's token, from a file or standard input. There is no option that takes the token itself, so it is never on a command line or in the shell's history |
+| `--app-id <id>`, `--app-installation <id>`, `--app-key-file <file>` | The [GitHub App](/github-app) the factory acts as, in place of a token: the app's ID, its installation's ID and its private key. All three or none, and not with `--token-file`, else exit 64 |
 | `--endpoint <url>` | The OpenAI-compatible model endpoint, with its `/v1`. Its models are read from `<url>/models` |
 | `--model <id>` | The model. Needed when the endpoint offers more than one and there is no terminal to pick on |
 | `--model-key-file <file>` or `-` | The endpoint's key, if it takes one. It goes in `~/.config/tehas/env` as `TEHAS_MODEL_KEY_<PROVIDER>`, and `models.json` names that variable. Curl gets it on standard input |
@@ -1244,13 +1245,28 @@ In order, stopping at the first step that fails:
 1. It checks that the token can push to the repository
    (`gh api repos/<repo>` answers `push: true`) and that the endpoint offers
    the model, then makes the control issue. Nothing is written before these.
+   With an app it makes a token from the given key instead and checks that
+   the token's permissions have `contents`, `issues` and `pull_requests` at
+   `write` and that the installation lists the repository
+   (`GET /installation/repositories`). It reads the app's slug (`GET /app`)
+   and the ID of its bot, `<slug>[bot]` (`GET /users/<slug>[bot]`). A check
+   that fails stops the run with 1 and nothing written. The token is kept in
+   no file.
 2. It writes the instance directory (`~/.config/tehas`, or the one
    `~/.config/tehas/instance-dir` names): `instance.env` with the five required
    settings and nothing else, and `models.json` with the provider's `api`,
    `baseUrl`, `apiKey` and the model's `id`. The token goes in
    `~/.config/tehas/env` as `GH_TOKEN`. The directory is mode 700, the files 600.
+   With an app there is no `GH_TOKEN`: the key is installed at
+   `~/.config/tehas/github-app.pem`, mode 600, and `instance.env` gets
+   `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and
+   `TEHAS_BOT_LOGIN=<slug>[bot]`. Another key or other app settings are
+   replaced only with `--force`. From here `gh` runs through `~/tehas/shim/gh`,
+   which reads the app from these files.
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
+   With an app the login is `<slug>[bot]` and the ID the one step 1 read,
+   because an installation token cannot ask `/user`.
    It gives git `gh`'s credential helper for `github.com`
    (`gh auth setup-git --hostname github.com`) when git has none, which is what
    lets plain git read a private product's remote: the clone in step 4 and the

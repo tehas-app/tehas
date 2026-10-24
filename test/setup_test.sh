@@ -37,7 +37,8 @@ HK=$(tehas_git_credential_helper_key)
 HG=$(tehas_git_github_host)
 HB=$(tehas_sandbox_helper_command)
 
-# gh: the token can push (PUSH=false: it cannot), the bot is tehas-bot, a new
+# gh: the token can push (PUSH=false: it cannot), the bot is tehas-bot, the
+# app's installation lists APP_REPOS and its bot has the ID 9191, a new
 # issue is number 7, a clone makes the checkout. setup-git writes what gh writes
 # on a host it is logged into: the helper key twice, an empty entry that ends
 # any list before it and gh's command after it. GH_TOKEN is the knob of a host
@@ -52,6 +53,8 @@ stub_gh() {
   t_stub gh "$(printf '%s' 'case "$*" in
   "api repos/acme/widget --jq .permissions.push") echo "${PUSH:-true}" ;;
   "api user --jq [.login,.id]|@tsv") printf "tehas-bot\t4242\n" ;;
+  "api --paginate installation/repositories --jq .repositories[].full_name") printf "%s\n" ${APP_REPOS:-acme/other acme/Widget} ;;
+  "api users/tehas-app[bot] --jq .id") echo 9191 ;;
   "issue create --repo acme/widget"*) echo "https://github.com/acme/widget/issues/7" ;;
   "repo clone acme/widget "*) mkdir -p "${4}/.git" ;;
   "auth setup-git --hostname @HG@")
@@ -65,9 +68,15 @@ esac
 }
 
 # curl: the endpoint's model list (MODELS, space separated). The config it was
-# given on stdin is kept, to see the key went there and not on the line.
+# given on stdin is kept, to see the key went there and not on the line. For
+# the app: GET /app answers the slug tehas-app, and a minted token has the
+# permissions PERMS, by default write on all three that setup needs.
 stub_curl() {
-  t_stub curl 'cat >"$T/curl-stdin"
+  t_stub curl 'case "$*" in
+*access_tokens) printf "{\"token\":\"ghs_minted\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"permissions\":%s}\n" "${PERMS:-{\"contents\":\"write\",\"issues\":\"write\",\"pull_requests\":\"write\"\}}"; exit 0 ;;
+*/app) printf "{\"slug\":\"tehas-app\"}\n"; exit 0 ;;
+esac
+cat >"$T/curl-stdin"
 printf "{\"data\":["
 sep=""
 for m in ${MODELS:-m1}; do printf "%s{\"id\":\"%s\"}" "$sep" "$m"; sep=,; done
@@ -78,6 +87,7 @@ stub_all() {
   stub_gh
   stub_curl
   t_stub systemctl
+  t_stub openssl 'case "$1" in base64) base64 -w0 ;; dgst) cat >/dev/null; printf signature ;; esac'
   t_stub docker 'case "$1 $2" in "image inspect") [ -e "$T/image-there" ] ;; esac'
 }
 fresh() {
@@ -314,6 +324,89 @@ run_setup "${args[@]}" --control-issue 3 --no-build
 t_eq "$t_rc" 0
 t_eq "$(grep '^TEHAS_CONTROL_ISSUE=' "$cfg/instance.env")" "TEHAS_CONTROL_ISSUE=3"
 t_lacks "$(t_calls gh)" "issue create"
+
+# The shim the install puts first on PATH for an app: it records the call and
+# hands gh a token of its own, as tehasbot github-token would.
+mkdir -p "$T/home/tehas/shim"
+printf '#!/usr/bin/env bash\necho "$*" >>"$T/calls/shim"\nGH_TOKEN=ghs_shim exec "$T/bin/gh" "$@"\n' >"$T/home/tehas/shim/gh"
+chmod +x "$T/home/tehas/shim/gh"
+printf 'an app key\n' >"$T/app.pem"
+app_args=(--repo acme/widget --labellers "alice bob" --app-id 77 --app-installation 88 --app-key-file "$T/app.pem" --endpoint http://gb1:8086/v1)
+
+t_case "an app run writes the app's settings and key, no token, and commits as the app's bot"
+fresh
+run_setup "${app_args[@]}" --no-build
+t_eq "$t_rc" 0
+t_eq "$(grep -v -e '^#' -e '^$' "$cfg/instance.env")" 'TEHAS_REPO=acme/widget
+TEHAS_CONTROL_ISSUE=7
+TEHAS_ALLOWED_LABELERS="alice bob"
+PI_ENSEMBLE_SUBAGENT_PROVIDER=main
+PI_ENSEMBLE_SUBAGENT_MODEL=m1
+TEHAS_GITHUB_APP_ID=77
+TEHAS_GITHUB_APP_INSTALLATION=88
+TEHAS_BOT_LOGIN=tehas-app[bot]'
+t_eq "$(cat "$cfg/github-app.pem")" "an app key"
+t_eq "$(stat -c %a "$cfg/github-app.pem")" 600
+t_eq "$([ -e "$cfg/env" ] && echo written)" ""
+t_eq "$(git config -f "$T/home/.gitconfig" user.name)" "tehas-app[bot]"
+t_eq "$(git config -f "$T/home/.gitconfig" user.email)" "9191+tehas-app[bot]@users.noreply.github.com"
+t_lacks "$(t_calls gh)" "permissions.push"
+t_lacks "$(t_calls gh)" "api user --jq"
+t_contains "$(t_calls gh | head -n 2)" "installation/repositories"
+t_contains "$(t_calls shim)" "repo clone acme/widget"
+t_lacks "$(t_calls shim)" "installation/repositories"
+t_eq "$(cat "$T/gh-token")" "ghs_shim"
+t_lacks "$(cat "$T"/calls/*)" "ghs_minted"
+
+t_case "a second app run changes nothing and makes no issue"
+before=$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)
+stub_all
+run_setup "${app_args[@]}" --no-build
+t_eq "$t_rc" 0
+t_eq "$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)" "$before"
+t_lacks "$(t_calls gh)" "issue create"
+
+t_case "another app key is refused with 78 until --force"
+printf 'another key\n' >"$T/app2.pem"
+stub_all
+run_setup "${app_args[@]}" --app-key-file "$T/app2.pem" --no-build
+t_eq "$t_rc" 78
+t_contains "$t_out" "github-app.pem"
+t_eq "$(cat "$cfg/github-app.pem")" "an app key"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+
+t_case "an installation that does not list the repository stops with 1 and writes nothing"
+fresh
+T_ENV=(APP_REPOS=acme/other)
+run_setup "${app_args[@]}" --no-build
+T_ENV=()
+t_eq "$t_rc" 1
+t_contains "$t_out" "does not list acme/widget"
+t_eq "$([ -e "$cfg" ] && echo written)" ""
+t_lacks "$(t_calls gh)" "issue create"
+
+t_case "an installation without write on contents, issues or pull requests stops with 1 and writes nothing"
+for p in contents issues pull_requests; do
+  fresh
+  T_ENV=("PERMS=$(jq -cn --arg p "$p" '{contents: "write", issues: "write", pull_requests: "write"} | .[$p] = "read"')")
+  run_setup "${app_args[@]}" --no-build
+  T_ENV=()
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "may not write $p"
+  t_eq "$([ -e "$cfg" ] && echo written)" ""
+done
+
+t_case "one or two of the app options is 64, and so is an app with --token-file"
+fresh
+for part in "--app-id 77" "--app-installation 88" "--app-key-file $T/app.pem" "--app-id 77 --app-installation 88" "--app-id 77 --app-key-file $T/app.pem"; do
+  # shellcheck disable=SC2086  # the options are split on purpose
+  run_setup --repo acme/widget --labellers alice --endpoint http://gb1:8086/v1 $part
+  t_eq "$t_rc" 64
+done
+run_setup "${app_args[@]}" --token-file "$T/token"
+t_eq "$t_rc" 64
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$([ -e "$cfg" ] && echo written)" ""
 
 t_case "a step that fails stops the run with its status"
 fresh
