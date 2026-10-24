@@ -143,12 +143,12 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
     })
 }
 
-fn session_ok(s: &str) -> bool {
+pub fn session_ok(s: &str) -> bool {
     (1..=128).contains(&s.len()) && s.bytes().all(verbs::cap_char)
 }
 
 /// The issue number of a GitHub issue URL of any repository.
-fn filed_issue(url: &str) -> Option<i64> {
+pub fn filed_issue(url: &str) -> Option<i64> {
     let rest = url.strip_prefix("https://github.com/")?;
     let mut parts = rest.split('/');
     let (owner, repo, issues, n) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
