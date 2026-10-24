@@ -7,7 +7,9 @@
 # libexec/console, a VERSION file with the tag, a COMMIT file with the commit
 # it was packed from when one is given, and host/versions.env, to which
 # the pins are put when they are given. The tarball holds one top directory,
-# tehas-<tag>/, so unpacking it leaves that and nothing beside it.
+# tehas-<tag>/, so unpacking it leaves that and nothing beside it. Its name
+# names the architecture of the programs inside it, which the pack reads from
+# their ELF headers rather than from what it was told to believe.
 #
 # The pins name what this release builds the sandbox from: PI_RUKAS_FOLLOW and
 # PI_RUKAS_IMAGE_DIGEST, one line each at the end of versions.env. A release
@@ -21,12 +23,16 @@
 # down when the script ends.
 #
 # Usage: scripts/pack-release.sh <tag> <out dir> --console <path>
+#                               [--arch x86_64|aarch64]
 #                               [--analytics <path>] [--mcp <path>]
 #                               [--store <path>] [--commit <40 hex>]
 #                               [--rukas-commit <40 hex>]
 #                               [--rukas-digest sha256:<64 hex>]
 #   <tag>        the release tag, in the form vX.Y.Z that tag-release.sh makes
 #   <out dir>    where the tarball and its .sha256 go; it is created
+#   --arch       the architecture the release is for, x86_64 (the default) or
+#                aarch64: it names the tarball and says which e_machine every
+#                program given has to have
 #   --console    the built console binary, copied to libexec/console; a
 #                workflow builds it and gives its path
 #   --analytics  the built analytics program, copied to libexec/analytics
@@ -48,22 +54,22 @@
 # names one: the release workflow checks a tag out into its own workspace and
 # points the script at it. It reads that tree and its arguments and nothing
 # else: no network, no git and no cargo. It builds no console and writes nothing
-# into the tree; what it writes is <out dir>/tehas-<tag>-linux-x86_64.tar.gz and
-# its .sha256 beside it, each named only by its own name, so sha256sum -c checks
-# them from that directory.
+# into the tree; what it writes is
+# <out dir>/tehas-<tag>-linux-<arch>.tar.gz and its .sha256 beside it, each
+# named only by its own name, so sha256sum -c checks them from that directory.
 #
 # Example:
 #   scripts/pack-release.sh v0.7.6 dist --console console/target/release/console
 #
 # Exit: 0 the tarball and its .sha256 are written, their paths on two lines;
-#       64 a bad argument (the tag is not vX.Y.Z, --console is missing, is not
-#       a file or is the tree's own build, --analytics, --mcp or --store names
-#       no program, only one of the two pins is given,
-#       the tree does not answer to TEHAS_PACK_ROOT, or an out dir cannot be
-#       made or already holds that tarball); 1 the tree is missing something
-#       install.sh reads, a pin's or --commit's value has the wrong shape, or
-#       staging, tar or
-#       sha256sum failed.
+#       64 a bad argument (the tag is not vX.Y.Z, --arch names neither
+#       architecture, --console is missing, is not a file or is the tree's own
+#       build, --analytics, --mcp or --store names no program, only one of the
+#       two pins is given, the tree does not answer to TEHAS_PACK_ROOT, or an
+#       out dir cannot be made or already holds that tarball); 1 the tree is
+#       missing something install.sh reads, one of the programs given is no ELF
+#       for the architecture named, a pin's or --commit's value has the wrong
+#       shape, or staging, tar or sha256sum failed.
 set -uo pipefail
 
 tag=""
@@ -72,6 +78,7 @@ console=""
 analytics=""
 mcp=""
 store=""
+arch=x86_64
 tree_commit=""
 rukas_commit=""
 rukas_digest=""
@@ -90,6 +97,11 @@ while [ "$#" -gt 0 ]; do
         --store) store=$2 ;;
         *) analytics=$2 ;;
       esac
+      shift
+      ;;
+    --arch)
+      [ "$#" -ge 2 ] || { echo "pack-release: --arch needs x86_64 or aarch64" >&2; exit 64; }
+      arch=$2
       shift
       ;;
     --commit)
@@ -130,6 +142,14 @@ done
   exit 64
 }
 [ -n "$out_dir" ] || { echo "pack-release: name the output directory" >&2; exit 64; }
+case $arch in
+  x86_64) want_machine=3e00 ;;
+  aarch64) want_machine=b700 ;;
+  *)
+    echo "pack-release: --arch must be x86_64 or aarch64, got: $arch" >&2
+    exit 64
+    ;;
+esac
 [ -n "$console" ] || { echo "pack-release: --console names the console to pack" >&2; exit 64; }
 [ -f "$console" ] || { echo "pack-release: no console at: $console" >&2; exit 64; }
 if [ ! -x "$console" ]; then
@@ -235,7 +255,29 @@ if [ -n "$cached_console" ] && {
 fi
 
 name=tehas-$tag
-tarball=$name-linux-x86_64.tar.gz
+tarball=$name-linux-$arch.tar.gz
+# Every program of the release is built for one architecture, and a tarball that
+# mixed two installs on the adopter's host as a directory of programs that will
+# not run. The release workflow has made its own check of the binaries all along;
+# the pack script now makes it too, since it is the one that says which
+# architecture the name of the tarball promises: the two bytes of e_machine at
+# offset 18 of the ELF header, read with od as the workflow reads them, whatever
+# machine runs this.
+check_program() { # check_program <path>: an ELF built for --arch
+  local machine
+  # The two bytes are read as od gives them, spaces and the trailing newline
+  # taken off, so a stub whose header stops at offset 19 still answers 3e00.
+  machine=$(od -An -tx1 -j18 -N2 "$1" | tr -d ' \n') || return 1
+  if [ "$machine" != "$want_machine" ]; then
+    echo "pack-release: not a $arch program: $1 (e_machine $machine, want $want_machine)" >&2
+    return 1
+  fi
+}
+# Before the stage, the copy or the tarball exist: a refusal writes nothing.
+for program in "$console" "$analytics" "$mcp" "$store"; do
+  [ -n "$program" ] || continue
+  check_program "$program" || exit 1
+done
 # A symlink is refused rather than followed: cp keeps the link and tar writes
 # what it points at, so a link out of the tree would put a file that is not in
 # the tree inside a published release. The tarball holds only what the tree

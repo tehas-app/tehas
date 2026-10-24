@@ -3245,6 +3245,11 @@ puts in `libexec`, packed as `libexec/analytics`, `libexec/tehas-mcp` and
 `install.sh` makes and migrates the host's database with the store, so a
 tarball without it installs only on a host that has one.
 
+`--arch` names the architecture the release is for, `x86_64` (the default) or
+`aarch64`, and nothing else is accepted: it is the middle of the tarball's name
+and it says which e_machine every program given has to have, so a console built
+for the other one is refused before anything is packed.
+
 `--commit` is the commit of tehas the tree is, written to a `COMMIT` file. A
 tree with no git has no other way to say it, the store records it in the
 database, and `install.sh` refuses a tree whose commit it cannot read. It is
@@ -3258,16 +3263,21 @@ one, so a workflow that checks a tag out into its own workspace points the
 script at the checkout rather than at the runner's copy of the script. It reads
 that tree and its arguments and nothing else: no network, no git, no cargo. It
 builds no console of its own; the workflow compiles it for linux x86_64 and
-hands the binary over, which is why the pack script needs no toolchain.
+hands the binary over, which is why the pack script needs no toolchain. Which
+architecture the binaries are is read from the programs themselves, from the
+two bytes of e_machine at offset 18 of each ELF header, so a release is not
+packed on what whoever ran the workflow believed.
 
 Usage, the list of what is packed and the exit statuses are the script's: run
-`scripts/pack-release.sh --help`. Two of them matter to the workflow that calls
+`scripts/pack-release.sh --help`. Three of them matter to the workflow that calls
 this one: half a pin is a bad argument (64), a pin whose value has the wrong
-shape is a failure (1), and the two are gated differently. A pin of either shape
+shape is a failure (1), and the two are gated differently; so is a program built
+for the other architecture, a failure too (1), since the argument itself is
+never wrong. A pin of either shape
 is written to `versions.env` in lower case, so a value `git rev-parse` or a
 registry gave in upper case is accepted.
 
-What it writes is `tehas-<tag>-linux-x86_64.tar.gz` and one `.sha256` file
+What it writes is `tehas-<tag>-linux-<arch>.tar.gz` and one `.sha256` file
 beside it, and it writes neither before both are ready, so a run that fails
 leaves no tarball for the next one to be refused against. Unpacked, the tarball
 is a single `tehas-<tag>/` directory holding what `install.sh` reads: its
@@ -3364,8 +3374,9 @@ with no such tag it is shown every release.
 `.github/workflows/release.yml` runs on the push of a `vX.Y.Z` tag, on the
 organisation's own runner as the gate does. It builds the console, the
 analytics program, the store and the MCP server (static, musl) with `cargo
-build --release --locked`, checks each is an x86_64 program, resolves the pins, runs
-the pack command above, signs the tarball and `host/release/install` (when the
+build --release --locked`, resolves the pins, runs
+the pack command above (which refuses any program whose e_machine is not the
+one its `--arch` promises), signs the tarball and `host/release/install` (when the
 tag has one) with minisign, checks both signatures against
 `host/release/minisign.pub`, and publishes the release with the tarball named
 above, its `.sha256` and `.minisig` beside it, and `install` with
