@@ -99,7 +99,7 @@ tehas_store() { # <verb> [args...]
       ;;
   esac
   first=${out%%$'\n'*}
-  [[ $first =~ ^store:\ ([a-z][a-z_-]*)(\ |$) ]] && word=${BASH_REMATCH[1]}
+  [[ $first =~ ^store:\ ([a-z][a-z_-]*)(:|\ |$) ]] && word=${BASH_REMATCH[1]}
   # A refusal always names its word; the caller's branch hangs on it.
   if [ "$rc" = 1 ] && [ -z "$word" ]; then
     tehas_store_said 78 garbled "store: garbled: $verb refused without a word: $first"
@@ -149,7 +149,8 @@ tehas_cycle_attempt() { # <issue>
 
 # The approval as the dispatcher wrote .approved.json: the inputs it gave the
 # cycle, and for a fixer or a refresh start the approval it rests on and the
-# starts counted on that.
+# starts counted on that. A refresh names the person's approval it rests on,
+# as given_at did: its own row's at is when the dispatcher decided (D5).
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
   def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
@@ -163,12 +164,17 @@ tehas_approval_shape='def iso: if type == "number" then todate else error("not a
       + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
       + (if $c.how == "fixer" then {rests_on: $base, fixer_starts} else {} end)
       + (if $c.how == "refresh" then {rests_on: $base, fixer_starts, refreshes, refresh_of: $in.refresh_of}
+           + (if $base == null then {} else {at: $base.at, by: $base.by} end)
          else {} end)
     end'
 
 tehas_approval_view() { # <issue> [<attempt>]
-  local want=${2:-null} dir=${TEHAS_HOME:-}/tmp view file
-  [[ $want =~ ^(null|[1-9][0-9]{0,8})$ ]] || return 2
+  local want=null dir=${TEHAS_HOME:-}/tmp view file
+  # An empty attempt is a caller's mistake, not a wish for any start's approval.
+  if [ "$#" -ge 2 ]; then
+    want=$2
+    [[ $want =~ ^[1-9][0-9]{0,8}$ ]] || return 2
+  fi
   tehas_store approval-current "$1" || return 2
   view=$(jq -c --argjson want "$want" "$tehas_approval_shape" <<<"$tehas_store_out" 2>/dev/null) || return 2
   [ -n "$view" ] || return 2

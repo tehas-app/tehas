@@ -3459,8 +3459,8 @@ program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The directory
 is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
 `console/target` at the same time, and cargo holds that directory's lock while
 it builds. The tests of the commands that run the store (`test/dispatch_*`,
-`test/cycle_*`, `test/work_*` and `test/store_*`) install it in their scratch
-home and fail without it, so they need cargo too; the build needs the
+`test/cycle_*`, `test/work_*` and `test/store_lib_test.sh`) install it in
+their scratch home and fail without it, so they need cargo too; the build needs the
 workspace's crates in cargo's cache, as the gate's own `cargo test` does. A
 test file run alone builds the store itself, into the same directory.
 

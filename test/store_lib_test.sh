@@ -73,10 +73,16 @@ line=$BUSY
 no read"
 
 t_case "a refusal is 1 with the store's word"
-t_store_answers approval-record 1 'store: conflict #7: UNIQUE constraint failed: approvals.issue'
+t_store_answers approval-record 1 'store: used #7: the approval at 1 started a cycle'
+lib 'said approval-record 7 --undo --at 1; echo "line=$tehas_store_line"'
+t_eq "$t_out" "rc=1 word=used
+line=store: used #7: the approval at 1 started a cycle"
+
+t_case "a constraint failure is 1 conflict, as the store words it"
+t_store_answers approval-record 1 'store: conflict: UNIQUE constraint failed: approvals.issue, approvals.at'
 lib 'said approval-record 7 --undo --at 1; echo "line=$tehas_store_line"'
 t_eq "$t_out" "rc=1 word=conflict
-line=store: conflict #7: UNIQUE constraint failed: approvals.issue"
+line=store: conflict: UNIQUE constraint failed: approvals.issue, approvals.at"
 
 t_case "a call the store does not take is its 64"
 t_store_home "$home"
@@ -274,6 +280,13 @@ lib 'tehas_approval_view 7 1 >/dev/null; echo "rc=$?"; tehas_approval_view 7 2; 
 t_eq "$t_out" "rc=0
 rc=1"
 
+t_case "tehas_approval_view: an attempt given but empty, or not a number, is 2"
+lib 'for a in "" null 0 x; do tehas_approval_view 7 "$a"; echo "rc=$?"; done'
+t_eq "$t_out" "rc=2
+rc=2
+rc=2
+rc=2"
+
 t_case "tehas_approval_view: the fixer's start rests on the person's approval and counts itself"
 input '{"links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}]}'
 record 7 --at 1792584000 --by tehas-fixer --how fixer --label tehas:ready --body-sha "$SUM" \
@@ -284,13 +297,13 @@ t_eq "$t_out" "$(jq -S . <<<'{"at":"2026-10-21T12:00:00Z","by":"tehas-fixer","ho
   "links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
   "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"'"$SUM"'"},"fixer_starts":1}')"
 
-t_case "tehas_approval_view: a refresh carries the base, the fixer's starts, its count and what it refreshes"
+t_case "tehas_approval_view: a refresh names the approval it rests on, and carries the starts and what it refreshes"
 input '{"links":[],"refresh_of":{"pr":9,"head_sha":"'"$HEAD"'","base_sha":"'"$HEAD"'","branch":"tehas/7-x"}}'
-record 7 --at 1792670400 --by alice --how refresh --refresh-pr 9 --refresh-head "$HEAD" --body-sha "$SUM" \
+record 7 --at 1792670400 --by bob --how refresh --refresh-pr 9 --refresh-head "$HEAD" --body-sha "$SUM" \
   --input-file "$T/input.json"
 start 7
 lib 'f=$(tehas_approval_view 7 3) && jq -S . "$f"'
-t_eq "$t_out" "$(jq -S . <<<'{"at":"2026-10-22T12:00:00Z","by":"alice","how":"refresh","body_sha256":"'"$SUM"'",
+t_eq "$t_out" "$(jq -S . <<<'{"at":"2026-10-20T12:00:00Z","by":"alice","how":"refresh","body_sha256":"'"$SUM"'",
   "links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"'"$SUM"'"},
   "fixer_starts":1,"refreshes":1,"refresh_of":{"pr":9,"head_sha":"'"$HEAD"'","base_sha":"'"$HEAD"'","branch":"tehas/7-x"}}')"
 
