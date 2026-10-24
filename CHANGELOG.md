@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.12.0 (2026-10-24)
+
+### Changes
+
 - The state store's schema is version 2. `install.sh` migrates a version 1
   `state/tehas.db` in place, after its backup, and keeps every row: the step
   only adds columns and one table. The store gains the verbs `history-show`,
