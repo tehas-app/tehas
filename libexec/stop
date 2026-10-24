@@ -13,10 +13,13 @@
 #
 # What goes is only what says a cycle runs, is owed, or is parked:
 #
-#   state/cycles/<issue>.lock .cid .park .done .stalled .timed .quiet .oom
+#   state/cycles/<issue>.lock .cid .done .stalled .timed .quiet .oom
 #                  .forks .nostart .nostart.new .progress.json .result.json
 #   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
-#   state/park-<issue>.id
+#   the issue's current park on the state store asks for nothing more: its
+#                  question is taken off the record (its boxes start nothing)
+#                  and its one retry is spent, so the dispatcher does not start
+#                  the issue again on its own after a provider outage
 #   live/console-<issue>.txt
 #   ~/.pi/agent/ensemble-runs/issue-<issue>
 #   work/<repo>-<issue>, with its .state, .before-retry and .images beside it,
@@ -26,6 +29,11 @@
 # the time and the account. tehasbot cycle reads it and says in the record that
 # a person stopped the cycle. When it cannot be written, the stop goes through
 # and says so on stderr.
+#
+# The park is cleared after that, before the lock file goes, and a park that
+# cannot be cleared leaves everything where it is, says so, and exits 1. A
+# park that still asks for something counts as something to stop; a park
+# itself stays on record, with the cycle's history.
 #
 # A cycle killed outright never reports, and its record on the state store
 # stays open. Once the unit is gone and the lock is free, this ends that record
@@ -53,8 +61,8 @@
 # to do, which makes a second run safe; 1 the cycle still holds its lock after
 # the stop, or a stop or a removal failed, or tehas:running could not be read
 # off the issue or taken off it, or a cycle of that issue took its lock again
-# before the label was read, or the state store could not be read or did not
-# end the open record; 64 no issue number, an issue that is not a positive
+# before the label was read, or the state store could not be read, did not
+# end the open record or did not clear the park; 64 no issue number, an issue that is not a positive
 # number, or an argument this does not know; 78 the instance settings are
 # missing or malformed, or the state store is not installed or cannot be used,
 # which changes nothing.
@@ -125,7 +133,7 @@ runs=$HOME/.pi/agent/ensemble-runs/issue-$n
 # The one sibling name belongs here too: a write of a note is made beside it and
 # moved into place, and a stop that takes the note takes the name of a write
 # that never finished, as libexec/work's own clear of these files does.
-notes=(lock cid park "done" stalled timed stopped quiet oom forks nostart nostart.new progress.json result.json)
+notes=(lock cid "done" stalled timed stopped quiet oom forks nostart nostart.new progress.json result.json)
 
 # said <path>: one line for a thing that went, in the shape a person types.
 said() {
@@ -150,14 +158,30 @@ open_attempt() {
   open_at=$(tehas_store_get '.cycle | select(. != null and .ended_at == null) | .attempt')
 }
 
+# park_owed <issue>: sets park_q to the question of the issue's current park,
+# park_retry to 1 when its one retry is not spent, and park_owes to 1 when
+# either is so. Exits when the store could not answer, as open_attempt does.
+park_owed() {
+  park_q="" park_retry=0 park_owes=0
+  if ! tehas_store park-show "$1"; then
+    printf 'tehas stop: the park of #%s could not be read from the state store: %s\n' "$1" "$tehas_store_line" >&2
+    [ "$tehas_store_rc" = 1 ] && exit 1
+    exit 78
+  fi
+  park_q=$(tehas_store_get '.park.question // empty')
+  [ "$(tehas_store_get '.park.retries')" != 0 ] || park_retry=1
+  [ -z "$park_q" ] && [ "$park_retry" = 0 ] || park_owes=1
+}
+
 # What is here, read before anything changes: a run that has nothing to do says
 # so and touches nothing, so running this twice is safe.
 open_attempt "$n"
+park_owed "$n"
 present=()
 for e in "${notes[@]}"; do
   [ -e "$state/$n.$e" ] && present+=("$state/$n.$e")
 done
-for f in "$(park_id "$n")" "$TEHAS_HOME/live/console-$n.txt" "$runs"; do
+for f in "$TEHAS_HOME/live/console-$n.txt" "$runs"; do
   [ -e "$f" ] && present+=("$f")
 done
 if [ "$keep" = 0 ]; then
@@ -179,7 +203,7 @@ lock_held=0
 tehas_cycle_running "$n" && lock_held=1
 
 if [ "$unit_live" = 0 ] && [ "$container_live" = 0 ] && [ "$lock_held" = 0 ] &&
-  [ "${#present[@]}" = 0 ] && [ -z "$open_at" ]; then
+  [ "${#present[@]}" = 0 ] && [ -z "$open_at" ] && [ "$park_owes" = 0 ]; then
   printf 'nothing to stop for #%s\n' "$n"
   exit 0
 fi
@@ -281,6 +305,25 @@ fi
 if ! flock -n 9; then
   printf 'tehas stop: a cycle for #%s holds its lock, so nothing was removed.\n' "$n" >&2
   exit 1
+fi
+# The park as the cycle left it, read again: a cycle that stopped just now
+# may have parked as it reported.
+park_owed "$n"
+if [ -n "$park_q" ]; then
+  if ! tehas_store_try 3 question-answered "$n" --id "$park_q" --withdraw && [ "$tehas_store_word" != unknown ]; then
+    printf 'tehas stop: the park question of #%s could not be taken off the record (%s), so nothing was removed. Run this again.\n' \
+      "$n" "$tehas_store_line" >&2
+    exit 1
+  fi
+  printf 'took the park question of #%s off the record\n' "$n"
+fi
+if [ "$park_retry" = 1 ]; then
+  if ! tehas_store_try 3 park-retry "$n" && [ "$tehas_store_word" != unparked ]; then
+    printf 'tehas stop: the retry of the park of #%s could not be spent (%s), so nothing was removed. Run this again.\n' \
+      "$n" "$tehas_store_line" >&2
+    exit 1
+  fi
+  printf 'spent the retry of the park of #%s\n' "$n"
 fi
 had_lock=0
 for f in "${present[@]}"; do

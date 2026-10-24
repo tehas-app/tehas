@@ -15,7 +15,7 @@ echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"tehas:question"}]}]
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:question')" 1
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 
 t_case "the question label is only taken off an issue that carries it"
 reset

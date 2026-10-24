@@ -30,8 +30,8 @@ t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human
 t_lacks "$(t_calls gh)" "Retry from a clean start"
 t_lacks "$(t_calls gh)" "tehas:question"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
-t_eq "$(find "$T/home/tehas/state/park-7.id" 2>/dev/null | wc -l)" 0
-t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_q)" none
+t_eq "$(park_of)" null
 
 t_case "the runner's own status is named, and the poll's line keeps the status of tehas work"
 reset

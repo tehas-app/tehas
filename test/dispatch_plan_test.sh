@@ -66,7 +66,7 @@ t_contains "$t_out" "start planning #7 (labelled by alice, to refine it)"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:refine --remove-label tehas:question --remove-label needs-human-attention"
 # A retry that was not ticked answers for nothing, and the park's id goes with
 # the label: the boxes of the old park must not answer for the new session.
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 t_eq "$(jq -r '.label' "$T/home/tehas/state/cycles/plan-7.history.jsonl" | tail -n 1)" "tehas:refine"
 
 t_case "tehas:plan on a parked issue starts a session from the issue's text, and needs-human-attention is the cycle's to clear"
@@ -81,7 +81,7 @@ t_lacks "$(cat "$record.brief")" "$(head -c 40 "$T_ROOT/lib/refine-brief.md")"
 t_lacks "$(cat "$record.brief")" "is not a duplicate of this plan"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's \`tehas:plan\` label"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 
 t_case "a dry run of a session asked for on a parked issue says so and changes nothing"
 parked_plan refine
@@ -90,7 +90,17 @@ t_contains "$t_out" "would start a planning session for #7 (labelled by alice, t
 t_eq "$(plan_calls)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X"
-t_eq "$([ -e "$park_id" ] && echo kept)" kept
+t_eq "$(park_q)" 4001
+
+t_case "a session whose park question cannot be taken off the record does not start"
+parked_plan refine
+store_refuses "question-answered 7" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "skip #7: the question of its park could not be taken off the record (busy)"
+t_eq "$(plan_calls)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(park_q)" 4001
 
 # tehas:running stands for a cycle this poll has no part in stopping; a session
 # of its own is what tehas:planning holds off.
@@ -104,7 +114,7 @@ for bar in tehas:running tehas:planning; do
   t_eq "$(plan_calls)" ""
   t_lacks "$(t_calls gh)" "issue edit"
   t_lacks "$(t_calls gh)" "issue comment"
-  t_eq "$(cat "$park_id")" 4001
+  t_eq "$(park_q)" 4001
 done
 
 # tehas:question excludes none of them; the park's boxes are read by rule 4
@@ -117,7 +127,7 @@ comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" 7
 t_eq "$(plan_calls)" ""
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
 t_lacks "$(t_calls gh)" "--remove-label tehas:refine"
 # The tick is undone with the start, so it cannot fire again later.

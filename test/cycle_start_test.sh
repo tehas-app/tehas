@@ -139,7 +139,7 @@ reset
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_eq "$(find "$state" -maxdepth 1 ! -name cycles -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')" \
-  "7.lock 7.park 7.progress.json "
+  "7.lock 7.progress.json "
 t_eq "$(t_row history-show 7 -- '[.rows[] | [.attempt, .status, .how]] | tostring')" '[[1,"unknown","hand"]]'
 
 t_case "a second cycle for the same issue runs nothing, exit 3"

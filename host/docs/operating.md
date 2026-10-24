@@ -451,14 +451,16 @@ anything.
 
 A new `tehas:ready` on an issue whose last cycle parked asks for nothing while
 the issue still carries the body that cycle ran on. The dispatcher compares the
-park's hash of that body with the issue's text now, and when they are equal and
-the park was not a provider outage it starts no cycle, leaves the park and the
-labels as they are, and says so in the poll's log. Once per park it also posts
-one comment: edit the body, or tick `Retry from a clean start`. The tick is the
+hash of the body that cycle's approval bound, as the state store keeps it for
+the park, with the issue's text now, and when they are equal and the park was
+not a provider outage it starts no cycle, leaves the park and the labels as
+they are, and says so in the poll's log. Once per park it also posts one
+comment: edit the body, or tick `Retry from a clean start`. The tick is the
 park's own ask and is never held, so a retry on the same text starts as it
 did, and so does a start after any change to the body. A park of a provider
-outage is held by its own rule instead, and a park left by a cycle that ended
-before the hash existed holds nothing.
+outage is held by its own rule instead, and a park of a cycle started by hand,
+which no approval bound to a body, holds nothing. A park that cannot be read
+holds the issue for that poll.
 
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
@@ -466,8 +468,10 @@ An issue closed since its cycle stopped is not work. Neither the tick nor a new
 A cycle that a provider outage parked says so in its comment: `parked by a
 provider outage`, with the cap. Nothing needs doing: once the model endpoint
 answers, the dispatcher starts the issue again on its own and says so on the
-issue. It does that once. If that cycle is parked by an outage too, the issue
-waits for a tick or a label like any other.
+issue, on the word of whoever started the cycle that parked. It does that
+once. If that cycle is parked by an outage too, the issue waits for a tick or a
+label like any other, and so does a cycle started by hand. `tehas stop` on the
+issue gives up that one retry.
 
 When the bot cannot post the boxes, it posts a plain comment that gives the
 label to apply. When the boxes are posted and the label `tehas:question` cannot be

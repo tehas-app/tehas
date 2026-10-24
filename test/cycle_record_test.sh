@@ -124,7 +124,7 @@ t_contains "$t_out" "status=stalled"
 t_contains "$(t_calls gh)" "None of its logs changed for 60 min at step \`lens-fix\`"
 t_contains "$(t_calls gh)" "needs-human-attention"
 t_eq "$(jq -c '[.status, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["stalled",2]'
-t_eq "$(jq -r .cap "$state/7.park")" stall
+t_eq "$(park_of .reason)" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
@@ -143,7 +143,7 @@ echo 'mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs"; echo "{}" >"$TEHAS
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["unknown","no-step","runner-never-started","the container ended with the exit status 1 and wrote no line of its stream, so the driver wrote no event and no step started"]'
-t_eq "$(jq -r .cap "$state/7.park")" runner-never-started
+t_eq "$(park_of .reason)" runner-never-started
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `runner-never-started`.'
 t_contains "$(t_calls gh)" "no step started, the container of the cycle ended before the driver wrote an event"
 t_eq "$(find "$state/7.nostart" 2>/dev/null | wc -l)" 0
@@ -245,7 +245,7 @@ echo '{}' >"$fx/progress.json"
 jq '.issues[0].handoff = {channel: "host", body: "<!-- pi-rukas:handoff issue=7 cap=none -->\n## Cap hit"}' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 tehas develop >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 t_run "$cycle 7"
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 t_contains "$(t_calls gh)" 'cap `wall-clock`'
 t_contains "$(t_calls gh)" 'pi-rukas:handoff issue=7 cap=wall-clock -->'
 t_eq "$(jq -c '[.status, .step, .cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
@@ -270,7 +270,7 @@ ended running commit-pr -
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; echo 21600 runner commit-pr >"$TEHAS_HOME/state/cycles/7.timed"; exit 30' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$(jq -c '[.status, .step, .cap, .rc]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" '["timeout","commit-pr","wall-clock",30]'
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 
 t_case "the step in the time limit's file is read as a word"
 reset
@@ -301,7 +301,7 @@ t_run "$cycle 7"
 rec=$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json
 t_eq "$(jq -c '[.status, .step, .cap]' "$rec")" '["timeout","develop","wall-clock"]'
 t_eq "$(jq -r .capReason "$rec")" "tehas work stopped the container at the time limit of 21600s, step develop in flight; the runner had named the cap verify-failed:develop; fence violated"
-t_eq "$(jq -r .cap "$state/7.park")" wall-clock
+t_eq "$(park_of .reason)" wall-clock
 t_contains "$(t_calls gh)" 'tehas stopped the cycle: the cap `wall-clock`.'
 t_lacks "$(t_calls gh)" 'pi-rukas stopped on the cap'
 
@@ -322,7 +322,7 @@ ended handoff develop feature/x deadline
 echo 'echo 21600 >"$TEHAS_HOME/state/cycles/7.timed"; exit 2' >"$fx/work.sh"
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_eq "$(jq -r .cap "$state/7.park")" deadline
+t_eq "$(park_of .reason)" deadline
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `deadline`.'
 
 t_case "a stall file beside a state that names an end leaves the end as it is"
@@ -625,7 +625,7 @@ reset
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(find "$T/home/tehas/tmp" 2>/dev/null | wc -l)" 0
+t_eq "$(find "$T/home/tehas/tmp" -type f 2>/dev/null | wc -l)" 0
 
 t_case "a record that cannot be written changes nothing about the cycle's report"
 reset

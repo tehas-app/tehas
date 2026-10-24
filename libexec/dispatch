@@ -75,20 +75,24 @@
 #      parked issue that GitHub still says is open, and it is unticked when it
 #      is used. A tick on an issue closed since its cycle stopped starts
 #      nothing. A comment is a
-#      question only if this host has its id on record, in $TEHAS_HOME/state:
-#      the planning record, or park-<issue>.id.
+#      question only if this host has its id on record: the planning record in
+#      $TEHAS_HOME/state, or the question of the issue's current park on the
+#      state store (question-known). A record that could not be read skips the
+#      issue for this poll: no tick counts and none is undone.
 #   4a. A cycle that tehasbot cycle parked for a provider outage starts again
 #      once, without a tick, when nothing holds cycles back, on the word of the
-#      account that started the parked one. A second such park waits.
+#      account that started the parked one (park-show --automatic). Any start
+#      of the issue spends that one retry (park-retry), and so does a park that
+#      can start nothing. A second such park waits.
 #   4c. A fresh tehas:ready on an issue whose last cycle parked asks for nothing
-#      while the issue still carries the body that cycle ran on. The park names
-#      it as body_sha256, copied from the approval record of that start; when
-#      the two are equal and the park was no provider outage the poll starts no
-#      cycle, leaves the park and the labels where they are, and logs why. It
-#      says so on the issue once for that park and keeps its word in the park as
-#      held; later polls only log. A body that changed, a tick of "Retry from a
-#      clean start", the retry rule 4a makes and a park that names no
-#      body_sha256 all start as they did.
+#      while the issue still carries the body that cycle ran on: the body its
+#      start's approval bound, as the store names it for the park. When the two
+#      are equal, the park was no provider outage and no start has spent it,
+#      the poll starts no cycle, leaves the park and the labels where they are,
+#      and logs why. It says so on the issue once for that park (park-told);
+#      later polls only log. A body that changed, a tick of "Retry from a clean
+#      start", the retry rule 4a makes and a park of a run by hand all start as
+#      they did.
 #   4b. A refresh request, state/refresh/<issue>.json from tehasbot refresh,
 #      starts a cycle that merges the branch into the bot's pull request of
 #      that issue and pushes to the same branch, on the word of the person
@@ -1499,6 +1503,58 @@ restore_record() {
   return 1
 }
 
+# park_unask <issue>: take the question of the issue's current park off the
+# record, so its boxes answer for nothing that starts now. An issue with no
+# park, or no question, has nothing to take. The id taken is left in
+# park_unasked[<issue>] for park_reask. Returns 1 when the store could not do
+# it, with its word.
+declare -A park_unasked=()
+park_unask() {
+  local q
+  park_unasked[$1]=""
+  park_now=false
+  tehas_store park-show "$1" || return 1
+  [ "$(tehas_store_get '.park != null')" = true ] || return 0
+  park_now=true
+  q=$(tehas_store_get '.park.question // empty') || return 1
+  [ -n "$q" ] || return 0
+  if tehas_store question-answered "$1" --id "$q" --withdraw; then
+    park_unasked[$1]=$q
+    return 0
+  fi
+  [ "$tehas_store_word" = unknown ]
+}
+
+# park_spend <issue>: before a start is marked, the issue's current park asks
+# for nothing more: its question is taken off the record (park_unask), and its
+# one retry is spent, so a start whose unit never comes up leaves no retry
+# behind (park-retry). Returns 1 when the store could not do it, with its word;
+# the start is then given up.
+park_spend() {
+  local rc word line
+  park_unask "$1" || return 1
+  [ "$park_now" = true ] || return 0
+  tehas_store park-retry "$1" && return 0
+  [ "$tehas_store_word" = unparked ] && return 0
+  rc=$tehas_store_rc word=$tehas_store_word line=$tehas_store_line
+  park_reask "$1"
+  # What the caller says is why the retry was not spent.
+  tehas_store_said "$rc" "$word" "$line"
+  return 1
+}
+
+# park_reask <issue>: a start given up after park_spend puts the question it
+# took back on the record, so the tick in it still counts on the next poll.
+# The spent retry stays spent.
+park_reask() {
+  local q=${park_unasked[$1]:-}
+  [ -n "$q" ] || return 0
+  park_unasked[$1]=""
+  tehas_store_try 3 question-asked "$1" --id "$q" --kind park && return 0
+  log "WARN: could not put the park question of #$1 back on the record ($tehas_store_word): its boxes start nothing now"
+  return 1
+}
+
 # stop_unit <issue>: stop the issue's cycle unit and wait for it, so a unit
 # that comes up late cannot use an approval left on record.
 stop_unit() {
@@ -1690,6 +1746,14 @@ start_cycles() {
       continue
     fi
     before=$tehas_cycle_attempt_is
+    # The park this start answers, before the label: a park whose question
+    # still counted, or whose retry was still owed, would start the issue again.
+    if ! park_spend "$n"; then
+      log "ERROR: #$n: the park on record could not be used up ($tehas_store_word), not starting a cycle"
+      restore_record "$n"
+      failed=1
+      continue
+    fi
     # In the factory's analytics: ready, at the time the approval was given,
     # and without one at all when GitHub named none. The program keeps the
     # first one of each issue. A failure is a warning.
@@ -1704,18 +1768,13 @@ start_cycles() {
     # poll would start the same issue again.
     if ! gh issue edit "$n" --repo "$repo" --add-label tehas:running "${out[@]}" >/dev/null 2>&1; then
       restore_record "$n"
+      park_reask "$n"
       log "ERROR: could not mark #$n as running, not starting a cycle"
       failed=1
       continue
     fi
     done_any=1
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
-    # A park question of an earlier cycle is used up by this start, whichever
-    # way it came about. Its boxes must not answer for the new cycle.
-    rm -f "$(park_id "$n")"
-    # So is its park. Who authorised this start, and whether it is the retry
-    # after a provider outage, the cycle's start takes from the approval.
-    rm -f "$TEHAS_HOME/state/cycles/$n.park"
     if [ -n "${refresh_pr[$n]:-}" ]; then
       say "$n" "Tehas refresh started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC: ${refresh_url[$n]} conflicts with \`$(jq -r .branch <<<"${refresh_of[$n]}")\`. This cycle merges that branch into it, resolves the conflicts and pushes to the same pull request. It rests on @${starter[$n]}'s ${how[$n]}. This issue is owned by the cycle until \`tehas:running\` is removed."
     else
@@ -1890,41 +1949,43 @@ refresh_ok() {
 }
 
 # park_holds <issue>: does this issue's park hold a fresh tehas:ready back?
-# The park of its last cycle names the body that cycle ran on, copied from the
-# approval record of that start by tehasbot cycle. The same text now, on a park
-# that was no provider outage, is the same ask the cycle already spent, so the
-# poll starts nothing and says the reason in its log. A park of an outage is
-# held by rule 4a's own rules, not here; a park that names no body, or one that
-# is no hash, holds nothing, so an issue whose cycle ended before this field
-# existed starts as it did. The comment is the one thing kept off the loop of
-# polls: the park then says it has told, and the log carries the hold after it.
-# Called once an issue is picked, where the text of the issue is the answer
-# unchanged_since passed it, so no read of GitHub is spent on an issue this
-# would hold in any case. The park's "held" is written in place and read by no
-# other command: lib/cycles.sh names the file's two other tellers, park_id and
-# the retry of rule 4a, and this is the third. Returns 0 when the issue is held.
+# The current park of its last cycle names the body that cycle ran on: the one
+# its start's approval bound, as the store has it. The same text now, on a park
+# that was no provider outage and that no start has spent, is the same ask the
+# cycle already spent, so the poll starts nothing and says the reason in its
+# log. A park of an outage is held by rule 4a's own rules, not here; a park
+# that names no body (a run by hand) holds nothing. The comment is the one
+# thing kept off the loop of polls: the park then says it has told
+# (park-told), and the log carries the hold after it. Called once an issue is
+# picked, where the text of the issue is the answer unchanged_since passed it,
+# so no read of GitHub is spent on an issue this would hold in any case. A park
+# that could not be read holds the issue for this poll. Returns 0 when the
+# issue is held.
 park_holds() {
-  local n=$1 pf=$TEHAS_HOME/state/cycles/$1.park sum held cap now
-  [ -f "$pf" ] && [ ! -L "$pf" ] || return 1
-  sum=$(jq -r 'select((.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"))) | .body_sha256' "$pf" 2>/dev/null) || sum=""
-  [ -n "$sum" ] || return 1
-  [ "$(jq -r '.provider' "$pf" 2>/dev/null)" != true ] || return 1
+  local n=$1 sum told cap now
   [ -n "${text_of[$n]:-}" ] || return 1
+  if ! tehas_store park-show "$n"; then
+    if [ "$tehas_store_rc" = 1 ]; then
+      log "skip #$n: its park on record could not be read ($tehas_store_word)"
+      return 0
+    fi
+    log "ERROR: the state store cannot be used: $tehas_store_line"
+    exit 78
+  fi
+  read -r sum told cap < <(tehas_store_get '.park
+    | select(. != null and .reason != "provider-outage" and .retries == 0
+        and ((.body_sha256 | type) == "string") and (.body_sha256 | test("^[0-9a-f]{64}$")))
+    | [.body_sha256, (.told_at != null), .reason] | map(tostring) | join(" ")')
+  [ -n "${sum:-}" ] || return 1
   now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
   [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$now" = "$sum" ] || return 1
-  cap=$(jq -r '.cap | strings' "$pf" 2>/dev/null) || cap=""
-  held=$(jq -r '.held' "$pf" 2>/dev/null) || held=""
-  if [ "$held" != true ] && [ "$dry" = 0 ]; then
+  if [ "$told" != true ] && [ "$dry" = 0 ]; then
     say "$n" "Not started: the last cycle parked on \`${cap:-nothing}\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
     # The record of the tell follows the comment: a park nobody was told about
     # has not told, and the next poll tells it. With no record the poll tells it
     # again, once more than the once asked for, and says so.
-    if jq -c '.held = true' "$pf" >"$pf.new" 2>/dev/null && mv "$pf.new" "$pf" 2>/dev/null; then
-      held=true
-    else
-      log "WARN: could not record the hold on the park of #$n"
-    fi
+    tehas_store park-told "$n" || log "WARN: could not record the hold on the park of #$n ($tehas_store_word)"
   fi
   log "hold #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since"
   return 0
@@ -2779,8 +2840,11 @@ for n in $asking; do
   control_ask "$n" "its question was answered" && continue
   have=" $(jq -r --argjson n "$n" '[.[] | select(.number == $n) | (.labels // [])[].name] | join(" ")' <<<"$asking_json") "
   # Which comment is the question is decided here, from this host's own
-  # files, before a comment is read: the planning record's, else the parked
-  # cycle's. Everything on the issue can be written with the bot's token.
+  # record, before a comment is read: the planning record's, else the question
+  # of the parked cycle on the state store, which the store must still know as
+  # this issue's question on record. Everything on the issue can be written
+  # with the bot's token. A record that could not be read decides nothing: a
+  # tick then neither counts nor is undone.
   st=$(plan_state "$n")
   qid=""
   qkind=""
@@ -2790,14 +2854,22 @@ for n in $asking; do
   fi
   case "$qid" in '' | *[!0-9]*) qid="" ;; esac
   if [ -z "$qid" ]; then
-    qid=$(cat "$(park_id "$n")" 2>/dev/null) || qid=""
-    qkind=park
-    case "$qid" in
-      '' | *[!0-9]*)
-        qid=""
-        qkind=""
-        ;;
-    esac
+    qkind=""
+    if tehas_store park-show "$n"; then
+      qid=$(tehas_store_get '.park.question // empty | tostring')
+      [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
+      if [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
+        [ "$(tehas_store_get '.known')" = true ] && qkind=park || qid=""
+      fi
+    fi
+    if ! tehas_store_looked; then
+      if [ "$tehas_store_rc" != 1 ]; then
+        log "ERROR: the state store cannot be used: $tehas_store_line"
+        exit 78
+      fi
+      log "skip #$n: its question on record could not be read ($tehas_store_word)"
+      continue
+    fi
   fi
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
   gh_json api graphql -F owner="${repo%%/*}" -F name="${repo##*/}" -F number="$n" \
@@ -2860,7 +2932,8 @@ for n in $asking; do
         # next poll reads the same tick and tries again.
         if [ "$dry" = 0 ]; then
           if gh issue edit "$n" --repo "$repo" --remove-label tehas:question >/dev/null 2>&1; then
-            rm -f "$(park_id "$n")"
+            tehas_store_try 3 question-answered "$n" --id "$qid" --by "$by" ||
+              log "WARN: could not record the answer to the question of #$n ($tehas_store_word)"
           else
             log "WARN: label change on #$n failed: --remove-label tehas:question"
           fi
@@ -2925,10 +2998,11 @@ for n in $asking; do
       # one: one start uses up every request for it.
       [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
       [[ $have == *" tehas:fixer-escalated "* ]] && drop[$n]+=" --remove-label tehas:fixer-escalated"
-      # One tick is one start. The issue is marked first: when that fails the
-      # poll ends here and the tick stays, so the next poll tries again. Once
-      # it is marked the start has removed the question from the record, so
-      # the tick can start nothing more. It is unticked then, so the comment
+      # One tick is one start. The start takes the question off the record
+      # and then marks the issue: when the mark fails the question goes back
+      # on record, the poll ends here and the tick stays, so the next poll
+      # tries again. Once the issue is marked the question is off the record,
+      # so the tick can start nothing more. It is unticked then, so the comment
       # shows it was taken; a failure there is only a warning.
       # A start that failed before the issue was marked has spent nothing: the
       # tick stays, and the next poll tries again, as the comment above says.
@@ -3105,7 +3179,15 @@ for entry in $plans; do
   st=$(plan_state "$n")
   # The park's question goes with the label that asked: plan_turn takes
   # tehas:question off, and its boxes must not answer for the new session.
-  rm -rf "$st" "$st.out" "$st.answer" "$st.keep" "$(park_id "$n")"
+  if ! park_unask "$n"; then
+    if [ "$tehas_store_rc" = 1 ]; then
+      log "skip #$n: the question of its park could not be taken off the record ($tehas_store_word)"
+      continue
+    fi
+    log "ERROR: the state store cannot be used: $tehas_store_line"
+    exit 78
+  fi
+  rm -rf "$st" "$st.out" "$st.answer" "$st.keep"
   jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$st.brief" ||
     { log "ERROR: unreadable text of #$n"; exit 1; }
   # The brief goes after the issue's text, so the first line is still the title
@@ -3129,38 +3211,40 @@ if [ "$want" = 0 ]; then
 fi
 
 # 4a. A cycle a provider outage parked starts again once, without a tick, now
-# that nothing holds cycles back and the model endpoint answers. tehasbot cycle
-# asks for it in state/cycles/<issue>.park. The start rests on the account that
-# authorised the cycle that parked, as its start on record names it, while it is still allowed and nobody else
-# changed the text since that cycle began. A park file that cannot start
-# anything goes; a second park of the kind waits for a person.
-for pf in $(tehas_cycle_note_files park); do
-  n=${pf##*/}
-  n=${n%.park}
-  [ "$want" -gt 0 ] || continue
-  [ "$(jq -r '.retry == true and (.started | type) == "number"' "$pf" 2>/dev/null)" = true ] || continue
+# that nothing holds cycles back and the model endpoint answers. The store
+# lists the parks that owe one (park-show --automatic): an outage park of a
+# cycle started on an approval, not itself that retry, whose retry no start
+# has spent. The start rests on the account that started the cycle that parked,
+# as its start on record names it, while it is still allowed and nobody else
+# changed the text since that cycle began. A park that cannot start anything
+# has its retry spent (park-retry); a second park of the kind waits for a
+# person. A list that cannot be read ends the poll before anything is done.
+owed=()
+if [ "$want" -gt 0 ]; then
+  if ! tehas_store park-show --automatic; then
+    log "ERROR: the state store could not list the parks owed a retry ($tehas_store_word)"
+    [ "$tehas_store_rc" = 1 ] && exit 1
+    exit 78
+  fi
+  mapfile -t owed < <(tehas_store_get '.parks[] | select((.issue | type) == "number" and (.started_at | type) == "number")
+    | "\(.issue) \(.started_at) \(.started_by // "")"')
+fi
+for owed_line in "${owed[@]}"; do
+  read -r n started by <<<"$owed_line"
+  [[ $n =~ ^[1-9][0-9]{0,9}$ ]] && [[ $started =~ ^[0-9]{1,11}$ ]] || continue
   ! tehas_cycle_running "$n" || continue
   gh_json issue view "$n" --repo "$repo" --json state,labels
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$json") "
-  # Who authorised the cycle that parked: the account its start used, as the
-  # store has it. A start that cannot be read starts nothing this poll.
-  if ! tehas_store cycle-show "$n"; then
-    if [ "$tehas_store_rc" = 1 ]; then
-      log "skip #$n: who started its last cycle could not be read ($tehas_store_word)"
-      continue
-    fi
-    log "ERROR: the state store cannot be used: $tehas_store_line"
-    exit 78
-  fi
-  by=$(tehas_store_get '.cycle.started_by // "" | strings')
   # A label of a person's decides it, in rule 6 or by waiting.
   [[ $have != *" tehas:ready "* ]] || continue
   control_ask "$n" "a cycle its provider outage parked asked to start again" && continue
   if [ "$(jq -r '.state // ""' <<<"$json")" != OPEN ] || [[ $have != *" needs-human-attention "* ]] ||
     [[ $have == *" tehas:running "* ]] || [ -e "$(plan_state "$n")" ] || ! tehas_allowed_labeler "$by" ||
-    ! unchanged_since "$n" "$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
+    ! unchanged_since "$n" "$(date -u -d "@$started" +%FT%TZ)" "its last cycle began" "apply tehas:ready"; then
     log "skip #$n: its retry after a provider outage is not started; it waits for a person"
-    [ "$dry" = 1 ] || rm -f "$pf"
+    if [ "$dry" = 0 ] && ! tehas_store park-retry "$n" && [ "$tehas_store_word" != unparked ]; then
+      log "WARN: the retry of #$n after a provider outage could not be spent on record ($tehas_store_word)"
+    fi
     continue
   fi
   if [ "$dry" = 1 ]; then
@@ -3173,8 +3257,9 @@ for pf in $(tehas_cycle_note_files park); do
   starter[$n]=$by
   verb[$n]=requeued
   # The text was checked unchanged since the parked cycle began, so the
-  # approval record stands on that time.
-  given_at[$n]=$(date -u -d "@$(jq -r .started "$pf")" +%FT%TZ)
+  # approval record stands on that time. The store records the approval of
+  # this retry at now: it is the poll's own decision.
+  given_at[$n]=$(date -u -d "@$started" +%FT%TZ)
   given_how[$n]=outage-retry
   how[$n]="start of the cycle a provider outage parked"
   drop[$n]=""

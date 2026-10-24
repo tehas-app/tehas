@@ -23,6 +23,9 @@ reset
 t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
 capped step-failed:adversarial "$outage"
 echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
+# The unit's start, on alice's label: the retry rests on her.
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+t_approve "$T/home/tehas" 7 alice label
 t_run "$cycle 7"
 t_eq "$t_rc" 0
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage: status \`handoff\`"
@@ -30,8 +33,9 @@ t_contains "$(t_calls gh)" "cap \`step-failed:adversarial\`: Connection error."
 t_contains "$(t_calls gh)" "Tehas starts it again once on its own, when the model endpoint answers."
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
-t_eq "$(jq -c '[.cap, .reason, .provider, .retry, (.started | type)]' "$state/7.park")" \
-  '["step-failed:adversarial","Connection error.",true,true,"number"]'
+t_eq "$(park_of '[.reason, .step, .automatic, .retries, .started_by, (.started_at | type), .question]')" \
+  '["provider-outage","handoff",true,0,"alice","number",4002]'
+t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider, .parked] | tostring')" '["step-failed:adversarial",true,true]'
 t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["step-failed:adversarial","Connection error."]'
 
@@ -41,8 +45,17 @@ for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 
   reset
   capped step-failed:develop "$f"
   t_run "$cycle 7"
-  t_eq "$(jq -r .provider "$state/7.park")" true
+  t_eq "$(park_of .reason)" provider-outage
 done
+
+t_case "an outage of a cycle started by hand owes no retry, and says it waits for a person"
+reset
+capped step-failed:adversarial "$outage"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
+t_contains "$(t_calls gh)" "It was started by hand, so it waits for a person."
+t_lacks "$(t_calls gh)" "starts it again once"
+t_eq "$(park_of '[.reason, .automatic, .started_by]')" '["provider-outage",false,null]'
 
 t_case "the retry tehas made on its own, parked by an outage again, waits for a person"
 reset
@@ -54,7 +67,7 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
 t_contains "$(t_calls gh)" "It was the retry tehas made on its own after an outage, so it waits for a person."
 t_lacks "$(t_calls gh)" "starts it again once"
-t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[true,false]'
+t_eq "$(park_of '[.reason, .automatic]')" '["provider-outage",false]'
 t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" true
 
 t_case "a step that failed for another reason is parked as before, its cap on record and no retry"
@@ -65,7 +78,7 @@ echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"' >"$fx/work.sh"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_lacks "$(t_calls gh)" "provider outage"
-t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["step-failed:develop",false,false]'
+t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:develop",false]'
 t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
 
 t_case "a failed step with no reason is said in the log, and is not taken for an outage"
@@ -73,7 +86,7 @@ reset
 capped step-failed:develop '{"kind":"dispatch-failed","at":2}'
 t_run "$cycle 7"
 t_contains "$t_out" "WARN: #7 ended at step-failed:develop and no reason was found in its progress"
-t_eq "$(jq -r .provider "$state/7.park")" false
+t_eq "$(park_of .reason)" step-failed:develop
 reset
 capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
 t_run "$cycle 7"
@@ -95,14 +108,15 @@ failed spawn-backstop provider "rate limited"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "Tehas cycle parked by a provider outage"
 t_contains "$(t_calls gh)" "cap \`spawn-backstop\`: rate limited"
-t_eq "$(jq -c '[.cap, .reason, .provider, .retry]' "$state/7.park")" '["spawn-backstop","rate limited",true,true]'
+t_eq "$(park_of .reason)" provider-outage
+t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider] | tostring')" '["spawn-backstop",true]'
 
 t_case "a failure of another kind is no outage, even when its words look like one"
 for k in process timeout verify cap something-new; do
   reset
   failed step-failed:develop "$k" "502 Bad Gateway, connection timed out"
   t_run "$cycle 7"
-  t_eq "$(jq -r .provider "$state/7.park")" false
+  t_eq "$(park_of .reason)" step-failed:develop
   t_lacks "$(t_calls gh)" "provider outage"
   t_lacks "$t_out" "no reason was found"
 done
@@ -127,7 +141,7 @@ ended handoff handoff feature/issue-7-x
 jq '.issues[0].cap = "step-failed:develop"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
 echo '{"roles":[],"reason":"provider error","failure":null,"from":{"roles":"result","failure":"result"}}' >"$fx/progress.json"
 t_run "$cycle 7"
-t_eq "$(jq -r .provider "$state/7.park")" false
+t_eq "$(park_of .reason)" step-failed:develop
 t_lacks "$t_out" "no reason was found"
 
 t_case "the build commit of the result goes into the record, and only a full commit"
@@ -151,7 +165,8 @@ reset
 capped 'step-failed:adversarial`@x' '{"kind":"dispatch-failed-provider","at":2,"providerMessage":"provider error `@alice` <!-- #5\nnext line"}'
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "cap \`step-failed:adversarialx\`: provider error alice -- 5 next line"
-t_eq "$(jq -c '[.cap, .reason]' "$state/7.park")" '["step-failed:adversarialx","provider error alice -- 5 next line"]'
+t_eq "$(t_row history-show 7 -- '.rows[-1].cap')" "step-failed:adversarialx"
+t_eq "$(park_of .reason)" provider-outage
 
 # A park whose failure the result gives: step develop, its kind and cause.
 park_failed() { # <cap> [park reason]
@@ -216,14 +231,17 @@ t_eq "$(park_markers | grep -cE '^<!-- tehas:park issue=7 step=[a-z0-9-]{0,40} k
 t_eq "$(park_markers | grep -o -- '-->' | wc -l)" 1
 t_eq "$(history_sig)" "$(park_sig)"
 
-t_case "a cycle that left a pull request leaves no park on record, and an earlier one is gone"
+t_case "a cycle that left a pull request leaves no park on record, and an earlier one is not current"
 reset
-mkdir -p "$state"
-echo '{"retry":true}' >"$state/7.park"
+# An earlier attempt parked by an outage, with its question on record.
+t_ended "$T/home/tehas" 7 alice label --provider --parked
+t_park "$T/home/tehas" 7 provider-outage 4001
+t_eq "$(park_of '[.automatic, .question]')" '[true,4001]'
 ended handoff commit-pr feature/x
 echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
 t_run "$cycle 7"
-t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
+t_eq "$(t_row question-known 7 --id 4001 -- .known)" false
 
 t_case "a cycle that stops asks what to do next, with boxes"
 reset
@@ -235,9 +253,13 @@ t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_contains "$(t_calls gh)" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
-t_case "the host keeps the id of the park question it posted"
-t_eq "$(cat "$park_id")" 4002
-t_eq "$([ -e "$T/home/tehas/state/park-7.json" ] && echo left)" ""
+t_case "the host keeps the id of the park question it posted, as the question of this park"
+t_eq "$(park_q)" 4002
+t_eq "$(t_row question-known 7 --id 4002 -- '[.known, .kind, .answered] | tostring')" '[true,"park",false]'
+t_eq "$(park_of '[.attempt, .reason]')" '[1,"unknown"]'
+
+t_case "the body of the question goes when it is posted"
+t_eq "$(find "$T/home/tehas/tmp" -name 'park-question.*' 2>/dev/null | wc -l)" 0
 
 t_case "when the question cannot be posted the old comment is used and no question label is added"
 reset
@@ -247,7 +269,43 @@ t_contains "$(t_calls gh)" "issue comment 7"
 t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 t_contains "$(t_calls gh)" "To retry, apply"
 t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
+# The park is on record all the same: it asks nothing.
+t_eq "$(park_of .reason)" unknown
+
+t_case "a park the store would not take asks no question: the plain comment, and no tehas:question"
+reset
+t_store_answers park 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: could not record the park of #7 (busy: store: busy #7: the database is locked), so it asks no question"
+t_eq "$(grep -c '^park 7 ' "$T/calls/store")" 3
+t_lacks "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
+t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body"
+t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
+t_contains "$(t_calls gh)" "To retry, apply \`tehas:ready\`."
+t_lacks "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_eq "$(park_of)" null
+t_eq "$(t_row history-show 7 -- '.rows[-1].parked')" true
+
+t_case "and so does a store that cannot be used"
+reset
+t_store_answers park 78 'store: corrupt: the file is not a database'
+t_run "$cycle 7"
+t_contains "$t_out" "WARN: could not record the park of #7 (corrupt"
+t_lacks "$(t_calls gh)" "api repos/acme/widget/issues/7/comments"
+t_contains "$(t_calls gh)" "To retry, apply \`tehas:ready\`."
+t_lacks "$(t_calls gh | grep '^issue edit')" "tehas:question"
+
+t_case "a question the store would not take is posted, and the log says its boxes will not work"
+reset
+t_store_answers question-asked 1 'store: busy #7: the database is locked'
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_contains "$t_out" "WARN: could not record the park question of #7, its boxes will not work (busy)"
+t_eq "$(park_q)" none
 
 t_case "when the question label cannot be added the person is told the boxes do not work"
 reset
@@ -256,7 +314,9 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
 t_contains "$t_out" "WARN: label change on #7 failed: --add-label tehas:question"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+# Withdrawn: a tick in it starts nothing.
+t_eq "$(park_q)" none
+t_eq "$(t_row question-known 7 --id 4002 -- '[.known, .recorded] | tostring')" '[false,false]'
 rm -f "$fx/edit-fails-on"
 
 t_case "when the question label is added nothing more is said"
@@ -408,7 +468,7 @@ t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 t_lacks "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "status \`unknown\`"
 t_lacks "$(t_calls gh)" "last step"
-t_eq "$(jq -c '[.cap, .provider, .retry]' "$state/7.park")" '["",false,false]'
+t_eq "$(park_of '[.reason, .automatic, .body_sha256]')" '["unknown",false,null]'
 
 t_case "a refresh that never ran names the person's approval it rests on, not the time the poll decided it"
 never_ran
@@ -448,7 +508,7 @@ never_ran
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
 t_contains "$(t_calls gh)" "--add-label needs-human-attention"
-t_eq "$(find "$state/7.park" 2>/dev/null | wc -l)" 1
+t_eq "$(park_of '[.attempt, .question]')" '[1,4002]'
 
 # The park carries the body its cycle was approved on, so the dispatcher can
 # tell a relabelled start of the same text from one that came after a change.
@@ -457,7 +517,7 @@ reset
 approved_start --body-sha 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 echo 30 >"$fx/rc"
 t_run "$cycle 7"
-t_eq "$(jq -r .body_sha256 "$state/7.park")" \
+t_eq "$(park_of .body_sha256)" \
   "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 t_case "a park of a cycle started by hand names no body, not that of an earlier start"
@@ -465,7 +525,7 @@ t_case "a park of a cycle started by hand names no body, not that of an earlier 
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
 t_run "$cycle 7"
-t_eq "$(jq -r '.body_sha256 | type' "$state/7.park")" "null"
+t_eq "$(park_of .body_sha256)" null
 t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.how] | tostring')" '[2,"hand"]'
 
 t_done

@@ -147,21 +147,25 @@
 # killed outright, the issue stays marked tehas:running and the dispatcher's
 # next poll finds it.
 #
-# The cap that ended a cycle and the failure before it go into the record and
-# into state/cycles/<issue>.park whenever the issue is parked. The park carries
-# too the sha256 of the body the start was approved on, from the approval on
-# the state store: the dispatcher holds a fresh tehas:ready while the issue still
-# carries that text. A provider
-# outage is said as one, and the park file asks the dispatcher to start the
-# issue again once, unless this cycle was that start. An outage is a result
-# whose failure kind is "provider". For an image whose result has no failure
-# (v0.12.80) it is a step-failed:* or adversarial-infra-failure cap whose
-# reason names the provider, a timeout, a connection or a 5xx.
+# The cap that ended a cycle and the failure before it go into the record. A
+# cycle that parks the issue puts its park on the state store too (store park),
+# before it says so on the issue: why it parked (provider-outage, else the cap,
+# else the status), its step and its pull request. The store binds the park to
+# the body the start was approved on, so the dispatcher holds a fresh
+# tehas:ready while the issue still carries that text. A provider outage is
+# said as one, and its park owes the issue one start on the dispatcher's own,
+# unless this cycle was that start or was started by hand: the store derives
+# that from the start on record. An outage is a result whose failure kind is
+# "provider". For an image whose result has no failure (v0.12.80) it is a
+# step-failed:* or adversarial-infra-failure cap whose reason names the
+# provider, a timeout, a connection or a 5xx.
 #
 # A cycle that stopped without a pull request asks what to do next, in a
-# comment with boxes. The id of that comment goes on record in
-# state/park-<issue>.id: the dispatcher takes a tick only in the comment named
-# there.
+# comment with boxes. The id of that comment goes on record as the park's
+# question (store question-asked), with the sha256 of the body posted: the
+# dispatcher takes a tick only in the question on record. A park the store
+# would not take asks no question: its comment has no boxes. A question whose
+# label could not be added is taken off the record again.
 #
 # A refresh, a start whose approval has how "refresh", put
 # tehas:refreshing on its pull request; it comes off when the cycle has been
@@ -409,14 +413,17 @@ attention_off() {
   log "WARN: the labels of #$issue could not be read, so its pull request is not said to wait only for a merge"
   return 1
 }
-# post_question <result.json>: post the park question. Its id is left in
-# $posted. Returns 1 when it could not be posted.
+# post_question <question.json>: post the park question. Its id is left in
+# $posted, the sha256 of the body posted in $posted_sum. Returns 1 when it
+# could not be posted.
 posted=""
+posted_sum=""
 post_question() {
   local body
   body=$(q_render park "$issue" 1 "$1") || return 1
+  posted_sum=$(printf '%s' "$body" | sha256sum | cut -c1-64)
   posted=$(gh_call api "repos/$repo/issues/$issue/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
-  [ -n "$posted" ]
+  [[ $posted =~ ^[1-9][0-9]{0,15}$ ]]
 }
 # Removes the workspace of a cycle that ended with its change merged, or that
 # handed off with its pull request open for a human to merge, and with it the
@@ -459,8 +466,7 @@ fi
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
   "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
-  "${cycles:?}/${issue:?}.nostart" \
-  "${cycles:?}/${issue:?}.park" "${cycles:?}/${issue:?}.done" \
+  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.done" \
   "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
@@ -1096,28 +1102,26 @@ marker=""
 done_why=$(head -c 16 "$cycles/$issue.done" 2>/dev/null | head -n 1)
 case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
 rm -f "$cycles/$issue.done"
-# The approval this start used, read once for the report: the body it was
-# approved on, for the park, and the pull request a refresh marked. A start by
-# hand used none. An approval that cannot be read leaves both unknown: the park
-# then names no body, and the mark of a refresh is the dispatcher's to clear.
+# The approval this start used, read once for the report: the pull request a
+# refresh marked. A start by hand used none. An approval that cannot be read
+# leaves it unknown: the mark of a refresh is then the dispatcher's to clear.
 # A refresh is on record at the time the poll decided it: the person's approval
 # it rests on is the one named for it, as tehas_approval_shape names it.
-used_body="" refreshed="" base_at="" base_by=""
+refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
-  read -r used_body refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
+  read -r refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
     | .current | select(. != null and .used_by == $a)
-    | [.body_sha256, (if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr) else null end), $r.at, $r.by]
+    | [(if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr) else null end), $r.at, $r.by]
     | map(. // "-" | tostring) | join(" ")' <<<"$tehas_store_out" 2>/dev/null)
 else
   log "WARN: the approval of #$issue could not be read for its report ($tehas_store_word)"
 fi
-[[ $used_body =~ ^[0-9a-f]{64}$ ]] || used_body=""
 [[ $refreshed =~ ^[1-9][0-9]{0,9}$ ]] || refreshed=""
 [[ $base_at =~ ^[1-9][0-9]{0,10}$ ]] || base_at=""
 # park <text>: hand the issue to a human with the retry question.
-# The park on record for the dispatcher. retry is set only for a provider
-# outage on a cycle that was not itself the dispatcher's retry of one.
-retry=false
+# park_why is provider-outage only for the park of a provider outage; any
+# other park is on record by its cap, else its status.
+park_why=""
 parked_now=false
 # A runner that refused to start (tehas work exit 4): no clone, no container,
 # no step. Its report names only what the dispatcher recorded, and its approval
@@ -1145,34 +1149,51 @@ fi
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  local parked="$1$stuck" park_marker
+  local parked="$1$stuck" park_marker question="" on_record=0
+  local -a park_args
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
     park_marker=""
-  # The body this cycle was approved on, when its start used an approval.
-  # The dispatcher holds a relabelled start while the issue still carries that
-  # text: a second attempt at nothing is what it costs to leave it out.
-  local park_sum=$used_body
-  jq -n --arg cap "$cap" --arg reason "$reason" --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" \
-    --argjson retry "$retry" --argjson started "$started" --arg body_sha256 "$park_sum" \
-    '{$cap, $reason, $provider, $retry, $started} + (if $body_sha256 == "" then {} else {$body_sha256} end)' \
-    >"$cycles/$issue.park" 2>/dev/null || log "WARN: could not record the park of #$issue"
-  jq -n --arg text "$parked${handoff:+
+  park_args=("$issue" --attempt "$attempt" --reason "${park_why:-${cap:-${status:-unknown}}}")
+  [ -z "$step" ] || park_args+=(--step "$step")
+  case "${pr:-}" in
+    "https://github.com/$repo/pull/"*)
+      [[ ! ${pr##*/} =~ ^[1-9][0-9]{0,9}$ ]] || park_args+=(--pr "${pr##*/}")
+      ;;
+  esac
+  # On record before the issue is told: a question whose park is not on record
+  # would offer boxes that start nothing.
+  if tehas_store_try 3 park "${park_args[@]}"; then
+    on_record=1
+  else
+    log "WARN: could not record the park of #$issue ($tehas_store_word: $tehas_store_line), so it asks no question"
+  fi
+  # The body q_render posts, in a file of its own that goes when it is posted.
+  if [ "$on_record" = 1 ]; then
+    [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+    question=$(mktemp "$TEHAS_HOME/tmp/park-question.XXXXXX" 2>/dev/null) || question=""
+    if [ -n "$question" ] && ! jq -n --arg text "$parked${handoff:+
 
 $handoff}
 
 ${usage}" --arg marker "$marker" --arg park "$park_marker" '{text: $text, question: null, marker: $marker, park: $park}' \
-    >"$TEHAS_HOME/state/park-$issue.json"
-  if post_question "$TEHAS_HOME/state/park-$issue.json"; then
-    # On record before the label shows it: a tick counts only in the comment
-    # named here. Without the record a tick starts nothing and says so.
-    printf '%s\n' "$posted" >"$(park_id "$issue")" ||
-      log "WARN: could not record the park question of #$issue, its boxes will not work"
+      >"$question" 2>/dev/null; then
+      rm -f "$question"
+      question=""
+    fi
+  fi
+  if [ -n "$question" ] && post_question "$question"; then
+    # On record before the label shows it: a tick counts only in the question
+    # on record. Without the record a tick starts nothing and says so.
+    tehas_store_try 3 question-asked "$issue" --id "$posted" --kind park --body-sha "$posted_sum" ||
+      log "WARN: could not record the park question of #$issue, its boxes will not work ($tehas_store_word)"
     # A separate call: a repository without this label must still get the
     # parking label above. The poll only reads questions on issues that
     # carry this label, so without it the boxes do nothing: say so.
     if ! relabel --add-label tehas:question; then
-      rm -f "$(park_id "$issue")"
+      if ! tehas_store_try 3 question-answered "$issue" --id "$posted" --withdraw && [ "$tehas_store_word" != unknown ]; then
+        log "WARN: could not take the park question of #$issue off the record ($tehas_store_word)"
+      fi
       comment "The boxes above cannot be used: the label \`tehas:question\` could not be added (run \`tehas labels\` on the host). To retry, apply \`tehas:ready\`."
     fi
   else
@@ -1186,7 +1207,7 @@ ${usage}" | q_clean 60000)${park_marker:+
 
 $park_marker}"
   fi
-  rm -f "$TEHAS_HOME/state/park-$issue.json"
+  [ -z "$question" ] || rm -f "$question"
 }
 log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
 # Said wherever a stopped cycle's workspace stayed on the host, with the path a
@@ -1314,12 +1335,17 @@ else
     fi
     parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $runner_rc). Nothing of it ran: no workspace, no container, no step, no usage.$never_ran_said The comment before this one names it; $log_where."
   elif [ "$provider" = 1 ]; then
+    park_why="provider-outage"
     parked="Tehas cycle parked by a provider outage: $summary (runner exit $runner_rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-    if [ "$requeued" = 0 ]; then
-      retry=true
-      parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
-    else
+    # What the store derives for the park: one start on the dispatcher's own,
+    # resting on the account that started this cycle, which a run by hand has
+    # not got.
+    if [ "$requeued" = 1 ]; then
       parked="$parked It was the retry tehas made on its own after an outage, so it waits for a person."
+    elif [ "$start_how" = hand ] || [ -z "$start_by" ]; then
+      parked="$parked It was started by hand, so it waits for a person."
+    else
+      parked="$parked Tehas starts it again once on its own, when the model endpoint answers."
     fi
   fi
   park "$parked"

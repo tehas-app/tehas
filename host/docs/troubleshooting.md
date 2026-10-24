@@ -369,6 +369,28 @@ edit. The edit ships and you see it in the diff, and the cycle is judged
 against the doctrine at the commit it started from, so an edit of its own
 changes nothing for that cycle. See [Operating tehas](/operating).
 
+### A tick in the park comment starts nothing
+
+A box counts only in the question this host has on record for the issue's
+current park, on the state store. The poll's log says which case it is:
+
+- `skip #N: a box was ticked in a question this host has no record of`: the
+  comment is not that question. It may be the question of an earlier cycle (a
+  start takes its question off the record), one a `tehas:plan` session or
+  `tehas stop` took off, one whose `tehas:question` label could not be added
+  when it was posted, or a comment with a copied marker. The poll unticks it
+  and comments that the factory is not waiting on it. Apply `tehas:ready` to
+  start a cycle.
+- `skip #N: its question on record could not be read (<word>)`: the state
+  store was busy. Nothing was ticked or unticked; the next poll reads it
+  again. A store that cannot be used stops the poll with exit 78 instead: see
+  `~/tehas/logs/dispatch.log`.
+- `skip #N: the question on record does not belong to this issue`: the
+  comment's marker names another issue or kind. Nothing is changed.
+- `WARN: could not record the park question of #N, its boxes will not work`
+  in the cycle's log: the question was posted while the store did not take
+  it. Apply `tehas:ready`.
+
 
 ## A cycle stops at a cap
 

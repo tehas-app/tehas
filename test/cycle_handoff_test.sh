@@ -54,7 +54,7 @@ t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
 # The approval goes with the report: no later start, the fixer's or a
 # refresh, rests on an approval that started nothing.
 t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring')" '[null,null,null]'
-t_eq "$(jq -c '[.provider, .retry]' "$state/7.park")" '[false,false]'
+t_eq "$(park_of '[.reason, .automatic]')" '["unknown",false]'
 t_contains "$(t_calls gh)" "--add-label tehas:question"
 # The line of history still names how the start was authorised.
 t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .status, .step, .how, .by] | @csv')" '4,"unknown","-","label","alice"'
@@ -131,7 +131,7 @@ t_contains "$(t_calls gh)" 'Tehas cycle handed off with its pull request open'
 t_contains "$(t_calls gh)" 'pi-rukas stopped on the cap `review-incomplete`.'
 t_contains "$(t_calls gh)" "Read the pull request before you retry: https://github.com/acme/widget/pull/9"
 t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
-t_eq "$(jq -r .cap "$state/7.park")" review-incomplete
+t_eq "$(park_of '[.reason, .pr]')" '["review-incomplete",9]'
 
 t_case "a handoff with its pull request open and no cap is parked"
 reset

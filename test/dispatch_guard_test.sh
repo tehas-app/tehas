@@ -521,16 +521,11 @@ t_case "a cycle a provider outage parked starts again on a wide issue"
 wide_issue 6
 slots 1 TEHAS_SIZE_MAX_FILES=3
 # Rule 4a: the retry of an outage-parked cycle rests on the account that started
-# the parked one, and asks the model endpoint first. The park file is that
-# rule's own, and the issue carries no tehas:ready for the hold to read.
-parked
+# the parked one, and asks the model endpoint first. The park on record owes
+# that rule its retry, and the issue carries no tehas:ready for the hold to read.
+parked provider-outage
 comments 7 "$(park_body ' ' ' ')" ""
 mesh '{"data":[{"id":"test-model"}]}'
-mkdir -p "$cycles_dir"
-jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" \
-  '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true,
-    retry: true, started: $s}' >"$cycles_dir/7.park"
-t_ended "$T/home/tehas" 7 alice label --provider --parked
 echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
 jq -cn --arg b "$(wide_body 6)" '{number: 7, state: "OPEN", title: "Wide", body: $b,
   labels: [{name: "needs-human-attention"}]}' >"$fx/work-7.json"

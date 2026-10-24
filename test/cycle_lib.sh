@@ -12,7 +12,10 @@ workdir=$T/home/tehas/work/widget-7
 # How a cycle names that directory in a comment: in ~ form, as HOME is $T/home.
 kept_here="~${workdir#"$T/home"}"
 state=$T/home/tehas/state/cycles
-park_id=$T/home/tehas/state/park-7.id
+# park_q: the question of #7's current park on record, none without one.
+park_q() { t_row park-show 7 -- '.park.question // "none"'; }
+# park_of [<jq of the park>]: #7's current park on record.
+park_of() { t_row park-show 7 -- ".park | ${1:-.} | tostring"; }
 
 t_stub gh '
 # nap names the real sleep: found before the words of a call are named, so
@@ -149,8 +152,7 @@ t_stub systemctl
 t_after='t_no_old_state "$T/home/tehas"'
 reset() {
   rm -rf "$T"/calls/* "${fx:?}"/* "$state" "$workdir" "$T/home/tehas/work" "$T/home/tehas/logs" "$T/home/tehas/tmp" \
-    "$T/home/tehas/libexec" \
-    "$T"/home/tehas/state/park-*
+    "$T/home/tehas/libexec"
   # A case writes a log of an earlier run beside the one of this cycle, and
   # does so before tehas work has run: the directory is made here so the file
   # has somewhere to go.

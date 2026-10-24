@@ -289,7 +289,7 @@ t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
   rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing
-  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T"/home/tehas/state/park-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
+  rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check"
   # The state store a poll runs, with nothing on record.
   t_store_home "$T/home/tehas"
   # A slice of 20 GiB with nothing in it: room for ten cycles of the default
@@ -370,15 +370,20 @@ comments() { # <issue> <question body> <editor or ""> [later comments as JSON]
 park_body() { # <retry box> <leave box>
   printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
 }
-park_id=$T/home/tehas/state/park-7.id
+# park_q [<issue>]: the question of the issue's current park on record [#7],
+# none without one.
+park_q() { t_row park-show "${1:-7}" -- '.park.question // "none"'; }
+# park_of [<jq of the park>]: #7's current park on record.
+park_of() { t_row park-show 7 -- ".park | ${1:-.} | tostring"; }
 # Issue 7 is parked with a question the host has on record, and nothing else
-# is queued.
-parked() {
+# is queued. Its last cycle started on alice's label of "Words." (or by hand)
+# and parked on the cap given [failed]; the park's question is the comment 4001.
+parked() { # [<reason> [<who started the cycle: alice, or - for by hand>]]
   reset
   echo '[]' >"$fx/ready.json"
   echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
-  mkdir -p "$T/home/tehas/state"
-  echo 4001 >"$park_id"
+  t_ended "$T/home/tehas" 7 "${2:-alice}" label --parked
+  t_park "$T/home/tehas" 7 "${1:-failed}" 4001
 }
 
 plan_body() { # <box 1> <box 2> <end box> [<turn> [<line of the host's own>]]

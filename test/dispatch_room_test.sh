@@ -21,7 +21,7 @@ t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 t_contains "$t_out" "holding: tehas.slice has no room for another cycle (19.5 GiB of 20.0 GiB promised, each cycle is given 2g)"
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
@@ -219,7 +219,7 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "api -X PATCH"
-t_eq "$(cat "$park_id")" 4001
+t_eq "$(park_q)" 4001
 
 t_case "no slice: a waiting planning answer is left as it is, no label is edited, no comment"
 planning

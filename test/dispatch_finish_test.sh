@@ -345,15 +345,24 @@ t_eq "$(jq -r .why "$dispatch_json")" ""
 # --- A cycle a provider outage parked -------------------------------------------
 # Issue 7 was parked by an outage after a cycle alice started at 02:00, its
 # question unticked, and the endpoint answers again.
-outage_parked() { # [<retry>]
-  parked
+outage_parked() { # [<who started the parked cycle, - for by hand> [<park reason>]]
+  local by=${1:-alice} s home=$T/home/tehas
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
   comments 7 "$(park_body ' ' ' ')" ""
   mesh '{"data":[{"id":"test-model"}]}'
-  mkdir -p "$cycles_dir"
-  jq -n --argjson s "$(date -d 2026-01-01T02:00:00Z +%s)" --argjson r "${1:-true}" \
-    '{cap: "step-failed:adversarial", reason: "Connection error.", provider: true, retry: $r, started: $s}' >"$cycles_dir/7.park"
-  # alice's approval started the cycle that parked.
-  t_ended "$T/home/tehas" 7 alice label --provider --parked
+  s=$(date -d 2026-01-01T02:00:00Z +%s)
+  # The approval that started the cycle that parked, and its start at 02:00.
+  if [ "$by" = - ]; then
+    TEHAS_STORE_TEST_NOW=$s t_started "$home" 7 --by-hand
+  else
+    t_approve "$home" 7 "$by" label $((s - 60))
+    TEHAS_STORE_TEST_NOW=$s t_started "$home" 7
+  fi
+  TEHAS_HOME=$home flock -w 5 "$cycles_dir/7.lock" "$T_STORE" cycle-end 7 --attempt 1 --status handoff \
+    --cap step-failed:adversarial --provider --parked >/dev/null
+  t_park "$home" 7 "${2:-provider-outage}" 4001
   echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
 }
 
@@ -370,9 +379,10 @@ t_contains "$t_out" "start #7 (requeued by alice)"
 t_lacks "$(t_calls gh)" "api -X PATCH"
 
 t_case "the park is used up, and the start is marked as the retry for its cycle"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
+t_eq "$(t_row question-known 7 --id 4001 -- .recorded)" false
 t_eq "$(t_row cycle-show 7 -- '"\(.cycle.attempt) \(.cycle.requeued) \(.cycle.started_by) \(.cycle.how)"')" "2 true alice outage-retry"
-t_eq "$([ -e "$park_id" ] && echo kept)" ""
+t_eq "$(park_q)" none
 # On record at the time the poll decided it, not at the time of the approval
 # it rests on, which started a cycle already.
 t_eq "$(approval '"\(.how) \(.by)"')" "outage-retry alice"
@@ -380,20 +390,27 @@ t_eq "$(($(t_row approval-current 7 -- .current.at) > $(date -d 2026-01-01T02:00
 
 t_case "a start a person asked for is not the retry, and says who asked"
 reset
-mkdir -p "$cycles_dir"
-t_ended "$T/home/tehas" 7 bob outage-retry
-echo '{"retry":true}' >"$cycles_dir/7.park"
+t_ended "$T/home/tehas" 7 bob outage-retry --provider --parked
+t_park "$T/home/tehas" 7 provider-outage
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
 t_eq "$(t_row cycle-show 7 -- '"\(.cycle.attempt) \(.cycle.requeued) \(.cycle.started_by)"')" "2 false alice"
 
 t_case "a park that asks for no retry starts nothing and stays"
-outage_parked false
+outage_parked alice step-failed:adversarial
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+t_eq "$(park_of '[.reason, .retries]')" '["step-failed:adversarial",0]'
+
+t_case "an outage park of a cycle started by hand asks for no retry: nothing starts, nothing is said"
+outage_parked -
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$t_out" "provider outage"
+t_eq "$(park_of '[.automatic, .retries]')" '[false,0]'
 
 t_case "the retry waits while the endpoint does not answer, or the slots are full, and its park stays"
 outage_parked
@@ -401,12 +418,12 @@ mesh
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+t_eq "$(park_of '[.automatic, .retries]')" '[true,0]'
 outage_parked
 hold 9
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+t_eq "$(park_of '[.automatic, .retries]')" '[true,0]'
 release
 
 t_case "a dry run says what it would do and changes nothing"
@@ -416,14 +433,13 @@ t_contains "$t_out" "would run a cycle for #7 (retry after a provider outage, st
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
-t_eq "$(find "$cycles_dir/7.park" | wc -l)" 1
+t_eq "$(park_of '[.automatic, .retries]')" '[true,0]'
 
 t_case "no retry when its starter is no longer allowed, the text was changed by another, or the issue is not parked"
-for why in stranger edited closed unparked nobody; do
+for why in stranger edited closed unparked; do
   outage_parked
   case "$why" in
-    stranger) t_ended "$T/home/tehas" 7 mallory label --provider --parked ;;
-    nobody) t_ended "$T/home/tehas" 7 - label --provider --parked ;;
+    stranger) outage_parked mallory ;;
     edited) echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json" ;;
     closed) echo '{"state":"CLOSED","labels":[{"name":"needs-human-attention"}]}' >"$fx/issue-7.json" ;;
     unparked) echo '{"state":"OPEN","labels":[]}' >"$fx/issue-7.json" ;;
@@ -432,7 +448,8 @@ for why in stranger edited closed unparked nobody; do
   t_eq "$(t_calls fake-start)" ""
   t_lacks "$(t_calls gh)" "issue edit"
   t_contains "$t_out" "skip #7: its retry after a provider outage is not started; it waits for a person"
-  t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+  # Spent: the next poll asks nothing of it.
+  t_eq "$(park_of '[.automatic, .retries]')" '[false,1]'
 done
 
 t_case "an issue a person labelled tehas:ready is left to that label"
@@ -442,7 +459,7 @@ echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attenti
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_contains "$t_out" "start #7 (labelled by alice)"
-t_eq "$(find "$cycles_dir/7.park" 2>/dev/null | wc -l)" 0
+t_eq "$(park_of)" null
 t_eq "$(t_row cycle-show 7 -- .cycle.requeued)" false
 rm -f "$T/home/.pi/agent/models.json" "$fx/mesh.json"
 

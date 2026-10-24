@@ -15,8 +15,8 @@ control_queue() { # label...: the control issue in the queue, ready, carrying th
 control_parked() {
   echo '[]' >"$fx/ready.json"
   echo '[{"number":1,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
-  mkdir -p "$T/home/tehas/state"
-  echo 4001 >"$T/home/tehas/state/park-1.id"
+  t_ended "$T/home/tehas" 1 alice label --parked
+  t_park "$T/home/tehas" 1 failed 4001
   comments 1 "$(printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=1 turn=1 -->\n' x ' ')" alice
 }
 
@@ -101,9 +101,8 @@ t_contains "$t_out" 'skip #1: the control issue is never worked on (its question
 t_case "an outage retry does not start on the control issue"
 reset
 echo '[]' >"$fx/ready.json"
-mkdir -p "$T/home/tehas/state/cycles"
-jq -cn '{retry: true, started: 1767225600}' >"$T/home/tehas/state/cycles/1.park"
-t_ended "$T/home/tehas" 1 alice
+t_ended "$T/home/tehas" 1 alice label --provider --parked
+t_park "$T/home/tehas" 1 provider-outage
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "--add-label tehas:running"

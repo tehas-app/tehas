@@ -40,6 +40,18 @@ empty one above it.
   from `state/cycles/plan-<n>.history.jsonl`, where they are written; it read
   `state/plan-<n>.history.jsonl` before, which nothing writes.
 - `host/systemd/tehas-cycle@.service` sets `TEHAS_CYCLE_FROM=unit`.
+- A park and its question are in the state store, no longer
+  `state/cycles/<n>.park` and `state/park-<n>.id`. `tehasbot cycle` puts the
+  park on record before it posts, and asks no question (the plain comment,
+  no `tehas:question`) when the store does not take it. A tick counts only in
+  the question of the issue's current park; a store that cannot be read skips
+  the issue for that poll, and never unticks. A start takes the park's
+  question off the record and spends its one retry after an outage before the
+  issue is marked, and puts the question back when the mark fails. The retry
+  after an outage is owed only to a cycle started on an approval, rests on the
+  account that started it, and is spent by `tehas stop`; a cycle started by
+  hand says it waits for a person. The hold of a relabelled start on an
+  unchanged body is told once per park through the store.
 
 ### Adopter action
 
@@ -54,7 +66,9 @@ empty one above it.
   systemd's `INVOCATION_ID`. The records of cycles that ended before the update
   stay in their files until the importer moves them: until then the fixer, a
   refresh and an outage retry find no approval on record for those issues, and
-  wait for a person's `tehas:ready`.
+  wait for a person's `tehas:ready`. A park of such a cycle is not on record
+  either: its question's boxes start nothing (the poll unticks a tick in it
+  and says so), and it owes no retry after an outage. Apply `tehas:ready`.
 
 ## v0.11.0 (2026-10-23)
 
