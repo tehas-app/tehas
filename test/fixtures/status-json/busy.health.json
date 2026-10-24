@@ -1,0 +1,28 @@
+{
+  "status": "warn",
+  "time": "2026-10-17T13:59:40Z",
+  "output": "The factory is paused.",
+  "checks": {
+    "queue": {"time": "2026-10-17T13:59:30Z", "paused": true, "inLine": 2, "building": 2, "review": 1, "stopped": 0},
+    "cycle": {"issue": 12, "running": true, "status": null, "step": "review", "startedAt": "2026-10-17T11:20:00Z", "time": "2026-10-17T13:58:00Z"},
+    "cycles": [
+      {"issue": 12, "running": true, "status": null, "step": "review", "startedAt": "2026-10-17T11:20:00Z", "time": "2026-10-17T13:58:00Z"},
+      {"issue": 15, "running": true, "status": null, "step": null, "startedAt": "2026-10-17T13:59:00Z", "time": "2026-10-17T13:59:00Z"}
+    ],
+    "plans": [
+      {"issue": 7, "turn": 2, "startedAt": "2026-10-17T13:47:00Z"},
+      {"issue": 9, "turn": 1, "startedAt": null}
+    ],
+    "failed": [],
+    "disk": {"time": "2026-10-17T13:59:30Z", "freeBytes": 107374182400, "minFreeBytes": 10737418240, "low": false},
+    "slice": {"time": "2026-10-17T13:59:30Z", "why": "pause", "hold": "holding: paused", "count": 2, "room": 2,
+              "committed": 8589934592, "max": 34359738368, "reserve": "ok",
+              "free": 0, "awaitRoom": 1, "limitRoom": 1, "refreshRoom": 1},
+    "demand": {"time": "2026-10-17T13:59:30Z", "waiting": 2, "oldest": "2026-10-17T12:29:40Z",
+               "refreshHold": "refreshes are off on this host"},
+    "limit": {"state": "ok", "cycles": 3, "plan": true, "until": "2026-10-17T15:00:00Z", "reason": "shared with another factory"},
+    "allHands": true,
+    "pause": {"flag": {"at": "2026-10-17T13:00:00Z", "reason": "weekend"}, "label": false, "lifted": false},
+    "platform": {"release": "v0.11.0", "newest": "v0.11.0", "behind": 0, "upstream": "releases", "fetchedAt": "2026-10-17T13:00:00Z"}
+  }
+}

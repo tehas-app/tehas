@@ -103,6 +103,10 @@ empty one above it.
   left) stops with exit 78 before it calls GitHub, and logs `ERROR: records of
   an older tehas at <path>; run install.sh again`. `install.sh` run again
   imports it.
+- `tehas status --json` has a JSON Schema, `api/status.schema.json`, and two
+  samples the tests make from the code, so a program can test against what
+  tehas prints. The factory API page now lists `room.refreshes`, and says that
+  `room.cycles` and `room.maxAwaiting` can be below 0. The object is unchanged.
 
 ### Adopter action
 
