@@ -411,6 +411,25 @@ t_run "$dispatch"
 t_contains "$(t_calls gh)" "could not start"
 t_eq "$(rec_open)" none
 
+t_case "a first turn whose session id is longer than the store keeps is no session, and nothing is asked"
+to_plan
+jq -n --arg s "$(printf 'a%.0s' {1..200})" '{session: $s, text: "Two ways.", question: {question: "Adopt?", options: [{label: "Adopt all"}]}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "could not start"
+t_lacks "$(t_calls gh)" "kind=plan issue=7"
+t_eq "$(rec_open)" none
+
+t_case "line ends in what a turn names are no words of the store's command: the bad address is not filed"
+to_plan
+jq -n '{session: "abc-123", text: "Two ways.",
+  question: {question: "Adopt?", options: [{label: "Adopt\nall --filed x"}, {label: "Change some"}]},
+  filed: ["https://github.com/acme\nwidget/issues/41", "https://github.com/acme/widget/issues/42\n",
+    "https://github.com/acme/widget/issues/43"]}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(rec | jq -c '[.session, .turns, .running, .options, .filed]')" '["abc-123",1,false,["Adopt all --filed x","Change some"],["https://github.com/acme/widget/issues/43"]]'
+t_eq "$([ -e "$record.rc" ] && echo kept)" ""
+
 t_case "an answered question is served before a new plan label and before a ready issue"
 planning
 comments 7 "$(plan_body x ' ' ' ')" alice

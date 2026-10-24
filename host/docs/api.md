@@ -308,7 +308,7 @@ The copy a person reads afterwards. For every line `tehas history` gives after
 seconds), `answers`, `filed`, `answer` and `notes`. A session that ended stays
 on the store until the next `tehas:plan` of the issue replaces it, so a turn
 that never made a session still brings the one it ended; a turn whose session
-was replaced since brings no `plan.json`. A planning session the store did not
+was replaced since, by one opened after the turn ended, brings no `plan.json`. A planning session the store did not
 give is a cycle not written: the others are copied, and the command exits 1.
 A cycle whose logs the improvement loop has already removed is not an
 error: those files are simply not there.

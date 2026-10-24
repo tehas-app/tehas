@@ -452,6 +452,20 @@ for why in stranger edited closed unparked; do
   t_eq "$(park_of '[.automatic, .retries]')" '[false,1]'
 done
 
+t_case "when the open planning sessions cannot be read again, the retry waits and is not spent"
+outage_parked
+open_read_fails_again
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$t_out" "it waits for a person"
+t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
+t_eq "$(park_of '[.automatic, .retries]')" '[true,0]'
+# The next poll reads them and starts the retry.
+rm -f "$T/calls/open-read" "$T/home/tehas/libexec/store"
+ln "$T_STORE" "$T/home/tehas/libexec/store"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+
 t_case "an issue a person labelled tehas:ready is left to that label"
 outage_parked
 echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:ready"}]}' >"$fx/issue-7.json"

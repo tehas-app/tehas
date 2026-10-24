@@ -55,6 +55,24 @@ t_eq "$(rec_open)" none
 # One end on record for the one turn.
 t_eq "$(t_row history-show 7 --kind plan -- '[.rows[] | select(.turn == 2)] | length')" 1
 
+t_case "B8: a lost session whose close the store would not take is said once, by the poll that closes it"
+planning
+comments 7 "$(plan_body x ' ' ' ')" alice
+echo '{"session":"abc-123","lost":true}' >"$fx/plan-fails"
+store_refuses "plan-end 7 --close" 1 'store: busy #7: the database is locked'
+t_run "$dispatch"
+t_lacks "$(t_calls gh)" "pi-rukas has no record of it on"
+t_eq "$(rec_open)" open
+said=0
+for _ in 1 2; do
+  store_back
+  rm -f "$T"/calls/* "$fx/plan-fails"
+  t_run "$dispatch"
+  said=$((said + $(t_calls gh | grep -c "pi-rukas has no record of it on")))
+done
+t_eq "$said" 1
+t_eq "$(rec_open)" none
+
 # --- F5 ----------------------------------------------------------------------
 t_case "F5: once a turn begins, the question it answered is answered on record, and a tick in it runs no second turn"
 planning
@@ -130,19 +148,10 @@ t_case "A13: when the open sessions cannot be read again after a planning write,
 reset
 # #9's session is over: its issue no longer asks, so the poll ends it, and
 # reads the open sessions again before #7 could start.
-t_plan "$T/home/tehas" 9 '{"turns":1,"comment":4009}'
-bin=$T/home/tehas/libexec/store
-rm -f "$bin"
-printf '%s\n' '#!/usr/bin/env bash' \
-  "if [ \"\$*\" = 'plan-show --open' ] && [ -e $(t_q "$T/calls/open-read") ]; then" \
-  "  echo 'store: busy #0: the database is locked' >&2; exit 1" \
-  'fi' \
-  "[ \"\$*\" != 'plan-show --open' ] || : >$(t_q "$T/calls/open-read")" \
-  "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
-chmod 755 "$bin"
+open_read_fails_again
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
-t_contains "$t_out" "skip #7: a planning session is open on it; end it first"
+t_contains "$t_out" "skip #7: the open planning sessions could not be read (busy)"
 t_eq "$(t_row plan-show 9 -- '.planning.ended_at | type')" number
 
 t_case "the keep directory a turn is given is beside the workspace, not in the state directory"
@@ -152,6 +161,22 @@ t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "--keep $T/home/tehas/work/widget-plan-7.keep "
 t_lacks "$(plan_calls)" "/state/plan-7.json.keep"
 t_eq "$(find "$T/home/tehas/state" -name '*.keep' | wc -l)" 0
+
+t_case "a later turn writes no answer into a work directory tehas did not make, and its record is put back"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+rm -rf "$T/home/tehas/work"
+mkdir -p "$T/home/tehas/work"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(plan_calls)" ""
+t_contains "$t_out" "work exists and was not made by tehas"
+t_eq "$([ -e "$keep" ] && echo made)" ""
+t_eq "$(rec | jq -c '[.turns, .running]')" '[1,false]'
+rm -rf "$T/home/tehas/work"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--session abc-123 --answer $keep/answer.md"
+t_eq "$([ -f "$T/home/tehas/work/.tehas-workspaces" ] && echo marked)" marked
 
 # --- B4 ----------------------------------------------------------------------
 t_case "B4: a new tehas:plan replaces a session with its answers, what it filed and its notes"

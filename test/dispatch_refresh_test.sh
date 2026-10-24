@@ -225,6 +225,15 @@ comments 7 "$(plan_body ' ' ' ' ' ')" ""
 t_run "$dispatch"
 refresh_dropped "a planning session is open on it"
 
+t_case "open planning sessions that cannot be read again keep the refresh waiting: the request stays"
+refresh_setup
+open_read_fails_again
+t_run "$dispatch"
+t_eq "$(started)" ""
+t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
+t_lacks "$t_out" "drop the refresh of #7"
+t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+
 t_case "with the setting off a request starts nothing"
 refresh_setup
 slots 2

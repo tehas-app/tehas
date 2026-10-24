@@ -255,14 +255,18 @@ while IFS= read -r line; do
     # The session as the store has it: an ended one stays until the next
     # tehas:plan of the issue replaces it, so a turn that never came into being
     # still brings the session it names. A session replaced since has no more
-    # than its line of history. One the store could not read is a cycle not
-    # written.
+    # than its line of history: the store keeps one session an issue, so one
+    # opened after the turn ended is another's. One the store could not read is
+    # a cycle not written.
     if ! tehas_store plan-show "$issue"; then
       [ "$tehas_store_rc" = 1 ] || echo "tehas export: ERROR: the state store cannot be used: $tehas_store_line" >&2
       failed="$failed $cursor"
       continue
     fi
-    if [ "$(tehas_store_get '.planning | type')" = object ]; then
+    ended=$(jq -r '.ended | fromdateiso8601' <<<"$line" 2>/dev/null) || ended=""
+    [[ $ended =~ ^[0-9]+$ ]] || ended=0
+    if [ "$(tehas_store_get ".planning | select(type == \"object\" and (.opened_at | type) == \"number\"
+        and .opened_at <= $ended) | type")" = object ]; then
       session_file=$(mktemp "$out/.tehas-plan.XXXXXX") || { failed="$failed $cursor"; continue; }
       tehas_store_get '.planning' >"$session_file"
       copy_in "$session_file" "$out" "$plan_copy" || failed="$failed $cursor"
