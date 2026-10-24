@@ -387,13 +387,22 @@ t_case "with a GitHub App the container is given the app's token, not a user's"
 rm -f "$T"/calls/*
 cp "$TEHAS_INSTANCE_DIR/instance.env" "$T/instance.env.before"
 printf '%s\n' TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]" >>"$TEHAS_INSTANCE_DIR/instance.env"
-mkdir -p "$T/home/tehas/state"
-printf 'ghs_app\n' >"$T/home/tehas/state/github-token"
-echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github-token.expires"
+mkdir -p "$T/home/tehas/state/github"
+printf 'ghs_app\n' >"$T/home/tehas/state/github/token"
+echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
 T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
 t_run "$work 7"
 t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_app"
+run_args=$(cat "$(find "$T/calls" -name 'docker.args.*' | head -n 1)")
+t_contains "$run_args" "$T/home/tehas/state/github:/run/tehas/github:ro"
+t_lacks "$run_args" "github-app.pem"
 cp "$T/instance.env.before" "$TEHAS_INSTANCE_DIR/instance.env"
-rm -f "$T/home/tehas/state/github-token" "$T/home/tehas/state/github-token.expires"
+rm -f "$T/home/tehas/state/github/token" "$T/home/tehas/state/github/token.expires"
+
+t_case "without a GitHub App the container is given no token directory"
+rm -f "$T"/calls/*
+t_run "$work 7"
+run_args=$(cat "$(find "$T/calls" -name 'docker.args.*' | head -n 1)" 2>/dev/null)
+t_lacks "$run_args" "/run/tehas/github"
 
 t_done
