@@ -64,7 +64,7 @@ t_env PATH="$T/bin:/usr/bin:/bin"
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "cargo is not installed"
-t_eq "$(t_calls cargo | wc -l)" 4
+t_eq "$(t_calls cargo | wc -l)" 5
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_eq "$(cat "$th/libexec/tehas-mcp")" "a tehas-mcp built from source"
@@ -213,6 +213,21 @@ echo "// changed" >>"$part/console/store/src/tests.rs"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
+t_case "a change to the attachment checker alone builds it alone, and its tests build nothing"
+rm -f "$T/calls/cargo"
+echo "// changed" >>"$part/console/attach/src/main.rs"
+t_run "$part/install.sh --check"
+t_contains "$t_out" "differs: $th/libexec/attach"
+t_lacks "$t_out" "differs: $th/libexec/console"
+t_run "$part/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $part/console/Cargo.toml --target-dir $T/target -p attach"
+t_eq "$(stat -c %a "$th/libexec/attach")" 755
+rm -f "$T/calls/cargo"
+echo "// changed" >>"$part/console/attach/src/tests.rs"
+t_run "$part/install.sh"
+t_eq "$(t_calls cargo)" ""
+
 t_case "the mask the three share builds all three"
 echo "// changed" >>"$part/console/src/mask.rs"
 rm -f "$T/calls/cargo"
@@ -235,16 +250,16 @@ t_env CARGO_OFFLINE=miss
 # "next:", which update reads as steps: the note is not one of them.
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo | wc -l)" 8
+t_eq "$(t_calls cargo | wc -l)" 10
 t_contains "$(t_calls cargo | head -n 1)" "--offline"
 t_lacks "$(t_calls cargo | tail -n 1)" "--offline"
 t_contains "$t_out" "cargo's cache has no crate for"
-t_eq "$(printf '%s\n' "$t_out" | sed -n '/^note: cargo.s cache has no crate/{s/^note: /STEP/;p}' | wc -l)" 4
+t_eq "$(printf '%s\n' "$t_out" | sed -n '/^note: cargo.s cache has no crate/{s/^note: /STEP/;p}' | wc -l)" 5
 t_eq "$(cat "$th/libexec/console")" "a console built from source"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"
 t_run "$part/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
-t_eq "$(t_calls cargo | wc -l)" 8
+t_eq "$(t_calls cargo | wc -l)" 10
 t_env
 
 # The retry is reported from both attempts: the offline miss is not lost behind
@@ -312,7 +327,7 @@ rm -f "$T/calls/cargo"
 t_env CARGO_OFFLINE=fetch_miss
 t_run "$part/install.sh"
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo | wc -l)" 8
+t_eq "$(t_calls cargo | wc -l)" 10
 t_contains "$(t_calls cargo)" "--offline"
 t_contains "$t_out" "cargo's cache has no crate for"
 t_eq "$(cat "$th/libexec/analytics")" "an analytics built from source"

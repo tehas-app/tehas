@@ -121,6 +121,8 @@ files="./.bashrc
 ./tehas/libexec/analytics.stamp
 ./tehas/libexec/analytics-cmd
 ./tehas/libexec/api
+./tehas/libexec/attach
+./tehas/libexec/attach.stamp
 ./tehas/libexec/check-product
 ./tehas/libexec/clean
 ./tehas/libexec/console

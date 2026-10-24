@@ -243,6 +243,21 @@ t_pack_reset
 t_pack
 t_eq "$(tar -tzf "$dist/$tar_gz" | grep -c '^tehas-v9.9.9/COMMIT$')" 0
 
+t_case "the attachment checker is packed when given, executable"
+t_pack_reset
+make_program "$build/attach" "" "attach of this release"
+t_pack --attach "'$build/attach'"
+t_eq "$t_rc" 0
+rm -rf "$T/tehas-v9.9.9"
+tar -xzf "$dist/$tar_gz" -C "$T"
+t_eq "$(sed -n 2p "$T/tehas-v9.9.9/libexec/attach")" "attach of this release"
+t_eq "$(stat -c '%a' "$T/tehas-v9.9.9/libexec/attach")" 755
+t_pack_reset
+chmod 644 "$build/attach"
+t_pack --attach "'$build/attach'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "not a program the pack can run"
+
 t_case "a --store that is not a program or a --commit of another shape writes nothing"
 t_pack_reset
 chmod 644 "$build/store"
