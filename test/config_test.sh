@@ -228,6 +228,13 @@ t_run "$load && echo \"\$TEHAS_WORK_CMD \$TEHAS_STATUS_CMD \$TEHAS_INDEX_CMD \$T
 t_eq "$t_out" "fake-work fake-status fake-index fake-start 2 3 4 5 6 7 8 fake-stop fake-tidy 9 1 600"
 T_ENV=()
 
+t_case "the words a cycle hands down survive from the environment, and nothing else of its kind"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=(TEHAS_CYCLE_FROM=unit TEHAS_CYCLE_ATTEMPT=3 TEHAS_CYCLE_OTHER=x)
+t_run "$load && echo \"\$TEHAS_CYCLE_FROM \$TEHAS_CYCLE_ATTEMPT \${TEHAS_CYCLE_OTHER:-gone}\""
+t_eq "$t_out" "unit 3 gone"
+T_ENV=()
+
 t_case "a missing instance.env returns 78 and names the directory"
 rm -f "$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
