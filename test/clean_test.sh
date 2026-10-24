@@ -42,6 +42,13 @@ mkdir -p "$fx"
 # those two calls is what the cleaner reads as "docker answered", so neither
 # branch may end on a test that ran nothing.
 t_stub docker 'case "$1" in
+  # Where the images live: the one question of lib/disk.sh this stub answers,
+  # since tehas_free_kb is pointed at that directory for the second of its two
+  # readings. `docker info` is no question the five steps of the cleaner ask.
+  # A case makes docker answer nothing of it with $fx/docker-down.
+  info) case "$*" in
+      *DockerRootDir*) [ -e "$T/fx/docker-down" ] || cat "$T/fx/docker-dir" 2>/dev/null ;;
+    esac ;;
   builder) [ "${DOCKER_RC:-0}" = 0 ] || { echo "docker: cannot connect" >&2; exit "${DOCKER_RC:-1}"; }
     echo "Total: 4.2GB" ;;
   image)
@@ -115,6 +122,34 @@ t_stub docker 'case "$1" in
   *) exit 1 ;;
 esac'
 
+# The free disk of the host, which the cleaner reads through lib/disk.sh: the
+# one df of ~/tehas, the one docker info of the images and the df of the file
+# system those answers name. The figure of every file system comes from
+# $fx/free, in kilobytes as df prints them; $fx/free-docker is the figure of
+# Docker's own once docker names a directory for its images, so a case can put
+# the two file systems apart. With no figure written there is 40 GiB free
+# everywhere, which is above the default of TEHAS_CLEAN_MIN_FREE and so the
+# ordinary shape of a host. Docker names /srv/docker for its images, which reset
+# writes for every case: the lesser of the two figures is what the cleaner reads,
+# and a run that reads nothing for Docker's own file system reads nothing at all.
+# A case makes the reading fail with $fx/df-fails, which takes both file systems
+# with it, or names the one that fails in $fx/df-fails-of; it asks that docker
+# answer nothing of its images with $fx/docker-down. A figure that is no number
+# is no reading either, and no figure for the file system docker names is no
+# reading of the host.
+t_stub df '
+[ ! -e "$T/fx/df-fails" ] || exit 1
+[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(cat "$T/fx/df-fails-of")" ] || exit 1
+docker_dir=$(cat "$T/fx/docker-dir" 2>/dev/null)
+if [ -e "$T/fx/docker-down" ]; then docker_dir=""; fi
+answer=$(cat "$T/fx/free" 2>/dev/null || echo 41943040)
+if [ -n "$docker_dir" ] && [ "${2%/}" = "$docker_dir" ]; then
+  answer=$(cat "$T/fx/free-docker" 2>/dev/null)
+fi
+[[ $answer =~ ^(0|[1-9][0-9]{0,17})$ ]] || exit 1
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+echo "/dev/x 60000000 1 $answer 1% /"'
+
 reset() {
   rm -rf "$T"/calls/* "$T"/fx/* "$th"
   mkdir -p "$cycles" "$logs" "$tmp/dl" "$tmp/node-compile-cache" "$tmp/improve" "$workdir" "$fx"
@@ -126,6 +161,45 @@ reset() {
   # them: PS_RC, INSPECT_RC, BASE_LS_RC, HELD_LS_RC, PRUNE_RC, RMI_FAILS,
   # DOCKER_RC.
   T_ENV=("BASE_NAME=$base_repo")
+  # The free disk of the host is 40 GiB on every file system unless a case
+  # writes a figure or a failure: df_reset leaves no figure at all and the stub
+  # answers 40 GiB, which is above the default of TEHAS_CLEAN_MIN_FREE and so the
+  # ordinary shape of a host. The directory Docker keeps its images in is
+  # written after the reset, because df_reset is what clears it: a run that
+  # reaches no figure for that file system reaches none at all, so the name has
+  # to be answered for every case and not only the one that puts the two apart.
+  df_reset
+  printf '%s\n' /srv/docker >"$fx/docker-dir"
+}
+
+# The free kilobytes of that many gibibytes, the shape df prints them in.
+kb() { # <gibibytes>
+  printf '%s\n' "$((10#${1} * 1048576))"
+}
+
+# Put the readings back to a host with room: no figure of its own, so the stub
+# answers 40 GiB everywhere, and docker naming nothing.
+df_reset() {
+  rm -f "$fx/free" "$fx/free-docker" "$fx/df-fails" "$fx/df-fails-of" "$fx/docker-dir" "$fx/docker-down"
+}
+
+# df_free <gibibytes>: the same free figure on every file system the cleaner asks.
+df_free() { # <gibibytes>
+  df_reset
+  printf '%s\n' /srv/docker >"$fx/docker-dir"
+  kb "$1" >"$fx/free"
+  kb "$1" >"$fx/free-docker"
+}
+
+# df_free_of <gibibytes of ~/tehas> <gibibytes of Docker's data>: the two file
+# systems apart, docker naming /srv/docker for its images. The lesser of the two
+# is what the cleaner reads, which is what lets one case name a host whose work
+# directory has room while its images do not.
+df_free_of() { # <gib> <gib>
+  df_reset
+  printf '%s\n' /srv/docker >"$fx/docker-dir"
+  kb "$1" >"$fx/free"
+  kb "$2" >"$fx/free-docker"
 }
 
 # An issue's kept workspace and the two directories beside it, all three days
@@ -884,6 +958,235 @@ t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_AFTER=6
 t_run "$clean"
 t_eq "$t_rc" 0
 t_contains "$(t_calls docker)" "builder prune -f --filter until=6h"
+
+# --- 1c. a host short of space -----------------------------------------------
+# TEHAS_CLEAN_MIN_FREE is the point below which the two build-output steps stop
+# waiting for the age: step 1 takes build output whatever its age and step 2
+# prunes the whole cache (until=0h). Steps 3, 4 and 5 keep the age, the lock
+# rule is not relaxed, and a host whose free space cannot be read is a host
+# where nothing at all changes. Every case here writes its own reading of the
+# disk into $fx/free, in the kilobytes df prints: 40 GiB is the default the
+# stub answers with, above the 30 GiB of the setting, so a case is asked to
+# name the figure it means.
+
+t_case "a young workspace loses its build output when the disk is under the minimum"
+reset
+# The roots of #7 all dated after the helper made them: the tree, its state and
+# its cache go back to now, so the age rule reads a workspace written this
+# minute -- the shape the case two above leaves whole for TEHAS_CLEAN_AFTER
+# hours. The lock keeps the date the helper gave it, since it is the file the
+# run takes for the instant of a removal and not a tree the age rule is told of.
+workspace 7 "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache"
+df_free 12
+t_run "$clean"
+t_eq "$t_rc" 0
+for gone in target node_modules sub/target nested/target; do
+  t_eq "$([ -e "$workdir-7/$gone" ] && echo there)" ""
+done
+for kept in src/main.sh uncommitted .git/HEAD keep/notes; do
+  t_eq "$([ -e "$workdir-7/$kept" ] && echo there)" "there"
+done
+for kept in memory/learned sessions/one.jsonl; do
+  t_eq "$([ -e "$workdir-7.state/$kept" ] && echo there)" "there"
+done
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" ""
+t_contains "$t_out" "low on disk: 12.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g: build output and build cache go whatever their age"
+t_lacks "$t_out" "younger than"
+
+t_case "under the minimum the cache is pruned whole, and the rest of the run keeps its age"
+reset
+workspace 7 "$workdir-7"
+mkdir -p "$tmp/dl"
+echo old >"$tmp/dl/tool.tar.gz"
+echo new >"$tmp/dl/tool2.tar.gz"
+age "$tmp/dl/tool.tar.gz"
+df_free 4
+t_run "$clean"
+t_eq "$t_rc" 0
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+# Step 3: the scratch of the age still goes and the young file beside it stays,
+# so the low-disk answer reached the build-output steps and no further.
+t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" ""
+t_eq "$([ -e "$tmp/dl/tool2.tar.gz" ] && echo there)" "there"
+# Step 4: an image younger than the age is still kept, which a run that took
+# every step early would have removed with the rest.
+old_tags
+printf '%s\n' "$young_time" >"$fx/created-sha256:1"
+rm -f "$fx/created-sha256:2" "$fx/created-sha256:3" "$fx/created-sha256:4" \
+  "$fx/created-sha256:5" "$fx/created-sha256:6"
+for n in 2 3 4 5 6; do printf '%s\n' "$young_time" >"$fx/created-sha256:$n"; done
+t_run "$clean"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "rmi $image_name:261009-1000"
+t_contains "$t_out" "kept $image_name:261009-1000: docker did not date its image past $after_hours hours"
+
+t_case "a young workspace keeps its build output at the minimum, as it does above it"
+reset
+# The fixture dates every root it makes; the touch makes them young again, and
+# the age rule is what holds the tree whole. That answer must not turn into an
+# early removal at the minimum of the setting: at it the run behaves as it does
+# above it, which is the second half of this case and the reason a strict `<`
+# is what the cleaner compares.
+workspace 7
+touch "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+# The same figure as the default of the setting, in the two shapes the host can
+# answer it with: at it nothing goes early, and one gibibyte less does.
+df_free 30
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+# One gibibyte under the minimum is where the same young tree does go, which is
+# the comparison the case above pins from the other side.
+t_case "one gibibyte under the minimum takes the young build output"
+reset
+workspace 7
+touch "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+df_free 29
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" ""
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+t_contains "$t_out" "low on disk: 29.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g"
+
+# The figure of the case above, in the kilobytes df prints them rather than in
+# gibibytes: the cleaner reads what df answers, and 30 GiB is 31457280 of them.
+t_case "the minimum read in the kilobytes df prints is the same point"
+reset
+workspace 7
+touch "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+df_reset
+kb 30 >"$fx/free"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_lacks "$t_out" "low on disk"
+
+t_case "above the minimum nothing goes early, and no line of it is logged"
+reset
+workspace 7
+touch "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache" "$cycles/7.lock"
+df_free 100
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+t_contains "$t_out" "younger than $after_hours hours"
+
+# The lesser of the two file systems is what the cleaner reads, as the poll of
+# libexec/dispatch reads it: a work directory with room and images without it is
+# a host short of space.
+t_case "the file system Docker keeps its images on decides too"
+reset
+# 100 GiB of room on the file system of ~/tehas and none on the one Docker keeps
+# its images on. The issue keeps the age the fixture gave it: what decides this
+# run is the reading of the disk, not the age rule.
+df_free_of 100 20
+workspace 7
+# The line this case reads is logged once per run, before the five steps.
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_eq "$(grep -c 'low on disk' <<<"$t_out")" 1
+t_contains "$t_out" "low on disk: 20.0 GiB free, under TEHAS_CLEAN_MIN_FREE=30g"
+
+# A held lock is the one thing a low disk does not argue with: the cycle that
+# holds it may be writing there now, and free space is no reason to take a tree
+# out from under it.
+t_case "a held lock keeps its build output when the disk is low"
+reset
+workspace 7
+flock -n "$cycles/7.lock" sleep 5 &
+sleep 0.3
+df_free 2
+t_run "$clean"
+t_eq "$t_rc" 0
+wait
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: its lock is held"
+
+t_case "a held lock keeps its build output when the disk has room"
+reset
+workspace 7
+flock -n "$cycles/7.lock" sleep 5 &
+sleep 0.3
+df_free 100
+t_run "$clean"
+t_eq "$t_rc" 0
+wait
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "kept the build output of #7: its lock is held"
+
+# No figure is never the same as plenty, and here it is not the same as a
+# shortage either: a df that answers nothing leaves build_after at the age, so
+# a host whose tools are broken is not a host whose cache goes early.
+t_case "a df that fails changes nothing"
+reset
+workspace 7 "$workdir-7" "$workdir-7.state" "$workdir-7.state/cache"
+df_free 2
+: >"$fx/df-fails"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+# The other shape of no figure: a df that answers a word instead of a number.
+t_case "a df that answers no number changes nothing"
+reset
+workspace 7 "$workdir-7"
+printf 'not-a-figure\n' >"$fx/free"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
+
+# One reading per run, the way the poll reads the host once: the low figure is
+# answered once and both build-output steps act on that one answer.
+t_case "the age of the run is one reading of the disk"
+reset
+workspace 7 "$workdir-7"
+df_free 1
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$(grep -c 'low on disk' <<<"$t_out")" 1
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+
+t_case "a dry run low on disk logs the early removals and removes nothing"
+reset
+# No young path: the age rule passes of itself, so what this case asks is the
+# log of a low-disk dry run and the fact that it removes none of what it names.
+workspace 7
+df_free 8
+t_run "$clean --dry-run"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
+t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+
+# The setting is the instance's, as every other: the run asks the loader, so an
+# instance that names a lower point is a host that frees nothing at 12 GiB.
+t_case "the instance's own minimum is the point the cleaner reads"
+reset
+workspace 7 "$workdir-7"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_MIN_FREE=6g
+df_free 12
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_contains "$(t_calls docker)" "builder prune -f --filter until=24h"
+t_lacks "$t_out" "low on disk"
 
 # --- 4. old sandbox images ---------------------------------------------------
 # Six dated tags, all three days old, none of them held: the age rule is what

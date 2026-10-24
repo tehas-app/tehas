@@ -302,7 +302,7 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
-  "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" \
+  "TEHAS_PREVIEW_MAX=0" "TEHAS_PREVIEW_MAX=100" "TEHAS_PREVIEW_MIN_FREE=lots" "TEHAS_CYCLE_MIN_FREE=lots" "TEHAS_CLEAN_MIN_FREE=lots" \
   "TEHAS_IMPROVE_REPO=not a repo" "TEHAS_IMPROVE_REPO=acme" "TEHAS_IMPROVE_REPO=acme/factory/more" \
   "TEHAS_IMPROVE_RUKAS_REPO=not a repo" "TEHAS_IMPROVE_RUKAS_REPO=acme" "TEHAS_IMPROVE_RUKAS_SKIP=yes" \
   "TEHAS_IMPROVE_MAX_OPEN=0" "TEHAS_IMPROVE_MAX_OPEN=many" \
@@ -598,6 +598,23 @@ t_instance "${T_MINIMAL[@]}"
 # The example instance names the default, as it names the preview's.
 t_case "the example instance names the minimum the loader defaults to"
 t_contains "$(grep '^#TEHAS_CYCLE_MIN_FREE=' "$T_ROOT/instances/example/optional.env")" "=10g"
+
+# The disk hold of the cleaner (libexec/clean): thirty gibibytes unless the
+# instance says otherwise, the same shape of setting as the other two. It sits
+# above the dispatcher's 10g above, so the cleaner frees space before the poll
+# stops starting cycles.
+t_case "the cleaner frees space below 30g of free disk unless the instance says otherwise"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && echo \"\$TEHAS_CLEAN_MIN_FREE \$TEHAS_CLEAN_MIN_FREE_MB\""
+t_eq "$t_out" "30g 30720"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLEAN_MIN_FREE=512m
+t_run "$load && echo \"\$TEHAS_CLEAN_MIN_FREE \$TEHAS_CLEAN_MIN_FREE_MB\""
+t_eq "$t_out" "512m 512"
+t_instance "${T_MINIMAL[@]}"
+
+# The example instance names the default, and names it above the poll's hold.
+t_case "the example instance names the minimum the cleaner defaults to"
+t_contains "$(grep '^#TEHAS_CLEAN_MIN_FREE=' "$T_ROOT/instances/example/optional.env")" "=30g"
 
 t_case "without a domain there are no previews and no derived address"
 t_instance "${T_MINIMAL[@]}"

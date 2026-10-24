@@ -11,7 +11,12 @@
 # and leaves the workspace for a person to read.
 #
 # It removes only these, and only what has not been used for
-# TEHAS_CLEAN_AFTER hours (24 by default):
+# TEHAS_CLEAN_AFTER hours (24 by default). One exception: when the free disk of
+# the host is under TEHAS_CLEAN_MIN_FREE (30g by default), step 1 and step 2
+# take build output and the build cache whatever their age, so space goes before
+# the dispatcher stops starting cycles at TEHAS_CYCLE_MIN_FREE. Steps 3, 4 and 5
+# keep the age, and the lock rule keeps working: a workspace whose lock a cycle
+# holds is never touched, low on disk or not.
 #
 #   1. build output in kept workspaces   every directory anywhere under an
 #                                        issue's kept workspace whose name is
@@ -127,6 +132,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/rukas.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
+# tehas_free_kb, the one reader of the host's free disk, which decides whether
+# this run takes build output early (see build_after below).
+# shellcheck source=lib/disk.sh
+. "$here/../lib/disk.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
 
@@ -155,12 +164,36 @@ fi
 
 freed=0
 rc=0
+
 warn() { printf '%s WARN: clean: %s\n' "$(date -u +%FT%TZ)" "$1" | tee -a "$logfile" >&2; }
 log() {
   printf '%s clean: %s\n' "$(date -u +%FT%TZ)" "$1" >>"$logfile" 2>/dev/null ||
     { printf '%s clean: the log %s could not be written\n' "$(date -u +%FT%TZ)" "$logfile" >&2; rc=1; }
   printf '%s clean: %s\n' "$(date -u +%FT%TZ)" "$1"
 }
+
+# Bytes to the words of a size, as the dispatcher's hold prints them (gib in
+# libexec/dispatch): one decimal, so 1536 MiB reads as 1.5 GiB and not as 1.
+gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 1073741824)); }
+
+# The age the build-output steps use, in hours: $after, unless the host is short
+# of space, when it is 0 and both step 1 and step 2 go whatever the age. The
+# comparison is strict, so a host with exactly the setting free is a host with
+# room. The figure is read once per run, the way the poll reads it
+# (libexec/dispatch), so the two steps answer for one moment on the clock and a
+# run cannot remove under one reading and prune under another.
+#
+# A figure that cannot be read changes nothing: tehas_free_kb answers nothing
+# when df or docker is unreadable, and a cleaner that took the cache early on a
+# guess would take it on a host whose tools are broken. The lock rule is not
+# relaxed here either: step 1 still holds the issue's lock while it removes, and
+# removes nothing at all for an issue whose lock a cycle holds.
+build_after=$after
+free_kb=$(tehas_free_kb "$TEHAS_HOME") || free_kb=""
+if [ -n "$free_kb" ] && [ "$free_kb" -lt $((TEHAS_CLEAN_MIN_FREE_MB * 1024)) ]; then
+  build_after=0
+  log "low on disk: $(gib $((free_kb * 1024))) free, under TEHAS_CLEAN_MIN_FREE=$TEHAS_CLEAN_MIN_FREE: build output and build cache go whatever their age"
+fi
 
 # What one removal gave back, in bytes, measured before it goes.
 bytes_of() { # <path> -> the bytes it holds
@@ -328,11 +361,11 @@ untouched_for_hours() { # <issue> <paths...>
   shift
   for p in "$@" "$TEHAS_HOME/state/cycles/$n.lock"; do
     [ -e "$p" ] || continue
-    young=$(find "$p" -maxdepth 0 -newermt "-$after hours" 2>/dev/null) || return 1
+    young=$(find "$p" -maxdepth 0 -newermt "-$build_after hours" 2>/dev/null) || return 1
     [ -n "$young" ] && return 1
     if [ -f "$p/.git" ]; then
       gitdir=$(gitdir_of "$p") || return $?
-      young=$(find "$gitdir" -maxdepth 0 -newermt "-$after hours" 2>/dev/null) ||
+      young=$(find "$gitdir" -maxdepth 0 -newermt "-$build_after hours" 2>/dev/null) ||
         return 1
       [ -n "$young" ] && return 1
     fi
@@ -428,12 +461,15 @@ clean_workspaces() {
     # reasons to leave the issue whole, but they are different things for the
     # reader of clean.log to go and look at -- one is a cycle at work and the
     # other is a worktree record that no longer matches the tree. An issue whose
-    # workspace went while the rule was being answered is asked of no more.
+    # workspace went while the rule was being answered is asked of no more. When
+    # the host is low on disk $build_after is 0, no tree is older than no hours
+    # at all, and this line is not reached: the log of such a run carries the
+    # low-on-disk line in its place.
     untouched_for_hours "$n" "$p" "$state" "$retry" "${root_list[@]}" || {
       age_rc=$?
       [ -e "$p" ] || continue
       case $age_rc in
-        1) log "kept the build output of #$n: something of it is younger than $after hours" ;;
+        1) log "kept the build output of #$n: something of it is younger than $build_after hours" ;;
         2) log "kept the build output of #$n: git could not name the gitdir of one of its worktrees" ;;
         *) return 1 ;;
       esac
@@ -471,7 +507,7 @@ clean_workspaces() {
         # it would take: one walk, so a preview can never name a path the run
         # then leaves, nor leave one it names.
         if [ "$dry" = 1 ]; then
-          log "would remove $found: build output of #$n, untouched for $after hours"
+          log "would remove $found: build output of #$n, untouched for $build_after hours"
           continue
         fi
         if [ "$lock_refusal" = 0 ]; then
@@ -495,7 +531,7 @@ clean_workspaces() {
     if is_cache_dir "$state"; then
       met_output=1
       if [ "$dry" = 1 ]; then
-        log "would remove $state/cache: the code index copy of #$n, untouched for $after hours"
+        log "would remove $state/cache: the code index copy of #$n, untouched for $build_after hours"
       elif [ "$lock_refusal" != 0 ]; then
         refused=1
       else
@@ -539,7 +575,7 @@ clean_build_cache() {
   local out rc2
   # Bounded well inside the unit's own limit, so a slow prune ends this step
   # and the scratch cleaning after it still runs.
-  out=$(timeout -k 30 600 docker builder prune -f --filter "until=${after}h" 2>&1)
+  out=$(timeout -k 30 600 docker builder prune -f --filter "until=${build_after}h" 2>&1)
   rc2=$?
   if [ "$rc2" = 124 ]; then
     warn "docker builder prune did not finish in 600 seconds"
