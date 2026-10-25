@@ -1,0 +1,10 @@
+{
+  "issue": 12,
+  "running": true,
+  "status": "running",
+  "step": "build",
+  "statusText": "Running the gate",
+  "startedAt": 4102440000,
+  "updatedAt": 4102444800,
+  "console": "console-12.txt"
+}

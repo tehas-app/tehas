@@ -237,8 +237,12 @@ gone='wait; exit 137'
 # named among them (container puts the default back, and the file beside it,
 # container-default, holds that default for every case that names none).
 fresh() {
+  local e t_keep=()
   rm -rf "$T"/calls/* "$live/cycles" "$T/sleeper.pid" "$T/container.sh" "$T"/home/tehas/logs/work-7-*
   t_store_home "$T/home/tehas"
+  # A fresh store has no start, so no attempt of one (under_cycle).
+  for e in "${T_ENV[@]}"; do [[ $e == TEHAS_CYCLE_ATTEMPT=* ]] || t_keep+=("$e"); done
+  T_ENV=("${t_keep[@]}")
 }
 # No case leaves the old file of a record that is on the store.
 t_after='t_no_old_state "$T/home/tehas"'

@@ -489,6 +489,7 @@ CREATE TABLE heartbeats (
   running    INTEGER NOT NULL,
   step       TEXT,
   status     TEXT,
+  text       TEXT,                    -- v3 (#252): the notice the view shows
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX heartbeats_at ON heartbeats (at);
@@ -1010,7 +1011,7 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `cycle-start` | `<issue> --by <acct> --how <how> [--requeued] [--rukas <c>] [--image <i>] [--branch <b>] --lock <path>` | **group 1**: `cycles`, `approvals.used_at`, `cycle_settings`, the journal row | `{"issue":12,"attempt":2,"started_at":...}` | 0, 64, 78, 1, 5 |
 | `cycle-end` | `<issue> [--result <file>] [--progress <file>] [--oom N] [--forks N] [--stalled N] [--timed] [--host-saw killed] --status <s> [--step <s>]` | **group 2**: `cycles`, `cycle_results`, `cycle_progress`, `endings`, `heartbeats`, `cycle_history`, clears `approvals` | the end row | 0, 64, 78, 1 |
 | `cycle-show` | `<issue> \| --running` | | the running cycles with the lock probe run now, never from `cycle_locks`; `probe_rc=2` means could not tell and holds the caller (section 4, above) | 0, 64, 78 |
-| `cycle-heartbeat` | `<issue> --step <s> [--status <s>]` | `heartbeats` | `{"at":...}` | 0, 78 |
+| `cycle-heartbeat` | `<issue> [--attempt N] --running\|--ended --status <s> [--step <s>] [--text <t>]` | `heartbeats`, the newest 100 of the issue; refuses a cycle that is not open (#252) | `{"at":...}` | 0, 64, 78, 1 |
 | `cycle-note` | `<issue> --kind quiet --said-for <text>` | `cycle_notes` | `{"said":true}` | 0, 78 |
 | `cycle-stop-asked` | `<issue>` | `cycles.stop_asked_at`, `stop_said_times` | `{"times":2}` | 0, 78 |
 | `park` | `<issue> --reason <r> [--step <s>] [--pr N] --comment-id <id> --body-sha <sum>` | **group 3**: `parks`, `questions`; the comment is posted by the caller through the journal | `{"issue":12,"question":<id>}` | 0, 64, 78, 1, 5 |
@@ -1050,7 +1051,7 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `sweep` | `--removed <n>... \| --kept <n>... --reason <r> [--bytes N]` | **group 13**: `sweep_log`, `endings`, `heartbeats` | the counts | 0, 64, 78 |
 | `snapshot-cost` | `[--budget-left N]` | reads only: evaluates the per-poll bound of section 6 for the page and caps it would send, and refuses before the request when the bound exceeds `--budget-left` | `{"pages":G,"points":P,"fits":true}` | 0, 64, 78 |
 | `snapshot-load` | `--from <file>` `[--budget-left N]` | `issues`, the label events, `questions` for the edits, closing pull requests: everything of section 6 that one query returned; the budget check of section 6 is made by `snapshot-cost` before the call, and this verb refuses a response whose measured `points` exceed `--budget-left` rather than storing it | `{"issues":N,"stale":M,"requests":K,"points":P,"pages":G}` | 0, 64, 78, 1 |
-| `publish` | `--dir <live>` | nothing: reads the tables and writes the `live/*.json` views, each by unique-temp-and-rename | the files written | 0, 78, 1 |
+| `publish` | `[--dispatch <file>] [--health <file>]` | nothing: under `state/publish.lock`, reads the tables and writes `live/cycles/<n>.json`, `running.json` and `endings.json`, and the two reports given, each by unique-temp-and-rename; `health.down` goes with a `fail` report. No `--dir`: the store writes `$TEHAS_HOME/live` (#252, `docs/plans/2026-10-24-publish-live.md`) | `{"written":[...],"removed":[...],"down":null}` | 0, 64, 78, 1 |
 | `import` | `--home <dir> [--dry-run] [--verify] [--force]` | section 7, in its order, in one transaction per group | the report | 0, 64, 78, 1 |
 | `journal-open` | | the actions intended and not settled, oldest first | `{"actions":[...]}` | 0, 78 |
 | `journal-record` | `--kind <k> --issue <n> --args <json> --before <snapshot-id>` | `actions` + `journal` (the intent) | `{"action":N}` | 0, 64, 78 |

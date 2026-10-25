@@ -326,8 +326,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
-# shellcheck source=lib/live.sh
-. "$here/../lib/live.sh"
 # shellcheck source=lib/slice.sh
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
@@ -893,9 +891,10 @@ pid=$!
 started=$EPOCHSECONDS
 echo "tehas work: issue $issue started, log $log"
 
-# For the dashboard: a readable console of this cycle and its own "now" file.
+# For the dashboard: a readable console of this cycle, and its heartbeat on the
+# state store, which the store publishes as live/cycles/<issue>.json.
 live=$TEHAS_HOME/live
-mkdir -p "$live/cycles"
+mkdir -p "$live"
 console=$live/console-$issue.txt
 : >"$console"
 # The cycle does not depend on it: without a console it runs all the same,
@@ -909,21 +908,32 @@ done < <(tehas_private_names "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" &
 cpid=$!
+# A heartbeat or a publish that fails is said once a cycle: the cycle runs on
+# without its place on the page, and the poll's stuck rule counts it as heard
+# from at its start.
+beat_said=0 publish_said=0
+beat_attempt=()
+[[ $attempt =~ ^[1-9][0-9]{0,8}$ ]] && beat_attempt=(--attempt "$attempt")
 now_file() { # running? status
-  local step="" text=""
+  local step="" text="" state=--ended
+  [ "$1" = true ] && state=--running
   # The step and the driver's last notice, from the stable progress lines, in
-  # one pass over the log. The notice is the driver's words and the file is
-  # served by the dashboard: it goes through the console's mask, and without a
-  # console it is not published at all.
+  # one pass over the log. The notice is the driver's words and the page shows
+  # it: it goes through the console's mask, and without a console it is not
+  # published at all.
   { read -r step; read -r text; } < <(tehas_headless_now "$log")
   [ -n "$step" ] || step=starting
   text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
-  jq -n --argjson issue "$issue" --argjson running "$1" --arg status "$2" --arg step "$step" \
-    --arg text "$text" --argjson startedAt "$started" --argjson at "$EPOCHSECONDS" \
-    '{issue: $issue, running: $running, status: $status, step: $step, statusText: $text,
-      startedAt: $startedAt, updatedAt: $at, console: "console-\($issue).txt"}' \
-    >"$live/cycles/$issue.json.new" 2>/dev/null && mv "$live/cycles/$issue.json.new" "$live/cycles/$issue.json"
-  tehas_live_assemble
+  if ! tehas_store cycle-heartbeat "$issue" "${beat_attempt[@]}" "$state" --status "$2" \
+    --step "$step" --text "$text" && [ "$beat_said" = 0 ]; then
+    echo "tehas work: the heartbeat of #$issue is not on record ($tehas_store_word): $tehas_store_line" >&2
+    beat_said=1
+  fi
+  # One try: the next tick publishes again, and a stop must not wait on it.
+  if ! tehas_store publish && [ "$publish_said" = 0 ]; then
+    echo "tehas work: the live view is not published ($tehas_store_word): $tehas_store_line" >&2
+    publish_said=1
+  fi
 }
 live_on=1
 now_file true running

@@ -227,6 +227,19 @@ for words in 'the value goes here in the code' 'goes here' 'WORDS GOES HERE' 'th
   t_lacks "$t_out" "hold #7:"
 done
 
+t_case "a retry held on its image holds that issue, not the poll: the next ready issue starts"
+parked
+slots 3 TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+declares '["text"]'
+comments 7 "$(park_body x ' ')" alice
+pictured 7
+ready 8
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "8"
+t_contains "$t_out" "hold #7: its text links an attachment"
+
 t_case "an issue that links an attachment says nothing of a file it promises"
 imaging '["text","image"]'
 worded_pictured 7

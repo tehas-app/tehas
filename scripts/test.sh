@@ -33,7 +33,10 @@
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
 # cgroup it runs in, rounded up, when that is less]: each test file keeps
 # everything under a scratch directory of its own (test/lib.sh). Each task is
-# stopped after TEHAS_TEST_FILE_TIMEOUT seconds [300] and counts as failed,
+# While the host's load is half again its CPUs, from other runners or a build,
+# the next task waits for one to end; one task always runs, so the run goes
+# on. TEHAS_TEST_LOADAVG names the file read in place of /proc/loadavg. Each
+# task is stopped after TEHAS_TEST_FILE_TIMEOUT seconds [300] and counts as failed,
 # named with "timed out". Each file's output is printed whole, in name order,
 # once all have ended, then the number of cases and the five slowest files. What failed and
 # what never ran is named again after all of it, sized so the block fits the
@@ -96,6 +99,13 @@ cpus() {
 }
 jobs=${TEHAS_TEST_JOBS:-$(cpus)}
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
+host_cpus=$(nproc 2>/dev/null) || host_cpus=1
+loadavg=${TEHAS_TEST_LOADAVG:-/proc/loadavg}
+busy() {
+  local load
+  read -r load _ <"$loadavg" 2>/dev/null && [[ $load =~ ^[0-9]+ ]] &&
+    [ $((BASH_REMATCH * 2)) -ge $((host_cpus * 3)) ]
+}
 limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
 [[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
 out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
@@ -149,10 +159,10 @@ run() {
     echo $(($(now_ms) - s)) >"$key.ms"
   ) &
   running=$((running + 1))
-  if [ "$running" -ge "$jobs" ]; then
+  while [ "$running" -ge "$jobs" ] || { [ "$running" -gt 0 ] && busy; }; do
     wait -n
     running=$((running - 1))
-  fi
+  done
 }
 for t in "${tests[@]}"; do
   ran=1
