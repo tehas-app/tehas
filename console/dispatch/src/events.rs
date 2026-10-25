@@ -33,7 +33,10 @@ impl Events {
             return Events::Unreadable;
         };
         let pages: Vec<&Value> = if items.iter().all(Value::is_array) && !items.is_empty() {
-            items.iter().flat_map(|p| p.as_array().unwrap().iter()).collect()
+            items
+                .iter()
+                .flat_map(|p| p.as_array().unwrap().iter())
+                .collect()
         } else {
             items.iter().collect()
         };
@@ -60,7 +63,10 @@ impl Events {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
-                at: o.get("created_at").and_then(Value::as_str).map(str::to_string),
+                at: o
+                    .get("created_at")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             });
         }
         Events::Read(out)
@@ -105,9 +111,7 @@ pub fn label_state(events: &[Event], label: &str) -> (String, String, String) {
 pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(String, String)> {
     let mut v: Vec<&Event> = events
         .iter()
-        .filter(|e| {
-            (e.event == "labeled" || e.event == "unlabeled") && e.label == "tehas:pause"
-        })
+        .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == "tehas:pause")
         .collect();
     v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event != "unlabeled"));
     let e = v.last()?;
@@ -123,7 +127,9 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
 pub fn renamed_since(events: &[Event], since: &str) -> Vec<String> {
     events
         .iter()
-        .filter(|e| e.event == "renamed" && (since.is_empty() || e.at.as_deref().unwrap_or("") > since))
+        .filter(|e| {
+            e.event == "renamed" && (since.is_empty() || e.at.as_deref().unwrap_or("") > since)
+        })
         .map(|e| {
             if e.actor.is_empty() {
                 "unknown".to_string()

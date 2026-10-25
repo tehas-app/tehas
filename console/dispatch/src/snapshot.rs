@@ -124,7 +124,11 @@ fn issues(v: Option<&Value>) -> Issues {
                 .map(|i| Listed {
                     number: i.get("number").and_then(number),
                     labels: names(i.get("labels")),
-                    state: i.get("state").and_then(Value::as_str).unwrap_or("").to_string(),
+                    state: i
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                 })
                 .collect(),
         )),
@@ -165,7 +169,12 @@ fn reading(v: &Value) -> Reading {
         cids: v
             .get("cids")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default(),
     }
 }
@@ -173,7 +182,11 @@ fn reading(v: &Value) -> Reading {
 fn issue(v: &Value) -> Issue {
     Issue {
         events: v.get("events").map(Events::parse).unwrap_or(Events::Failed),
-        edit: v.get("edit").filter(|e| !failed(e)).and_then(Value::as_object).cloned(),
+        edit: v
+            .get("edit")
+            .filter(|e| !failed(e))
+            .and_then(Value::as_object)
+            .cloned(),
         work: v.get("work").and_then(opt),
         prs: v
             .get("prs")
@@ -213,7 +226,10 @@ impl Snapshot {
             plan_open: match v.get("plan_open") {
                 Some(Value::Array(a)) => Ok(a.iter().filter_map(number).collect()),
                 Some(Value::Object(e)) => Err((
-                    e.get("word").and_then(Value::as_str).unwrap_or("").to_string(),
+                    e.get("word")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
                     e.get("rc").and_then(Value::as_i64).unwrap_or(1) as i32,
                 )),
                 _ => Ok(Vec::new()),
@@ -224,7 +240,11 @@ impl Snapshot {
                 .map(|a| {
                     a.iter()
                         .filter_map(|r| {
-                            let how = r.get("how").and_then(Value::as_str).unwrap_or("").to_string();
+                            let how = r
+                                .get("how")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
                             Some((r.get("issue").and_then(number)?, how))
                         })
                         .collect()
@@ -233,7 +253,10 @@ impl Snapshot {
             ready: issues(v.get("ready")),
             blocked: issues(v.get("blocked")),
             awaiting: v.get("awaiting").map(|a| issues(Some(a))),
-            limit: v.get("limit").cloned().unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            limit: v
+                .get("limit")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"state": "none"})),
             slice: reading(v.get("slice").unwrap_or(&Value::Null)),
             endpoint_hold: v
                 .get("endpoint")
@@ -251,7 +274,12 @@ impl Snapshot {
                 .get("endpoint")
                 .and_then(|e| e.get("log"))
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
                 .unwrap_or_default(),
             disk_kb: v.get("disk_kb").map(Value::as_u64),
             checks: v.get("checks").map(opt),
@@ -259,7 +287,11 @@ impl Snapshot {
             last_why: s("last_why"),
             gate: v.get("gate").map(|g| Gate {
                 answer: g.get("answer").and_then(Value::as_i64).unwrap_or(0) as i32,
-                held: g.get("held").and_then(Value::as_str).unwrap_or("").to_string(),
+                held: g
+                    .get("held")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
             }),
             refresh_requests: v
                 .get("refresh_requests")
