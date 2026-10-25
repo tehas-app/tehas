@@ -82,7 +82,7 @@ t_contains "$t_out" "usage: tehas drain"
 
 t_case "without an instance nothing is written, exit 78"
 reset
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 t_run "$drain"
 t_eq "$t_rc" 78
 t_eq "$([ -e "$file" ] && echo there)" ""

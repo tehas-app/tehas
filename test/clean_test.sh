@@ -1745,7 +1745,7 @@ t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 exec 6>&-
 
 t_case "an instance with no settings at all is refused before anything runs"
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 t_run "$clean"
 t_eq "$t_rc" 78
 t_eq "$(t_calls docker)" ""

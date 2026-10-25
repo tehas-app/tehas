@@ -487,7 +487,7 @@ t_eq "$(t_calls gh)" ""
 
 t_case "no instance settings: 78, nothing removed and nothing called"
 reset
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 cycle_files 5
 t_run "$stop_cmd 5"
 t_eq "$t_rc" 78

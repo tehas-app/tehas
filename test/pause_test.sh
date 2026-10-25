@@ -165,7 +165,7 @@ t_eq "$([ -e "$flag" ] && echo there)" ""
 
 t_case "without instance settings nothing is written, exit 78"
 reset
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 t_run "$pause why"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"

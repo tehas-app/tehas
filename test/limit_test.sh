@@ -141,7 +141,7 @@ t_eq "$(jq -r .state <<<"$t_out")" expired
 
 t_case "without an instance nothing is written, exit 78"
 reset
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 t_run "$limit set --cycles 1"
 t_eq "$t_rc" 78
 t_contains "$t_out" "no instance.env"
