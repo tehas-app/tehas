@@ -7,7 +7,7 @@ __ __/\ _/       \_   \____/__   _     \__   _/     \\______   \_ /\___ ___ _
  
 ```
 
-# Tehas
+# Tehas Factory
 
 Tehas is a software factory powered by the [Pi coding agent](https://pi.dev).
 You write a GitHub issue and label it. Agents on your own model server work on
