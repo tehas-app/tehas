@@ -8,7 +8,8 @@
 #   2. the shell tests in test/*_test.sh
 #
 # Before the tests start, the state store (console/store) and the attachment
-# checker (console/attach) are built once, offline, into console/target/shell:
+# checker (console/attach) are built once, offline, into console/target/shell
+# (when cargo's cache lacks a locked crate, it is fetched once and built again):
 # a target directory of their own, because scripts/verify.sh runs the
 # workspace's cargo test in console/target at the same time. The test files are
 # told where they are in T_STORE_BIN and T_ATTACH_BIN, or why there are none in
@@ -113,13 +114,20 @@ out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
 
 unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN
+store_build() {
+  cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
+    --target-dir "$root/console/target/shell" -p store -p attach >"$out/store-build.log" 2>&1
+}
 store_why=""
 if [ ! -f "$root/console/Cargo.toml" ]; then
   store_why="this checkout has no console/Cargo.toml"
 elif ! command -v cargo >/dev/null 2>&1; then
   store_why="cargo is not installed"
-elif cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
-  --target-dir "$root/console/target/shell" -p store -p attach >"$out/store-build.log" 2>&1; then
+elif store_build ||
+  # A fresh container's registry is empty (host/sandbox/Dockerfile), and the
+  # lock moves past the image: fetch the locked crates once and build again.
+  # Without a network the fetch fails and the offline build's words stand.
+  { cargo fetch --locked --quiet --manifest-path "$root/console/Cargo.toml" >"$out/store-fetch.log" 2>&1 && store_build; }; then
   export T_STORE_BIN=$root/console/target/shell/debug/store
   export T_ATTACH_BIN=$root/console/target/shell/debug/attach
 else

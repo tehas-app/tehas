@@ -3841,8 +3841,12 @@ is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
 it builds. The tests of the commands that run the store (`test/dispatch_*`,
 `test/cycle_*`, `test/work_*` and `test/store_lib_test.sh`) install it in
 their scratch home and fail without it, so they need cargo too; the build needs the
-workspace's crates in cargo's cache, as the gate's own `cargo test` does. A
-test file run alone builds the store itself, into the same directory.
+workspace's crates in cargo's cache, as the gate's own `cargo test` does. When
+the offline build fails, the runner fetches the locked crates once and builds
+again: a cycle's container starts with an empty registry, and the lock can name
+crates newer than the image. Without a network the fetch fails and the offline
+build's reason is the one the test files get. A test file run alone builds the
+store itself, into the same directory.
 
 With paths, relative to the root of the checkout, only those run: the test
 files among them and the lint of those of them it lints anyway. A test file
