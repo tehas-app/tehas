@@ -108,6 +108,8 @@
 #                                    finished
 #   t_no_old_state HOME              a failure for each old record file in
 #                                    HOME that t_old_state names
+#   t_no_instance                    drop the instance of t_instance and remove
+#                                    it; a failure when the case made none
 #   t_after                          a command run as each case ends, by
 #                                    t_case and t_done
 #   slice_state / slice_child / slice_id   a scratch cgroup tree for lib/slice.sh
@@ -115,11 +117,23 @@
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
 # TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
-# host env.sh exports every TEHAS_* and PI_RUKAS_* setting and GH_TOKEN, and
-# scripts/test.sh runs a test file with the caller's environment, so the three
-# are dropped here: what reaches a test file is what the file itself sets.
+# host env.sh exports the settings of lib/config.sh and GH_TOKEN, and
+# scripts/test.sh runs a test file with the caller's environment, so they are
+# dropped here: what reaches a test file is what the file itself sets. The
+# runner's own knobs (TEHAS_TEST_*, T_STORE_*) stay, because scripts/test.sh
+# names them and gives them to the file.
 set -uo pipefail
-for t_leak in ${!TEHAS_@} ${!PI_RUKAS_@} GH_TOKEN; do unset "$t_leak"; done
+# The two families lib/config.sh clears in tehas_load, the PI_RUKAS_* family it
+# leaves alone, and the names outside them all.
+for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN T_STORE_BIN T_STORE_WHY; do
+  case $t_leak in
+  TEHAS_TEST_*) continue ;;
+  esac
+  unset -n "$t_leak"
+  unset -f "$t_leak"
+  unset "$t_leak"
+done
+unset t_leak
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
@@ -164,6 +178,19 @@ t_instance() {
   mkdir -p "$TEHAS_INSTANCE_DIR"
   chmod 700 "$TEHAS_INSTANCE_DIR"
   if [ "$#" -gt 0 ]; then printf '%s\n' "$@" >"$TEHAS_INSTANCE_DIR/instance.env"; else : >"$TEHAS_INSTANCE_DIR/instance.env"; fi
+}
+# t_no_instance: the case is done with the instance its t_instance made: the
+# name is dropped, so a run that follows has no instance directory, and the
+# directory itself is removed. A case that reaches for "$TEHAS_INSTANCE_DIR"
+# without a t_instance fails here instead of removing "".
+t_no_instance() {
+  if [ -z "${TEHAS_INSTANCE_DIR:-}" ]; then
+    t_bad "no instance to remove: the case made none with t_instance"
+    return 1
+  fi
+  local dir=$TEHAS_INSTANCE_DIR
+  unset TEHAS_INSTANCE_DIR
+  rm -rf "$dir"
 }
 
 t_stub() {
@@ -716,18 +743,22 @@ slice_child() {
 slice_id() { printf "$1%.0s" {1..64}; echo; }
 
 # Run a snippet with a known environment: the stubs first on PATH, scratch
-# HOME and TEHAS_HOME, and only the variables named in T_ENV carried over.
+# HOME and TEHAS_HOME, and only the variables named in T_ENV carried over. Each
+# entry of T_ENV is a NAME=VALUE assignment, as env reads them. A file that
+# wants another name in a run's environment names it in T_ENV itself; the
+# instance directory below is the one exception, and t_instance is the only
+# way a file gets one.
 T_ENV=()
 t_started=0
 t_run() {
-  # The instance directory is named only when the file set it: lib.sh drops it
-  # with the rest of TEHAS_*, so a file that means the host's default has none
-  # in its environment either.
-  local -a instance=()
-  [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
+  # The instance of t_instance goes with the run, and nothing else does: the
+  # sweep above took the host's, so a file that names none has the instance
+  # resolved from the scratch TEHAS_HOME, as the caller of a run would.
+  local -a instance_env=()
+  [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" \
-    "${instance[@]}" "${T_ENV[@]}" \
+    "${instance_env[@]}" "${T_ENV[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }

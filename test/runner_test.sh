@@ -70,13 +70,21 @@ run() { # the scratch checkout's runner
 # The runner run with the caller's environment carrying these settings, as the
 # units of a factory host carry the lines env.sh exported. This file sourced
 # lib.sh, which dropped the names from its own shell, so they are given to the
-# runner's own command rather than exported here.
+# runner's own command rather than exported here. Each argument is a NAME=VALUE
+# assignment: one without an = would reach env as a command to run.
 run_env() { # NAME=VALUE...
+  local a
   if [ -n "$broken" ]; then
     t_bad "$broken"
     broken=
     return
   fi
+  for a in "$@"; do
+    [[ $a == *=* ]] || {
+      broken="run_env: $a is not NAME=VALUE"
+      return 1
+    }
+  done
   t_run "cd '$repo' && env $(printf '%q ' "$@") bash runner/runner.sh"
 }
 
@@ -103,13 +111,11 @@ fake() { # name rc [lines]
 
 # A fake test file of its own: the body is what the file runs, so a case names
 # what the file sees rather than what it prints. scripts/test.sh runs the file
-# from the root of the scratch checkout, so a body that wants the harness sources
-# test/lib.sh by that path - fresh() makes the directory, so no case copies the
-# helper in: it would be gone again before the runner starts.
+# from the root of the scratch checkout, so a body that wants the harness
+# sources test/lib.sh by that path.
 fake_body() { # name <body...>
   local n=$1
   shift
-  mkdir -p "$repo/test"
   { echo '#!/usr/bin/env bash'; printf '%s\n' "$@"; } >"$repo/test/$n"
   chmod +x "$repo/test/$n"
 }
@@ -717,41 +723,40 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "no test file and no linted script among the paths given"
 t_lacks "$t_out" "ran a_test.sh"
 
-# The runner runs a test file with the environment it was given, so on a factory
-# host a file reads the settings env.sh exported: lib.sh drops the three names
-# when it is sourced, which is what the file's own top level sees.
+# What a test file prints, one 'leaked <name>' line for each of the settings it
+# can see, so a case names each one instead of pinning the order of the names:
+# no line at all is the pass for a file that sourced the harness.
 settings_body() {
-  printf '%s\n' 'seen=""' \
-    'for n in TEHAS_REPO PI_RUKAS_FOLLOW GH_TOKEN; do [ -z "${!n-}" ] || seen=$seen" $n"; done' \
-    'printf "leaked%s\n" "${seen:- none}"' 'exit 0'
+  printf '%s\n' 'for n in TEHAS_REPO PI_RUKAS_FOLLOW GH_TOKEN; do' \
+    '[ -z "${!n-}" ] || printf "leaked %s\n" "$n"' 'done' 'exit 0'
 }
-
-# The settings of a factory host, given to the runner's own command: this file
-# sourced lib.sh, which took them out of its shell, so an export here would say
-# nothing about what the runner hands down.
 
 t_case "a test file that sources the harness sees none of the host's settings"
 fresh
 # The scratch checkout stands in for this one: the runner runs a test file from
-# its root, so that is where the helper has to be for '. test/lib.sh' to find it
-# (fresh() removes the directory, hence a call of its own after it).
-cp "$T_ROOT/test/lib.sh" "$repo/test/lib.sh"
+# its root, so that is where the helper has to be for '. test/lib.sh' to find
+# it (fresh() removes the directory, hence a call of its own after it).
+cp "$T_ROOT/test/lib.sh" "$repo/test/lib.sh" || t_bad "no harness to source"
 fake_body a_test.sh '. test/lib.sh' "$(settings_body)"
 # Exported by the runner's command, not by this file: lib.sh is sourced at the
-# top of this one and took the three out of its own shell, so an export of this
+# top of this one and took them out of its own shell, so an export of this
 # file's would say nothing about what a child inherits.
 run_env TEHAS_REPO=leak/leak PI_RUKAS_FOLLOW=commit:abc GH_TOKEN=x
-# What the file saw is in its own output, which the runner prints: 'leaked none'
-# is the pass, and the case below shows what a run that saw them prints.
+# What the file saw is in its own output, which the runner prints: no 'leaked'
+# line at all is the pass, and the case below shows what a run that saw them
+# prints.
 t_eq "$t_rc" 0
-t_contains "$t_out" "leaked none"
 t_lacks "$t_out" "leaked TEHAS_REPO"
+t_lacks "$t_out" "leaked PI_RUKAS_FOLLOW"
+t_lacks "$t_out" "leaked GH_TOKEN"
 
 t_case "the runner does give a test file that skips the harness all three"
 fresh
 fake_body a_test.sh "$(settings_body)"
 run_env TEHAS_REPO=leak/leak PI_RUKAS_FOLLOW=commit:abc GH_TOKEN=x
 t_eq "$t_rc" 0
-t_contains "$t_out" "leaked TEHAS_REPO PI_RUKAS_FOLLOW GH_TOKEN"
+t_contains "$t_out" "leaked TEHAS_REPO"
+t_contains "$t_out" "leaked PI_RUKAS_FOLLOW"
+t_contains "$t_out" "leaked GH_TOKEN"
 
 t_done

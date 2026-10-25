@@ -72,7 +72,7 @@ t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=sometimes
 t_run "$cmd report"
 t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_ANALYTICS"
-rm -rf "$TEHAS_INSTANCE_DIR"
+t_no_instance
 t_run "$cmd export copy.db --json"
 t_eq "$t_rc" 78
 t_eq "$(t_calls analytics)" ""
