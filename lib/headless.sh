@@ -26,6 +26,20 @@
 #       a `features` that is not an object. An object with no `features` key is
 #       the answer of an image that has none, and is answered `polyfill` or
 #       `off`.
+#   tehas_headless_caps <image> <runner>
+#       ask <image> what its runner can do: its --capabilities answer on
+#       standard output. The call is bounded by TEHAS_CAPS_WAIT (120 s by
+#       default) and, like every other one here, never waits past that. The
+#       status says which of the two happened, so a caller keeps them apart:
+#       0 answered (with no answer at all when nothing is printed), 124 or 137
+#       did not answer in time, any other status is docker's own. Never read
+#       an empty answer and a silent docker as the same thing: a host whose
+#       image was removed answers like an image that runs no verb.
+#   tehas_headless_verb <caps> <verb> <flags>
+#       0 when <caps> names <verb> among its verbs with every flag in <flags>
+#       (space separated) among the ones it takes, 1 otherwise, which covers
+#       an answer that is no object at all. The one reader of the runner's
+#       verbs, so a command that runs one does not write its own jq for them.
 #   tehas_headless_reads_images <caps>
 #       1 when the answer lists PI_ENSEMBLE_ISSUE_IMAGES for the manifest
 #       format tehas writes (manifestVersion 1), else 0.
@@ -136,6 +150,30 @@ tehas_headless_mode() { # <caps> <feature>
   else
     echo off
   fi
+}
+
+# One bounded call of the image's runner, so that no command writes its own.
+# The status is kept by the caller: `caps=$(...) || caps_rc=$?` reads both the
+# answer and whether there was one, which is how libexec/review keeps a docker
+# that did not answer apart from an image that answered no.
+tehas_headless_caps() { # <image> <runner>
+  local wait="${TEHAS_CAPS_WAIT:-120}"
+  [[ $wait =~ ^[1-9][0-9]{0,3}$ ]] || wait=120
+  timeout -k 10 "$wait" docker run --rm --init "$1" "$2" --capabilities 2>/dev/null
+}
+
+# Whether the runner of an image takes one verb, and all of <flags> with it.
+# The verbs are a different key of the answer from the features
+# tehas_headless_mode reads, which is why a command that runs a verb asks this
+# and not that.
+tehas_headless_verb() { # <caps> <verb> <flags>
+  jq -e --arg verb "$2" --arg flags "$3" '
+    def words: split(" ") | map(select(length > 0));
+    type == "object" and ((.verbs[$verb] | type) == "object") and
+    (((.verbs[$verb].flags // []) | type) == "array") as $shape
+    | [$flags | words[]] as $want
+    | [(.verbs[$verb].flags // [])[]? | strings] as $have
+    | $shape and (($want - $have) | length) == 0' >/dev/null 2>&1 <<<"$1"
 }
 
 tehas_headless_reads_images() { # <caps>
