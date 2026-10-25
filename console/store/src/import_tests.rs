@@ -354,12 +354,16 @@ fn a_fixer_start_keeps_its_base_and_its_count() {
     let v = import_ok(&h);
     assert_eq!(v["imported"]["approvals"], 3, "{v}");
     let cur = ok(&h, &["approval-current", "7"]);
-    assert_eq!(cur["current"]["how"], "fixer");
+    assert_eq!(
+        cur["current"]["how"], "millwright",
+        "imported under the new word"
+    );
     assert_eq!(cur["current"]["used_by"], 1);
     assert_eq!(cur["rests_on"]["by"], "bob");
     assert_eq!(cur["rests_on"]["how"], "label");
     assert_eq!(cur["rests_on"]["at"], t("2026-10-13T08:00:00Z"));
     assert_eq!(cur["fixer_starts"], 2, "never fewer than the file said");
+    assert_eq!(cur["millwright_starts"], 2, "the new key, the same number");
     assert_eq!(cur["refreshes"], 0);
     // The next start's retention keeps what approval-current reads.
     let _lock = hold(&h, 7);
@@ -368,6 +372,42 @@ fn a_fixer_start_keeps_its_base_and_its_count() {
     let cur = ok(&h, &["approval-current", "7"]);
     assert_eq!(cur["rests_on"]["by"], "bob");
     assert_eq!(cur["fixer_starts"], 3);
+}
+
+#[test]
+fn a_millwright_record_imports_under_the_new_names() {
+    // A record written after the rename: the new word, the new count key, the
+    // new mark and the new note key.
+    let h = host("millwright");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    put(&h, "cycles/7.by", "tehas-millwright\n", start);
+    let record = format!(
+        r#"{{"at":"2026-10-14T09:59:00Z","by":"tehas-millwright","how":"millwright","body_sha256":"{SHA}","links":[],
+            "rests_on":{{"at":"2026-10-13T08:00:00Z","by":"bob","how":"label","body_sha256":"{SHA}"}},"millwright_starts":2}}"#
+    );
+    put(&h, "cycles/7.approved.json", &record, start - 1);
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":2,"answers":[{"turn":2,"by":"tehas-millwright","millwright":true}],"millwright_refused":[55]}"#,
+        start,
+    );
+    import_ok(&h);
+    let cur = ok(&h, &["approval-current", "7"]);
+    assert_eq!(cur["current"]["how"], "millwright");
+    assert_eq!(cur["millwright_starts"], 2);
+    assert_eq!(cur["fixer_starts"], 2, "the answer keeps the old key too");
+    let p = &ok(&h, &["plan-show", "7"])["planning"];
+    assert_eq!(
+        p["answers"],
+        serde_json::json!([{"turn":2,"by":"tehas-millwright","fixer":true}])
+    );
+    assert_eq!(p["notes"]["millwright_refused"], serde_json::json!([55]));
+    assert_eq!(
+        count(&h, "planning_notes WHERE kind = 'millwright-refused'"),
+        1
+    );
 }
 
 #[test]
@@ -945,7 +985,16 @@ fn a_planning_record_and_its_sidecars_become_rows() {
     assert_eq!(
         count(
             &h,
-            "planning_notes WHERE kind = 'fixer-refused' AND comment_id = 55"
+            "planning_notes WHERE kind = 'millwright-refused' AND comment_id = 55"
+        ),
+        1
+    );
+    // The answer of the millwright is marked under the new column, and the old
+    // record's `fixer` mark is read as the same thing.
+    assert_eq!(
+        count(
+            &h,
+            "planning_answers WHERE issue = 8 AND turn = 2 AND millwright = 1"
         ),
         1
     );

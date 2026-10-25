@@ -44,7 +44,7 @@ use tehas_core::time::{civil_from_days, days_from_civil};
 
 /// The most a record file may hold.
 const BOUND: u64 = 1 << 20;
-/// The most rows a fixer or refresh record may ask the import to make up.
+/// The most rows a millwright or refresh record may ask the import to make up.
 const MAX_STARTS: i64 = 100;
 
 const MARKER: &str = ".tehas-home";
@@ -396,10 +396,19 @@ fn pr_number(url: &str) -> Option<i64> {
 }
 
 fn label_of(how: &str) -> String {
-    if how == "label" || how == "fixer" {
+    if how == "label" || crate::approval::is_millwright(how) {
         "tehas:ready".to_string()
     } else {
         how.to_string()
+    }
+}
+
+/// The word the record writes for a name the old files spell the other way.
+fn kept_how(word: &str) -> String {
+    if crate::approval::is_millwright(word) {
+        crate::approval::MILLWRIGHT.to_string()
+    } else {
+        word.to_string()
     }
 }
 
@@ -463,7 +472,7 @@ fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
             parked: opt_bool(&m, "parked").map_err(|e| format!("line {}: {e}", i + 1))?,
             pr: s("pr")?.and_then(pr_number),
             by: s("by")?.and_then(verbs::account),
-            how: clean(s("how")?, kebab_char, 40),
+            how: clean(s("how")?, kebab_char, 40).as_deref().map(kept_how),
         });
     }
     Ok(out)
@@ -555,8 +564,8 @@ struct ApprovalIn {
     title_sha: Option<String>,
     refresh: Option<(i64, String)>,
     input: Option<String>,
-    /// The base a fixer or refresh start rests on, and the starts on it the
-    /// record counts beside its own: (base, fixer starts, refreshes).
+    /// The base a millwright or refresh start rests on, and the starts on it the
+    /// record counts beside its own: (base, millwright starts, refreshes).
     rests: Option<(Base, i64, i64)>,
 }
 
@@ -577,6 +586,14 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
         .iter()
         .find(|h| **h == how_word)
         .copied()
+        // An old record says `fixer`; the row is written under the new word.
+        .map(|h| {
+            if crate::approval::is_millwright(h) {
+                crate::approval::MILLWRIGHT
+            } else {
+                h
+            }
+        })
         .ok_or_else(|| format!("has a how it does not know: {}", verbs::shown(how_word)))?;
     let body_sha = need(
         opt_str(&m, "body_sha256")?.and_then(verbs::sha256),
@@ -606,7 +623,7 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
     } else {
         None
     };
-    let rests = if how == "fixer" || how == "refresh" {
+    let rests = if crate::approval::is_millwright(how) || how == "refresh" {
         let r = match m.get("rests_on") {
             Some(Value::Object(o)) => o,
             _ => return Err(format!("is a {how} start with no rests_on")),
@@ -624,9 +641,20 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
                 "rests_on.body_sha256",
             )?,
         };
-        let starts = opt_int(&m, "fixer_starts")?.unwrap_or(0);
+        // The old record counts the millwright's starts under `fixer_starts`;
+        // a newer one may name either key, and both hold the same number.
+        let starts = match (
+            opt_int(&m, "millwright_starts")?,
+            opt_int(&m, "fixer_starts")?,
+        ) {
+            (Some(a), Some(b)) if a != b => {
+                return Err("names its millwright starts twice, and differently".to_string())
+            }
+            (Some(a), _) | (None, Some(a)) => a,
+            (None, None) => 0,
+        };
         let refreshes = opt_int(&m, "refreshes")?.unwrap_or(0);
-        let ok = if how == "fixer" {
+        let ok = if crate::approval::is_millwright(how) {
             starts >= 1 && refreshes == 0
         } else {
             starts >= 0 && refreshes >= 1
@@ -735,7 +763,9 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
                     .filter(|n| *n >= 1)
                     .ok_or("has an answer with no turn")?;
                 let by = need(account(o, "by")?, "answer by")?;
-                Ok((turn, by, opt_bool(o, "fixer")?))
+                // The old record marks the millwright's answer `fixer`.
+                let millwright = opt_bool(o, "millwright")? || opt_bool(o, "fixer")?;
+                Ok((turn, by, millwright))
             })
             .collect::<Result<_, String>>()?,
         Some(_) => return Err("has answers that are not a list".to_string()),
@@ -764,8 +794,12 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
         ),
     };
     let mut notes: Vec<(&'static str, i64)> = Vec::new();
-    for id in ids(&m, "fixer_refused")? {
-        notes.push(("fixer-refused", id));
+    // The old record lists the refused comments under `fixer_refused`; a newer
+    // one may name either key, and the rows are the same notes.
+    for key in ["millwright_refused", "fixer_refused"] {
+        for id in ids(&m, key)? {
+            notes.push(("millwright-refused", id));
+        }
     }
     for id in ids(&m, "held")? {
         notes.push(("held", id));
@@ -1586,19 +1620,19 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Group) -> Re
 }
 
 /// The approvals a record of a start becomes: the start itself, used by
-/// `attempt`; for a fixer or refresh start also the base it rests on and one
+/// `attempt`; for a millwright or refresh start also the base it rests on and one
 /// used row for each start the record counts besides itself, at times strictly
 /// between, so approval-current never counts fewer than the file did.
 fn approval_rows(a: &ApprovalIn, attempt: i64, used_at: i64, mtime: i64) -> Vec<ApprovalRow> {
     let mut rows = Vec::new();
     let mut at = a.at;
     if let Some((base, starts, refreshes)) = &a.rests {
-        let (fixers, refreshes) = if a.how == "fixer" {
+        let (millwrights, refreshes) = if crate::approval::is_millwright(a.how) {
             (starts - 1, 0)
         } else {
             (*starts, refreshes - 1)
         };
-        let k = fixers + refreshes;
+        let k = millwrights + refreshes;
         let first = attempt - k - 1;
         rows.push(ApprovalRow {
             at: base.at,
@@ -1615,10 +1649,15 @@ fn approval_rows(a: &ApprovalIn, attempt: i64, used_at: i64, mtime: i64) -> Vec<
             rows.push(ApprovalRow {
                 at: base.at + i,
                 by: a.by.clone(),
-                how: if i <= fixers { "fixer" } else { "refresh" }.to_string(),
+                how: if i <= millwrights {
+                    crate::approval::MILLWRIGHT
+                } else {
+                    "refresh"
+                }
+                .to_string(),
                 body_sha: base.body_sha.clone(),
                 title_sha: None,
-                refresh: (i > fixers).then(|| a.refresh.clone()).flatten(),
+                refresh: (i > millwrights).then(|| a.refresh.clone()).flatten(),
                 used_at: base.at + i,
                 used_by: first + i,
                 input: None,
@@ -1698,9 +1737,9 @@ fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Group) -> Re
             }),
         ));
         let last_turn = p.answers.iter().map(|a| a.0).max();
-        for (turn, by, fixer) in &p.answers {
+        for (turn, by, millwright) in &p.answers {
             let text = answer_v.clone().filter(|_| Some(*turn) == last_turn);
-            planning_ops.push(Op::Answer(issue, *turn, by.clone(), *fixer, text));
+            planning_ops.push(Op::Answer(issue, *turn, by.clone(), *millwright, text));
         }
         for url in &p.filed {
             if let Some(n) = plan::filed_issue(url) {
