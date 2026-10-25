@@ -13,12 +13,15 @@ pub struct Call {
     pub how: Option<&'static str>,
 }
 
-/// The `how` words a cycle row can hold: `cycles.how`.
-pub const HOWS: [&str; 6] = [
+/// The `how` words a cycle row can hold: `cycles.how`. `fixer` is the old name
+/// of `millwright`; a row written before the rename still says it, and
+/// `--how millwright` keeps the rows of both words.
+pub const HOWS: [&str; 7] = [
     "label",
     "refresh",
     "retry-tick",
     "outage-retry",
+    "millwright",
     "fixer",
     "hand",
 ];
@@ -44,6 +47,20 @@ fn args(rest: &[String]) -> Result<Call, String> {
         return Err(a.usage("--how", "is not taken with --kind plan"));
     }
     Ok(Call { issue, kind, how })
+}
+
+/// The words a history read filters on: one spelling of `how` may stand for
+/// two, because a row written before the rename still says `fixer`.
+struct HowFilter(Option<String>);
+
+fn how_words(how: Option<&str>) -> HowFilter {
+    match how {
+        Some(w) if crate::approval::is_millwright(w) => {
+            HowFilter(Some(format!("{},{}", crate::approval::MILLWRIGHT, "fixer")))
+        }
+        Some(w) => HowFilter(Some(w.to_string())),
+        None => HowFilter(None),
+    }
 }
 
 const CYCLE_NAMES: [&str; 17] = [
@@ -104,16 +121,18 @@ fn order(r: &rusqlite::Row) -> rusqlite::Result<(i64, i64, i64)> {
 }
 
 fn cycles(c: &Connection, issue: Option<i64>, how: Option<&str>) -> Result<Vec<Row>, Fail> {
+    let words = how_words(how);
     let mut q = c
         .prepare(
             "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
                park_reason, failure_kind, failure_cause, provider, parked
              FROM cycle_history
-             WHERE (?1 IS NULL OR issue = ?1) AND (?2 IS NULL OR how = ?2)",
+             WHERE (?1 IS NULL OR issue = ?1)
+               AND (?2 IS NULL OR instr(',' || ?2 || ',', ',' || how || ',') > 0)",
         )
         .q()?;
     let rows = q
-        .query_map(rusqlite::params![issue, how], |r| {
+        .query_map(rusqlite::params![issue, words.0.as_deref()], |r| {
             Ok((order(r)?, row_json(r, &CYCLE_NAMES)?))
         })
         .q()?;

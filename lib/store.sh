@@ -40,18 +40,15 @@
 #       could not answer (and prints nothing).
 #   plan_view <issue>
 #       The issue's open planning session, in the shape its record file had
-#       before the store (tehas_plan_shape), in a new 0600 file under $TEHAS_HOME/tmp;
-#       prints its path, and the caller removes it. Returns 0 with a path, 1
-#       when no session is open, 2 when the store could not answer (and
-#       prints nothing).
+#       before the store (tehas_plan_shape), in a new 0600 file under
+#       $TEHAS_HOME/tmp; prints its path, the caller removes it. Returns 0
+#       with a path, 1 when none is open, 2 when the store could not answer.
 #   tehas_plan_shape              a jq filter: of plan-show's answer, the
 #                                 session as its record file had it: session,
 #                                 turns, options, pending, failed, running,
-#                                 startedAt (ISO), comment (the question's
-#                                 id), lost, by, label, answers, filed and the
-#                                 notes fixer_refused and held, each key left
-#                                 out where the file had none; null when the
-#                                 store has no session of the issue
+#                                 startedAt (ISO), comment (the id asked for),
+#                                 lost, by, label, answers, filed, and the
+#                                 notes fixer_refused and held, absent if none
 #   tehas_settings_shape          a jq filter: of a cycle as cycle-show answers
 #                                 it, the settings on its record in the shape
 #                                 tehas_improve_settings writes them,
@@ -174,22 +171,24 @@ tehas_cycle_attempt() { # <issue>
 }
 
 # The approval as the dispatcher wrote .approved.json: the inputs it gave the
-# cycle, and for a fixer or a refresh start the approval it rests on and the
-# starts counted on that. A refresh names the person's approval it rests on,
-# as given_at did: its own row's at is when the dispatcher decided (D5).
+# cycle, and for a millwright's or a refresh start the approval it rests on and
+# the starts counted on that. A refresh names the person's approval it rests on,
+# as given_at did: its own row's at is when the dispatcher decided (D5). The
+# shape keeps the old names, and takes `millwright` or `fixer` for either.
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
   def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
-  .current as $c
+  def mw: if . == "millwright" then "fixer" else . end;
+  (.millwright_starts? // .fixer_starts? // 0) as $starts | .current as $c
   | if $c == null or ($want != null and $c.used_by != $want) then null
     elif ($c | type) != "object" then error("not an approval")
     else ($c.input // {}) as $in | (.rests_on | person) as $base
-    | {at: ($c.at | iso), by: $c.by, how: $c.how, body_sha256: $c.body_sha256, links: ($in.links // [])}
+    | {at: ($c.at | iso), by: $c.by, how: ($c.how | mw), body_sha256: $c.body_sha256, links: ($in.links // [])}
       + (if $c.title_sha256 == null then {} else {title_sha256: $c.title_sha256} end)
       + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
       + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
-      + (if $c.how == "fixer" then {rests_on: $base, fixer_starts} else {} end)
-      + (if $c.how == "refresh" then {rests_on: $base, fixer_starts, refreshes, refresh_of: $in.refresh_of}
+      + (if ($c.how == "millwright" or $c.how == "fixer") then {rests_on: $base, fixer_starts: $starts} else {} end)
+      + (if $c.how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
            + (if $base == null then {} else {at: $base.at, by: $base.by} end)
          else {} end)
     end'
@@ -208,10 +207,10 @@ tehas_approval_view() { # <issue> [<attempt>]
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
   file=$(mktemp "$dir/approval.XXXXXX" 2>/dev/null) || return 2
-  if ! printf '%s\n' "$view" >"$file" 2>/dev/null; then
+  printf '%s\n' "$view" >"$file" 2>/dev/null || {
     rm -f "$file"
     return 2
-  fi
+  }
   printf '%s\n' "$file"
 }
 
@@ -223,9 +222,10 @@ tehas_plan_shape='.planning | if type != "object" then null else
   + (if .lost == true then {lost: true} else {} end)
   + (if .by == null then {} else {by} end)
   + (if .label == null then {} else {label} end)
-  + {answers: (.answers // [])}
+  + {answers: ((.answers // []) | map(if .millwright != null then {turn, by, fixer: .millwright} else . end))}
   + (if (.filed // []) == [] then {} else {filed} end)
-  + (if (.notes.fixer_refused // []) == [] then {} else {fixer_refused: .notes.fixer_refused} end)
+  + (((.notes.millwright_refused // []) + (.notes.fixer_refused // [])) as $r
+     | if $r == [] then {} else {fixer_refused: $r} end)
   + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'
 
 plan_view() { # <issue>
@@ -238,10 +238,10 @@ plan_view() { # <issue>
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
   file=$(mktemp "$dir/plan.XXXXXX" 2>/dev/null) || return 2
-  if ! printf '%s\n' "$view" >"$file" 2>/dev/null; then
+  printf '%s\n' "$view" >"$file" 2>/dev/null || {
     rm -f "$file"
     return 2
-  fi
+  }
   printf '%s\n' "$file"
 }
 

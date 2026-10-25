@@ -169,6 +169,39 @@ fn history_show_takes_an_issue_a_kind_and_a_how() {
 }
 
 #[test]
+fn history_show_takes_the_millwright_under_both_words() {
+    let home = home("history-millwright");
+    // One row written before the rename still says `fixer`; the other is a
+    // start of this release's word. A read for either name keeps both.
+    let (l, a) = start_by(&home, 12, "alice", "label", NOW);
+    end(&home, 12, a, "failed");
+    drop(l);
+    cycle(&home, 12, "millwright", NOW + 30);
+    let c = conn(&home);
+    c.execute(
+        "UPDATE cycle_history SET how = 'fixer' WHERE issue = 12 AND how = 'label'",
+        [],
+    )
+    .unwrap();
+    drop(c);
+    for word in ["millwright", "fixer"] {
+        assert_eq!(
+            keys(&rows(&home, &["12", "--kind", "cycle", "--how", word])),
+            vec![
+                ("cycle".to_string(), 12, NOW),
+                ("cycle".to_string(), 12, NOW + 30)
+            ],
+            "--how {word}"
+        );
+    }
+    // Another word still keeps only its own rows.
+    assert_eq!(
+        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "label"])),
+        Vec::<(String, i64, i64)>::new()
+    );
+}
+
+#[test]
 fn history_show_refuses_bad_arguments() {
     for (args, says) in [
         (&["history-show", "x"][..], "<issue> is not a number"),

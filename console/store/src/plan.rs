@@ -26,7 +26,8 @@ pub enum Call {
         issue: i64,
         turn: i64,
         by: String,
-        fixer: bool,
+        /// Set by either `--millwright` or the old `--fixer`.
+        millwright: bool,
         text: Option<PathBuf>,
     },
     AnswerUndo {
@@ -78,8 +79,22 @@ const BRIEF_BOUND: u64 = 1 << 20;
 const TEXT_BOUND: u64 = 1 << 20;
 
 /// The kinds of `plan-note`, and the keys plan-show lists them under.
-const NOTES: [(&str, &str); 2] = [("fixer-refused", "fixer_refused"), ("held", "held")];
-const NOTE_KINDS: [&str; 2] = [NOTES[0].0, NOTES[1].0];
+/// `fixer-refused` is the old name of `millwright-refused`: the shell still
+/// sends it until part 5 of #686, and a note given it is written as
+/// `millwright-refused`.
+const NOTES: [(&str, &str); 2] = [
+    ("millwright-refused", "millwright_refused"),
+    ("held", "held"),
+];
+const NOTE_KINDS: [&str; 3] = [NOTES[0].0, "fixer-refused", NOTES[1].0];
+
+/// The word a refused note is written as, whatever spelling it was given.
+const MILLWRIGHT_REFUSED: &str = "millwright-refused";
+
+/// Whether `kind` names the refused note, in either spelling.
+fn is_refused(kind: &str) -> bool {
+    kind == MILLWRIGHT_REFUSED || kind == "fixer-refused"
+}
 pub const MAX_OPTIONS: usize = 20;
 const OPTION_BYTES: usize = 300;
 
@@ -131,6 +146,15 @@ fn note_args(rest: &[String]) -> Result<Call, String> {
     })
 }
 
+/// The kind as written: an old `fixer-refused` becomes `millwright-refused`.
+fn note_kind(kind: &'static str) -> &'static str {
+    if is_refused(kind) {
+        MILLWRIGHT_REFUSED
+    } else {
+        kind
+    }
+}
+
 fn begin_args(rest: &[String]) -> Result<Call, String> {
     let a = Args::parse(
         "plan-begin",
@@ -177,6 +201,7 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         &[
             ("--turn", Kind::Value),
             ("--by", Kind::Value),
+            ("--millwright", Kind::Switch),
             ("--fixer", Kind::Switch),
             ("--text-file", Kind::Value),
             ("--undo", Kind::Switch),
@@ -193,7 +218,7 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         issue,
         turn,
         by: a.strict_need("--by", "an account", verbs::account)?,
-        fixer: a.has("--fixer"),
+        millwright: a.has("--millwright") || a.has("--fixer"),
         text: a.path("--text-file")?,
     })
 }
@@ -314,15 +339,15 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             issue,
             turn,
             by,
-            fixer,
+            millwright,
             text,
-        } => answer(home, *issue, *turn, by, *fixer, text.as_deref(), now),
+        } => answer(home, *issue, *turn, by, *millwright, text.as_deref(), now),
         Call::AnswerUndo { issue, turn } => answer_undo(home, *issue, *turn),
         Call::End(e) => end(home, e, now),
         Call::Posted { issue } => posted(home, *issue),
         Call::Close { issue } => close(home, *issue, now),
         Call::Show { issue } => show(home, *issue),
-        Call::Note { issue, kind, id } => note(home, *issue, kind, *id, now),
+        Call::Note { issue, kind, id } => note(home, *issue, note_kind(kind), *id, now),
     }
 }
 
@@ -562,7 +587,7 @@ fn answer(
     issue: i64,
     turn: i64,
     by: &str,
-    fixer: bool,
+    millwright: bool,
     text: Option<&Path>,
     now: i64,
 ) -> Result<String, Fail> {
@@ -592,7 +617,7 @@ fn answer(
         c.execute(
             "INSERT INTO planning_answers (issue, turn, by_account, millwright, text)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![issue, turn, by, fixer, text],
+            params![issue, turn, by, millwright, text],
         )
         .q()?;
         c.execute(

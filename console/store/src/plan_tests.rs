@@ -75,7 +75,7 @@ fn plan_begin_opens_a_running_first_turn() {
                "failed":false,"running":true,"started_at":NOW,"comment_id":null,"lost":false,
                "by":"alice","label":"tehas:plan","brief":"the brief","turn_rc":null,"opened_at":NOW,
                "ended_at":null,"auto":false,"answers":[],"filed":[],"answer":null,
-               "notes":{"fixer_refused":[],"held":[]}})
+               "notes":{"millwright_refused":[],"held":[]}})
     );
     assert_eq!(count(&home, "issues WHERE issue = 10"), 1);
 }
@@ -282,6 +282,68 @@ fn plan_answer_keeps_the_session_and_brief() {
     assert_eq!(p["pending"], false);
     assert_eq!(p["started_at"], NOW + 30);
     assert_eq!(p["answers"], json!([{"turn":2,"by":"bob","fixer":true}]));
+}
+
+#[test]
+fn the_millwright_is_marked_by_either_flag_and_notes_are_written_as_one_kind() {
+    let home = home("plan-millwright");
+    begin(&home, 45);
+    finished(&home, 45, 1);
+    // The dispatcher of this release still sends --fixer; part 5 sends
+    // --millwright. Both mark the answer the same way.
+    let v = ok_at(
+        &home,
+        NOW + 30,
+        &["plan-answer", "45", "--turn", "2", "--by", "bob", "--fixer"],
+    );
+    assert_eq!(
+        v["planning"]["answers"][0],
+        json!({"turn":2,"by":"bob","fixer":true})
+    );
+    let _ = turn_end(
+        &home,
+        45,
+        2,
+        &["--outcome", "finished", "--rc", "0", "--session", "s1"],
+    );
+    let v = ok_at(
+        &home,
+        NOW + 60,
+        &[
+            "plan-answer",
+            "45",
+            "--turn",
+            "3",
+            "--by",
+            "tehas-fixer",
+            "--millwright",
+        ],
+    );
+    assert_eq!(
+        v["planning"]["answers"][1],
+        json!({"turn":3,"by":"tehas-fixer","fixer":true})
+    );
+}
+
+#[test]
+fn a_refused_note_is_written_as_one_kind_whichever_way_it_is_spelled() {
+    let noted = home("plan-millwright-note");
+    begin(&noted, 46);
+    finished(&noted, 46, 1);
+    note(&noted, 46, "fixer-refused", 910).unwrap();
+    note(&noted, 46, "millwright-refused", 911).unwrap();
+    assert_eq!(
+        show(&noted, 46)["notes"],
+        json!({"millwright_refused":[910,911],"held":[]})
+    );
+    assert_eq!(
+        count(&noted, "planning_notes WHERE kind = 'millwright-refused'"),
+        2
+    );
+    assert_eq!(
+        count(&noted, "planning_notes WHERE kind = 'fixer-refused'"),
+        0
+    );
 }
 
 #[test]
@@ -866,7 +928,7 @@ fn plan_note_says_once_and_plan_show_lists_the_notes() {
     assert_eq!(v["said"], true);
     assert_eq!(
         v["planning"]["notes"],
-        json!({"fixer_refused":[],"held":[900]})
+        json!({"millwright_refused":[],"held":[900]})
     );
     assert_eq!(note(&home, 60, "held", 900).unwrap()["said"], false);
     note(&home, 60, "fixer-refused", 902).unwrap();
@@ -875,7 +937,7 @@ fn plan_note_says_once_and_plan_show_lists_the_notes() {
     assert_eq!(note(&home, 60, "fixer-refused", 900).unwrap()["said"], true);
     assert_eq!(
         show(&home, 60)["notes"],
-        json!({"fixer_refused":[902,901,900],"held":[900]})
+        json!({"millwright_refused":[902,901,900],"held":[900]})
     );
     let open = ok(&home, &["plan-show", "--open"]);
     assert_eq!(open["sessions"][0]["notes"]["held"], json!([900]));
@@ -907,7 +969,7 @@ fn plan_notes_go_with_the_session() {
     assert_eq!(count(&home, "planning_notes"), 0);
     assert_eq!(
         show(&home, 62)["notes"],
-        json!({"fixer_refused":[],"held":[]})
+        json!({"millwright_refused":[],"held":[]})
     );
     // Closed.
     finished(&home, 62, 1);
@@ -932,7 +994,7 @@ fn plan_note_usage() {
     for (args, says) in [
         (
             &["plan-note", "1", "--kind", "seen", "--id", "5"][..],
-            "--kind is not one of fixer-refused, held: \"seen\"",
+            "--kind is not one of millwright-refused, fixer-refused, held: \"seen\"",
         ),
         (&["plan-note", "1", "--id", "5"][..], "--kind is required"),
         (

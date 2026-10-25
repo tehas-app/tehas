@@ -649,7 +649,14 @@ when it is not installed.
   renames the column of a planning answer from `fixer` to `millwright`, and
   keeps every row. It rebuilds the two tables whose lists changed and then
   compacts the file. If the compaction fails, the store is at 4 with its rows
-  and passes `store check`. The verbs still write the old words.
+  and passes `store check`. The store's verbs now write the new words: an
+  approval of `--how fixer` is stored as `millwright`, a `plan-answer` given
+  `--fixer` marks the answer's `millwright`, and a `plan-note` of
+  `fixer-refused` is stored as `millwright-refused`. Each answer of
+  `approval-current` and `plan-show` carries both spellings of what it names
+  (`millwright_starts` and `fixer_starts`, `millwright` and `fixer`,
+  `millwright_refused` and `fixer_refused`) so the shell keeps reading what it
+  always read. The old words are accepted until the shell moves to the new ones.
   The step to 5 adds a mark to each planning session and each of its turns:
   a refine the poll started on its own for a parked cycle. Every older row
   is a refine a person asked for.

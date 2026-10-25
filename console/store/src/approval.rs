@@ -29,7 +29,25 @@ pub struct Record {
     pub input: Option<PathBuf>,
 }
 
-pub const HOWS: [&str; 5] = ["label", "refresh", "retry-tick", "outage-retry", "fixer"];
+/// The hows `approval-record` takes. `fixer` is the old name of `millwright`:
+/// the shell still sends it until part 5 of #686, and a record given it is
+/// written as `millwright`.
+pub const HOWS: [&str; 6] = [
+    "label",
+    "refresh",
+    "retry-tick",
+    "outage-retry",
+    "millwright",
+    "fixer",
+];
+
+/// The word a millwright's start is written as, whatever spelling it was given.
+pub const MILLWRIGHT: &str = "millwright";
+
+/// Whether `how` names the millwright's start, in either spelling.
+pub fn is_millwright(how: &str) -> bool {
+    how == MILLWRIGHT || how == "fixer"
+}
 
 /// The keys `--input-file` may hold: what the cycle is given with the
 /// approval. Each list is a JSON array and `refresh_of` an object or null; the
@@ -86,7 +104,12 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
         return Ok(Call::Undo { issue, at });
     }
     a.need("--how")?;
-    let how = a.word("--how", &HOWS)?.expect("--how was given");
+    let given = a.word("--how", &HOWS)?.expect("--how was given");
+    let how = if is_millwright(given) {
+        MILLWRIGHT
+    } else {
+        given
+    };
     let by = a.strict_need("--by", "an account", verbs::account)?;
     let body_sha = a.strict_need("--body-sha", "a sha256", verbs::sha256)?;
     let title_sha = a.strict("--title-sha", "a sha256", verbs::sha256)?;
@@ -106,7 +129,13 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
             "and --refresh-head are given exactly with --how refresh",
         ));
     }
-    let labelled = how == "label" || how == "fixer";
+    let labelled = match how {
+        "label" => true,
+        // A millwright's start is recorded on the person's label, in either
+        // spelling of the word.
+        "millwright" => true,
+        _ => false,
+    };
     let label = match a.value("--label") {
         Some(v) => Some(approval_label(v).ok_or_else(|| {
             a.usage(
@@ -316,7 +345,7 @@ fn rests_on(c: &Connection, issue: i64) -> Result<Option<Base>, Fail> {
     let Some((top, how)) = current_used_by(c, issue)? else {
         return Ok(None);
     };
-    let below = if how == "fixer" || how == "refresh" {
+    let below = if is_millwright(&how) || how == "refresh" {
         top - 1
     } else {
         top
@@ -374,7 +403,8 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
             )
             .q()
         };
-        let fixer_starts = starts("fixer")?;
+        // An old row still says `fixer`, so a millwright start is either word.
+        let millwright_starts = starts(MILLWRIGHT)? + starts("fixer")?;
         let refreshes = starts("refresh")?;
         let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
             obj(&[
@@ -391,7 +421,10 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
                 ("approval", unused),
                 ("current", cur),
                 ("rests_on", base),
-                ("fixer_starts", j(fixer_starts)),
+                ("millwright_starts", j(millwright_starts)),
+                // The old key, the same number, until part 5 moves the shell's
+                // readers to the new one.
+                ("fixer_starts", j(millwright_starts)),
                 ("refreshes", j(refreshes)),
             ],
         ))
