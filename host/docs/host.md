@@ -613,7 +613,7 @@ No container is given it. Only one program writes it: the store,
 `~/tehas/libexec/store`, which `install.sh` builds and installs with the
 console, or takes from the release.
 
-What is in it today: the schema, version 2 (`PRAGMA user_version`); `meta`,
+What is in it today: the schema, version 4 (`PRAGMA user_version`); `meta`,
 which says when the database was made, by which version and commit of tehas,
 for which instance and repository, and when records were last imported
 (`imported_at`); and the cycles' records: the approval
@@ -639,9 +639,17 @@ when it is not installed.
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many. A
-  store at version 1 is migrated to 2 in place, and the install keeps the
-  database as it was under both names, `tehas-1-<time>.db` and
-  `tehas-2-<time>.db`.
+  store at an older version is brought forward one step at a time, each step
+  a transaction of its own, and the install keeps the database as it was under
+  the name of the version it came with, such as `tehas-1-<time>.db`, beside the
+  copy the answer names, `tehas-4-<time>.db`. A run that stopped between two
+  steps leaves the store at the last one with its rows; the next install goes
+  on from there. The step to 4 lets a cycle's start say `millwright` beside
+  `fixer` and a planning note `millwright-refused` beside `fixer-refused`,
+  renames the column of a planning answer from `fixer` to `millwright`, and
+  keeps every row. It rebuilds the two tables whose lists changed and then
+  compacts the file. If the compaction fails, the store is at 4 with its rows
+  and passes `store check`. The verbs still write the old words.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become
