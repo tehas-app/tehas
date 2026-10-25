@@ -1,17 +1,26 @@
 # shellcheck shell=bash
 # What a sandbox container is given, and the tree it works in. Sourced by the
 # commands that start one: tehas work (a cycle), tehas plan (a planning turn),
-# tehas dev (a manual session) and tehas index (the indexer). It is in one
-# place so they cannot drift apart; test/work_test.sh, test/plan_test.sh and
-# test/dev_test.sh pin the result option by option. The container's limits and
+# tehas dev (a manual session), tehasbot review (a review) and tehas index (the
+# indexer). It is in one place so they cannot drift apart; test/work_test.sh,
+# test/plan_test.sh, test/dev_test.sh and test/review_test.sh pin the result
+# option by option. The container's limits and
 # the slice it runs in are not made here: they come from lib/slice.sh. The
-# security options go to the cycle, the turn, the session and the push check
-# before a cycle; the indexer is not given them.
+# security options go to the cycle, the turn, the session, the review and the
+# push check before a cycle; the indexer is not given them.
 #
-#   tehas_sandbox_env <tree> <name> <email>   the -e options
+#   tehas_sandbox_env <tree> <name> <email> [no-token]
+#                                             the -e options; with no-token,
+#                                             every one of them but the bot's
+#                                             token: a run that writes nothing
+#                                             to the tracker is given no token
+#                                             to write with, and no -e carries
+#                                             its name at all
 #   tehas_sandbox_settings_ok                 is Pi's settings.json there
-#   tehas_sandbox_mounts <tree> <host> <state> <runs>
-#                                             the -v options
+#   tehas_sandbox_mounts <tree> <host> <state> <runs> [no-token]
+#                                             the -v options; with no-token,
+#                                             not the GitHub App's token
+#                                             directory
 #   tehas_sandbox_retry <host>                the provider retry a container's
 #                                             Pi runs with, as one line
 #   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
@@ -104,17 +113,25 @@ tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
 # configuration. And the model endpoints' tokens models.json names, by name:
 # Pi reads "$TEHAS_MODEL_KEY_<NAME>" from its environment.
 #
+# With no-token the bot's token is left out of the list altogether: not given
+# an empty value and not given its bare name, but absent. A caller that starts
+# a run which writes nothing to the tracker asks for that, so the name the
+# token carries is not among the container's variables at all. What is kept
+# back is decided here, before the list is made, and not by a caller editing
+# the list afterwards - the one place a name is dropped is this one.
+#
 # git inside the sandbox has no configuration of its own: no credential helper
 # and no identity. Without the helper the driver commits but cannot push, and
 # a cycle parks after all the work is done. Hand git the bot's token through
 # gh (which reads GH_TOKEN) and an identity, as environment-level config: it
 # outranks any file, reaches every agent process, and writes nothing into the
 # tree.
-tehas_sandbox_env() { # <tree> <git name> <git email>
-  local tree=$1 name=$2 email=$3 var key
+tehas_sandbox_env() { # <tree> <git name> <git email> [no-token]
+  local tree=$1 name=$2 email=$3 no_token=${4:-} var key
   key=$(tehas_git_credential_helper_key)
-  local envs=(-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree"
+  local envs=(-e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree"
     -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)")
+  [ -n "$no_token" ] || envs=(-e GH_TOKEN "${envs[@]}")
   envs+=(-e GIT_CONFIG_COUNT=4
     -e "GIT_CONFIG_KEY_0=$key" -e "GIT_CONFIG_VALUE_0="
     -e "GIT_CONFIG_KEY_1=$key" -e "GIT_CONFIG_VALUE_1=$(tehas_sandbox_helper_command)"
@@ -145,6 +162,9 @@ tehas_sandbox_env() { # <tree> <git name> <git email>
 # <host>; this makes <state> and <runs>, because Docker would create a missing
 # mount source as a root-owned directory.
 #
+# With no-token the GitHub App's token directory is not mounted: a run that is
+# given no GH_TOKEN is not given the app's token another way either.
+#
 # The two cache volumes pi-rukas mounts are not mounted here. What a container
 # writes under its home, caches of packages among them, stays in its own layer
 # and goes when the container is removed.
@@ -168,8 +188,8 @@ tehas_sandbox_settings_ok() {
   tehas_model_keys_ok
 }
 
-tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
-  local tree=$1 host=$2 state=$3 runs=$4 agent=$HOME/.pi/agent cache
+tehas_sandbox_mounts() { # <tree> <host> <state> <runs> [no-token]
+  local tree=$1 host=$2 state=$3 runs=$4 no_token=${5:-} agent=$HOME/.pi/agent cache
   [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
   tehas_sandbox_settings_ok || return 1
   cache=$(tehas_sandbox_cache_dir)
@@ -187,7 +207,7 @@ tehas_sandbox_mounts() { # <tree> <host> <state> <runs>
   # app: the image's gh (host/sandbox/gh-shim) reads the token the host keeps
   # fresh there. Not the key, which stays in ~/.config/tehas. A security change
   # under AGENTS.md rule 4: test/work_test.sh pins it.
-  if [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
+  if [ -n "${TEHAS_GITHUB_APP_ID:-}" ] && [ -z "$no_token" ]; then
     mkdir -p "$TEHAS_HOME/state/github" || return 1
     printf '%s\0' -v "$TEHAS_HOME/state/github:/run/tehas/github:ro"
   fi

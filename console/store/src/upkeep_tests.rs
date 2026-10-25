@@ -264,6 +264,9 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
         "improve-analyst-261001-000000.log",
         "plan-4-261001-000000.jsonl",
         "dispatch-plan-4.log",
+        "review-261001-000000.json",
+        "review-261001-000000.jsonl",
+        "review.log",
         "dispatch.log",
         "clean.log",
         "work-5-261013-000000.jsonl",
@@ -273,16 +276,21 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
     }
     aged(&logs.join("work-5-261013-000000.jsonl"), NOW - DAY);
     let v = ok(&home, &["upkeep", "--dry-run"]);
-    assert_eq!(v["logs"].as_array().unwrap().len(), 7);
+    assert_eq!(v["logs"].as_array().unwrap().len(), 9);
     assert_eq!(v.get("backup"), None);
-    assert_eq!(names(&logs).len(), 10);
+    assert_eq!(names(&logs).len(), 13);
     assert!(!home.join("state/backup").exists());
     let v = ok(&home, &["upkeep"]);
-    assert_eq!(v["logs"].as_array().unwrap().len(), 7);
+    assert_eq!(v["logs"].as_array().unwrap().len(), 9);
     assert_eq!(v["backup"]["made"], true);
     assert_eq!(v["prune"]["before"], NOW - 90 * DAY);
     assert_eq!(
         names(&logs),
-        vec!["clean.log", "dispatch.log", "work-5-261013-000000.jsonl"]
+        vec![
+            "clean.log",
+            "dispatch.log",
+            "review.log",
+            "work-5-261013-000000.jsonl"
+        ]
     );
 }
