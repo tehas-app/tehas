@@ -485,6 +485,37 @@ t_eq "$(tail_of 2)" "test.sh: failed checks (1), not run (0)
 $(bad_line b_test.sh 'timed out after 1s')"
 t_eq "$((SECONDS - began < 15))" 1
 
+# Each file notes when it starts and ends. Three at a time, they overlap; on a
+# host whose load is past its CPUs, the next waits for the one before.
+overlap() {
+  fresh
+  for n in a b c; do
+    printf '#!/usr/bin/env bash\necho "start %s" >>"%s"\nsleep 0.3\necho "end %s" >>"%s"\n' \
+      "$n" "$T/order" "$n" "$T/order" >"$repo/test/${n}_test.sh"
+  done
+  rm -f "$T/order"
+  T_ENV=(TEHAS_TEST_JOBS=3 TMPDIR="$recs" TEHAS_TEST_LOADAVG="$T/loadavg")
+  run
+  T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
+}
+t_case "an idle host runs the files side by side"
+echo "0.00 0.00 0.00 1/100 1" >"$T/loadavg"
+overlap
+t_eq "$t_rc" 0
+t_eq "$(head -n 2 "$T/order" | cut -d' ' -f1 | tr '\n' ' ')" "start start "
+
+t_case "a busy host runs them one after another, and all of them"
+echo "99999.00 0.00 0.00 1/100 1" >"$T/loadavg"
+overlap
+t_eq "$t_rc" 0
+t_eq "$(cut -d' ' -f1 "$T/order" | tr '\n' ' ')" "start end start end start end "
+
+t_case "a load that cannot be read holds nothing back"
+rm -f "$T/loadavg"
+overlap
+t_eq "$t_rc" 0
+t_eq "$(head -n 2 "$T/order" | cut -d' ' -f1 | tr '\n' ' ')" "start start "
+
 t_case "the run counts the cases of every file and names the slowest"
 fresh
 printf '#!/usr/bin/env bash\necho "a_test.sh: 3 cases, 0 failed"\n' >"$repo/test/a_test.sh"

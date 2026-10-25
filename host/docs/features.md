@@ -10,11 +10,11 @@ agent and [pi-rukas](https://github.com/trail-openers/pi-rukas) on self-hosted
 models. A person writes the issue, applies one label, and later reviews and
 merges. Everything in between is tehas.
 
-It is a set of shell scripts, one small Rust program and a few containers on
-one host. There is no server process of its own and no database for its state:
-state lives in GitHub labels, in pi-rukas's state files and in plain files under
-`~/tehas`. 365 days of measurements are kept in one SQLite file, see
-[Analytics](/analytics).
+It is a set of shell scripts, a few Rust programs and a few containers on one
+host. The queue lives in GitHub labels. The host's own records are in the state
+store, `~/tehas/state/tehas.db`, and locks, logs and container files stay plain
+files under `~/tehas`. 365 days of measurements are kept in a second SQLite
+file, see [Analytics](/analytics).
 
 Each feature below says how far it has been proven. "Verified" means it was run
 on a tehas host and the result checked. Rows with a date were checked on the
