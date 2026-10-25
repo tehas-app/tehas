@@ -73,7 +73,9 @@ echo 'sleep 30 & s=$!
 trap "kill \$s; : >\"\$T/calls/work.term\"; exit 2" TERM
 : >"$T/calls/work.ready"
 wait "$s"' >"$fx/work.sh"
-t_run "$cycle 7 & pid=\$!
+# A gate started under nohup, as an agent's runner may start it, ignores HUP,
+# and bash cannot trap a signal ignored at its start: the cycle gets HUP back.
+t_run "env --default-signal=HUP $cycle 7 & pid=\$!
 for _ in \$(seq 100); do [ -e \"\$T/calls/work.ready\" ] && break; sleep 0.1; done
 kill -HUP \$pid; wait \$pid; echo rc=\$?"
 t_contains "$t_out" "rc=0"
