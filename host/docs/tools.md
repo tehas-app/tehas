@@ -2685,7 +2685,14 @@ that expired or cannot be read, holds a run: it says `held by the limit`, exits
 
 When a cycle ends, `tehasbot cycle` leaves a record of it in
 `~/tehas/tmp/improve/window/<issue>-<time>/`: how it ended, the stream without
-its word by word updates, the console and the error output. Its `cycle.json`
+its word by word updates, the console and the error output. The driver's slow
+notices are kept beside them as `slow.jsonl`, only when the cycle wrote any:
+one line per child that crossed the bound pi-rukas watches, with its step, its
+role, its elapsed time, turns and tokens, and, when the runner reports them,
+the command that repeated, how many times and with how many identical results.
+Those lines are what a stuck cycle is read by when the console is gone: it is
+written inside the container and swept with the workspace. The record keeps the
+last 20 of them and never over 64 KiB. Its `cycle.json`
 names the image the cycle's container started from (`image`, its id) and the
 pi-rukas commit of that image's label (`rukas`), which `tehas work` reads as
 the container starts and puts on the cycle's record in the state store. A

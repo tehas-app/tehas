@@ -179,6 +179,96 @@ t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "a cycle given images or fil
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "the instance gives a cycle none"
 t_contains "$(cat "$T_ROOT/lib/improve-prompt.md")" "this instance gave it no way to see"
 
+# --- What the driver said of children that ran long --------------------------
+# The runner's own line for a dispatch that crossed the bound it watches. The
+# repeat fields are what pi-rukas adds; a runner that has them names the
+# command, how often it repeated and how many identical results came back.
+slow_lines() { # the slow lines of one cycle, appended to its stream
+  jq -n -c --arg cmd "bash -c 'unset -f nothere; echo rc=$?'" \
+    '{v: 1, kind: "dispatch-slow", issue: 7, step: "lens-review",
+      role: "code-review-specialist-p", jobId: "mvoc4hbz", elapsedMs: 400257,
+      turns: 257, tokens: 40009732, command: $cmd, count: 24,
+      identicalResultCount: 24}' >>"$home/logs/work-$REC.jsonl"
+  printf '%s\n' \
+    '{"v":1,"kind":"dispatch-slow","unstable":true,"step":"develop","role":"developer","elapsedMs":1200000,"turns":300,"tokens":32600000}' \
+    >>"$home/logs/work-$REC.jsonl"
+}
+
+t_case "the cycle's dispatch-slow lines are kept of the record, with the repeat fields"
+reset
+cycle_log
+t_store_home "$home"
+slow_lines
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+t_eq "$(jq -c -s 'length' "$base/window/$REC/slow.jsonl")" 2
+t_eq "$(jq -c -s '.[0] | [.step, .role, .elapsedMs, .turns, .tokens, .count, .identicalResultCount]' "$base/window/$REC/slow.jsonl")" \
+  '["lens-review","code-review-specialist-p",400257,257,40009732,24,24]'
+t_contains "$(cat "$base/window/$REC/slow.jsonl")" "unset -f nothere"
+
+t_case "a cycle with no slow line leaves no slow.jsonl, and the record's files are as they were"
+reset
+cycle_log
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+t_eq "$(find "$base/window/$REC" -name slow.jsonl | wc -l)" 0
+t_eq "$(cd "$base/window/$REC" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./preflight.txt ./stream.jsonl "
+
+# One line of a stream can carry a command and an error tail of any size, so
+# the kept lines are at most 20 and the file stays under 64 KiB. Each line
+# names its own number twice, so the first and last of them say which of the
+# 30 the record holds: the whole line is kept or left out, never cut.
+t_case "of the slow lines the last 20 are kept and the file stays under 64 KiB"
+reset
+cycle_log
+t_store_home "$home"
+{
+  pad=$(printf 'x%.0s' $(seq 1 400))
+  for i in $(seq 1 30); do
+    jq -n -c --arg i "$i" --arg pad "$pad" \
+      '{v: 1, kind: "dispatch-slow", step: "lens-review", role: "developer", count: ($i + "|" + $i), fields: [$pad, $pad, $pad]}'
+  done
+} >>"$home/logs/work-$REC.jsonl"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+r=$base/window/$REC/slow.jsonl
+t_eq "$(wc -l <"$r")" 20
+t_eq "$(sed -n 1p "$r" | jq -r .count)" "11|11"
+t_eq "$(sed -n '$p' "$r" | jq -r .count)" "30|30"
+t_eq "$(($(wc -c <"$r") < 65536))" 1
+
+t_case "a slow line too big for the bound is left out whole, and no half of one is kept"
+reset
+cycle_log
+t_store_home "$home"
+{
+  # Four lines over the bound and one under it, so the bound has to refuse the
+  # big ones and still keep the small one whole.
+  pad=$(printf 'x%.0s' $(seq 1 40000))
+  for i in $(seq 1 4); do
+    jq -n -c --arg pad "$pad" '{v: 1, kind: "dispatch-slow", step: "lens-review", fields: [$pad, $pad]}'
+  done
+  jq -n -c '{v: 1, kind: "dispatch-slow", step: "handoff"}'
+} >>"$home/logs/work-$REC.jsonl"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+r=$base/window/$REC/slow.jsonl
+t_eq "$(jq -c -s '[.[].step]' "$r")" '["handoff"]'
+t_eq "$(($(wc -c <"$r") >= 65536))" 0
+
+t_case "a line that is not JSON, or names another kind, is not a slow line"
+reset
+cycle_log
+{
+  echo 'dispatch-slow in a line that is no JSON'
+  echo '{"kind":"dispatch-completed","command":"the same probe","count":24}'
+  echo '{"kind":"slow-notice"}'
+} >>"$home/logs/work-$REC.jsonl"
+lib "tehas_improve_record 7 $started 0 handoff review"
+t_eq "$t_rc" 0
+t_eq "$(find "$base/window/$REC" -name slow.jsonl | wc -l)" 0
+
 # --- What a cycle ran with --------------------------------------------------
 settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:-3} ${3:-}"; }
 

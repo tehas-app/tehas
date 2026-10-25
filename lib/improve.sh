@@ -118,7 +118,10 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   # What the cycle was given of the issue's attachments, as tehas work kept it:
   # the manifest, the model's descriptions and a retry's pull request text.
   # Never the files themselves. Only this cycle's, only plain files, and none
-  # over the bound.
+  # over the bound. The driver's slow notices (slow.jsonl), what a child was
+  # doing while it ran, come from the store's `slow` verb, which writes none of
+  # a cycle whose children all came in under its bound.
+  tehas_store slow "$raw" --out "$tmp/slow.jsonl" >/dev/null || rm -f "$tmp/slow.jsonl"
   for f in manifest.json images.md retry-context.md; do
     from=$TEHAS_HOME/state/cycles/$issue.$f
     [ -f "$from" ] && [ ! -L "$from" ] || continue
@@ -133,17 +136,14 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   fi
 }
 
-# The TEHAS_* settings a record carries: those that shape a cycle. Not every
-# one: the analyst's words are filed in public, and a host's addresses, its
-# domain and the analytics settings are none of its business.
+# The TEHAS_* settings a record carries: those that shape a cycle. Not every one:
+# the analyst's words are filed in public, and a host's addresses and the
+# analytics settings are none of its business.
 _tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)$'
 
 # Only a value of a safe shape goes in: a number, a boolean, or a short word
-# of [A-Za-z0-9_.,:=-]. Everything else is [withheld]: any path, URL or
-# address, anything with an @, an IP address, a name with a domain in it
-# (a dot before a letter) or a port, a long run of letters and digits that
-# may be a token, and any value whose name says it may be a
-# secret or a host.
+# of [A-Za-z0-9_.,:=-]. Everything else is [withheld], and so is any value whose
+# name says it may be a secret or a host.
 _tehas_improve_value() { # <name> <value>
   local v=$2
   case "$1" in
