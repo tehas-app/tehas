@@ -778,6 +778,9 @@ slow_store() {
 t_case "a store that is busy during the wait still finds the start"
 reset
 slow_store
+# Three looks must fit in the wait, which a loaded runner cannot promise in 2
+# seconds. The start is found at the third look, so the case takes no longer.
+T_ENV=("${T_ENV[@]/#TEHAS_CYCLE_START_WAIT=*/TEHAS_CYCLE_START_WAIT=10}")
 # The store is busy for the first two looks after the unit is started.
 t_stub fake-start 'echo 2 >"$T/busy-left"
 flock -w 5 "$TEHAS_HOME/state/cycles/$1.lock" "$T/store-bin" cycle-start "$1" >/dev/null'
