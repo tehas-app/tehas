@@ -37,7 +37,7 @@ esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-tehas_load || exit 78
+TEHAS_SILENT_RENAMED=1 tehas_load || exit 78
 tehas_require TEHAS_REPO
 
 # What this release can do. A feature is added here in the release that

@@ -222,7 +222,8 @@ instance_findings() {
       return 0
     fi
   done
-  tehas_load 2>&1 || return 0
+  # What this prints is a finding, and a name the load moved is not one.
+  TEHAS_SILENT_RENAMED=1 tehas_load 2>&1 || return 0
   (tehas_require_instance_settings 2>&1) || return 0
   models=$dir/models.json
   if [ ! -r "$models" ]; then
