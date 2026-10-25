@@ -279,20 +279,15 @@ ready
 t_run "$improve"
 t_eq "$(t_calls docker | grep -c '^rm -f tehas-improve$')" 1
 
-t_case "the sweep removes what is over seven days old and nothing newer"
+t_case "the sweep removes what is over seven days old and nothing newer, and leaves the logs to tehasbot clean"
 reset
 record 3-261001-000000
 touch -d '8 days ago' "$base/window/3-261001-000000" "$home/logs/work-3-261001-000000.jsonl"
-for f in work-3-261001-000000.jsonl.err dispatch-work-3.log index-261001-000000.log dispatch.log improve.log \
-  improve-analyst-261001-000000.log improve-analyst.log; do
-  touch -d '8 days ago' "$home/logs/$f"
-done
-touch -d '6 days ago' "$home/logs/work-4-261004-000000.jsonl" "$home/logs/improve-analyst-261004-000000.log"
 mkdir -p "$base/.new.old" && touch -d '8 days ago' "$base/.new.old"
 t_run "$improve"
 t_eq "$t_rc" 0
 t_contains "$t_out" "cycles=0"
-t_eq "$(find "$home/logs" -type f -printf '%f\n' | sort | tr '\n' ' ')" "dispatch.log improve-analyst-261004-000000.log improve.log work-4-261004-000000.jsonl "
+t_eq "$([ -e "$home/logs/work-3-261001-000000.jsonl" ] && echo kept)" kept
 t_eq "$(find "$base" -mindepth 1 ! -name window | wc -l)" 0
 
 t_case "the analyst's container is not given the run's lock"

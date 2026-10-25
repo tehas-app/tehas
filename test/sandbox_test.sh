@@ -1380,7 +1380,7 @@ records=$(records_of "$T_ROOT/libexec")
 for want in \
   'check-product	145	PI_ENSEMBLE_IMAGE	bash	' \
   'dev	331	PI_ENSEMBLE_IMAGE	pi	' \
-  'improve	272	PI_ENSEMBLE_IMAGE	pi	' \
+  'improve	269	PI_ENSEMBLE_IMAGE	pi	' \
   'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
   'plan	247	PI_ENSEMBLE_IMAGE	$runner	' \
   'plan	441	PI_ENSEMBLE_IMAGE	$runner	' \

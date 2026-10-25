@@ -2707,6 +2707,11 @@ sweep_workspaces() {
   return 0
 }
 sweep_workspaces
+# The lock files of issues nothing has used for 30 days go, three a poll.
+sweep=(sweep-locks) did=removed; [ "$dry" = 0 ] || { sweep+=(--dry-run); did="would remove"; }
+if tehas_store "${sweep[@]}"; then
+  for n in $(tehas_store_get '.removed[]'); do log "$did the lock of #$n: unused for 30 days"; done
+else log "WARN: the unused cycle locks were not swept ($tehas_store_word): $tehas_store_line"; fi
 
 # 1b. The pause switches end the poll here. Everything above cleaned up what
 # this host already had; nothing below starts work: no cycle, no planning turn,

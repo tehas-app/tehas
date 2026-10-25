@@ -796,6 +796,12 @@ pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
 /// timeout is what another waits.
 pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<PathBuf, DbError> {
     let copy = backup_name(state, from, now);
+    backup_to(conn, &copy)?;
+    Ok(copy)
+}
+
+/// `backup` to a name the caller chose, with the same guarantees.
+pub fn backup_to(conn: &Connection, copy: &Path) -> Result<(), DbError> {
     let name = copy.to_str().ok_or_else(|| {
         DbError::Unreadable(format!("the backup path {} is not UTF-8", copy.display()))
     })?;
@@ -807,7 +813,7 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&copy)
+        .open(copy)
         .map(|_| ())
         .map_err(|e| {
             DbError::Unreadable(format!("cannot make the backup {}: {e}", copy.display()))
@@ -816,11 +822,26 @@ pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<Pa
         // SQLite may have filled part of the file before it gave up, and a
         // reader cannot tell that copy from a good one. The name is taken away
         // so that the only backup the directory holds is one that finished.
-        let _ = fs::remove_file(&copy);
+        let _ = fs::remove_file(copy);
         classify(e)
     })?;
-    set_mode(&copy, 0o600)?;
-    Ok(copy)
+    // The copy is written in the rollback journal mode, which the store's
+    // readers cannot open: a copy restored over the store must be one the
+    // store opens as it is.
+    let wal = Connection::open(copy)
+        .and_then(|c| c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get::<_, String>(0)))
+        .map_err(|e| {
+            let _ = fs::remove_file(copy);
+            classify(e)
+        })?;
+    if wal != "wal" {
+        let _ = fs::remove_file(copy);
+        return Err(DbError::Unreadable(format!(
+            "the backup {} took journal mode {wal}",
+            copy.display()
+        )));
+    }
+    set_mode(copy, 0o600)
 }
 
 /// The directory `migrate --backup` was given, settled to one of the two places

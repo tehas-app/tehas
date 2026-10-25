@@ -1057,6 +1057,8 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `journal-record` | `--kind <k> --issue <n> --args <json> --before <snapshot-id>` | `actions` + `journal` (the intent) | `{"action":N}` | 0, 64, 78 |
 | `journal-settle` | `--action N --result ok\|empty\|read-failed\|timed-out [--evidence <json>]` | `journal` (the result) | the row | 0, 64, 78 |
 | `prune` | `--days N` | `heartbeats` (7 days or 100 rows per issue), `endings` (the ten last), `polls`, `health_samples`, `energy_samples` and `journal` rows whose action settled, at `--days`; never a `polls` row an `actions` row points at, which it reports by count instead (section 5) | the counts | 0, 78, 1 |
+| `backup` | `[--show]` | nothing in the store: `state/backup/tehas-<YYYYMMDD>.db` by `VACUUM INTO`, one a day, the newest 7 kept; `--show` only reads (#257) | `{"made":true,"removed":[...],"newest":{"file":...,"at":N,"age_seconds":N}}` | 0, 64, 78, 1 |
+| `sweep-locks` | `[--days N] [--max N] [--dry-run]` | `sweep_log`; removes `state/cycles/<n>.lock` when free and the issue's cycle ended N days ago (30), or none is on record and the file is that old (#257) | `{"removed":[...],"kept":[...]}` | 0, 64, 78, 1 |
 
 `journal-*` are the verbs the reconciler uses; nothing else calls them. The
 verbs above each group are the ones the shell commands call, and the mapping is

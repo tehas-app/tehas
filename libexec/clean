@@ -76,6 +76,7 @@
 #                                        any other shape is offered, and
 #                                        nothing without a tag of its own is
 #                                        given to docker: no `image prune`.
+#   6. logs and the state store          `store upkeep`: old logs, a daily backup, prune
 #
 # Docker volumes are never touched, a person's call (see the host manual).
 #
@@ -137,6 +138,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # this run takes build output early (see build_after below).
 # shellcheck source=lib/disk.sh
 . "$here/../lib/disk.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
 
@@ -921,12 +924,23 @@ clean_base_image() {
   return "$failed"
 }
 
+# 6. Old logs and the state store's upkeep (store upkeep).
+clean_upkeep() {
+  local args=() act=removed n
+  [ "$dry" = 0 ] || { args=(--dry-run); act="would remove"; }
+  tehas_store_ready || { warn "the state store is not installed: no logs removed, no backup"; return 1; }
+  tehas_store upkeep "${args[@]}" || { warn "store upkeep failed ($tehas_store_word): $tehas_store_line"; return 1; }
+  for n in $(tehas_store_get '.logs[]'); do log "$act logs/$n: a log 7 days old"; done
+  [ "$dry" = 1 ] || log "store upkeep: $(jq -c '{backup, prune}' <<<"$tehas_store_out")"
+}
+
 # Every step runs, whatever the ones before it did.
 clean_workspaces || rc=1
 clean_build_cache || rc=1
 clean_scratch || rc=1
 clean_sandbox_images || rc=1
 clean_base_image || rc=1
+clean_upkeep || rc=1
 
 log "freed $freed bytes"
 exit "$rc"

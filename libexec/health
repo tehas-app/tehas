@@ -30,7 +30,8 @@
 #                  (live/previews.json, from tehasbot preview), or the
 #                  platform checkout has lacked a commit of origin's default
 #                  branch for more than a day (live/platform.json, from
-#                  tehasbot status)
+#                  tehasbot status), or the state store's newest daily backup
+#                  is missing or more than two days old (checks.backup)
 #   status "fail"  the last cycle ended as anything but merged or handoff and
 #                  no cycle has started since, or there is no queue snapshot yet
 # On "fail" there is also live/health.down, which makes the docs server answer
@@ -174,6 +175,9 @@ lifted=$(jq -rc 'if (.pause.lifted | type) == "boolean" then .pause.lifted else 
 pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" --argjson lifted "$lifted" \
   '{flag: $flag, label: $label, lifted: $lifted}')
 
+# The newest daily copy of the store; a store that cannot answer is no warning here.
+backup=null backup_known=false
+tehas_store backup --show && backup=$(jq -c '.newest | if . == null then null else {at, ageSeconds: .age_seconds} end' <<<"$tehas_store_out") && backup_known=true || backup=null
 # The snapshots go in as files: one argument is at most 128 KiB on Linux, and
 # status.json lists every open issue the factory was given.
 # The report goes to a private file of this run, and from there to live/
@@ -182,7 +186,7 @@ mkdir -p "$TEHAS_HOME/tmp" && chmod 700 "$TEHAS_HOME/tmp" || exit 1
 report=$(mktemp "$TEHAS_HOME/tmp/health.XXXXXX") || exit 1
 trap 'rm -f "$report"' EXIT
 jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "$view") --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --argjson limit "$limit" --argjson plans "$plans" --arg now "$(date -u +%FT%TZ)" \
-  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" '
+  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" --argjson backup "$backup" --argjson backupKnown "$backup_known" '
   def iso: if type == "number" then todate else null end;
   def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
   def brief: {
@@ -217,6 +221,7 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
   | ($pause.flag != null or $pause.label == true or $pause.lifted == true) as $paused
   # A limit that expired or cannot be read holds every start.
   | ($limit.state | IN("expired", "unreadable")) as $limit_holds
+  | ($backupKnown and ($backup == null or $backup.ageSeconds > 172800)) as $old_backup
   | (if $queue == null then "fail"
      elif $failed then "fail"
      elif $old_queue then "warn"
@@ -227,6 +232,7 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
      elif $no_resources then "warn"
      elif $disk != null and $disk.low then "warn"
      elif $behind then "warn"
+     elif $old_backup then "warn"
      else "pass" end) as $status
   | {
       status: $status,
@@ -247,6 +253,8 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
                   else "The host is low on disk: previews are not being built." end)
                elif $behind then
                  "The platform is \($platform.behind) commits behind \($platform.upstream) since \($platform.behindSince // "" | .[:10]): run tehas update."
+               elif $old_backup and $backup == null then "There is no backup of the state store: tehasbot clean makes one a day."
+               elif $old_backup then "The newest backup of the state store is \($backup.ageSeconds | ago) old."
                elif ($running | length) > 0 then "Working on \($running | map("#\(.issue)") | join(", "))."
                else "Idle, taking work." end),
       checks: {
@@ -273,7 +281,8 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
         # it is not, or the snapshot could not read it.
         allHands: (if $queue == null or $old_queue then null else $queue.allHands end),
         pause: $pause,
-        platform: $platform
+        platform: $platform,
+        backup: (if $backup == null then null else {time: ($backup.at | iso), ageSeconds: $backup.ageSeconds} end)
       }
     }' >"$report" 2>/dev/null || exit 1
 if ! tehas_live_publish --health "$report"; then

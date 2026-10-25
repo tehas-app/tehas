@@ -172,6 +172,8 @@ sample=$T/home/sample
 mkdir -p "$sample/live"
 # The state store health reads the planning turns from, with none on record.
 t_store_home "$sample"
+# A backup of today, as a host has one.
+TEHAS_HOME=$sample "$T_STORE" backup >/dev/null || t_bad "the store made no backup of the sample"
 # The cycle that finished last, as the sample shows it; health publishes the
 # view from the store before it reads it.
 t_live "$sample" "$(jq .last.issue "$T_ROOT/preview/live/running.json")" false \

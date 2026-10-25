@@ -71,8 +71,10 @@ reset() {
   shipped_count 0
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
-  # The state store the health file reads the planning turns from.
+  # The state store the health file reads the planning turns from, with
+  # today's backup.
   t_store_home "$T/home/tehas"
+  TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null || t_bad "reset: the store made no backup"
   echo "[$(issue 3 tehas:ready),$(issue 4 tehas:ready),$(issue 5 tehas:awaiting-merge),$(issue 6 needs-human-attention)]" >"$T/issues.json"
   echo false >"$T/paused"
   echo '[]' >"$T/events.json"
@@ -823,6 +825,7 @@ release_setup() { # <installed> [<installed> ...]
   done
   ln -s "versions/$1" "$T/home/tehas/current"
   t_store_db "$T/home/tehas"
+  TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null || t_bad "release_setup: the store made no backup"
 }
 # The published releases, newest first, as GitHub answers the list.
 releases() { # <tag> [...]
@@ -1577,5 +1580,21 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "The last cycle failed: #9 ended as lost."
 t_eq "$(jq -c '[.last.issue, .last.status]' "$live/running.json")" '[9,"lost"]'
 t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "9.json "
+
+t_case "health warns when the state store has no backup, or only one more than two days old"
+reset
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -r '.checks.backup.ageSeconds < 60' "$live/health.json")" true
+rm -rf "$T/home/tehas/state/backup"
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "There is no backup of the state store: tehasbot clean makes one a day."
+t_eq "$(jq -c .checks.backup "$live/health.json")" null
+TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null
+touch -d '72 hours ago' "$T"/home/tehas/state/backup/tehas-*.db
+t_run "$health"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -r .output "$live/health.json")" "The newest backup of the state store is 72 h old."
 
 t_done

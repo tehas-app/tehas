@@ -2305,7 +2305,7 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -2327,6 +2327,10 @@ recorded as ended with the status `lost`, which is a failure. While
 
 `checks.platform` is `live/platform.json`: the release a host runs, or the
 checkout of a host that has one. It is `null` on a host with neither.
+
+`checks.backup` is the newest daily copy of the state store, `{time,
+ageSeconds}`, or `null` when there is none (see [Backups and
+restore](/operating#backups-and-restore)).
 
 `checks.allHands` is the snapshot's `allHands`: true while
 [`tehas:all-hands`](/operating#all-hands) holds, false when it does not, and
@@ -2736,7 +2740,8 @@ journalctl --user -u tehas-clean
 ```
 
 Removes what the host can make again, of anything untouched for
-`TEHAS_CLEAN_AFTER` hours (24 by default). Five steps, and a step that fails
+`TEHAS_CLEAN_AFTER` hours (24 by default), and keeps the logs and the state
+store in bounds. Six steps, and a step that fails
 is logged as a warning while the others still run. One exception to the age:
 when less than `TEHAS_CLEAN_MIN_FREE` (30g by default) is free on the file
 system of `~/tehas` or on the one Docker keeps its images on, whichever has
@@ -2814,6 +2819,16 @@ starting cycles:
    with one `docker rmi` of its own once it is of that age and no container was
    made from it. Nothing else is offered to docker: the step asks for that one
    name, and never for the images that have lost their tag.
+6. **Logs and the state store.** The logs in `~/tehas/logs` of cycles
+   (`work-*`, `dispatch-work-*`), planning turns (`plan-*.jsonl`,
+   `dispatch-plan-*.log`), index runs (`index-*`) and the improvement loop's
+   analyst (`improve-analyst*.log`) older than 7 days, whether or not the
+   improvement loop is on. Then `store backup`, a copy a day of the state store
+   kept seven days, and `store prune --days 90` (see [Backups and
+   restore](/operating#backups-and-restore)). All of it is one call,
+   `store upkeep`, and says one line per log removed and then
+   `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
+   store alone.
 
 Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),
