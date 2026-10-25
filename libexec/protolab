@@ -22,7 +22,7 @@
 #                   collaborator of the repository. Nothing else is fetched.
 #   which types     png jpg gif webp svg avif, mp4 webm mov, html htm, and
 #                   css js mjs json txt. A zip is unpacked into a folder of
-#                   its own by lib/unzip.sh, which takes the same types and md;
+#                   its own by libexec/attach, which takes the same types and md;
 #                   its files count against the same limits.
 #   how much        10 megabytes a ticket, counted in the order the files were
 #                   attached, and at most 40 files. What does not fit is left
@@ -65,8 +65,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
-# shellcheck source=lib/unzip.sh
-. "$here/../lib/unzip.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
 tehas_load || exit 78
@@ -83,7 +81,7 @@ site=$TEHAS_HOME/protolab
 live=$TEHAS_HOME/live
 work=$site/.work
 # A changed generator rebuilds every page.
-gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" "$here/../lib/unzip.sh" | cksum | tr ' ' '-')-${domain:-path}"
+gen="$(cat "${BASH_SOURCE[0]}" "$here/../lib/attachments.sh" "$here/../lib/labels.sh" | cksum | tr ' ' '-')-${domain:-path}"
 
 mkdir -p "$site" "$live" || exit 1
 edge_lock protolab || { echo "another tehasbot protolab is running"; exit 0; }
@@ -275,7 +273,7 @@ build() {
     rm -f "$dir/.part"
     if [ "$rc" != 0 ]; then
       rm -rf "${dir:?}/files/$base"
-      skip "$name" "Not a zip the lab can read."
+      if [ "$rc" = 3 ]; then skip "$name" "This host cannot unpack a zip."; else skip "$name" "Not a zip the lab can read."; fi
       return 0
     fi
     rmdir "$dir/files/$base" 2>/dev/null

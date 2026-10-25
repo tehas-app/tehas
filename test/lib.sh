@@ -20,15 +20,21 @@
 #                                    CARGO_OFFLINE is what a build that asked
 #                                    for --offline answers: miss, noise or fail
 #   t_console_source DIR             copy the source of the console, analytics,
-#                                    the MCP server and the store into a scratch
+#                                    the MCP server, the store and the
+#                                    attachment checker into a scratch
 #                                    checkout, and name its commit (t_tree_commit)
 #   t_tree_commit DIR                write COMMIT, as a release tree carries it
 #   t_store                          the real store, built once per run of
 #                                    the tests, in $T_STORE; 1 when there is
 #                                    none (t_store_why)
+#   t_attach_home HOME               the real attachment checker, built once
+#                                    per run like the store, installed at
+#                                    HOME/libexec/attach; a failure when there
+#                                    is none
 #   t_store_db HOME                  a fresh database in HOME/state/tehas.db
 #   t_store_home HOME                the real store installed at
-#                                    HOME/libexec/store and a fresh database;
+#                                    HOME/libexec/store and a fresh database,
+#                                    and the attachment checker beside it;
 #                                    a failure when there is no store
 #   t_row VERB ARGS... -- JQ         a read verb of the real store against the
 #                                    home of t_store_home, and jq -r JQ of its
@@ -277,9 +283,10 @@ EOF
 # The source of the workspace's crates without what a build here left beside
 # it.
 t_console_source() {
-  mkdir -p "$1/console/analytics" "$1/console/core" "$1/console/mcp" "$1/console/store"
+  mkdir -p "$1/console/analytics" "$1/console/attach" "$1/console/core" "$1/console/mcp" "$1/console/store"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
   cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
+  cp -R "$T_ROOT/console/attach/Cargo.toml" "$T_ROOT/console/attach/src" "$1/console/attach/"
   cp -R "$T_ROOT/console/core/Cargo.toml" "$T_ROOT/console/core/src" "$1/console/core/"
   cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
   cp -R "$T_ROOT/console/store/Cargo.toml" "$T_ROOT/console/store/src" "$1/console/store/"
@@ -321,6 +328,43 @@ t_store() {
   fi
   cp "$target/debug/store" "$T_STORE"
 }
+# t_attach: the attachment checker of this checkout, in $T_ATTACH, as t_store
+# gets the store: from T_ATTACH_BIN, or built here when the file runs alone.
+T_ATTACH=$T/attach-bin
+t_attach_why=""
+t_attach() {
+  [ -x "$T_ATTACH" ] && return 0
+  if [ -n "${T_ATTACH_BIN:-}" ]; then
+    cp "$T_ATTACH_BIN" "$T_ATTACH" && return 0
+    t_attach_why="the attachment checker built for this run cannot be copied: $T_ATTACH_BIN"
+    return 1
+  fi
+  if [ -n "${T_STORE_WHY:-}" ]; then
+    t_attach_why=$T_STORE_WHY
+    return 1
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_attach_why="cargo is not installed"
+    return 1
+  fi
+  local target=$T_ROOT/console/target/shell
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$target" -p attach >"$T/attach-build.log" 2>&1; then
+    t_attach_why="the attachment checker did not build offline: $(tail -n 1 "$T/attach-build.log")"
+    return 1
+  fi
+  cp "$target/debug/attach" "$T_ATTACH"
+}
+# t_attach_home <home>: the attachment checker where a command runs it.
+t_attach_home() {
+  if ! t_attach; then
+    t_bad "no attachment checker: $t_attach_why"
+    return 1
+  fi
+  mkdir -p "$1/libexec"
+  rm -f "$1/libexec/attach"
+  ln "$T_ATTACH" "$1/libexec/attach" 2>/dev/null || cp "$T_ATTACH" "$1/libexec/attach"
+}
 # t_store_db <home>: a fresh database, made by the store's own init, in
 # <home>/state/tehas.db. Needs t_store first.
 t_store_db() {
@@ -344,6 +388,8 @@ t_store_home() {
   rm -f "$1/libexec/store" "$T/store-answers.n"
   ln "$T_STORE" "$1/libexec/store" 2>/dev/null || cp "$T_STORE" "$1/libexec/store"
   t_store_db "$1" || t_bad "the store's init failed in $1"
+  # A command that runs the store reads an issue's attachments in the same home.
+  t_attach_home "$1"
 }
 # t_row <verb> <args...> -- <jq filter>: what the store has on record, through
 # its read verbs only. On a refusal it prints the store's own line and

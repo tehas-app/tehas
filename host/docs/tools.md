@@ -920,12 +920,22 @@ archive only when its first four bytes are those of a zip, never because its
 name ends in `.zip`: a link named `.zip` that holds something else is left out
 with `Not a zip archive.` At most 2 archives per issue, each downloaded at most
 4 MB, and the download is refused over that with a reason. The archive is
-unpacked into a scratch directory beside the others, with `tehas_unzip_into`,
-the Protolab's own unpacker, which reads the listing first and refuses an
-absolute path, a `..` part, a backslash, a link, a locked file and more than
-200 entries. Every file it writes then goes through the checks of a file the
-issue links: an image by its first bytes, a text file by its extension and by
-being valid UTF-8 with no NUL byte. Anything else, an svg, a nested archive or
+unpacked into a scratch directory beside the others by `~/tehas/libexec/attach`
+(`console/attach`), the Protolab's own unpacker, which reads the archive's
+central directory first and refuses an archive it cannot read whole (a zip64
+or a split one among them), and of its entries an absolute path, a `..` part,
+a backslash, a link, a locked file, a method other than stored or deflated, a
+damaged file and more than 200 entries. It counts what it inflates, never what
+the archive claims, and a damaged entry's bytes count too; an entry that
+inflates past the size it claims, or shares its data with another entry, is
+damaged. An archive it does not unpack within 60 seconds, or that makes it
+fail, is left out with a reason; a program that is missing or fails in any
+other way stops the cycle. Every file it writes then goes through the checks of a
+file the issue links: an image by its first bytes, a text file by its
+extension and by being valid UTF-8 with no NUL byte. The same program reads
+the bytes of every linked file, its size, its sha256, its image type and
+whether it is text, so the shell never reads them; without it the cycle does
+not start. Anything else, an svg, a nested archive or
 a binary, is left out with its path inside the archive under `path` and the
 reason. The unpacked files count against the limits above, the images' and the
 files', as the linked ones do; a file over what is left of them is left out and
@@ -3487,13 +3497,14 @@ thin wrapper around the same arguments:
 
 ```
 TEHAS_PACK_ROOT='<checkout>' scripts/pack-release.sh <tag> <out dir> --console <path> \
-  --analytics <path> --mcp <path> --store <path> --commit <40 hex> \
+  --analytics <path> --mcp <path> --store <path> --attach <path> --commit <40 hex> \
   --rukas-commit <40 hex> --rukas-digest <64 hex>
 ```
 
-`--analytics`, `--mcp` and `--store` are the other three programs `install.sh`
-puts in `libexec`, packed as `libexec/analytics`, `libexec/tehas-mcp` and
-`libexec/store`. Each is optional, and a tarball packed without one has none.
+`--analytics`, `--mcp`, `--store` and `--attach` are the other four programs
+`install.sh` puts in `libexec`, packed as `libexec/analytics`,
+`libexec/tehas-mcp`, `libexec/store` and `libexec/attach`. Each is optional,
+and a tarball packed without one has none.
 `install.sh` makes and migrates the host's database with the store, so a
 tarball without it installs only on a host that has one.
 

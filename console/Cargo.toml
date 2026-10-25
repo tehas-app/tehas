@@ -2,10 +2,11 @@
 # it and installs the binary as ~/tehas/libexec/console. It is also the root
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in
-# mcp/ and the library they share in core/ as well.
+# mcp/, the attachment checker in attach/ and the library they share in
+# core/ as well.
 [workspace]
-members = ["analytics", "core", "mcp", "store"]
-default-members = [".", "analytics", "core", "mcp", "store"]
+members = ["analytics", "attach", "core", "mcp", "store"]
+default-members = [".", "analytics", "attach", "core", "mcp", "store"]
 
 [package]
 name = "console"
