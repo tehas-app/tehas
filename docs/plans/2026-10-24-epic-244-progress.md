@@ -66,7 +66,10 @@ build both by hand in one session.
 
 ## Left after that, in order
 
-1. **#253**, the dispatcher in Rust, part 1: snapshot and decide, run in shadow.
+1. **#253**, the dispatcher in Rust: split in four pull requests (owner's
+   choice, 2026-10-25), plan `docs/plans/2026-10-25-dispatch-decide.md`. Part 1
+   is PR #747 (branch `dispatch-decide`, CI green, owner merges). Next: part 2,
+   the rest of rule 6 and the clean-ups of rule 2.
    Split it as its resume notes say: decide plus fixtures in one PR, then snapshot
    plus shadow in a second. Measure the GraphQL cost against spec section 6.
 2. **#254**, part 2: apply through the action journal, then a setting chooses
