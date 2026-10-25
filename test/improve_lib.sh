@@ -32,7 +32,20 @@ slice_good() {
 t_stub systemctl 'cat "$T/slice.show"'
 
 # --- A run -------------------------------------------------------------------
-improve="$T_ROOT/libexec/improve"
+# The script as a host has it, beside the console. The stub masks what the
+# tests call a secret; $T/fx/console.rc makes it fail.
+tree=$T/tree
+mkdir -p "$tree/libexec"
+ln -s "$T_ROOT/lib" "$tree/lib"
+ln -s "$T_ROOT/libexec/improve" "$tree/libexec/improve"
+console_stub() {
+  t_stub console '[ "$*" = --mask ] || exit 2
+[ -f "$T/fx/console.rc" ] && exit 1
+sed "s/hunter2-secret/***/g"'
+  mv "$T/bin/console" "$tree/libexec/console"
+}
+console_stub
+improve="$tree/libexec/improve"
 
 # docker leaves $T/fx/findings.json where the analyst would write, and keeps
 # its arguments one to a line. $T/fx/docker.rc is an exit status to fail with;
@@ -103,7 +116,7 @@ case "$1 $2" in
   "release create") [ -f "$T/fx/gh-release.rc" ] && exit 1; : >"$T/fx/release" ;;
   "release upload")
     [ -f "$T/fx/gh-release.rc" ] && exit 1
-    for a in "$@"; do case "$a" in *.gz) basename "$a" >>"$T/calls/assets" ;; esac; done ;;
+    for a in "$@"; do case "$a" in *.gz) basename "$a" >>"$T/calls/assets"; zcat "$a" >>"$T/calls/uploaded" ;; esac; done ;;
 esac'
 
 record() { # <record>: a record in the window and the cycle's log in logs/
