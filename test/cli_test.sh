@@ -15,7 +15,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update labels summary status health energy protolab preview improve refresh clean top top-publish pause resume stop api limit drain analytics-cmd mcp; do
+for name in dispatch cycle work plan dev index setup update labels summary status health energy protolab preview improve refresh review clean top top-publish pause resume stop api limit drain analytics-cmd mcp; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -238,7 +238,7 @@ done
 
 t_case "every command in the usage of tehasbot has an executable script"
 names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh clean mcp github-token "
+t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh review clean mcp github-token "
 missing=""
 for name in $names; do
   # The command is `top`; its script is top-publish, because libexec/top is the
