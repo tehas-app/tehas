@@ -5,9 +5,59 @@
 # comments. Without it, gh is called with the GH_TOKEN the container was given.
 # Installed over nothing: the image's gh stays at /usr/bin/gh, and this goes
 # earlier on PATH, in /usr/local/bin.
+#
+# A call that GitHub refuses for a rate limit is tried once more: the output of
+# the first call is kept in files under ${TMPDIR:-/tmp} and thrown away, and
+# after TEHAS_GH_RETRY_WAIT seconds [60] the same arguments are run again. One
+# retry only, and only that call. A call that reads standard input (- or an
+# argument that ends in =@-) is run at once, because its input cannot be read
+# twice.
+#
+# TEHAS_GH_BIN names the real gh and TEHAS_GH_RETRY_WAIT the pause; both are
+# seams for test/gh_shim_test.sh, and the image sets neither.
+#
+# Exit: gh's own status; 1 when the token file is there and cannot be read.
+# Lint: shellcheck -s sh, which scripts/test.sh does not run over this file;
+# test/gh_shim_test.sh does.
+real=${TEHAS_GH_BIN:-/usr/bin/gh}
 f=/run/tehas/github/token
 if [ -r "$f" ]; then
   GH_TOKEN=$(cat "$f") || exit 1
   export GH_TOKEN
 fi
-exec /usr/bin/gh "$@"
+for a in "$@"; do
+  case $a in - | *@-) exec "$real" "$@" ;; esac
+done
+
+# The call, with its two streams kept in files of their own: what GitHub
+# answered is read before the shim decides whether to ask again. The files
+# belong to the one call, so they are named after its process.
+out=${TMPDIR:-/tmp}/gh-shim.$$.out
+err=${TMPDIR:-/tmp}/gh-shim.$$.err
+"$real" "$@" >"$out" 2>"$err"
+rc=$?
+if [ "$rc" = 0 ]; then
+  cat "$out"
+  cat "$err" >&2
+  rm -f "$out" "$err"
+  exit 0
+fi
+# GitHub's own words: the number of the status and, for a 403, the sentence
+# that says the limit, which GitHub puts on a line of its own from the number.
+limited=$(tr '[:upper:]' '[:lower:]' <"$err")
+case $limited in *http\ 429*) limited=yes ;; *http\ 403*rate\ limit*) limited=yes ;; *) limited= ;; esac
+if [ -z "$limited" ]; then
+  cat "$out"
+  cat "$err" >&2
+  rm -f "$out" "$err"
+  exit "$rc"
+fi
+wait=${TEHAS_GH_RETRY_WAIT:-60}
+echo "gh-shim: rate limited, trying once more in $wait s" >&2
+sleep "$wait"
+"$real" "$@" >"$out" 2>"$err"
+rc=$?
+cat "$out"
+cat "$err" >&2
+rm -f "$out" "$err"
+exit "$rc"
