@@ -232,7 +232,7 @@ t_contains "$(t_calls gh)" "api -X POST repos/acme/widget/issues/7/sub_issues -F
 t_contains "$(t_calls gh)" "issue comment 7 --repo acme/widget --body Replaced by #12.
 
 Filed https://github.com/acme/widget/issues/12: Faster search, part 1."
-t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question --remove-label tehas:planning --add-label tehas:replaced"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced"
 t_contains "$(t_calls gh)" "issue close 7 --repo acme/widget --reason not planned"
 t_lacks "$(t_calls gh)" "tehas:question kind=plan"
 t_lacks "$(t_calls gh)" "--add-label tehas:question"
@@ -243,8 +243,8 @@ t_contains "$t_out" "planning #7 ended: tehas:replaced by https://github.com/acm
 t_case "a refine whose plan lists later parts keeps the original open as refined"
 filed_by_refine "$more_parts" https://github.com/acme/widget/issues/12
 t_run "$dispatch"
-t_contains "$(t_calls gh)" "--remove-label tehas:planning --add-label tehas:refined"
-t_lacks "$(t_calls gh)" "tehas:replaced"
+t_contains "$(t_calls gh)" "--remove-label tehas:planning --remove-label tehas:replaced --add-label tehas:refined"
+t_lacks "$(t_calls gh)" "--add-label tehas:replaced"
 t_lacks "$(t_calls gh)" "issue close"
 t_eq "$(rec_open)" none
 
@@ -290,13 +290,41 @@ t_contains "$(t_calls gh)" "issue close 7"
 t_eq "$(rec_open)" none
 
 t_case "an original that carries the mark already is only closed: nothing is said or linked again"
-filed_by_refine "$one_part" https://github.com/acme/widget/issues/12
+filed_by_refine "Replaces #7
+
+$one_part" https://github.com/acme/widget/issues/12
 echo '{"title":"Faster search","body":"Make it fast.","labels":[{"name":"tehas:replaced"}]}' >"$fx/issue-7.json"
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "issue close 7"
 t_lacks "$(t_calls gh)" "issue edit 12"
 t_lacks "$(t_calls gh)" "sub_issues"
 t_lacks "$(t_calls gh)" "Replaced by"
+t_eq "$(rec_open)" none
+
+t_case "a mark an earlier refine left marks nothing: the new filed issue is linked and named"
+filed_by_refine "$one_part" https://github.com/acme/widget/issues/12
+echo '{"title":"Faster search","body":"Make it fast.","labels":[{"name":"tehas:refined"}]}' >"$fx/issue-7.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 12 --repo acme/widget --body Replaces #7"
+t_contains "$(t_calls gh)" "sub_issues"
+t_contains "$(t_calls gh)" "--remove-label tehas:refined --add-label tehas:replaced"
+t_contains "$(t_calls gh)" "Replaced by #12."
+t_contains "$(t_calls gh)" "issue close 7"
+
+t_case "a filed issue whose Replaces line cannot be written is not marked, and the next poll tries again"
+filed_by_refine "$one_part" https://github.com/acme/widget/issues/12
+echo "issue edit 12" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_contains "$t_out" "could not say on #12 that it replaces #7; the next poll replaces it"
+t_lacks "$(t_calls gh)" "--add-label tehas:replaced"
+t_lacks "$(t_calls gh)" "Replaced by"
+t_eq "$(rec_open)" open
+new_poll
+rm -f "$fx/edit-fails-on"
+echo '[]' >"$fx/refines.json"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 12 --repo acme/widget --body Replaces #7"
+t_contains "$(t_calls gh)" "--add-label tehas:replaced"
 t_eq "$(rec_open)" none
 
 t_case "a filed address that is not an issue address is left out, and the session still ends"

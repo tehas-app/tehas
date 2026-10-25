@@ -705,8 +705,9 @@ sub-issue of the original. If the plan lists no later parts, the original gets
 body cannot be read, the original stays open with `tehas:refined`: apply
 `tehas:refine` to it for the next part, and close it when nothing is left.
 Either way the original then gets a comment `Replaced by #<m>` with the
-planner's words. A link that cannot be made is a warning in the log; the first
-line of the filed issue says the same. A `tehas:plan` session that files is
+planner's words. A sub-issue link that cannot be made is a warning in the log;
+the first line of the filed issue says the same, and a poll that cannot write
+that line tries again on the next. A `tehas:plan` session that files is
 posted as before.
 
 #### Refined on its own
