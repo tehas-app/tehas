@@ -198,6 +198,7 @@ host.
 | `lib/shipped.sh` | What closed an issue: the GraphQL read of the last closed event and the rule that accepts a merged pull request, which `tehasbot status` and `tehas tidy` both read |
 | `lib/slice.sh` | Reads `tehas.slice`: whether it is usable, the limits of a container, the room left |
 | `lib/status.sh`, `lib/top.sh` | The factory's state for `tehas status`, and the frame of `tehas top` |
+| `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
 | `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |

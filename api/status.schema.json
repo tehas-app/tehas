@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tehas-app/tehas/api/status.schema.json",
+  "title": "tehas status --json",
+  "description": "The object tehas status --json prints, version 1. host/docs/api.md says what each field means. Every object is closed, so a field tehas adds must be added here too; a program that reads the object still accepts fields it does not know. test/status_contract_test.sh checks the samples beside this file against it.",
+  "type": "object",
+  "required": ["api", "time", "age", "stale", "state", "reasons", "paused", "limit", "running", "planning", "demand", "hold", "room"],
+  "additionalProperties": false,
+  "properties": {
+    "api": {"const": 1},
+    "time": {"type": "string", "format": "date-time"},
+    "age": {"type": "integer", "minimum": 0},
+    "stale": {"type": "boolean"},
+    "state": {"enum": ["pass", "warn", "fail"]},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "paused": {
+      "type": "object",
+      "required": ["local", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "local": {"type": "boolean"},
+        "label": {"type": "boolean"}
+      }
+    },
+    "allHands": {"type": "boolean"},
+    "limit": {
+      "type": "object",
+      "required": ["state"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["none", "ok", "expired", "unreadable"]},
+        "cycles": {"type": "integer", "minimum": 0},
+        "plan": {"type": "boolean"},
+        "until": {"type": "string", "format": "date-time"}
+      }
+    },
+    "running": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "since"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "since": {"type": "string", "format": "date-time"},
+          "step": {"type": "string"}
+        }
+      }
+    },
+    "planning": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "turn"],
+        "additionalProperties": false,
+        "properties": {
+          "issue": {"type": "integer", "minimum": 1},
+          "turn": {"type": "integer", "minimum": 1},
+          "since": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    "demand": {
+      "type": ["object", "null"],
+      "required": ["waiting"],
+      "additionalProperties": false,
+      "properties": {
+        "waiting": {"type": "integer", "minimum": 0},
+        "oldestWait": {"type": "integer", "minimum": 0},
+        "refreshHold": {"type": "string"}
+      }
+    },
+    "hold": {
+      "type": ["object", "null"],
+      "required": ["why", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "why": {"type": "string"},
+        "text": {"type": "string"}
+      }
+    },
+    "room": {
+      "type": ["object", "null"],
+      "required": [],
+      "additionalProperties": false,
+      "properties": {
+        "cycles": {"type": "integer"},
+        "refreshes": {"type": "integer", "minimum": 0},
+        "maxAwaiting": {"type": "integer"},
+        "slice": {"type": "integer", "minimum": 0},
+        "limit": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
