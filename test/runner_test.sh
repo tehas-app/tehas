@@ -614,7 +614,7 @@ with_console() {
   : >"$repo/console/Cargo.toml"
 }
 
-t_case "the store is built once, offline, into a target of its own, and named to every test file"
+t_case "the store and the attachment checker are built once, offline, into a target of its own, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
@@ -624,7 +624,7 @@ saw_store a_test.sh
 saw_store b_test.sh
 run
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store"
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store -p attach"
 t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
 t_contains "$t_out" "b_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
 
