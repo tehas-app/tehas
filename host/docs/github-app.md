@@ -126,6 +126,16 @@ with a token; remove the token from `~/.config/tehas/env` after.
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `TEHAS_BOT_LOGIN`, because an installation token cannot ask GitHub who it is.
 
+The shim's `gh` keeps an account of what the factory writes. A call that writes
+to GitHub - a comment, a label, an `api` call that posts, patches, puts or
+deletes - appends one tab-separated line to `~/tehas/state/github-writes.log`
+before it hands gh's own output back: the time in UTC, the kind (`api POST`,
+`issue comment`, ...), the repository, the issue or PR number, gh's exit status,
+and `403` or `429` when gh's error stream says so, else `-`. It holds nothing
+else: not the token, not a body, not a field value. Reads are not logged and run
+as they always did. The log grows with every write and is read by nothing yet;
+it is the measure the throttling of #649 is to be designed from.
+
 [The commands page](/tools#tehasbot-github-token) has the details.
 
 ## Things seen on the first app
