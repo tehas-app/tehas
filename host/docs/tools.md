@@ -2912,8 +2912,9 @@ starting cycles:
    name, and never for the images that have lost their tag.
 6. **Logs and the state store.** The logs in `~/tehas/logs` of cycles
    (`work-*`, `dispatch-work-*`), planning turns (`plan-*.jsonl`,
-   `dispatch-plan-*.log`), index runs (`index-*`) and the improvement loop's
-   analyst (`improve-analyst*.log`) older than 7 days, whether or not the
+   `dispatch-plan-*.log`), index runs (`index-*`), reviews (`review-*.json`,
+   `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
+   older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
    kept seven days, and `store prune --days 90` (see [Backups and
    restore](/operating#backups-and-restore)). All of it is one call,
