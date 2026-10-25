@@ -4,7 +4,8 @@
 //!
 //! The facts are that record, which lib/analytics.sh writes for the call and
 //! which is read as a host file is: {session, turns, running, startedAt,
-//! label, answers: [{turn, by, millwright}], ...}. A turn in flight is running,
+//! label, answers: [{turn, by, millwright}], ...} (an older record says
+//! fixer). A turn in flight is running,
 //! with turns the turns done before it and startedAt when it started (ISO
 //! 8601). Nothing is recorded without both. Under $TEHAS_HOME:
 //!
@@ -34,9 +35,9 @@ pub struct Given {
 pub const RC_WORDS: [&str; 3] = ["interrupted", "not-started", "not-readable"];
 
 /// The words a planning answer is marked with: `millwright` and the `fixer`
-/// a record written before the rename still carries. The MCP server's filter
-/// of `factory_sessions` keeps the same pair as `MILLWRIGHT_WORDS`.
-pub const MILLWRIGHT_MARKS: [&str; 2] = ["millwright", "fixer"];
+/// a record written before the rename still carries. `mcp::sessions` keeps
+/// the same pair for its filter of `factory_sessions`.
+const MILLWRIGHT_MARKS: [&str; 2] = ["millwright", "fixer"];
 
 pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, String> {
     let state = home.join("state");
@@ -98,7 +99,8 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
 /// Who started the turn: the label the first (`refine` when tehas:refine
 /// started the session, else `label`), an answer each later one, or the
 /// millwright's answer. The mark on record is `millwright`; a record from
-/// before it was named so says `fixer`, and the two are the same person.
+/// before it was named so says `fixer`, and the two are the same person. The
+/// mark alone decides: the `by` account of the answer is not consulted.
 fn how(rec: &serde_json::Map<String, Value>, turn: i64) -> &'static str {
     if turn == 1 {
         return match rec.get("label").and_then(Value::as_str) {

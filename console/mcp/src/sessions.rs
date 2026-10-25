@@ -14,9 +14,12 @@ const OUTCOMES: [&str; 7] = [
     "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
 const KINDS: [&str; 2] = ["work", "plan"];
-// Every word a record's `how` can hold, work and plan words alike. `refresh`
-// names a work run restarted on a person's request; `hand` names a cycle run
-// by hand. Neither is the millwright's word.
+// Every word a record's `how` can hold, work and plan words alike: the work
+// words of the store (`history::HOWS`, `approval::HOWS`) and the plan words
+// analytics' `plan::how` writes. The tool's schema enum and its filter both
+// read this list, and nothing else in the crate names it; the test of the
+// filter reads it here, so it pins the tool to what it says rather than to a
+// list written twice.
 pub const HOWS: [&str; 9] = [
     "label",
     "refresh",
@@ -30,8 +33,9 @@ pub const HOWS: [&str; 9] = [
 ];
 // A filter of either word matches records of both, so old records that say
 // `fixer` are found by the new word and new records by the old one. The `how`
-// a session returns stays what it says. Every word here is in HOWS, so a
-// filter of it is accepted; the test of the filter asserts it.
+// a session returns stays what it says. The words are matched exactly: an
+// absent `how` matches no filter, so no filter word names a starter here.
+// Read by the same test as HOWS.
 pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
 const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 200;
@@ -57,7 +61,7 @@ const FIELDS: [(&str, &str, &str); 38] = [
     (
         "how",
         "string",
-        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine or hand. A filter of the old word `fixer` and one of `millwright` match the same sessions.",
+        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine or hand.",
     ),
     ("started", "string", "When it started, UTC."),
     (
@@ -494,9 +498,12 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     };
     // The two millwright words are one class: a filter of either one matches
     // records of both. Any other word is matched exactly.
-    let how_matches = |s: &Value, want: &str| match MILLWRIGHT_WORDS.contains(&want) {
-        true => MILLWRIGHT_WORDS.contains(&s["how"].as_str().unwrap_or("")),
-        false => s["how"].as_str() == Some(want),
+    let how_matches = |s: &Value, want: &str| {
+        let exact = |w: &str| s["how"].as_str() == Some(w);
+        match MILLWRIGHT_WORDS.contains(&want) {
+            true => MILLWRIGHT_WORDS.iter().any(|k| exact(k)),
+            false => exact(want),
+        }
     };
     let mut passed = before.is_none();
     let mut found: Vec<Value> = Vec::new();
