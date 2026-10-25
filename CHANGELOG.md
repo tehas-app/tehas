@@ -39,6 +39,11 @@ empty one above it.
   a zip for a cycle and for the Protolab. The zip is read by its central
   directory instead of `zipinfo` and `unzip`. The rules and the reasons are as
   before. `lib/unzip.sh` is gone.
+- `tehas:blocked` on its own now starts the issue once every issue its marker
+  names is closed. It approves the start as `tehas:ready` does: only from an
+  allowed labeller, and only while the text is the one it approved. The start
+  takes `tehas:blocked` off. A lone `tehas:blocked` from the fixer still only
+  holds the issue.
 
 ### Adopter action
 
@@ -48,6 +53,11 @@ empty one above it.
 - `install.sh` builds and installs `libexec/attach` with the other programs. A
   host without it does not start a cycle given an issue's attachments, and its
   Protolab leaves zips out.
+- Before updating, look at the open issues that carry `tehas:blocked` and no
+  `tehas:ready`. One whose marker names only closed issues starts on the first
+  poll after the update. Name an open blocker in a new marker comment, or take
+  the label off, for any that should keep waiting.
+- Run `tehas labels` to update the description of `tehas:blocked`.
 
 ## v0.12.0 (2026-10-24)
 
