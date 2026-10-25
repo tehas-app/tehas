@@ -365,13 +365,23 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_MAX_OPEN=30 >"$TEHAS_INSTANCE_DIR/
 t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
 t_eq "$t_out" "[30]"
 
-t_case "the fixer is off unless the instance names its account, may retry twice and answer three planning questions by default"
+t_case "the millwright is off unless the instance names its account, may retry twice and answer three planning questions by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && set -u && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\""
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[][2][3]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\""
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_RETRIES=3 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
+
+# Until #689 moves lib/fixer.sh and its callers to the new names: the load
+# exports the old three beside the new ones with the same values.
+t_case "the old fixer names are exported with the values of the new ones"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_RETRIES=4 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=6 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && bash -c 'echo \$TEHAS_FIXER_LOGIN \$TEHAS_FIXER_MAX_RETRIES \$TEHAS_FIXER_MAX_PLAN_ANSWERS'"
+t_eq "$t_out" "tehas-fixer 4 6"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && bash -c 'echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\"'"
+t_eq "$t_out" "[][2][3]"
 
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -438,20 +448,76 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999 >"$TEHAS_INSTANCE
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
-for bad in "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
+for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
+  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
+  "TEHAS_FIXER_LOGIN=two words" "TEHAS_FIXER_LOGIN=-x" "TEHAS_FIXER_MAX_RETRIES=0" "TEHAS_FIXER_MAX_RETRIES=many" \
   "TEHAS_FIXER_MAX_PLAN_ANSWERS=0" "TEHAS_FIXER_MAX_PLAN_ANSWERS=-1" "TEHAS_FIXER_MAX_PLAN_ANSWERS=lots"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+  # The old names load as the new ones, so it is the new name that is refused.
+  old=${bad%%=*}
+  case "$old" in
+    TEHAS_FIXER_*) name=TEHAS_MILLWRIGHT_${old#TEHAS_FIXER_} ;;
+    *) name=$old ;;
+  esac
+  t_contains "$t_out" "tehas: $name is not valid"
 done
 
-t_case "the fixer is never one of the accounts that authorise work"
+t_case "the millwright is never one of the accounts that authorise work"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=alice >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
+
+# The old names load for one release: the value moves to the new name, which is
+# then checked as if the instance had written it, and the load says so on stderr
+# for the name it moved. A command that captures the load asks for the line by
+# name with TEHAS_SILENT_RENAMED, as the checks above do for their own answer.
+t_case "an old fixer name loads as the new one and says so on stderr"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\" 2>\$T/warn; cat \$T/warn"
+t_eq "$t_out" "tehas: TEHAS_FIXER_LOGIN is now TEHAS_MILLWRIGHT_LOGIN; the old name is accepted until it is removed
+[tehas-fixer]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_MAX_RETRIES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_RETRIES]\" 2>\$T/warn; cat \$T/warn"
+t_eq "$t_out" "tehas: TEHAS_FIXER_MAX_RETRIES is now TEHAS_MILLWRIGHT_MAX_RETRIES; the old name is accepted until it is removed
+[3]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_MAX_PLAN_ANSWERS=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\" 2>\$T/warn; cat \$T/warn"
+t_eq "$t_out" "tehas: TEHAS_FIXER_MAX_PLAN_ANSWERS is now TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS; the old name is accepted until it is removed
+[1]"
+# A command that captures the load asks for the line by name, so its answer is
+# the load's alone (libexec/api does this for the object of --json).
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "TEHAS_SILENT_RENAMED=1; $load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
+t_eq "$t_out" "[tehas-fixer]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load"
+t_lacks "$t_out" "is now TEHAS_MILLWRIGHT_LOGIN"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=alice >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
-t_contains "$t_out" "TEHAS_FIXER_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
+t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
+
+t_case "an old fixer name and the new one that differ stop the load with 78"
+for both in "TEHAS_FIXER_LOGIN=tehas-fixer|TEHAS_MILLWRIGHT_LOGIN=other-bot" \
+  "TEHAS_FIXER_MAX_RETRIES=3|TEHAS_MILLWRIGHT_MAX_RETRIES=9" \
+  "TEHAS_FIXER_MAX_PLAN_ANSWERS=2|TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=5"; do
+  t_case "loading rejects ${both%%|*} set with ${both#*|}"
+  printf '%s\n' "${T_MINIMAL[@]}" "${both%%|*}" "${both#*|}" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  old=${both%%|*}; nw=${both#*|}
+  t_contains "$t_out" "${old%%=*} (${old#*=}) and ${nw%%=*} (${nw#*=}) are both set and differ"
+done
+# The checks above leave TEHAS_FIXER_LOGIN in the instance, so this one asks for
+# the line by name: both names agreeing is the instance's own, and moves nothing.
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_LOGIN=tehas-fixer >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "TEHAS_SILENT_RENAMED=1; $load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_FIXER_LOGIN]\""
+t_eq "$t_out" "[tehas-fixer][tehas-fixer]"
+t_lacks "$t_out" "is now TEHAS_MILLWRIGHT_LOGIN"
 
 t_case "analytics is off unless the instance names a script and a site"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
