@@ -120,12 +120,12 @@
 # host env.sh exports the settings of lib/config.sh and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
-# runner's own knobs (TEHAS_TEST_*, T_STORE_*) stay, because scripts/test.sh
+# runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN) stay, because scripts/test.sh
 # names them and gives them to the file.
 set -uo pipefail
 # The two families lib/config.sh clears in tehas_load, the PI_RUKAS_* family it
 # leaves alone, and the names outside them all.
-for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN T_STORE_BIN T_STORE_WHY; do
+for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   case $t_leak in
   TEHAS_TEST_*) continue ;;
   esac
