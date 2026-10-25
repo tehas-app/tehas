@@ -44,12 +44,16 @@ empty one above it.
   allowed labeller, and only while the text is the one it approved. The start
   takes `tehas:blocked` off. A lone `tehas:blocked` from the fixer still only
   holds the issue.
+- The state store is schema 4 (#685). A cycle's start may say `millwright`
+  beside `fixer`, a planning note `millwright-refused` beside `fixer-refused`,
+  and `planning_answers.fixer` is named `millwright`. Every row is kept. The
+  verbs still write and print the old words.
 
 ### Adopter action
 
 - Drain before you install (`tehas drain`): a cycle started by the earlier
   `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
-  owns. `install.sh` takes the store to schema 3.
+  owns. `install.sh` takes the store to schema 4.
 - `install.sh` builds and installs `libexec/attach` with the other programs. A
   host without it does not start a cycle given an issue's attachments, and its
   Protolab leaves zips out.

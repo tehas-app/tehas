@@ -7,7 +7,7 @@
 //! the store exists to keep. Every failure below stops with 78 and one word on
 //! stderr and leaves the file exactly where a person can read it.
 
-use rusqlite::{params, Connection, ErrorCode, OpenFlags};
+use rusqlite::{params, Connection, ErrorCode, OpenFlags, OptionalExtension};
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::Read;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -37,6 +37,51 @@ CREATE TABLE planning_notes (
 ";
 const STEP_3: &str = "
 ALTER TABLE heartbeats ADD COLUMN text TEXT;
+";
+
+/// The step from 3 to 4: `cycles.how` takes 'millwright' and `planning_notes.kind`
+/// takes 'millwright-refused', each beside the old word, and
+/// `planning_answers.fixer` is named `millwright`. SQLite cannot change a CHECK
+/// in place, so the two tables are rebuilt as schema.sql writes them and every
+/// row is copied. See `step_4` for why foreign keys are off while it runs.
+const STEP_4: &str = "
+CREATE TABLE cycles_new (
+  issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
+  attempt        INTEGER NOT NULL DEFAULT 1,
+  started_at     INTEGER NOT NULL,
+  started_by     TEXT,
+  how            TEXT NOT NULL CHECK (how IN ('label','refresh','retry-tick','outage-retry','fixer','millwright','hand')),
+  requeued       INTEGER NOT NULL DEFAULT 0,
+  rukas_commit   TEXT,
+  image          TEXT,
+  branch         TEXT,
+  end_reason     TEXT CHECK (end_reason IN ('closed','merged','handoff','parked','failed','stopped','timeout','killed','lost','interrupted','stalled','unknown')),
+  ended_at       INTEGER,
+  oom_kills      INTEGER,
+  forks_refused  INTEGER,
+  stalled_seconds INTEGER,
+  timed_out      INTEGER NOT NULL DEFAULT 0,
+  runner_exit    INTEGER,
+  watched        INTEGER NOT NULL DEFAULT 0,
+  host_saw       TEXT CHECK (host_saw IN ('killed')),
+  stop_asked_at  INTEGER,
+  stop_said_times INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO cycles_new SELECT * FROM cycles;
+DROP TABLE cycles;
+ALTER TABLE cycles_new RENAME TO cycles;
+CREATE INDEX cycles_running ON cycles (ended_at, started_at);
+CREATE TABLE planning_notes_new (
+  issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
+  kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),
+  comment_id INTEGER NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (issue, kind, comment_id)
+);
+INSERT INTO planning_notes_new SELECT * FROM planning_notes;
+DROP TABLE planning_notes;
+ALTER TABLE planning_notes_new RENAME TO planning_notes;
+ALTER TABLE planning_answers RENAME COLUMN fixer TO millwright;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -696,8 +741,8 @@ pub fn write_schema(
 /// and a `user_version` of 0 (what SQLite makes of an empty file),
 /// `write_schema` is the whole of it: it lays schema.sql at the version this
 /// binary writes, writes the rows of `meta` -- `schema` among them -- and sets
-/// `user_version`, all in one transaction. From schema 1 it is the step to 2
-/// and then the step to 3, each its own transaction. A database already at
+/// `user_version`, all in one transaction. From an older schema it is each step
+/// up from there in turn, each its own transaction. A database already at
 /// SCHEMA_VERSION has nothing to run.
 ///
 /// `file` is named for the refusal alone, so that the line the caller reads
@@ -726,8 +771,11 @@ pub fn migrate(
             &settings.instance,
             &settings.repo,
         ),
-        1 => step(conn, 2, STEP_2).and_then(|()| step(conn, 3, STEP_3)),
-        2 => step(conn, 3, STEP_3),
+        1 => step(conn, 2, STEP_2)
+            .and_then(|()| step(conn, 3, STEP_3))
+            .and_then(|()| step_4(conn)),
+        2 => step(conn, 3, STEP_3).and_then(|()| step_4(conn)),
+        3 => step_4(conn),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
@@ -753,6 +801,16 @@ fn step(conn: &mut Connection, to: i64, sql: &str) -> Result<(), DbError> {
         )));
     }
     tx.execute_batch(sql).map_err(classify)?;
+    // A rebuilt table runs with foreign keys off, so check them before commit.
+    let orphan: Option<String> = tx
+        .query_row("PRAGMA foreign_key_check", [], |r| r.get(0))
+        .optional()
+        .map_err(classify)?;
+    if let Some(table) = orphan {
+        return Err(DbError::Corrupt(format!(
+            "the step to schema {to} leaves a row of {table} without its parent"
+        )));
+    }
     let n = tx
         .execute(
             "UPDATE meta SET value = ?1 WHERE key = 'schema'",
@@ -767,6 +825,21 @@ fn step(conn: &mut Connection, to: i64, sql: &str) -> Result<(), DbError> {
     tx.pragma_update(None, "user_version", to)
         .map_err(classify)?;
     tx.commit().map_err(classify)
+}
+
+/// The step to 4. Dropping `cycles` with foreign keys on would delete every row
+/// that references it, so they are off for the step, which checks them before
+/// it commits. They can only be set outside a transaction. The VACUUM after the
+/// commit gives back the pages of the dropped tables; if it fails the store is
+/// at 4 with its rows, and the caller hears the error.
+fn step_4(conn: &mut Connection) -> Result<(), DbError> {
+    conn.pragma_update(None, "foreign_keys", "OFF")
+        .map_err(classify)?;
+    let stepped = step(conn, 4, STEP_4);
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(classify)?;
+    stepped?;
+    conn.execute_batch("VACUUM").map_err(classify)
 }
 
 /// The name of a backup this verb writes, given the version it came from and
