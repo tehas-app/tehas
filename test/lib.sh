@@ -115,6 +115,9 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
+# The stubs name bash by its path: through /usr/bin/env a stub costs one more
+# process each call.
+T_BASH=$(command -v bash)
 t_count=0
 t_failed=0
 t_skipped=0
@@ -156,7 +159,7 @@ t_instance() {
 t_stub() {
   local name=$1 body=${2:-}
   {
-    echo '#!/usr/bin/env bash'
+    echo "#!$T_BASH"
     printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
     [ -n "$body" ] && echo "$body"
     :
