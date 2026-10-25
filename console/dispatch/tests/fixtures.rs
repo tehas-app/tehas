@@ -161,6 +161,61 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
+    // ready_at: tehas:ready applied by <login> at <time> is the issue's only
+    // event.
+    if let Some(m) = c.get("ready_at").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
+            i["events"] = json!([ready_event(x[0].as_str().unwrap(), x[1].as_str())]);
+            is.insert(n.clone(), i);
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // blocked_by: tehas:blocked by that account is the issue's only event.
+    if let Some(m) = c.get("blocked_by").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, who) in m {
+            let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
+            i["events"] = json!([{"event": "labeled", "label": {"name": "tehas:blocked"},
+                "actor": {"login": who}, "created_at": "2026-10-01T00:01:00Z"}]);
+            is.insert(n.clone(), i);
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // notes: an issue's comments as bnote writes them, [id 10-59, author,
+    // body, editor]: written at second <id>, edited by <editor> when named.
+    if let Some(m) = c.get("notes").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, list) in m {
+            let nodes: Vec<Value> = list
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| {
+                    let ed = x.get(3).and_then(Value::as_str).unwrap_or("");
+                    json!({"databaseId": x[0], "author": {"login": x[1]}, "body": x[2],
+                        "createdAt": format!("2026-10-01T01:00:{}Z", x[0]),
+                        "lastEditedAt": if ed.is_empty() { Value::Null } else { json!("2026-10-01T02:00:00Z") },
+                        "editor": if ed.is_empty() { Value::Null } else { json!({"login": ed}) }})
+                })
+                .collect();
+            let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
+            i["comments"] = json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
+            is.insert(n.clone(), i);
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // states: the states GitHub gives the blockers an issue names.
+    if let Some(m) = c.get("states").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, st) in m {
+            let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
+            i["blockers"] = st.clone();
+            is.insert(n.clone(), i);
+        }
+        snap["issues"] = Value::Object(is);
+    }
     // hold: cycles that hold their lock.
     if let Some(list) = c.get("hold").and_then(Value::as_array) {
         let mut running = snap["running"].as_array().cloned().unwrap_or_default();
@@ -316,6 +371,14 @@ fn run_suite(name: &str) {
                 bad.push(format!("report {:?} not {x}", d.report));
             }
         }
+        if e.get("no_demand") == Some(&json!(true)) && d.demand.is_some() {
+            bad.push(format!("demand {:?}", d.demand));
+        }
+        if let Some(x) = e.get("demand_is") {
+            if d.demand.as_ref() != Some(x) {
+                bad.push(format!("demand {:?} not {x}", d.demand));
+            }
+        }
         if let Some(x) = e.get("demand") {
             let ok = match (x, &d.demand) {
                 (Value::Null, Some(Value::Null)) => true,
@@ -334,6 +397,11 @@ fn run_suite(name: &str) {
         }
     }
     assert!(failures.is_empty(), "{name}: {} failed\n{}", failures.len(), failures.join("\n"));
+}
+
+#[test]
+fn queue() {
+    run_suite("queue");
 }
 
 #[test]
