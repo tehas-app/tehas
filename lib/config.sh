@@ -102,7 +102,9 @@ _tehas_mem_mb() {
   esac
 }
 
-_tehas_is_count() { case "$1" in '' | *[!0-9]* | 0*) return 1 ;; esac; }
+# At most 9 digits: a longer number makes [ -gt ] fail, and a failed
+# comparison would read as one that passed.
+_tehas_is_count() { case "$1" in '' | *[!0-9]* | 0* | ??????????*) return 1 ;; esac; }
 
 # The directory names tehasbot clean removes when the instance names none: the
 # build output of the toolchains tehas hosts, none of which a product keeps in
@@ -121,22 +123,16 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_FIXER_MAX_RETRIES | TEHAS_FIXER_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT)
-      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
-      ;;
-    TEHAS_SIZE_MAX_FILES)
-      # libexec/dispatch compares this count with the files of a body, so its
-      # length is checked before its value: a number no comparison can hold is
-      # refused by the length instead of by a failing comparison.
-      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
-      [ "${#v}" -le 9 ] || { echo "expected at most 9 digits"; return 1; }
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
+      [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
+      _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
     TEHAS_LOW_GATE_WAIT)
       # The dispatcher waits for the gate while it holds state/dispatch.lock, so
       # these seconds delay every later poll too: that is the ceiling. Its length
       # is checked before the value, so a number no comparison can hold is
       # refused by the length instead of by a failing comparison.
-      _tehas_is_count "$v" || { echo "expected a positive whole number"; return 1; }
+      [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
       [ "${#v}" -le 3 ] && [ "$v" -le 600 ] ||
         { echo "expected at most 600 seconds"; return 1; }
       ;;
@@ -361,7 +357,7 @@ _tehas_role_models() { # <instance.env>
       PI_ENSEMBLE_PROVIDER_*) role=${v#PI_ENSEMBLE_PROVIDER_} ;;
       *) continue ;;
     esac
-    case "$roles " in
+    case "$roles" in
       *" $role "*) ;;
       *)
         tehas_err "$v names no role pi-rukas gives a model to; the roles are$roles (see $file)"
