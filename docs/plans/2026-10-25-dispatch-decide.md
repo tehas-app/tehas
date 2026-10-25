@@ -24,6 +24,10 @@ anything on a host.
 | 3 | Rules 4, 4a, 4b, 5 and 5a: ticks, outage retries, refreshes, planning turns, refines, and the cases of PR 1's suites that touch them | park, plan, plan_answer, plan_store, refine, refresh, turns, approval |
 | 4 | `snapshot()`, the `tehas-dispatch --shadow` binary, the shadow log and the manual | start, checkout (the I/O), and the shadow test |
 
+The demand of PR 1 counts the ready issues only. The refresh requests it also
+counts, and the hold of refreshes it writes, come with the refresh rules in
+PR 3.
+
 Each fixture file lists the cases of its suite that it does not port and why:
 `later` for those of a later pull request, `not_ported` for those that test
 I/O only (a count of calls, how a command runs).
