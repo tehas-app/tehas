@@ -7,6 +7,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::time::civil_from_days;
 
 // The transcripts are written by agents, so their size is not to be trusted:
 // this much is read of a file in one pass, and a line longer than the second
@@ -258,17 +259,7 @@ fn is_day(name: &str) -> bool {
 // the host's own time zone, which is within a day of UTC.
 fn day_before(time: SystemTime) -> String {
     let seconds = time.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    // Days since the epoch to a date of the civil calendar, from the first
-    // of March of year 0 in eras of 400 years.
-    let days = (seconds / 86400) as i64 - 1 + 719_468;
-    let (era, day_of_era) = (days.div_euclid(146_097), days.rem_euclid(146_097));
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    let month = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month + 2) / 5 + 1;
-    let month = if month < 10 { month + 3 } else { month - 9 };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    let (year, month, day) = civil_from_days((seconds / 86400) as i64 - 1);
     format!("{year:04}-{month:02}-{day:02}")
 }
 

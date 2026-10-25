@@ -6,7 +6,6 @@
 //! one pattern its word allows for the session's kind and issue. A caller
 //! never gives a path.
 
-use crate::mask::mask;
 use crate::sessions;
 use crate::snapshot::Snapshot;
 use crate::tools::{self, Dirs, Output, ToolError};
@@ -18,6 +17,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use tehas_core::mask::mask;
 
 /// A larger file is not served.
 pub const LOG_MAX: u64 = 16 * 1024 * 1024;

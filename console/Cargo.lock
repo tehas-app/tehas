@@ -24,6 +24,7 @@ dependencies = [
  "regex",
  "rusqlite",
  "serde_json",
+ "tehas-core",
 ]
 
 [[package]]
@@ -68,9 +69,9 @@ name = "console"
 version = "0.1.0"
 dependencies = [
  "libc",
- "regex",
  "serde_json",
  "signal-hook",
+ "tehas-core",
 ]
 
 [[package]]
@@ -432,6 +433,7 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde_json",
+ "tehas-core",
 ]
 
 [[package]]
@@ -446,6 +448,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-core"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "tehas-mcp"
 version = "0.1.0"
 dependencies = [
@@ -453,6 +462,7 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2",
+ "tehas-core",
 ]
 
 [[package]]

@@ -274,12 +274,13 @@ case $1 in
 esac
 EOF
 }
-# The source of the console and of analytics without what a build here left
-# beside it.
+# The source of the workspace's crates without what a build here left beside
+# it.
 t_console_source() {
-  mkdir -p "$1/console/analytics" "$1/console/mcp" "$1/console/store"
+  mkdir -p "$1/console/analytics" "$1/console/core" "$1/console/mcp" "$1/console/store"
   cp -R "$T_ROOT/console/Cargo.toml" "$T_ROOT/console/Cargo.lock" "$T_ROOT/console/src" "$1/console/"
   cp -R "$T_ROOT/console/analytics/Cargo.toml" "$T_ROOT/console/analytics/src" "$1/console/analytics/"
+  cp -R "$T_ROOT/console/core/Cargo.toml" "$T_ROOT/console/core/src" "$1/console/core/"
   cp -R "$T_ROOT/console/mcp/Cargo.toml" "$T_ROOT/console/mcp/src" "$1/console/mcp/"
   cp -R "$T_ROOT/console/store/Cargo.toml" "$T_ROOT/console/store/src" "$1/console/store/"
   t_tree_commit "$1"

@@ -29,7 +29,7 @@ internals=(
 not_read='info/exclude'
 
 code() { # every tracked file that is installed or run
-  git -C "$T_ROOT" ls-files -- bin libexec lib host console/src install.sh bootstrap.sh scripts ':!host/docs'
+  git -C "$T_ROOT" ls-files -- bin libexec lib host console/src console/core install.sh bootstrap.sh scripts ':!host/docs'
 }
 
 t_case "no code reads pi-rukas internals"
@@ -48,6 +48,7 @@ t_contains "$(code)" "libexec/cycle"
 t_contains "$(code)" "host/sandbox/build.sh"
 t_contains "$(code)" "host/sandbox/Dockerfile"
 t_contains "$(code)" "console/src/render.rs"
+t_contains "$(code)" "console/core/src/mask.rs"
 
 t_case "each pattern finds what it is for"
 printf '%s\n' 'jq .pipelineState.status "$w/.pi/work-state/7.json"' 'cd "$w/.worktrees/issue-7-a"' \

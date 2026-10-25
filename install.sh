@@ -32,7 +32,8 @@
 # installed, and the build that fetches the crates from the network is the
 # first one on a host that has never fetched. The console's source leaves out
 # console/analytics, console/mcp and console/store, so a change there builds
-# that program alone. --check compares the checksums and builds nothing. A
+# that program alone. All four use the library in console/core, so a change
+# there builds all four. --check compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
 #
 # A real run then gives the state store its database, state/tehas.db, under
@@ -769,18 +770,17 @@ else
   # The console's source is all of console/ but its tests, analytics/, mcp/ and
   # store/, so a change to one of those alone does not build the console again.
   # analytics reads its own directory, the workspace's manifest and lock, and the
-  # console's mask, and so does the MCP server.
+  # shared library in core/, and so do the MCP server and the store.
   console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the analytics program's source in $root/console" >&2; exit 1; }
   mcp_source=$(source_sum \( \( -path './mcp/*' ! -path './mcp/tests/*' ! -path './mcp/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path ./src/mask.rs \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the MCP server's source in $root/console" >&2; exit 1; }
-  # The store reads its own directory and the workspace's manifest and lock.
   store_source=$(source_sum \( \( -path './store/*' ! -path './store/src/tests.rs' ! -path './store/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the store's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.

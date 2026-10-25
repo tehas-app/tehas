@@ -28,6 +28,7 @@ use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use tehas_core::time::civil_from_days;
 
 pub const REPORT_VERSION: i64 = 1;
 pub const DAYS: i64 = 10;
@@ -145,15 +146,7 @@ fn p90(sorted: &[i64]) -> Option<i64> {
 
 /// The day of days since the epoch, as YYYY-MM-DD (proleptic Gregorian).
 fn date(days: i64) -> String {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
+    let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
 }
 
