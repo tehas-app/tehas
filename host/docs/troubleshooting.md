@@ -29,6 +29,36 @@ jq -r 'select(.type=="extension_ui_request" and .method=="notify") | .message' \
   ~/tehas/logs/work-<issue>-*.jsonl
 ```
 
+## A cycle ran for hours and you cannot tell what its agents were doing
+
+A child of a cycle that runs a long time is reported by pi-rukas on the
+cycle's stream, and tehas keeps those lines in the cycle's record, so the
+record of a stuck cycle says what the child was doing without the console.
+The console is written inside the container and is swept with the workspace;
+the record is not.
+
+```
+jq -c . ~/tehas/tmp/improve/window/<issue>-<time>/slow.jsonl
+```
+
+One line per child that crossed the bound pi-rukas watches, with its step, its
+role, how long it had run, and how many turns and tokens it had spent. When
+pi-rukas has learned to see a repeated tool call, the same line names the
+command that repeated, how many times it ran and how many identical results
+came back; a child whose calls differ is left alone, so a line with those
+fields means the child was going over the same ground, not working slowly.
+
+| What the line says | What it means |
+| --- | --- |
+| `turns` and `tokens` grow, no repeated command | Slow work. The child is doing something each turn; give it room, or split the issue |
+| `command`, `count` and `identicalResultCount` name one probe that answered the same thing 24 times | A child spinning. It has the evidence it needs and has not stopped; bound it, or tell it to report |
+| No `slow.jsonl` at all | No child crossed the bound. The time went on the driver's own steps, or on children that each finished inside it |
+
+The record holds the last 20 of these lines of a cycle, and never more than
+64 KiB of them. The full stream, which holds every line the driver wrote, is
+`~/tehas/logs/work-<issue>-<time>.jsonl` for seven days; after that only the
+record is left.
+
 ## A command stops with `tehas: ... is not set` or `is not valid`
 
 Exit 78. The instance settings are missing or malformed and the command did
