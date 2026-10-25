@@ -274,44 +274,48 @@ plan_post() {
   rm -f "$st.out"
 }
 
-# A refine that filed is over: pi-rukas files once a session. The label it
-# leaves is the step a poll that failed halfway does not repeat.
+# A refine that filed is over: pi-rukas files once a session. The mark on the
+# original is the step a poll that failed halfway does not repeat, once every
+# filed issue says Replaces: a mark of an earlier session marks nothing here.
 plan_replace() {
-  local n=$1 url m body id have mark="" later=0 mine="" said="" text
+  local n=$1 url m body id have mark="" other later=0 mine="" said="" text new=0
   have=$(gh issue view "$n" --repo "$repo" --json labels 2>/dev/null | jq -r '[(.labels // [])[].name] | join(" ")') ||
     { log "WARN: the labels of #$n could not be read; the next poll replaces it"; return 1; }
+  for url in ${2//,/ }; do
+    m=${url##*/}
+    body=${url%/issues/*}
+    if [ "${body,,}" != "https://github.com/${repo,,}" ]; then
+      said="$said, $url"
+      later=1
+      continue
+    fi
+    mine="$mine #$m"
+    said="$said, #$m"
+    if ! body=$(gh issue view "$m" --repo "$repo" --json body 2>/dev/null | jq -er '.body // ""'); then
+      later=1
+      log "WARN: could not read #$m, which refining #$n filed"
+      continue
+    fi
+    plan_no_later_parts <<<"$body" || later=1
+    [ "$(head -n 1 <<<"${body//$'\r'/}")" != "Replaces #$n" ] || continue
+    new=1
+    if ! gh issue edit "$m" --repo "$repo" --body "Replaces #$n"$'\n\n'"$body" >/dev/null 2>&1; then
+      log "WARN: could not say on #$m that it replaces #$n; the next poll replaces it"
+      return 1
+    fi
+    if ! id=$(gh api "repos/$repo/issues/$m" 2>/dev/null | jq -er .id) ||
+      ! gh api -X POST "repos/$repo/issues/$n/sub_issues" -F sub_issue_id="$id" >/dev/null 2>&1; then
+      log "WARN: could not link #$m as a sub-issue of #$n"
+    fi
+  done
+  [ -n "$mine" ] || later=1
   [[ " $have " != *" tehas:refined "* ]] || mark=tehas:refined
   [[ " $have " != *" tehas:replaced "* ]] || mark=tehas:replaced
-  if [ -z "$mark" ]; then
-    for url in ${2//,/ }; do
-      m=${url##*/}
-      body=${url%/issues/*}
-      if [ "${body,,}" != "https://github.com/${repo,,}" ]; then
-        said="$said, $url"
-        later=1
-        continue
-      fi
-      mine="$mine #$m"
-      said="$said, #$m"
-      if ! body=$(gh issue view "$m" --repo "$repo" --json body 2>/dev/null | jq -er '.body // ""'); then
-        later=1
-        log "WARN: could not read #$m, which refining #$n filed"
-        continue
-      fi
-      plan_no_later_parts <<<"$body" || later=1
-      [ "$(head -n 1 <<<"${body//$'\r'/}")" = "Replaces #$n" ] ||
-        gh issue edit "$m" --repo "$repo" --body "Replaces #$n"$'\n\n'"$body" >/dev/null 2>&1 ||
-        log "WARN: could not say on #$m that it replaces #$n"
-      if ! id=$(gh api "repos/$repo/issues/$m" 2>/dev/null | jq -er .id) ||
-        ! gh api -X POST "repos/$repo/issues/$n/sub_issues" -F sub_issue_id="$id" >/dev/null 2>&1; then
-        log "WARN: could not link #$m as a sub-issue of #$n"
-      fi
-    done
-    [ -n "$mine" ] || later=1
-    mark=tehas:replaced
-    [ "$later" = 0 ] || mark=tehas:refined
+  if [ "$new" = 1 ] || [ -z "$mark" ]; then
+    mark=tehas:replaced other=tehas:refined
+    [ "$later" = 0 ] || { mark=tehas:refined other=tehas:replaced; }
     if ! gh issue edit "$n" --repo "$repo" --remove-label tehas:question --remove-label tehas:planning \
-      --add-label "$mark" >/dev/null 2>&1; then
+      --remove-label "$other" --add-label "$mark" >/dev/null 2>&1; then
       log "WARN: could not mark #$n $mark; the next poll replaces it"
       return 1
     fi
