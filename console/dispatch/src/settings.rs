@@ -37,7 +37,9 @@ impl Settings {
         };
         let concurrency = n("TEHAS_TICKET_CONCURRENCY", 7);
         let min_free = s("TEHAS_CYCLE_MIN_FREE", "10g");
-        let min_free_mb = crate::slice::bytes(&min_free).map(|b| b / 1_048_576).unwrap_or(0);
+        let min_free_mb = crate::slice::bytes(&min_free)
+            .map(|b| b / 1_048_576)
+            .unwrap_or(0);
         Settings {
             home: s("TEHAS_HOME", "/home/tehas/tehas"),
             instance_dir: s("TEHAS_INSTANCE_DIR", "/home/tehas/tehas/instance"),

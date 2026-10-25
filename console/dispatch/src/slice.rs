@@ -79,7 +79,8 @@ pub fn bytes(s: &str) -> Option<u64> {
         Some((i, c)) if c.is_ascii_alphabetic() => (&s[..i], c),
         _ => (s, 'b'),
     };
-    if n.is_empty() || n.len() > 12 || n.starts_with('0') || !n.bytes().all(|b| b.is_ascii_digit()) {
+    if n.is_empty() || n.len() > 12 || n.starts_with('0') || !n.bytes().all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let v: u64 = n.parse().ok()?;
@@ -98,7 +99,12 @@ pub fn usable(r: &Reading, reserve: &str) -> Result<Usable, String> {
     let Some(show) = r.show.as_ref().filter(|m| !m.is_empty()) else {
         return Err("systemctl gave no answer".into());
     };
-    let field = |k: &str| show.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let field = |k: &str| {
+        show.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     if field("FragmentPath").is_empty() {
         return Err("no slice file on this host (sudo ./bootstrap.sh slice)".into());
     }
@@ -117,7 +123,10 @@ pub fn usable(r: &Reading, reserve: &str) -> Result<Usable, String> {
         ));
     }
     let ctl = format!(" {} ", r.controllers.clone().unwrap_or_default());
-    if ["cpu", "memory", "pids"].iter().any(|c| !ctl.contains(&format!(" {c} "))) {
+    if ["cpu", "memory", "pids"]
+        .iter()
+        .any(|c| !ctl.contains(&format!(" {c} ")))
+    {
         return Err(format!(
             "{}/cgroup.controllers does not list cpu, memory and pids",
             r.root
@@ -171,7 +180,11 @@ fn charge(dir: &str, s: &Scope, reserve: u64) -> Result<u64, String> {
         }
     }
     let low = low.split_whitespace().next().unwrap_or("");
-    let low = if low == "max" { reserve.to_string() } else { low.to_string() };
+    let low = if low == "max" {
+        reserve.to_string()
+    } else {
+        low.to_string()
+    };
     if kernel.is_none() {
         kernel = Some("0".into());
         slab = Some("0".into());
@@ -198,9 +211,19 @@ fn charge(dir: &str, s: &Scope, reserve: u64) -> Result<u64, String> {
 
 /// _tehas_slice_fit: the reserves that fit, capped by the containers the
 /// slice's max holds at their ceilings.
-fn fit(max: u64, reserve: u64, ceiling_mb: u64, committed: u64, containers: u64) -> (u64, &'static str) {
+fn fit(
+    max: u64,
+    reserve: u64,
+    ceiling_mb: u64,
+    committed: u64,
+    containers: u64,
+) -> (u64, &'static str) {
     let slots = max / (ceiling_mb * MIB);
-    let room = if committed < max { (max - committed) / reserve } else { 0 };
+    let room = if committed < max {
+        (max - committed) / reserve
+    } else {
+        0
+    };
     if room == 0 {
         (0, "room")
     } else if containers >= slots {
@@ -226,7 +249,9 @@ fn unreadable(committed: u64, max: u64, note: String) -> Room {
 /// full avg60 from the text of memory.pressure.
 fn full_avg60(text: &str) -> Option<String> {
     for line in text.lines() {
-        let Some(rest) = line.strip_prefix("full ") else { continue };
+        let Some(rest) = line.strip_prefix("full ") else {
+            continue;
+        };
         for w in rest.split(' ') {
             if let Some(v) = w.strip_prefix("avg60=") {
                 let (i, f) = v.split_once('.').unwrap_or((v, ""));
@@ -250,7 +275,11 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
     let dir = format!("{}/tehas.slice", r.root);
     let Some(scopes) = &r.scopes else {
         if s.active == "active" {
-            return unreadable(0, max, format!("tehas.slice is active and {dir} is missing"));
+            return unreadable(
+                0,
+                max,
+                format!("tehas.slice is active and {dir} is missing"),
+            );
         }
         let committed = count * reserve;
         let (room, why) = fit(max, reserve, s.ceiling_mb, committed, count);
@@ -279,7 +308,12 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
     let scoped = r
         .cids
         .iter()
-        .filter(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+        .filter(|id| {
+            id.len() == 64
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        })
         .filter(|id| names.contains(&format!("docker-{id}.scope")))
         .count() as u64;
     if count > scoped {
@@ -287,10 +321,22 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
         containers += count - scoped;
     }
     let pressure = match &r.pressure {
-        None => return unreadable(committed, max, format!("{dir}/memory.pressure cannot be read")),
+        None => {
+            return unreadable(
+                committed,
+                max,
+                format!("{dir}/memory.pressure cannot be read"),
+            )
+        }
         Some(t) => match full_avg60(t) {
             Some(p) => p,
-            None => return unreadable(committed, max, format!("{dir}/memory.pressure has no full avg60")),
+            None => {
+                return unreadable(
+                    committed,
+                    max,
+                    format!("{dir}/memory.pressure has no full avg60"),
+                )
+            }
         },
     };
     let (mut room, mut why) = fit(max, reserve, s.ceiling_mb, committed, containers);

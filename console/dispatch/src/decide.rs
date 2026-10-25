@@ -114,14 +114,24 @@ impl<'a> Poll<'a> {
 
     /// An issue's label events, or the end of the poll.
     fn events(&mut self, n: u64) -> Step<Vec<Event>> {
-        let e = self.s.issues.get(&n).map(|i| i.events.clone()).unwrap_or(Events::Failed);
+        let e = self
+            .s
+            .issues
+            .get(&n)
+            .map(|i| i.events.clone())
+            .unwrap_or(Events::Failed);
         match e {
             Events::Read(v) => Ok(v),
             Events::Failed => {
                 let repo = self.c.repo.clone();
-                Err(self.fail(format!("ERROR: gh api repos/{repo}/issues/{n}/events?per_page=100 failed"), 1))
+                Err(self.fail(
+                    format!("ERROR: gh api repos/{repo}/issues/{n}/events?per_page=100 failed"),
+                    1,
+                ))
             }
-            Events::Unreadable => Err(self.fail(format!("ERROR: unreadable label events of #{n}"), 1)),
+            Events::Unreadable => {
+                Err(self.fail(format!("ERROR: unreadable label events of #{n}"), 1))
+            }
         }
     }
 
@@ -155,7 +165,10 @@ impl<'a> Poll<'a> {
             let Some(user) = &s.user else {
                 return Err(self.fail("ERROR: gh api user failed", 1));
             };
-            user.get("login").and_then(Value::as_str).unwrap_or("").to_string()
+            user.get("login")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
         };
         if bot.is_empty() {
             return Err(self.fail("ERROR: the bot's own login could not be read", 1));
@@ -175,7 +188,9 @@ impl<'a> Poll<'a> {
         if let Err((word, rc)) = &s.plan_open {
             let rc = if *rc == 1 { 1 } else { 78 };
             return Err(self.fail(
-                format!("ERROR: the state store could not list the open planning sessions ({word})"),
+                format!(
+                    "ERROR: the state store could not list the open planning sessions ({word})"
+                ),
                 rc,
             ));
         }
@@ -234,7 +249,9 @@ impl<'a> Poll<'a> {
             Events::Failed => {
                 let repo = self.c.repo.clone();
                 return Err(self.fail(
-                    format!("ERROR: gh api repos/{repo}/issues/{control}/events?per_page=100 failed"),
+                    format!(
+                        "ERROR: gh api repos/{repo}/issues/{control}/events?per_page=100 failed"
+                    ),
                     1,
                 ));
             }
@@ -321,7 +338,11 @@ impl<'a> Poll<'a> {
             )
         };
         let mut all: Vec<Listed> = ready;
-        all.extend(blocked.into_iter().filter(|i| !i.labels.iter().any(|l| flow(l))));
+        all.extend(
+            blocked
+                .into_iter()
+                .filter(|i| !i.labels.iter().any(|l| flow(l))),
+        );
         all.sort_by_key(|i| i.number);
         all.dedup_by_key(|i| i.number);
         Ok(all)
@@ -341,16 +362,36 @@ impl<'a> Poll<'a> {
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
         let free = c.concurrency - cycles;
-        let limit_state = s.limit.get("state").and_then(Value::as_str).unwrap_or("unreadable").to_string();
+        let limit_state = s
+            .limit
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("unreadable")
+            .to_string();
         let limit_cycles = s.limit.get("cycles").and_then(Value::as_i64).unwrap_or(0);
-        let limit_reason = s.limit.get("reason").and_then(Value::as_str).unwrap_or("").to_string();
+        let limit_reason = s
+            .limit
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let limit_room: Option<i64> = match limit_state.as_str() {
             "ok" => Some((limit_cycles - count).max(0)),
             "expired" | "unreadable" => Some(0),
             _ => None,
         };
-        let limit_words = if limit_cycles == 1 { "1 cycle".to_string() } else { format!("{limit_cycles} cycles") };
-        let with_reason = |r: &str| if r.is_empty() { String::new() } else { format!(": {r}") };
+        let limit_words = if limit_cycles == 1 {
+            "1 cycle".to_string()
+        } else {
+            format!("{limit_cycles} cycles")
+        };
+        let with_reason = |r: &str| {
+            if r.is_empty() {
+                String::new()
+            } else {
+                format!(": {r}")
+            }
+        };
 
         // The slice.
         let (mut room_mem, mut committed, mut slice_max) = (0u64, 0u64, 0u64);
@@ -371,7 +412,13 @@ impl<'a> Poll<'a> {
                 pressure = r.pressure;
                 match mem_why.as_str() {
                     "pressure" | "unreadable" | "full" => room_mem = 0,
-                    _ => mem_why = if room_mem == 0 { "room".into() } else { String::new() },
+                    _ => {
+                        mem_why = if room_mem == 0 {
+                            "room".into()
+                        } else {
+                            String::new()
+                        }
+                    }
                 }
             }
             Err(why) => slice_hold = format!("holding: {why}"),
@@ -401,12 +448,18 @@ impl<'a> Poll<'a> {
             why = "unreadable".into();
             hold = format!(
                 "holding: the slice's use could not be read{}",
-                if mem_note.is_empty() { String::new() } else { format!(": {mem_note}") }
+                if mem_note.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {mem_note}")
+                }
             );
         } else if !s.endpoint_hold.is_empty() {
             why = "resources".into();
             hold = s.endpoint_hold.clone();
-        } else if let Some(Some(kb)) = disk_low(self).filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb * 1024)) {
+        } else if let Some(Some(kb)) =
+            disk_low(self).filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb * 1024))
+        {
             why = "disk".into();
             hold = format!(
                 "holding: {} free on the disk, under TEHAS_CYCLE_MIN_FREE={}: no cycle starts",
@@ -418,7 +471,8 @@ impl<'a> Poll<'a> {
             hold = "holding: the free disk space could not be read: no cycle starts".into();
         } else if limit_state == "expired" {
             why = "limit".into();
-            hold = format!(
+            hold =
+                format!(
                 "holding: the limit expired at {}: nothing starts until it is set again or cleared",
                 s.limit.get("until").and_then(Value::as_str).unwrap_or("null")
             );
@@ -440,9 +494,15 @@ impl<'a> Poll<'a> {
             hold = red;
         } else if free <= 0 {
             why = "count".into();
-            hold = format!("holding: {cycles} cycles are running (limit {})", c.concurrency);
+            hold = format!(
+                "holding: {cycles} cycles are running (limit {})",
+                c.concurrency
+            );
             if let Some(lane) = lane {
-                hold = format!("{hold}; the refresh lane has {lane} of {} free", c.refresh_slots);
+                hold = format!(
+                    "{hold}; the refresh lane has {lane} of {} free",
+                    c.refresh_slots
+                );
                 want_all = lane;
                 if let Some(l) = limit_room {
                     want_all = want_all.min(l);
@@ -457,7 +517,11 @@ impl<'a> Poll<'a> {
             want_all = want_all.min(room_mem_i);
             let Some(list) = s.awaiting.clone() else {
                 self.need("awaiting");
-                return Ok(Room { want: 0, want_all: 0, hold: String::new() });
+                return Ok(Room {
+                    want: 0,
+                    want_all: 0,
+                    hold: String::new(),
+                });
             };
             awaiting = self.list(&list)?.len() as i64;
             let room = c.max_awaiting - awaiting - count;
@@ -465,7 +529,10 @@ impl<'a> Poll<'a> {
             if room <= 0 {
                 why = "awaiting".into();
                 hold = if count == 0 {
-                    format!("holding: {awaiting} issues await merge (limit {})", c.max_awaiting)
+                    format!(
+                        "holding: {awaiting} issues await merge (limit {})",
+                        c.max_awaiting
+                    )
                 } else {
                     format!(
                         "holding: {awaiting} issues await merge and {count} cycles are running (limit {})",
@@ -569,7 +636,11 @@ impl<'a> Poll<'a> {
             }
             self.d.report = Some(r);
         }
-        Ok(Room { want, want_all, hold })
+        Ok(Room {
+            want,
+            want_all,
+            hold,
+        })
     }
 
     /// count_waiting: the ready issues that could start now, as far as this
@@ -602,14 +673,26 @@ impl<'a> Poll<'a> {
         let state = answer.as_ref().and_then(check_state);
         let (name, branch) = (&c.branch_check, &c.branch);
         let (red, note) = match state.as_deref() {
-            Some(s) if s.starts_with("red ") => (Some(format!("holding: {branch} is red at {}", &s[4..])), String::new()),
+            Some(s) if s.starts_with("red ") => (
+                Some(format!("holding: {branch} is red at {}", &s[4..])),
+                String::new(),
+            ),
             Some(s) if s.starts_with("done ") => (None, String::new()),
             Some(s) if s.starts_with("pending ") => (
                 None,
-                format!("the check {name} on {branch} at {} has not finished: cycles start", &s[8..]),
+                format!(
+                    "the check {name} on {branch} at {} has not finished: cycles start",
+                    &s[8..]
+                ),
             ),
-            Some("none") => (None, format!("{branch} has no check named {name} on its head commit: cycles start")),
-            _ => (None, format!("the check {name} on {branch} could not be read: cycles start")),
+            Some("none") => (
+                None,
+                format!("{branch} has no check named {name} on its head commit: cycles start"),
+            ),
+            _ => (
+                None,
+                format!("the check {name} on {branch} could not be read: cycles start"),
+            ),
         };
         if self.dry {
             if !note.is_empty() {
@@ -632,9 +715,9 @@ fn check_state(a: &Value) -> Option<String> {
         return Some("none".into());
     }
     let sha_ok = |r: &Value| {
-        r.get("head_sha")
-            .and_then(Value::as_str)
-            .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+        r.get("head_sha").and_then(Value::as_str).is_some_and(|s| {
+            s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        })
     };
     if !runs.iter().all(sha_ok) {
         return None;
@@ -692,7 +775,10 @@ impl<'a> Poll<'a> {
         let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
             return Err(self.fail("ERROR: gh api graphql failed", 1));
         };
-        let at = edit.get("lastEditedAt").and_then(Value::as_str).unwrap_or("");
+        let at = edit
+            .get("lastEditedAt")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let by = edit
             .get("editor")
             .and_then(|e| e.get("login"))
@@ -734,7 +820,9 @@ impl<'a> Poll<'a> {
     /// and the issue says why once the label is off.
     fn clear_unauthorised(&mut self, n: u64, label: &str, by: &str) {
         if self.dry {
-            self.log(format!("would take {label} off #{n}: it was applied by '{by}'"));
+            self.log(format!(
+                "would take {label} off #{n}: it was applied by '{by}'"
+            ));
             return;
         }
         self.act(json!({
@@ -752,31 +840,48 @@ impl<'a> Poll<'a> {
         let Some(answer) = self.s.issues.get(&n).and_then(|i| i.comments.clone()) else {
             return Err(self.fail("ERROR: gh api graphql failed", 1));
         };
-        let Some(nodes) = answer.pointer("/data/repository/issue/comments/nodes").and_then(Value::as_array) else {
+        let Some(nodes) = answer
+            .pointer("/data/repository/issue/comments/nodes")
+            .and_then(Value::as_array)
+        else {
             return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
         };
         let c = self.c;
         let mut marked: Vec<&Value> = nodes
             .iter()
             .filter(|x| {
-                x.get("body").and_then(Value::as_str).is_some_and(|b| b.contains("<!-- tehas:blocked"))
+                x.get("body")
+                    .and_then(Value::as_str)
+                    .is_some_and(|b| b.contains("<!-- tehas:blocked"))
                     && {
-                        let a = x.pointer("/author/login").and_then(Value::as_str).unwrap_or("");
+                        let a = x
+                            .pointer("/author/login")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
                         !a.is_empty() && (c.allowed(a) || c.is_fixer(a))
                     }
             })
             .collect();
         marked.sort_by_key(|x| {
             (
-                x.get("createdAt").and_then(Value::as_str).unwrap_or("").to_string(),
+                x.get("createdAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
                 x.get("databaseId").and_then(Value::as_i64).unwrap_or(0),
             )
         });
         let why = match marked.last() {
             None => "no comment of an allowed account or the fixer names its blockers".to_string(),
             Some(x) => {
-                let author = x.pointer("/author/login").and_then(Value::as_str).unwrap_or("");
-                let editor = x.pointer("/editor/login").and_then(Value::as_str).unwrap_or("");
+                let author = x
+                    .pointer("/author/login")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let editor = x
+                    .pointer("/editor/login")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 if !x.get("lastEditedAt").unwrap_or(&Value::Null).is_null() && editor != author {
                     format!("the newest comment that names its blockers was edited by '{editor}'")
                 } else {
@@ -825,7 +930,13 @@ impl<'a> Poll<'a> {
         } else if !w.get("pull_request").unwrap_or(&Value::Null).is_null() {
             "pr"
         } else {
-            match w.get("state").and_then(Value::as_str).unwrap_or("").to_lowercase().as_str() {
+            match w
+                .get("state")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase()
+                .as_str()
+            {
                 "open" => "open",
                 "closed" => "closed",
                 _ => "unreadable",
@@ -835,15 +946,22 @@ impl<'a> Poll<'a> {
             "open" => Ok(true),
             "pr" => {
                 self.work_refused.push(n);
-                self.log(format!("skip #{n}: it is a pull request, not an issue the factory works on"));
+                self.log(format!(
+                    "skip #{n}: it is a pull request, not an issue the factory works on"
+                ));
                 Ok(false)
             }
             "closed" => {
                 self.work_refused.push(n);
-                self.log(format!("skip #{n}: it is closed, and a closed issue is never taken"));
+                self.log(format!(
+                    "skip #{n}: it is closed, and a closed issue is never taken"
+                ));
                 Ok(false)
             }
-            _ => Err(self.fail(format!("ERROR: GitHub's answer for #{n} could not be read"), 1)),
+            _ => Err(self.fail(
+                format!("ERROR: GitHub's answer for #{n} could not be read"),
+                1,
+            )),
         }
     }
 
@@ -858,7 +976,12 @@ impl<'a> Poll<'a> {
         Ok(prs
             .iter()
             .find(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-            .map(|p| p.get("url").and_then(Value::as_str).unwrap_or("").to_string()))
+            .map(|p| {
+                p.get("url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string()
+            }))
     }
 
     /// low_gate: whether an issue of the lowest kind may start now.
@@ -886,7 +1009,10 @@ impl<'a> Poll<'a> {
             self.gate_answer = g.answer;
             if g.answer != 0 {
                 if !held || self.dry {
-                    self.log(format!("low issues wait: TEHAS_LOW_GATE answered {}", g.answer));
+                    self.log(format!(
+                        "low issues wait: TEHAS_LOW_GATE answered {}",
+                        g.answer
+                    ));
                 }
                 if !self.dry && marker && !held {
                     self.act(json!({"gate_held": true}));
@@ -900,7 +1026,9 @@ impl<'a> Poll<'a> {
         }
         if self.gate_answer != 0 {
             let a = self.gate_answer;
-            self.log(format!("wait #{n}: the low-priority gate is closed (exit {a})"));
+            self.log(format!(
+                "wait #{n}: the low-priority gate is closed (exit {a})"
+            ));
             return false;
         }
         true
@@ -908,7 +1036,11 @@ impl<'a> Poll<'a> {
 
     /// 6 and 7: the candidates in their order, cut to the room.
     fn candidates(&mut self, room: Room) -> Step {
-        let Room { want, want_all, hold } = room;
+        let Room {
+            want,
+            want_all,
+            hold,
+        } = room;
         // With no room for new work, only a refresh may still have room.
         if want == 0 {
             if self.dry {
@@ -951,9 +1083,24 @@ impl<'a> Poll<'a> {
         }
         let mut order: Vec<(char, u64)> = Vec::new();
         let numbers: Vec<u64> = ready.iter().filter_map(|i| i.number).collect();
-        order.extend(numbers.iter().filter(|n| urgent.contains(n)).map(|n| ('u', *n)));
-        order.extend(numbers.iter().filter(|n| !urgent.contains(n) && next.contains(n)).map(|n| ('n', *n)));
-        order.extend(numbers.iter().filter(|n| !urgent.contains(n) && !next.contains(n)).map(|n| ('x', *n)));
+        order.extend(
+            numbers
+                .iter()
+                .filter(|n| urgent.contains(n))
+                .map(|n| ('u', *n)),
+        );
+        order.extend(
+            numbers
+                .iter()
+                .filter(|n| !urgent.contains(n) && next.contains(n))
+                .map(|n| ('n', *n)),
+        );
+        order.extend(
+            numbers
+                .iter()
+                .filter(|n| !urgent.contains(n) && !next.contains(n))
+                .map(|n| ('x', *n)),
+        );
         let mut ready_picked = 0;
         for (kind, n) in order {
             if self.d.picked.len() as i64 >= want_all {
@@ -964,20 +1111,30 @@ impl<'a> Poll<'a> {
             }
             if kind == 'x' && self.gate_asked && self.gate_answer != 0 {
                 let a = self.gate_answer;
-                self.log(format!("wait #{n}: the low-priority gate is closed (exit {a})"));
+                self.log(format!(
+                    "wait #{n}: the low-priority gate is closed (exit {a})"
+                ));
                 continue;
             }
             if ready_picked >= want {
                 continue;
             }
-            let labels = ready.iter().find(|i| i.number == Some(n)).map(|i| i.labels.clone()).unwrap_or_default();
+            let labels = ready
+                .iter()
+                .find(|i| i.number == Some(n))
+                .map(|i| i.labels.clone())
+                .unwrap_or_default();
             if self.plan_open(n) || has(&labels, "tehas:planning") {
-                self.log(format!("skip #{n}: a planning session is open on it; end it first"));
+                self.log(format!(
+                    "skip #{n}: a planning session is open on it; end it first"
+                ));
                 continue;
             }
             if n == self.c.control {
                 if !self.control_skipped {
-                    self.log(format!("skip #{n}: the control issue is never worked on (`tehas:ready`)"));
+                    self.log(format!(
+                        "skip #{n}: the control issue is never worked on (`tehas:ready`)"
+                    ));
                     self.control_skipped = true;
                 }
                 continue;
@@ -986,7 +1143,11 @@ impl<'a> Poll<'a> {
                 self.log(format!("wait #{n}: its cycle is still running"));
                 continue;
             }
-            let ask = if has(&labels, "tehas:ready") { "tehas:ready" } else { "tehas:blocked" };
+            let ask = if has(&labels, "tehas:ready") {
+                "tehas:ready"
+            } else {
+                "tehas:blocked"
+            };
             let (who, at) = match self.approval(n, ask)? {
                 Ok(a) => a,
                 Err(refused) => {
@@ -1005,7 +1166,9 @@ impl<'a> Poll<'a> {
                 continue;
             }
             if let Some(url) = self.open_pr(n)? {
-                self.log(format!("skip #{n}: pull request {url} is open and closes it"));
+                self.log(format!(
+                    "skip #{n}: pull request {url} is open and closes it"
+                ));
                 if !self.dry {
                     self.act(json!({
                         "issue": n, "remove": [ask],
@@ -1023,7 +1186,11 @@ impl<'a> Poll<'a> {
             if ask != "tehas:blocked" && has(&labels, "tehas:blocked") {
                 remove.push("tehas:blocked".into());
             }
-            for l in ["tehas:awaiting-merge", "tehas:question", "tehas:fixer-escalated"] {
+            for l in [
+                "tehas:awaiting-merge",
+                "tehas:question",
+                "tehas:fixer-escalated",
+            ] {
                 if has(&labels, l) {
                     remove.push(l.into());
                 }
@@ -1053,7 +1220,10 @@ impl<'a> Poll<'a> {
         let starts = std::mem::take(&mut self.starts);
         for (n, st) in starts {
             if self.dry {
-                self.log(format!("would run a cycle for #{n} ({} by {})", st.verb, st.starter));
+                self.log(format!(
+                    "would run a cycle for #{n} ({} by {})",
+                    st.verb, st.starter
+                ));
             } else {
                 self.act(json!({
                     "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
@@ -1074,7 +1244,10 @@ fn blockers(body: &str) -> Option<Vec<u64>> {
     while let Some(i) = body[from..].find(OPEN) {
         let rest = &body[from + i + OPEN.len()..];
         from += i + OPEN.len();
-        let len = rest.bytes().take_while(|b| b.is_ascii_digit() || *b == b',').count();
+        let len = rest
+            .bytes()
+            .take_while(|b| b.is_ascii_digit() || *b == b',')
+            .count();
         if !rest[len..].starts_with(" -->") {
             continue;
         }

@@ -72,7 +72,8 @@ fn merge(a: &mut Value, b: &Value) {
 }
 
 fn ready_event(by: &str, at: Option<&str>) -> Value {
-    let mut e = json!({"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": by}});
+    let mut e =
+        json!({"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": by}});
     if let Some(at) = at {
         e["created_at"] = json!(at);
     }
@@ -90,7 +91,10 @@ fn expand(c: &Value, snap: &mut Value) {
         let mut ready = Vec::new();
         let mut is = issues(snap);
         for n in list {
-            let n = n.as_str().map(str::to_string).unwrap_or_else(|| n.to_string());
+            let n = n
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| n.to_string());
             let num: u64 = n.trim_end_matches('!').parse().unwrap();
             let mut labels = vec![json!({"name": "tehas:ready"})];
             let mut events = vec![ready_event("alice", None)];
@@ -110,7 +114,10 @@ fn expand(c: &Value, snap: &mut Value) {
         let mut ready = Vec::new();
         let mut is = issues(snap);
         for arg in list {
-            let arg = arg.as_str().map(str::to_string).unwrap_or_else(|| arg.to_string());
+            let arg = arg
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| arg.to_string());
             let mut w = arg.split(' ');
             let num: u64 = w.next().unwrap().parse().unwrap();
             let mut labels = vec![json!({"name": "tehas:ready"})];
@@ -137,9 +144,15 @@ fn expand(c: &Value, snap: &mut Value) {
                     None => ("labeled", l),
                 };
                 let (label, who) = l.split_once('=').unwrap();
-                let actor = if who.is_empty() { Value::Null } else { json!({"login": who}) };
-                ev.push(json!({"event": kind, "label": {"name": label}, "actor": actor,
-                               "created_at": format!("2026-10-01T00:0{}:00Z", k + 1)}));
+                let actor = if who.is_empty() {
+                    Value::Null
+                } else {
+                    json!({"login": who})
+                };
+                ev.push(
+                    json!({"event": kind, "label": {"name": label}, "actor": actor,
+                               "created_at": format!("2026-10-01T00:0{}:00Z", k + 1)}),
+                );
             }
             let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
             i["events"] = json!(ev);
@@ -153,7 +166,11 @@ fn expand(c: &Value, snap: &mut Value) {
         let mut is = issues(snap);
         for (n, who) in m {
             let who = who.as_str().unwrap();
-            let actor = if who.is_empty() { Value::Null } else { json!({"login": who}) };
+            let actor = if who.is_empty() {
+                Value::Null
+            } else {
+                json!({"login": who})
+            };
             let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
             i["events"] = json!([ready_event("alice", None),
                 {"event": "labeled", "label": {"name": "tehas:urgent"}, "actor": actor}]);
@@ -201,7 +218,8 @@ fn expand(c: &Value, snap: &mut Value) {
                 })
                 .collect();
             let mut i = is.get(n).cloned().unwrap_or_else(|| json!({}));
-            i["comments"] = json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
+            i["comments"] =
+                json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
             is.insert(n.clone(), i);
         }
         snap["issues"] = Value::Object(is);
@@ -231,7 +249,10 @@ fn expand(c: &Value, snap: &mut Value) {
         for x in list {
             let (ch, b) = (x[1].as_str().unwrap(), x[2].as_u64().unwrap());
             snap["slice"]["scopes"][format!("docker-{}.scope", id(ch))] = scope(b, 0, 2 * GIB);
-            let mut cids = snap["slice"]["cids"].as_array().cloned().unwrap_or_default();
+            let mut cids = snap["slice"]["cids"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             cids.push(json!(id(ch)));
             snap["slice"]["cids"] = json!(cids);
         }
@@ -240,13 +261,21 @@ fn expand(c: &Value, snap: &mut Value) {
     // as slice_child writes them.
     if let Some(list) = c.get("children").and_then(Value::as_array) {
         for x in list {
-            let (ch, anon, slab, low) = (x[0].as_str().unwrap(), x[1].as_u64().unwrap(), x[2].as_u64().unwrap(), x[3].as_u64().unwrap());
+            let (ch, anon, slab, low) = (
+                x[0].as_str().unwrap(),
+                x[1].as_u64().unwrap(),
+                x[2].as_u64().unwrap(),
+                x[3].as_u64().unwrap(),
+            );
             snap["slice"]["scopes"][format!("docker-{}.scope", id(ch))] = scope(anon, slab, low);
         }
     }
     // slice_state: full avg60 and some avg60 of the slice's pressure.
     if let Some(p) = c.get("slice_state").and_then(Value::as_array) {
-        snap["slice"]["pressure"] = json!(pressure(p[0].as_str().unwrap(), p.get(1).and_then(Value::as_str).unwrap_or("0.00")));
+        snap["slice"]["pressure"] = json!(pressure(
+            p[0].as_str().unwrap(),
+            p.get(1).and_then(Value::as_str).unwrap_or("0.00")
+        ));
     }
     // max: the slice's MemoryMax in bytes.
     if let Some(m) = c.get("max").and_then(Value::as_u64) {
@@ -254,14 +283,19 @@ fn expand(c: &Value, snap: &mut Value) {
     }
     // no_slice: the root step was never run.
     if c.get("no_slice") == Some(&json!(true)) {
-        snap["slice"]["show"] = json!({"FragmentPath": "", "ActiveState": "inactive", "MemoryMax": "infinity"});
+        snap["slice"]["show"] =
+            json!({"FragmentPath": "", "ActiveState": "inactive", "MemoryMax": "infinity"});
     }
     // The defaults of every issue the queue names: labelled by alice, an open
     // issue, nothing edited, no pull request.
     let numbers: Vec<u64> = ["ready", "blocked"]
         .iter()
         .flat_map(|k| snap[*k].as_array().cloned().unwrap_or_default())
-        .filter_map(|i| i["number"].as_u64().or_else(|| i["number"].as_str()?.parse().ok()))
+        .filter_map(|i| {
+            i["number"]
+                .as_u64()
+                .or_else(|| i["number"].as_str()?.parse().ok())
+        })
         .collect();
     let mut is = issues(snap);
     for n in numbers {
@@ -290,9 +324,9 @@ fn expand(c: &Value, snap: &mut Value) {
 /// in order.
 fn within(want: &Value, got: &Value) -> bool {
     match (want, got) {
-        (Value::Object(w), Value::Object(g)) => {
-            w.iter().all(|(k, v)| g.get(k).is_some_and(|x| within(v, x)))
-        }
+        (Value::Object(w), Value::Object(g)) => w
+            .iter()
+            .all(|(k, v)| g.get(k).is_some_and(|x| within(v, x))),
         _ => want == got,
     }
 }
@@ -335,7 +369,12 @@ fn run_suite(name: &str) {
                 bad.push(format!("the log lacks {x}"));
             }
         }
-        for x in e.get("log_lacks").and_then(Value::as_array).into_iter().flatten() {
+        for x in e
+            .get("log_lacks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if log.contains(x.as_str().unwrap()) {
                 bad.push(format!("the log has {x}"));
             }
@@ -348,12 +387,22 @@ fn run_suite(name: &str) {
                 }
             }
         }
-        for x in e.get("actions").and_then(Value::as_array).into_iter().flatten() {
+        for x in e
+            .get("actions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if !d.actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("no action {x}"));
             }
         }
-        for x in e.get("no_actions").and_then(Value::as_array).into_iter().flatten() {
+        for x in e
+            .get("no_actions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if d.actions.iter().any(|a| within(x, a)) {
                 bad.push(format!("an action {x}"));
             }
@@ -379,6 +428,19 @@ fn run_suite(name: &str) {
                 bad.push(format!("demand {:?} not {x}", d.demand));
             }
         }
+        for x in e
+            .get("report_lacks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if d.report
+                .as_ref()
+                .is_some_and(|r| r.get(x.as_str().unwrap()).is_some())
+            {
+                bad.push(format!("the report has {x}"));
+            }
+        }
         if let Some(x) = e.get("demand") {
             let ok = match (x, &d.demand) {
                 (Value::Null, Some(Value::Null)) => true,
@@ -393,10 +455,40 @@ fn run_suite(name: &str) {
             bad.push(format!("needs {:?}", d.needs));
         }
         if !bad.is_empty() {
-            failures.push(format!("{name}:\n  {}\n  log: {:?}\n  actions: {:?}", bad.join("\n  "), d.log, d.actions));
+            failures.push(format!(
+                "{name}:\n  {}\n  log: {:?}\n  actions: {:?}",
+                bad.join("\n  "),
+                d.log,
+                d.actions
+            ));
         }
     }
-    assert!(failures.is_empty(), "{name}: {} failed\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{name}: {} failed\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn control() {
+    run_suite("control");
+}
+
+#[test]
+fn limit() {
+    run_suite("limit");
+}
+
+#[test]
+fn red() {
+    run_suite("red");
+}
+
+#[test]
+fn room() {
+    run_suite("room");
 }
 
 #[test]
