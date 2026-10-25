@@ -1057,7 +1057,7 @@ impl Op {
             }
             Op::Answer(issue, turn, by, fixer, text) => c
                 .execute(
-                    "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, fixer, text)
+                    "INSERT OR IGNORE INTO planning_answers (issue, turn, by_account, millwright, text)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![issue, turn, by, fixer, text],
                 )
