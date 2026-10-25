@@ -225,6 +225,47 @@ t_contains "$recipe" 'codebase-memory-mcp is ${found:-not there}, versions.env n
 t_contains "$(cat "$build")" '--build-arg CBM_VERSION="$CBM_VERSION"'
 t_contains "$(cat "$build")" '--build-arg CBM_INSTALLER_SHA256="$CBM_INSTALLER_SHA256"'
 
+# The read-back is the only thing that says which codebase-memory-mcp the image
+# ended with. With the error of the command thrown away, a binary that died
+# printing why answered "not there", and the build said nothing about the
+# failure. The error is read for a version and reaches the build's output.
+t_case "the version read back from the code indexer keeps what the command printed"
+# The read-back is the joined RUN read as the build reads it, so that a comment
+# or a help text carrying the same words cannot answer for the step.
+cbm_step=$(docker_runs "$dockerfile" | grep -m 1 'codebase-memory-mcp --version')
+[ -n "$cbm_step" ] || t_bad "no RUN of the image reads the code indexer's version back"
+t_contains "$cbm_step" 'found=$(codebase-memory-mcp --version 2>&1'
+# No redirection of the command's own output: a device behind a quote reads the
+# same as the one written bare, so each spelling of it is refused.
+t_lacks "$cbm_step" '--version 2>&1 /'
+t_lacks "$cbm_step" '--version >'
+t_lacks "$cbm_step" '--version 2> "'
+t_lacks "$cbm_step" '--version 2>"'
+t_lacks "$cbm_step" 'found=0.'
+t_contains "$cbm_step" "grep -o -E '[0-9]+\\.[0-9]+\\.[0-9]+'"
+t_contains "$cbm_step" 'grep -E '"'"'^codebase-memory-mcp'"'"' | grep -o -E'
+t_contains "$cbm_step" 'if [ "${found:-}" != "$'"CBM_VERSION"'" ]; then'
+
+# Every download is bounded: a build with no route to the publisher would hang
+# on a curl that neither gave up nor said anything. The check is asked of the
+# RUN instructions the build sees, one download at a time: a count over the
+# text of the file is met by a comment that carries the bounds of a download
+# that has none, and says nothing about a second fetch folded onto a line that
+# was already bounded. The bounds themselves are named once here, so a weaker
+# retry shape - one that gives up on the first 5xx of a publisher - is caught.
+t_case "every download of the sandbox image is bounded"
+curl_bounds='-fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300'
+# One record per download: -o opens the file a fetch writes, so a second URL
+# folded onto the line of a curl that is already bounded is a record of its own.
+fetches=$(docker_runs "$dockerfile" | grep -oE "curl [^&;|]* -o ")
+# The fetches the image makes today: the code indexer's installer, shellcheck,
+# and the two files of the embedding model. The rule below is over downloads,
+# so the count only says the read found the fetches at all.
+t_eq "$(grep -c . <<<"$fetches")" 4
+while IFS= read -r fetch; do
+  t_contains "$fetch" "curl $curl_bounds"
+done <<<"$fetches"
+
 t_case "the image carries vipune's embedding model, pinned, and proves vipune reads it offline"
 t_eq "$(grep -cE '^VIPUNE_MODEL=[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$' "$versions")" 1
 t_eq "$(grep -cE '^VIPUNE_MODEL_REVISION=[0-9a-f]{40}$' "$versions")" 1
@@ -263,6 +304,62 @@ for tool in file python3 rg git jq curl gh node cargo shellcheck codebase-memory
 done
 t_lacks " $gate " ' wigolo '
 t_contains "$recipe" 'is not in this image'
+
+# The gate checks what a cycle can run, so it runs as the cycle's user: a tool
+# only root could execute passed the gate and failed in the cycle. The image is
+# left as root, since the steps after the gate are root's. Both halves are
+# asked of the instructions in the order the build runs them, and not of the
+# lines next to the RUN: a comment written beside the gate changes the file's
+# text and not its steps. The continuations are joined into the instruction
+# the build runs, and the comments, which run no step, are left out.
+t_case "the tool gate runs as the cycle's user and hands root back"
+# The instructions of the image that can run a step of it, in the file's order,
+# one per line: the continuations are joined as the parser joins them, and the
+# blank lines and the comments that run no step are left out. A comment written
+# beside the gate, or among the lines of an instruction, changes the text of the
+# file and not its steps.
+steps=$(awk '{ line = $0
+  while (sub(/[ \t]*\\[ \t]*$/, "", line)) {
+    if ((getline nxt) <= 0) break
+    line = line " " nxt
+  }
+  if (line !~ /^[ \t]*(RUN|COPY|ADD|USER)([ \t]|$)/) next
+  print line }' "$dockerfile")
+gate_at=$(awk -v want="$(gate_tools "$dockerfile")" 'index($0, "for tool in " want "; do") { print NR; exit }' <<<"$steps")
+[ -n "$gate_at" ] || { t_bad "the gate loop is not one of the image's instructions"; gate_at=1; }
+# The step the cycle's user opens is the gate itself, whatever the lines written
+# beside it say.
+t_eq "$(sed -n "$((gate_at - 1))p" <<<"$steps")" "USER vscode"
+# Root comes back at the step after the gate: the instruction before the loop is
+# the USER that named the cycle's user, and the one after it is the answer. A
+# step slipped between the two is read as its own instruction, and the answer is
+# no longer the one written after the gate.
+t_eq "$(sed -n "$((gate_at + 1))p" <<<"$steps")" "USER root"
+# The image is left as root, and no step of the cycle's user follows the gate:
+# the USER written after it is the file's last one, and the only step that runs
+# something of the image after it is the label step's own, which reads what the
+# base answered. A step written under the cycle's user after the answer changes
+# the last USER of the file or stands among the steps of root's.
+t_eq "$(tail -n +"$((gate_at + 1))" <<<"$steps" | grep -cE '^USER ')" 1
+t_eq "$(tail -n +"$((gate_at + 1))" <<<"$steps" | grep -m 1 -E '^USER ')" "USER root"
+# The only steps written after that answer are the two of the label step: the
+# build arguments it reads and the RUN that reads them, which answers for the
+# base and runs nothing of the image. A step of either user written there
+# after the gate stands among them, and the first of them is no USER.
+t_eq "$(tail -n +"$((gate_at + 2))" <<<"$steps" | grep -cE '^(RUN|COPY|ADD|USER) ')" 1
+t_contains "$(tail -n +"$((gate_at + 2))" <<<"$steps" | grep -m 1 -E '^(RUN|COPY|ADD|USER) ')" "RUN given="
+# Nothing that could make a tool unreadable or unrunnable for the cycle's user
+# runs while the image is still that user: mode bits are a real constraint in
+# this image, so a step of root's belongs after root came back. The gate also
+# answers for itself: a missing tool stops the build and the answer names the
+# tool that is gone, so a loop that only echoed would check nothing, as root or
+# as vscode.
+gate_run=$(docker_runs "$dockerfile" | grep -m 1 '^for tool in ')
+t_contains "$gate_run" 'command -v "$tool"'
+t_contains "$gate_run" 'is not in this image'
+t_contains "$gate_run" 'exit 1'
+t_lacks "$gate_run" "chmod"
+t_lacks "$gate_run" "chown"
 
 # The container of each unit in <dir>, as one record per docker run:
 # <unit>TAB<line>TAB<image>TAB<command>, or <unit>TAB<line>TABunplacedTABTAB<why>
@@ -1282,14 +1379,14 @@ records=$(records_of "$T_ROOT/libexec")
 # list.
 for want in \
   'check-product	145	PI_ENSEMBLE_IMAGE	bash	' \
-  'dev	336	PI_ENSEMBLE_IMAGE	pi	' \
+  'dev	331	PI_ENSEMBLE_IMAGE	pi	' \
   'improve	269	PI_ENSEMBLE_IMAGE	pi	' \
   'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
-  'plan	252	PI_ENSEMBLE_IMAGE	$runner	' \
-  'plan	446	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	524	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	754	PI_ENSEMBLE_IMAGE	git	' \
-  'work	888	PI_ENSEMBLE_IMAGE	$runner	'; do
+  'plan	247	PI_ENSEMBLE_IMAGE	$runner	' \
+  'plan	441	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	519	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	749	PI_ENSEMBLE_IMAGE	git	' \
+  'work	883	PI_ENSEMBLE_IMAGE	$runner	'; do
   case "
 $records
 " in *"

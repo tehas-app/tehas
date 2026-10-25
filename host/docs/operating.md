@@ -1033,8 +1033,9 @@ stack is filed as an issue of its own in that repository.
 - **The whole log is linked.** Each issue links the logs of the cycles it
   names, gzipped, as assets of the release `tehas-improve-logs` in
   `TEHAS_IMPROVE_REPO`, wherever the issue is filed. In a public repository
-  they are public. A log that holds
-  something shaped like a token is not uploaded, and the issue says so.
+  they are public. A log goes up masked as the console masks it: tokens,
+  passwords, private addresses. A log that still holds something shaped like a
+  token, or that could not be masked, is not uploaded, and the issue says so.
 - **One line per run** in `~/tehas/logs/improve.log`:
 
 ```

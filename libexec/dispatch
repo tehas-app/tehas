@@ -3116,8 +3116,8 @@ for n in $asking; do
         continue
       fi
       mesh_ok || exit 0
-      image_ok "$n" || exit 0
-      image_missing_ok "$n" || exit 0
+      image_ok "$n" || continue # this issue's own hold, as on the ready path
+      image_missing_ok "$n" || continue
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0

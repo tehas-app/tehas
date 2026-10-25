@@ -167,6 +167,20 @@ t_stub() {
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
+# t_hold <file>: another process holds a flock on <file> until t_release.
+# The holder is the subshell itself, turned into a sleep, so killing it frees
+# the lock at once; t_hold returns once the lock is held.
+t_hold() {
+  (
+    exec 9>"$1" && flock 9 && exec sleep 600
+  ) &
+  t_holder=$!
+  while flock -n "$1" true; do command -p sleep 0.02; done
+}
+t_release() {
+  kill "$t_holder" 2>/dev/null
+  wait "$t_holder" 2>/dev/null
+}
 t_stub_analytics() {
   t_stub analytics "${1:-}"
   mkdir -p "$T/home/tehas/libexec"

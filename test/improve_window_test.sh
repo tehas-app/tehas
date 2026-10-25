@@ -26,6 +26,35 @@ t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
 t_contains "$(cat "$T/calls/body-101")" "shaped like a token"
 t_contains "$t_out" "secret-shape=$REC"
 
+t_case "the log goes up as the console masks it"
+ready
+echo '{"text":"PASSWORD=hunter2-secret"}' >>"$home/logs/work-$REC.jsonl"
+echo "stderr line" >"$home/logs/work-$REC.jsonl.err"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(wc -l <"$T/calls/assets")" 1
+t_contains "$(cat "$T/calls/uploaded")" 'PASSWORD=***'
+t_contains "$(cat "$T/calls/uploaded")" "stderr line"
+t_lacks "$(cat "$T/calls/uploaded")" "hunter2"
+
+t_case "without a console the log is not uploaded and the issue says so"
+ready
+rm "$tree/libexec/console"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
+t_contains "$(cat "$T/calls/body-101")" "could not be masked"
+t_contains "$t_out" "not-masked=$REC"
+console_stub
+
+t_case "a console that fails: the log is not uploaded"
+ready
+: >"$fx/console.rc"
+t_run "$improve"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/calls/assets" 2>/dev/null)" ""
+t_contains "$t_out" "not-masked=$REC"
+
 t_case "a log that is gone: the issue is filed and says so"
 ready
 rm "$home/logs/work-$REC.jsonl"
