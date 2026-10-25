@@ -1105,6 +1105,94 @@ with `docker stop` and the turn exits 2. The session is on the state store
 (`plan-show`). A container left under the turn's name, by
 a turn whose client died, is removed before the turn starts.
 
+## tehasbot review
+
+Reviews what the default branch gained since the last reviewed commit, with
+pi-rukas's lens reviewer running headless in the sandbox image. It is the
+review step of the review loop; it files nothing, and no unit runs it on a
+timer yet.
+
+```
+tehasbot review
+```
+
+One run is one turn of `pi-rukas-headless lens-review --since <commit>
+--json`, over a clone made fresh for the run and removed when it is over. The
+commit to start from is read from `~/tehas/state/review.json`: the commit the
+last review read. A record is trusted only when it holds a whole commit and
+that commit is one the branch still reaches; with no record there, or one that
+is unreadable, names no commit, or names a commit the branch no longer has, the
+run starts at the commit 7 days back, or at the root when the branch is younger
+than that, and says which of the two happened. When the record already names
+the tip, the run says there is nothing new and starts no container.
+
+What a review is for is the whole range, so a run that failed records nothing
+and the next run reads the same commits again. Only the exits that mean the
+reviewer answered move the record on.
+
+| Runner exit | Meaning | Recorded |
+| ----------- | ------- | -------- |
+| 0  | APPROVED, or nothing to review | the commit |
+| 10 | ISSUES_FOUND | the commit |
+| 20 | CRITICAL | the commit |
+| 30 | REVIEW_INCOMPLETE | nothing |
+| 40 | ROUND_CAP_REACHED | nothing |
+| any other | the runner failed or refused | nothing, and the command exits 2 |
+
+On exit 0, 10 or 20 the record is
+`{"commit": "<the head that was reviewed>", "at": "<UTC time>", "exit": <code>}`
+and it replaces what was there. With any other status the file stays exactly as
+it was, and is not made when the host had none. Before anything is recorded the
+runner's document is read, as a cycle's result and a planning turn's answer are
+read: its `exitCode` and the exit status of the container must say the same
+thing about the range. Two answers that disagree record nothing, and both are
+named in the line that says so.
+
+| Exit | Meaning |
+| ---- | ------- |
+| 0 | the review answered with no findings |
+| 10, 20 | findings, or serious findings: the status the runner gave |
+| 2 | the runner failed, ran out of time, or its record could not be written down |
+| 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
+| 78 | the instance settings are invalid, `tehas.slice` cannot be used, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
+
+The container is the one `tehas plan` starts a planning turn in: the same
+image, the same limits in `tehas.slice`, the same mounts and variables from
+`lib/sandbox.sh`, and no Docker socket, SSH keys or `~/.config/tehas`. It
+differs in its name, in what it runs, and in having no token: a review reads
+code and writes nothing to the tracker, so no `-e` carries `GH_TOKEN`, and on a
+host with a GitHub App the directory of the app's token is not mounted. The names of a planning turn, which this run has none of, are
+dropped the same way. It has no cid file, so a review left by a client that
+died is not named for a later run to remove.
+
+The workspace is `~/tehas/work/<name>-review`, a clone made for every run and
+removed when the run is over; inside the container it is at the path every
+cycle has its own, `~/tehas/work/<name>`. Beside it is `<name>-review.state`,
+the run's own copy of the code index and its own memory, removed with the
+workspace. A run that fails after making the two removes them too. Its
+transcripts go to `~/.pi/agent/ensemble-runs/review`. The
+runner's one JSON document goes to `~/tehas/logs/review-<time>.json` and its
+NDJSON progress beside it as `.jsonl`. Both are masked on the way there, as
+every other log an agent can see is masked before a reader gets it: no other
+reader reaches a file named `review-<time>`. The mask is the console beside
+this command; a host without it keeps the two files as the run wrote them and
+says so.
+
+One review at a time: the run holds `~/tehas/state/review.lock` for as long as
+it goes, and a second one started beside it says so and starts nothing. A
+container left under the run's name by a client that died is removed before the
+run starts; the `docker rm`, `docker stop` and `docker kill` of these are each
+bounded, so a dockerd that stops answering is reported rather than being the
+last thing the run does.
+
+The limit is `TEHAS_PLAN_TIMEOUT`, the bound of one headless turn: past it the
+container is stopped with `docker stop` and the run exits 2. An image whose
+runner has no `lens-review` verb reviews nothing, and that is said before
+anything is cloned. A `PI_ENSEMBLE_*` name that the environment would carry
+into the container is given only when the image's `--capabilities` says a host
+may set it; one it does not name stops the run before anything is cloned, as it
+does for a cycle.
+
 ## tehas dev
 
 An interactive Pi session with pi-rukas, in the sandbox image, in a clone of
@@ -2824,8 +2912,9 @@ starting cycles:
    name, and never for the images that have lost their tag.
 6. **Logs and the state store.** The logs in `~/tehas/logs` of cycles
    (`work-*`, `dispatch-work-*`), planning turns (`plan-*.jsonl`,
-   `dispatch-plan-*.log`), index runs (`index-*`) and the improvement loop's
-   analyst (`improve-analyst*.log`) older than 7 days, whether or not the
+   `dispatch-plan-*.log`), index runs (`index-*`), reviews (`review-*.json`,
+   `review-*.jsonl`) and the improvement loop's analyst (`improve-analyst*.log`)
+   older than 7 days, whether or not the
    improvement loop is on. Then `store backup`, a copy a day of the state store
    kept seven days, and `store prune --days 90` (see [Backups and
    restore](/operating#backups-and-restore)). All of it is one call,

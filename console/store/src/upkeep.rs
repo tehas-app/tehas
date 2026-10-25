@@ -353,8 +353,8 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
 
 // --- upkeep -------------------------------------------------------------------
 
-/// The logs upkeep removes: a cycle's, a planning turn's, an index run's and
-/// the analyst's. Long-lived logs such as dispatch.log are not among them.
+/// The logs upkeep removes: a cycle's, a planning turn's, an index run's, a
+/// review's and the analyst's. Long-lived logs such as dispatch.log are not among them.
 fn old_log(name: &str) -> bool {
     name.starts_with("work-")
         || name.starts_with("dispatch-work-")
@@ -362,6 +362,7 @@ fn old_log(name: &str) -> bool {
         || (name.starts_with("improve-analyst") && name.ends_with(".log"))
         || (name.starts_with("plan-") && name.ends_with(".jsonl"))
         || (name.starts_with("dispatch-plan-") && name.ends_with(".log"))
+        || (name.starts_with("review-") && (name.ends_with(".json") || name.ends_with(".jsonl")))
 }
 
 const LOG_DAYS: i64 = 7;

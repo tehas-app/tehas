@@ -14,6 +14,7 @@
 #   tehasbot preview [--sweep]    keep the previews of pull requests (the timers)
 #   tehasbot improve              one run of the improvement loop (the timer)
 #   tehasbot refresh              find the pull requests to refresh (the timer)
+#   tehasbot review               review the branch since the last review
 #   tehasbot clean                remove what the host can make again (the timer)
 #   tehasbot mcp serve            the read-only MCP server (the service)
 #   tehasbot github-token [--check]  the GitHub App's token (the gh shim)
@@ -39,7 +40,7 @@ case "${1-help}" in
     usage
     exit 0
     ;;
-  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | clean | mcp | github-token)
+  dispatch | cycle | status | health | energy | protolab | preview | improve | refresh | review | clean | mcp | github-token)
     file=$libexec/$1
     shift
     exec "$file" "$@"

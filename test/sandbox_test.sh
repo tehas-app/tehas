@@ -1343,12 +1343,12 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
-# the count is what the units hold today, one run for each of the eight units
+# the count is what the units hold today, one run for each of the nine units
 # that start a container, three for work (the check of a runner, the check of a
 # push, and the cycle), and one for preview, the run of the comment that names
 # docker run being read by neither.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 11
+t_eq "$count" 12
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1362,7 +1362,7 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 9 unplaced 2 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 10 unplaced 2 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
 # the line it stands on. The two the units leave today are named by who and
 # where, and by no number that a third unplaced run could drift beside: one is
@@ -1384,6 +1384,7 @@ for want in \
   'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
   'plan	247	PI_ENSEMBLE_IMAGE	$runner	' \
   'plan	441	PI_ENSEMBLE_IMAGE	$runner	' \
+  'review	293	PI_ENSEMBLE_IMAGE	$runner	' \
   'work	519	PI_ENSEMBLE_IMAGE	$runner	' \
   'work	749	PI_ENSEMBLE_IMAGE	git	' \
   'work	883	PI_ENSEMBLE_IMAGE	$runner	'; do
