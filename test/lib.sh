@@ -32,10 +32,6 @@
 #                                    HOME/libexec/attach; a failure when there
 #                                    is none
 #   t_store_db HOME                  a fresh database in HOME/state/tehas.db
-#   t_store_old DB VERSION [SQL]     a store at an older schema: schema 1 and
-#                                    the steps of db.rs up to VERSION, then
-#                                    SQL; 1 without python3, a failure
-#                                    when it cannot be laid
 #   t_store_home HOME                the real store installed at
 #                                    HOME/libexec/store and a fresh database,
 #                                    and the attachment checker beside it;
@@ -407,35 +403,6 @@ t_store_db() {
   mkdir -p "$1"
   TEHAS_HOME=$1 "$T_STORE" init --version v0.0.0 --commit "$T_COMMIT" --instance instance \
     --repo acme/widget >/dev/null
-}
-# t_store_old <db> <version> [sql]: what a host of an older release holds.
-# The DDL is read from tests/schema_v1.sql and the STEP_<n> texts of db.rs, so
-# it cannot drift from the steps. python3's sqlite3 is the client, as the gate
-# names no sqlite3.
-t_store_old() {
-  command -v python3 >/dev/null || return 1
-  if python3 - "$T_ROOT" "$1" "$2" "$T_COMMIT" "${3:-}" <<'PY'
-import sqlite3, sys
-root, db, at, commit, extra = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
-c = sqlite3.connect(db)
-c.executescript(open(root + '/console/store/tests/schema_v1.sql').read())
-src = open(root + '/console/store/src/db.rs').read()
-for n in range(2, at + 1):
-    head = 'const STEP_%d: &str = "' % n
-    start = src.index(head) + len(head)
-    c.executescript(src[start:src.index('";', start)])
-c.execute("INSERT INTO meta (key, value) VALUES ('schema', ?), ('created_at', '1791000000'),"
-          " ('tehas_version', 'v0.11.0'), ('tehas_commit', ?),"
-          " ('instance', 'instance'), ('repo', 'acme/widget')", (str(at), commit))
-c.executescript(extra)
-c.execute('PRAGMA user_version=%d' % at)
-c.commit()
-PY
-  then
-    chmod 600 "$1"
-  else
-    t_bad "the fixture of schema $2 could not be laid in $1"
-  fi
 }
 # t_store_home <home>: the home a command runs the store in. A record test
 # fails without the store rather than skip: the gate needs cargo anyway. The
