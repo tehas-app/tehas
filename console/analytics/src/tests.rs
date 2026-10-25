@@ -1840,6 +1840,7 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
     let at = iso(now - 60);
     let rec = |turns: i64, answers: Value| json!({"session": "s", "turns": turns, "running": true, "startedAt": at, "answers": answers});
     let fixer = json!([{"turn": 3, "by": "fixer-bot", "fixer": true}]);
+    let millwright = json!([{"turn": 3, "by": "millwright-bot", "millwright": true}]);
     for (rc, record, out, outcome, status, how) in [
         (
             "0",
@@ -1863,7 +1864,25 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
             Some(json!({"session": "s"})),
             "failed",
             "-",
-            "fixer",
+            "millwright",
+        ),
+        // An answer marked `millwright` is the millwright's too, and a record
+        // marked with neither word is an answer of a person.
+        (
+            "2",
+            rec(2, millwright.clone()),
+            Some(json!({"session": "s"})),
+            "failed",
+            "-",
+            "millwright",
+        ),
+        (
+            "2",
+            rec(2, json!([{"turn": 3, "by": "alice", "millwright": false}])),
+            Some(json!({"session": "s"})),
+            "failed",
+            "-",
+            "answer",
         ),
         (
             "2",

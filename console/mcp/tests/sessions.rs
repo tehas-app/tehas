@@ -141,6 +141,95 @@ fn filters_combine() {
 }
 
 #[test]
+fn a_how_filter_of_either_millwright_word_matches_both() {
+    let all = [
+        sess("work", 1, 100, json!({"how": "millwright"})),
+        sess("work", 2, 200, json!({"how": "fixer"})),
+        sess("work", 3, 300, json!({"how": "label"})),
+        // A run of a word outside the class is not swept into it by a filter
+        // of the class: `hand` is a cycle run by hand, `refresh` a restart on
+        // a person's request.
+        sess("work", 7, 700, json!({"how": "hand"})),
+        sess("work", 8, 800, json!({"how": "refresh"})),
+    ];
+    let env = Env::new("how", Some("a/b"), &all);
+    let both = [
+        all[0]["id"].as_str().unwrap(),
+        all[1]["id"].as_str().unwrap(),
+    ];
+    for word in ["millwright", "fixer"] {
+        let out = env.call("factory_sessions", json!({"how": word})).unwrap();
+        assert_eq!(ids(&out), both, "{word}");
+        // The words returned are the ones the records say, not the filter's:
+        // both of the pair, whatever order they come back in.
+        let returned: BTreeSet<&str> = out["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["how"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            returned,
+            ["millwright", "fixer"].into_iter().collect(),
+            "{word}"
+        );
+    }
+    let label = env
+        .call("factory_sessions", json!({"how": "label"}))
+        .unwrap();
+    assert_eq!(ids(&label), [all[2]["id"].as_str().unwrap()]);
+    // A word outside the class is not swept into it.
+    for w in ["hand", "refresh"] {
+        let out = env.call("factory_sessions", json!({"how": w})).unwrap();
+        assert_eq!(ids(&out).len(), 1, "{w}");
+    }
+}
+
+#[test]
+fn the_how_schema_accepts_every_word_of_the_filter() {
+    // The accepted words come from the tool's own schema, so a word dropped
+    // from the filter's list shows up here instead of failing at runtime.
+    let tool = list()
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "factory_sessions")
+        .unwrap()
+        .clone();
+    let accepted: BTreeSet<&str> = tool["inputSchema"]["properties"]["how"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        accepted,
+        mcp::sessions::HOWS.iter().copied().collect::<BTreeSet<_>>()
+    );
+    // The class words must be accepted, or the equivalence is dead code.
+    assert!(mcp::sessions::MILLWRIGHT_WORDS
+        .iter()
+        .all(|w| accepted.contains(w)));
+}
+
+#[test]
+fn every_how_word_outside_the_pair_is_matched_exactly() {
+    // Each word of the filter's list outside the millwright pair finds its own
+    // records and no others; the pair's equivalence is the test above.
+    let all: Vec<Value> = mcp::sessions::HOWS
+        .iter()
+        .filter(|w| !mcp::sessions::MILLWRIGHT_WORDS.contains(w))
+        .map(|w| sess("work", 1, 100, json!({"how": w})))
+        .collect();
+    let env = Env::new("how-words", Some("a/b"), &all);
+    for s in &all {
+        let want = s["how"].as_str().unwrap();
+        let out = env.call("factory_sessions", json!({"how": want})).unwrap();
+        assert_eq!(ids(&out), [s["id"].as_str().unwrap()], "{want}");
+    }
+}
+
+#[test]
 fn bad_filters_are_tool_errors() {
     let env = Env::new("badfilters", Some("a/b"), &[]);
     for a in [
