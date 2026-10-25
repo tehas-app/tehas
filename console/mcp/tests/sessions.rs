@@ -160,19 +160,23 @@ fn a_how_filter_of_either_millwright_word_matches_both() {
     for word in ["millwright", "fixer"] {
         let out = env.call("factory_sessions", json!({"how": word})).unwrap();
         assert_eq!(ids(&out), both, "{word}");
-        // The word returned is the one the record says, not the filter's.
+        // The words returned are the ones the records say, not the filter's:
+        // both of the pair, whatever order they come back in.
+        let returned: BTreeSet<&str> = out["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["how"].as_str().unwrap())
+            .collect();
         assert_eq!(
-            out["sessions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|s| s["how"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            vec!["millwright", "fixer"],
+            returned,
+            ["millwright", "fixer"].into_iter().collect(),
             "{word}"
         );
     }
-    let label = env.call("factory_sessions", json!({"how": "label"})).unwrap();
+    let label = env
+        .call("factory_sessions", json!({"how": "label"}))
+        .unwrap();
     assert_eq!(ids(&label), [all[2]["id"].as_str().unwrap()]);
     // A word outside the class is not swept into it.
     for w in ["hand", "refresh"] {
@@ -182,9 +186,9 @@ fn a_how_filter_of_either_millwright_word_matches_both() {
 }
 
 #[test]
-fn every_how_word_is_accepted_and_only_the_millwright_pair_is_one_class() {
+fn the_how_schema_accepts_every_word_of_the_filter() {
     // The accepted words come from the tool's own schema, so a word dropped
-    // from HOWS shows up here instead of failing at runtime.
+    // from the filter's list shows up here instead of failing at runtime.
     let tool = list()
         .as_array()
         .unwrap()
@@ -192,19 +196,26 @@ fn every_how_word_is_accepted_and_only_the_millwright_pair_is_one_class() {
         .find(|t| t["name"] == "factory_sessions")
         .unwrap()
         .clone();
-    let accepted: Vec<&str> = tool["inputSchema"]["properties"]["how"]["enum"]
+    let accepted: BTreeSet<&str> = tool["inputSchema"]["properties"]["how"]["enum"]
         .as_array()
         .unwrap()
         .iter()
         .map(|w| w.as_str().unwrap())
         .collect();
-    assert_eq!(accepted, mcp::sessions::HOWS.to_vec());
+    assert_eq!(
+        accepted,
+        mcp::sessions::HOWS.iter().copied().collect::<BTreeSet<_>>()
+    );
     // The class words must be accepted, or the equivalence is dead code.
     assert!(mcp::sessions::MILLWRIGHT_WORDS
         .iter()
         .all(|w| accepted.contains(w)));
-    // Every word finds its own records, so each is matched exactly. Only the
-    // millwright pair matches each other, which the test above shows.
+}
+
+#[test]
+fn every_how_word_outside_the_pair_is_matched_exactly() {
+    // Each word of the filter's list outside the millwright pair finds its own
+    // records and no others; the pair's equivalence is the test above.
     let all: Vec<Value> = mcp::sessions::HOWS
         .iter()
         .filter(|w| !mcp::sessions::MILLWRIGHT_WORDS.contains(w))
