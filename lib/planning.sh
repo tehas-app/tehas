@@ -77,9 +77,17 @@
 #   plan_collect <issue>           post a turn that ended; 1 when none did
 #   plan_recover <issue>           finish a turn that was cut off, or end a
 #                                  session found lost that could not be ended
+#   plan_brief <issue> <JSON> [<refine brief>]
+#                                  write a first turn's brief to brief_file
 #   plan_post <issue>              post the outcome that waits
-#   plan_end <issue> <text>        end the session and say why; returns 1,
-#                                  having changed nothing, if the labels stay
+#   plan_replace <issue> <filed>   end a refine that filed: the filed issues
+#                                  say Replaces and are sub-issues; the issue
+#                                  says Replaced by and is closed tehas:replaced,
+#                                  or open tehas:refined with later parts left
+#   plan_end <issue> <text> [lost] [hand]
+#                                  end the session and say why; with hand the
+#                                  issue is left needs-human-attention. Returns
+#                                  1, having changed nothing, if the labels stay
 #   plan_close <issue>             end the session without a word, as when its
 #                                  issue was closed
 
@@ -148,15 +156,36 @@ plan_files_rm() {
   plan_brief_rm "$1"
 }
 
+# plan_hand: hand when the store's last answer is of a refine rule 5a started.
+plan_hand() { [ "$(tehas_store_get '.planning.auto // false' 2>/dev/null)" != true ] || echo hand; }
+
+# The refine brief goes after the issue's text, so the first line is still the
+# title the planner is asked to plan. The last line names the issue under
+# discussion: without it the planner matches its own issue as the duplicate of
+# the plan and stops at turn 1 (issue 542).
+plan_brief() {
+  local n=$1
+  brief_file=""
+  [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
+  brief_file=$(mktemp "$TEHAS_HOME/tmp/plan-$n.brief.XXXXXX") &&
+    jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$2" >"$brief_file" &&
+    { [ -z "${3:-}" ] || printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$3")" "$n" "$n" "$n" >>"$brief_file"; } &&
+    return 0
+  [ -z "$brief_file" ] || rm -f "$brief_file"
+  log "ERROR: could not write the brief of #$n"
+  return 1
+}
+
 # plan_end <issue> <text> [lost]: a lost session is closed before it is
 # announced. It stays running on record until it is closed, so the next poll
 # ends it again through plan_recover, and says it then: said first, it would
 # be said every poll until a close went through. Any other session that could
 # not be closed is closed by the next poll without a word, so it is said now.
 plan_end() {
-  local n=$1
+  local n=$1 hand=--remove-label
+  [ "${4:-}" != hand ] || hand=--add-label
   if ! gh issue edit "$n" --repo "${repo:?}" --remove-label tehas:question --remove-label tehas:planning \
-    --remove-label tehas:plan --remove-label needs-human-attention >/dev/null 2>&1; then
+    --remove-label tehas:plan "$hand" needs-human-attention >/dev/null 2>&1; then
     log "WARN: could not take the planning labels off #$n, so its session is not ended yet"
     return 1
   fi
@@ -198,7 +227,7 @@ plan_filed() {
 }
 
 plan_post() {
-  local n=$1 st turns comment failed what
+  local n=$1 st turns comment failed label what
   st=$(plan_state "$n")
   if ! tehas_store plan-show "$n"; then
     log "WARN: the planning record of #$n could not be read ($tehas_store_word); the next poll tries again"
@@ -207,10 +236,15 @@ plan_post() {
   turns=$(tehas_store_get '.planning.turns // 0') || turns=0
   comment=$(tehas_store_get '.planning.comment_id // "" | tostring') || comment=""
   failed=$(tehas_store_get '.planning.failed // false') || failed=false
+  label=$(tehas_store_get '.planning.label // ""') || label=""
   # What the turn filed is said once, under the agent's own words. The store
   # keeps it with the session, so the next turn's answer can name it: an issue
   # the agent never saw the result of would otherwise be filed again.
   what=$(plan_filed "$st.out") || what=""
+  if [ -n "$what" ] && [ "$label" = tehas:refine ]; then
+    plan_replace "$n" "$what"
+    return
+  fi
   # Step one: the question. Once its id is on record it is never posted again.
   if [ -z "$comment" ]; then
     if ! post_question plan "$n" "$turns" "$st.out" "${what:+Filed in this turn: $what}"; then
@@ -238,6 +272,83 @@ plan_post() {
     return 1
   fi
   rm -f "$st.out"
+}
+
+# A refine that filed is over: pi-rukas files once a session. The mark on the
+# original is the step a poll that failed halfway does not repeat, once every
+# filed issue says Replaces: a mark of an earlier session marks nothing here.
+plan_replace() {
+  local n=$1 url m body id have mark="" other later=0 mine="" said="" text new=0
+  have=$(gh issue view "$n" --repo "$repo" --json labels 2>/dev/null | jq -r '[(.labels // [])[].name] | join(" ")') ||
+    { log "WARN: the labels of #$n could not be read; the next poll replaces it"; return 1; }
+  for url in ${2//,/ }; do
+    m=${url##*/}
+    body=${url%/issues/*}
+    if [ "${body,,}" != "https://github.com/${repo,,}" ]; then
+      said="$said, $url"
+      later=1
+      continue
+    fi
+    mine="$mine #$m"
+    said="$said, #$m"
+    if ! body=$(gh issue view "$m" --repo "$repo" --json body 2>/dev/null | jq -er '.body // ""'); then
+      later=1
+      log "WARN: could not read #$m, which refining #$n filed"
+      continue
+    fi
+    plan_no_later_parts <<<"$body" || later=1
+    [ "$(head -n 1 <<<"${body//$'\r'/}")" != "Replaces #$n" ] || continue
+    new=1
+    if ! gh issue edit "$m" --repo "$repo" --body "Replaces #$n"$'\n\n'"$body" >/dev/null 2>&1; then
+      log "WARN: could not say on #$m that it replaces #$n; the next poll replaces it"
+      return 1
+    fi
+    if ! id=$(gh api "repos/$repo/issues/$m" 2>/dev/null | jq -er .id) ||
+      ! gh api -X POST "repos/$repo/issues/$n/sub_issues" -F sub_issue_id="$id" >/dev/null 2>&1; then
+      log "WARN: could not link #$m as a sub-issue of #$n"
+    fi
+  done
+  [ -n "$mine" ] || later=1
+  [[ " $have " != *" tehas:refined "* ]] || mark=tehas:refined
+  [[ " $have " != *" tehas:replaced "* ]] || mark=tehas:replaced
+  if [ "$new" = 1 ] || [ -z "$mark" ]; then
+    mark=tehas:replaced other=tehas:refined
+    [ "$later" = 0 ] || { mark=tehas:refined other=tehas:replaced; }
+    if ! gh issue edit "$n" --repo "$repo" --remove-label tehas:question --remove-label tehas:planning \
+      --remove-label "$other" --add-label "$mark" >/dev/null 2>&1; then
+      log "WARN: could not mark #$n $mark; the next poll replaces it"
+      return 1
+    fi
+    text=$(jq -r '.text // "" | strings' "$(plan_state "$n").out" 2>/dev/null) || text=""
+    say "$n" "Replaced by ${said#, }.${text:+
+
+$text}"
+  fi
+  if [ "$mark" = tehas:replaced ]; then
+    gh issue close "$n" --repo "$repo" --reason "not planned" >/dev/null 2>&1 || log "WARN: could not close #$n"
+  fi
+  plan_close "$n" || return 1
+  log "planning #$n ended: $mark by $2"
+}
+
+# plan_no_later_parts: 0 only when the plan on stdin has a Later parts
+# section (a heading, a bold line or "Later parts:") of nothing but None.
+plan_no_later_parts() {
+  tr -d '\r' | awk '
+    function none(t) { t = tolower(t); gsub(/[-*_.:()[:space:]]/, "", t); return t == "" || t == "none" }
+    {
+      line = tolower($0); head = line
+      sub(/^[#*_[:space:]]+/, "", head)
+      if (head ~ /^later parts/) {
+        seen = 1; in_it = 1; rest = substr(head, 12)
+        sub(/^[*_[:space:]]+/, "", rest); sub(/^\([^)]*\)/, "", rest)
+        if (!none(rest)) more = 1
+        next
+      }
+      if (in_it && (line ~ /^#/ || line ~ /^\*\*[^*]+\*\*[[:space:]]*:?[[:space:]]*$/)) in_it = 0
+      if (in_it && !none($0)) more = 1
+    }
+    END { exit (seen && !more) ? 0 : 1 }'
 }
 
 # A session Pi no longer has cannot go on: what was said in it is gone.
@@ -270,7 +381,7 @@ plan_refined() {
 }
 
 plan_lost() {
-  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session." lost
+  plan_end "$1" "Tehas ended this planning session: pi-rukas has no record of it on \`$(hostname)\` any more, so the last answer was not given to the planner. Apply \`tehas:plan\` again to start a new session." lost "$(plan_hand)"
 }
 
 # plan_ended <issue> <args of plan-end>: the turn's end on record, and its
@@ -433,7 +544,7 @@ plan_turn() {
   # answered is answered on record in the same write, and none is open: a
   # reply to it must not be read a second time.
   if [ "$mode" = first ]; then
-    if ! plan_store plan-begin "$n" --by "${who:?}" --label "${plabel:-tehas:plan}" --brief-file "$input"; then
+    if ! plan_store plan-begin "$n" --by "${who:?}" --label "${plabel:-tehas:plan}" --brief-file "$input" ${plan_auto:+--auto}; then
       rm -f "$input"
       plan_refused "$n" "its planning session could not begin"
       return
@@ -452,7 +563,7 @@ plan_turn() {
     sid=$(tehas_store_get '.planning.session // ""') || sid=""
     if [ "$turns" -ge "$TEHAS_PLAN_MAX_TURNS" ]; then
       rm -f "$input"
-      plan_end "$n" "This planning session reached its limit of $TEHAS_PLAN_MAX_TURNS turns and was ended. Apply \`tehas:plan\` to start a new one."
+      plan_end "$n" "This planning session reached its limit of $TEHAS_PLAN_MAX_TURNS turns and was ended. Apply \`tehas:plan\` to start a new one." "" "$(plan_hand)"
       return 0
     fi
     args=(plan-answer "$n" --turn "$((turns + 1))" --by "$by" --text-file "$input")
@@ -492,7 +603,10 @@ plan_turn() {
     log "ERROR: could not mark #$n as planning, not starting a turn"
     exit 1
   fi
-  if [ "$mode" = first ]; then
+  if [ -n "${plan_auto:-}" ] && [ "$mode" = first ]; then
+    say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC to refine this issue: its cycle parked as \`${plan_auto}\`, and the start of that cycle by @${who:?} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take \`tehas:question\` off while a question waits, or close the issue."
+    args=(--brief "$input")
+  elif [ "$mode" = first ]; then
     say "$n" "Tehas planning session started on \`$(hostname)\` at $(date -u +'%F %H:%M') UTC (authorized by @${who:?}'s \`${plabel:-tehas:plan}\` label). Each turn ends in a comment here. Answer by ticking a box or by replying."
     args=(--brief "$input")
   else

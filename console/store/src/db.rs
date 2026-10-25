@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -44,7 +44,7 @@ ALTER TABLE heartbeats ADD COLUMN text TEXT;
 /// `planning_answers.fixer` is named `millwright`. SQLite cannot change a CHECK
 /// in place, so the two tables are rebuilt as schema.sql writes them and every
 /// row is copied. See `step_4` for why foreign keys are off while it runs.
-const STEP_4: &str = "
+pub(crate) const STEP_4: &str = "
 CREATE TABLE cycles_new (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
@@ -82,6 +82,13 @@ INSERT INTO planning_notes_new SELECT * FROM planning_notes;
 DROP TABLE planning_notes;
 ALTER TABLE planning_notes_new RENAME TO planning_notes;
 ALTER TABLE planning_answers RENAME COLUMN fixer TO millwright;
+";
+
+/// The step from 4 to 5: `auto` added to `planning` and `plan_history`, last in
+/// each as in schema.sql. Every row is kept, as a refine a person asked for.
+const STEP_5: &str = "
+ALTER TABLE planning ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plan_history ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -773,9 +780,13 @@ pub fn migrate(
         ),
         1 => step(conn, 2, STEP_2)
             .and_then(|()| step(conn, 3, STEP_3))
-            .and_then(|()| step_4(conn)),
-        2 => step(conn, 3, STEP_3).and_then(|()| step_4(conn)),
-        3 => step_4(conn),
+            .and_then(|()| step_4(conn))
+            .and_then(|()| step(conn, 5, STEP_5)),
+        2 => step(conn, 3, STEP_3)
+            .and_then(|()| step_4(conn))
+            .and_then(|()| step(conn, 5, STEP_5)),
+        3 => step_4(conn).and_then(|()| step(conn, 5, STEP_5)),
+        4 => step(conn, 5, STEP_5),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()

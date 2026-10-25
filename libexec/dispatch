@@ -140,6 +140,9 @@
 #      rule 3 or the slice's room: a planning turn opens no pull request. A
 #      slice that cannot be used holds them too, before a label or a comment
 #      is spent: a turn's container would not start.
+#   5a. A cycle that parked as underspecified or too-large is refined once
+#      without a label, on the word of the account that started it
+#      (park-show --refine), unless a person has acted on the issue since.
 #   6. An issue is eligible only if its tehas:ready label was applied by an
 #      account in TEHAS_ALLOWED_LABELERS. It never names the bot: every poll
 #      reads its own login and stops when it is listed. An issue with an open
@@ -2931,6 +2934,8 @@ fi
 # one turn is in flight no other starts.
 fresh=" "
 plan_busy=""
+# Parked issues with a box ticked, held or not: rule 5a leaves them.
+park_ticked=" "
 plan_sessions_must
 for n in $(jq -r '.[] | select(.running == true) | .issue' <<<"$plan_open_json"); do
   if plan_in_flight "$n"; then
@@ -3059,6 +3064,7 @@ for n in $asking; do
     park)
       # Only a tick answers a parked cycle: a comment there is discussion.
       [ "$tick" = one ] || continue
+      park_ticked="$park_ticked$n "
       # Only the question on record can start a cycle. A box in any other
       # comment is emptied, so that it cannot be taken for an order given.
       if [ "$qkind" != park ]; then
@@ -3340,23 +3346,88 @@ for entry in $plans; do
   # The approved text, kept for the turn's unit until the turn ends. The
   # session's start takes the park's question off the record with it: its
   # boxes must not answer for the new session.
-  [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
-  if ! brief_file=$(mktemp "$TEHAS_HOME/tmp/plan-$n.brief.XXXXXX"); then
-    log "ERROR: could not write the brief of #$n"
-    exit 1
-  fi
-  jq -r '"# \(.title // "")\n\n\(.body // "")"' <<<"$brief" >"$brief_file" ||
-    { rm -f "$brief_file"; log "ERROR: unreadable text of #$n"; exit 1; }
-  # The brief goes after the issue's text, so the first line is still the title
-  # the planner is asked to plan. The last line names the issue under discussion:
-  # without it the planner matches its own issue as the duplicate of the plan and
-  # stops at turn 1 (issue 542).
-  if [ -n "$refine" ] && ! printf '\n\n---\n\n%s\n\nThis request is issue #%s itself. The issue you file replaces #%s: #%s is not a duplicate of this plan.\n' "$(cat "$refine")" "$n" "$n" "$n" >>"$brief_file"; then
-    rm -f "$brief_file"
-    log "ERROR: could not write the brief of #$n"
-    exit 1
-  fi
+  plan_brief "$n" "$brief" "$refine" || exit 1
   log "start planning #$n (labelled by $who${refine:+, to refine it})"
+  plan_turn "$n" first "$brief_file"
+  "$status_cmd"
+  exit 0
+done
+
+# 5a. A park the store says is owed a refine starts one, waiting as rule 5
+# does. A tick of its boxes, a label, an answer or an edit since wins, and so
+# does a ticket a planning session filed. One that cannot start is spent.
+if ! tehas_store park-show --refine; then
+  log "ERROR: the state store could not list the parks owed a refine ($tehas_store_word)"
+  [ "$tehas_store_rc" = 1 ] && exit 1
+  exit 78
+fi
+mapfile -t owed < <(tehas_store_get '.parks[] | select((.issue | type) == "number" and (.started_at | type) == "number")
+  | "\(.issue) \(.started_at) \(.started_by // "-") \(.park_reason // "-") \(.question // "-") \(.body_sha256 // "-")"')
+for owed_line in "${owed[@]}"; do
+  read -r n started by preason qid sum <<<"$owed_line"
+  [[ $n =~ ^[1-9][0-9]{0,9}$ ]] && [[ $started =~ ^[0-9]{1,11}$ ]] || continue
+  if [ -n "$plan_busy" ]; then
+    log "refining #$n waits: the turn of #$plan_busy is still running"
+    break
+  fi
+  slice_ok || break
+  if ! limit_plan_ok; then
+    [ "$dry" = 0 ] || log "refining #$n waits: the limit holds new planning turns"
+    break
+  fi
+  mesh_ok || exit 0
+  if [[ $park_ticked == *" $n "* ]]; then
+    log "skip #$n: not refined: a box of its park question is ticked"
+    continue
+  fi
+  why=""
+  if control_ask "$n" "a cycle that parked as \`$preason\` asked to be refined"; then
+    why="it is the control issue"
+  else
+    gh_json issue view "$n" --repo "$repo" --json state,labels,title,body
+    brief=$json
+    have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"$brief") "
+    for l in tehas:ready tehas:running tehas:blocked tehas:plan tehas:refine tehas:refined tehas:replaced; do
+      [[ $have != *" $l "* ]] || why="it carries $l"
+    done
+    [ "$(jq -r '.state // ""' <<<"$brief")" = OPEN ] || why="it is closed"
+    [[ $have == *" needs-human-attention "* && $have == *" tehas:question "* ]] || why="it is no longer parked"
+    [ "$qid" != - ] || why="its park question was answered"
+    jq -r '.body // "" | split("\n") | .[0] | rtrimstr("\r")' <<<"$brief" | grep -qE '^Replaces #[0-9]+$' &&
+      why="a planning session filed it"
+    tehas_allowed_labeler "$by" || why="its cycle was not started by an account that may label ($by)"
+    [ "$sum" = - ] || [ "$sum" = "$(tehas_body_sha256 <<<"$brief")" ] || why="its text changed since its cycle began"
+    if [ -z "$why" ] && ! unchanged_since "$n" "$(date -u -d "@$started" +%FT%TZ)" "its last cycle began" "apply tehas:refine"; then
+      why="its text changed since its cycle began"
+    fi
+  fi
+  if [ -n "$why" ]; then
+    log "skip #$n: not refined: $why"
+    if [ "$dry" = 0 ] && ! tehas_store_try 3 park-retry "$n" && [ "$tehas_store_word" != unparked ]; then
+      log "WARN: the refine of #$n could not be spent on record ($tehas_store_word)"
+    fi
+    continue
+  fi
+  refine=$here/../lib/refine-brief.md
+  if [ ! -s "$refine" ]; then
+    log "ERROR: no refine brief at $refine, not refining #$n"
+    break
+  fi
+  if [ "$dry" = 1 ]; then
+    log "would start refining #$n (its cycle parked as $preason, started by $by)"
+    exit 0
+  fi
+  plan_brief "$n" "$brief" "$refine" || exit 1
+  # Spent first: a poll that fails after this never starts a second session.
+  if ! tehas_store_try 3 park-retry "$n"; then
+    rm -f "$brief_file"
+    log "ERROR: the refine of #$n could not be spent on record ($tehas_store_word), not refining it"
+    exit 1
+  fi
+  who=$by
+  plabel=tehas:refine
+  plan_auto=$preason
+  log "start refining #$n (its cycle parked as $preason, started by $by)"
   plan_turn "$n" first "$brief_file"
   "$status_cmd"
   exit 0

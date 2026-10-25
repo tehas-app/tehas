@@ -1,4 +1,4 @@
--- The schema of state/tehas.db, schema v4: every table, column, key and
+-- The schema of state/tehas.db, schema v5: every table, column, key and
 -- index of the state store spec, section 3.1 to 3.13. Its version is
 -- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
@@ -137,7 +137,9 @@ CREATE TABLE approvals (
 CREATE INDEX approvals_open ON approvals (issue, used_at);
 
 -- 3.5 planning: the session of one issue, the 13 fields of the planning
--- record as columns, its brief and its filed markers kept across turns.
+-- record as columns, its brief and its filed markers kept across turns. auto
+-- (v5), here and in plan_history, is a refine the poll started on its own for
+-- a parked cycle.
 CREATE TABLE planning (
   issue         INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   session       TEXT,
@@ -155,7 +157,8 @@ CREATE TABLE planning (
   brief         TEXT,
   turn_rc       INTEGER,
   opened_at     INTEGER NOT NULL,
-  ended_at      INTEGER
+  ended_at      INTEGER,
+  auto          INTEGER NOT NULL DEFAULT 0
 );
 -- text (v2) is the reply the turn answers, as the person wrote it.
 -- millwright (v4) was named fixer; RENAME COLUMN keeps its rows and place.
@@ -268,7 +271,8 @@ CREATE TABLE plan_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, turn INTEGER NOT NULL, at INTEGER NOT NULL,
   outcome TEXT NOT NULL, session TEXT,
-  started_at INTEGER, rc INTEGER, by_account TEXT, label TEXT, filed_json TEXT
+  started_at INTEGER, rc INTEGER, by_account TEXT, label TEXT, filed_json TEXT,
+  auto INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX plan_history_issue ON plan_history (issue, at);
 CREATE TABLE refined (

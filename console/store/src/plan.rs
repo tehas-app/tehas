@@ -17,6 +17,7 @@ pub enum Call {
         by: String,
         label: &'static str,
         brief: PathBuf,
+        auto: bool,
     },
     BeginUndo {
         issue: i64,
@@ -138,6 +139,7 @@ fn begin_args(rest: &[String]) -> Result<Call, String> {
             ("--by", Kind::Value),
             ("--label", Kind::Value),
             ("--brief-file", Kind::Value),
+            ("--auto", Kind::Switch),
             ("--undo", Kind::Switch),
         ],
         true,
@@ -154,11 +156,17 @@ fn begin_args(rest: &[String]) -> Result<Call, String> {
         .expect("--label was given");
     a.need("--brief-file")?;
     let brief = a.path("--brief-file")?.expect("--brief-file was given");
+    // The poll starts a refine on its own, never a plan.
+    let auto = a.has("--auto");
+    if auto && label != "tehas:refine" {
+        return Err(a.usage("--auto", "is taken with --label tehas:refine only"));
+    }
     Ok(Call::Begin {
         issue,
         by,
         label,
         brief,
+        auto,
     })
 }
 
@@ -299,7 +307,8 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             by,
             label,
             brief,
-        } => begin(home, *issue, by, label, brief, now),
+            auto,
+        } => begin(home, *issue, by, label, brief, *auto, now),
         Call::BeginUndo { issue } => begin_undo(home, *issue),
         Call::Answer {
             issue,
@@ -341,12 +350,13 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
         .query_row(
             "SELECT issue, session, turns, pending, pending_outcome, failed, running, started_at,
                comment_id, lost, by_account, label, brief, turn_rc, opened_at, ended_at,
-               options_json
+               options_json, auto
              FROM planning WHERE issue = ?1",
             [issue],
             |r| {
                 let mut p = row_json(r, &PLAN_NAMES)?;
                 p.push(("ended_at", j(r.get::<_, Option<i64>>(15)?)));
+                p.push(("auto", j(r.get::<_, bool>(17)?)));
                 Ok((p, r.get::<_, Option<String>>(16)?))
             },
         )
@@ -491,6 +501,7 @@ fn begin(
     by: &str,
     label: &str,
     brief: &Path,
+    auto: bool,
     now: i64,
 ) -> Result<String, Fail> {
     let text = verbs::read_text(brief, BRIEF_BOUND, "1 MiB", issue, "brief", "the brief")?;
@@ -519,9 +530,9 @@ fn begin(
         c.execute(
             "INSERT INTO planning (issue, session, turns, options_json, pending, pending_outcome,
                failed, running, started_at, comment_id, lost, by_account, label, brief, turn_rc,
-               opened_at, ended_at)
-             VALUES (?1, NULL, 0, '[]', 0, NULL, 0, 1, ?2, NULL, 0, ?3, ?4, ?5, NULL, ?2, NULL)",
-            params![issue, now, by, label, text],
+               opened_at, ended_at, auto)
+             VALUES (?1, NULL, 0, '[]', 0, NULL, 0, 1, ?2, NULL, 0, ?3, ?4, ?5, NULL, ?2, NULL, ?6)",
+            params![issue, now, by, label, text, auto],
         )
         .q()?;
         Ok(line(
@@ -685,8 +696,9 @@ fn end(home: &Path, e: &TurnEnd, now: i64) -> Result<String, Fail> {
         let urls: Vec<&str> = e.filed.iter().map(|(u, _)| u.as_str()).collect();
         c.execute(
             "INSERT INTO plan_history (issue, turn, at, outcome, session, started_at, rc,
-               by_account, label, filed_json)
-             SELECT issue, ?2, ?3, ?4, coalesce(?5, session), started_at, ?6, by_account, label, ?7
+               by_account, label, filed_json, auto)
+             SELECT issue, ?2, ?3, ?4, coalesce(?5, session), started_at, ?6, by_account, label, ?7,
+               auto
              FROM planning WHERE issue = ?1",
             params![issue, e.turn, now, e.outcome, e.session, e.rc, j(urls)],
         )

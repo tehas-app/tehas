@@ -642,7 +642,7 @@ when it is not installed.
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
   the name of the version it came with, such as `tehas-1-<time>.db`, beside the
-  copy the answer names, `tehas-4-<time>.db`. A run that stopped between two
+  copy the answer names, `tehas-5-<time>.db`. A run that stopped between two
   steps leaves the store at the last one with its rows; the next install goes
   on from there. The step to 4 lets a cycle's start say `millwright` beside
   `fixer` and a planning note `millwright-refused` beside `fixer-refused`,
@@ -650,6 +650,9 @@ when it is not installed.
   keeps every row. It rebuilds the two tables whose lists changed and then
   compacts the file. If the compaction fails, the store is at 4 with its rows
   and passes `store check`. The verbs still write the old words.
+  The step to 5 adds a mark to each planning session and each of its turns:
+  a refine the poll started on its own for a parked cycle. Every older row
+  is a refine a person asked for.
 - Then it runs `store import`: the records an older tehas kept as files (the
   cycle's under `state/cycles/`, `state/park-<n>.id`, and each planning
   session's `state/plan-<n>.json` with its brief, answer and history) become

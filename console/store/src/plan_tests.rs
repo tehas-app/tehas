@@ -74,7 +74,7 @@ fn plan_begin_opens_a_running_first_turn() {
         json!({"issue":10,"session":null,"turns":0,"options":[],"pending":false,"pending_outcome":null,
                "failed":false,"running":true,"started_at":NOW,"comment_id":null,"lost":false,
                "by":"alice","label":"tehas:plan","brief":"the brief","turn_rc":null,"opened_at":NOW,
-               "ended_at":null,"answers":[],"filed":[],"answer":null,
+               "ended_at":null,"auto":false,"answers":[],"filed":[],"answer":null,
                "notes":{"fixer_refused":[],"held":[]}})
     );
     assert_eq!(count(&home, "issues WHERE issue = 10"), 1);
@@ -1084,4 +1084,51 @@ fn plan_answer_text_file_usage() {
         "/a"
     ])
     .contains("--text-file is not taken with --undo"));
+}
+
+#[test]
+fn an_automatic_refine_is_auto_on_the_session_and_each_turn_of_it() {
+    let home = home("plan-auto");
+    let b = brief(&home, "the brief");
+    let v = ok(
+        &home,
+        &[
+            "plan-begin",
+            "30",
+            "--by",
+            "alice",
+            "--label",
+            "tehas:refine",
+            "--brief-file",
+            &b,
+            "--auto",
+        ],
+    );
+    assert_eq!(v["planning"]["auto"], true);
+    finished(&home, 30, 1);
+    let rows = ok(&home, &["history-show", "30", "--kind", "plan"])["rows"].clone();
+    assert_eq!(rows[0]["auto"], true);
+    // A session a label started is not.
+    begin(&home, 31);
+    finished(&home, 31, 1);
+    assert_eq!(show(&home, 31)["auto"], false);
+    let rows = ok(&home, &["history-show", "31", "--kind", "plan"])["rows"].clone();
+    assert_eq!(rows[0]["auto"], false);
+}
+
+#[test]
+fn plan_begin_takes_auto_with_a_refine_only() {
+    let why = usage(&[
+        "plan-begin",
+        "1",
+        "--by",
+        "alice",
+        "--label",
+        "tehas:plan",
+        "--brief-file",
+        "/b",
+        "--auto",
+    ]);
+    assert!(why.starts_with("usage plan-begin: --auto"), "{why}");
+    assert!(usage(&["plan-begin", "1", "--undo", "--auto"]).starts_with("usage plan-begin: "));
 }

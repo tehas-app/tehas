@@ -100,7 +100,7 @@ fn park_records_the_park_and_its_question() {
         v["park"],
         json!({"issue":10,"attempt":1,"at":NOW,"reason":"provider-outage","step":"review","pr":12,
                "retries":0,"started_at":NOW,"started_by":"alice","automatic":true,"question":5001,
-               "told_at":null,"body_sha256":SHA})
+               "told_at":null,"body_sha256":SHA,"park_reason":null,"refine":false})
     );
     assert_eq!(
         one::<String>(
@@ -323,6 +323,124 @@ fn park_show_automatic_lists_only_owed_retries() {
         refused(&home, &["park-retry", "26"]),
         (1, "unparked".into())
     );
+}
+
+/// A cycle started by `how` whose end was an intent park as `why`.
+fn intent_parked(home: &Path, issue: i64, how: &str, why: &str) {
+    let (_l, a) = start_by(home, issue, "alice", how, NOW);
+    let (n, at) = (issue.to_string(), a.to_string());
+    ok(
+        home,
+        &[
+            "cycle-end",
+            &n,
+            "--attempt",
+            &at,
+            "--status",
+            "parked",
+            "--cap",
+            "intent-park",
+            "--park-reason",
+            why,
+            "--parked",
+        ],
+    );
+    park(home, issue, a, "intent-park", &[]).unwrap();
+}
+
+fn refine_due(home: &Path) -> Vec<i64> {
+    ok(home, &["park-show", "--refine"])["parks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["issue"].as_i64().unwrap())
+        .collect()
+}
+
+#[test]
+fn park_show_refine_lists_the_intent_parks_a_refine_is_owed() {
+    let home = home("park-refine");
+    intent_parked(&home, 60, "label", "underspecified");
+    intent_parked(&home, 61, "retry-tick", "too-large");
+    intent_parked(&home, 62, "label", "premise-unsound");
+    parked(&home, 63, "alice", "label", "failed");
+    assert_eq!(refine_due(&home), vec![60, 61]);
+    let v = ok(&home, &["park-show", "60"]);
+    assert_eq!(v["park"]["refine"], true);
+    assert_eq!(v["park"]["park_reason"], "underspecified");
+    assert_eq!(v["park"]["automatic"], false);
+    assert_eq!(ok(&home, &["park-show", "62"])["park"]["refine"], false);
+    // The outage retry is another list.
+    assert_eq!(ok(&home, &["park-show", "--automatic"])["parks"], json!([]));
+}
+
+#[test]
+fn a_refine_is_owed_once_and_never_to_an_issue_that_was_planned() {
+    let home = home("park-refine-once");
+    intent_parked(&home, 64, "label", "underspecified");
+    intent_parked(&home, 65, "label", "underspecified");
+    intent_parked(&home, 66, "fixer", "underspecified");
+    // A session whose first turn still runs has no history yet.
+    intent_parked(&home, 69, "label", "too-large");
+    let brief = write_file(&home, "brief-69.md", b"brief");
+    ok(
+        &home,
+        &[
+            "plan-begin",
+            "69",
+            "--by",
+            "alice",
+            "--label",
+            "tehas:refine",
+            "--brief-file",
+            brief.to_str().unwrap(),
+        ],
+    );
+    // The park is on record before the end: nothing is owed yet.
+    let (_l, a) = start(&home, 67);
+    park(&home, 67, a, "intent-park", &[]).unwrap();
+    ok(&home, &["park-retry", "64"]);
+    planned(&home, 65);
+    assert_eq!(refine_due(&home), Vec::<i64>::new());
+    // An ended session counts as much as an open one.
+    ok(&home, &["plan-end", "65", "--close"]);
+    assert_eq!(ok(&home, &["park-show", "65"])["park"]["refine"], false);
+}
+
+#[test]
+fn a_run_by_hand_is_owed_no_refine() {
+    let home = home("park-refine-hand");
+    let _l = hold(&home, 68);
+    ok(&home, &["cycle-start", "68", "--by-hand"]);
+    ok(
+        &home,
+        &[
+            "cycle-end",
+            "68",
+            "--attempt",
+            "1",
+            "--status",
+            "parked",
+            "--cap",
+            "intent-park",
+            "--park-reason",
+            "too-large",
+            "--parked",
+        ],
+    );
+    park(&home, 68, 1, "intent-park", &[]).unwrap();
+    assert_eq!(ok(&home, &["park-show", "68"])["park"]["refine"], false);
+    assert_eq!(refine_due(&home), Vec::<i64>::new());
+}
+
+#[test]
+fn park_show_refine_usage() {
+    for args in [
+        &["park-show", "1", "--refine"][..],
+        &["park-show", "--refine", "--automatic"][..],
+    ] {
+        assert!(usage(args).starts_with("usage park-show: "), "{args:?}");
+    }
 }
 
 #[test]
