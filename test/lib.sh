@@ -69,6 +69,13 @@
 #                                    failure_kind, failure_cause, provider,
 #                                    parked, pr as an address, by and how; by
 #                                    hand without by)
+#   t_live HOME N RUNNING STATUS STEP [STARTED [UPDATED]]
+#                                    a cycle of issue N as the live view shows
+#                                    it: started by hand STARTED seconds ago
+#                                    [600], its heartbeat UPDATED seconds ago
+#                                    [5 running, else 180] with STEP, and,
+#                                    when RUNNING is false, its end then with
+#                                    STATUS
 #   t_park HOME N REASON [QID|-] [ARGS...]
 #                                    the cycle of issue N on record parked on
 #                                    REASON (park ARGS), with the park question
@@ -108,6 +115,9 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
+# The stubs name bash by its path: through /usr/bin/env a stub costs one more
+# process each call.
+T_BASH=$(command -v bash)
 t_count=0
 t_failed=0
 t_skipped=0
@@ -149,7 +159,7 @@ t_instance() {
 t_stub() {
   local name=$1 body=${2:-}
   {
-    echo '#!/usr/bin/env bash'
+    echo "#!$T_BASH"
     printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
     [ -n "$body" ] && echo "$body"
     :
@@ -422,6 +432,20 @@ t_ended() { # <home> <issue> <by|-> [<how>] [<cycle-end args>...]
   case " $* " in *" --status "*) ;; *) set -- --status failed "$@" ;; esac
   TEHAS_HOME=$t_home flock -w 5 "$t_home/state/cycles/$t_n.lock" "$T_STORE" cycle-end "$t_n" --attempt $((t_a + 1)) "$@" >/dev/null ||
     t_bad "t_ended: the store refused cycle-end $t_n $*"
+}
+
+t_live() { # <home> <issue> <running> <status> <step> [<started ago>] [<updated ago>]
+  local t_home=$1 t_n=$2 t_now t_a t_state=--running t_ago=${7:-5}
+  t_now=$(date +%s)
+  [ "$3" = true ] || { t_state=--ended; t_ago=${7:-180}; }
+  TEHAS_STORE_TEST_NOW=$((t_now - ${6:-600})) t_started "$t_home" "$t_n" --by-hand
+  t_a=$(TEHAS_HOME=$t_home "$T_STORE" cycle-show "$t_n" | jq '.cycle.attempt')
+  TEHAS_HOME=$t_home TEHAS_STORE_TEST_NOW=$((t_now - t_ago)) "$T_STORE" cycle-heartbeat "$t_n" \
+    "$t_state" --status "$4" --step "$5" >/dev/null || t_bad "t_live: the store refused the heartbeat of $t_n"
+  [ "$3" = true ] && return 0
+  TEHAS_HOME=$t_home TEHAS_STORE_TEST_NOW=$((t_now - t_ago)) flock -w 5 "$t_home/state/cycles/$t_n.lock" \
+    "$T_STORE" cycle-end "$t_n" --attempt "$t_a" --status "$4" --step "$5" >/dev/null ||
+    t_bad "t_live: the store refused the end of $t_n"
 }
 
 t_record() { # <home> <issue> <JSON>

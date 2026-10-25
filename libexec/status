@@ -228,7 +228,9 @@ platform_release() { # <installed version>
     {generatedAt: $now, release: $release, newest: (if $newest == "" then null else $newest end),
      behind: 0, upstream: "releases",
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 
 platform_checkout() {
@@ -261,7 +263,9 @@ platform_checkout() {
      upstream: $upstream, behind: ($behind | num),
      behindSince: ($since | num | if . == null then null else todate end),
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 platform
 
@@ -433,12 +437,12 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
                    | scan("[a-z][a-z0-9-]{2,}")]
                   | group_by(.) | map({word: .[0], count: length})
                   | sort_by(-.count, .word) | .[:100])
-    } end)' >"$live/status.json.new" 2>"$live/status.json.err" && mv "$live/status.json.new" "$live/status.json" && written=1
+    } end)' >"$live/status.json.$$.new" 2>"$live/status.json.$$.err.new" && mv "$live/status.json.$$.new" "$live/status.json" && written=1
 if [ "$written" = 0 ]; then
-  log "WARN status.json not written: $(head -n 1 "$live/status.json.err")"
-  rm -f "$live/status.json.new"
+  log "WARN status.json not written: $(head -n 1 "$live/status.json.$$.err.new")"
+  rm -f "$live/status.json.$$.new"
 fi
-rm -f "$live/status.json.err"
+rm -f "$live/status.json.$$.err.new"
 
 # An issue this read finds shipped carries the label whatever the reason: the
 # edit is idempotent, so an issue that already holds it is asked for nothing.
@@ -453,9 +457,8 @@ done
 # a merge is not closed: the search for completed work lags, and its merged
 # comes when it catches up. A run with no snapshot before it records only the
 # merged and closed, which carry their own time. Nothing older than ten days,
-# the report's window. No call starts after three calls' time
-# limits, so a database that hangs delays the run by four at most (about 21
-# seconds). An event whose call fails or runs out of time is lost: the next
+# the report's window. No call starts after three calls' time limits, so a
+# database that hangs delays the run by four at most (about 21 seconds). An event whose call fails or runs out of time is lost: the next
 # run compares with this snapshot and does not try it again.
 record_events() {
   local list n event at stop
@@ -477,10 +480,11 @@ record_events() {
         | select(.state == "CLOSED" and (.number | tostring) != $control and ($done | any(. == $i.number) | not))
         | select($before == null or ($was | any(. == $i.number)))
         | "\(.number) closed \(recent)")' "$live/status.json" 2>/dev/null) || return 0
-  stop=$((SECONDS + 3 * $(tehas_analytics_wait)))
+  # In microseconds: whole seconds would start the count up to one second late.
+  stop=$((${EPOCHREALTIME/[.,]/} + 3 * $(tehas_analytics_wait) * 1000000))
   while read -r n event at; do
     [ -n "$n" ] || continue
-    if [ "$SECONDS" -ge "$stop" ]; then
+    if [ "${EPOCHREALTIME/[.,]/}" -ge "$stop" ]; then
       log "WARN analytics: out of time, the other events of this run are left out"
       break
     fi
