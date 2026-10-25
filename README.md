@@ -42,9 +42,11 @@ An instance can also read its own work. With the improvement loop switched
 on, a model reads the cycles that ended, every three hours, and files what
 could be better as issues for a person to judge.
 
-Tehas has no database. Its state is the labels on GitHub and plain files on the
-host. A dashboard on port 8080 shows the queue and the console of the running
-cycle.
+The queue is the labels on GitHub. The host keeps its own records, each
+cycle, park, question and planning session, in one SQLite database,
+`~/tehas/state/tehas.db`, written only through the store command. Locks,
+logs and what a container reads or writes stay files. A dashboard on port
+8080 shows the queue and the console of the running cycle.
 
 ## Work by hand
 
