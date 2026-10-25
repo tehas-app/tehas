@@ -965,7 +965,8 @@ impl<'a> Poll<'a> {
         }
     }
 
-    /// open_pr: the url of an open pull request that closes the issue.
+    /// open_pr: the url of an open pull request that closes the issue. The
+    /// first open one decides; one with no url is none.
     fn open_pr(&mut self, n: u64) -> Step<Option<String>> {
         let Some(prs) = self.s.issues.get(&n).map(|i| i.prs.clone()) else {
             return Ok(None);
@@ -976,12 +977,9 @@ impl<'a> Poll<'a> {
         Ok(prs
             .iter()
             .find(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-            .map(|p| {
-                p.get("url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string()
-            }))
+            .and_then(|p| p.get("url").and_then(Value::as_str))
+            .filter(|u| !u.is_empty())
+            .map(str::to_string))
     }
 
     /// low_gate: whether an issue of the lowest kind may start now.
