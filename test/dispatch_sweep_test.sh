@@ -483,6 +483,10 @@ t_run "$dispatch"
 ago 601
 t_run "$dispatch"
 t_eq "$(note_asks)" "2"
+# The store dates in whole seconds, and an ask in the second the new episode
+# begins counts as the episode's own. Polls are minutes apart; these three run
+# back to back, so the last ask goes back a few seconds first.
+ago 5
 # Quiet again, since a later time: the first ask of a new episode.
 heard_at 1250
 t_run "$dispatch"
