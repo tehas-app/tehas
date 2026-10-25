@@ -1,0 +1,312 @@
+//! What one poll read: from GitHub, the state store and the host. Built from
+//! JSON in the shapes `gh`, the store and the files answer in. A field that a
+//! poll reads only when it needs it is None until it is read.
+
+use crate::events::Events;
+use crate::slice::{Reading, Scope};
+use serde_json::{Map, Value};
+use std::collections::BTreeMap;
+
+/// A list GitHub gave, or a call that failed.
+#[derive(Clone, Debug, Default)]
+pub struct Issues(pub Option<Vec<Listed>>);
+
+#[derive(Clone, Debug)]
+pub struct Listed {
+    /// The number as GitHub gave it; one that is not a number is None.
+    pub number: Option<u64>,
+    pub labels: Vec<String>,
+    pub state: String,
+}
+
+/// What a poll reads of one issue when it decides about it.
+#[derive(Clone, Debug)]
+pub struct Issue {
+    pub events: Events,
+    /// The edit record: lastEditedAt, the editor's login, the body and the
+    /// title. None when the call failed.
+    pub edit: Option<Map<String, Value>>,
+    /// `gh api repos/<repo>/issues/<n>`, or None when the call failed.
+    pub work: Option<Value>,
+    /// The pull requests that close it, {url, state}; None when the call
+    /// failed or the answer cannot be read.
+    pub prs: Option<Vec<Value>>,
+    /// The issue's last 100 comments, for tehas:blocked; None when the call
+    /// failed.
+    pub comments: Option<Value>,
+    /// The states of the issues its blocker comment names, by number: OPEN,
+    /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
+    pub blockers: BTreeMap<u64, String>,
+}
+
+/// The gate of the lowest issues (TEHAS_LOW_GATE).
+#[derive(Clone, Debug, Default)]
+pub struct Gate {
+    /// Its exit status.
+    pub answer: i32,
+    /// state/low-gate.held: absent, a file, or something that is not one.
+    pub held: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    /// nameWithOwner, None when `gh repo view` failed.
+    pub repo: Option<String>,
+    /// `gh api user`'s answer, None when it failed.
+    pub user: Option<Value>,
+    /// tehas pause's flag: None when there is none, Some(Null) when it is
+    /// there and cannot be read.
+    pub pause_flag: Option<Value>,
+    /// The control issue's labels, None when the call failed.
+    pub control_labels: Option<Vec<String>>,
+    pub control_events: Option<Events>,
+    /// The issues with a planning session open, or the store's word and exit
+    /// status when it could not say.
+    pub plan_open: Result<Vec<u64>, (String, i32)>,
+    /// The issues whose cycle holds its lock, with how each started on record.
+    pub running: Vec<(u64, String)>,
+    pub ready: Issues,
+    pub blocked: Issues,
+    pub awaiting: Option<Issues>,
+    /// tehas_limit_read's answer.
+    pub limit: Value,
+    pub slice: Reading,
+    /// What the model endpoints answered: the hold, when both failed, and
+    /// which endpoint the subagent provider is on.
+    pub endpoint_hold: String,
+    pub endpoint: String,
+    /// What asking them logged: a provider on its backup.
+    pub endpoint_log: Vec<String>,
+    /// The free kilobytes of the disk, Some(None) when they cannot be read.
+    pub disk_kb: Option<Option<u64>>,
+    /// The check runs of TEHAS_BRANCH_CHECK on the branch's head, Some(None)
+    /// when the call failed.
+    pub checks: Option<Option<Value>>,
+    /// What state/branch-check says the last poll logged.
+    pub branch_note: String,
+    /// The why of the last live/dispatch.json.
+    pub last_why: String,
+    pub gate: Option<Gate>,
+    /// The issues with a refresh request (state/refresh/<n>.json), lowest
+    /// first.
+    pub refresh_requests: Vec<u64>,
+    pub issues: BTreeMap<u64, Issue>,
+}
+
+fn failed(v: &Value) -> bool {
+    v.get("failed").and_then(Value::as_bool) == Some(true)
+}
+
+fn names(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A number as GitHub may give it: a number, or text that is one.
+pub fn number(v: &Value) -> Option<u64> {
+    match v {
+        Value::Number(n) => n.as_u64(),
+        Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+fn issues(v: Option<&Value>) -> Issues {
+    match v {
+        Some(v) if failed(v) => Issues(None),
+        Some(Value::Array(a)) => Issues(Some(
+            a.iter()
+                .map(|i| Listed {
+                    number: i.get("number").and_then(number),
+                    labels: names(i.get("labels")),
+                    state: i
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                })
+                .collect(),
+        )),
+        Some(_) => Issues(None),
+        None => Issues(Some(Vec::new())),
+    }
+}
+
+fn opt(v: &Value) -> Option<Value> {
+    if failed(v) {
+        None
+    } else {
+        Some(v.clone())
+    }
+}
+
+fn reading(v: &Value) -> Reading {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    Reading {
+        show: v.get("show").and_then(Value::as_object).cloned(),
+        docker: s("docker"),
+        controllers: s("controllers"),
+        cpus: v.get("cpus").map(|c| match c {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        }),
+        root: s("root").unwrap_or_else(|| "/sys/fs/cgroup".into()),
+        scopes: v.get("scopes").and_then(Value::as_object).map(|m| {
+            m.iter()
+                .map(|(name, sc)| Scope {
+                    name: name.clone(),
+                    stat: sc.get("stat").and_then(Value::as_str).map(str::to_string),
+                    low: sc.get("low").and_then(Value::as_str).map(str::to_string),
+                })
+                .collect()
+        }),
+        pressure: s("pressure"),
+        cids: v
+            .get("cids")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+fn issue(v: &Value) -> Issue {
+    Issue {
+        events: v.get("events").map(Events::parse).unwrap_or(Events::Failed),
+        edit: v
+            .get("edit")
+            .filter(|e| !failed(e))
+            .and_then(Value::as_object)
+            .cloned(),
+        work: v.get("work").and_then(opt),
+        prs: v
+            .get("prs")
+            .filter(|p| !failed(p))
+            .and_then(Value::as_array)
+            .cloned(),
+        comments: v.get("comments").and_then(opt),
+        blockers: v
+            .get("blockers")
+            .and_then(Value::as_object)
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, s)| Some((k.parse().ok()?, s.as_str()?.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+impl Snapshot {
+    pub fn parse(v: &Value) -> Snapshot {
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let control = v.get("control").cloned().unwrap_or(Value::Null);
+        Snapshot {
+            repo: v.get("repo").and_then(Value::as_str).map(str::to_string),
+            user: v.get("user").and_then(opt),
+            pause_flag: match v.get("pause_flag") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(t)) if t == "unreadable" => Some(Value::Null),
+                Some(f) => Some(f.clone()),
+            },
+            control_labels: control
+                .get("labels")
+                .filter(|l| !failed(l))
+                .map(|l| names(Some(l))),
+            control_events: control.get("events").map(Events::parse),
+            plan_open: match v.get("plan_open") {
+                Some(Value::Array(a)) => Ok(a.iter().filter_map(number).collect()),
+                Some(Value::Object(e)) => Err((
+                    e.get("word")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    e.get("rc").and_then(Value::as_i64).unwrap_or(1) as i32,
+                )),
+                _ => Ok(Vec::new()),
+            },
+            running: v
+                .get("running")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|r| {
+                            let how = r
+                                .get("how")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string();
+                            Some((r.get("issue").and_then(number)?, how))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ready: issues(v.get("ready")),
+            blocked: issues(v.get("blocked")),
+            awaiting: v.get("awaiting").map(|a| issues(Some(a))),
+            limit: v
+                .get("limit")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"state": "none"})),
+            slice: reading(v.get("slice").unwrap_or(&Value::Null)),
+            endpoint_hold: v
+                .get("endpoint")
+                .and_then(|e| e.get("hold"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            endpoint: v
+                .get("endpoint")
+                .and_then(|e| e.get("end"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            endpoint_log: v
+                .get("endpoint")
+                .and_then(|e| e.get("log"))
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            disk_kb: v.get("disk_kb").map(Value::as_u64),
+            checks: v.get("checks").map(opt),
+            branch_note: s("branch_note"),
+            last_why: s("last_why"),
+            gate: v.get("gate").map(|g| Gate {
+                answer: g.get("answer").and_then(Value::as_i64).unwrap_or(0) as i32,
+                held: g
+                    .get("held")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            }),
+            refresh_requests: v
+                .get("refresh_requests")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(number).collect())
+                .unwrap_or_default(),
+            issues: v
+                .get("issues")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, i)| Some((k.parse().ok()?, issue(i))))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+}

@@ -1,0 +1,30 @@
+{
+  "from": "test/dispatch_control_test.sh",
+  "later": [
+    "tehas:plan on the control issue starts no planning turn: rule 5, PR 3",
+    "a plan on the control issue does not read its text: rule 5, PR 3",
+    "a tick on the control issue's parked question starts nothing and stays ticked: rule 4, PR 3",
+    "an outage retry does not start on the control issue: rule 4a, PR 3",
+    "the control issue gets at most one skip line per poll: rules 4 and 5, PR 3"
+  ],
+  "cases": [
+    {"case": "the control issue labelled tehas:ready starts no cycle or changes",
+     "snapshot": {"ready": [{"number": 1, "labels": [{"name": "tehas:ready"}, {"name": "tehas:ready"}]}]},
+     "expect": {"exit": 0, "picked": [], "nothing": true, "log": ["skip #1: the control issue is never worked on (`tehas:ready`)"]}},
+    {"case": "a dry run says the control issue is not worked and changes nothing",
+     "snapshot": {"ready": [{"number": 1, "labels": [{"name": "tehas:ready"}, {"name": "tehas:ready"}]}]}, "dry": true,
+     "expect": {"exit": 0, "nothing": true, "log": ["skip #1: the control issue is never worked on (`tehas:ready`)"]}},
+    {"case": "a stranger's tehas:ready on the control issue is left alone",
+     "snapshot": {"ready": [{"number": 1, "labels": [{"name": "tehas:ready"}, {"name": "tehas:ready"}]}],
+                  "issues": {"1": {"events": [{"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "mallory"}}]}}},
+     "expect": {"picked": [], "nothing": true, "log_lacks": ["not an allowed account"],
+                "log": ["skip #1: the control issue is never worked on (`tehas:ready`)"]}},
+    {"case": "the ready control issue is not counted as demand",
+     "ready_n": [1, 7], "ready_at": {"1": ["alice", "2026-10-17T09:00:00Z"], "7": ["alice", "2026-10-17T10:00:00Z"]},
+     "hold": [5],
+     "expect": {"demand_is": {"waiting": 1, "oldest": "2026-10-17T10:00:00Z"}}},
+    {"case": "the ready control issue takes no slot from a real issue",
+     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 1], "dry": true,
+     "expect": {"picked": [7, 8], "log": ["skip #1: the control issue is never worked on (`tehas:ready`)"]}}
+  ]
+}
