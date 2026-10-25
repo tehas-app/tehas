@@ -1,0 +1,16 @@
+# The dispatcher's decisions: what one poll does, given what it read. A library
+# member of the workspace in ../Cargo.toml, with no I/O of its own. The bash
+# poll, libexec/dispatch, is still the one that acts.
+[package]
+name = "tehas-dispatch"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "tehas_dispatch"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "1"
