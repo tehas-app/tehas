@@ -48,12 +48,22 @@ empty one above it.
   beside `fixer`, a planning note `millwright-refused` beside `fixer-refused`,
   and `planning_answers.fixer` is named `millwright`. Every row is kept. The
   verbs still write and print the old words.
+- A cycle that parks at explore as `underspecified` or `too-large` is refined
+  once on its own, on the word of the account that started it
+  (`host/docs/operating.md`, "Refined on its own"). The store lists such parks
+  (`park-show --refine`) and spends each once (`park-retry`). The store is
+  schema 5: `planning.auto` and `plan_history.auto` mark such a session, and
+  `plan-begin` takes `--auto`. `tehas history` has `auto` on its turns.
+- A refine that files ends the session: the filed issue says `Replaces #<n>`
+  and is a sub-issue of the original, and the original says `Replaced by #<m>`
+  and is closed with `tehas:replaced`, or kept open with `tehas:refined` when
+  later parts remain. This holds for a `tehas:refine` a person applied too.
 
 ### Adopter action
 
 - Drain before you install (`tehas drain`): a cycle started by the earlier
   `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
-  owns. `install.sh` takes the store to schema 4.
+  owns. `install.sh` takes the store to schema 5.
 - `install.sh` builds and installs `libexec/attach` with the other programs. A
   host without it does not start a cycle given an issue's attachments, and its
   Protolab leaves zips out.
@@ -61,7 +71,8 @@ empty one above it.
   `tehas:ready`. One whose marker names only closed issues starts on the first
   poll after the update. Name an open blocker in a new marker comment, or take
   the label off, for any that should keep waiting.
-- Run `tehas labels` to update the description of `tehas:blocked`.
+- Run `tehas labels` to update the description of `tehas:blocked` and to make
+  `tehas:replaced` and `tehas:refined`.
 
 ## v0.12.0 (2026-10-24)
 

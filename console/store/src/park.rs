@@ -24,8 +24,11 @@ pub enum Call {
         question: Option<(i64, String)>,
         cleaned: Cleaned,
     },
+    /// With no issue, the parks owed a start (`--automatic`) or a refine
+    /// (`--refine`).
     Show {
         issue: Option<i64>,
+        refine: bool,
     },
     Retry {
         issue: i64,
@@ -55,12 +58,22 @@ pub enum Call {
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
         "park" => park_args(rest),
-        "park-show" => Args::parse("park-show", rest, &[("--automatic", Kind::Switch)], true)
-            .and_then(|a| {
-                Ok(Call::Show {
-                    issue: a.target("--automatic")?,
-                })
-            }),
+        "park-show" => Args::parse(
+            "park-show",
+            rest,
+            &[("--automatic", Kind::Switch), ("--refine", Kind::Switch)],
+            true,
+        )
+        .and_then(|a| {
+            let refine = a.has("--refine");
+            if refine && a.has("--automatic") {
+                return Err(a.usage("--refine", "is not taken with --automatic"));
+            }
+            Ok(Call::Show {
+                issue: a.target(if refine { "--refine" } else { "--automatic" })?,
+                refine,
+            })
+        }),
         "park-retry" => Args::parse("park-retry", rest, &[], true)
             .and_then(|a| Ok(Call::Retry { issue: a.issue()? })),
         "park-told" => Args::parse("park-told", rest, &[], true)
@@ -169,7 +182,7 @@ fn answered_args(rest: &[String]) -> Result<Call, String> {
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Park { .. } => park(home, call, now),
-        Call::Show { issue } => show(home, *issue),
+        Call::Show { issue, refine } => show(home, *issue, *refine),
         Call::Retry { issue } => retry(home, *issue),
         Call::Told { issue } => told(home, *issue, now),
         Call::Asked {
@@ -185,8 +198,11 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 }
 
 /// The SELECT of a current park: the cycle's attempt joined in, `automatic`
-/// derived, the park question on record, when the hold was told, and the body
-/// the parked attempt's approval bound (null for a run with none).
+/// derived, the park question on record, when the hold was told, the body
+/// the parked attempt's approval bound (null for a run with none), the park
+/// reason its end gave, and `refine` derived: an intent park as underspecified
+/// or too-large, of a cycle a label or a retry started, on an issue that never
+/// had a planning session, whose one start no start has spent.
 const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.pr, p.retries,
     c.started_at, c.started_by,
     (p.reason = 'provider-outage' AND p.retries = 0 AND c.requeued = 0 AND c.how <> 'hand'
@@ -195,10 +211,18 @@ const PARK_SELECT: &str = "SELECT p.issue, p.attempt, p.at, p.reason, p.step, p.
       AND q.answered_at IS NULL AND q.attempt = c.attempt ORDER BY q.posted_at DESC, q.id DESC LIMIT 1),
     p.told_at,
     (SELECT a.body_sha256 FROM approvals a WHERE a.issue = p.issue AND a.used_by = p.attempt
-      ORDER BY a.used_at DESC, a.at DESC LIMIT 1)
-  FROM parks p JOIN cycles c ON c.issue = p.issue AND c.attempt = p.attempt";
+      ORDER BY a.used_at DESC, a.at DESC LIMIT 1),
+    h.park_reason,
+    (p.reason = 'intent-park' AND h.park_reason IN ('underspecified', 'too-large')
+      AND p.retries = 0 AND c.how IN ('label', 'retry-tick', 'outage-retry')
+      AND c.started_by IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM planning g WHERE g.issue = p.issue)
+      AND NOT EXISTS (SELECT 1 FROM plan_history g WHERE g.issue = p.issue))
+  FROM parks p JOIN cycles c ON c.issue = p.issue AND c.attempt = p.attempt
+  LEFT JOIN cycle_history h ON h.id = (SELECT max(e.id) FROM cycle_history e
+    WHERE e.issue = p.issue AND e.attempt = p.attempt)";
 
-const PARK_NAMES: [&str; 13] = [
+const PARK_NAMES: [&str; 15] = [
     "issue",
     "attempt",
     "at",
@@ -212,6 +236,8 @@ const PARK_NAMES: [&str; 13] = [
     "question",
     "told_at",
     "body_sha256",
+    "park_reason",
+    "refine?",
 ];
 
 fn park_json(c: &Connection, issue: i64) -> Result<String, Fail> {
@@ -361,7 +387,8 @@ fn park(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     })
 }
 
-fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
+fn show(home: &Path, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
+    let owed = if refine { "refine" } else { "automatic" };
     verbs::look(home, |c| match issue {
         Some(issue) => Ok(line("park-show", &[("park", park_json(c, issue)?)])),
         None => {
@@ -373,7 +400,7 @@ fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
                 .q()?;
             let parks: Vec<String> = rows
                 .iter()
-                .filter(|p| p.iter().any(|(k, v)| *k == "automatic" && v == "true"))
+                .filter(|p| p.iter().any(|(k, v)| *k == owed && v == "true"))
                 .map(|p| obj(p))
                 .collect();
             Ok(line("park-show", &[("parks", list(&parks))]))

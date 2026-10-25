@@ -111,13 +111,15 @@ CREATE TABLE planning_notes (
 );
 ";
 const TO_3: &str = "ALTER TABLE heartbeats ADD COLUMN text TEXT;";
+// The step to 4 is the rebuild db.rs runs, as released.
+const TO_4: &str = db::STEP_4;
 
-/// A home whose store is at schema `at`, 1 to 3, with `rows` of schema 1
+/// A home whose store is at schema `at`, 1 to 4, with `rows` of schema 1
 /// written into it and `later` written after the steps.
 fn old_home(name: &str, at: i64, rows: &str, later: &str) -> PathBuf {
     let home = v1_home(name, rows);
     let c = conn(&home);
-    for (to, sql) in [(2, TO_2), (3, TO_3)] {
+    for (to, sql) in [(2, TO_2), (3, TO_3), (4, TO_4)] {
         if to <= at {
             c.execute_batch(sql).unwrap();
         }
@@ -242,19 +244,22 @@ fn columns(c: &Connection, table: &str) -> Vec<String> {
 }
 
 #[test]
-fn init_writes_schema_4() {
-    assert_eq!(db::SCHEMA_VERSION, 4);
-    let home = home("schema-4");
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 4);
+fn init_writes_schema_5() {
+    assert_eq!(db::SCHEMA_VERSION, 5);
+    let home = home("schema-5");
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 5);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "4"
+        "5"
     );
     assert_eq!(count(&home, "planning_notes"), 0);
     let c = conn(&home);
     assert!(columns(&c, "heartbeats").contains(&"text".to_string()));
     assert!(columns(&c, "planning_answers").contains(&"millwright".to_string()));
     assert!(!columns(&c, "planning_answers").contains(&"fixer".to_string()));
+    for t in ["planning", "plan_history"] {
+        assert!(columns(&c, t).contains(&"auto".to_string()), "{t}");
+    }
 }
 
 #[test]
@@ -277,7 +282,7 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     drop(before);
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(1), Some(4)));
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(1), Some(5)));
     let after = conn(&home);
     for (t, cols, rows) in &held {
         // The one column the steps rename.
@@ -290,17 +295,17 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
             .collect();
         assert_eq!(&dump(&after, t, &cols), rows, "{t}");
     }
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 4);
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 5);
     assert_eq!(
         one::<String>(&home, "SELECT value FROM meta WHERE key = 'schema'"),
-        "4"
+        "5"
     );
     // meta keeps its rows; only `schema` moves with the version.
     let meta_after = dump(&after, "meta", &columns(&after, "meta"));
     assert_eq!(meta_after.len(), meta.len());
     for (was, is) in meta.iter().zip(&meta_after) {
         if was[0] == Sql::Text("schema".to_string()) {
-            assert_eq!(is[1], Sql::Text("4".to_string()));
+            assert_eq!(is[1], Sql::Text("5".to_string()));
         } else {
             assert_eq!(was, is);
         }
@@ -314,9 +319,17 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
         count(&home, "heartbeats WHERE text IS NULL"),
         count(&home, "heartbeats")
     );
+    assert_eq!(
+        count(&home, "planning WHERE auto = 0"),
+        count(&home, "planning")
+    );
+    assert_eq!(
+        count(&home, "plan_history WHERE auto = 0"),
+        count(&home, "plan_history")
+    );
     // Both copies: the one the answer names and the store as it was found.
     let found = home.join("state/backup").join(format!("tehas-1-{NOW}.db"));
-    let reported = home.join("state/backup").join(format!("tehas-4-{NOW}.db"));
+    let reported = home.join("state/backup").join(format!("tehas-5-{NOW}.db"));
     assert_eq!(v["backup"], reported.to_str().unwrap());
     for copy in [&found, &reported] {
         let c = Connection::open(copy).unwrap();
@@ -327,7 +340,7 @@ fn the_step_from_1_keeps_every_row_of_every_table() {
     }
     let report = execute(&home, &Verb::Check, NOW).unwrap();
     assert!(
-        report.contains("\"schema\":4,\"integrity\":\"ok\""),
+        report.contains("\"schema\":5,\"integrity\":\"ok\""),
         "{report}"
     );
 }
@@ -338,8 +351,8 @@ fn the_steps_from_2_add_the_heartbeat_s_text() {
     let rows = count(&home, "heartbeats");
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(2), Some(4)));
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 4);
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(2), Some(5)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 5);
     assert_eq!(count(&home, "heartbeats WHERE text IS NULL"), rows);
 }
 
@@ -357,8 +370,8 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
     let before: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     let line = migrate(&home).unwrap();
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(3), Some(4)));
-    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 4);
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(3), Some(5)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 5);
     // Dropping `cycles` deletes nothing that references it.
     let after: Vec<i64> = children.iter().map(|t| count(&home, t)).collect();
     assert_eq!(after, before);
@@ -376,7 +389,7 @@ fn the_step_from_3_keeps_the_fixer_s_rows_and_takes_the_millwright() {
     // The pages of the dropped tables are given back.
     assert_eq!(one::<i64>(&home, "PRAGMA freelist_count"), 0);
     // Both copies are of the store at 3.
-    for v in [3, 4] {
+    for v in [3, 5] {
         let copy = home.join(format!("state/backup/tehas-{v}-{NOW}.db"));
         let c = Connection::open(&copy).unwrap();
         let at: i64 = c
@@ -428,6 +441,19 @@ fn a_step_to_4_that_fails_leaves_the_store_at_3_with_its_rows() {
     assert!(!checks(&c, "cycles")[0].contains("millwright"));
     assert_eq!(count(&home, "cycles"), 1);
     assert_eq!(count(&home, "heartbeats"), 1);
+}
+
+#[test]
+fn the_step_from_4_adds_auto_to_planning() {
+    let home = old_home("step-from-4", 4, V1_ROWS, "");
+    let (sessions, turns) = (count(&home, "planning"), count(&home, "plan_history"));
+    assert!(sessions > 0 && turns > 0);
+    let line = migrate(&home).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!((v["from"].as_i64(), v["to"].as_i64()), (Some(4), Some(5)));
+    assert_eq!(one::<i64>(&home, "PRAGMA user_version"), 5);
+    assert_eq!(count(&home, "planning WHERE auto = 0"), sessions);
+    assert_eq!(count(&home, "plan_history WHERE auto = 0"), turns);
 }
 
 #[test]
@@ -489,7 +515,7 @@ fn the_verbs_refuse_a_store_at_1_until_it_is_migrated() {
     assert_eq!(code, 78);
     assert!(line.starts_with("unreadable "), "{line}");
     assert!(
-        line.contains("the store is at schema 1, this store writes 4; run store migrate"),
+        line.contains("the store is at schema 1, this store writes 5; run store migrate"),
         "{line}"
     );
     assert_eq!(refused(&home, &["park-told", "7"]).0, 78);
@@ -500,7 +526,7 @@ fn the_verbs_refuse_a_store_at_1_until_it_is_migrated() {
     );
     assert!(!report.contains("planning_notes"), "{report}");
     migrate(&home).unwrap();
-    // The rows of schema 1 read and write as rows of schema 4.
+    // The rows of schema 1 read and write as rows of schema 5.
     let v = ok(&home, &["approval-current", "7"]);
     assert_eq!(v["current"]["used_by"], 2);
     assert_eq!(v["current"]["input"], serde_json::Value::Null);
@@ -510,11 +536,12 @@ fn the_verbs_refuse_a_store_at_1_until_it_is_migrated() {
     let p = ok(&home, &["plan-show", "7"])["planning"].clone();
     assert_eq!(p["answer"], serde_json::Value::Null);
     assert_eq!(p["answers"][0]["by"], "bob");
+    assert_eq!(p["auto"], false);
 }
 
 #[test]
-fn a_store_above_4_is_future() {
-    let home = home("schema-5");
+fn a_store_above_5_is_future() {
+    let home = home("schema-6");
     conn(&home)
         .pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
         .unwrap();
