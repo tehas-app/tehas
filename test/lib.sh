@@ -114,8 +114,12 @@
 #   t_done                           print the tally, exit 1 if anything failed
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
-# TEHAS_HOME point into it, so a test cannot touch the real ones.
+# TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
+# host env.sh exports every TEHAS_* and PI_RUKAS_* setting and GH_TOKEN, and
+# scripts/test.sh runs a test file with the caller's environment, so the three
+# are dropped here: what reaches a test file is what the file itself sets.
 set -uo pipefail
+for t_leak in ${!TEHAS_@} ${!PI_RUKAS_@} GH_TOKEN; do unset "$t_leak"; done
 
 T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
@@ -716,9 +720,14 @@ slice_id() { printf "$1%.0s" {1..64}; echo; }
 T_ENV=()
 t_started=0
 t_run() {
+  # The instance directory is named only when the file set it: lib.sh drops it
+  # with the rest of TEHAS_*, so a file that means the host's default has none
+  # in its environment either.
+  local -a instance=()
+  [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" \
-    ${TEHAS_INSTANCE_DIR:+TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR"} "${T_ENV[@]}" \
+    "${instance[@]}" "${T_ENV[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }
