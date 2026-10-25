@@ -672,6 +672,26 @@ T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 t_eq "$t_rc" 0
 t_contains "$t_out" "a_test.sh bin= why=the store did not build offline: error: could not compile store"
 
+t_case "a store missing crates offline is fetched once and built again"
+fresh
+with_console
+# The first build fails as a cache without the locked crates does; after the
+# fetch the build succeeds.
+t_stub cargo 'prev=""
+for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+case "$1" in
+  fetch) : >"$T/fetched" ;;
+  build) [ -e "$T/fetched" ] || { echo "error: no matching package named signal-hook found" >&2; exit 101; }
+    mkdir -p "$td/debug" && echo store >"$td/debug/store" ;;
+esac'
+saw_store a_test.sh
+run
+rm -f "$T/fetched"
+t_eq "$t_rc" 0
+t_eq "$(t_calls cargo | awk '{print $1}' | tr '\n' ' ')" "build fetch build "
+t_contains "$(t_calls cargo)" "fetch --locked --quiet --manifest-path $repo/console/Cargo.toml"
+t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
+
 t_case "a checkout without the console, or a host without cargo, builds nothing"
 fresh
 t_stub cargo
