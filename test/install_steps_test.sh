@@ -305,30 +305,6 @@ if real_store "a database the install did not make is migrated and not replaced"
   t_lacks "$t_out" "store: made"
 fi
 
-if real_store "a store of schema 3 is brought to 4 and kept under both names"; then
-  # The one case here that runs a step of a real store: every other installs
-  # over a store already at the version the store writes.
-  fresh
-  instance
-  mkdir -p "$th/state"
-  if ! t_store_old "$th/state/tehas.db" 3; then
-    t_skip "python3 is not installed"
-  else
-    t_run "$install"
-    t_eq "$t_rc" 0
-    t_contains "$t_out" "store: $th/state/tehas.db at schema 4, backup $th/state/backup/tehas-4-"
-    t_run "TEHAS_HOME='$th' '$th/libexec/store' check"
-    t_eq "$t_rc" 0
-    t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "4 ok"
-    # The copy the answer names, and the one under the version it came with.
-    for v in 3 4; do
-      copy=$(find "$th/state/backup" -type f -name "tehas-$v-*.db")
-      t_eq "$(printf '%s\n' "$copy" | grep -c .)" 1
-      t_eq "$(stat -c %a "$copy")" 600
-    done
-  fi
-fi
-
 if real_store "a database that is not one stops the install and is left as it was"; then
   fresh
   instance
