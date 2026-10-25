@@ -14,14 +14,25 @@ const OUTCOMES: [&str; 7] = [
     "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
 const KINDS: [&str; 2] = ["work", "plan"];
-const HOWS: [&str; 6] = [
+// Every word a record's `how` can hold, work and plan words alike. `refresh`
+// names a work run restarted on a person's request; `hand` names a cycle run
+// by hand. Neither is the millwright's word.
+pub const HOWS: [&str; 9] = [
     "label",
+    "refresh",
     "retry-tick",
     "outage-retry",
+    "millwright",
     "fixer",
     "answer",
     "refine",
+    "hand",
 ];
+// A filter of either word matches records of both, so old records that say
+// `fixer` are found by the new word and new records by the old one. The `how`
+// a session returns stays what it says. Every word here is in HOWS, so a
+// filter of it is accepted; the test of the filter asserts it.
+pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
 const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 200;
 const TOP_CAUSES: usize = 5;
@@ -46,7 +57,7 @@ const FIELDS: [(&str, &str, &str); 38] = [
     (
         "how",
         "string",
-        "What started it: label, retry-tick, outage-retry, fixer, answer or refine.",
+        "What started it: label, refresh, retry-tick, outage-retry, millwright, fixer, answer, refine or hand. A filter of the old word `fixer` and one of `millwright` match the same sessions.",
     ),
     ("started", "string", "When it started, UTC."),
     (
@@ -312,7 +323,7 @@ pub fn tools() -> Vec<Value> {
         arg(
             "how",
             "string",
-            "Only sessions started this way. refine lists refining sessions alone.",
+            "Only sessions started this way. refine lists refining sessions alone. millwright and fixer name the same person and match each other's records; a value outside the list is a tool error.",
         ),
         json!({"enum": HOWS}),
     );
@@ -481,6 +492,12 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let eq = |s: &Value, key: &str, want: &Option<String>| {
         want.as_deref().is_none_or(|w| s[key].as_str() == Some(w))
     };
+    // The two millwright words are one class: a filter of either one matches
+    // records of both. Any other word is matched exactly.
+    let how_matches = |s: &Value, want: &str| match MILLWRIGHT_WORDS.contains(&want) {
+        true => MILLWRIGHT_WORDS.contains(&s["how"].as_str().unwrap_or("")),
+        false => s["how"].as_str() == Some(want),
+    };
     let mut passed = before.is_none();
     let mut found: Vec<Value> = Vec::new();
     for s in snap.sessions() {
@@ -490,7 +507,7 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
         }
         let keep = eq(&s, "outcome", &outcome)
             && eq(&s, "kind", &kind)
-            && eq(&s, "how", &how)
+            && how.as_deref().is_none_or(|w| how_matches(&s, w))
             && eq(&s, "failureKind", &failure_kind)
             && eq(&s, "tehasVersion", &tehas)
             && rukas.as_deref().is_none_or(|w| {
