@@ -167,7 +167,8 @@ work to what the issue names, and a cycle that changes a file outside the
 fence parks with `verify-failed:develop` (see
 [Troubleshooting](/troubleshooting)).
 
-Vague issues park at the first step with "underspecified". Text in the issue is
+Vague issues park at the first step with "underspecified", and the factory
+then refines them once on its own (see [Refined on its own](#refined-on-its-own)). Text in the issue is
 treated as untrusted input: it cannot change the gates, and the cycle halts if
 its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to
 `AGENTS.md` or `CLAUDE.md` is not halted: it ships, and you see it in the diff.
@@ -282,6 +283,8 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
 | `tehas:planning`        | A planning turn is running        | Wait                                     |
+| `tehas:replaced`        | Closed: a refine filed the issue that replaces it | Work on the issue named in `Replaced by` |
+| `tehas:refined`         | A refine filed its first part; later parts remain | Apply `tehas:refine` for the next part, or close it |
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
@@ -694,6 +697,46 @@ again to the original issue to plan the next part. The label is checked like
 planned, not refined. The filed part is never started on its own: read it and
 apply `tehas:ready`. Run `tehas labels` once after an update that brings this
 label.
+
+When a refine files, the session is over: pi-rukas files once per session.
+The filed issue gets `Replaces #<n>` as its first line and is linked as a
+sub-issue of the original. If the plan lists no later parts, the original gets
+`tehas:replaced` and is closed as not planned. If it does list them, or its
+body cannot be read, the original stays open with `tehas:refined`: apply
+`tehas:refine` to it for the next part, and close it when nothing is left.
+Either way the original then gets a comment `Replaced by #<m>` with the
+planner's words. A link that cannot be made is a warning in the log; the first
+line of the filed issue says the same. A `tehas:plan` session that files is
+posted as before.
+
+#### Refined on its own
+
+A cycle that parks at explore as `intent-park` with the reason
+`underspecified` or `too-large` is not yet one cycle's work. The next poll
+refines it once without a label, on the strength of the `tehas:ready` (or the
+retry) that started the cycle, and says so in the session's first comment. It
+does not wait for a free cycle slot. A box of the park ticked first wins, even
+one the factory holds for a free slot. It does not refine when:
+
+- the factory is paused (it does once the factory is resumed),
+- the issue is closed, or no longer carries `needs-human-attention` and
+  `tehas:question`, or the park's question was answered,
+- a person added `tehas:ready`, `tehas:blocked`, `tehas:plan` or
+  `tehas:refine`, or the issue carries `tehas:running`, `tehas:refined` or
+  `tehas:replaced`,
+- the issue has had a planning session before, or a planning session filed it
+  (its first line is `Replaces #<n>`),
+- the cycle was run by hand or by the fixer, or the account that started it
+  may no longer label,
+- the text was changed since the cycle began, by anyone: a person at work on
+  it decides.
+
+Then the issue stays parked for a person, as before, and the log says why. A
+park is refined at most once: the state store spends it when the session
+starts, or when the poll finds it cannot. An automatic session that reaches
+its turn limit, or that pi-rukas lost, ends with `needs-human-attention`, so
+the issue reads as parked again. One you end yourself ends as any other. Its
+lines in `tehas history` carry `auto`.
 
 ## Pause and resume
 
