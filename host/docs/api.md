@@ -278,8 +278,9 @@ the step and cap it stopped at, why it was parked, the failure the fixer named,
 whether its provider was asked, the pull request, and who asked for it and how
 (`hand` for a cycle run by hand, which names no account).
 A planning turn has `turn`, its number in the session, `label`, the label that
-started its session (`tehas:plan` or `tehas:refine`), and `filed`, the issues
-the turn filed, when it filed any. Its `outcome` is `finished`, `failed`,
+started its session (`tehas:plan` or `tehas:refine`), `auto`, true for a
+refine the factory started on its own when a cycle parked as underspecified or
+too-large, and `filed`, the issues the turn filed, when it filed any. Its `outcome` is `finished`, `failed`,
 `interrupted`, `not-started`, `not-readable`, or `lost` for a turn whose
 session pi-rukas no longer had; `status` is there when the turn's unit left an
 exit status. A field the line does not have is left out,

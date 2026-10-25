@@ -97,13 +97,13 @@
 #                                    question), running (a turn after the
 #                                    last), lost, answers (who answered each
 #                                    later turn, and whether the fixer did),
-#                                    fixer_refused and held; startedAt is when
+#                                    fixer_refused, held and auto; startedAt is when
 #                                    the turn that runs began
 #   t_plan_end HOME N END [FIELDS]   one end of a first planning turn of issue N
 #                                    on the store at END (epoch seconds), with
 #                                    FIELDS in the shape its line of history had
 #                                    (started [a minute before], rc, status, by
-#                                    [alice], label, filed); by hand of nobody
+#                                    [alice], label, filed, auto); by hand of nobody
 #                                    else, and the session ended unless it was
 #                                    finished
 #   t_no_old_state HOME              a failure for each old record file in
@@ -631,6 +631,7 @@ t_plan() { # <home> <issue> <JSON>
     _t_when "${2:-}" "${t_args[@]}"
   }
   t_args=(plan-begin "$t_n" --by "$(jq -r '.by // "alice"' <<<"$t_j")" --label "$(jq -r '.label // "tehas:plan"' <<<"$t_j")" --brief-file "$t_brief")
+  [ "$(jq -r '.auto == true' <<<"$t_j")" = false ] || t_args+=(--auto)
   if [ "$t_turns" = 0 ]; then _t_when "$t_at" "${t_args[@]}"; else _t_s "${t_args[@]}"; fi
   for ((t_t = 1; t_t <= t_turns; t_t++)); do
     [ "$t_t" = 1 ] || _t_answer "$t_t"
@@ -662,12 +663,13 @@ t_plan() { # <home> <issue> <JSON>
 }
 t_plan_end() { # <home> <issue> <epoch of the end> [<fields>]
   local home=$1 n=$2 e=$3 x=${4:-'{}'} started outcome brief=$T/plan-brief.md
-  local -a t_end=()
+  local -a t_end=() t_auto=()
   started=$(jq -r --argjson e "$e" '.started // ($e - 60)' <<<"$x")
+  [ "$(jq -r '.auto == true' <<<"$x")" = false ] || t_auto=(--auto)
   outcome=$(jq -r '.status // "finished"' <<<"$x")
   printf '# Faster search\n' >"$brief"
   TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$started "$T_STORE" plan-begin "$n" --by "$(jq -r '.by // "alice"' <<<"$x")" \
-    --label "$(jq -r '.label // "tehas:plan"' <<<"$x")" --brief-file "$brief" >/dev/null ||
+    --label "$(jq -r '.label // "tehas:plan"' <<<"$x")" --brief-file "$brief" "${t_auto[@]}" >/dev/null ||
     t_bad "t_plan_end: the store refused the begin of #$n"
   t_end=(--outcome "$outcome")
   case $outcome in

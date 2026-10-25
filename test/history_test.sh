@@ -136,6 +136,16 @@ t_eq "$(jq -c '.cycles[0] | [.label, .filed]' <<<"$t_out")" '["tehas:refine",["h
 t_run "$history"
 t_contains "$t_out" "plan  #7  finished  turn 1  refine  filed https://github.com/acme/widget/issues/41"
 
+t_case "a turn of a refine the poll started on its own says auto, and a labelled one leaves it out"
+reset
+plan 7 "$((T0 + 300))" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine","auto":true}'
+plan 8 "$((T0 + 400))" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice","label":"tehas:refine"}'
+run_json
+t_eq "$(jq -c '[.cycles[] | [.issue, .auto]]' <<<"$t_out")" '[[7,true],[8,null]]'
+t_run "$history"
+t_contains "$t_out" "plan  #7  finished  turn 1  refine (auto)"
+t_lacks "$t_out" "#8  finished  turn 1  refine (auto)"
+
 t_case "both kinds together, and a turn whose unit left no readable status"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
