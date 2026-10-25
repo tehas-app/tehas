@@ -585,12 +585,7 @@ fn set_mode(path: &Path, mode: u32) -> Result<(), DbError> {
         .map_err(|e| DbError::Unreadable(format!("cannot set the mode of {}: {e}", path.display())))
 }
 
-// SQLite names a database's side files by appending to its name.
-pub fn side_file(file: &Path, side: &str) -> PathBuf {
-    let mut name = file.as_os_str().to_owned();
-    name.push(side);
-    PathBuf::from(name)
-}
+pub use tehas_core::file::side_file;
 
 /// SQLite says what is wrong in its own words; the four classes say what the
 /// caller acts on. Anything SQLite could not answer for a reason that says

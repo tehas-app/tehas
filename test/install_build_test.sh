@@ -213,14 +213,22 @@ echo "// changed" >>"$part/console/store/src/tests.rs"
 t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
-t_case "the mask the three share builds all three"
-echo "// changed" >>"$part/console/src/mask.rs"
-rm -f "$T/calls/cargo"
-t_run "$part/install.sh"
-t_eq "$(t_calls cargo | wc -l)" 3
-t_contains "$(t_calls cargo)" "-p console"
-t_contains "$(t_calls cargo)" "-p analytics"
-t_contains "$(t_calls cargo)" "-p tehas-mcp"
+for shared in src/mask.rs src/time.rs Cargo.toml; do
+  t_case "a change to the library the four share builds all four ($shared)"
+  echo "# changed" >>"$part/console/core/$shared"
+  rm -f "$T/calls/cargo"
+  t_run "$part/install.sh --check"
+  t_eq "$t_rc" 1
+  for prog in console analytics tehas-mcp store; do
+    t_contains "$t_out" "differs: $th/libexec/$prog"
+  done
+  t_run "$part/install.sh"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls cargo | wc -l)" 4
+  for prog in console analytics tehas-mcp store; do
+    t_contains "$(t_calls cargo)" "-p $prog"
+  done
+done
 
 # A crate that is not in cargo's cache: the offline build says so in cargo's own
 # words, the retry without --offline builds, and the program is installed.
@@ -405,7 +413,7 @@ fresh
 instance
 checkout
 t_run "$part/install.sh"
-echo "// changed" >>"$part/console/src/mask.rs"
+echo "// changed" >>"$part/console/core/src/mask.rs"
 t_env CARGO_FAIL=analytics CONSOLE_BUILD="new source"
 t_run "$part/install.sh"
 t_eq "$t_rc" 1

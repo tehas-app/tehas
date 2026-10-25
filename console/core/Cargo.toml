@@ -1,0 +1,21 @@
+# What the console, analytics, the MCP server and the store share: the mask,
+# the clock and civil dates, the read of a host file and the argument
+# grammars. A library member of the workspace in ../Cargo.toml. The mask is a
+# feature, so the store, which masks nothing, does not build regex.
+[package]
+name = "tehas-core"
+version = "0.1.0"
+edition = "2021"
+# The oldest compiler that knows what the source uses (LazyLock).
+rust-version = "1.80"
+publish = false
+
+[lib]
+name = "tehas_core"
+path = "src/lib.rs"
+
+[features]
+mask = ["dep:regex"]
+
+[dependencies]
+regex = { version = "1", optional = true }

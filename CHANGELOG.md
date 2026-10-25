@@ -28,6 +28,11 @@ empty one above it.
   file of an issue nothing has used for 30 days (`store sweep-locks`).
   `tehasbot health` warns when the newest backup is missing or more than two
   days old (`checks.backup`). The manual has a restore procedure.
+- The console, analytics, the MCP server and the store share one library,
+  `console/core`: the mask, the clock and dates, the bounded file read and two
+  argument grammars. A change there rebuilds all four programs.
+- `store migrate` writes the backup's path as JSON. A path with a control
+  character in it was written in a form no JSON reader takes.
 
 ### Adopter action
 

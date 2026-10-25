@@ -11,7 +11,7 @@ name = "analytics"
 path = "src/main.rs"
 
 [dependencies]
-# For the console's mask, which this program shares (src/main.rs).
 regex = "1"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde_json = "1"
+tehas-core = { path = "../core", features = ["mask"] }

@@ -9,38 +9,13 @@ use serde_json::{json, Value};
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use tehas_core::time::{iso, now};
 
 // The number of logs being sent is one for the process: the tests take turns.
 static TURN: Mutex<()> = Mutex::new(());
 
 fn turn() -> MutexGuard<'static, ()> {
     TURN.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64
-}
-
-fn iso(t: i64) -> String {
-    let (days, s) = (t.div_euclid(86400), t.rem_euclid(86400));
-    let z = days + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        s / 3600,
-        s / 60 % 60,
-        s % 60
-    )
 }
 
 // Built here, not written out: scripts/check-generic.sh reads this file too.
