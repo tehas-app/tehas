@@ -130,7 +130,7 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
     let mut q = c
         .prepare(
             "SELECT id, issue, turn, at, outcome, session, started_at, rc, by_account, label,
-               filed_json
+               filed_json, auto
              FROM plan_history WHERE (?1 IS NULL OR issue = ?1)",
         )
         .q()?;
@@ -140,12 +140,13 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
                 order(r)?,
                 row_json(r, &PLAN_NAMES)?,
                 r.get::<_, Option<String>>(PLAN_NAMES.len())?,
+                r.get::<_, bool>(PLAN_NAMES.len() + 1)?,
             ))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let ((at, n, id), mut p, filed) = row.q()?;
+        let ((at, n, id), mut p, filed, auto) = row.q()?;
         // plan-end writes the kept URLs as a JSON list; anything else is none.
         let filed = filed
             .and_then(|f| serde_json::from_str::<Value>(&f).ok())
@@ -153,6 +154,7 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
             .unwrap_or(Value::Array(Vec::new()));
         p.insert(0, ("kind", j("plan")));
         p.push(("filed", filed.to_string()));
+        p.push(("auto", j(auto)));
         out.push(((at, n, id, 1), obj(&p)));
     }
     Ok(out)

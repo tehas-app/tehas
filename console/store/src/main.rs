@@ -71,7 +71,7 @@
 //!   store publish [--dispatch <file>] [--health <file>]
 //!   store park <issue> --attempt N --reason <w> [--step <w>] [--pr N]
 //!                [--comment-id <id> --body-sha <sha256>]
-//!   store park-show <issue> | --automatic
+//!   store park-show <issue> | --automatic | --refine
 //!   store park-retry <issue>
 //!   store park-told <issue>
 //!   store question-asked <issue> --id <id> --kind park|plan [--attempt N] [--body-sha <sha256>]
@@ -80,7 +80,8 @@
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
 //!   store approval-current <issue>
-//!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> | --undo
+//!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> [--auto]
+//!                | --undo
 //!   store plan-answer <issue> --turn N --by <account> [--fixer] [--text-file <file>]
 //!                | --turn N --undo
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
