@@ -306,6 +306,18 @@ tehas_sandbox_security() {
     --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777
 }
 
+# tehas_sandbox_security_take <command> <what>: the options in the caller's
+# sec, or 1 with a line on stderr naming what does not start. Asked before
+# Docker is called, so a list that drifted from the documented one starts
+# nothing.
+tehas_sandbox_security_take() {
+  mapfile -d '' -t sec < <(tehas_sandbox_security)
+  [ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] &&
+    tehas_sandbox_security_ok && return 0
+  echo "$1: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting $2" >&2
+  return 1
+}
+
 # How many words the function above prints, in the caller's own words. It is
 # asked of the function, so the number stands in one place.
 tehas_sandbox_security_count() {

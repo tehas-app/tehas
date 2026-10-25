@@ -1379,14 +1379,14 @@ records=$(records_of "$T_ROOT/libexec")
 # list.
 for want in \
   'check-product	145	PI_ENSEMBLE_IMAGE	bash	' \
-  'dev	336	PI_ENSEMBLE_IMAGE	pi	' \
+  'dev	331	PI_ENSEMBLE_IMAGE	pi	' \
   'improve	272	PI_ENSEMBLE_IMAGE	pi	' \
   'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
-  'plan	252	PI_ENSEMBLE_IMAGE	$runner	' \
-  'plan	446	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	524	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	754	PI_ENSEMBLE_IMAGE	git	' \
-  'work	888	PI_ENSEMBLE_IMAGE	$runner	'; do
+  'plan	247	PI_ENSEMBLE_IMAGE	$runner	' \
+  'plan	441	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	519	PI_ENSEMBLE_IMAGE	$runner	' \
+  'work	749	PI_ENSEMBLE_IMAGE	git	' \
+  'work	883	PI_ENSEMBLE_IMAGE	$runner	'; do
   case "
 $records
 " in *"
