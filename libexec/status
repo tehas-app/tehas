@@ -228,7 +228,9 @@ platform_release() { # <installed version>
     {generatedAt: $now, release: $release, newest: (if $newest == "" then null else $newest end),
      behind: 0, upstream: "releases",
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 
 platform_checkout() {
@@ -261,7 +263,9 @@ platform_checkout() {
      upstream: $upstream, behind: ($behind | num),
      behindSince: ($since | num | if . == null then null else todate end),
      fetchedAt: ($fetched | num | if . == null then null else todate end)}' \
-    >"$live/platform.json.new" 2>/dev/null && mv "$live/platform.json.new" "$live/platform.json"
+    >"$live/platform.json.$$.new" 2>/dev/null &&
+    mv "$live/platform.json.$$.new" "$live/platform.json" 2>/dev/null
+  rm -f "$live/platform.json.$$.new"
 }
 platform
 
@@ -433,12 +437,12 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
                    | scan("[a-z][a-z0-9-]{2,}")]
                   | group_by(.) | map({word: .[0], count: length})
                   | sort_by(-.count, .word) | .[:100])
-    } end)' >"$live/status.json.new" 2>"$live/status.json.err" && mv "$live/status.json.new" "$live/status.json" && written=1
+    } end)' >"$live/status.json.$$.new" 2>"$live/status.json.$$.err.new" && mv "$live/status.json.$$.new" "$live/status.json" && written=1
 if [ "$written" = 0 ]; then
-  log "WARN status.json not written: $(head -n 1 "$live/status.json.err")"
-  rm -f "$live/status.json.new"
+  log "WARN status.json not written: $(head -n 1 "$live/status.json.$$.err.new")"
+  rm -f "$live/status.json.$$.new"
 fi
-rm -f "$live/status.json.err"
+rm -f "$live/status.json.$$.err.new"
 
 # An issue this read finds shipped carries the label whatever the reason: the
 # edit is idempotent, so an issue that already holds it is asked for nothing.

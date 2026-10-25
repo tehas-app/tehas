@@ -115,6 +115,8 @@ t_eq "$t_rc" 2
 
 t_case "the result is kept for tehasbot cycle and beside the log, and the cap is said"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 container 'says handoff verify-failed:develop; exit 10'
 t_run "$work 7"
 t_eq "$t_rc" 10
@@ -298,6 +300,8 @@ caps_good
 
 t_case "a container that exits 137 with no result is reported as killed and the command exits 137"
 fresh
+# Its start on record, so its heartbeat is published.
+under_cycle
 container 'exit 137'
 t_run "$work 7"
 t_eq "$t_rc" 137

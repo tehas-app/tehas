@@ -1,4 +1,4 @@
--- The schema of state/tehas.db, schema v2: every table, column, key and
+-- The schema of state/tehas.db, schema v3: every table, column, key and
 -- index of the state store spec, section 3.1 to 3.13. Its version is
 -- SCHEMA_VERSION in db.rs, kept in PRAGMA user_version. A column added in a
 -- later version comes last in its table, where ALTER TABLE puts it, so a store
@@ -83,14 +83,17 @@ CREATE TABLE cycle_locks (
   probe_rc   INTEGER NOT NULL
 );
 
--- One row per cycle per tick of the supervisor's 10-second write. Was
--- live/cycles/<n>.json, whose mtime was the heartbeat.
+-- One row per cycle per tick of the supervisor's 10-second write, the newest
+-- 100 of an issue. Was live/cycles/<n>.json, whose mtime was the heartbeat.
+-- text (v3) is the driver's last notice after the console's mask, which the
+-- published view shows.
 CREATE TABLE heartbeats (
   issue      INTEGER NOT NULL REFERENCES cycles (issue) ON DELETE CASCADE,
   at         INTEGER NOT NULL,
   running    INTEGER NOT NULL,
   step       TEXT,
   status     TEXT,
+  text       TEXT,
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX heartbeats_at ON heartbeats (at);

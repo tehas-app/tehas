@@ -122,6 +122,8 @@ LINES
 EOF
 t_stub console 'if [ "$1" = --mask ]; then sed "s/cycle/[masked]/"; fi'
 mv "$T/bin/console" "$tree/libexec/console"
+# The view is published from the cycle's heartbeats, so its start is on record.
+under_cycle
 t_run "$work 7"
 t_eq "$(jq -r .last.statusText "$T/home/tehas/live/running.json")" "step 3 of the [masked]"
 t_eq "$(jq -r .last.step "$T/home/tehas/live/running.json")" develop
@@ -134,50 +136,65 @@ t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 0
 
 t_case "without a console the status line is not published"
 mv "$tree/libexec/console" "$T/console.kept"
+under_cycle
 t_run "$work 7"
 t_eq "$(jq -r '.last.statusText, .last.status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
 rm -f "$T/container.sh"
 
-other() { # issue running status updatedAt: the live file of another cycle
-  printf '{"issue":%s,"running":%s,"status":"%s","step":"develop","statusText":"","startedAt":%s,"updatedAt":%s,"console":"console-%s.txt"}\n' \
-    "$1" "$2" "$3" "$(($4 - 60))" "$4" "$1" >"$live/cycles/$1.json"
+other() { # issue running status updatedAt: another cycle on the store
+  local now
+  now=$(date +%s)
+  t_live "$T/home/tehas" "$1" "$2" "$3" develop $((now - $4 + 60)) $((now - $4))
 }
 
-t_case "the cycle writes a live file of its own, and the view has it as the last one"
+t_case "the cycle's heartbeat is published as a live file of its own, and the view has it as the last one"
+under_cycle
 t_run "$work 7"
 t_eq "$(jq -c '[.issue, .running, .console]' "$live/cycles/7.json")" '[7,false,"console-7.txt"]'
 t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
 
 t_case "another cycle that is running is in the view beside it"
 other 9 true running "$(date +%s)"
+under_cycle
 t_run "$work 7"
 t_eq "$(jq -c '[.cycles[].issue, .last.issue]' "$live/running.json")" "[9,7]"
 t_eq "$(jq -r .cycles[0].console "$live/running.json")" "console-9.txt"
 
 t_case "a finished cycle that is not the last one leaves the view and the disk"
 other 5 false handoff 1000
+under_cycle
 t_run "$work 7"
 t_eq "$(find "$live/cycles" -name '*.json' -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" "7.json 9.json "
 t_eq "$(jq -r .last.issue "$live/running.json")" 7
 
-t_case "a cycle that has written nothing for two minutes is no longer shown as running"
-other 9 true running "$(($(date +%s) - 300))"
-# Cycle 9 counts as ended when it is found, as cycle 7 starts. The container
-# waits until it sees cycle 9 marked lost, then for the next second, so cycle 7
-# is the one that finished last however slow the host is.
-echo 'for _ in $(seq 300); do [ "$(jq -r .status "'"$live"'/cycles/9.json" 2>/dev/null)" = lost ] && break; "$nap" 0.1; done
+t_case "a cycle that has been quiet for two minutes is no longer shown as running"
+other 11 true running "$(($(date +%s) - 300))"
+under_cycle
+# Cycle 11 is lost two minutes after its last heartbeat, which is long before
+# cycle 7 ends. The container waits until it sees cycle 11 shown as lost, then
+# for the next second.
+echo 'for _ in $(seq 300); do [ "$(jq -r .status "'"$live"'/cycles/11.json" 2>/dev/null)" = lost ] && break; "$nap" 0.1; done
 s=$(date +%s); while [ "$(date +%s)" = "$s" ]; do "$nap" 0.1; done' >"$T/container.sh"
 t_run "$work 7"
 rm -f "$T/container.sh"
-t_eq "$(jq -c '[(.cycles | length), .last.issue]' "$live/running.json")" "[0,7]"
+# Cycle 9 of the case before is still heard from.
+t_eq "$(jq -c '[[.cycles[].issue], .last.issue]' "$live/running.json")" "[[9],7]"
+t_eq "$(jq -c '[.[] | select(.issue == 11) | .status]' "$live/endings.json")" '["lost"]'
 rm -rf "$live/cycles"
+
+t_case "a cycle with no start on record runs, and says once that its heartbeat is not on record"
+fresh
+t_run "$work 7"
+t_eq "$(grep -c 'the heartbeat of #7 is not on record (nocycle)' <<<"$t_out")" 1
+t_eq "$([ -e "$live/cycles/7.json" ] && echo shown)" ""
 
 t_case "a cycle that is stopped is recorded as interrupted"
 # The cycle's call stays alive until docker stop is called, as a container does.
 echo "$nap"' 60 >/dev/null 2>&1 & echo $! >"$T/sleeper.pid"; wait' >"$T/container.sh"
 rm -f "$live/cycles/7.json" "$T/sleeper.pid"
+under_cycle
 # Every wait is bounded. The live file says running only after the trap is set.
 t_run "$work 7 >\"\$T/work.out\" 2>&1 & pid=\$!
 for _ in \$(seq 100); do [ \"\$(jq -r .running \"$live/cycles/7.json\" 2>/dev/null)\" = true ] && break; sleep 0.1; done

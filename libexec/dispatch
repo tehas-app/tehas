@@ -393,6 +393,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/analytics.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
+# shellcheck source=lib/live.sh
+. "$here/../lib/live.sh"
 tehas_load || exit 78
 # Sourced after tehas_load, as lib/questions.sh is below: the measure builds
 # the tick of markdown into a jq program with a `file` of its own, and a
@@ -761,29 +763,33 @@ gib() { printf '%d.%d GiB' $(($1 / 1073741824)) $(($1 % 1073741824 * 10 / 107374
 # slice's numbers. $mesh_end, when mesh_check settled one, is which endpoint
 # the subagent provider is on: main or backup. It is the one word the energy
 # sampler asks, never an address: live/ is public. A poll that never asked
-# (no provider, or an earlier hold) writes nothing. A file that cannot be
-# written is a warning.
+# (no provider, or an earlier hold) writes nothing. The report goes to a
+# private file and from there to live/ through the store's publish
+# (lib/live.sh). A file that cannot be written is a warning.
 report_hold() {
-  local file=$TEHAS_HOME/live/dispatch.json before
+  local file=$TEHAS_HOME/live/dispatch.json before report
   before=$(jq -r '.why // "" | strings' "$file" 2>/dev/null) || before=""
   if [ -n "$why" ]; then
     [ "$why" = "$before" ] && [ "$short" = 0 ] || log "$hold"
   elif [ -n "$before" ]; then
     log "released: cycles may start again"
   fi
-  if jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
+  mkdir -p "$TEHAS_HOME/tmp" && chmod 700 "$TEHAS_HOME/tmp" &&
+    report=$(mktemp "$TEHAS_HOME/tmp/dispatch.XXXXXX") || report=""
+  if [ -n "$report" ] && jq -n --arg time "$(date -u +%FT%TZ)" --arg why "$why" --arg hold "$hold" --arg reserve "$TEHAS_CYCLE_RESERVE" \
     --argjson count "$count" --argjson room "$room_mem" --argjson committed "$committed" --argjson max "$slice_max" \
     --argjson free "$free" --argjson awaitRoom "${room:-null}" --argjson limitRoom "${limit_room:-null}" \
     --argjson refreshRoom "${lane:-null}" --arg endpoint "$mesh_end" \
     '{$time, $why, $hold, $count, $room, $committed, $max, $reserve, $free, $awaitRoom}
      + (if $limitRoom == null then {} else {$limitRoom} end)
      + (if $refreshRoom == null then {} else {$refreshRoom} end)
-     + (if $endpoint == "" then {} else {$endpoint} end)' >"$file.new" 2>/dev/null; then
-    mv "$file.new" "$file" || log "WARN: could not write $file"
+     + (if $endpoint == "" then {} else {$endpoint} end)' >"$report" 2>/dev/null; then
+    tehas_live_publish --dispatch "$report" ||
+      log "WARN: could not write $file ($tehas_store_word: $tehas_store_line)"
   else
-    rm -f "$file.new"
     log "WARN: could not write $file"
   fi
+  [ -z "$report" ] || rm -f "$report"
   # tehas status reads the health file, which was written when this poll
   # began. A hold that begins or ends is shown now, not a poll later.
   [ "$why" = "$before" ] || "$status_cmd"
@@ -2212,9 +2218,9 @@ fi
 # A cycle that holds its lock but has not been heard from for 20 minutes is
 # stuck: a tehas work that hangs after its container ended, say. It would hold
 # its slot and its reserve until a person stopped it, so its unit is stopped.
-# tehas work writes the live file every 10 seconds from the host, also through
-# a long gate in the container. A cycle that took its lock lately counts as
-# heard from: the live file may be its issue's last cycle's.
+# tehas work records a heartbeat every 10 seconds from the host, also through
+# a long gate in the container (cycle-heartbeat; cycle-show answers the newest
+# as heard_at). A cycle that took its lock lately counts as heard from.
 #
 # The state store keeps such an episode said once. Its whole rule is here, and
 # nowhere else:
@@ -2270,12 +2276,14 @@ quiet_store_usable() {
 
 # When each running cycle started, as the state store has it: read once a
 # poll, the first time a loop below needs it, into took_at. A lock held with
-# no open row on record is 0. A list that cannot be read ends the poll before
+# no open row on record is 0. When it was last heard from goes in heard_at,
+# also for a record that has ended: a refused or stopped end records no
+# heartbeat. A list that cannot be read ends the poll before
 # it acts on any cycle.
 # How each started is kept beside it in took_how, for the refresh scan, and
 # its quiet episode in quiet_for, quiet_at, quiet_asked and quiet_times, for a
 # dry run to say what the poll would do.
-declare -A took_at=() took_how=() quiet_for=() quiet_at=() quiet_asked=() quiet_times=()
+declare -A took_at=() took_how=() quiet_for=() quiet_at=() quiet_asked=() quiet_times=() heard_at=()
 took_read=0
 running_starts() {
   local line
@@ -2286,17 +2294,18 @@ running_starts() {
     exit 78
   fi
   while read -r line; do
-    [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)\ ([A-Za-z0-9_.:-]{1,64})\ ([0-9]{1,12})\ ([0-9]{1,12})\ ([0-9]{1,6})$ ]] || continue
+    [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)\ ([A-Za-z0-9_.:-]{1,64})\ ([0-9]{1,12})\ ([0-9]{1,12})\ ([0-9]{1,6})\ ([0-9]{1,12})$ ]] || continue
     took_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
     took_how[${BASH_REMATCH[1]}]=${BASH_REMATCH[3]}
     quiet_for[${BASH_REMATCH[1]}]=${BASH_REMATCH[4]}
     quiet_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[5]}
     quiet_asked[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]}
     quiet_times[${BASH_REMATCH[1]}]=${BASH_REMATCH[7]}
+    heard_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[8]}
   done < <(tehas_store_get '.cycles[] | "\(.issue) \(.cycle
     | if . != null and .ended_at == null
-      then "\(.started_at) \(.how) \(.quiet.said_for // "-") \(.quiet.at // 0) \(.stop_asked_at // 0) \(.stop_said_times // 0)"
-      else "0  - 0 0 0" end)"')
+      then "\(.started_at) \(.how) \(.quiet.said_for // "-") \(.quiet.at // 0) \(.stop_asked_at // 0) \(.stop_said_times // 0) \(.heard_at // 0)"
+      else "0  - 0 0 0 \(if . == null then 0 else .heard_at // 0 end)" end)"')
   took_read=1
 }
 
@@ -2304,12 +2313,11 @@ quiet_running=$(tehas_cycles_running)
 [ -z "$quiet_running" ] || running_starts
 for n in $quiet_running; do
   now=$EPOCHSECONDS
-  heard=$(jq -r '.updatedAt | numbers | floor' "$TEHAS_HOME/live/cycles/$n.json" 2>/dev/null) || heard=""
-  [[ $heard =~ ^[0-9]{1,12}$ ]] || heard=0
+  heard=${heard_at[$n]:-0}
   took=${took_at[$n]:-0}
   [ "$took" -le "$heard" ] || heard=$took
   if [ "$heard" = 0 ]; then
-    # Nothing is known about this cycle: neither its live file nor its start
+    # Nothing is known about this cycle: neither a heartbeat nor its start
     # on record could be read. Nothing is said or recorded.
     continue
   fi
