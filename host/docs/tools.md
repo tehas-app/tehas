@@ -2807,7 +2807,9 @@ dispatcher, the refresh and the Protolab take the bot's login from
 A cycle's container is given `~/tehas/state/github` read-only at
 `/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
 before `/usr/bin/gh` on its `PATH`) reads the token there at every call, and
-git's helper asks that `gh`. While the container runs, `tehas work` asks for a
+git's helper asks that `gh`. A call GitHub refuses for a rate limit is tried
+once more after 60 seconds, and only that call; a call that reads standard
+input is not retried. While the container runs, `tehas work` asks for a
 fresh token every 5 minutes, so a cycle of any length pushes and comments as
 the app. The container's `GH_TOKEN` is the token it started with; a program in
 it that reads `GH_TOKEN` itself, not through `gh`, has that token for its first
