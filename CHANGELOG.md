@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.13.0 (2026-10-25)
+
+### Changes
+
 - The files under `live/` that describe the cycles and the factory's health
   have one writer, the state store's `publish` (#252). `tehas work` records a
   heartbeat on the store every 10 seconds (`cycle-heartbeat`) in place of
@@ -58,12 +68,20 @@ empty one above it.
   and is a sub-issue of the original, and the original says `Replaced by #<m>`
   and is closed with `tehas:replaced`, or kept open with `tehas:refined` when
   later parts remain. This holds for a `tehas:refine` a person applied too.
+- The improvement loop uploads a cycle's log only as `console --mask` leaves
+  it. A log the mask cannot read stays on the host, and the run says
+  `not-masked`.
+- A count setting of 10 digits or more, and a model role with no name
+  (`PI_ENSEMBLE_MODEL_=`), stop the command with exit 78. They used to load.
+- A retry tick held on one issue's image skips that issue; the rest of the
+  poll goes on.
 
 ### Adopter action
 
 - Drain before you install (`tehas drain`): a cycle started by the earlier
   `tehas work` writes `live/cycles/<n>.json` itself, which the publisher now
-  owns. `install.sh` takes the store to schema 5.
+  owns. `install.sh` takes the store to schema 5. `tehas limit clear` lifts the drain
+  after the install.
 - `install.sh` builds and installs `libexec/attach` with the other programs. A
   host without it does not start a cycle given an issue's attachments, and its
   Protolab leaves zips out.
