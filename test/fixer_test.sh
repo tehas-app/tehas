@@ -208,6 +208,37 @@ answer
 t_eq "$t_out" "no: there is no fixer"
 t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
 
+t_case "the answers of a store migrated from 3 still say who answered its turns"
+  # The column is `millwright` from schema 4; the key plan-show prints, which
+  # tehas_fixer_answer reads, stays `fixer`.
+  migrated=$T/home/migrated
+  rm -rf "$migrated"
+  mkdir -p "$migrated/state" "$migrated/libexec"
+  if ! t_store; then
+    t_skip "$t_store_why"
+  elif ! t_store_old "$migrated/state/tehas.db" 3 "
+    INSERT INTO issues (issue, kind, kind_at, checked_at) VALUES (7, 'issue', 1, 1);
+    INSERT INTO planning (issue, session, turns, running, pending, label, opened_at, by_account, started_at)
+      VALUES (7, 's1', 3, 1, 0, 'tehas:plan', 1791000000, 'alice', 1791000000);
+    INSERT INTO planning_answers (issue, turn, by_account, fixer, text) VALUES (7, 2, 'alice', 0, 'a');
+    INSERT INTO planning_answers (issue, turn, by_account, fixer, text) VALUES (7, 3, 'tehas-fixer', 1, 'b');"; then
+    t_skip "python3 is not installed"
+  else
+    ln "$T_STORE" "$migrated/libexec/store" 2>/dev/null ||
+      cp "$T_STORE" "$migrated/libexec/store"
+    TEHAS_HOME=$migrated "$migrated/libexec/store" migrate \
+      --backup "$migrated/state/backup" --version v0.0.0 --commit "$T_COMMIT" \
+      --instance instance --repo acme/widget >/dev/null ||
+      t_bad "the store refused to bring the fixture forward"
+    t_run "TEHAS_HOME='$migrated' '$migrated/libexec/store' plan-show 7 | jq -c '.planning.answers'"
+    t_eq "$t_rc" 0
+    t_eq "$t_out" '[{"turn":2,"by":"alice","fixer":false},{"turn":3,"by":"tehas-fixer","fixer":true}]'
+    # Through the grant: refused for the reason that says the boolean was read.
+    lib "export TEHAS_HOME=$migrated; v=\$(plan_view 7) || { echo none; exit 0; }; \
+      if tehas_fixer_answer \"\$v\"; then echo yes; else echo \"no: \$tehas_fixer_why\"; fi; rm -f \"\$v\""
+    t_eq "$t_out" "no: the fixer answered the question before this one; a person answers this one"
+  fi
+
 # --- History -----------------------------------------------------------------
 t_case "a cycle's history is the store's, in the shape of the lines it had: 51 ends keep 50"
 t_store_db "$home"
