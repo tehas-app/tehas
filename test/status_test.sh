@@ -1592,7 +1592,7 @@ t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "There is no backup of the state store: tehasbot clean makes one a day."
 t_eq "$(jq -c .checks.backup "$live/health.json")" null
 TEHAS_HOME=$T/home/tehas "$T_STORE" backup >/dev/null
-touch -d '3 days ago' "$T"/home/tehas/state/backup/tehas-*.db
+touch -d '72 hours ago' "$T"/home/tehas/state/backup/tehas-*.db
 t_run "$health"
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The newest backup of the state store is 72 h old."
