@@ -359,7 +359,7 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 4 for this schema. Schema 1 was
+- The version is `PRAGMA user_version`. It is 5 for this schema. Schema 1 was
   the first on main; the step to 2 only adds columns and one table
   (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
   `planning_notes`; the verbs spec's D29), and the step to 3 adds
@@ -368,9 +368,10 @@ ADR 0003 under *What stays a file*.
   beside the old word, and renames `planning_answers.fixer` to `millwright`
   with `ALTER TABLE ... RENAME COLUMN`. SQLite cannot change a CHECK in place,
   so the two tables are rebuilt with foreign keys off for the step, and every
-  row is kept. An added column comes last in its table, where `ALTER TABLE`
-  puts it. Migrations run forward only, from install
-  or update under `state/update.lock`, after a `VACUUM INTO` backup.
+  row is kept. The step to 5 adds `planning.auto` and `plan_history.auto`
+  (#679), 0 on every older row. An added column comes last in its table,
+  where `ALTER TABLE` puts it. Migrations run forward only, from install or
+  update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
   `synchronous=FULL`, `foreign_keys=ON`. Writes stay under one a second, so
   durability costs nothing worth saving.
@@ -574,7 +575,8 @@ CREATE TABLE planning (
   brief         TEXT,                     -- was: <record>.brief
   turn_rc       INTEGER,                  -- was: <record>.rc
   opened_at     INTEGER NOT NULL,
-  ended_at      INTEGER
+  ended_at      INTEGER,
+  auto          INTEGER NOT NULL DEFAULT 0 -- v5 (#679): a refine the poll started on its own
 );
 CREATE TABLE planning_answers (           -- was: the `answers` array
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
@@ -714,7 +716,8 @@ CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, turn INTEGER NOT NULL, at INTEGER NOT NULL,
-  outcome TEXT NOT NULL, session TEXT
+  outcome TEXT NOT NULL, session TEXT,
+  auto INTEGER NOT NULL DEFAULT 0      -- v5 (#679): a turn of such a refine
 );
 CREATE INDEX plan_history_issue ON plan_history (issue, at);
 CREATE TABLE refined (
@@ -1023,14 +1026,14 @@ only; every response also carries `{"api":1,"verb":"...","ok":true}`.
 | `cycle-note` | `<issue> --kind quiet --said-for <text>` | `cycle_notes` | `{"said":true}` | 0, 78 |
 | `cycle-stop-asked` | `<issue>` | `cycles.stop_asked_at`, `stop_said_times` | `{"times":2}` | 0, 78 |
 | `park` | `<issue> --reason <r> [--step <s>] [--pr N] --comment-id <id> --body-sha <sum>` | **group 3**: `parks`, `questions`; the comment is posted by the caller through the journal | `{"issue":12,"question":<id>}` | 0, 64, 78, 1, 5 |
-| `park-show` | `<issue>` | | the current park, `retries` | 0, 78 |
+| `park-show` | `<issue> \| --automatic \| --refine` | | the current park, `retries`; `--refine` lists the intent parks as `underspecified` or `too-large` of a cycle a label or a retry started, on an issue with no planning session or history, whose one start is unspent (#679) | 0, 78 |
 | `park-retry` | `<issue>` | increments `parks.retries` | `{"retries":1,"automatic":true}` | 0, 78, 1 |
 | `park-told` | `<issue>` | `parks.told_at` of the current park, once | `{"said":true,"park":...}` | 0, 64, 78, 1 |
 | `question-asked` | `<issue> --id <id> --kind <k> [--attempt N]` | `questions` | the row | 0, 64, 78 |
 | `question-known` | `<issue> --id <id>` | | `{"known":true,"kind":"park"}` | 0, 64, 78, 1 |
 | `approval-record` | `<issue> --by <acct> --how <h> --label <l> --body-sha <sum> [--comment-id <id>] [--refresh-pr N --refresh-head <sha>] [--input-file <f>]` | `approvals`, the inputs in `input_json` | the row | 0, 64, 78 |
 | `approval-current` | `<issue>` | | the open approval, or `{"approval":null}` | 0, 78 |
-| `plan-begin` | `<issue> --by <acct> --label <l> --brief-file <f> [--session <id>] [--turn N]` | **group 6**: `planning`, `plan_history` | the row | 0, 64, 78 |
+| `plan-begin` | `<issue> --by <acct> --label <l> --brief-file <f> [--auto] [--session <id>] [--turn N]` | **group 6**: `planning`, `plan_history` | the row | 0, 64, 78 |
 | `plan-end` | `<issue> --outcome <o> [--session <id>] [--turn N] [--rc N] [--filed 1,2,3]` | `planning`, `plan_history` | the row | 0, 64, 78 |
 | `plan-answer` | `<issue> --turn N --by <acct> [--fixer] [--text-file <f>]` | `planning_answers`, the reply in `text` | `{"turn":2}` | 0, 64, 78 |
 | `plan-note` | `<issue> --kind fixer-refused\|held --id <id>` | `planning_notes` | `{"said":true,"planning":...}` | 0, 64, 78, 1 |

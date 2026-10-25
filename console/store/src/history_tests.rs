@@ -129,7 +129,7 @@ fn history_show_lists_every_column_oldest_first() {
         p,
         json!({"kind":"plan","id":id,"issue":10,"turn":1,"at":NOW + 20,"outcome":"finished",
                "session":"s1","started_at":NOW + 10,"rc":0,"by":"bob","label":"tehas:refine",
-               "filed":["https://github.com/o/r/issues/9"]})
+               "filed":["https://github.com/o/r/issues/9"],"auto":false})
     );
 }
 
