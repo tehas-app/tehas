@@ -532,7 +532,12 @@ cap means" say which check. Four kinds were seen:
   note, the severity the lint runs at and the one suppression it accepts are
   under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
-  nothing, or it removed lines it should not have.
+  nothing, or it removed lines it should not have. When the cap is
+  `fix-pass-park` and it names a test file, read the issue's `Out of scope`
+  section first: the plan read that section as part of the fence, so the fix
+  pass was refused the file its own deliverable told it to write. Name the
+  file in the deliverable and drop it from `Out of scope`, as step 1 of
+  [Operating](/operating) says.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
   failure: the driver would not run the consolidated gate at all because it
   found files in the checkout that git does not ignore. When the names are
