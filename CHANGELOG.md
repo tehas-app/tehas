@@ -23,6 +23,12 @@ empty one above it.
 
 ### Changes
 
+- Each poll's cost record says how many cycles it started (#786), and
+  `store poll-idle --since <seconds>` gives the median CPU, wall time and
+  writes of the polls that started none, for the health check's budget. The
+  state store moves to schema 8, which adds the column `poll_cost.starts`;
+  the install migrates it and keeps a backup. A poll of an older tehas has no
+  answer there, which is not counted as idle.
 - The query `tehas status` and `tehas tidy` send for shipped work had one
   closing brace too many since v0.14.0 (#731), so GitHub refused it: status
   wrote no snapshot of shipped work and tidy added no `tehas:shipped`. The
@@ -40,7 +46,8 @@ empty one above it.
 
 ### Adopter action
 
-- None.
+- Drain before you install (`tehas drain`): the state store moves from schema
+  7 to 8 (#786). After the update, `tehas limit clear`.
 
 ## v0.14.0 (2026-10-26)
 
