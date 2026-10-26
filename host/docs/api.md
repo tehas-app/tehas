@@ -114,7 +114,7 @@ tehas api [--json]
 | `repo` | `TEHAS_REPO`, the product repository |
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
-| `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept until a release removes them; a program reads `millwright` and `millwright-grant` |
+| `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 
 It reads the instance settings and `~/tehas/docs/version.txt`, which
 `install.sh` writes. Exit 0; 64 on an argument it does not know; 78 when the

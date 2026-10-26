@@ -1339,12 +1339,13 @@ the factory: start one again, start it again working differently, or leave it
 to a person. It may also answer some planning questions. What runs as that account is not part of tehas. The factory says
 what the account may do, and this section is that.
 
-The millwright was called the fixer. Until a release removes them, the old
-names are accepted beside the new ones: the settings `TEHAS_FIXER_LOGIN`,
-`TEHAS_FIXER_MAX_RETRIES` and `TEHAS_FIXER_MAX_PLAN_ANSWERS`, the label
-`tehas:fixer-escalated`, the marker `<!-- tehas:fixer issue=<n> action=... -->`,
-`how: "fixer"` on a record, and `fixer-grant` and `fixer` in
-[`tehas api`](/api#tehas-api).
+The millwright was called the fixer. Its old names are no longer read: a
+`TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
+and the label `tehas:fixer-escalated` and the marker
+`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
+written as `how: "fixer"` still counts as the millwright's, and
+[`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
+the new names.
 
 - **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It is never
   the bot, because every agent posts as the bot: a poll stops with 78 when
