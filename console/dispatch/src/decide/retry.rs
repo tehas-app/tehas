@@ -138,6 +138,7 @@ impl Poll<'_> {
         let mut a = json!({
             "untick": n, "comment": ans["comment"],
             "body": questions::untick(ans["body"].as_str().unwrap_or("")),
+            "fail": format!("WARN: could not untick the question on #{n}"),
         });
         if let Some(note) = note {
             a["say"] = json!(note);
@@ -280,7 +281,9 @@ impl Poll<'_> {
                 .any(|l| l.eq_ignore_ascii_case("- [x] Retry from a clean start"))
             {
                 if !self.dry {
-                    self.act(json!({"issue": n, "remove": ["tehas:question"], "answered": {"id": qid, "by": by}}));
+                    self.act(json!({"issue": n, "remove": ["tehas:question"],
+                        "fail": Self::label_fail(n, &["tehas:question"], &[]),
+                        "answered": {"id": qid, "by": by}}));
                 }
                 continue;
             }
@@ -358,6 +361,9 @@ impl Poll<'_> {
                 },
             );
             self.untick(n, &ans, None);
+            if let Some(a) = self.d.actions.last_mut() {
+                a["fail"] = json!(format!("WARN: could not untick the retry on #{n}; its question is no longer on record, so it starts nothing more"));
+            }
             return Err(End(0));
         }
         Ok(())

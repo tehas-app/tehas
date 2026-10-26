@@ -158,6 +158,17 @@ impl<'a> Poll<'a> {
         self.d.actions.push(a);
     }
 
+    /// The line the bash poll logs when a label change fails: the flags it
+    /// gave gh, as `--remove-label X --add-label Y`.
+    fn label_fail(n: u64, remove: &[&str], add: &[&str]) -> String {
+        let mut flags: Vec<String> = remove
+            .iter()
+            .map(|l| format!("--remove-label {l}"))
+            .collect();
+        flags.extend(add.iter().map(|l| format!("--add-label {l}")));
+        format!("WARN: label change on #{n} failed: {}", flags.join(" "))
+    }
+
     fn need(&mut self, what: &'static str) {
         if !self.d.needs.contains(&what) {
             self.d.needs.push(what);
@@ -976,6 +987,7 @@ impl<'a> Poll<'a> {
         }
         self.act(json!({
             "issue": n, "remove": [label],
+            "fail": Self::label_fail(n, &[label], &[]),
             "log": format!("clear #{n}: {label} off, applied by '{by}' who may not authorise work here"),
             "say": format!("Tehas took `{label}` off this issue. It was applied by `{by}`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in `TEHAS_ALLOWED_LABELERS` applies `{label}`."),
         }));
@@ -1182,6 +1194,7 @@ impl<'a> Poll<'a> {
         } else {
             self.act(json!({
                 "issue": n, "remove": [ask],
+                "fail": Self::label_fail(n, &[ask], &[]),
                 "say": format!("Tehas took `{ask}` off this issue and started nothing. It has {open} {word} open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."),
             }));
         }
@@ -1215,6 +1228,7 @@ impl<'a> Poll<'a> {
         } else {
             self.act(json!({
                 "issue": n, "remove": [ask], "add": ["needs-human-attention"],
+                "fail": Self::label_fail(n, &[ask], &["needs-human-attention"]),
                 "say": format!("Tehas took `{ask}` off this issue, put `needs-human-attention` on it and started nothing. Its body names {files} files, more than the {max} of `TEHAS_SIZE_MAX_FILES`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply `tehas:ready` again to start one of them."),
             }));
         }
@@ -1400,6 +1414,7 @@ impl<'a> Poll<'a> {
         } else {
             self.act(json!({
                 "issue": n, "remove": ["tehas:ready"],
+                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
                 "say": format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."),
             }));
         }
@@ -1675,6 +1690,7 @@ impl<'a> Poll<'a> {
                 if !self.dry {
                     self.act(json!({
                         "issue": n, "remove": [ask],
+                        "fail": Self::label_fail(n, &[ask], &[]),
                         "say": format!("Tehas took `{ask}` off this issue and started nothing: {url} is open and closes it. Merge or close that pull request, then apply `tehas:ready` if work is still needed."),
                     }));
                 }
