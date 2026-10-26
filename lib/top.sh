@@ -4,12 +4,12 @@
 #   tehas_top_snapshot <lines> [<previous host reading>]  one JSON object on standard out
 #   tehas_top_frame <snapshot> <width> <height>  the frame as plain text
 #   tehas_top_published <snapshot>               the part of it that may be published
-#   tehas_sanitize_text                          text in, safe text out
 #
 # The snapshot reads what the factory already writes under $TEHAS_HOME/live/ -
 # health.json, status.json, running.json, energy.json and the console of a
 # cycle - asks systemctl --user about its units - and reads the host itself in
-# /proc, through the console beside the commands (console/src/top.rs). No GitHub call, no model, no Docker call, no instance settings, and
+# /proc, through the console beside the commands (console/src/top.rs and
+# console/src/snapshot.rs). No GitHub call, no model, no Docker call, no instance settings, and
 # nothing is written. A section whose source is missing, unreadable or too old
 # to believe is null; the others are there all the same.
 #
@@ -40,21 +40,6 @@
 # A live file older than this is not believed, as the health file is not.
 tehas_top_max_age=$tehas_health_max_age
 
-# Control characters and escape sequences out of text that came from a file:
-# tab is kept, everything else below 0x20 and 0x7f is dropped, and so are the
-# C1 controls from 0x80 to 0x9f, which some terminals read as the start of a
-# control sequence. A C1 byte is dropped only where it is the second byte of
-# its own UTF-8 encoding (0xc2 followed by 0x80 to 0x9f): the same byte value
-# is also a continuation byte of a character that is not a control, and cutting
-# that out would break a title written in any language.
-#
-# Text that a file holds as a JSON escape is cleaned by tehas_top_safe_defs
-# below, because it only becomes a control character once the JSON is read.
-tehas_sanitize_text() {
-  LC_ALL=C tr -d '\000-\010\013-\037\177' |
-    LC_ALL=C sed 's/\xc2[\x80-\x9f]//g'
-}
-
 # The same rule for every string of a JSON object, applied to the snapshot and
 # to a snapshot handed to the renderer. Code points 0x80 to 0x9f go; everything
 # from 0xa0 up is text and stays.
@@ -66,168 +51,26 @@ tehas_top_safe_defs='
     else . end;
 '
 
-# The units section: every tehas-* timer and service of the user's systemd, as
-# a JSON array. An empty array when there are none; nothing on standard out
-# when systemd cannot be asked at all (no user bus, another account).
-tehas_top_units() {
-  local units='' listed='' props line
-  local -a names=() uniq=()
-  local rc_units=0 rc_files=0
-  units=$(systemctl --user list-units --all --full --plain --no-legend 'tehas-*' 2>/dev/null) || rc_units=$?
-  listed=$(systemctl --user list-unit-files --no-legend 'tehas-*' 2>/dev/null) || rc_files=$?
-  # Neither call answered at all: there is no user bus to ask.
-  if [ "$rc_units" != 0 ] && [ "$rc_files" != 0 ]; then return 1; fi
-  while IFS= read -r line; do
-    [ -n "$line" ] && names+=("$line")
-  done < <(printf '%s\n%s\n' "$units" "$listed" | awk 'NF { print $1 }')
-  if [ "${#names[@]}" = 0 ]; then echo '[]'; return 0; fi
-  mapfile -t uniq < <(printf '%s\n' "${names[@]}" | LC_ALL=C sort -u)
-  # One block of Key=Value lines per unit. A new Id= begins the next block, so
-  # this reads them whether or not systemd puts a blank line between blocks.
-  props=$(systemctl --user show -p Id,LoadState,ActiveState,SubState,UnitFileState,NextElapseUSecRealtime \
-    "${uniq[@]}" 2>/dev/null) || return 1
-  [ -n "$props" ] || { echo '[]'; return 0; }
-  printf '%s\n' "$props" | awk '
-    function emit() {
-      if (id == "") return
-      printf "{\"id\":\"%s\",\"loadState\":\"%s\",\"activeState\":\"%s\",\"subState\":\"%s\",\"unitFileState\":\"%s\",\"next\":\"%s\"}\n",
-        id, p["LoadState"], p["ActiveState"], p["SubState"], p["UnitFileState"], clock
-    }
-    {
-      e = index($0, "=")
-      if (e == 0) next
-      k = substr($0, 1, e - 1); v = substr($0, e + 1)
-      if (k == "Id") { emit(); id = v; delete p; clock = "" }
-      p[k] = v
-      if (k == "NextElapseUSecRealtime" && match(v, /[0-9][0-9]:[0-9][0-9]:[0-9][0-9]/)) {
-        clock = substr(v, RSTART, RLENGTH)
-      }
-    }
-    END { emit() }
-  ' | jq -c -s '.'
-}
-
 tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
-  local want=${1:-16} live now health factory queue cycle units energy console host
-  local name issue ended file lines was reading later
-  live=$TEHAS_HOME/live
-  now=$EPOCHSECONDS
-
-  # Factory and queue counts: the health file, with the rule tehas status uses.
-  health=null
-  if tehas_health_readable "$live/health.json"; then
-    health=$(tehas_sanitize_text <"$live/health.json" |
-      jq -c '{status, time, output, checks: {queue: ((.checks // {}).queue)}}' 2>/dev/null) || health=null
-    case "$health" in '' | null) health=null ;; esac
-  fi
-  if [ "$health" != null ]; then
-    factory=$(jq -c --argjson now "$now" --argjson max "$tehas_top_max_age" '
-      . + {ageSeconds: ($now - (.time | try fromdateiso8601 catch $now)),
-           stale: (($now - (.time | try fromdateiso8601 catch 0)) > $max)}' <<<"$health") || factory=null
-  else
-    factory=null
-  fi
-
-  # The issues behind the counts, from the queue snapshot itself. Running ones
-  # first, then in line, in review and stopped.
-  queue=null
-  if jq -e 'type == "object"' "$live/status.json" >/dev/null 2>&1; then
-    queue=$(tehas_sanitize_text <"$live/status.json" |
-      jq -c --argjson counts "$(if [ "$health" = null ]; then echo null; else jq -c '.checks.queue // null' <<<"$health"; fi)" '
-      {time: (.generatedAt // null),
-       counts: $counts,
-       issues: ([ (.running // [])[]  | {number, state: "running", title} ] +
-                [ (.queued // [])[]   | {number, state: "in line", title} ] +
-                [ (.awaiting // [])[] | {number, state: "in review", title} ] +
-                [ (.stopped // [])[]  | {number, state: "stopped", title} ])}
-    ' 2>/dev/null) || queue=null
-    case "$queue" in '' | null) queue=null ;; esac
-  fi
-
-  # The cycles, in the shape health.json gives them: times as ISO text.
-  cycle=null
-  if jq -e 'type == "object"' "$live/running.json" >/dev/null 2>&1; then
-    cycle=$(tehas_sanitize_text <"$live/running.json" | jq -c '
-      def iso: if type == "number" then todate else null end;
-      def brief: {issue, running: (.running // false), status, step, console,
-                  startedAt: (.startedAt | iso), time: (.updatedAt | iso)};
-      (if has("cycles") then .
-       elif .running == true then {cycles: [.], last: null}
-       else {cycles: [], last: .} end) as $v
-      | {cycles: (($v.cycles // []) | map(brief)),
-         last: ($v.last | if . == null then null else brief end)}
-    ' 2>/dev/null) || cycle=null
-    case "$cycle" in '' | null) cycle=null ;; esac
-  fi
-
+  local want=${1:-16} was=${2:-} reading later
+  [ -x "$tehas_top_console" ] ||
+    { echo "tehas top: no console at $tehas_top_console, run install.sh" >&2; return 1; }
   # The host itself: a reading now, measured against the one before it. With a
   # previous reading there is nothing to wait for and the window is the time
   # since that reading. Without one, take a second reading a second on.
-  was=${2:-}
   if [ -n "$was" ] && ! jq -e 'type == "object"' <<<"$was" >/dev/null 2>&1; then was=''; fi
-  host=''
   reading=$(tehas_host_reading) || reading=''
-  if [ -n "$reading" ] && [ -n "$was" ]; then
-    host=$(tehas_top_host "$reading" "$was") || host=''
-  elif [ -n "$reading" ]; then
+  if [ -n "$reading" ] && [ -z "$was" ]; then
     sleep 1
     later=$(tehas_host_reading) || later=''
     if [ -n "$later" ]; then
       was=$reading
       reading=$later
-      host=$(tehas_top_host "$reading" "$was") || host=''
     fi
   fi
-  case "$host" in '' | null) host=null ;; esac
-  case "$reading" in '' | null) reading=null ;; esac
-
-  units=$(tehas_top_units) || units=null
-  case "$units" in '' | null) units=null ;; esac
-  if [ "$units" != null ] && ! jq -e 'type == "array"' <<<"$units" >/dev/null 2>&1; then
-    units=null
-  fi
-
-  energy=null
-  if jq -e 'type == "object"' "$live/energy.json" >/dev/null 2>&1; then
-    energy=$(jq -c --argjson now "$now" --argjson max "$tehas_top_max_age" '
-      select((.generatedAt | try fromdateiso8601 catch 0) > $now - $max)
-      | {time: .generatedAt, watts: (.totals.watts // null), hosts: (.totals.hosts // null),
-         slots: ([.models[]?.slots | select(type == "number")] | add),
-         busy: ([.models[]?.busy | select(type == "number")] | add)}
-    ' "$live/energy.json" 2>/dev/null) || energy=null
-    case "$energy" in '' | null) energy=null ;; esac
-  fi
-
-  # The console of a running cycle, or of the one that ended last.
-  console=null
-  name=$(jq -r '(if ((.cycles // []) | length) > 0 then .cycles[-1] else .last end) // null
-                | if . == null then "" else (.console // "console-\(.issue).txt") end' <<<"$cycle" 2>/dev/null)
-  issue=$(jq -r '(if ((.cycles // []) | length) > 0 then .cycles[-1].issue else .last.issue end) // null' <<<"$cycle" 2>/dev/null)
-  ended=true
-  jq -e '((.cycles // []) | length) > 0' <<<"$cycle" >/dev/null 2>&1 && ended=false
-  # The name came out of a file, and the file it names is opened. Only a plain
-  # name is opened as one: a name that holds a path, or is . or .., or holds a
-  # character outside the set a cycle writes, reads nothing, and the frame says
-  # there is no console file.
-  case "$name" in
-    '' | .* | *..* | *[!A-Za-z0-9._-]*) name='' ;;
-  esac
-  file=$live/${name:-}
-  if [ -n "$name" ] && [ -s "$file" ]; then
-    lines=$(tail -n "$want" "$file" 2>/dev/null | tehas_sanitize_text)
-    console=$(jq -Rs --arg name "$name" --arg issue "$issue" --argjson ended "$ended" '
-      split("\n") | map(select(. != "")) | {issue: $issue, name: $name, ended: $ended, lines: .}' <<<"$lines") ||
-      console=null
-    case "$console" in '' | null) console=null ;; esac
-  fi
-
-  jq -c -n --arg generatedAt "$(date -u +%FT%TZ)" --argjson factory "$factory" \
-    --argjson queue "$queue" --argjson cycle "$cycle" --argjson units "$units" \
-    --argjson energy "$energy" --argjson console "$console" --argjson host "$host" \
-    --argjson reading "$reading" \
-    "$tehas_top_safe_defs"'{ generatedAt: $generatedAt, factory: $factory, queue: $queue,
-     cycle: $cycle, host: $host, units: $units, energy: $energy, console: $console,
-     reading: $reading } | safe'
+  # The rest of the snapshot is read and put together by the console
+  # (console/src/snapshot.rs).
+  "$tehas_top_console" top snapshot "$TEHAS_HOME/live" "$want" "$tehas_top_max_age" "$reading" "$was"
 }
 
 # --- the host section -------------------------------------------------------
@@ -258,8 +101,9 @@ tehas_top_host() { # <later reading> <earlier reading>
 # here - the dashboard can be on the internet, and a rule that only removes the
 # keys somebody thought of is not a rule. The console of a cycle and the reading
 # a host section was computed from are in the snapshot and not in this list.
-# What is inside a listed key is fixed by the code that builds it: tehas_top_host
-# and tehas_top_units name every field they give, and the queue, cycle, energy
+# What is inside a listed key is fixed by the code that builds it: the host
+# section and the units name every field they give (console/src/top.rs and
+# console/src/snapshot.rs), and the queue, cycle, energy
 # and console sections are cut to the fields the frame draws.
 tehas_top_publish_keys='["generatedAt","factory","queue","cycle","host","units","energy"]'
 

@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- The snapshot behind `tehas top` is put together by the console (#846,
+  `console top snapshot`, console/src/snapshot.rs): the factory, queue,
+  cycle, units, energy and console sections, with the same JSON. `lib/top.sh`
+  keeps the wait between two readings of the host and the frame, and loses
+  156 lines. Without the console `tehas top` and `tehasbot top-publish` say to
+  run `install.sh` instead of drawing a frame without a host.
+
 - The host section of `tehas top` is read and computed by the console
   (#844, `console top reading|host`, console/src/top.rs) instead of bash, awk and
   jq in `lib/top.sh`, which loses 176 lines. Same figures, same JSON. Without
