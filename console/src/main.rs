@@ -26,9 +26,10 @@
 //! The notice tehasbot preview keeps in a pull request's description, see
 //! src/notice.rs.
 //!
-//!   console top reading|host ...
+//!   console top reading|host|snapshot ...
 //!
-//! The host section of tehas top, see src/top.rs.
+//! The snapshot behind tehas top and its host section, see src/top.rs and
+//! src/snapshot.rs.
 //!
 //!   console review since|refused|run ...
 //!
@@ -41,6 +42,7 @@
 mod notice;
 mod render;
 mod review;
+mod snapshot;
 mod tail;
 mod top;
 
