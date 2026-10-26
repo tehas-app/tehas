@@ -135,6 +135,7 @@ mod live;
 mod lock;
 mod park;
 mod plan;
+mod slow;
 mod upkeep;
 mod verbs;
 
@@ -185,7 +186,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | upkeep";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | upkeep";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -248,6 +249,10 @@ pub enum Verb {
     },
     #[cfg(debug_assertions)]
     TestWrite(exercise::Write),
+    Slow {
+        file: PathBuf,
+        out: PathBuf,
+    },
     Record(verbs::Call),
 }
 
@@ -267,6 +272,15 @@ fn parse(args: &[String]) -> Option<Verb> {
         [verb, rest @ ..] if verb == "check" => {
             flags(rest, &["--json"])?;
             Some(Verb::Check)
+        }
+        // The record writer's one selection that is not a copy: the driver's
+        // slow notices of a cycle, kept in the record so a stuck child reads
+        // without the console (tehas_core::slow).
+        [verb, file, flag, out] if verb == "slow" && flag == "--out" => {
+            Some(Verb::Slow {
+                file: PathBuf::from(file),
+                out: PathBuf::from(out),
+            })
         }
         [verb, rest @ ..] if verb == "import" => {
             flags(rest, &["--json", "--dry-run"])?;
@@ -462,6 +476,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::Migrate { backup, settings } => migrate(&file, backup, settings, now),
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
+        Verb::Slow { file, out } => slow::run(file, out),
         Verb::Record(call) => verbs::run(home, call, now),
     }
 }

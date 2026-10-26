@@ -1604,3 +1604,99 @@ fn checkpoint(file: &Path) {
         }
     }
 }
+
+// --- the record writer's slow notices ---------------------------------------
+// The record of a cycle keeps the driver's `dispatch-slow` lines so a stuck
+// child is read without the console (tehas_core::slow, lib/improve.sh).
+
+fn slow(home: &Path, stream: &str, name: &str) -> Result<String, (u8, String)> {
+    let dir = scratch(name);
+    let given = dir.join("work-7.jsonl");
+    let out = dir.join("slow.jsonl");
+    fs::write(&given, stream).unwrap();
+    let r = execute(
+        home,
+        &Verb::Slow {
+            file: given,
+            out: out.clone(),
+        },
+        1_792_000_000,
+    );
+    r.map(|line| match fs::read_to_string(&out) {
+        Ok(kept) => format!("{line}\n{kept}"),
+        // No file: the answer stands alone, which is what a cycle with no
+        // notice gives the record.
+        Err(_) => line,
+    })
+}
+
+#[test]
+fn slow_keeps_the_notices_of_a_cycle_and_answers_with_their_count() {
+    let home = scratch("slow-home");
+    let stream = concat!(
+        "{\"v\":1,\"type\":\"agent_start\"}\n",
+        "{\"v\":1,\"kind\":\"dispatch-slow\",\"step\":\"lens-review\",\"turns\":257}\n",
+        "{\"v\":1,\"kind\":\"dispatch-slow\",\"command\":\"bash -c probe\",\"count\":24,\"identicalResultCount\":24}\n",
+    );
+    let answer = slow(&home, stream, "slow-kept").unwrap();
+    let (line, kept) = answer.split_once('\n').unwrap();
+    assert!(line.contains("\"verb\":\"slow\""), "{line}");
+    assert!(line.contains("\"lines\":2"), "{line}");
+    assert_eq!(kept.lines().count(), 2, "{kept}");
+    assert!(kept.contains("\"identicalResultCount\":24"), "{kept}");
+}
+
+#[test]
+fn slow_leaves_no_file_when_the_cycle_had_no_notice() {
+    let home = scratch("slow-none");
+    let answer = slow(
+        &home,
+        "{\"v\":1,\"kind\":\"dispatch-completed\",\"ok\":true}\n",
+        "slow-none",
+    )
+    .unwrap();
+    assert!(answer.starts_with("{\"api\":1,\"verb\":\"slow\",\"ok\":true,\"lines\":0}"), "{answer}");
+    // Nothing after the answer: the caller's file was never made.
+    assert!(!answer.contains('\n'), "{answer}");
+}
+
+#[test]
+fn slow_refuses_a_file_it_cannot_read() {
+    let home = scratch("slow-link");
+    let dir = scratch("slow-link-files");
+    let real = dir.join("elsewhere");
+    fs::write(&real, "{\"kind\":\"dispatch-slow\"}\n").unwrap();
+    let link = dir.join("work-7.jsonl");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let out = dir.join("slow.jsonl");
+    let (code, why) = execute(
+        &home,
+        &Verb::Slow {
+            file: link,
+            out: out.clone(),
+        },
+        1_792_000_000,
+    )
+    .unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(!out.exists(), "a refusal wrote the record's file");
+}
+
+#[test]
+fn slow_names_a_file_argument_and_refuses_any_other_shape() {
+    assert_eq!(
+        parse(&["slow".into(), "/a".into(), "--out".into(), "/b".into()]),
+        Some(Verb::Slow {
+            file: PathBuf::from("/a"),
+            out: PathBuf::from("/b"),
+        })
+    );
+    for args in [
+        vec!["slow".to_string()],
+        vec!["slow".to_string(), "/a".to_string()],
+        vec!["slow".to_string(), "/a".to_string(), "--out".to_string()],
+        vec!["slow".to_string(), "/a".to_string(), "--into".to_string(), "/b".to_string()],
+    ] {
+        assert_eq!(parse(&args), None, "{args:?}");
+    }
+}

@@ -128,6 +128,40 @@ t_eq "$(park_of .reason)" stall
 t_contains "$(t_calls gh)" 'cap `stall`'
 t_eq "$(find "$state/7.stalled" 2>/dev/null | wc -l)" 0
 
+t_case "the record keeps the cycle's dispatch-slow lines, so a stuck child reads without the console"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+# The lines the driver of pi-rukas writes when a child crosses the bound it
+# watches, one of them with the repeat fields the issue asks for. The runner of
+# the case writes them into its own stream, as the driver does.
+printf '%s\n' \
+  '{"v":1,"kind":"dispatch-slow","issue":7,"step":"lens-review","role":"code-review-specialist-p","elapsedMs":400257,"turns":257,"tokens":40009732}' \
+  '{"v":1,"kind":"dispatch-slow","step":"lens-review","role":"code-review-specialist-p","command":"bash -c probe","count":24,"identicalResultCount":24}' \
+  >"$fx/slow.lines"
+echo 'echo "{}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"
+cat "$T/fx/slow.lines" >>"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000
+t_eq "$(jq -c -s '[.[].role]' "$rec/slow.jsonl")" '["code-review-specialist-p","code-review-specialist-p"]'
+t_eq "$(sed -n '$p' "$rec/slow.jsonl" | jq -c '[.step, .command, .count, .identicalResultCount]')" \
+  '["lens-review","bash -c probe",24,24]'
+
+t_case "a cycle whose stream holds no slow line leaves no slow.jsonl"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 'echo "{\"type\":\"agent_start\"}" >"$TEHAS_HOME/logs/work-7-261011-120000.jsonl"; exit 0' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+rec=$T/home/tehas/tmp/improve/window/7-261011-120000
+t_eq "$(find "$rec" -name slow.jsonl | wc -l)" 0
+t_eq "$(cd "$rec" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
+  "./console.txt ./cycle.json ./err.txt ./preflight.txt ./stream.jsonl "
+
 # The three cases below are the shape of the two cycles of tehas-org/tehas#110:
 # a container that ended with nothing in its record, no step and no cap. The
 # note tehas work leaves for that end is on record as tehas's own cap, and the
