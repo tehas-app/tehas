@@ -165,12 +165,13 @@ for the rest. Give it:
 Name the tests and the pages even when they seem obvious: the plan fences the
 work to what the issue names, and a cycle that changes a file outside the
 fence parks with `verify-failed:develop` (see
-[Troubleshooting](/troubleshooting)). A deliverable that creates a file under
-`bin/`, `lib/` or `libexec/` must name `install.sh` and `test/install_lib.sh`
-among its paths as well: a new installed file has to be added to the `files=`
-list of both, and one test compares a fresh install against that list exactly
-(`test/install_fresh_test.sh`), so a plan that leaves the two out parks hours
-later on a file nobody was allowed to edit.
+[Troubleshooting](/troubleshooting)). A deliverable that creates a file that
+install.sh installs must name `install.sh` and `test/install_lib.sh` among its
+paths as well: a new installed file has to be added to the `files=` array of the
+first and the `files=` list of the second, and one test compares a fresh install
+against the list in the second file exactly (`test/install_fresh_test.sh`), so a
+plan that leaves the two out parks hours later on a file nobody was allowed to
+edit.
 
 Vague issues park at the first step with "underspecified", and the factory
 then refines them once on its own (see [Refined on its own](#refined-on-its-own)). Text in the issue is

@@ -13,23 +13,52 @@ instance
 t_run "$install --check"
 t_eq "$([ -e "$th" ] && echo made)" ""
 
-# The files a home holds that the list install.sh and this suite keep together
-# in test/install_lib.sh does not name. Compared as sets: `expected '', got
-# './tehas/lib/x.sh'` reads like a stray artefact, not like a file nobody added
-# to the install list.
-extra_files() { # <expected files, newline separated> <installed files, same>
-  comm -13 <(printf '%s\n' "$1" | LC_ALL=C sort) \
-    <(printf '%s\n' "$2" | LC_ALL=C sort)
-}
-
-# The whole report of a comparison: one line per extra file, naming it and what
-# to do with it. Empty when the home holds exactly the list.
-install_list_report() { # <expected files, newline separated> <installed files, same>
-  local one
+# The names of a home that the list install.sh and this suite keep together in
+# test/install_lib.sh does not name, and the names the list promises that the
+# home lacks, one line each. A caller passes two newline separated sets of names
+# in any order; each name is one line, with no trailing space or tab, and
+# appears once. A side that names nothing is refused: an empty list is a mistake
+# of the caller, and a report built from it would read as a clean home. The
+# direction is part of each line, not of the argument order: `expected '', got
+# './tehas/lib/x.sh'` reads like a stray artefact rather than like a file nobody
+# added to the list, and a report that named the wrong half sent its reader to
+# edit the wrong file.
+install_list_report() { # <names the list promises> <names the home holds>
+  local expected installed one
+  if [ "$#" != 2 ]; then
+    printf 'install_list_report wants two arguments, got %s\n' "$#" >&2
+    return 2
+  fi
+  expected=$1
+  installed=$2
+  # A side that names nothing is refused before anything is compared: an empty
+  # list is a mistake of the caller, and a report built from one would read as a
+  # clean home. The arguments stand on their own here, so a name that is nothing
+  # but blank is refused too rather than reaching comm as a file named nothing.
+  if [ -z "${expected//[$' \t\r\n']}" ] || [ -z "${installed//[$' \t\r\n']}" ]; then
+    echo 'install_list_report: a side names no file at all' >&2
+    return 2
+  fi
+  # comm answers only when both sides share one order, and puts its complaint on
+  # a stderr the harness discards: the assertion below would read it as an empty
+  # report. So each side is sorted first, and the sorted sides are checked by the
+  # very order comm will read them in.
+  expected=$(printf '%s\n' "$expected" | LC_ALL=C sort)
+  installed=$(printf '%s\n' "$installed" | LC_ALL=C sort)
+  if ! LC_ALL=C sort -c <<<"$expected" ||
+    ! LC_ALL=C sort -c <<<"$installed"; then
+    echo 'install_list_report: a side does not sort' >&2
+    return 2
+  fi
+  # One line per name, so comm sees one line per file and nothing else.
+  expected=$expected$'\n'
+  installed=$installed$'\n'
   while read -r one; do
-    [ -n "$one" ] || continue
     printf 'new installed file %s: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it\n' "$one"
-  done < <(extra_files "$1" "$2")
+  done < <(comm -13 <(printf '%s' "$expected") <(printf '%s' "$installed"))
+  while read -r one; do
+    printf 'missing installed file %s: install.sh does not copy it into the home\n' "$one"
+  done < <(comm -23 <(printf '%s' "$expected") <(printf '%s' "$installed"))
 }
 
 t_case "a fresh install: exactly these files"
@@ -275,27 +304,39 @@ t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
 t_contains "$(t_calls systemctl)" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
 
 # The round trip of the failure line above: a home with one file too many is
-# reported by name and given the advice, rather than the bare diff of two lists
-# that a cycle read as a stray artefact and parked on (tehas#725, tehas#743).
-t_case "an installed file the list does not name is named, with the two files to edit"
+# reported by name and given the advice, and a file the list promises that the
+# home lacks is reported too, rather than comparing as an exact match.
+t_case "the install list and the home are compared in both directions"
 fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
-echo '# a file no install list names' >"$th/lib/stray.sh"
-report=$(install_list_report "$(sorted "$files")" "$(core_files)")
-t_eq "$report" "new installed file ./tehas/lib/stray.sh: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it"
+# A file no install list names, in a directory install.sh owns and takes whole:
+# the name cannot be on the list without the list being changed.
+echo '# a file no install list names' >"$th/libexec/stray-probe"
+t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
+  "new installed file ./tehas/libexec/stray-probe: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it"
+# The same report with the stray named by a list of its own: the file is no
+# longer extra, and the report says nothing.
+t_eq "$(install_list_report "$(sorted "$files" ./tehas/libexec/stray-probe)" "$(core_files)")" ""
+# The other half: a name the list promises and the home does not hold.
+rm -f "$th/libexec/stray-probe" "$th/libexec/work"
+t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" \
+  "missing installed file ./tehas/libexec/work: install.sh does not copy it into the home"
 
-# The rule the line points at, kept honest by the page that states it. The
-# second grep is asked of a copy with the sentence taken out, so a pin that
-# matches nothing is red here rather than quietly green.
-t_case "the manual names the install list beside the rule about a fence"
-t_contains "$(cat "$T_ROOT/host/docs/operating.md")" "must name \`install.sh\` and \`test/install_lib.sh\`"
-nomatch=$T/manual/host/docs
-mkdir -p "$nomatch"
-grep -v 'must name `install.sh` and `test/install_lib.sh`' \
-  "$T_ROOT/host/docs/operating.md" >"$nomatch/operating.md"
-t_eq "$(grep -c 'must name `install.sh` and `test/install_lib.sh`' "$nomatch/operating.md")" "0"
-t_contains "$(cat "$nomatch/operating.md")" "the plan fences the"
+# The page the host gets, not a copy of the checkout's: a page planted beside
+# the installed ones, or one that has gone stale, is red here. Each sentence is
+# read with the line breaks turned into spaces, so reflowing the paragraph is no
+# reason for this case to fail. The suite's list file is what the sentence exists
+# to keep, so it is the pin; the count guards it against matching nothing on a
+# page that came out empty or truncated, and the sentence beside it against
+# keeping the rule it stands in.
+pin=$(tr '\n' ' ' <"$th/docs/operating.md")
+t_eq "$(printf '%s' "$pin" | grep -c 'test/install_lib\.sh')" "1"
+t_contains "$pin" "must name \`install.sh\` and \`test/install_lib.sh\`"
+t_contains "$pin" "a cycle that changes a file outside the fence parks"
+# The page is one of the installed manual's own: nothing planted beside it.
+t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
+  "$(cd "$T_ROOT/host/docs" && find . -type f | LC_ALL=C sort)"
 
 t_done
