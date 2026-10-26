@@ -116,10 +116,10 @@ q_render() {
 # "held" when anyone but the bot and the fixer edited the question too, or
 # the edits read (userContentEdits) are not all of them: GitHub names who
 # saved a comment, not who ticked which box, so the tick may be a person's.
-# And the
-# fixer's newest reply, edited by nobody else, is fixer_reply: marked when its
-# first line is <!-- tehas:fixer issue=<n> action=answer -->, which its text
-# then leaves out; a marked reply with nothing after the marker is none.
+# And the fixer's newest reply, edited by nobody else, is fixer_reply: marked
+# when its first line is <!-- tehas:millwright issue=<n> action=answer --> or
+# the old tehas:fixer, which its text then leaves out; a marked reply with
+# nothing after the marker is none.
 # Whether either counts is the caller's to decide.
 q_answer() {
   # GraphQL names a GitHub App without the [bot] its REST login carries.
@@ -152,9 +152,8 @@ q_answer() {
         + if $fixer == "" then {} else
             ($c[($q.key + 1):] | map(select((.author.login // "") == $fixer
                   and ((.editor.login // "") as $e | $e == "" or $e == $fixer))) | last) as $f
-            | ("<!-- tehas:fixer issue=\($m.issue) action=answer -->") as $mark
             | {fixer_reply: (if $f == null then null else
-                (($f.body | split("\n"))[0] | sub("\r$"; "") == $mark) as $marked
+                (($f.body | split("\n"))[0] | test("^<!-- tehas:(millwright|fixer) issue=\($m.issue) action=answer -->\r?$")) as $marked
                 | (if $marked then $f.body | sub("^[^\n]*\n?"; "") else $f.body end) as $text
                 # A marker alone answers nothing.
                 | if $marked and ($text | test("^\\s*$")) then null
