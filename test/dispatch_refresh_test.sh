@@ -208,7 +208,7 @@ t_eq "$(started)" "7 "
 t_eq "$(approval '[.refreshes, .rests_on.by]')" '[2,"alice"]'
 
 t_case "a refresh of a fixer's start rests on the person's approval and keeps the fixer's count"
-refresh_setup TEHAS_FIXER_LOGIN=tehas-fixer
+refresh_setup TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 past 7 tehas-fixer fixer 2026-10-02T00:00:00Z
 t_run "$dispatch"
 t_eq "$(started)" "7 "

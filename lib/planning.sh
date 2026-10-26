@@ -2,8 +2,8 @@
 # The steps of a planning session. Sourced by libexec/dispatch, and written
 # for it: these functions use the dispatcher's own helpers (log, say,
 # post_question, refresh_checkout), its variables (repo, plan_cmd, who,
-# plabel, posted), Q_MAX_OPTIONS of lib/questions.sh, tehas_fixer_is of
-# lib/fixer.sh, tehas_analytics_plan of lib/analytics.sh, tehas_rukas_commit
+# plabel, posted), Q_MAX_OPTIONS of lib/questions.sh, tehas_millwright_is of
+# lib/millwright.sh, tehas_analytics_plan of lib/analytics.sh, tehas_rukas_commit
 # of lib/cycles.sh and the state store of lib/store.sh.
 #
 # A session is a Pi session that lives across polls. Its record is on the
@@ -567,7 +567,7 @@ plan_turn() {
       return 0
     fi
     args=(plan-answer "$n" --turn "$((turns + 1))" --by "$by" --text-file "$input")
-    ! tehas_fixer_is "$by" || args+=(--fixer)
+    ! tehas_millwright_is "$by" || args+=(--fixer)
     if ! plan_store "${args[@]}"; then
       rm -f "$input"
       plan_refused "$n" "the answer could not begin a turn"

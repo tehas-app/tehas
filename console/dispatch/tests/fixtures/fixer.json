@@ -1,5 +1,5 @@
 {
- "suite": "test/dispatch_fixer_test.sh",
+ "suite": "test/dispatch_millwright_test.sh",
  "later": [
   "the fixer's planning answers, from a marked reply of the fixer's runs the turn to the fixer's tick on a parked cycle's question is a stranger's: rules 4 and 5, part 3b"
  ],
@@ -742,7 +742,7 @@
     "exit": 78,
     "picked": [],
     "log": [
-     "the bot account tehas-fixer is TEHAS_FIXER_LOGIN"
+     "the bot account tehas-fixer is TEHAS_MILLWRIGHT_LOGIN"
     ]
    }
   },
