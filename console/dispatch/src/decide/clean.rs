@@ -14,7 +14,7 @@ const QUIET_RETRY: u64 = 600;
 const QUIET_ASKS: u64 = 6;
 
 /// date -u -d @<secs> +%FT%TZ.
-pub(super) fn iso(secs: u64) -> String {
+pub(crate) fn iso(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
     let rest = secs % 86_400;
     // Howard Hinnant's civil_from_days.

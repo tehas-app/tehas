@@ -386,6 +386,33 @@ t_attach() {
   fi
   cp "$target/debug/attach" "$T_ATTACH"
 }
+# t_dispatch: tehas-dispatch of this checkout, in $T_DISPATCH, as t_store gets
+# the store: from T_DISPATCH_BIN, or built here when the file runs alone.
+T_DISPATCH=$T/dispatch-bin
+t_dispatch_why=""
+t_dispatch() {
+  [ -x "$T_DISPATCH" ] && return 0
+  if [ -n "${T_DISPATCH_BIN:-}" ]; then
+    cp "$T_DISPATCH_BIN" "$T_DISPATCH" && return 0
+    t_dispatch_why="tehas-dispatch built for this run cannot be copied: $T_DISPATCH_BIN"
+    return 1
+  fi
+  if [ -n "${T_STORE_WHY:-}" ]; then
+    t_dispatch_why=$T_STORE_WHY
+    return 1
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_dispatch_why="cargo is not installed"
+    return 1
+  fi
+  local target=$T_ROOT/console/target/shell
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$target" -p tehas-dispatch >"$T/dispatch-build.log" 2>&1; then
+    t_dispatch_why="tehas-dispatch did not build offline: $(tail -n 1 "$T/dispatch-build.log")"
+    return 1
+  fi
+  cp "$target/debug/tehas-dispatch" "$T_DISPATCH"
+}
 # t_attach_home <home>: the attachment checker where a command runs it.
 t_attach_home() {
   if ! t_attach; then
