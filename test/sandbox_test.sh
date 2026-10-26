@@ -1098,6 +1098,14 @@ records_of() { # <dir of units>
   done
 }
 
+# The runs the scan places, as <unit> <image> <command> with tabs, sorted, and
+# without the line each stands on: an edit above a run moves its line and
+# changes nothing here, while a run that is added, dropped, or given another
+# image or command does.
+run_table() { # <dir of units>
+  records_of "$1" 2>/dev/null | awk -F '\t' -v OFS='\t' '$3 != "unplaced" { print $1, $3, $4 }' | LC_ALL=C sort
+}
+
 # The runs the scan cannot place, as <unit>:<line>, one per line, in the order
 # of the file and of the line. A run the scan reads no image for is named here,
 # with the file and the line it stands on, and by no count of a number.
@@ -1368,32 +1376,27 @@ t_eq "$(records_account "$T_ROOT/libexec")" "placed 10 unplaced 2 bad 0"
 # where, and by no number that a third unplaced run could drift beside: one is
 # the preview of an image the unit builds itself, and one the server of a digest
 # install.sh wrote to a file. A run that joins them, or one of them leaving,
-# fails here rather than holding the count.
-t_eq "$(unplaced_of "$T_ROOT/libexec")" 'mcp:107
-preview:676'
+# fails here rather than holding the count. They are compared by unit, so an
+# edit above them passes, and the failure names the lines.
+unplaced=$(unplaced_of "$T_ROOT/libexec")
+[ "$(cut -d: -f1 <<<"$unplaced")" = $'mcp\npreview' ] ||
+  t_bad "the unplaced runs are not mcp and preview: $(tr '\n' ' ' <<<"$unplaced")"
 
 t_case "every container tehas starts runs an image and a command the image checks"
 records=$(records_of "$T_ROOT/libexec")
-# The derivation is not vacuous: these are what today's libexec/ names, and a
-# scan that stopped matching would fail here instead of passing with an empty
-# list.
-for want in \
-  'check-product	145	PI_ENSEMBLE_IMAGE	bash	' \
-  'dev	331	PI_ENSEMBLE_IMAGE	pi	' \
-  'improve	269	PI_ENSEMBLE_IMAGE	pi	' \
-  'index	313	PI_ENSEMBLE_IMAGE	codebase-memory-mcp	' \
-  'plan	247	PI_ENSEMBLE_IMAGE	$runner	' \
-  'plan	441	PI_ENSEMBLE_IMAGE	$runner	' \
-  'review	293	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	519	PI_ENSEMBLE_IMAGE	$runner	' \
-  'work	749	PI_ENSEMBLE_IMAGE	git	' \
-  'work	883	PI_ENSEMBLE_IMAGE	$runner	'; do
-  case "
-$records
-" in *"
-$want
-"*) ;; *) t_bad "the scan does not record: $want" ;; esac
-done
+# The table is every run the units start, with the image and the command of
+# each, and no line number. A new docker run, or a run that changes its image
+# or its command, fails here until it is added to the table on purpose.
+t_eq "$(run_table "$T_ROOT/libexec")" 'check-product	PI_ENSEMBLE_IMAGE	bash
+dev	PI_ENSEMBLE_IMAGE	pi
+improve	PI_ENSEMBLE_IMAGE	pi
+index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp
+plan	PI_ENSEMBLE_IMAGE	$runner
+plan	PI_ENSEMBLE_IMAGE	$runner
+review	PI_ENSEMBLE_IMAGE	$runner
+work	PI_ENSEMBLE_IMAGE	$runner
+work	PI_ENSEMBLE_IMAGE	$runner
+work	PI_ENSEMBLE_IMAGE	git'
 # The two containers of the units the scan cannot place are the preview it builds
 # itself and the server of a digest install.sh chose: neither runs in the sandbox
 # image, so neither is a command the image would check.
@@ -1409,5 +1412,24 @@ while IFS=$'\t' read -r unit line image cmd _; do
   case " $gate " in *" $cmd "*) ;; *) missing="$missing $unit:$cmd" ;; esac
 done <<<"$records"
 [ -z "$missing" ] || t_bad "$missing runs in the sandbox image and the image does not check it"
+
+t_case "the table of runs keeps no line and changes with an image or a command"
+mkdir -p "$T/table"
+cat >"$T/table/unit" <<'EOF'
+image=/opt/fixture/sandbox:tag
+docker run --rm "$image" one
+EOF
+before=$(run_table "$T/table")
+t_eq "$before" 'unit	/opt/fixture/sandbox:tag	one'
+sed -i '1a # a line added above the run\necho one\necho two' "$T/table/unit"
+t_eq "$(run_table "$T/table")" "$before"
+sed -i 's/" one$/" two/' "$T/table/unit"
+t_eq "$(run_table "$T/table")" 'unit	/opt/fixture/sandbox:tag	two'
+# A run that loses its command or its image is no longer placed, and leaves
+# the table.
+sed -i 's/" two$/"/' "$T/table/unit"
+t_eq "$(run_table "$T/table")" ''
+sed -i 's/"$/" one/; s/^image=/other=/' "$T/table/unit"
+t_eq "$(run_table "$T/table")" ''
 
 t_done
