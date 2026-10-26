@@ -31,12 +31,81 @@ pub struct Issue {
     /// The pull requests that close it, {url, state}; None when the call
     /// failed or the answer cannot be read.
     pub prs: Option<Vec<Value>>,
+    /// The call worked but its answer is no list of pull requests.
+    pub prs_unreadable: bool,
     /// The issue's last 100 comments, for tehas:blocked; None when the call
     /// failed.
     pub comments: Option<Value>,
     /// The states of the issues its blocker comment names, by number: OPEN,
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
     pub blockers: BTreeMap<u64, String>,
+    /// The issue's park on the state store (park-show's .park), or the store's
+    /// word and exit status when it could not say.
+    pub park: Option<Result<Option<Value>, StoreErr>>,
+    /// The approval of its latest start (tehas_approval_view), Err when the
+    /// store could not answer.
+    pub approval: Option<Result<Option<Value>, ()>>,
+    /// approval-current's .current, for the owner of a refresh.
+    pub current: Option<Result<Option<Value>, StoreErr>>,
+}
+
+/// A running cycle as cycle-show --running has it. 0 is none on record.
+#[derive(Clone, Debug, Default)]
+pub struct Cycle {
+    /// When it took its lock: 0 for a lock with no open record.
+    pub took: u64,
+    pub heard: u64,
+    /// The quiet episode on record: the heard time it was said for, when it
+    /// was seen first, the last ask and the asks in it.
+    pub said_for: String,
+    pub quiet_at: u64,
+    pub asked: u64,
+    pub times: u64,
+}
+
+/// What a cycle left on this host for an issue, as the sweep finds it.
+#[derive(Clone, Debug)]
+pub struct Leftover {
+    pub issue: u64,
+    /// One of its names, or the lock, was used within 7 days, or cannot be
+    /// dated.
+    pub young: bool,
+    /// The lock is a lock file, or there is none.
+    pub lock_ok: bool,
+}
+
+/// A call to the state store that failed: its word, exit status and first
+/// line, as lib/store.sh keeps them.
+#[derive(Clone, Debug, Default)]
+pub struct StoreErr {
+    pub word: String,
+    pub rc: i32,
+    pub line: String,
+}
+
+impl StoreErr {
+    fn parse(v: &Value) -> StoreErr {
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        StoreErr {
+            word: s("word"),
+            rc: v.get("rc").and_then(Value::as_i64).unwrap_or(1) as i32,
+            line: s("line"),
+        }
+    }
+}
+
+/// What a poll asks before it starts an issue that links an attachment, with
+/// TEHAS_WORK_IMAGES=1.
+#[derive(Clone, Debug, Default)]
+pub struct Images {
+    /// The sandbox image's tehas.rukas.images label: 1, 0, or empty.
+    pub rukas: String,
+    /// Its tehas.rukas label: the pi-rukas commit, or empty.
+    pub commit: String,
+    /// models.json declares image input for the subagent model.
+    pub declares: bool,
+    /// The model answered a request that carries an image.
+    pub answers: bool,
 }
 
 /// The gate of the lowest issues (TEHAS_LOW_GATE).
@@ -90,7 +159,23 @@ pub struct Snapshot {
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
     /// first.
     pub refresh_requests: Vec<u64>,
+    pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
+    /// The poll's clock, in seconds, and this host's name.
+    pub now: Option<u64>,
+    pub hostname: Option<String>,
+    /// The running cycles' records, by issue, from the entries of `running`;
+    /// Err when the store could not list them (`cycles_failed`).
+    pub cycles: Result<BTreeMap<u64, Cycle>, StoreErr>,
+    /// gh pr list --author <bot>: asked when a cycle runs.
+    pub bot_prs: Option<Value>,
+    /// gh issue list --label tehas:running, as it answered.
+    pub marked: Option<Value>,
+    /// The issues with a refresh in their history.
+    pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
+    /// gh pr list --label tehas:refreshing, as it answered.
+    pub refreshing: Option<Value>,
+    pub leftovers: Option<Vec<Leftover>>,
 }
 
 fn failed(v: &Value) -> bool {
@@ -193,6 +278,7 @@ fn issue(v: &Value) -> Issue {
             .filter(|p| !failed(p))
             .and_then(Value::as_array)
             .cloned(),
+        prs_unreadable: v.get("prs").is_some_and(|p| !failed(p) && !p.is_array()),
         comments: v.get("comments").and_then(opt),
         blockers: v
             .get("blockers")
@@ -203,7 +289,47 @@ fn issue(v: &Value) -> Issue {
                     .collect()
             })
             .unwrap_or_default(),
+        park: v.get("park").map(|p| match p {
+            Value::Null => Ok(None),
+            p if failed(p) => Err(StoreErr::parse(p)),
+            p => Ok(Some(p.clone())),
+        }),
+        approval: v.get("approval").map(|a| match a {
+            Value::Null => Ok(None),
+            a if failed(a) => Err(()),
+            a => Ok(Some(a.clone())),
+        }),
+        current: v.get("current").map(|a| match a {
+            Value::Null => Ok(None),
+            a if failed(a) => Err(StoreErr::parse(a)),
+            a => Ok(Some(a.clone())),
+        }),
     }
+}
+
+fn cycles(v: Option<&Value>) -> Result<BTreeMap<u64, Cycle>, StoreErr> {
+    let n = |r: &Value, k: &str| r.get(k).and_then(Value::as_u64).unwrap_or(0);
+    Ok(v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|r| {
+                    let c = Cycle {
+                        took: n(r, "took"),
+                        heard: n(r, "heard"),
+                        said_for: r
+                            .get("said_for")
+                            .and_then(Value::as_str)
+                            .unwrap_or("-")
+                            .to_string(),
+                        quiet_at: n(r, "quiet_at"),
+                        asked: n(r, "asked"),
+                        times: n(r, "times"),
+                    };
+                    Some((r.get("issue").and_then(number)?, c))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 impl Snapshot {
@@ -298,6 +424,42 @@ impl Snapshot {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(number).collect())
                 .unwrap_or_default(),
+            images: v.get("images").map(|i| Images {
+                rukas: i.get("rukas").and_then(Value::as_str).unwrap_or("").into(),
+                commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
+                declares: i.get("declares").and_then(Value::as_bool) == Some(true),
+                answers: i.get("answers").and_then(Value::as_bool) == Some(true),
+            }),
+            now: v.get("now").and_then(Value::as_u64),
+            hostname: v
+                .get("hostname")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            cycles: match v.get("cycles_failed") {
+                Some(e) => Err(StoreErr::parse(e)),
+                None => cycles(v.get("running")),
+            },
+            bot_prs: v.get("bot_prs").cloned(),
+            marked: v.get("marked").cloned(),
+            refresh_history: v.get("refresh_history").map(|h| match h {
+                e if failed(e) => Err(StoreErr::parse(e)),
+                h => Ok(h
+                    .as_array()
+                    .map(|a| a.iter().filter_map(number).collect())
+                    .unwrap_or_default()),
+            }),
+            refreshing: v.get("refreshing").cloned(),
+            leftovers: v.get("leftovers").and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(|l| {
+                        Some(Leftover {
+                            issue: l.get("issue").and_then(number)?,
+                            young: l.get("young").and_then(Value::as_bool) == Some(true),
+                            lock_ok: l.get("lock_ok").and_then(Value::as_bool) != Some(false),
+                        })
+                    })
+                    .collect()
+            }),
             issues: v
                 .get("issues")
                 .and_then(Value::as_object)

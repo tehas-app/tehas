@@ -86,8 +86,8 @@ reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(jq -c 'del(.cycles)' <<<"$t_out")" "{\"api\":1,\"next\":\"1760700000-12\",\"to\":\"$out\"}"
-t_eq "$(listing 1760700000-12)" "history.json
+t_eq "$(jq -c 'del(.cycles)' <<<"$t_out")" "{\"api\":1,\"next\":\"1760700000-12-1\",\"to\":\"$out\"}"
+t_eq "$(listing 1760700000-12-1)" "history.json
 logs/dispatch-work.log
 logs/progress.json
 logs/result.json
@@ -104,10 +104,10 @@ printf '\000\001\002\003\004\005\006\007\010\013\014\016\017\020\021\022\023\024
 printf 'a log with one stray \0 in it and %s\n' "$token" >"$logs/work-12-1760.jsonl.console"
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(cat "$out/cycles/1760700000-12/logs/work-12-1760.jsonl")" "a line with $masked in it"
-t_eq "$(cmp -s "$logs/work-12-1760.jsonl.err" "$out/cycles/1760700000-12/logs/work-12-1760.jsonl.err" &&
+t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "a line with $masked in it"
+t_eq "$(cmp -s "$logs/work-12-1760.jsonl.err" "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.err" &&
   echo same || echo differs)" same
-t_eq "$(cat "$out/cycles/1760700000-12/logs/work-12-1760.jsonl.console")" "a log with one stray  in it and $masked"
+t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.console")" "a log with one stray  in it and $masked"
 t_eq "$(t_calls console | head -n 1)" "--mask"
 
 t_case "bytes the mask makes nothing of are copied as they came, and an empty file stays empty"
@@ -117,26 +117,26 @@ printf '\001\002\003\004\005\006\007\010\013\014\016\017\020\021\022\023\024\025
 : >"$logs/work-12-1760.jsonl.err"
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(cmp -s "$logs/work-12-1760.jsonl" "$out/cycles/1760700000-12/logs/work-12-1760.jsonl" &&
+t_eq "$(cmp -s "$logs/work-12-1760.jsonl" "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl" &&
   echo same || echo differs)" same
-t_eq "$(stat -c %s "$out/cycles/1760700000-12/logs/work-12-1760.jsonl.err")" 0
+t_eq "$(stat -c %s "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.err")" 0
 
 t_case "the cycle's own line of history is what tehas history says"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -c . "$out/cycles/1760700000-12/history.json")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
+t_eq "$(jq -c . "$out/cycles/1760700000-12-1/history.json")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"how\":\"hand\"}"
 
 t_case "a planning turn brings its session, as the store has it, and no cycle files"
 reset
 turn 7 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1,"by":"alice"}'
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-7)" "history.json
+t_eq "$(listing 1760700000-7-1)" "history.json
 plan.json"
-t_eq "$(jq -r .kind "$out/cycles/1760700000-7/history.json")" plan
-t_eq "$(jq -c '[.issue, .session, .turns, .running, .by, .label, (.ended_at | type)]' "$out/cycles/1760700000-7/plan.json")" '[7,"abc-123",1,false,"alice","tehas:plan","null"]'
-t_eq "$(jq -r .brief "$out/cycles/1760700000-7/plan.json")" "# Faster search"
+t_eq "$(jq -r .kind "$out/cycles/1760700000-7-1/history.json")" plan
+t_eq "$(jq -c '[.issue, .session, .turns, .running, .by, .label, (.ended_at | type)]' "$out/cycles/1760700000-7-1/plan.json")" '[7,"abc-123",1,false,"alice","tehas:plan","null"]'
+t_eq "$(jq -r .brief "$out/cycles/1760700000-7-1/plan.json")" "# Faster search"
 
 # A turn that made no session ends it, and the session stays on record until
 # the next tehas:plan of the issue: the archive of that turn holds it.
@@ -145,9 +145,9 @@ reset
 turn 7 "$T0" '{"kind":"plan","status":"not-started","turn":1,"by":"alice"}'
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-7)" "history.json
+t_eq "$(listing 1760700000-7-1)" "history.json
 plan.json"
-t_eq "$(jq -c '[.session, .turns, .running, (.ended_at | type)]' "$out/cycles/1760700000-7/plan.json")" '[null,1,false,"number"]'
+t_eq "$(jq -c '[.session, .turns, .running, (.ended_at | type)]' "$out/cycles/1760700000-7-1/plan.json")" '[null,1,false,"number"]'
 
 t_case "a turn whose session the store no longer has has no plan.json and is exported all the same"
 reset
@@ -159,7 +159,7 @@ TEHAS_HOME=$home "$T_STORE" plan-begin 7 --by alice --label tehas:plan --brief-f
 TEHAS_HOME=$home "$T_STORE" plan-begin 7 --undo >/dev/null
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-7)" "history.json"
+t_eq "$(listing 1760700000-7-1)" "history.json"
 
 t_case "a turn whose session a later tehas:plan replaced has no plan.json: the new session is not its"
 reset
@@ -168,7 +168,7 @@ printf '# Again\n' >"$T/brief-again.md"
 TEHAS_HOME=$home TEHAS_STORE_TEST_NOW=$((T0 + 600)) "$T_STORE" plan-begin 7 --by bob --label tehas:refine --brief-file "$T/brief-again.md" >/dev/null
 run_export --json --after $((T0 - 1))-7 "$out"
 t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-7)" "history.json"
+t_eq "$(listing 1760700000-7-1)" "history.json"
 
 t_case "a planning turn whose session the store cannot give is not written, and the rest are"
 reset
@@ -178,8 +178,8 @@ t_store_answers plan-show 1 'store: busy #7: the database is locked'
 run_export --json --after $((T0 - 1))-1 "$out"
 t_eq "$t_rc" 1
 t_contains "$(t_calls store)" "plan-show 7"
-t_eq "$(listing 1760700000-12 | head -n 1)" "history.json"
-t_eq "$([ -e "$out/cycles/1760700060-7/plan.json" ] && echo written)" ""
+t_eq "$(listing 1760700000-12-1 | head -n 1)" "history.json"
+t_eq "$([ -e "$out/cycles/1760700060-7-2/plan.json" ] && echo written)" ""
 t_store_home "$home"
 
 t_case "the transcripts of the cycle are carried, and the Protolab page with its files"
@@ -191,17 +191,17 @@ printf '%s\n' '# the ticket' >"$home/protolab/12/index.md"
 printf 'a file with %s\n' "$token" >"$home/protolab/12/files/note.md"
 printf '%s\n' 'not for the export' >"$home/protolab/12/.stamp"
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(listing 1760700000-12 | grep -e '^transcripts/' -e '^protolab/')" "protolab/files/note.md
+t_eq "$(listing 1760700000-12-1 | grep -e '^transcripts/' -e '^protolab/')" "protolab/files/note.md
 protolab/index.md
 transcripts/abc.jsonl"
-t_eq "$(cat "$out/cycles/1760700000-12/protolab/files/note.md")" "a file with $masked"
+t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/files/note.md")" "a file with $masked"
 
 t_case "a cycle with no logs, no transcripts and no page is exported all the same"
 reset
 t_history_end "$home" 12 "$T0" '{"rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
-t_eq "$(listing 1760700000-12)" "history.json"
+t_eq "$(listing 1760700000-12-1)" "history.json"
 
 t_case "nothing to copy: exit 0, the object, and no directory of a cycle"
 reset
@@ -215,20 +215,20 @@ cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 turn 7 "$((T0 + 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 run_export --after $((T0 - 1))-1 "$out"
 t_eq "$t_rc" 0
-t_eq "$t_out" "1760700000-12  work  #12
-1760700060-7  plan  #7
-exported  2 cycles to $out (next: 1760700060-7)"
+t_eq "$t_out" "1760700000-12-1  work  #12
+1760700060-7-2  plan  #7
+exported  2 cycles to $out (next: 1760700060-7-2)"
 
 t_case "an old copy of a cycle is replaced whole"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -r .status "$out/cycles/1760700000-12/history.json")" 0
+t_eq "$(jq -r .status "$out/cycles/1760700000-12-1/history.json")" 0
 # The same cycle, as it is on record now.
 t_store_db "$home"
 cycle 12 "$T0" '{"kind":"work","rc":10,"status":"handoff"}'
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(jq -r .status "$out/cycles/1760700000-12/history.json")" 10
+t_eq "$(jq -r .status "$out/cycles/1760700000-12-1/history.json")" 10
 
 t_case "a file over 32 MiB is left out, so an export is for reading"
 reset
@@ -236,8 +236,8 @@ cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 printf 'x' >"$logs/work-12-1760.jsonl"
 truncate -s 33554433 "$logs/work-12-1760.jsonl"
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(listing 1760700000-12 | grep -c 'work-12-1760.jsonl$')" 0
-t_contains "$(listing 1760700000-12)" "logs/result.json"
+t_eq "$(listing 1760700000-12-1 | grep -c 'work-12-1760.jsonl$')" 0
+t_contains "$(listing 1760700000-12-1)" "logs/result.json"
 
 t_case "a link is not followed, and only this issue's logs are taken"
 reset
@@ -246,9 +246,9 @@ printf '%s\n' 'secret elsewhere' >"$T/outside.jsonl"
 ln -s "$T/outside.jsonl" "$logs/work-12-9999.jsonl"
 printf '%s\n' "another issue's" >"$logs/work-13-1760.jsonl"
 run_export --json --after $((T0 - 1))-12 "$out"
-t_eq "$(listing 1760700000-12 | grep -c 9999)" 0
-t_eq "$(listing 1760700000-12 | grep -c 13)" 0
-t_lacks "$(cat "$out/cycles/1760700000-12/logs/work-12-1760.jsonl")" "secret elsewhere"
+t_eq "$(listing 1760700000-12-1 | grep -c 9999)" 0
+t_eq "$(listing 1760700000-12-1 | grep -c 13)" 0
+t_lacks "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "secret elsewhere"
 
 t_case "the directory is made when it is not there, and is readable whatever the umask"
 reset
@@ -259,9 +259,9 @@ t_eq "$(jq -r .to <<<"$t_out")" "$out/nested/deeper"
 # The directory export makes, and every level below it: the top of the path a
 # caller names belongs to the caller and keeps the caller's own mode.
 t_eq "$(stat -c %a "$out/nested/deeper" "$out/nested/deeper/cycles" \
-  "$out/nested/deeper/cycles/1760700000-12" "$out/nested/deeper/cycles/1760700000-12/logs" | uniq)" 755
-t_eq "$(stat -c %a "$out/nested/deeper/cycles/1760700000-12/history.json")" 644
-t_eq "$(stat -c %a "$out/nested/deeper/cycles/1760700000-12/logs/result.json")" 644
+  "$out/nested/deeper/cycles/1760700000-12-1" "$out/nested/deeper/cycles/1760700000-12-1/logs" | uniq)" 755
+t_eq "$(stat -c %a "$out/nested/deeper/cycles/1760700000-12-1/history.json")" 644
+t_eq "$(stat -c %a "$out/nested/deeper/cycles/1760700000-12-1/logs/result.json")" 644
 
 t_case "an argument it does not know is exit 64 and copies nothing"
 reset

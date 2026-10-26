@@ -1,0 +1,1069 @@
+{
+ "suite": "test/dispatch_images_test.sh",
+ "later": [
+  "a retry of an issue that links an image waits for a model that reads one, and the tick stays: rule 4, PR 3",
+  "a retry held on its image holds that issue, not the poll: the next ready issue starts: rule 4, PR 3",
+  "a retry of an issue whose text promises a file waits, and the tick stays: rule 4, PR 3",
+  "a refresh of an issue whose text promises a file starts nothing: rule 4b, PR 3",
+  "a planning session is not held by the image part of the check: rule 5, PR 3",
+  "a planning turn is not held by the promised file: rule 5, PR 3",
+  "no resources holds a planning session too, and its label stays: rule 5, PR 3"
+ ],
+ "not_ported": [
+  "what the image request sends, and that it is sent once: the snapshot asks it, PR 4",
+  "a dispatch.json that cannot be read does not stop the poll: the snapshot reads the last why, PR 4",
+  "a slice probe that hangs holds within its bound: the snapshot's bound, PR 4"
+ ],
+ "cases": [
+  {
+   "case": "without images for a cycle the model is not asked to read one",
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "with images for a cycle, an issue that links one starts when the model declares image input and answers one",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue that links no image starts while the model cannot read one, and the model is not asked",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue that links an image waits while the model does not declare image input, and it is not asked",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": false,
+     "answers": false
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not declare image input in models.json"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue that links an image waits while the model does not answer an image",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": false
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but test-model does not answer an image"
+    ],
+    "log_lacks": [
+     "mesh.test"
+    ]
+   }
+  },
+  {
+   "case": "an issue without images behind one that waits for them starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": false,
+     "answers": false
+    }
+   },
+   "ready_n": [
+    "7",
+    "8"
+   ],
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     8
+    ],
+    "log": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "the model is asked to read an image once a poll",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model",
+    "TEHAS_TICKET_CONCURRENCY": 3
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": false
+    }
+   },
+   "ready_n": [
+    "7",
+    "8",
+    "9"
+   ],
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    },
+    "8": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     9
+    ],
+    "log": [
+     "hold #7:",
+     "hold #8:"
+    ]
+   }
+  },
+  {
+   "case": "with every slot taken no image request is sent",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "picked": [],
+    "report": {
+     "why": "count"
+    }
+   }
+  },
+  {
+   "case": "an issue whose text cannot be read for its links is not started",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": 42
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: the text of #7 could not be read for its links"
+    ]
+   }
+  },
+  {
+   "case": "an issue whose text says a screenshot goes there and links no attachment starts no cycle, and nothing on it changes",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue whose text says a screenshot goes there and links no attachment starts no cycle, and nothing on it changes: images off",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text says SCREENSHOT GOES HERE and links no attachment, so the cycle would be given none"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "the same issue with the file attached starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "SCREENSHOT GOES HERE:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue with no placeholder and no images starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "the hold needs neither images for a cycle nor a model that reads one",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text says SCREENSHOT GOES HERE and links no attachment"
+    ]
+   }
+  },
+  {
+   "case": "the words 'SCREENSHOT_GOES_HERE' of a body that links nothing hold the issue",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT_GOES_HERE."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its text says"
+    ]
+   }
+  },
+  {
+   "case": "the words 'the image goes here' of a body that links nothing hold the issue",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. the image goes here."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its text says"
+    ]
+   }
+  },
+  {
+   "case": "the words 'IMAGE GOES HERE' of a body that links nothing hold the issue",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. IMAGE GOES HERE."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its text says"
+    ]
+   }
+  },
+  {
+   "case": "the words 'the mockup goes here' of a body that links nothing hold the issue",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. the mockup goes here."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its text says"
+    ]
+   }
+  },
+  {
+   "case": "'the value goes here in the code' is prose, not a missing file, and the issue starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. the value goes here in the code."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "'goes here' is prose, not a missing file, and the issue starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. goes here."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "'WORDS GOES HERE' is prose, not a missing file, and the issue starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. WORDS GOES HERE."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "'the plan goes here, then the build' is prose, not a missing file, and the issue starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. the plan goes here, then the build."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "'Nothing is missing.' is prose, not a missing file, and the issue starts",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. Nothing is missing.."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "an issue that links an attachment says nothing of a file it promises",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "SCREENSHOT GOES HERE:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its text says"
+    ]
+   }
+  },
+  {
+   "case": "one issue held by the placeholder does not hold the next one back",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0",
+    "TEHAS_TICKET_CONCURRENCY": 3
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "ready_n": [
+    "7",
+    "8"
+   ],
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "picked": [
+     8
+    ],
+    "log": [
+     "hold #7:"
+    ],
+    "log_lacks": [
+     "hold #8:"
+    ]
+   }
+  },
+  {
+   "case": "a dry run says the hold and changes nothing",
+   "dry": true,
+   "settings": {
+    "TEHAS_WORK_IMAGES": "0",
+    "TEHAS_WORK_FILES": "0"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text says SCREENSHOT GOES HERE and links no attachment"
+    ]
+   }
+  },
+  {
+   "case": "an issue that links an image waits while the sandbox image says its pi-rukas does not read them, and the model is not asked",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "0",
+     "commit": "cccccccccccccccccccccccccccccccccccccccc",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text links an attachment and TEHAS_WORK_IMAGES is 1, but the pi-rukas in the sandbox image cccccccccccc does not read them"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an issue that links no image starts while the sandbox image does not read them",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "0",
+     "commit": "cccccccccccccccccccccccccccccccccccccccc",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "an image that reads them is held for nothing, and the model is still asked",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "1",
+     "commit": "cccccccccccccccccccccccccccccccccccccccc",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "an image that says nothing is not held for it, whatever its pi-rukas really reads",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "commit": "cccccccccccccccccccccccccccccccccccccccc",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "no resources is logged once, with nothing in line as well: the first poll",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "hold": "holding: no resources: the model endpoint does not answer"
+    }
+   },
+   "expect": {
+    "log_count": {
+     "holding: no resources": 1
+    },
+    "report": {
+     "why": "resources"
+    }
+   }
+  },
+  {
+   "case": "no resources is logged once: the second poll says nothing",
+   "snapshot": {
+    "ready": [],
+    "last_why": "resources",
+    "endpoint": {
+     "hold": "holding: no resources: the model endpoint does not answer"
+    }
+   },
+   "expect": {
+    "log_lacks": [
+     "holding:"
+    ]
+   }
+  },
+  {
+   "case": "no resources is released when the endpoint is back",
+   "snapshot": {
+    "ready": [],
+    "last_why": "resources",
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "expect": {
+    "log_count": {
+     "released: cycles may start again": 1
+    },
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "a dry run says no resources and writes nothing",
+   "dry": true,
+   "snapshot": {
+    "endpoint": {
+     "hold": "holding: no resources: the model endpoint does not answer"
+    }
+   },
+   "expect": {
+    "log_count": {
+     "holding: no resources: the model endpoint does not answer": 1
+    },
+    "report": null,
+    "picked": []
+   }
+  },
+  {
+   "case": "a missing slice is said before no resources",
+   "no_slice": true,
+   "snapshot": {
+    "endpoint": {
+     "hold": "holding: no resources: the model endpoint does not answer"
+    }
+   },
+   "expect": {
+    "report": {
+     "why": "slice"
+    }
+   }
+  },
+  {
+   "case": "a poll with room and no hold before it logs nothing about the slice",
+   "expect": {
+    "log_lacks": [
+     "holding:",
+     "released"
+    ],
+    "report": {
+     "why": "",
+     "count": 0,
+     "room": 4
+    }
+   }
+  },
+  {
+   "case": "a hold whose numbers change between polls is logged once while nothing waits: the first poll",
+   "snapshot": {
+    "ready": []
+   },
+   "other": 20937965568,
+   "expect": {
+    "log": [
+     "holding: tehas.slice has no room"
+    ]
+   }
+  },
+  {
+   "case": "a hold whose numbers change between polls is logged once while nothing waits: the second poll",
+   "snapshot": {
+    "ready": [],
+    "last_why": "room"
+   },
+   "other": 21206401024,
+   "expect": {
+    "log_lacks": [
+     "holding:"
+    ],
+    "report": {
+     "committed": 21206401024
+    }
+   }
+  },
+  {
+   "case": "while an issue waits, the hold is logged on every poll",
+   "snapshot": {
+    "last_why": "room"
+   },
+   "other": 20937965568,
+   "expect": {
+    "log_count": {
+     "holding": 1
+    },
+    "log": [
+     "holding: tehas.slice has no room"
+    ]
+   }
+  },
+  {
+   "case": "a hold whose reason changes is logged again: pressure",
+   "snapshot": {
+    "last_why": "room"
+   },
+   "slice_state": [
+    "12.00"
+   ],
+   "other": 20937965568,
+   "expect": {
+    "log": [
+     "holding: tehas.slice is under memory pressure"
+    ],
+    "report": {
+     "why": "pressure"
+    }
+   }
+  },
+  {
+   "case": "a hold whose reason changes is logged again: no slice",
+   "snapshot": {
+    "last_why": "pressure"
+   },
+   "no_slice": true,
+   "expect": {
+    "log": [
+     "holding: no slice file on this host"
+    ],
+    "report": {
+     "why": "slice",
+     "room": 0,
+     "committed": 0,
+     "max": 0
+    }
+   }
+  },
+  {
+   "case": "a full set of slots is a hold like any other: logged once",
+   "hold": [
+    9
+   ],
+   "expect": {
+    "log_count": {
+     "holding: 1 cycles are running (limit 1)": 1
+    },
+    "report": {
+     "why": "count",
+     "count": 1
+    }
+   }
+  },
+  {
+   "case": "a full set of slots: the second poll says nothing",
+   "hold": [
+    9
+   ],
+   "snapshot": {
+    "last_why": "count"
+   },
+   "expect": {
+    "log_lacks": [
+     "holding:"
+    ]
+   }
+  },
+  {
+   "case": "a full set of slots: then released",
+   "snapshot": {
+    "last_why": "count"
+   },
+   "expect": {
+    "log": [
+     "released: cycles may start again"
+    ],
+    "picked": [
+     7
+    ]
+   }
+  }
+ ]
+}

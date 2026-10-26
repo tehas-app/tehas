@@ -1,0 +1,683 @@
+{
+ "suite": "test/dispatch_park_test.sh",
+ "later": [
+  "every case of rules 4 and 4a, the ticks and the outage retries, and of 4c the ticked retry and the outage retry that start all the same: PR 3"
+ ],
+ "not_ported": [
+  "a hold whose tell the store would not take tells it again on the next poll, and says so: the record of the tell follows the comment, which the caller does"
+ ],
+ "cases": [
+  {
+   "case": "a relabelled start on the body its last cycle parked on is held, said once on the issue",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "park_told": true,
+      "say": "Not started: the last cycle parked on `intent-park` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
+     }
+    ],
+    "no_actions": [
+     {
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the next poll of the same park only logs, with no comment",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": true,
+     "retries": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of the hold says it and changes nothing, not its park",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a park that could not be read holds the start for this poll",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "park": {
+       "failed": true,
+       "word": "busy",
+       "rc": 1,
+       "line": "store: busy #7: the database is locked"
+      }
+     }
+    }
+   },
+   "body": {
+    "7": "Words, and more."
+   },
+   "work": {
+    "7": {
+     "body": "Words, and more.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its park on record could not be read (busy)"
+    ]
+   }
+  },
+  {
+   "case": "a park the store cannot answer for at all ends the poll",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "park": {
+       "failed": true,
+       "word": "garbled",
+       "rc": 78,
+       "line": "store: garbled: park-show exited 3"
+      }
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "log": [
+     "ERROR: the state store cannot be used: store: garbled: park-show exited 3"
+    ]
+   }
+  },
+  {
+   "case": "a park a start has spent holds nothing",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 1
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
+    ]
+   }
+  },
+  {
+   "case": "an urgent issue parked on its own body is held too",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:urgent"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "label_events": {
+    "7": [
+     "tehas:urgent=alice"
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
+    ]
+   }
+  },
+  {
+   "case": "a changed body starts",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words, and more."
+   },
+   "work": {
+    "7": {
+     "body": "Words, and more.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
+    ]
+   }
+  },
+  {
+   "case": "a park of a provider outage holds no fresh label",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
+    ]
+   }
+  },
+  {
+   "case": "a park with no reason on record is said as null",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "work": {
+    "7": {
+     "body": "Words.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      },
+      {
+       "name": "tehas:ready"
+      }
+     ]
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": null,
+     "body": "Words.",
+     "told": false,
+     "retries": 0
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on null and the body has not changed since"
+    ]
+   }
+  },
+  {
+   "case": "only the first line of a park's reason is said, as read leaves it",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "7": "Words."
+   },
+   "parked": {
+    "7": {
+     "reason": "  a\nb",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on a and the body has not changed since"
+    ]
+   }
+  },
+  {
+   "case": "a reason whose first line is empty is said as nothing",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "7": "Words."
+   },
+   "parked": {
+    "7": {
+     "reason": "\nfoo",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on nothing and the body has not changed since"
+    ]
+   }
+  }
+ ]
+}

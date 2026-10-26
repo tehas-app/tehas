@@ -244,30 +244,36 @@ tehas history [--json] [--after CURSOR] [--issue N]
 
 ```json
 {"api": 1, "cycles": [
-   {"cursor": "1760700000-12", "kind": "work", "issue": 12,
+   {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
     "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
     "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
     "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
     "provider": false, "parked": true, "by": "alice", "how": "label"},
-   {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
+   {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
     "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
     "label": "tehas:refine", "filed": ["https://github.com/acme/widget/issues/41"]}],
- "next": "1760700300-7"}
+ "next": "1760700300-7-42"}
 ```
 
-What has ended, oldest first: one line for each cycle and each planning turn.
+What has ended, oldest first: one line for each cycle and each planning turn,
+in the order the state store wrote them.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
 the two the same way. It reads the history of both from the state store, and
 nothing else: no network, no lock a running cycle holds, and it writes
 nothing. A line it cannot read is left out, not an error. A store that does
 not answer prints nothing: never a listing without the cycles.
 
-`cursor` is the seconds of the end and the issue, as `1760700000-12`. Keep
-`next` and pass it as `--after` to read what ended since: each line is then
-offered once, and two lines that ended in the same second have an order of
-their own. `--after` takes a cursor this command printed: one shaped any other
+`cursor` is the seconds of the end, the issue, and the line's place in the
+order the store wrote the ends, one number across cycles and planning turns,
+as `1760700000-12-41`. Keep `next` and pass it as `--after` to read what was
+written since: each line is then offered once, also one that ended in the same
+second as a line already read, and every line has a cursor of its own. The
+cursor of v0.13 and before, `1760700000-12`, is still taken, and read as it
+was: the lines after it on the seconds and the issue. A program that kept one
+is given the new shape as `next` once there is a line to list. `--after` takes
+a cursor this command printed: one shaped any other
 way is a bad argument rather than an empty listing, so a cursor that was
 mangled in transit is said instead of read as "nothing has ended". `--issue`
 takes one issue's lines, from its cycle and its planning turns together.
@@ -299,9 +305,9 @@ tehas export [--json] --after CURSOR <dir>
 ```
 
 ```json
-{"api": 1, "cycles": [{"cursor": "1760700000-12", "kind": "work", "issue": 12,
+{"api": 1, "cycles": [{"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
   "ended": "2026-10-17T13:20:00Z", "status": 0, "outcome": "merged"}],
- "next": "1760700000-12", "to": "/home/boss/archive"}
+ "next": "1760700000-12-41", "to": "/home/boss/archive"}
 ```
 
 The copy a person reads afterwards. For every line `tehas history` gives after

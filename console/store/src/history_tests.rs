@@ -96,39 +96,41 @@ fn history_show_with_nothing_is_an_empty_list() {
 }
 
 #[test]
-fn history_show_lists_every_column_oldest_first() {
+fn history_show_lists_every_column_in_the_order_written() {
     let home = home("history-order");
     cycle(&home, 11, "label", NOW + 30);
     turn(&home, 10, NOW + 20);
     cycle(&home, 10, "label", NOW + 20);
     cycle(&home, 10, "fixer", NOW + 40);
     let all = rows(&home, &[]);
-    // At the same time and issue the lower id first: the plan row is the
-    // first of its table, the cycle row the second of its own.
+    // In the order the ends were written, whatever their times and issues:
+    // one sequence across both tables.
     assert_eq!(
         keys(&all),
         vec![
+            ("cycle".to_string(), 11, NOW + 30),
             ("plan".to_string(), 10, NOW + 20),
             ("cycle".to_string(), 10, NOW + 20),
-            ("cycle".to_string(), 11, NOW + 30),
             ("cycle".to_string(), 10, NOW + 40),
         ]
     );
-    let c = all[1].clone();
+    let seqs: Vec<i64> = all.iter().map(|r| r["seq"].as_i64().unwrap()).collect();
+    assert_eq!(seqs, vec![1, 2, 3, 4]);
+    let c = all[2].clone();
     let id = c["id"].clone();
     assert_eq!(
         c,
         json!({"kind":"cycle","id":id,"issue":10,"attempt":1,"at":NOW + 20,"status":"failed",
                "step":"review","by":"alice","how":"label","pr":40,"started_at":NOW + 10,"rc":3,
                "cap":null,"park_reason":null,"failure_kind":null,"failure_cause":null,
-               "provider":true,"parked":false})
+               "provider":true,"parked":false,"seq":3})
     );
-    let p = all[0].clone();
+    let p = all[1].clone();
     let id = p["id"].clone();
     assert_eq!(
         p,
         json!({"kind":"plan","id":id,"issue":10,"turn":1,"at":NOW + 20,"outcome":"finished",
-               "session":"s1","started_at":NOW + 10,"rc":0,"by":"bob","label":"tehas:refine",
+               "session":"s1","started_at":NOW + 10,"rc":0,"by":"bob","label":"tehas:refine","seq":2,
                "filed":["https://github.com/o/r/issues/9"],"auto":false})
     );
 }

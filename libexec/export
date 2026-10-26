@@ -48,7 +48,7 @@
 # With --json, the object tehas history prints for what was copied, so the
 # cursor to keep is the "next" of the object:
 #
-#   {"api": 1, "cycles": [...], "next": "1760700300-7", "to": "/home/boss/archive"}
+#   {"api": 1, "cycles": [...], "next": "1760700300-7-42", "to": "/home/boss/archive"}
 #
 # Exit: 0 copied, also when there was nothing to copy; 1 the state store did
 # not answer (busy) for the history, which copies nothing, or a cycle could not
@@ -75,7 +75,7 @@ while [ "$#" -gt 0 ]; do
     --after)
       [ -z "$after" ] || usage
       [ "$#" -ge 2 ] || usage
-      [[ $2 =~ ^[0-9]{1,25}-[1-9][0-9]{0,8}$ ]] || usage
+      [[ $2 =~ ^[0-9]{1,25}-[1-9][0-9]{0,8}(-[1-9][0-9]*)?$ ]] || usage
       after=$2
       shift 2
       ;;
@@ -241,8 +241,8 @@ while IFS= read -r line; do
   cursor=$(jq -r .cursor <<<"$line")
   issue=$(jq -r .issue <<<"$line")
   kind=$(jq -r .kind <<<"$line")
-  # The cursor is this command's own making and holds only digits and a dash.
-  [[ $cursor =~ ^[0-9]+-[1-9][0-9]*$ ]] || { failed="$failed <unreadable>"; continue; }
+  # The cursor is the making of tehas history and holds only digits and dashes.
+  [[ $cursor =~ ^[0-9]+-[1-9][0-9]*-[1-9][0-9]*$ ]] || { failed="$failed <unreadable>"; continue; }
   out=$cycles/$cursor
   # An old copy of this cycle is replaced whole, so a line that has since lost
   # a field cannot leave its value behind in the archive.
