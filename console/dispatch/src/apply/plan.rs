@@ -650,15 +650,15 @@ impl Writer {
             format!("repos/{}/issues/{n}/comments", self.repo),
             "--input".into(),
             "-".into(),
+            "--jq".into(),
+            ".id".into(),
         ];
         let input = json!({"body": body}).to_string();
         let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
             return None;
         };
-        let id = serde_json::from_str::<Value>(&said)
-            .ok()?
-            .get("id")
-            .and_then(Value::as_u64)?;
+        // gh prints the id alone, as --jq .id has it.
+        let id = said.trim().parse::<u64>().ok()?;
         Some(id.to_string())
     }
 
