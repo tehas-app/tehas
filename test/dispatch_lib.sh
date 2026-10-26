@@ -105,6 +105,8 @@ case "$1 $2" in
   "api graphql")
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
+      # The open issues in one page, as tehas-dispatch asks for them.
+      *"issues(states: OPEN"*) "$T/page-stub" || exit 1 ;;
       *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.

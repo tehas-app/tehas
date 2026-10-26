@@ -159,6 +159,34 @@ and replaces the model's figures with what it read.
 Part 4 is split in two (4a, 4b), as part 3 was: the snapshot alone is about
 as large as part 3a.
 
+What PR 4a reads, and how:
+
+- GitHub: the open issues in pages of 100, each with its labels, its label
+  and rename events (the last 100), its text and edit, its count of
+  sub-issues and the pull requests that close it, with the closed issues
+  still marked tehas:running in the same request; `gh api user`; and, as the
+  bash does, the comments of each issue asking a question or blocked, the
+  states its blockers name, the pull request a refresh request names, the
+  bot's pull requests while a cycle runs, the pull requests marked
+  tehas:refreshing, and the branch's check runs. An issue the rules ask about
+  that is not open is a closed one.
+- The store: its read verbs, as lib/store.sh calls them and shapes their
+  answers (the approval view, the history, the question on record).
+- The host: the files of `state/` and `live/` the poll reads, the locks of
+  cycles and planning turns (a lock taken and let go at once, as `flock -n`
+  does), the slice (`systemctl show`, `docker info`, the cgroup files,
+  `nproc`) and the disk (`df`).
+- What 4a does not read, and the decision names in `needs` or reads as
+  none: the model endpoints, the sandbox image (images, `--continue-pr`), the
+  low gate (a command the shadow must not run a second time) and the
+  workspaces of the sweep. They are 4b's.
+- Every call has a bound, 30 s or the bash's own; a gh call that is no read is
+  refused before it runs.
+- `test/dispatch_shadow_test.sh` runs the bash poll and `tehas-dispatch
+  decide` as dry runs on the same worlds of the dispatch tests, and their
+  lines must be the same; the stub of gh answers the one page from the same
+  fixtures the bash's calls read.
+
 ## For the owner to sign off
 
 - D1: four pull requests in place of the issue's one, and the start left to

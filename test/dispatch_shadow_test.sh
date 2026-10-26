@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Tests for tehas-dispatch (console/dispatch): its snapshot of a world, and its
+# decision on it beside the bash poll's. Each world is one the dispatch tests
+# build; a dry run of libexec/dispatch and of `tehas-dispatch decide` on it must
+# log the same lines. And tehas-dispatch writes nothing: the gh it is given
+# fails on any call that is no read.
+# shellcheck disable=SC2016  # snippets are expanded by the shell under test
+# shellcheck source=test/lib.sh
+. "$(dirname "$0")/lib.sh" || exit 1
+# shellcheck source=test/dispatch_lib.sh
+. "$(dirname "$0")/dispatch_lib.sh" || exit 1
+
+t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+
+# The open issues as tehas-dispatch's one GraphQL page asks for them, made from
+# the fixtures the bash poll's REST calls answer from: the lists name the
+# issues and their labels, events-<n>.json their label events, work-<n>.json
+# and edit-<n>.json (or edit.json) their text, and prs-<n>.json (or prs.json)
+# the pull requests that close them. An issue marked running and CLOSED is a
+# closed one.
+cat >"$T/page-stub" <<'STUB'
+#!/usr/bin/env bash
+fx=$T/fx
+read_or() { # <file> <second file or ""> <default>
+  cat "$1" 2>/dev/null && return
+  [ -n "$2" ] && cat "$2" 2>/dev/null && return
+  printf '%s' "$3"
+}
+lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
+nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
+items=$(for n in $nums; do
+  jq -nc --argjson n "$n" --argjson ev "$(read_or "$fx/events-$n.json" "" "[]")" \
+    --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
+    --argjson e "$(read_or "$fx/edit-$n.json" "$fx/edit.json" "{}")" \
+    --argjson p "$(read_or "$fx/prs-$n.json" "$fx/prs.json" "{}")" \
+    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p}'
+done | jq -cs .)
+jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
+  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" '
+  def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
+    + (if $n == 1 then [$control.labels[].name] else [] end)
+    # Being on a list is carrying its label, as gh issue list --label has it.
+    + [range(7) as $i | select(any($lists[$i][]; (.number | tonumber?) == $n))
+       | ["tehas:ready", "tehas:blocked", "tehas:question", "tehas:plan", "tehas:refine",
+          "tehas:awaiting-merge", "tehas:running"][$i]] | unique;
+  def actor: if .actor == null then null else {login: .actor.login} end;
+  {data: {repository: {nameWithOwner: $repo.nameWithOwner,
+    issues: {pageInfo: {hasNextPage: false, endCursor: null},
+      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open") | . as $i | {
+        number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
+        lastEditedAt: .e.lastEditedAt, editor: .e.editor,
+        labels: {nodes: [labels($i.n)[] | {name: .}]},
+        subIssuesSummary: (.w.sub_issues_summary // null),
+        timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
+            elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
+          createdAt: .created_at, actor: actor, label: .label}]},
+        closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
+    closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
+STUB
+chmod +x "$T/page-stub"
+
+# What each logged, without the bash's time: the lines of a dry run.
+bash_lines() { t_run "$dispatch --dry-run"; sed -E 's/^[0-9T:-]+Z //' <<<"$t_out"; }
+rust_lines() {
+  t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" decide --dry-run"
+  jq -r '.log[]' <<<"$t_out" 2>/dev/null || printf 'not a decision: %s\n' "$t_out"
+}
+# The two agree, line for line; a difference is shown as diff shows it.
+agree() {
+  local b r
+  b=$(bash_lines)
+  r=$(rust_lines)
+  if [ "$b" != "$r" ]; then
+    t_bad "the decisions differ:
+$(diff <(printf '%s\n' "$b") <(printf '%s\n' "$r") | sed 's/^/  /')"
+  fi
+}
+
+t_case "an issue an allowed account labelled: both would run its cycle"
+reset
+agree
+
+t_case "a label of an account outside the list: both skip it and would take it off"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+agree
+
+t_case "every slot taken: both hold"
+reset
+hold 9
+agree
+release
+
+t_case "the urgent issue first, by an allowed account's label"
+reset
+slots 2
+ready 7 8 9!
+agree
+
+t_case "the pause label on the control issue: both are paused"
+reset
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+agree
+
+t_case "an issue marked running with no cycle: both would park it"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+agree
+
+t_case "a slice with no room: both hold, with the same numbers"
+reset
+other $((19 * gib + gib / 2))
+agree
+
+t_case "an epic: both skip it"
+reset
+jq -cn '{number: 7, state: "open", labels: [{name: "tehas:ready"}], sub_issues_summary: {total: 3, completed: 1}}' >"$fx/work-7.json"
+agree
+
+t_case "a plan label of an allowed account: both would start a session"
+to_plan
+agree
+
+t_case "a retry ticked on a parked issue: both would run its cycle"
+parked
+comments 7 "$(park_body x ' ')" alice
+agree
+
+t_case "a pull request open on the issue: both skip it"
+reset
+echo '{"data":{"repository":{"issue":{"closedByPullRequestsReferences":{"nodes":[{"url":"https://github.com/acme/widget/pull/3","state":"OPEN"}]}}}}}' >"$fx/prs.json"
+agree
+
+t_case "a planning answer: both would run the next turn with the same words"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+agree
+
+t_case "a planning turn of another issue in flight: both wait"
+planning
+comments 7 "$(plan_body ' ' x ' ')" alice
+t_plan "$T/home/tehas" 9 '{"session":"xyz","turns":1,"running":true}'
+echo 9 >"$fx/plan-runs"
+mkdir -p "$T/home/tehas/state"
+exec {plan_fd}>"$T/home/tehas/state/plan-9.json.lock"
+flock -n "$plan_fd"
+agree
+exec {plan_fd}>&-
+rm -f "$fx/plan-runs"
+
+t_case "a stranger's tick on a parked question: both would undo it"
+parked
+comments 7 "$(park_body x ' ')" mallory
+agree
+
+t_case "a limit of no cycles: both hold"
+reset
+limit 0
+agree
+
+t_case "a full disk: both hold"
+reset
+df_free 1
+agree
+
+t_case "an outage park owed its retry: both would start it again"
+parked provider-outage
+comments 7 "$(park_body ' ' ' ')" ""
+echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
+agree
+
+t_case "a cycle whose issue is closed: both would stop it"
+reset
+slots 2
+hold 9
+TEHAS_HOME=$T/home/tehas "$T_STORE" cycle-start 9 --by-hand >/dev/null
+echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
+agree
+release
+
+# tehas-dispatch is given a gh that refuses every call that is no read: it
+# must not make one, whatever it decides. The calls it makes are recorded.
+t_case "tehas-dispatch makes no call that writes, on any of these worlds"
+reset
+echo '[{"number":9}]' >"$fx/marked.json"
+rm -f "$T/calls/gh"
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" decide"
+t_eq "$(jq -r .exit <<<"$t_out")" 0
+t_lacks "$(t_calls gh)" "issue edit"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$(t_calls gh)" "api -X"
+t_contains "$(t_calls gh)" "api graphql"
+
+t_case "a snapshot is JSON in the shape the decision reads"
+reset
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" snapshot"
+t_eq "$(jq -c '[.repo, (.ready | map(.number)), .issues["7"].events[0].actor.login]' <<<"$t_out")" '["acme/widget",[7],"alice"]'
+
+t_case "an unknown argument is refused, and --help prints the usage"
+t_run "\"$T_DISPATCH\" frobnicate"
+t_eq "$t_rc" 64
+t_run "\"$T_DISPATCH\" --help"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas-dispatch decide [--dry-run]"
+
+t_done

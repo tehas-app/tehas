@@ -1,16 +1,22 @@
-# The dispatcher's decisions: what one poll does, given what it read. A library
-# member of the workspace in ../Cargo.toml, with no I/O of its own. The bash
-# poll, libexec/dispatch, is still the one that acts.
+# The dispatcher's decisions: what one poll does, given what it read, and the
+# reads of a snapshot. A member of the workspace in ../Cargo.toml. The binary,
+# tehas-dispatch, prints a snapshot and its decision and writes nothing; the
+# bash poll, libexec/dispatch, is still the one that acts.
 [package]
 name = "tehas-dispatch"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+# File::try_lock, which the snapshot asks a lock with.
+rust-version = "1.89"
 publish = false
 
 [lib]
 name = "tehas_dispatch"
 path = "src/lib.rs"
+
+[[bin]]
+name = "tehas-dispatch"
+path = "src/main.rs"
 
 [dependencies]
 regex = "1"
