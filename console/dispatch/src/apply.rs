@@ -49,7 +49,8 @@ pub struct Writer {
     pub gh_writes: u32,
     /// The issues marked running this poll, for the poll's cost.
     pub starts: u32,
-    /// The checkout was refreshed this poll, by the index's gate.
+    /// The checkout was refreshed this poll by the index's gate, so the
+    /// starts do not refresh it again.
     pub fetched: bool,
 }
 
@@ -203,9 +204,8 @@ impl Writer {
             if !self.units(n, log) {
                 self.ended = Some(1);
             }
-        } else if let Some(running) = a.get("index_gate").and_then(Value::as_array) {
-            let running: Vec<u64> = running.iter().filter_map(Value::as_u64).collect();
-            if !self.index_gate(&running, log) {
+        } else if a.get("index_gate").is_some() {
+            if !self.index_gate(log) {
                 self.ended = Some(0);
             }
         } else if let Some(n) = a.get("plan_turn").and_then(Value::as_u64) {

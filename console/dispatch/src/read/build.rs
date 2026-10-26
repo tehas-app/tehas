@@ -47,39 +47,56 @@ pub fn fill(src: &Sources, snap: &mut Value, needs: &[&str]) -> bool {
 
 /// low_gate's run: TEHAS_LOW_GATE in an empty environment but PATH, its
 /// output in logs/low-gate.log, bounded by TEHAS_LOW_GATE_WAIT; its exit
-/// status as timeout gives it (124 out of time, 126 or 127 not run), and
-/// state/low-gate.held as it was.
+/// status as timeout gives it (124 out of time, 126 not runnable, 127 not
+/// there, 128 and the signal), and state/low-gate.held as the bash reads it:
+/// a link is "other", anything else there is "file".
 fn low_gate(home: &Path) -> Value {
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let file = home.join("state/low-gate.held");
     let held = match std::fs::symlink_metadata(&file) {
         Err(_) => "",
-        Ok(m) if m.file_type().is_file() => "file",
-        Ok(_) => "other",
+        Ok(m) if m.file_type().is_symlink() => "other",
+        Ok(_) => "file",
     };
     let gate = std::env::var("TEHAS_LOW_GATE").unwrap_or_default();
+    // lib/config.sh's default.
     let wait = std::env::var("TEHAS_LOW_GATE_WAIT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(600);
-    let out = std::fs::File::create(home.join("logs/low-gate.log"));
-    let child = out.and_then(|o| {
-        let e = o.try_clone()?;
-        Command::new(&gate)
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .stdin(Stdio::null())
-            .stdout(o)
-            .stderr(e)
-            .spawn()
-    });
+        .unwrap_or(60);
+    // A log that cannot be written is a redirection that failed: the shell
+    // answers 1 and runs nothing.
+    let Ok(out) = std::fs::File::create(home.join("logs/low-gate.log")) else {
+        return json!({"answer": 1, "held": held});
+    };
+    let Ok(err) = out.try_clone() else {
+        return json!({"answer": 1, "held": held});
+    };
+    let child = Command::new(&gate)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .process_group(0)
+        .spawn();
     let answer = match child {
-        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => 126,
+        // EACCES and ENOEXEC: there, and not runnable.
+        Err(e)
+            if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(8) =>
+        {
+            126
+        }
         Err(_) => 127,
         // As timeout -k 10: TERM at the bound, KILL ten seconds on.
-        Ok(mut c) => {
-            run::wait(&mut c, Duration::from_secs(wait), Duration::from_secs(10)).unwrap_or(124)
-        }
+        Ok(mut c) => run::wait(
+            &mut c,
+            Duration::from_secs(wait),
+            Duration::from_secs(10),
+            true,
+        )
+        .unwrap_or(124),
     };
     json!({"answer": answer, "held": held})
 }
