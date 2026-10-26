@@ -567,7 +567,7 @@ plan_turn() {
       return 0
     fi
     args=(plan-answer "$n" --turn "$((turns + 1))" --by "$by" --text-file "$input")
-    ! tehas_millwright_is "$by" || args+=(--fixer)
+    ! tehas_millwright_is "$by" || args+=(--millwright)
     if ! plan_store "${args[@]}"; then
       rm -f "$input"
       plan_refused "$n" "the answer could not begin a turn"
