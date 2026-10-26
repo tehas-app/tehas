@@ -214,19 +214,19 @@ t_run "$part/install.sh"
 t_eq "$(t_calls cargo)" ""
 
 for shared in src/mask.rs src/time.rs Cargo.toml; do
-  t_case "a change to the library the four share builds all four ($shared)"
+  t_case "a change to the library the five share builds all five ($shared)"
   echo "# changed" >>"$part/console/core/$shared"
   rm -f "$T/calls/cargo"
   t_run "$part/install.sh --check"
   t_eq "$t_rc" 1
-  for prog in console analytics tehas-mcp store; do
+  for prog in console analytics tehas-mcp store tehas-dispatch; do
     t_contains "$t_out" "differs: $th/libexec/$prog"
   done
   t_lacks "$t_out" "differs: $th/libexec/attach"
   t_run "$part/install.sh"
   t_eq "$t_rc" 0
-  t_eq "$(t_calls cargo | wc -l)" 4
-  for prog in console analytics tehas-mcp store; do
+  t_eq "$(t_calls cargo | wc -l)" 5
+  for prog in console analytics tehas-mcp store tehas-dispatch; do
     t_contains "$(t_calls cargo)" "-p $prog"
   done
 done
