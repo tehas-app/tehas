@@ -6,6 +6,9 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
 . "$(dirname "$0")/top_lib.sh" || exit 1
+# The readings are the same files a second apart or not, so the first frame's
+# wait for a second reading takes no time here (top_snapshot_test.sh covers it).
+t_stub sleep
 
 t_case "a frame with a running cycle has all seven sections"
 reset
