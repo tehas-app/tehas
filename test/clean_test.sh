@@ -922,6 +922,73 @@ t_contains "$t_out" "kept the build output of #7: git could not name the gitdir 
 t_lacks "$t_out" "younger than"
 t_lacks "$t_out" "clean: removed"
 
+# A worktree a cycle made in its container, where the workspace is mounted at the
+# shared checkout's path: its .git file names a gitdir under that path, and the
+# gitdir really stands under the issue's own workspace. <gitdir> says what is
+# there: `dir`, a directory; `none`, nothing; or a link to <target>.
+container_worktree() { # <dir|none|link> [target] -> the path of the tree it made
+  local t=$workdir-7/$worktrees_dir/issue-7-default
+  local gd=$workdir-7/.git/worktrees/issue-7-default
+  mkdir -p "$t/target" "$workdir-7/.git/worktrees"
+  echo big >"$t/target/app"
+  printf 'gitdir: %s\n' "$th/work/widget/.git/worktrees/issue-7-default" >"$t/.git"
+  case $1 in
+  dir) mkdir -p "$gd" ;;
+  link) ln -s "$2" "$gd" ;;
+  esac
+  age "$t" "$t/target" "$t/.git" "$workdir-7/$worktrees_dir" "$workdir-7/.git" \
+    "$workdir-7/.git/worktrees" "$workdir-7"
+  [ "$1" != dir ] || age "$gd"
+  printf '%s\n' "$t"
+}
+
+t_case "a worktree whose .git names the container's path is dated by its own workspace"
+reset
+workspace
+wt=$(container_worktree dir)
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$wt/target" ] && echo there)" ""
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" ""
+t_eq "$([ -e "$wt/.git" ] && echo there)" "there"
+t_lacks "$t_out" "git could not name the gitdir"
+t_contains "$t_out" "removed $wt/target: build output of #7"
+
+t_case "a worktree whose .git names the container's path and has no record is cleaned"
+reset
+# A stale record is no proof of a cycle at work: the tree is dated alone.
+workspace
+wt=$(container_worktree none)
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$wt/target" ] && echo there)" ""
+t_lacks "$t_out" "git could not name the gitdir"
+t_contains "$t_out" "removed $wt/target: build output of #7"
+
+t_case "a worktree whose .git names the container's path and whose record is young is kept"
+reset
+workspace
+wt=$(container_worktree dir)
+touch "$workdir-7/.git/worktrees/issue-7-default"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$wt/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_contains "$t_out" "younger than $after_hours hours"
+
+t_case "a worktree whose container gitdir leads outside the work dir is refused"
+reset
+# The answer is kept only when it is a directory under the work dir; any other
+# leaves the issue whole.
+workspace
+mkdir -p "$T/outside"
+wt=$(container_worktree link "$T/outside")
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$wt/target" ] && echo there)" "there"
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+t_lacks "$t_out" "clean: removed"
+
 t_case "a helper a worktree's config names is not run, and its build output still goes"
 reset
 # The bytes of a .git file are container-writable, so the config of the tree is
