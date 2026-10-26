@@ -149,8 +149,9 @@ t_case "nothing installed names a file that is absent"
 missing=""
 for unit in "$home"/.config/systemd/user/*; do
   while read -r ref; do
-    # The path unit watches for a file a cycle leaves and a poll removes.
-    case "$ref" in */logs/* | */state/dispatch.again) ref=$(dirname "$ref") ;; esac
+    # The path unit watches for a file a cycle leaves and a poll removes, and
+    # the poll's unit keeps the poll's lines in a file of its own.
+    case "$ref" in */logs/* | */state/dispatch.again | */state/dispatch.last) ref=$(dirname "$ref") ;; esac
     [ -e "$ref" ] || missing="$missing $ref"
   done < <(grep -o '%h/tehas/[A-Za-z0-9_./-]*' "$unit" | sed "s|%h|$home|")
 done
