@@ -55,7 +55,10 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
    the code index, the checkout) moves to part 4, where the poll is. The approval record, the mark (A1: mark before
    start; A2: the retry's untick after the mark), the unit and its wait, the undo when a start fails; `stop_done`,
    `quiet`, the sweep. The poll's own steps before a start.
-3. **Planning.** `plan_turn` (first and next), `plan_collect` with its two
+3. **Planning**, in two pull requests: 3a the end of a turn (collect,
+   finish, post, replace, recover, lost, end, close, and the question's text
+   as `q_clean` and `q_render` make it), 3b the start of a turn (first and
+   next, the brief, the unit) and the three `park_retry`. `plan_turn` (first and next), `plan_collect` with its two
    paths, `plan_post`, `plan_end`, `plan_close`, the three `park_retry`.
 4. **The whole poll.** The journal settled first, against fresh reads, before
    any action (never replayed blindly); a failed read ends the poll before any

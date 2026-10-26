@@ -25,8 +25,9 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::Value;
 use std::path::Path;
 
-/// The kinds of section 5's table.
-pub const KINDS: [&str; 9] = [
+/// The kinds of section 5's table, and the three a planning session's end
+/// writes: an issue's body, a sub-issue link and a close.
+pub const KINDS: [&str; 12] = [
     "label-add",
     "label-remove",
     "label-remove-only",
@@ -36,6 +37,9 @@ pub const KINDS: [&str; 9] = [
     "unit-stop",
     "refresh-begin",
     "refresh-end",
+    "issue-edit",
+    "sub-issue-add",
+    "issue-close",
 ];
 
 /// The typed results of every external call (section 3).
