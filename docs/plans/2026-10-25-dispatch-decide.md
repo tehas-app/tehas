@@ -14,7 +14,7 @@ Part of #244. Builds on #245 (spec `docs/specs/2026-10-21-state-store.md`),
 
 ## Decisions
 
-D1. **Five pull requests**, each reviewable alone. Only the last changes
+D1. **Six pull requests**, each reviewable alone. Only the last changes
 anything on a host. Part 3 was split in two (3a, 3b) on 2026-10-26, the
 owner's choice: its eight suites hold 336 cases.
 
@@ -24,7 +24,8 @@ owner's choice: its eight suites hold 336 cases.
 | 2 | The rest of rule 6 (epic, cross-project, size, images, fixer, the park of rule 4c) and the clean-ups of rule 2 (quiet cycles, finished cycles, marks with no cycle, tehas:refreshing with no refresh) | guard, images, fixer, finish, sweep |
 | 3a | Rules 4, 4a and 4b: the retry tick of a park's question, the outage retry and refreshes, the refresh half of the demand, and the cases of the earlier suites that touch them | park, refresh, approval |
 | 3b | Rule 5 and 5a, and the planning half of rule 4: planning turns in flight, their answers, new sessions and refines | plan, plan_answer, plan_store, turns, refine |
-| 4 | `snapshot()`, the `tehas-dispatch --shadow` binary, the shadow log and the manual | start, checkout (the I/O), and the shadow test |
+| 4a | `snapshot()`: GitHub in one paged query and the per-issue reads, the store's read verbs, the locks and the files of `state/`; a `tehas-dispatch` binary that prints a snapshot and its decision and writes nothing | a `gh` stub that fails on any write |
+| 4b | The host's probes (the slice, the model endpoints, the disk, the sandbox image), `tehas-dispatch --shadow` beside every poll, `logs/dispatch-shadow.log`, its install and the manual | start, checkout (the I/O), and the shadow test |
 
 The demand of PR 1 counts the ready issues only. The refresh requests it also
 counts, and the hold of refreshes it writes, come with the refresh rules in
@@ -144,6 +145,47 @@ bash writes today, so the shadow's difference is empty when both agree.
 D7. **The GraphQL cost is measured first** (spec section 6): PR 4 records the
 `rateLimit { cost }` of one real query of the spec's shape before it pages,
 and replaces the model's figures with what it read.
+
+   Measured on 2026-10-26 at 08:48Z, against tehas-app/tehas with 47 open
+   issues: the spec's query, with `rateLimit { cost limit remaining }` added,
+   cost **1 point** at `$page` 3, 10 and 30, and **4 points** at 100, which
+   returned all 47 issues with their labels, label events, last five comments
+   and closing pull requests, and three open pull requests. The limit was
+   5000. GitHub charges by the request's node count divided by 100, not by
+   the spec's model (382 for a page of three), so the snapshot pages 100
+   issues at a time and needs no budget rule: a poll a minute of the whole
+   queue costs about 240 points an hour.
+
+Part 4 is split in two (4a, 4b), as part 3 was: the snapshot alone is about
+as large as part 3a.
+
+What PR 4a reads, and how:
+
+- GitHub: the open issues in pages of 100, each with its labels, its label
+  and rename events (the last 100), its text and edit, its count of
+  sub-issues and the pull requests that close it, with the closed issues
+  still marked tehas:running in the same request; `gh api user`; and, as the
+  bash does, the comments of each issue asking a question or blocked, the
+  states its blockers name, the pull request a refresh request names, the
+  bot's pull requests while a cycle runs, the pull requests marked
+  tehas:refreshing, and the branch's check runs. An issue the rules ask about
+  that is not open is a closed one.
+- The store: its read verbs, as lib/store.sh calls them and shapes their
+  answers (the approval view, the history, the question on record).
+- The host: the files of `state/` and `live/` the poll reads, the locks of
+  cycles and planning turns (a lock taken and let go at once, as `flock -n`
+  does), the slice (`systemctl show`, `docker info`, the cgroup files,
+  `nproc`) and the disk (`df`).
+- What 4a does not read, and the decision names in `needs` or reads as
+  none: the model endpoints, the sandbox image (images, `--continue-pr`), the
+  low gate (a command the shadow must not run a second time) and the
+  workspaces of the sweep. They are 4b's.
+- Every call has a bound, 30 s or the bash's own; a gh call that is no read is
+  refused before it runs.
+- `test/dispatch_shadow_test.sh` runs the bash poll and `tehas-dispatch
+  decide` as dry runs on the same worlds of the dispatch tests, and their
+  lines must be the same; the stub of gh answers the one page from the same
+  fixtures the bash's calls read.
 
 ## For the owner to sign off
 

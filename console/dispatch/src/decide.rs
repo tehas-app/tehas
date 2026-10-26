@@ -13,6 +13,25 @@ mod clean;
 mod plan;
 mod retry;
 
+pub(crate) use clean::iso;
+
+/// The numbers every blocker comment of an issue names, for the snapshot to
+/// ask their states: blocked_ok reads the newest one an allowed account wrote.
+pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
+    let mut out: Vec<u64> = comments
+        .pointer("/data/repository/issue/comments/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x.get("body").and_then(Value::as_str))
+        .filter_map(blockers)
+        .flatten()
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
 /// in order, and the files it publishes.
 #[derive(Clone, Debug, Default)]
