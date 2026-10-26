@@ -14,7 +14,7 @@ Part of #244. Builds on #245 (spec `docs/specs/2026-10-21-state-store.md`),
 
 ## Decisions
 
-D1. **Five pull requests**, each reviewable alone. Only the last changes
+D1. **Six pull requests**, each reviewable alone. Only the last changes
 anything on a host. Part 3 was split in two (3a, 3b) on 2026-10-26, the
 owner's choice: its eight suites hold 336 cases.
 
@@ -24,7 +24,8 @@ owner's choice: its eight suites hold 336 cases.
 | 2 | The rest of rule 6 (epic, cross-project, size, images, fixer, the park of rule 4c) and the clean-ups of rule 2 (quiet cycles, finished cycles, marks with no cycle, tehas:refreshing with no refresh) | guard, images, fixer, finish, sweep |
 | 3a | Rules 4, 4a and 4b: the retry tick of a park's question, the outage retry and refreshes, the refresh half of the demand, and the cases of the earlier suites that touch them | park, refresh, approval |
 | 3b | Rule 5 and 5a, and the planning half of rule 4: planning turns in flight, their answers, new sessions and refines | plan, plan_answer, plan_store, turns, refine |
-| 4 | `snapshot()`, the `tehas-dispatch --shadow` binary, the shadow log and the manual | start, checkout (the I/O), and the shadow test |
+| 4a | `snapshot()`: GitHub in one paged query and the per-issue reads, the store's read verbs, the locks and the files of `state/`; a `tehas-dispatch` binary that prints a snapshot and its decision and writes nothing | a `gh` stub that fails on any write |
+| 4b | The host's probes (the slice, the model endpoints, the disk, the sandbox image), `tehas-dispatch --shadow` beside every poll, `logs/dispatch-shadow.log`, its install and the manual | start, checkout (the I/O), and the shadow test |
 
 The demand of PR 1 counts the ready issues only. The refresh requests it also
 counts, and the hold of refreshes it writes, come with the refresh rules in
@@ -144,6 +145,19 @@ bash writes today, so the shadow's difference is empty when both agree.
 D7. **The GraphQL cost is measured first** (spec section 6): PR 4 records the
 `rateLimit { cost }` of one real query of the spec's shape before it pages,
 and replaces the model's figures with what it read.
+
+   Measured on 2026-10-26 at 08:48Z, against tehas-app/tehas with 47 open
+   issues: the spec's query, with `rateLimit { cost limit remaining }` added,
+   cost **1 point** at `$page` 3, 10 and 30, and **4 points** at 100, which
+   returned all 47 issues with their labels, label events, last five comments
+   and closing pull requests, and three open pull requests. The limit was
+   5000. GitHub charges by the request's node count divided by 100, not by
+   the spec's model (382 for a page of three), so the snapshot pages 100
+   issues at a time and needs no budget rule: a poll a minute of the whole
+   queue costs about 240 points an hour.
+
+Part 4 is split in two (4a, 4b), as part 3 was: the snapshot alone is about
+as large as part 3a.
 
 ## For the owner to sign off
 
