@@ -20,7 +20,7 @@
 use serde_json::{json, Map, Value};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tehas_dispatch::read::build::{snapshot, Sources};
+use tehas_dispatch::read::build::{fill, snapshot, Sources};
 use tehas_dispatch::read::run::Calls;
 use tehas_dispatch::{decide, Settings, Snapshot};
 
@@ -145,6 +145,8 @@ fn main() {
         },
         systemctl: "systemctl".into(),
         now,
+        models: tehas_dispatch::read::models::Models::read(),
+        endpoint: (String::new(), String::new()),
     };
     let snap = match snapshot(&mut src, &settings) {
         Ok(s) => s,
@@ -157,7 +159,13 @@ fn main() {
         println!("{snap}");
         return;
     }
-    let d = decide(&Snapshot::parse(&snap), &settings, dry);
+    let mut snap = snap;
+    let mut d = decide(&Snapshot::parse(&snap), &settings, dry);
+    // What the decision asked for and the poll reads only when asked: read
+    // it, and decide again.
+    while fill(&src, &mut snap, &d.needs) {
+        d = decide(&Snapshot::parse(&snap), &settings, dry);
+    }
     let out = json!({
         "exit": d.exit, "log": d.log, "actions": d.actions, "picked": d.picked,
         "needs": d.needs, "report": d.report, "demand": d.demand,

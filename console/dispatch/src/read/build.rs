@@ -4,7 +4,7 @@
 //! and locks. Nothing is written.
 
 use super::run::{Calls, GhFail};
-use super::{github, host, store};
+use super::{github, host, models, store};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
@@ -16,6 +16,25 @@ pub struct Sources<'a> {
     pub calls: Calls,
     pub systemctl: String,
     pub now: i64,
+    pub models: models::Models,
+    /// The subagent provider's endpoint, url and key, as the probe found it.
+    pub endpoint: (String, String),
+}
+
+/// The facts a decision names in needs that are read only when it asks:
+/// the sandbox image's and the model's answers to images, and whether the
+/// image takes --continue-pr. Returns whether any was read.
+pub fn fill(src: &Sources, snap: &mut Value, needs: &[&str]) -> bool {
+    let mut read = false;
+    if needs.contains(&"images") && snap.get("images").is_none() {
+        snap["images"] = models::images(&src.models, &src.endpoint.0, &src.endpoint.1);
+        read = true;
+    }
+    if needs.contains(&"continues") && snap.get("continues").is_none() {
+        snap["continues"] = json!(models::continues());
+        read = true;
+    }
+    read
 }
 
 fn has(labels: &[String], l: &str) -> bool {
@@ -180,6 +199,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
     s["running"] = Value::Array(running.clone());
     s["slice"] = host::slice(home, &locks);
+    let (endpoint, url, key) = models::endpoint(&src.models);
+    s["endpoint"] = endpoint;
+    src.endpoint = (url, key);
+    let work_dir = std::env::var("TEHAS_WORK_DIR").unwrap_or_default();
+    let user_home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    s["leftovers"] = host::leftovers(home, &work_dir, &user_home, src.now);
     s["disk_kb"] = host::disk(home);
 
     // Refreshes: the history, the marks, the requests and what they read.
@@ -252,9 +277,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     // The questions waiting for an answer.
-    for n in numbers(&s["asking"]) {
+    let asking = numbers(&s["asking"]);
+    let read = github::comments_of(calls, &c.repo, &asking);
+    for (n, comments) in asking.into_iter().zip(read) {
         let question = store::question(calls, n);
-        let comments = github::comments(calls, &c.repo, n);
         let i = entry(&mut issues, n);
         i["question"] = question;
         i["comments"] = comments;
