@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- The cycle's shadow (#256, part 2): while `state/cycle-shadow.on` is there,
+  `tehas-cycle` decides each cycle's report beside `tehasbot cycle` from the
+  same files and its own GitHub reads, and logs what differs from the bash's
+  writes, park and end to `logs/cycle-shadow.log`. A report that differed is
+  kept in `state/cycle-shadow/`. install.sh builds and installs
+  `libexec/tehas-cycle`, and a release carries it. It acts on nothing.
+- install.sh rebuilds `tehas-dispatch` when `console/core` changes, which it
+  uses since the question comments' text moved there.
+- libexec/cycle no longer has a check that a progress file is newer than the
+  cycle's lock: it compared with a file named by a number and never held.
 - `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
   part 1): from what the cycle left and GitHub's answers it says what
   libexec/cycle does, its warnings, label changes, comments and park question,
