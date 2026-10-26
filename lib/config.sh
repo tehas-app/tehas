@@ -74,33 +74,33 @@
 tehas_err() { echo "tehas: $*" >&2; }
 
 # Where the instance's settings are: the environment, else the one-line file
-# ~/.config/tehas/instance-dir, else ~/.config/tehas.
-tehas_instance_dir() {
-  local pointer=$HOME/.config/tehas/instance-dir dir=""
-  if [ -n "${TEHAS_INSTANCE_DIR:-}" ]; then
-    dir=$TEHAS_INSTANCE_DIR
-  elif [ -r "$pointer" ]; then
-    read -r dir <"$pointer" || true
-  fi
-  printf '%s\n' "${dir:-$HOME/.config/tehas}"
+# ~/.config/tehas/instance-dir, else ~/.config/tehas. _tehas_instance_dir puts
+# it in the caller's $dir instead, without a subshell.
+tehas_instance_dir() { local dir; _tehas_instance_dir; printf '%s\n' "$dir"; }
+_tehas_instance_dir() {
+  local pointer=$HOME/.config/tehas/instance-dir
+  dir=${TEHAS_INSTANCE_DIR:-}
+  [ -n "$dir" ] || [ ! -r "$pointer" ] || read -r dir <"$pointer" || true
+  dir=${dir:-$HOME/.config/tehas}
 }
 
 _tehas_host_cpus() { nproc 2>/dev/null || echo 1; }
 
-# A Docker memory value (512m, 8g, a bare number of bytes) in MiB; fails on
-# anything else.
+# A Docker memory value (512m, 8g, a bare number of bytes) in MiB, in the
+# caller's $mb; fails on anything else, with $mb empty.
 _tehas_mem_mb() {
   local v=$1 n
+  mb=""
   case "$v" in
     '' | *[!0-9bkmgBKMG]* | [!0-9]*) return 1 ;;
   esac
   n=${v%[bkmgBKMG]}
   case "$n" in '' | *[!0-9]*) return 1 ;; esac
   case "$v" in
-    *[gG]) echo $((n * 1024)) ;;
-    *[mM]) echo "$n" ;;
-    *[kK]) echo $((n / 1024)) ;;
-    *) echo $((n / 1048576)) ;;
+    *[gG]) mb=$((n * 1024)) ;;
+    *[mM]) mb=$n ;;
+    *[kK]) mb=$((n / 1024)) ;;
+    *) mb=$((n / 1048576)) ;;
   esac
 }
 
@@ -112,9 +112,7 @@ _tehas_is_count() { case "$1" in '' | *[!0-9]* | 0* | ??????????*) return 1 ;; e
 # build output of the toolchains tehas hosts, none of which a product keeps in
 # source. The one place they are written: instances/example and the manual
 # quote them, and test/config_test.sh pins the copies against this.
-_tehas_clean_dirs_default() {
-  printf '%s\n' 'target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle'
-}
+_tehas_clean_dirs_default='target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle'
 
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
@@ -187,7 +185,7 @@ _tehas_valid() {
       # twelve digits of bytes or nine with a unit. Docker refuses a memory
       # value under 6m.
       if ! [[ $v =~ ^([1-9][0-9]{0,11}[bB]?|[1-9][0-9]{0,8}[kmgKMG])$ ]] ||
-        ! mb=$(_tehas_mem_mb "$v" 2>/dev/null) || [ "$mb" -lt 6 ]; then
+        ! _tehas_mem_mb "$v" || [ "$mb" -lt 6 ]; then
         echo "expected a size of at least 6m, such as 512m or 2g"
         return 1
       fi
@@ -212,7 +210,7 @@ _tehas_valid() {
       [[ $v =~ ^[1-9][0-9]?$ ]] || { echo "expected a number from 1 to 99"; return 1; }
       ;;
     TEHAS_PREVIEW_MIN_FREE | TEHAS_CYCLE_MIN_FREE | TEHAS_CLEAN_MIN_FREE)
-      if ! mb=$(_tehas_mem_mb "$v") || [ "$mb" -le 0 ]; then
+      if ! _tehas_mem_mb "$v" || [ "$mb" -le 0 ]; then
         echo "expected a size such as 512m or 5g"
         return 1
       fi
@@ -341,7 +339,8 @@ _tehas_why() {
 # drops is refused there; one it adds is usable once it is added here. All six
 # lens reviewers are one role, CODE_REVIEW_SPECIALIST. The project manager is
 # the session: its model is the product's .pi/settings.json.
-tehas_model_roles() { printf '%s\n' DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST; }
+_tehas_roles=(DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST)
+tehas_model_roles() { printf '%s\n' "${_tehas_roles[@]}"; }
 
 # Check the per-role model settings and give each role model a provider.
 # A name pi-rukas does not read would reach the container and be ignored, and
@@ -352,8 +351,8 @@ tehas_model_roles() { printf '%s\n' DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER 
 # not set. Returns 78 with one line on stderr.
 _tehas_role_models() { # <instance.env>
   local file=$1 v m p role reason roles
-  roles=" $(tehas_model_roles | tr '\n' ' ')"
-  for v in $(compgen -v); do
+  roles=" ${_tehas_roles[*]} "
+  for v in ${!PI_ENSEMBLE_MODEL_@} ${!PI_ENSEMBLE_PROVIDER_@}; do
     case "$v" in
       PI_ENSEMBLE_MODEL_*) role=${v#PI_ENSEMBLE_MODEL_} ;;
       PI_ENSEMBLE_PROVIDER_*) role=${v#PI_ENSEMBLE_PROVIDER_} ;;
@@ -409,17 +408,17 @@ _tehas_millwright_compat() {
 }
 
 tehas_load() {
-  local dir file v reason line
+  local dir file v reason line mb
   : "${TEHAS_HOME:=$HOME/tehas}"
   export TEHAS_HOME
-  dir=$(tehas_instance_dir)
+  _tehas_instance_dir
   file=$dir/instance.env
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (run tehas setup, or copy instances/example and fill it in)"; return 78; }
 
   # TEHAS_ENERGY, TEHAS_ENERGY_URL, the model endpoints' tokens,
   # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and TEHAS_MCP_KEYS are
   # host choices in ~/.config/tehas/env, which env.sh reads before this.
-  for v in $(compgen -v); do
+  for v in ${!TEHAS_@} ${!PI_ENSEMBLE_@}; do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | TEHAS_DISK_WAIT | \
@@ -512,7 +511,7 @@ tehas_load() {
   # What tehasbot clean removes and when. The build output of common toolchains
   # that no product keeps in source; an instance that builds something else adds
   # its name to this list, it does not replace it.
-  export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24} TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$(_tehas_clean_dirs_default)}
+  export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24} TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$_tehas_clean_dirs_default}
   # The two bounds of the measure tehas work makes of an approved body, in bytes
   # and in lines (lib/sizing.sh).
   export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072} TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
@@ -596,7 +595,7 @@ tehas_load() {
   # The sandbox image, the private names it must resolve, and how many
   # workstreams one cycle runs side by side inside it: pi-rukas reads the last
   # name, and its own default is more than one, so it is always told.
-  export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$(id -u)}
+  export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$EUID}
   export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
   export PI_ENSEMBLE_MAX_WORKSTREAMS=$TEHAS_CONCURRENCY
   # Seconds one run of the product's gate may take inside a cycle. pi-rukas
@@ -720,11 +719,10 @@ tehas_load() {
     return 78
   fi
   # The three sizes above in MiB, for the df figures of dispatch, clean and
-  # preview, which are in KiB. Assigned before the export so one value is not
-  # lost if another command substitution fails.
-  TEHAS_PREVIEW_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE")
-  TEHAS_CYCLE_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_CYCLE_MIN_FREE")
-  TEHAS_CLEAN_MIN_FREE_MB=$(_tehas_mem_mb "$TEHAS_CLEAN_MIN_FREE")
+  # preview, which are in KiB.
+  _tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE"; TEHAS_PREVIEW_MIN_FREE_MB=$mb
+  _tehas_mem_mb "$TEHAS_CYCLE_MIN_FREE"; TEHAS_CYCLE_MIN_FREE_MB=$mb
+  _tehas_mem_mb "$TEHAS_CLEAN_MIN_FREE"; TEHAS_CLEAN_MIN_FREE_MB=$mb
   export TEHAS_PREVIEW_MIN_FREE_MB TEHAS_CYCLE_MIN_FREE_MB TEHAS_CLEAN_MIN_FREE_MB
   if [ -n "${TEHAS_DOMAIN:-}" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ]; then
     export TEHAS_PROTOLAB_URL=https://lab.$TEHAS_DOMAIN
@@ -769,7 +767,7 @@ tehas_models() {
   local role m p
   {
     printf '%s %s\n' "${PI_ENSEMBLE_SUBAGENT_PROVIDER:-}" "${PI_ENSEMBLE_SUBAGENT_MODEL:-}"
-    for role in $(tehas_model_roles); do
+    for role in "${_tehas_roles[@]}"; do
       m=PI_ENSEMBLE_MODEL_$role p=PI_ENSEMBLE_PROVIDER_$role
       [ -z "${!m:-}" ] || printf '%s %s\n' "${!p:-}" "${!m}"
     done
