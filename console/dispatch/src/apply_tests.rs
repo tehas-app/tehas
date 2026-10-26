@@ -38,6 +38,12 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "store plan-begin")
+    for a; do [ "${prev:-}" != --brief-file ] || cp "$a" "$d/brief"; prev=$a; done
+    echo '{"api":1,"verb":"plan-begin","ok":true}' ;;
+  "store plan-answer")
+    for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
+    cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A."}}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -128,8 +134,15 @@ fn world() -> World {
             user_home: dir.join("user").to_string_lossy().into_owned(),
             done_wait: Duration::from_secs(5),
             image: "tehas-sandbox:test".into(),
+            plan_cmd: "/opt/plan".into(),
+            plan_start_cmd: Some(s("start")),
+            plan_timeout: 3600,
+            plan_max_turns: 20,
+            systemd_run: s("start"),
         },
         ended: None,
+        spend: None,
+        status_due: false,
     };
     World { dir, w }
 }
@@ -423,12 +436,11 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
 }
 
 #[test]
-fn the_actions_of_the_later_parts_are_left_in_order() {
+fn an_action_of_no_kind_apply_knows_is_left() {
     let mut t = world();
-    let turn = json!({"plan_turn": 8, "kind": "first", "label": "tehas:plan", "by": "alice"});
-    let spend = json!({"park_retry": 9});
-    let a = t.apply(json!([turn, {"gate_held": true}, spend]));
-    assert_eq!(a.left, vec![turn, spend]);
+    let odd = json!({"mystery": 8});
+    let a = t.apply(json!([odd, {"gate_held": true}]));
+    assert_eq!(a.left, vec![odd]);
 }
 
 fn start_of(n: u64, given: &str) -> Value {
@@ -1620,4 +1632,230 @@ fn more_of_what_q_clean_masks() {
         "* \\[ ] a\n  + \\[x] b\na@\u{200b}b"
     );
     assert_eq!(q_clean("äöå", 2), "äö");
+}
+
+fn first_turn(n: u64) -> Value {
+    json!({"plan_turn": n, "kind": "first", "label": "tehas:plan", "by": "alice", "refine": false,
+        "title": "Make it", "body": "The body.", "log": format!("start planning #{n} (labelled by alice)")})
+}
+
+#[test]
+fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
+    let mut t = world();
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log,
+        vec![
+            "start planning #7 (labelled by alice)",
+            "planning #7: turn 1 runs as tehas-plan-7.service"
+        ]
+    );
+    assert_eq!(a.printed, vec!["the status line"]);
+    assert_eq!(
+        fs::read_to_string(t.dir.join("brief")).unwrap(),
+        "# Make it\n\nThe body.\n"
+    );
+    let w = t.writes();
+    assert!(w[0].starts_with("store plan-begin 7 --by alice --label tehas:plan --brief-file "));
+    assert_eq!(w[1], "gh issue edit 7 --repo example-owner/example-product --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention");
+    assert!(w[2].contains(
+        "(authorized by @alice's `tehas:plan` label). Each turn ends in a comment here."
+    ));
+    // The unit's script has line ends of its own: the whole log is read.
+    let unit = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(unit.contains("start 7 /bin/bash -c "));
+    assert!(unit.contains(" plan-turn "));
+    assert!(unit.contains("/logs/dispatch-plan-7.log "));
+    assert!(unit.contains("/state/plan-7.json.rc "));
+    assert!(unit.contains("/state/plan-7.json.lock /opt/plan 7 --out "));
+    assert!(unit.contains("-plan-7.keep --brief "));
+}
+
+#[test]
+fn a_refine_spends_its_park_once_its_brief_is_written_and_says_why() {
+    let mut t = world();
+    let extra = t.dir.join("refine-brief.md");
+    fs::write(&extra, "Refine it.\n\n").unwrap();
+    let mut turn = first_turn(7);
+    turn["label"] = json!("tehas:refine");
+    turn["auto"] = json!("too-big");
+    turn["brief_extra"] = json!(extra.to_string_lossy());
+    turn["log"] = json!("start refining #7 (its cycle parked as too-big, started by alice)");
+    let a = t.apply(json!([{"park_retry": 7, "how": "refine"}, turn.clone()]));
+    assert_eq!(
+        a.log[0],
+        "start refining #7 (its cycle parked as too-big, started by alice)"
+    );
+    assert_eq!(fs::read_to_string(t.dir.join("brief")).unwrap(),
+        "# Make it\n\nThe body.\n\n\n---\n\nRefine it.\n\nThis request is issue #7 itself. The issue you file replaces #7: #7 is not a duplicate of this plan.\n");
+    let w = t.writes();
+    let spend = w.iter().position(|c| c == "store park-retry 7").unwrap();
+    let begin = w
+        .iter()
+        .position(|c| c.starts_with("store plan-begin 7"))
+        .unwrap();
+    assert!(spend < begin);
+    assert!(w[begin].ends_with(" --auto"));
+    assert!(w.iter().any(|c| c.contains("to refine this issue: its cycle parked as `too-big`, and the start of that cycle by @alice authorizes one refine.")));
+    // A spend the store refuses ends the poll with its brief gone.
+    let mut t = world();
+    t.fail("store", "park-retry|conflict");
+    let a = t.apply(json!([{"park_retry": 7, "how": "refine"}, turn]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        a.log,
+        vec!["ERROR: the refine of #7 could not be spent on record (conflict), not refining it"]
+    );
+    assert!(!t.calls().iter().any(|c| c.starts_with("store plan-begin")));
+    assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn the_other_spends_warn_and_go_on() {
+    let mut t = world();
+    t.fail("store", "park-retry|busy");
+    let a =
+        t.apply(json!([{"park_retry": 7, "how": "outage"}, {"park_retry": 8, "how": "skipped"}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "WARN: the retry of #7 after a provider outage could not be spent on record (busy)",
+            "WARN: the refine of #8 could not be spent on record (busy)",
+        ]
+    );
+    // One try for the outage, three for the refine.
+    assert_eq!(
+        t.calls()
+            .iter()
+            .filter(|c| c.as_str() == "store park-retry 7")
+            .count(),
+        1
+    );
+    assert_eq!(
+        t.calls()
+            .iter()
+            .filter(|c| c.as_str() == "store park-retry 8")
+            .count(),
+        3
+    );
+    let mut t = world();
+    t.fail("store", "park-retry|unparked");
+    assert!(t
+        .apply(json!([{"park_retry": 7, "how": "outage"}]))
+        .log
+        .is_empty());
+}
+
+#[test]
+fn a_turn_the_store_will_not_begin_waits_or_ends_the_poll() {
+    let mut t = world();
+    t.fail("store", "plan-begin|running");
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[1],
+        "skip #7: its planning session could not begin: store: running: stub"
+    );
+    assert_eq!(a.printed, vec!["the status line"]);
+    let mut t = world();
+    t.fail("store", "plan-begin|busy");
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        a.log[1],
+        "ERROR: could not write the record of #7, not starting a turn (busy)"
+    );
+    let mut t = world();
+    t.fail("store", "plan-begin|absent");
+    assert_eq!(t.apply(json!([first_turn(7)])).exit, Some(78));
+}
+
+#[test]
+fn a_turn_whose_mark_fails_puts_its_record_back() {
+    let mut t = world();
+    t.fail("gh", "--add-label tehas:planning");
+    let a = t.apply(json!([first_turn(7)]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: could not mark #7 as planning, not starting a turn"
+    );
+    assert!(t
+        .writes()
+        .contains(&"store plan-begin 7 --undo".to_string()));
+    assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+    assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn a_turn_that_cannot_be_started_is_finished_as_not_started() {
+    let mut t = world();
+    t.fail("start", "plan-turn");
+    plan_row(&t, json!({"turns": 0, "label": "tehas:plan"}));
+    let a = t.apply(json!([first_turn(7)]));
+    assert!(a
+        .log
+        .contains(&"ERROR: could not start the planning turn of #7".to_string()));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 1 --outcome not-started")));
+}
+
+#[test]
+fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
+    );
+    fs::write(t.dir.join("answered"), json!({"api": 1, "verb": "plan-answer", "ok": true, "planning": {"answer": "Do A.",
+        "filed": ["https://github.com/example-owner/example-product/issues/9", "https://github.com/example-owner/example-product/issues/9"]}}).to_string()).unwrap();
+    fs::create_dir_all(t.dir.join("works")).unwrap();
+    fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
+    let a = t.apply(
+        json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "mill-bot", "reply": 55,
+        "log": "planning #7 continues (answer from mill-bot, the fixer)"}]),
+    );
+    assert_eq!(
+        a.log,
+        vec![
+            "planning #7 continues (answer from mill-bot, the fixer)",
+            "planning #7: turn 3 runs as tehas-plan-7.service"
+        ]
+    );
+    assert_eq!(fs::read_to_string(t.dir.join("answer")).unwrap(), "Do A.\n");
+    let w = t.writes();
+    assert!(w.iter().any(|c| c
+        .starts_with("store plan-answer 7 --turn 3 --by mill-bot --text-file ")
+        && c.ends_with(" --millwright")));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --add-label tehas:planning --remove-label tehas:plan --remove-label tehas:question --remove-label needs-human-attention".to_string()));
+    let keep = t.dir.join("works/tehas-work-plan-7.keep");
+    assert_eq!(fs::read_to_string(keep.join("answer.md")).unwrap(),
+        "Already filed in this session: https://github.com/example-owner/example-product/issues/9\n\nDo A.\n");
+    let unit = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(unit.contains(&format!(
+        "--session s-1 --answer {}/answer.md --comment 55",
+        keep.display()
+    )));
+    // No comment on a next turn.
+    assert!(!w.iter().any(|c| c.starts_with("gh issue comment")));
+}
+
+#[test]
+fn a_session_at_its_limit_of_turns_is_ended() {
+    let mut t = world();
+    t.w.host.plan_max_turns = 2;
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let a = t.apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "planning #7 continues (answer from alice)"}]));
+    assert_eq!(a.log.last().unwrap(), "planning #7 ended");
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.contains("This planning session reached its limit of 2 turns and was ended.")));
+    assert!(!t.calls().iter().any(|c| c.starts_with("store plan-answer")));
 }

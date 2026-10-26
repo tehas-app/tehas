@@ -28,6 +28,10 @@ empty one above it.
   off, lost or closed. The state store's journal takes three more kinds of
   write: `issue-edit`, `sub-issue-add` and `issue-close`. Nothing calls it
   yet.
+- The dispatcher in Rust can start a planning turn (#254, part 3b): a first
+  turn's brief and its session on record, a next turn's answer, the issue
+  marked planning before the turn's unit starts, and the three spends of a
+  park's retry. Nothing calls it yet.
 
 ### Adopter action
 

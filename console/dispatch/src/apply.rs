@@ -10,12 +10,13 @@
 //! records, the files of the hold, the gate and the branch check, and the
 //! containers left behind. And the starts (start.rs), which end the poll.
 //! And the stops (stop.rs): a quiet cycle, one whose work is done, and the
-//! sweep. And the end of a planning turn (plan.rs). The start of a planning
-//! turn is the next part of #254, and comes back in `left`.
+//! sweep. And the planning turns: their end (plan.rs) and their start
+//! (turn.rs), with the spends of a park's retry.
 
 mod plan;
 pub mod start;
 mod stop;
+mod turn;
 
 use crate::read::run::{run, run_input, Calls};
 use serde_json::{json, Value};
@@ -38,6 +39,11 @@ pub struct Writer {
     pub host: start::Host,
     /// Set by an action that ends the poll.
     pub ended: Option<i32>,
+    /// A refine's park, spent by the turn that follows once its brief is
+    /// written.
+    pub spend: Option<u64>,
+    /// Set by a turn: the status command runs after it, as after a start.
+    pub status_due: bool,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -106,6 +112,10 @@ impl Writer {
                 out.left.push(actions[i].clone());
             }
             i += 1;
+            if self.status_due {
+                self.status_due = false;
+                self.status(&mut out.printed);
+            }
             if let Some(rc) = self.ended.take() {
                 out.exit = Some(rc);
                 return out;
@@ -182,6 +192,12 @@ impl Writer {
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
             self.plan_close(n, log);
+        } else if let Some(n) = a.get("plan_turn").and_then(Value::as_u64) {
+            if let turn::Then::End(rc) = self.plan_turn(n, a, log) {
+                self.ended = Some(rc);
+            }
+        } else if let Some(n) = a.get("park_retry").and_then(Value::as_u64) {
+            self.park_retry(n, a, log);
         } else if let Some(n) = a.get("plan_end").and_then(Value::as_u64) {
             self.plan_end(n, text(a, "say"), false, false, log);
         } else {
