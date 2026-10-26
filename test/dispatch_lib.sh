@@ -684,7 +684,7 @@ read_or() { # <file> <second file or ""> <default>
   [ -n "$2" ] && cat "$2" 2>/dev/null && return
   printf '%s' "$3"
 }
-lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
+lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map((. // []) | flatten)')
 nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
 # An issue whose cycle holds a lock file is marked running, as on a host; and
 # an issue a case wrote the REST answer of is on GitHub too: an open one is in
@@ -692,9 +692,10 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
 # a case may count.
 inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
-locked=$(for l in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
-  [ -e "$l" ] || continue
-  case "$inodes" in *" $(stat -c %i "$l") "*) n=${l##*/}; echo "${n%.lock}" ;; esac
+# One ls for all of them: a host has hundreds.
+locked=$(ls -i "$T"/home/tehas/state/cycles/ 2>/dev/null | while read -r ino f; do
+  case "$f" in [0-9]*.lock) ;; *) continue ;; esac
+  case "$inodes" in *" $ino "*) echo "${f%.lock}" ;; esac
 done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
 for n in $(jq -r '.[]' <<<"$locked"); do
   [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
