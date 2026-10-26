@@ -688,7 +688,8 @@ lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or 
 nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
 # An issue whose cycle holds a lock file is marked running, as on a host; and
 # an issue a case wrote the REST answer of is on GitHub too: an open one is in
-# the queue whether or not a list names it.
+# the queue whether or not a list names it. With $fx/page-drops-events the
+# page answers every timeline empty, as GitHub can for a large page.
 # Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
 # a case may count.
 inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
@@ -717,7 +718,8 @@ items=$(for n in $nums; do
     '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p, i: $i}'
 done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
-  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" '
+  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" \
+  --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
     # Being on a list is carrying its label, as gh issue list --label has it.
@@ -738,7 +740,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
             else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
           + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
-        timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
+        timelineItems: {nodes: [.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
           createdAt: .created_at, actor: actor, label: .label}]},
         closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},

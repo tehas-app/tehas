@@ -18,6 +18,11 @@ empty one above it.
   `bash`. A Rust poll first settles the writes a poll before it left open in
   the action journal, from what GitHub says now, and never repeats one. See
   "The dispatcher in Rust" in the operating page for how it differs.
+- The Rust dispatcher reads an issue's label events on their own when
+  GitHub's page of the queue left them out (#254). GitHub answers a large page
+  with empty timelines and no error; read as given, an allowed account's
+  label had nobody behind it, and the poll took it off. Found by the shadow
+  on tehas-tehas before any host ran the Rust poll.
 - `tehasbot review` runs its container from Rust (#829): the console reads
   the range, checks the image's inputs, bounds the run and writes the record.
   `libexec/review` keeps the sandbox and loses 155 lines. The wait on the
