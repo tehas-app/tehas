@@ -247,7 +247,7 @@ tehas_require TEHAS_REPO
 stop_gh_wait=${TEHAS_CYCLE_STOP_GH_WAIT:-20}
 [[ $stop_gh_wait =~ ^[1-9][0-9]{0,3}$ ]] || stop_gh_wait=20
 
-log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+log() { TZ=UTC0 printf '%(%FT%TZ)T %s\n' -1 "$*"; }
 
 if ! tehas_store_ready; then
   log "ERROR: the state store is not installed (run install.sh)"
@@ -325,11 +325,12 @@ case $start_rc in
     exit 78
     ;;
 esac
-attempt=$(tehas_store_get '.attempt')
-start_by=$(tehas_store_get '.started_by // "" | strings')
-start_how=$(tehas_store_get '.how // "" | strings')
-approval_at=$(tehas_store_get '.approval_at // "" | numbers')
-requeued=$(tehas_store_get 'if .requeued == true then 1 else 0 end')
+# The start's fields in one read: one each, ended by a NUL, as $(jq -r) leaves it.
+one='def v: tostring | gsub("\u0000"; "") | sub("\n+\\z"; "") + "\u0000";
+  def s: if type == "string" then . else "" end; def n: if type == "number" then . else "" end;'
+mapfile -d '' -t got < <(jq -j "$one"'(.attempt | v), (.started_by | s | v), (.how | s | v),
+  (.approval_at | n | v), (if .requeued == true then 1 else 0 end | v)' <<<"$tehas_store_out" 2>/dev/null)
+attempt=${got[0]-} start_by=${got[1]-} start_how=${got[2]-} approval_at=${got[3]-} requeued=${got[4]-}
 if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
   log "ERROR: #$issue: the state store answered the start with no attempt"
   exit 78
@@ -433,11 +434,11 @@ post_question() {
 # work does. The cycle's own state directory is not named here: it went before
 # this, whether or not the workspace was kept.
 tidy() {
-  if [ -f "$(dirname "$workdir")/.tehas-workspaces" ]; then
+  if [ -f "${workdir%/*}/.tehas-workspaces" ]; then
     rm -rf "$workdir" "$workdir.before-retry" ||
       log "WARN: could not remove the workspace $workdir"
   else
-    log "WARN: $(dirname "$workdir") is not marked by tehas work, leaving the workspace $workdir"
+    log "WARN: ${workdir%/*} is not marked by tehas work, leaving the workspace $workdir"
   fi
 }
 
@@ -491,12 +492,12 @@ done
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
 mins=$(((EPOCHSECONDS - started) / 60))
-[ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
+[ ! -f "${workdir%/*}/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
 # The cycle's own cache, memory and sessions, made by tehas work beside the
 # workspace. A cycle that stopped without a pull request keeps its workspace
 # for a person to read, and not what its agents wrote in their own directories.
-[ ! -f "$(dirname "$workdir")/.tehas-workspaces" ] || rm -rf "$workdir.state" ||
+[ ! -f "${workdir%/*}/.tehas-workspaces" ] || rm -rf "$workdir.state" ||
   log "WARN: could not remove the cycle's state $workdir.state"
 
 # The runner's result and the summary of its progress, as tehas work wrote
@@ -524,8 +525,19 @@ fi
 [ "$no_result" = 0 ] ||
   log "WARN: the result of #$issue holds nothing, so its step is read from its run log"
 outcome=$(tehas_headless_outcome "$result" "$issue") || outcome='{}'
-status=$(jq -r '.status // "unknown"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
-step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" | tr -cd 'A-Za-z0-9_.-')
+# The result's fields in one read, kept apart until the steps below use them.
+# The handoff is this command's to post (tehas work gives a cycle
+# PI_ENSEMBLE_HANDOFF_CHANNEL=host); it loses pi-rukas's marker line, which goes
+# back on top of the comment. The cap that ended the cycle is from the result's
+# published vocabulary; it and parkReason are reduced and cut short.
+mapfile -d '' -t got < <(jq -j "$one"'def w: tostring | gsub("[^A-Za-z0-9_.-]"; "");
+  (.status // "unknown" | w | v), ([.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-" | w | v),
+  (.branch // "" | v), (.buildCommit // "" | v),
+  ((try (.handoffBody // "" | sub("^<!-- pi-rukas:handoff [^\n]*-->\n*"; "")) catch "") | v),
+  (.parkReason // "" | tostring | gsub("[^a-z-]"; "") | .[0:40] | v),
+  (.cap // "" | tostring | gsub("[^A-Za-z0-9_.:-]"; "") | .[0:80] | v)' <<<"$outcome" 2>/dev/null)
+status=${got[0]-} step=${got[1]-} result_branch=${got[2]-} build=${got[3]-} handoff=${got[4]-}
+park_reason=${got[5]-} cap=${got[6]-}
 status=${status:-unknown}
 step=${step:--}
 # A cycle that wrote no result has no word of its own for how it ended. The
@@ -570,7 +582,7 @@ nostart_step=no-step
 nostart_file=${cycles:?}/${issue:?}.nostart
 [ -f "$nostart_file" ] && [ ! -L "$nostart_file" ] || nostart_file=
 if [ -n "$nostart_file" ]; then
-  read -r nostart_rc _ < <(head -c 100 "$nostart_file" 2>/dev/null | head -n 1)
+  LC_ALL=C read -r -n 100 nostart_rc _ 2>/dev/null <"$nostart_file"
   [[ $nostart_rc =~ ^[1-9][0-9]{0,2}$ ]] || nostart_rc=""
 fi
 [ -n "$nostart_rc" ] && nostart_seen=1
@@ -613,7 +625,7 @@ timed_secs=""
 timed_file=${cycles:?}/${issue:?}.timed
 if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
   # Its one line: the limit, who stopped the cycle, the step it was in.
-  read -r timed_secs _ timed_step_file _ < <(head -c 200 "$timed_file" 2>/dev/null | head -n 1)
+  LC_ALL=C read -r -n 200 timed_secs _ timed_step_file _ 2>/dev/null <"$timed_file"
   [[ $timed_step_file =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step_file" != - ] ||
     timed_step_file=""
 fi
@@ -756,7 +768,7 @@ fi
 kills=0
 oom_file=${cycles:?}/${issue:?}.oom
 if [ -f "$oom_file" ] && [ ! -L "$oom_file" ]; then
-  kills=$(head -c 16 "$oom_file" 2>/dev/null | head -n 1)
+  IFS= LC_ALL=C read -r -n 16 kills 2>/dev/null <"$oom_file"
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
 fi
 rm -f "${cycles:?}/${issue:?}.oom"
@@ -765,7 +777,7 @@ killed=""
 forks=0
 forks_file=${cycles:?}/${issue:?}.forks
 if [ -f "$forks_file" ] && [ ! -L "$forks_file" ]; then
-  forks=$(head -c 16 "$forks_file" 2>/dev/null | head -n 1)
+  IFS= LC_ALL=C read -r -n 16 forks 2>/dev/null <"$forks_file"
   [[ $forks =~ ^(0|[1-9][0-9]{0,8})$ ]] || forks=0
 fi
 rm -f "${cycles:?}/${issue:?}.forks"
@@ -812,7 +824,7 @@ fi
 timed=0 timed_by="" timed_step=""
 timed_file=${cycles:?}/${issue:?}.timed
 if [ -f "$timed_file" ] && [ ! -L "$timed_file" ]; then
-  read -r timed timed_by timed_step _ < <(head -c 200 "$timed_file" 2>/dev/null | head -n 1)
+  LC_ALL=C read -r -n 200 timed timed_by timed_step _ 2>/dev/null <"$timed_file"
   [[ $timed =~ ^(0|[1-9][0-9]{0,8})$ ]] || timed=0
   [[ $timed_step =~ ^[A-Za-z0-9_.:-]{1,40}$ ]] && [ "$timed_step" != - ] || timed_step=""
 fi
@@ -835,7 +847,7 @@ fi
 stopped_by="" stopped_at="" stopped_at_shown="" stopped_by_person=0
 stopped_file=${cycles:?}/${issue:?}.stopped
 if [ -f "$stopped_file" ] && [ ! -L "$stopped_file" ]; then
-  read -r stopped_at stopped_by _ < <(head -c 200 "$stopped_file" 2>/dev/null | head -n 1)
+  LC_ALL=C read -r -n 200 stopped_at stopped_by _ 2>/dev/null <"$stopped_file"
   [[ $stopped_at =~ ^(0|[1-9][0-9]{0,9})$ ]] || stopped_at=""
   [[ $stopped_by =~ ^[A-Za-z0-9._-]{1,64}$ ]] || stopped_by=""
 fi
@@ -850,7 +862,7 @@ if [ -n "$stopped_at_shown" ]; then
   killed="$killed A person stopped it with \`tehas stop\` ($stopped_by, at $stopped_at_shown)."
 fi
 [ "$forks" = 0 ] || killed="$killed Its container reached its limit of processes and $forks starts of a process were refused: what the cycle ran after that may not have run."
-branch=$(jq -r '.branch // ""' <<<"$outcome")
+branch=$result_branch
 # Two arms, and they are not the same question. The first is the branch of this
 # issue, as pi-rukas names it: the one grammar of tehas_branch_pattern, which
 # the helper holds for the log's name and this command holds for the result's.
@@ -868,20 +880,11 @@ branch_pattern=$(tehas_branch_pattern "$issue") || branch_pattern='^$'
 [ -n "$branch" ] || branch=$log_branch
 # The pi-rukas commit the runner says it ran, for the improvement loop's check
 # of whether a fix was in it.
-build=$(jq -r '.buildCommit // ""' <<<"$outcome")
 [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
-# The handoff the runner rendered and left to this command to post: tehas work
-# gives a cycle PI_ENSEMBLE_HANDOFF_CHANNEL=host, so pi-rukas posts none and
-# applies no label. Its first line is pi-rukas's marker, which goes back on top
-# of the comment, so a reader can tell it posted the handoff.
-handoff=$(jq -r '.handoffBody // "" | sub("^<!-- pi-rukas:handoff [^\n]*-->\n*"; "")' <<<"$outcome" 2>/dev/null)
-park_reason=$(jq -r '.parkReason // "" | tostring | gsub("[^a-z-]"; "") | .[0:40]' <<<"$outcome")
 # A stable cap-hit that ended the review on its round cap and sent the cycle on
-# to ci: the pull request has review findings no round answered.
-# The cap that ended the cycle, from the result's published vocabulary, and
-# why: the result's failure, or for an image without one what tehas work could
-# read of the progress. Reduced and cut short as the other fields are.
-cap=$(jq -r '.cap // "" | tostring | gsub("[^A-Za-z0-9_.:-]"; "") | .[0:80]' <<<"$outcome")
+# to ci: the pull request has review findings no round answered. The why of a
+# cap: the result's failure, or for an image without one what tehas work could
+# read of the progress.
 # The progress, read once: each field ended by a NUL, one that is not text empty.
 mapfile -d '' -t got < <(head -c 1000000 "$progress" 2>/dev/null | jq -n -j 'input
   | def kept($set; $most): if type == "string" then gsub("[^" + $set + "]"; "") | .[0:$most] else "" end;
@@ -1049,23 +1052,17 @@ if [ -n "$branch" ]; then
 fi
 # Whether a pull request names this issue, as jq.
 names_issue=$(tehas_names_issue)
-# pr_in <OPEN|MERGED|CLOSED>: the address of this issue's pull request in that
-# state, or nothing.
-pr_in() {
-  jq -r --arg n "$issue" --arg st "$1" "$names_issue"'
-    [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
-     | .url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))] | first // ""' <<<"$prs" 2>/dev/null
-}
-pr=$(pr_in OPEN)
-merged_pr=$(pr_in MERGED)
-closed_pr=$(pr_in CLOSED)
-# A pull request of the bot on the branch that names another issue is said, not
-# taken.
-foreign=""
-if [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine | not)] | length' <<<"$prs" 2>/dev/null)" != 0 ] &&
-  [ "$(jq --arg n "$issue" "$names_issue"'[.[] | select(type == "object") | select(mine)] | length' <<<"$prs" 2>/dev/null)" = 0 ]; then
-  foreign=" The branch \`$(tr -cd 'A-Za-z0-9_./-' <<<"$branch")\` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's."
-fi
+# This issue's pull request in each state, its address or nothing, and 1 when
+# a pull request of the bot on the branch names another issue and none names
+# this one: that one is said, not taken.
+mapfile -d '' -t got < <(jq -j --arg n "$issue" "$one$names_issue"'
+  def url_in($st): [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
+    | .url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))] | first // "";
+  (url_in("OPEN") | v), (url_in("MERGED") | v), (url_in("CLOSED") | v),
+  ([.[] | select(type == "object") | mine] | if any(not) and (any | not) then 1 else 0 end | v)' <<<"$prs" 2>/dev/null)
+pr=${got[0]-} merged_pr=${got[1]-} closed_pr=${got[2]-} foreign=""
+[ "${got[3]-}" != 1 ] ||
+  foreign=" The branch \`${branch//[!A-Za-z0-9_.\/-]/}\` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's."
 # Said in the comment when the label stayed: the issue then reads as running.
 stuck=" The label of this issue could not be changed. The next poll of the dispatcher hands it to a human."
 
@@ -1099,7 +1096,8 @@ fi
 marker=""
 [ -z "$handoff" ] || marker="<!-- pi-rukas:handoff issue=$issue cap=${cap:-none} -->"
 # Why the dispatcher stopped this cycle, if it did.
-done_why=$(head -c 16 "$cycles/$issue.done" 2>/dev/null | head -n 1)
+done_why=""
+IFS= LC_ALL=C read -r -n 16 done_why 2>/dev/null <"$cycles/$issue.done"
 case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
 rm -f "$cycles/$issue.done"
 # The approval this start used, read once for the report: the pull request a
@@ -1223,7 +1221,7 @@ $park_marker}"
   fi
   [ -z "$question" ] || rm -f "$question"
 }
-log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$(hostname)\`"
+log_where="the run log is \`~/tehas/logs/dispatch-work-$issue.log\` on \`$HOSTNAME\`"
 # Said wherever a stopped cycle's workspace stayed on the host, with the path a
 # person has to open to read it. Named in ~ form as the manual and the log line
 # name it: these comments go to a public issue. A host whose TEHAS_HOME is not
@@ -1432,7 +1430,8 @@ tehas_store_try 3 publish ||
 # the cycle saw it and what the cycle's record holds (lib/analytics.sh); the
 # image and the counts were read above, so they are passed. A failure is a
 # warning.
-line=$(jq -n -c --arg at "$(date -u +%FT%TZ)" --argjson started "$started" --argjson rc "$rc" \
+TZ=UTC0 printf -v now '%(%FT%TZ)T' -1
+line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" \
   --arg status "$status" --arg step "$step" --arg cap "$cap" --arg park_reason "$park_reason" \
   --arg failure_kind "$failure_kind" --arg failure_cause "$failure_cause" --argjson parked "$parked_now" \
   --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" --arg pr "${pr:-}" \
