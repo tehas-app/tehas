@@ -326,6 +326,14 @@ reset() {
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
+  # T_RUST_POLL=1 runs every poll of the case in Rust, as TEHAS_DISPATCHER=rust
+  # does on a host: libexec/dispatch hands the poll to tehas-dispatch.
+  if [ -n "${T_RUST_POLL:-}" ]; then
+    # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
+    t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD="$T_ROOT/libexec/health")
+    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=rust "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=rust) ;; esac
+  fi
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -686,3 +694,9 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
 STUB
 chmod +x "$T/page-stub"
+
+# bash_reads: whether the poll under test makes the bash poll's own reads,
+# its REST calls and their words. The Rust poll (T_RUST_POLL) reads the queue
+# in one GraphQL page instead, and ends the poll on its failure with its own
+# words, so a case that checks those calls checks them for the bash alone.
+bash_reads() { [ -z "${T_RUST_POLL:-}" ]; }

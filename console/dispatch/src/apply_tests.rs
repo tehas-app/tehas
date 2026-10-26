@@ -218,7 +218,7 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
     assert_eq!(
         t.writes(),
         vec![
-            "gh issue edit 7 --repo example-owner/example-product --add-label needs-human-attention --remove-label tehas:ready",
+            "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:ready --add-label needs-human-attention",
             "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Tehas took it off.",
         ]
     );
