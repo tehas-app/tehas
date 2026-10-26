@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- `TEHAS_DISPATCHER=rust` in the instance settings makes libexec/dispatch
+  hand each poll to `tehas-dispatch poll` (#254, part 4c). The default stays
+  `bash`. A Rust poll first settles the writes a poll before it left open in
+  the action journal, from what GitHub says now, and never repeats one. See
+  "The dispatcher in Rust" in the operating page for how it differs.
+
 ### Adopter action
 
 None.

@@ -809,8 +809,10 @@ same order and with the same lines in `logs/dispatch.log`: the lock, the
 snapshot of the queue (one GraphQL query in pages of 100 where the bash poll
 makes a call for each list), the decision, the actions, and the end every
 poll that held the lock has. Each write to GitHub goes through the state
-store's action journal first. `bash`, or leaving the setting out, is the bash
-poll. A value of neither is exit 78.
+store's action journal first, and a poll begins by settling the writes a poll
+before it left open there: each is read again on GitHub and recorded as done
+or as not done, and never made again. `bash`, or leaving the setting out, is
+the bash poll. A value of neither is exit 78.
 
 Where it differs from the bash poll:
 
@@ -820,10 +822,13 @@ Where it differs from the bash poll:
   ends has run it; it writes `logs/low-gate.log` and nothing else.
 - The open planning sessions are read once, with the queue; the bash poll
   reads them again after its own planning writes.
+- A closed issue is not in the query, so the poll says nothing of it; the
+  bash poll, which reads each issue again, logs `skip #N: it is closed`.
 
 It is not the default, and not proven on a host yet (see
 [features.md](features.md)). To go back, take the line out of
 `instance.env`: the next poll is the bash poll.
+
 ### Refining a request
 
 A parked issue is not held back: `tehas:refine` or `tehas:plan` from an allowed
