@@ -116,7 +116,11 @@ case "$1 $2" in
     case "$*" in
       # The open issues in one page, as tehas-dispatch asks for them.
       *"issues(states: OPEN"*) "$T/page-stub" || exit 1 ;;
-      *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
+      # Or the REST answer a case wrote, as GraphQL gives it.
+      *"comments(last"*) cat "$T/fx/comments-$n.json" 2>/dev/null ||
+        jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
+          body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
+          editor: (if .updated_at == .created_at then null else {login: .user.login} end)}]}}}}}" "$T/fx/icomments-$n.json" || exit 1 ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
       *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
@@ -729,7 +733,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
         # The labels its lists give it, and those of its REST answer when a case
         # wrote one: on GitHub the two agree.
         # The answer of gh issue view, when a case wrote its state, is the truth.
-        labels: {nodes: [((if $i.i.state then [$i.i.labels[].name]
+        labels: {nodes: [((if $i.i.state then [($i.i.labels // [])[] | .name? // . | strings]
             else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
           + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
