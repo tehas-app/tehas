@@ -259,6 +259,14 @@ fn settle(home: &Path, s: &Settle, now: i64) -> Result<String, Fail> {
                 &format!("is settled already ({was})"),
             ));
         }
+        // A result is a call's, and a call is made only once attempted.
+        if was == "intended" && s.result.is_some() {
+            return Err(refuse(
+                "action",
+                s.action,
+                "was never attempted, so it has no result; --abandoned settles it",
+            ));
+        }
         c.execute(
             "UPDATE actions SET state = ?2, settled_at = ?3, result = ?4,
                evidence_json = coalesce(?5, evidence_json)

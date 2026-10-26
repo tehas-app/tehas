@@ -11,7 +11,7 @@
 //! containers left behind. Starts, stops, sweeps and planning turns are the
 //! later parts of #254, and come back in `left`.
 
-use crate::read::run::{run, run_input, Calls, Ran};
+use crate::read::run::{run, run_input, Calls};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -42,7 +42,7 @@ pub struct Applied {
 /// How a journaled call ended.
 enum Wrote {
     Done,
-    Failed(Ran),
+    Failed,
     /// Not made: the journal could not record it.
     Unrecorded,
 }
@@ -148,7 +148,27 @@ impl Writer {
 
     /// A write to GitHub, journaled: recorded before it is made, settled
     /// after. `input` goes to gh on standard input.
-    fn write(&mut self, issue: u64, kind: &str, args: Vec<String>, input: Option<&str>) -> Wrote {
+    /// `done_if`: words in a failed call's answer that mean the change is
+    /// there already, settled empty.
+    fn write(
+        &mut self,
+        issue: u64,
+        kind: &str,
+        args: Vec<String>,
+        input: Option<&str>,
+        done_if: Option<&str>,
+    ) -> Wrote {
+        // The body by its sum and length: the settling poll finds a comment
+        // by them, and the store's arguments stay short and hold no text.
+        let body = input;
+        let input = input.map(|b| {
+            use sha2::{Digest, Sha256};
+            let sum: String = Sha256::digest(b.as_bytes())
+                .iter()
+                .map(|x| format!("{x:02x}"))
+                .collect();
+            json!({"sha256": sum, "bytes": b.len()})
+        });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
         let recorded = self.calls.store(&[
             "journal-record",
@@ -177,10 +197,12 @@ impl Writer {
         {
             return Wrote::Unrecorded;
         }
-        let r = run_input(&self.gh, &args, input, self.bound);
+        let r = run_input(&self.gh, &args, body, self.bound);
+        let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
         let result = match r.status {
             Some(0) => "ok",
             None => "timed-out",
+            Some(_) if there => "empty",
             Some(_) => "read-failed",
         };
         // A settle that fails leaves the action attempted: the next poll
@@ -188,10 +210,10 @@ impl Writer {
         let _ = self
             .calls
             .store(&["journal-settle", "--action", &id, "--result", result]);
-        if r.ok() {
+        if r.ok() || (there && r.status.is_some()) {
             Wrote::Done
         } else {
-            Wrote::Failed(r)
+            Wrote::Failed
         }
     }
 
@@ -210,9 +232,9 @@ impl Writer {
             "--body-file".into(),
             "-".into(),
         ];
-        match self.write(n, "comment-post", args, Some(body)) {
+        match self.write(n, "comment-post", args, Some(body), None) {
             Wrote::Done => {}
-            Wrote::Failed(_) => log.push(format!("WARN: comment on #{n} failed")),
+            Wrote::Failed => log.push(format!("WARN: comment on #{n} failed")),
             Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
     }
@@ -240,9 +262,9 @@ impl Writer {
         } else {
             "label-add"
         };
-        match self.write(n, kind, args, None) {
+        match self.write(n, kind, args, None, None) {
             Wrote::Done => {}
-            Wrote::Failed(_) => {
+            Wrote::Failed => {
                 log.push(text(a, "fail").to_string());
                 return;
             }
@@ -306,13 +328,13 @@ impl Writer {
             "-".into(),
         ];
         let body = json!({"body": text(a, "body")}).to_string();
-        match self.write(n, "comment-edit", args, Some(&body)) {
+        match self.write(n, "comment-edit", args, Some(&body), None) {
             Wrote::Done => {
                 if let Some(say) = a.get("say").and_then(Value::as_str) {
                     self.say(n, say, log);
                 }
             }
-            Wrote::Failed(_) => log.push(format!("WARN: could not untick the question on #{n}")),
+            Wrote::Failed => log.push(text(a, "fail").to_string()),
             Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
     }
@@ -326,9 +348,9 @@ impl Writer {
             "DELETE".into(),
             format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
         ];
-        let worked = match self.write(pr, "refresh-end", args, None) {
+        let worked = match self.write(pr, "refresh-end", args, None, Some("Not Found")) {
             Wrote::Done => true,
-            Wrote::Failed(r) => r.out.contains("Not Found") || r.err.contains("Not Found"),
+            Wrote::Failed => false,
             Wrote::Unrecorded => {
                 log.push(Self::unrecorded(pr));
                 return;
