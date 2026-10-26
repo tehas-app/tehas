@@ -243,6 +243,9 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
         let sweep_log = c
             .execute("DELETE FROM sweep_log WHERE at < ?1", [before])
             .q()?;
+        let poll_cost = c
+            .execute("DELETE FROM poll_cost WHERE at < ?1", [before])
+            .q()?;
         Ok(vec![
             ("before", j(before)),
             ("endings", j(endings)),
@@ -250,6 +253,7 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
             ("journal", j(journal)),
             ("heartbeats", j(heartbeats)),
             ("sweep_log", j(sweep_log)),
+            ("poll_cost", j(poll_cost)),
         ])
     })
 }

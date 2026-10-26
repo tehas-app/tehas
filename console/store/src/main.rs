@@ -99,6 +99,10 @@
 //!   store sweep-locks [--days N] [--max N] [--dry-run]
 //!   store locks-held
 //!   store upkeep [--dry-run]
+//!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
+//!                --writes-log <file>
+//!   store poll-show
+//!                (what each poll cost: src/poll.rs)
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
@@ -142,6 +146,7 @@ mod live;
 mod lock;
 mod park;
 mod plan;
+mod poll;
 mod slow;
 mod upkeep;
 mod verbs;
@@ -162,6 +167,8 @@ mod lock_tests;
 mod park_tests;
 #[cfg(test)]
 mod plan_tests;
+#[cfg(test)]
+mod poll_tests;
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
@@ -193,7 +200,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -283,12 +290,10 @@ fn parse(args: &[String]) -> Option<Verb> {
         // The record writer's one selection that is not a copy: the driver's
         // slow notices of a cycle, kept in the record so a stuck child reads
         // without the console (tehas_core::slow).
-        [verb, file, flag, out] if verb == "slow" && flag == "--out" => {
-            Some(Verb::Slow {
-                file: PathBuf::from(file),
-                out: PathBuf::from(out),
-            })
-        }
+        [verb, file, flag, out] if verb == "slow" && flag == "--out" => Some(Verb::Slow {
+            file: PathBuf::from(file),
+            out: PathBuf::from(out),
+        }),
         [verb, rest @ ..] if verb == "import" => {
             flags(rest, &["--json", "--dry-run"])?;
             Some(Verb::Import {

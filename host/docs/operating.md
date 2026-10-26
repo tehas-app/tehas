@@ -367,6 +367,36 @@ label added and nothing written there. See
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
 
+### What a poll costs
+
+Under its `factory` line, `tehas status` shows what the polls cost:
+
+```
+poll      last 24 s wall, 3.1 s CPU, 12 gh (0 writes); last hour 14 polls, 41 s CPU, 2 writes
+```
+
+Each poll that holds the dispatcher's lock records these figures in the state
+store as it ends, however it ends. A dry run records nothing.
+
+- **wall**: the time from when the poll took the lock to its end.
+- **CPU**: user and system time of the poll and of the commands it waited for,
+  from bash's `times`, `libexec/tidy` among them.
+- **gh**: the calls the dispatcher made to `gh` itself. Calls of the commands it
+  runs, such as `libexec/status` and `libexec/tidy`, and a call under
+  `timeout`, are not counted.
+- **writes**: the lines of the host shim's write log,
+  `~/tehas/state/github-writes.log` (see [GitHub App identity](/github-app)),
+  dated from the second the poll started to its end, by kind: `label`,
+  `comment`, `edit` and other. They are the writes of the whole host in that
+  time, a cycle's included. Without that log, on a host with no GitHub App,
+  the writes are not counted and the line leaves them out.
+- **last hour**: the polls that ended in the last hour, their CPU time and
+  their writes added up.
+
+`~/tehas/libexec/store poll-show` gives the same figures as JSON, with the
+writes of the last poll by kind. `store prune` drops the records with the
+other old rows of the store. With no poll on record there is no `poll` line.
+
 ## 4. Review and merge
 
 The pull request comes from the bot (the factory's app or bot account) against the product's default

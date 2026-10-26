@@ -764,12 +764,12 @@ t_eq "$(t_row cycle-show 7 -- .cycle.attempt)" 1
 # $T/busy-left counts down, or takes 2 seconds while $T/slow is there, and
 # runs the real store for everything else.
 slow_store() {
-  rm -f "$T/home/tehas/libexec/store" "$T/busy-left" "$T/slow"
+  rm -f "$T/home/tehas/libexec/store" "$T/busy-left" "$T/slow" "$T/looks"
   printf '%s\n' '#!/usr/bin/env bash' \
     'if [ "$1 ${2:-}" = "cycle-show 7" ]; then' \
     "  n=\$(cat $(t_q "$T/busy-left") 2>/dev/null || echo 0)" \
     "  if [ \"\$n\" -gt 0 ]; then echo \$((n - 1)) >$(t_q "$T/busy-left"); echo 'store: busy #7: the database is locked' >&2; exit 1; fi" \
-    "  [ ! -e $(t_q "$T/slow") ] || $(t_q "$(command -pv sleep)") 2" \
+    "  [ ! -e $(t_q "$T/slow") ] || { echo look >>$(t_q "$T/looks"); $(t_q "$(command -pv sleep)") 2; }" \
     'fi' \
     "exec $(t_q "$T_STORE") \"\$@\"" >"$T/home/tehas/libexec/store"
   chmod 755 "$T/home/tehas/libexec/store"
@@ -796,13 +796,13 @@ reset
 slow_store
 : >"$fx/start-silent"
 t_stub fake-start ': >"$T/slow"'
-before=$(date +%s)
 t_run "$dispatch"
 default_start
 t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: the cycle for #7 did not start"
-# TEHAS_CYCLE_START_WAIT is 2: one look of 2 seconds and the end of the wait,
-# not a count of looks of 2 seconds each.
-t_eq "$(($(date +%s) - before < 8))" 1
+# TEHAS_CYCLE_START_WAIT is 2 and a look takes 2 seconds: the clock ends the
+# wait after one look, two at most. A count of looks would make four. A loaded
+# runner makes looks slower, never more of them, so this does not time out.
+t_eq "$(($(wc -l <"$T/looks") <= 2))" 1
 
 t_done
