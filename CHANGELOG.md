@@ -13,13 +13,7 @@ empty one above it.
 
 ### Changes
 
-- The state store keeps the action journal (#254): `store poll-begin`,
-  `journal-record`, `journal-attempt`, `journal-settle` and `journal-open`
-  record what a poll means to write before it writes it, and how the write
-  ended. A comment is recorded by its sum and length, not its text. `store
-  prune` now also removes old rows of `polls`, never one an unsettled action
-  names. Nothing calls the journal yet: the dispatcher in Rust that writes
-  through it (`console/dispatch`, `apply`) is not used by the poll.
+- None yet.
 
 ### Adopter action
 
@@ -29,6 +23,13 @@ empty one above it.
 
 ### Changes
 
+- The state store keeps the action journal (#254): `store poll-begin`,
+  `journal-record`, `journal-attempt`, `journal-settle` and `journal-open`
+  record what a poll means to write before it writes it, and how the write
+  ended. A comment is recorded by its sum and length, not its text. `store
+  prune` now also removes old rows of `polls`, never one an unsettled action
+  names. Nothing calls the journal yet: the dispatcher in Rust that writes
+  through it (`console/dispatch`, `apply`) is not used by the poll.
 - The fixer is now the millwright (#676, first stage). Its settings are
   `TEHAS_MILLWRIGHT_LOGIN`, `TEHAS_MILLWRIGHT_MAX_RETRIES` and
   `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` (#688); the `TEHAS_FIXER_*` names still
