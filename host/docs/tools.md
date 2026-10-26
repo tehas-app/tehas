@@ -2898,7 +2898,13 @@ starting cycles:
    the tree's own - and `core.fsmonitor`, the one hook `rev-parse` could act on,
    is pinned off on the command line; and the answer is used only when it names an
    existing directory
-   under `~/tehas/work`. The call is bounded, so a git that wedges cannot wedge the
+   under `~/tehas/work`. A cycle makes its worktrees in its container, where the
+   workspace is mounted at the shared checkout's path, so a worktree's `.git`
+   names a gitdir under `~/tehas/work/<name>/.git/worktrees/`. When git cannot
+   answer for such a name, the cleaner reads the same gitdir under the tree's own
+   workspace (`<name>-<n>/.git/worktrees/`), kept on the same terms. When it is
+   not there either, the record is stale: it is no proof of a cycle at work, and
+   the tree is dated by itself. The call is bounded, so a git that wedges cannot wedge the
    timer with it, and the issue is left whole when git cannot answer for a
    worktree, on the line
    `kept the build output of #<issue>: git could not name the gitdir of one of its
