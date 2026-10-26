@@ -7,7 +7,16 @@
 # shellcheck disable=SC2034  # the variables here are read by the test files
 # The part has sourced test/lib.sh before this.
 
-preview="$T_ROOT/libexec/preview"
+# The command as a host has it: beside the console, which writes the notice in
+# a pull request's description (console/src/notice.rs). The library is the
+# checkout's own.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -sfn "$T_ROOT/libexec/preview" "$T/tree/libexec/preview"
+ln -sfn "$T_ROOT/lib" "$T/tree/lib"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+preview="$T/tree/libexec/preview"
 fx=$T/fx
 root=$T/home/tehas/preview
 live=$T/home/tehas/live

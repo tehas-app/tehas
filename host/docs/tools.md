@@ -3124,7 +3124,7 @@ memory limit does not count. So an image that declares a volume anywhere but
 `/tmp`, `/config` and `/data` is not run, and every container is removed
 with `docker rm -f -v`, which takes a volume Docker made for it along.
 
-**The notice in the description.** The preview is said at the top of the pull
+**The notice in the description.** The console beside the command writes it (`~/tehas/libexec/console preview tell`). The preview is said at the top of the pull
 request's own description, between the marker lines `<!-- tehas-preview -->`
 and `<!-- /tehas-preview -->`: the address when the preview serves, or
 "Unable to create a preview" with the reason for `build-failed` and
@@ -3258,7 +3258,7 @@ time of the last sweep and how many things it removed are `lastSweep` in
 | 0    | Done. Also when GitHub or Docker did not answer and what runs was left running, and when another run holds the lock |
 | 1    | It cannot write under `~/tehas` |
 | 64   | A wrong argument |
-| 78   | The instance settings are invalid, or `TEHAS_PREVIEWS` is not `1` |
+| 78   | The instance settings are invalid, `TEHAS_PREVIEWS` is not `1`, or the console is not installed beside the command (run `install.sh`) |
 
 The [plain dashboard](/dashboard) lists the previews under "Previews", each
 with its address, or with its state and the reason the run wrote into its state
