@@ -208,7 +208,7 @@ impl Poll<'_> {
                 return Err(self.fail("ERROR: gh api graphql failed", 1));
             };
             let Some(mut ans) =
-                questions::answer(&comments, bot, &self.c.allowed, &qid, &self.c.fixer)
+                questions::answer(&comments, bot, &self.c.allowed, &qid, &self.c.millwright)
             else {
                 return Err(self.fail(format!("ERROR: unreadable comments of #{n}"), 1));
             };
