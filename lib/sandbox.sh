@@ -309,21 +309,17 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # limit of its own; on 2026-10-20 one cycle filled the host's disk with a log
 # under /tmp and four others died with it. Why the bit stays exec, what the
 # container's own TMPDIR is, and what the size means are in the manual, at
-# "What a container may not do" in host/docs/host.md. Two of those facts belong
-# here because they decide the number:
-#
-#   size= is an upper bound, not the bound in use. Nothing prunes /tmp during a
-#   cycle, so what accumulates there is what the cycle runs out of, at the size
-#   below or at the container's --memory, whichever it reaches first.
-#   The size is a total, not a high water mark: tehasbot clean reclaims the
-#   host's scratch under $TEHAS_HOME/tmp and reclaims nothing of a live
-#   container's /tmp.
-#
-# The process table is bounded by --pids-limit, which comes from lib/slice.sh.
+# "What a container may not do" in host/docs/host.md. The size is half the
+# container's --memory, TEHAS_SLICE_CEILING_MB from tehas_slice_ok: tmpfs pages
+# count against that limit and cannot be reclaimed, so a /tmp as large as the
+# limit ends in OOM kills of the agents (#761). At half, a full /tmp is ENOSPC
+# for its writer and the other half is left to the processes. Without a
+# ceiling nothing is printed, and tehas_sandbox_security_take refuses.
 tehas_sandbox_security() {
+  [[ ${TEHAS_SLICE_CEILING_MB:-} =~ ^[1-9][0-9]{1,8}$ ]] || return 1
   printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
     --security-opt no-new-privileges:true \
-    --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g,mode=1777
+    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
 }
 
 # tehas_sandbox_security_take <command> <what>: the options in the caller's
@@ -353,12 +349,13 @@ tehas_sandbox_security_count() {
 # the function itself (test/work_caps_test.sh).
 tehas_sandbox_security_ok() {
   local documented
+  [[ ${TEHAS_SLICE_CEILING_MB:-} =~ ^[1-9][0-9]{1,8}$ ]] || return 1
   documented=(
     --cap-drop ALL
     --cap-add CHOWN
     --cap-add FOWNER
     --security-opt no-new-privileges:true
-    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777"
+    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
   )
   local sec
   sec=()

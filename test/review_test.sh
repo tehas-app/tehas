@@ -13,7 +13,7 @@
 # The security options, as lib/sandbox.sh prints them: the same ten words for
 # a cycle, a planning turn, a manual session, the push check and a review.
 sandbox_security_words=("--cap-drop" "ALL" "--cap-add" "CHOWN" "--cap-add" "FOWNER" \
-  "--security-opt" "no-new-privileges:true" "--tmpfs" "/tmp:rw,exec,nosuid,nodev,size=8g,mode=1777")
+  "--security-opt" "no-new-privileges:true" "--tmpfs" "/tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777")
 
 # Where lib/sandbox.sh gives a container its copy of the code index. Said here
 # as well, so a test that pins a mount names the path without reading the
