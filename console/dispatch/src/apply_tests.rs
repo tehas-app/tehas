@@ -17,7 +17,11 @@ if [ "$name" != store ] && [ "$name" != docker ]; then input=$(cat); fi
 printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
 if [ -f "$d/fail-$name" ]; then
   while IFS= read -r p; do
-    case "$*" in *"$p"*) echo "store: busy: stub" >&2; exit 1 ;; esac
+    case "$* $input" in *"$p"*)
+      case "$p" in slow*) sleep 5 ;; esac
+      case "$*" in *DELETE*) echo "gh: Not Found (HTTP 404)" >&2 ;; *) echo "store: busy: stub" >&2 ;; esac
+      exit 1 ;;
+    esac
   done <"$d/fail-$name"
 fi
 case "$name $1" in
@@ -208,7 +212,8 @@ fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
 #[test]
 fn an_untick_is_followed_by_its_note_only_when_it_worked() {
     let mut t = world();
-    let act = json!([{"untick": 9, "comment": 55, "body": "- [ ] Retry", "say": "Not now."}]);
+    let act = json!([{"untick": 9, "comment": 55, "body": "- [ ] Retry", "say": "Not now.",
+        "fail": "WARN: could not untick the question on #9"}]);
     t.apply(act.clone());
     assert_eq!(
         t.writes(),
@@ -231,11 +236,54 @@ fn a_pull_request_without_the_mark_is_unmarked_already() {
     let act = json!([{"pr": 12, "remove": ["tehas:refreshing"], "log": "unmark #12"}]);
     let mut t = world();
     assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
+    // GitHub's Not Found: the mark is not there, which is what was wanted.
     let mut t = world();
     t.fail("gh", "DELETE");
+    assert_eq!(t.apply(act.clone()).log, vec!["unmark #12"]);
+    assert!(t.calls().last().unwrap().ends_with("--result empty"));
+}
+
+#[test]
+fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
+    let mut t = world();
+    t.fail("gh", "slow");
+    t.w.bound = Duration::from_secs(1);
+    let a = t.apply(json!([{"issue": 7, "say": "slow words"}]));
+    assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
+    assert!(t.calls().last().unwrap().ends_with("--result timed-out"));
+}
+
+#[test]
+fn a_write_whose_attempt_is_not_recorded_is_not_made() {
+    let mut t = world();
+    t.fail("store", "journal-attempt");
+    let a = t.apply(json!([{"issue": 7, "say": "words"}]));
     assert_eq!(
-        t.apply(act).log,
-        vec!["WARN: label change on pull request #12 failed: --remove-label tehas:refreshing"]
+        a.log,
+        vec!["WARN: the journal could not record a write on #7, so it was not made"]
+    );
+    assert!(t.writes().is_empty());
+}
+
+#[test]
+fn the_journal_holds_a_body_by_its_sum_and_length_only() {
+    let mut t = world();
+    t.apply(json!([{"issue": 7, "say": "a secret-free but long body"}]));
+    let record = &t.calls()[0];
+    assert!(!record.contains("long body"));
+    assert!(record.contains(r#""bytes":27"#));
+    assert!(record.contains(r#""sha256":""#));
+}
+
+#[test]
+fn an_untick_logs_the_line_its_site_gave() {
+    let mut t = world();
+    t.fail("gh", "PATCH");
+    let a = t.apply(json!([{"untick": 9, "comment": 55, "body": "x",
+        "fail": "WARN: could not untick the retry on #9; its question is no longer on record, so it starts nothing more"}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: could not untick the retry on #9; its question is no longer on record, so it starts nothing more"]
     );
 }
 

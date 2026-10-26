@@ -196,6 +196,7 @@ fn open_lists_the_unsettled_oldest_first() {
     let late = intend(&home, 5000, "3");
     let early = intend(&home, 4000, "4");
     let done = intend(&home, 4500, "5");
+    ok(&home, &["journal-attempt", "--action", &done.to_string()]);
     ok(
         &home,
         &[
@@ -214,4 +215,21 @@ fn open_lists_the_unsettled_oldest_first() {
         .map(|a| a["id"].as_i64().unwrap())
         .collect();
     assert_eq!(ids, vec![early, late]);
+}
+
+#[test]
+fn an_action_never_attempted_has_no_result_and_is_only_abandoned() {
+    let home = home("journal-unattempted");
+    let id = intend(&home, 6000, "6").to_string();
+    assert_eq!(
+        refused(
+            &home,
+            &["journal-settle", "--action", &id, "--result", "ok"]
+        ),
+        (1, "action".into())
+    );
+    assert_eq!(
+        ok(&home, &["journal-settle", "--action", &id, "--abandoned"])["state"],
+        "abandoned"
+    );
 }
