@@ -228,22 +228,27 @@ impl Args {
             .map(|v| v.expect("the flag was given"))
     }
 
-    /// An enumerated value: the word given is named on refusal.
-    pub fn word(&self, flag: &str, set: &[&'static str]) -> Result<Option<&'static str>, String> {
-        match self.value(flag) {
-            None => Ok(None),
-            Some(v) => set
-                .iter()
-                .find(|w| **w == v)
-                .copied()
-                .map(Some)
-                .ok_or_else(|| {
-                    self.usage(
-                        flag,
-                        &format!("is not one of {}: {}", set.join(", "), shown(v)),
-                    )
-                }),
+    /// `words` are the pairs of one word: the spelling of today, which is what
+    /// comes back and the only one a refusal prints, and the old spelling of
+    /// #686 taken beside it. The pair is one value, so an alias cannot stand
+    /// beside the wrong word, and no row ever carries the old spelling. #686:
+    /// part 5 drops each alias and leaves the current word alone.
+    pub fn word(
+        &self,
+        flag: &str,
+        words: &[(&'static str, &'static str)],
+    ) -> Result<Option<&'static str>, String> {
+        let Some(given) = self.value(flag) else {
+            return Ok(None);
+        };
+        if let Some((current, _)) = words.iter().find(|(w, a)| *w == given || *a == given) {
+            return Ok(Some(current));
         }
+        let current: Vec<&str> = words.iter().map(|(w, _)| *w).collect();
+        Err(self.usage(
+            flag,
+            &format!("is not one of {}: {}", current.join(", "), shown(given)),
+        ))
     }
 
     /// An absolute path. Cleaning it is the file read's job.

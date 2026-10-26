@@ -29,7 +29,25 @@ pub struct Record {
     pub input: Option<PathBuf>,
 }
 
-pub const HOWS: [&str; 5] = ["label", "refresh", "retry-tick", "outage-retry", "fixer"];
+/// The word a millwright's start is written as, whatever spelling it was given.
+pub const MILLWRIGHT: &str = tehas_core::grammar::MILLWRIGHT_WORDS[0];
+
+/// #686: the old name of the millwright's word, taken as `MILLWRIGHT` is and
+/// answered with it.
+pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
+
+/// The two spellings of the millwright's word that name one class, as the pair
+/// in `tehas_core::grammar` has them: analytics' marks and the MCP server's
+/// filter read that pair too, so one list stands for all of them. The word of
+/// today is first. Each reader of it is pinned to the core pair by a test of
+/// its own: `mcp/tests/sessions.rs`, `analytics`' `plan_how_words` and the
+/// pair's own case in `core`'s `grammar`.
+///
+/// What part 5 of #686 drops is the aliases `Args::word` takes, the words of
+/// the two `lib/store.sh` shapes and the old keys a read still answers. Every
+/// one of them says `part 5 of #686`; the two schema CHECK lists take both
+/// words too and are named at their sites in `db.rs`.
+pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
 /// approval. Each list is a JSON array and `refresh_of` an object or null; the
@@ -39,6 +57,42 @@ const INPUT_BOUND: u64 = 1 << 20;
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
+
+/// The hows of this release: what `approval-record` takes, in the order a
+/// refusal prints them (the case in `verbs_tests.rs` pins that string), with
+/// `fixer` as the alias `Args::word` takes beside the word it stands for.
+/// `fixer` is the old name of `millwright` and has no row of its own.
+const CURRENT_HOWS: [(&str, &str); 5] = [
+    (MILLWRIGHT, FIXER),
+    ("label", "label"),
+    ("refresh", "refresh"),
+    ("retry-tick", "retry-tick"),
+    ("outage-retry", "outage-retry"),
+];
+
+/// Whether `how` names the millwright's start, in either spelling.
+pub fn is_millwright(how: &str) -> bool {
+    MILLWRIGHT_WORDS.contains(&how)
+}
+
+/// The mark on a planning answer, read under its two names: each name the
+/// record does not give is read as false, and an unequal pair is the one case
+/// the import cannot decide, so this is None and the caller names both values.
+pub fn kept_mark(millwright: Option<bool>, fixer: Option<bool>) -> Option<bool> {
+    match (millwright, fixer) {
+        (Some(a), Some(b)) if a != b => None,
+        (a, b) => Some(a.unwrap_or(false) || b.unwrap_or(false)),
+    }
+}
+
+/// The how of a record or a start, as the row writes it: one of `CURRENT_HOWS`,
+/// or the word of today that `fixer` names, or None for a word it does not know.
+pub fn kept_how(given: &str) -> Option<&'static str> {
+    CURRENT_HOWS
+        .into_iter()
+        .find(|(w, a)| *w == given || *a == given)
+        .map(|(w, _)| w)
+}
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
@@ -86,7 +140,9 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
         return Ok(Call::Undo { issue, at });
     }
     a.need("--how")?;
-    let how = a.word("--how", &HOWS)?.expect("--how was given");
+    // The old `fixer` is taken and answered with `millwright`; a refusal names
+    // only the words of this release.
+    let how = a.word("--how", &CURRENT_HOWS)?.expect("--how was given");
     let by = a.strict_need("--by", "an account", verbs::account)?;
     let body_sha = a.strict_need("--body-sha", "a sha256", verbs::sha256)?;
     let title_sha = a.strict("--title-sha", "a sha256", verbs::sha256)?;
@@ -106,7 +162,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
             "and --refresh-head are given exactly with --how refresh",
         ));
     }
-    let labelled = how == "label" || how == "fixer";
+    let labelled = how == "label" || is_millwright(how);
     let label = match a.value("--label") {
         Some(v) => Some(approval_label(v).ok_or_else(|| {
             a.usage(
@@ -316,7 +372,7 @@ fn rests_on(c: &Connection, issue: i64) -> Result<Option<Base>, Fail> {
     let Some((top, how)) = current_used_by(c, issue)? else {
         return Ok(None);
     };
-    let below = if how == "fixer" || how == "refresh" {
+    let below = if is_millwright(&how) || how == "refresh" {
         top - 1
     } else {
         top
@@ -352,6 +408,37 @@ pub fn retain(c: &Connection, issue: i64) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The starts on the base above `floor`, as two counts: the millwright's and
+/// the refreshes. One statement, because the two are read together; an old row
+/// still says `fixer`, so a millwright start is either word of the pair and
+/// both are summed.
+fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
+    let mut millwright_starts = 0;
+    let mut refreshes = 0;
+    let mut q = c
+        .prepare(
+            "SELECT how, count(*) FROM approvals
+             WHERE issue = ?1 AND used_by > ?2 AND how IN (?3, ?4, 'refresh')
+             GROUP BY how",
+        )
+        .q()?;
+    let rows = q
+        .query_map(params![issue, floor, MILLWRIGHT, FIXER], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })
+        .q()?;
+    for row in rows {
+        let (how, n) = row.q()?;
+        // A word the IN list does not admit counts nowhere.
+        match how.as_str() {
+            "refresh" => refreshes += n,
+            w if is_millwright(w) => millwright_starts += n,
+            _ => {}
+        }
+    }
+    Ok((millwright_starts, refreshes))
+}
+
 fn current(home: &Path, issue: i64) -> Result<String, Fail> {
     verbs::look(home, |c| {
         let unused = approval_json(
@@ -366,16 +453,7 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
         )?;
         let base = rests_on(c, issue)?;
         let floor = base.as_ref().map_or(0, |b| b.4);
-        let starts = |how: &str| -> Result<i64, Fail> {
-            c.query_row(
-                "SELECT count(*) FROM approvals WHERE issue = ?1 AND how = ?2 AND used_by > ?3",
-                params![issue, how, floor],
-                |r| r.get(0),
-            )
-            .q()
-        };
-        let fixer_starts = starts("fixer")?;
-        let refreshes = starts("refresh")?;
+        let (millwright_starts, refreshes) = starts(c, issue, floor)?;
         let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
             obj(&[
                 ("at", j(at)),
@@ -391,7 +469,10 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
                 ("approval", unused),
                 ("current", cur),
                 ("rests_on", base),
-                ("fixer_starts", j(fixer_starts)),
+                ("millwright_starts", j(millwright_starts)),
+                // #686: the old key, the same number, until part 5 moves the
+                // shell's readers to the new one.
+                ("fixer_starts", j(millwright_starts)),
                 ("refreshes", j(refreshes)),
             ],
         ))

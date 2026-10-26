@@ -26,7 +26,8 @@ pub enum Call {
         issue: i64,
         turn: i64,
         by: String,
-        fixer: bool,
+        /// Set by either `--millwright` or the old `--fixer`.
+        millwright: bool,
         text: Option<PathBuf>,
     },
     AnswerUndo {
@@ -77,9 +78,29 @@ const BRIEF_BOUND: u64 = 1 << 20;
 // A GitHub comment is up to 65,536 characters of up to four bytes each.
 const TEXT_BOUND: u64 = 1 << 20;
 
-/// The kinds of `plan-note`, and the keys plan-show lists them under.
-const NOTES: [(&str, &str); 2] = [("fixer-refused", "fixer_refused"), ("held", "held")];
-const NOTE_KINDS: [&str; 2] = [NOTES[0].0, NOTES[1].0];
+/// The kinds of `plan-note`, each with the key plan-show lists it under and,
+/// for the refused class, the old name #686 takes beside it.
+const NOTES: [(&str, &str, &str); 2] = [
+    ("millwright-refused", "millwright_refused", "fixer-refused"),
+    ("held", "held", "held"),
+];
+/// The kinds of this release, which `Args::word` prints in a refusal, with the
+/// alias of each: `plan-note --kind` takes the old `fixer-refused` and writes
+/// the current word, and no note of this release carries the old one.
+const NOTE_KINDS: [(&str, &str); 2] = [(NOTES[0].0, NOTES[0].2), (NOTES[1].0, NOTES[1].2)];
+
+/// The word a refused note is written as, whatever spelling it was given.
+pub const MILLWRIGHT_REFUSED: &str = NOTES[0].0;
+
+/// Whether `kind` names a note of either spelling, and the word it is written
+/// as. `plan-note` is the only writer and the words come from `NOTE_KINDS`, so
+/// a kind is known here or it was never a `plan-note` argument.
+pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
+    NOTE_KINDS
+        .into_iter()
+        .find(|(w, a)| *w == kind || *a == kind)
+        .map(|(w, _)| w)
+}
 pub const MAX_OPTIONS: usize = 20;
 const OPTION_BYTES: usize = 300;
 
@@ -126,7 +147,12 @@ fn note_args(rest: &[String]) -> Result<Call, String> {
     a.need("--kind")?;
     Ok(Call::Note {
         issue,
-        kind: a.word("--kind", &NOTE_KINDS)?.expect("--kind was given"),
+        // The old `fixer-refused` is normalised here, at the parse boundary, so
+        // the Call carries only a word of today and a refusal names only those.
+        // Both lists come from `NOTES`, so a word `Args::word` took is a word
+        // `kept_note_kind` knows.
+        kind: kept_note_kind(a.word("--kind", &NOTE_KINDS)?.expect("--kind was given"))
+            .expect("word named one of the kinds"),
         id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
     })
 }
@@ -152,7 +178,13 @@ fn begin_args(rest: &[String]) -> Result<Call, String> {
     let by = a.strict_need("--by", "an account", verbs::account)?;
     a.need("--label")?;
     let label = a
-        .word("--label", &["tehas:plan", "tehas:refine"])?
+        .word(
+            "--label",
+            &[
+                ("tehas:plan", "tehas:plan"),
+                ("tehas:refine", "tehas:refine"),
+            ],
+        )?
         .expect("--label was given");
     a.need("--brief-file")?;
     let brief = a.path("--brief-file")?.expect("--brief-file was given");
@@ -177,6 +209,7 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         &[
             ("--turn", Kind::Value),
             ("--by", Kind::Value),
+            ("--millwright", Kind::Switch),
             ("--fixer", Kind::Switch),
             ("--text-file", Kind::Value),
             ("--undo", Kind::Switch),
@@ -193,7 +226,11 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         issue,
         turn,
         by: a.strict_need("--by", "an account", verbs::account)?,
-        fixer: a.has("--fixer"),
+        // `--fixer` is the old name of `--millwright` and means the same, so
+        // both are the one mark and giving both asks for nothing new: unlike
+        // --refresh-pr and --refresh-head, the two are not a pair to match.
+        // #686: part 5 drops `--fixer` and this arm with it.
+        millwright: a.has("--millwright") || a.has("--fixer"),
         text: a.path("--text-file")?,
     })
 }
@@ -245,7 +282,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     let turn = a.strict_need("--turn", "a number", verbs::number)?;
     a.need("--outcome")?;
     let outcome = a
-        .word("--outcome", &OUTCOMES)?
+        .word("--outcome", &OUTCOMES.map(|o| (o, o)))?
         .expect("--outcome was given");
     let rc = a.strict("--rc", "an exit status", verbs::count)?;
     match (outcome, rc) {
@@ -314,9 +351,9 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
             issue,
             turn,
             by,
-            fixer,
+            millwright,
             text,
-        } => answer(home, *issue, *turn, by, *fixer, text.as_deref(), now),
+        } => answer(home, *issue, *turn, by, *millwright, text.as_deref(), now),
         Call::AnswerUndo { issue, turn } => answer_undo(home, *issue, *turn),
         Call::End(e) => end(home, e, now),
         Call::Posted { issue } => posted(home, *issue),
@@ -370,12 +407,26 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
         .unwrap_or(Value::Array(Vec::new()));
     p.insert(3, ("options", options.to_string()));
     let mut q = c
+        // The mark is one column and two names: the column is selected twice
+        // so that row_json answers it under both spellings, as the pair of
+        // keys `plan-show` gives until part 5 of #686 moves the shell's readers.
         .prepare(
-            "SELECT turn, by_account, millwright FROM planning_answers WHERE issue = ?1 ORDER BY turn",
+            "SELECT turn, by_account, millwright, millwright FROM planning_answers WHERE issue = ?1 ORDER BY turn",
         )
         .q()?;
+    // Both spellings of the mark, the same value: `plan-show` answers them as
+    // one pair of keys until part 5 of #686 moves the shell's readers.
     let answers: Vec<String> = q
-        .query_map([issue], |r| row_json(r, &["turn", "by", "fixer?"]))
+        .query_map([issue], |r| {
+            // The mark is one column answered under two names: the third entry
+            // reads the column again and the `?` of each name renders it as a
+            // boolean, so the pair shares one value and carries both spellings.
+            row_json(r, &["turn", "by", "millwright?", "millwright?"]).map(|mut p| {
+                let mark = p[2].1.clone();
+                p[3] = ("fixer", mark);
+                p
+            })
+        })
         .q()?
         .map(|r| r.map(|p| obj(&p)))
         .collect::<Result<_, _>>()
@@ -407,7 +458,7 @@ pub fn planning_json(c: &Connection, issue: i64) -> Result<String, Fail> {
         .flatten();
     p.push(("answer", j(answer)));
     let mut notes = Vec::new();
-    for (kind, key) in NOTES {
+    for (kind, key, _) in NOTES {
         let mut q = c
             .prepare(
                 "SELECT comment_id FROM planning_notes WHERE issue = ?1 AND kind = ?2
@@ -562,7 +613,7 @@ fn answer(
     issue: i64,
     turn: i64,
     by: &str,
-    fixer: bool,
+    millwright: bool,
     text: Option<&Path>,
     now: i64,
 ) -> Result<String, Fail> {
@@ -592,7 +643,7 @@ fn answer(
         c.execute(
             "INSERT INTO planning_answers (issue, turn, by_account, millwright, text)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![issue, turn, by, fixer, text],
+            params![issue, turn, by, millwright, text],
         )
         .q()?;
         c.execute(

@@ -1935,6 +1935,43 @@ fn plan_outcomes_follow_how_the_turn_ended_and_how_it_was_started() {
 }
 
 #[test]
+fn plan_how_words_are_the_pair_of_the_core_grammar() {
+    // Each reader of the class has a test of its own that its words are these
+    // two: this is analytics', beside the MCP server's and the core pair's.
+    assert_eq!(
+        crate::plan::MILLWRIGHT_MARKS,
+        tehas_core::grammar::MILLWRIGHT_WORDS
+    );
+    let now = 1_792_000_000;
+    let at = iso(now - 60);
+    let mark = |answer: Value| {
+        let home = scratch("plan-mark");
+        turn(
+            &home,
+            json!({"session": "s", "turns": 2, "running": true, "startedAt": at, "answers": [answer]}),
+            Some(json!({"session": "s"})),
+        );
+        execute(&home, &plan_cmd(&home, "2"), now).unwrap();
+        let conn = Connection::open(db::path(&home)).unwrap();
+        one::<String>(&conn, "SELECT how FROM runs")
+    };
+    // Each word of the pair marks the turn the millwright's and neither word
+    // is an answer: were the marks anything else, one of these three disagrees.
+    assert_eq!(
+        mark(json!({"turn": 3, "by": "bot", "millwright": true})),
+        "millwright"
+    );
+    assert_eq!(
+        mark(json!({"turn": 3, "by": "bot", "fixer": true})),
+        "millwright"
+    );
+    assert_eq!(
+        mark(json!({"turn": 3, "by": "bot", "millwright": false, "fixer": false})),
+        "answer"
+    );
+}
+
+#[test]
 fn a_refining_session_s_first_turn_is_how_refine_and_its_later_turns_are_answers() {
     let now = 1_792_000_000;
     let at = iso(now - 60);

@@ -18,7 +18,7 @@ fn record(home: &Path, issue: i64, at: i64, by: &str, how: &str) -> Value {
         "--body-sha",
         SHA,
     ];
-    if how == "label" || how == "fixer" {
+    if how == "label" || crate::approval::is_millwright(how) {
         args.extend(["--label", "tehas:ready"]);
     }
     if how == "refresh" {
@@ -82,6 +82,88 @@ fn approval_record_stores_every_field() {
         "tehas:ready"
     );
     assert_eq!(count(&home, "issues"), 5);
+}
+
+#[test]
+fn a_millwright_start_is_written_under_the_new_word_and_counted_by_both() {
+    let home = home("approval-millwright");
+    // The dispatcher of this release still sends the old word; part 5 sends the
+    // new one. Both rows say `millwright`, and both need the person's label.
+    let v = record(&home, 40, 5, "tehas-fixer", "fixer");
+    assert_eq!(v["approval"]["how"], "millwright");
+    assert_eq!(v["approval"]["label"], "tehas:ready");
+    let v = record(&home, 41, 5, "tehas-fixer", "millwright");
+    assert_eq!(v["approval"]["how"], "millwright");
+    assert_eq!(v["approval"]["label"], "tehas:ready");
+    // A row written before the rename still counts toward the starts.
+    ok(
+        &home,
+        &[
+            "approval-record",
+            "42",
+            "--at",
+            "4",
+            "--by",
+            "oldbot",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA,
+        ],
+    );
+    let c = conn(&home);
+    c.execute(
+        "UPDATE approvals SET how = 'fixer', used_at = at, used_by = 1
+         WHERE issue = 42",
+        [],
+    )
+    .unwrap();
+    drop(c);
+    let v = current(&home, 42);
+    assert_eq!(v["millwright_starts"], 1, "an old fixer row is a start");
+    assert_eq!(v["fixer_starts"], 1, "the answer keeps the old key too");
+}
+
+#[test]
+fn the_two_spellings_of_the_millwright_are_the_same_starts() {
+    // The starts of both spellings count together, above the base.
+    let counted = home("approval-millwright-counts");
+    let (l, a) = start_by(&counted, 43, "alice", "label", NOW);
+    end(&counted, 43, a, "failed");
+    drop(l);
+    let (l, b) = start_by(&counted, 43, "tehas-fixer", "fixer", NOW);
+    end(&counted, 43, b, "failed");
+    drop(l);
+    let (_l, c) = start_by(&counted, 43, "tehas-fixer", "millwright", NOW);
+    end(&counted, 43, c, "failed");
+    let v = current(&counted, 43);
+    assert_eq!(
+        (v["millwright_starts"].clone(), v["fixer_starts"].clone()),
+        (json!(2), json!(2)),
+        "the two spellings are the same starts"
+    );
+    assert_eq!(v["rests_on"]["by"], "alice");
+}
+
+#[test]
+fn a_millwright_start_rests_on_the_person_and_is_a_base_of_its_own() {
+    // The row's own word is the new one, so rests_on still steps over it.
+    let home = home("approval-millwright-base");
+    let (l, a) = start_by(&home, 44, "alice", "label", NOW);
+    end(&home, 44, a, "failed");
+    drop(l);
+    let (l, b) = start_by(&home, 44, "tehas-fixer", "millwright", NOW);
+    end(&home, 44, b, "failed");
+    drop(l);
+    let (_l, _) = start_by(&home, 44, "alice", "refresh", NOW);
+    let v = current(&home, 44);
+    assert_eq!(v["current"]["how"], "refresh");
+    assert_eq!(v["rests_on"]["by"], "alice");
+    assert_eq!(v["rests_on"]["used_by"], a);
+    assert_eq!(v["millwright_starts"], 1);
+    assert_eq!(b, a + 1);
 }
 
 #[test]
@@ -283,7 +365,7 @@ fn approval_current_approval_is_null_once_used() {
     assert_eq!(
         current(&home, 23),
         json!({"api":1,"verb":"approval-current","ok":true,"approval":null,"current":null,
-               "rests_on":null,"fixer_starts":0,"refreshes":0})
+               "rests_on":null,"millwright_starts":0,"fixer_starts":0,"refreshes":0})
     );
     approve(&home, 23, "alice", "label");
     let v = current(&home, 23);
@@ -359,7 +441,7 @@ fn approvals_keep_only_the_base_and_its_starts() {
         rows,
         vec![
             (3, "label".into()),
-            (4, "fixer".into()),
+            (4, "millwright".into()),
             (5, "refresh".into())
         ]
     );
