@@ -155,6 +155,8 @@ files="./.bashrc
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
 ./tehas/libexec/summary
+./tehas/libexec/tehas-cycle
+./tehas/libexec/tehas-cycle.stamp
 ./tehas/libexec/tehas-dispatch
 ./tehas/libexec/tehas-dispatch.stamp
 ./tehas/libexec/tehas-mcp

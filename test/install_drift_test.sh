@@ -155,15 +155,17 @@ t_run "$install"
 t_lacks "$t_out" "bootstrap.sh user"
 cmp -s "$th/versions.env" "$T/versions.env.kept" || t_bad "versions.env was not put back"
 
-t_case "the console, analytics, the MCP server, the store, the attachment checker and the dispatcher's shadow are built once each, from the lock file, and installed as programs"
+t_case "the console, analytics, the MCP server, the store, the attachment checker and the two shadows are built once each, from the lock file, and installed as programs"
 t_eq "$(t_calls cargo)" "build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p console
 build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p analytics
 build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target --target x86_64-unknown-linux-musl -p tehas-mcp
 build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p store
 build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p attach
-build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p tehas-dispatch"
+build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p tehas-dispatch
+build --release --locked --offline --quiet --manifest-path $T_ROOT/console/Cargo.toml --target-dir $T/target -p tehas-cycle"
 t_eq "$(stat -c %a "$th/libexec/tehas-mcp")" 755
 t_eq "$(stat -c %a "$th/libexec/tehas-dispatch")" 755
+t_eq "$(stat -c %a "$th/libexec/tehas-cycle")" 755
 t_eq "$(stat -c %a "$th/libexec/attach")" 755
 t_eq "$(stat -c %a "$th/libexec/store")" 755
 t_eq "$(stat -c %a "$th/libexec/console")" 755

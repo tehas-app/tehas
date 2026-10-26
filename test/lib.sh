@@ -413,6 +413,33 @@ t_dispatch() {
   fi
   cp "$target/debug/tehas-dispatch" "$T_DISPATCH"
 }
+# t_cycle: tehas-cycle of this checkout, in $T_CYCLE, as t_dispatch gets
+# tehas-dispatch: from T_CYCLE_BIN, or built here when the file runs alone.
+T_CYCLE=$T/cycle-bin
+t_cycle_why=""
+t_cycle() {
+  [ -x "$T_CYCLE" ] && return 0
+  if [ -n "${T_CYCLE_BIN:-}" ]; then
+    cp "$T_CYCLE_BIN" "$T_CYCLE" && return 0
+    t_cycle_why="tehas-cycle built for this run cannot be copied: $T_CYCLE_BIN"
+    return 1
+  fi
+  if [ -n "${T_STORE_WHY:-}" ]; then
+    t_cycle_why=$T_STORE_WHY
+    return 1
+  fi
+  if ! command -v cargo >/dev/null 2>&1; then
+    t_cycle_why="cargo is not installed"
+    return 1
+  fi
+  local target=$T_ROOT/console/target/shell
+  if ! cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$target" -p tehas-cycle >"$T/cycle-build.log" 2>&1; then
+    t_cycle_why="tehas-cycle did not build offline: $(tail -n 1 "$T/cycle-build.log")"
+    return 1
+  fi
+  cp "$target/debug/tehas-cycle" "$T_CYCLE"
+}
 # t_attach_home <home>: the attachment checker where a command runs it.
 t_attach_home() {
   if ! t_attach; then

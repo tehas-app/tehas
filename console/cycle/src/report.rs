@@ -1251,3 +1251,33 @@ fn cut_bytes(s: &str, n: usize) -> String {
     let b = &s.as_bytes()[..s.len().min(n)];
     String::from_utf8_lossy(b).into_owned()
 }
+
+/// The report as JSON. A park is shown with its question and with the
+/// comment it posts when the question is not posted (`comment`) or the park
+/// not taken (`comment_unrecorded`), each as it reads after a label change
+/// that worked (`ok`) and one that did not (`stuck`).
+pub fn to_json(r: &Report, issue: u64) -> Value {
+    let both = |f: &dyn Fn(bool) -> String| json!({"ok": f(false), "stuck": f(true)});
+    let actions: Vec<Value> = r
+        .actions
+        .iter()
+        .map(|a| match a {
+            Action::Relabel { remove, add } => json!({"relabel": {"remove": remove, "add": add}}),
+            Action::Comment { ok, stuck } => json!({"comment": {"ok": ok, "stuck": stuck}}),
+            Action::Park(p) => json!({"park": {
+                "args": p.args,
+                "question": both(&|s| p.question(issue, s).1),
+                "comment": both(&|s| p.comment(s, true)),
+                "comment_unrecorded": both(&|s| p.comment(s, false)),
+            }}),
+            Action::PrComment { pr, body } => json!({"pr_comment": {"pr": pr, "body": body}}),
+            Action::Tidy { remove, warn } => json!({"tidy": {"remove": remove, "warn": warn}}),
+            Action::RefreshOff { pr } => json!({"refresh_off": pr}),
+        })
+        .collect();
+    json!({
+        "log": r.log, "actions": actions, "done": r.done, "end": r.end, "files": r.files,
+        "history": r.history, "analytics": r.analytics, "improve": r.improve,
+        "status_run": r.status_run, "asked": r.asked,
+    })
+}

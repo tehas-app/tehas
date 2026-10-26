@@ -372,7 +372,9 @@ tehas_work_kind "$answer" || {
 # then every call to GitHub is tried once and bounded.
 signalled=0
 tries=3
+shadow=""
 gh_call() {
+  [ -z "$shadow" ] || printf '%s\0' "$@" $'\x1e' >>"$shadow.gh"
   if [ "$signalled" = 1 ]; then
     # KILL: the report ignores TERM, and gh inherits that.
     timeout -s KILL "$stop_gh_wait" gh "$@"
@@ -443,13 +445,6 @@ tidy() {
 }
 
 started=$EPOCHSECONDS
-# When this cycle took its lock and started tehas work, in whole seconds. The
-# files tehas work leaves for a cycle it watched are this cycle's own only when
-# they are no older than this: they were removed before tehas work started, and
-# one older is what a cycle that was killed outright left behind. The whole
-# second counts, not only a time strictly after it: a tehas work that ends in
-# the second it was started in writes its files at this second, not after it.
-lock_taken=$started
 # An issue a handoff left with needs-human-attention starts again only on a
 # person's answer: the label or the tick that started this cycle, or the one
 # start after a provider outage the dispatcher makes for the account that
@@ -491,6 +486,9 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
+# The report's shadow (#256): tehas-cycle decides beside this report, from the
+# same files, while state/cycle-shadow.on is there. It never fails the report.
+[ ! -e "$TEHAS_HOME/state/cycle-shadow.on" ] || ! timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" shadow "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" >/dev/null 2>&1 || shadow=$cycles/$issue.shadow
 mins=$(((EPOCHSECONDS - started) / 60))
 [ ! -f "${workdir%/*}/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
@@ -594,16 +592,9 @@ rm -f "${cycles:?}/${issue:?}.nostart"
 # disagree. Only a cycle tehas work watched has a log of its own, and the
 # summary it wrote of that log is what says so: only such a cycle is read for
 # one. The summary is this cycle's own as well: the cycle removed it when it
-# took its lock, and tehas work writes no progress of its own before the
-# container runs, so a file that is newer than the start of this cycle was
-# written by it. An older one is what a cycle that was killed outright before
-# it could report left behind, and a log of that run is no log of this one.
+# took its lock, before tehas work started.
 read_log_steps=$no_result
 [ "$watched" = 1 ] && [ "$progress_seen" = 1 ] || read_log_steps=0
-if [ "$read_log_steps" = 1 ] && [ ! "$progress" -nt "$lock_taken" ] &&
-  [ "$(stat -c %Y "$progress" 2>/dev/null)" != "$lock_taken" ]; then
-  read_log_steps=0
-fi
 # Where the step now on record was read is said below, beside the words the
 # comment uses for it.
 # A step of tehas work's own files: the step it saw in flight when it stopped
@@ -1167,6 +1158,7 @@ park() {
   esac
   # On record before the issue is told: a question whose park is not on record
   # would offer boxes that start nothing.
+  [ -z "$shadow" ] || printf '%s\0' "${park_args[@]}" >"$shadow.park"
   if tehas_store_try 3 park "${park_args[@]}"; then
     on_record=1
   else
@@ -1413,6 +1405,7 @@ done
 # A start that never ran takes its approval with it: the fixer, a refresh and
 # a later start each read an approval as one whose cycle happened.
 [ "$never_ran" != 1 ] || end_args+=(--never-ran)
+[ -z "$shadow" ] || printf '%s\0' "${end_args[@]}" >"$shadow.end"
 if tehas_store_try 5 cycle-end "${end_args[@]}"; then
   # What the store would not keep of what tehas work left: a link, a file over
   # its bound or not JSON, and progress older than this start.
@@ -1444,6 +1437,7 @@ tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
+[ -z "$shadow" ] || timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 # The slot is free now: fill it without waiting for the timer. systemd takes a
