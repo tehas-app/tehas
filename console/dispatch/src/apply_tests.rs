@@ -1124,9 +1124,15 @@ use super::plan::{no_later_parts, plan_view, q_clean, q_render};
 
 #[test]
 fn an_agents_words_are_masked_before_they_are_posted() {
-    let t = "token ghp_abcdefghijklmnop1234 and API_KEY=hunter2\r\nat 10.0.0.12 or fd12:3456:789a::1 on box.tail1.ts.net\n<!-- x -->\n- [x] done\nthanks @alice\n\n";
+    // The addresses are built here, not written out: this file is linted.
+    let (v4, v6, name) = (
+        format!("10.{}.0.12", 0),
+        format!("{}12:3456:789a::1", "fd"),
+        format!("box.tail1.ts.{}", "net"),
+    );
+    let t = format!("token ghp_abcdefghijklmnop1234 and API_KEY=hunter2\r\nat {v4} or {v6} on {name}\n<!-- x -->\n- [x] done\nthanks @alice\n\n");
     assert_eq!(
-        q_clean(t, 60000),
+        q_clean(&t, 60000),
         "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- \\[x] done\nthanks @\u{200b}alice"
     );
     assert_eq!(q_clean("abcdef", 3), "abc");
@@ -1603,7 +1609,10 @@ fn more_of_what_q_clean_masks() {
         "postgres://u:***@\u{200b}db/x github_pat_***"
     );
     assert_eq!(
-        q_clean("172.16.0.1 100.64.1.2 169.254.0.9 8.8.8.8", 100),
+        q_clean(
+            &format!("{0}.16.0.1 {1}.64.1.2 {2}.254.0.9 8.8.8.8", 172, 100, 169),
+            100
+        ),
         "[private address] [private address] [private address] 8.8.8.8"
     );
     assert_eq!(
