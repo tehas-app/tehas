@@ -51,10 +51,10 @@ case "${1:-}" in
   --every)
     while :; do
       # The next run resolves the host tree from its own environment: lib/top.sh
-      # reads TEHAS_PROC_DIR when it is sourced, before tehas_load clears the
+      # reads TEHAS_PROC_DIR and TEHAS_CONSOLE when it is sourced, before tehas_load clears the
       # settings, so a run pointed at another tree (the tests do that) has to
       # say so to the runs it starts.
-      TEHAS_PROC_DIR=$tehas_proc_dir "$0"
+      TEHAS_PROC_DIR=$tehas_proc_dir TEHAS_CONSOLE=$tehas_top_console "$0"
       case $? in
         # Broken instance settings do not fix themselves between one mark and
         # the next: the unit is told, so systemd shows a failing service rather
