@@ -107,4 +107,11 @@ for command in tidy status; do
   t_contains "$(cat "$T_ROOT/libexec/$command")" "tehas_shipped_rule"
 done
 
+t_case "the query closes every brace it opens, so GitHub can parse it"
+# The tests stub gh, so a query GitHub refuses passed them all (v0.14.0).
+q=$(tehas_shipped_query)
+t_eq "$(tr -cd '{' <<<"$q" | wc -c)" "$(tr -cd '}' <<<"$q" | wc -c)"
+t_eq "$(tr -cd '(' <<<"$q" | wc -c)" "$(tr -cd ')' <<<"$q" | wc -c)"
+t_eq "$(tr -cd '[' <<<"$q" | wc -c)" "$(tr -cd ']' <<<"$q" | wc -c)"
+
 t_done
