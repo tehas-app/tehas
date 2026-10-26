@@ -372,7 +372,7 @@ fn expand(c: &Value, snap: &mut Value) {
     // asked: {n: [body, editor, later comments]}: the same for any body.
     let mut asked: Vec<(String, Value)> = Vec::new();
     if let Some(x) = c.get("park_q").and_then(Value::as_array) {
-        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
             x[0].as_str().unwrap(), x[1].as_str().unwrap());
         asked.push((
             "7".into(),
@@ -473,6 +473,7 @@ fn expand(c: &Value, snap: &mut Value) {
             "park": null,
             "approval": null,
             "current": null,
+            "refresh_said": "",
         });
         for (k, v) in defaults.as_object().unwrap() {
             if i.get(k).is_none() {

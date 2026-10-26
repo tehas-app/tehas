@@ -436,7 +436,7 @@
    }
   },
   {
-   "case": "an answer that cannot be read stops the poll before any label change: null",
+   "case": "an answer that cannot be read stops the poll before any label change: not json",
    "snapshot": {
     "issues": {
      "7": {
@@ -516,6 +516,42 @@
    "expect": {
     "exit": 0,
     "picked": []
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: the empty answer",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": ""
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: null",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": null
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
    }
   }
  ]

@@ -57,7 +57,7 @@ pub struct Issue {
     pub history: Option<Result<Vec<Value>, ()>>,
     /// state/refresh/<n>.json, as written; and what <n>.said holds.
     pub request: Option<Value>,
-    pub refresh_said: String,
+    pub refresh_said: Option<String>,
 }
 
 /// A running cycle as cycle-show --running has it. 0 is none on record.
@@ -342,8 +342,7 @@ fn issue(v: &Value) -> Issue {
         refresh_said: v
             .get("refresh_said")
             .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
+            .map(str::to_string),
     }
 }
 
