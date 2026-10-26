@@ -78,6 +78,10 @@ running_refresh() { # <issue>
     --refresh-pr 50 --refresh-head "$rhead"
   t_started "$T/home/tehas" "$1"
   hold "$1"
+  # A running cycle's issue is marked running, as on a host: the queue the
+  # Rust poll reads holds every open issue, so one not on it is closed.
+  jq -c --argjson n "$1" '. + [{number: $n, labels: [{name: "tehas:running"}]}]' "$fx/marked.json" >"$fx/marked.json.new" &&
+    mv "$fx/marked.json.new" "$fx/marked.json"
 }
 # The REST call of rule 4b that marks a pull request, and the one that takes
 # the mark off.
@@ -235,13 +239,17 @@ t_run "$dispatch"
 refresh_dropped "a planning session is open on it"
 
 t_case "open planning sessions that cannot be read again keep the refresh waiting: the request stays"
-refresh_setup
-open_read_fails_again
-t_run "$dispatch"
-t_eq "$(started)" ""
-t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
-t_lacks "$t_out" "drop the refresh of #7"
-t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+# The bash poll reads the open sessions again after its own planning writes;
+# the Rust poll reads them once, with the queue (host/docs/operating.md).
+if bash_reads; then
+  refresh_setup
+  open_read_fails_again
+  t_run "$dispatch"
+  t_eq "$(started)" ""
+  t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
+  t_lacks "$t_out" "drop the refresh of #7"
+  t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
+fi
 
 t_case "with the setting off a request starts nothing"
 refresh_setup
@@ -350,15 +358,22 @@ for l in tehas:millwright-escalated tehas:running tehas:plan; do
   t_case "$l on the issue drops the refresh"
   refresh_setup
   issue7 "$l"
+  # The Rust poll reads the comments of an issue its label says asks.
+  echo '{"data":{"repository":{"issue":{"comments":{"nodes":[]}}}}}' >"$fx/comments-7.json"
   t_run "$dispatch"
   refresh_dropped "it carries $l"
 done
 
 t_case "an issue that no longer waits for a merge drops the refresh"
-refresh_setup
-echo '{"number":7,"state":"open","labels":[]}' >"$fx/work-7.json"
-t_run "$dispatch"
-refresh_dropped "it carries neither tehas:awaiting-merge nor needs-human-attention"
+# The bash poll's own reads disagree here: its list says #7 waits for a merge,
+# the read of #7 says it does not. The Rust poll reads the queue once, in one
+# page, where the two cannot disagree.
+if bash_reads; then
+  refresh_setup
+  echo '{"number":7,"state":"open","labels":[]}' >"$fx/work-7.json"
+  t_run "$dispatch"
+  refresh_dropped "it carries neither tehas:awaiting-merge nor needs-human-attention"
+fi
 
 # handed_off [<label>...]: issue 7 ended as a handoff, its pull request open.
 handed_off() {
