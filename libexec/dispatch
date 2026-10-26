@@ -474,15 +474,16 @@ for old in "${old_records[@]}"; do
   fi
 done
 
-# Every real poll that holds the lock ends with one sample of the factory and
-# a prune in its analytics, after its live files are written, however it
-# ends: a paused, held or failed poll too. A poll that got past the bot's
-# login runs libexec/tidy before them. The poll's exit status stays its own.
-tidy_on=0
+# However a poll that holds the lock ends: libexec/tidy once past the login,
+# then, unless dry, its cost (its own gh calls are the tally) and analytics.
+tidy_on=0 poll_at=$EPOCHREALTIME poll_gh=$TEHAS_HOME/state/poll-gh.tally poll_times=$TEHAS_HOME/state/poll.times
+: >"$poll_gh" && gh() { echo >>"$poll_gh"; command gh "$@"; }
 trap 'if [ "$tidy_on" = 1 ]; then
     if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi
   fi
-  [ "$dry" = 1 ] || { tehas_analytics sample; tehas_analytics prune; }' EXIT
+  [ "$dry" = 1 ] || { times >"$poll_times"; tehas_store poll-record --started "$poll_at" --times "$poll_times" --tally "$poll_gh" \
+    --writes-log "$TEHAS_HOME/state/github-writes.log" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
+    tehas_analytics sample; tehas_analytics prune; }' EXIT
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
 # no rule below may be decided on an answer that never came. Always call it as
