@@ -476,13 +476,13 @@ done
 
 # However a poll that holds the lock ends: libexec/tidy once past the login,
 # then, unless dry, its cost (its own gh calls are the tally) and analytics.
-tidy_on=0 poll_at=$EPOCHREALTIME poll_gh=$TEHAS_HOME/state/poll-gh.tally poll_times=$TEHAS_HOME/state/poll.times
+tidy_on=0 poll_at=$EPOCHREALTIME poll_starts=0 poll_gh=$TEHAS_HOME/state/poll-gh.tally poll_times=$TEHAS_HOME/state/poll.times
 : >"$poll_gh" && gh() { echo >>"$poll_gh"; command gh "$@"; }
 trap 'if [ "$tidy_on" = 1 ]; then
     if [ "$dry" = 1 ]; then "${TEHAS_TIDY_CMD:-$here/tidy}" --dry-run; else "${TEHAS_TIDY_CMD:-$here/tidy}"; fi
   fi
   [ "$dry" = 1 ] || { times >"$poll_times"; tehas_store poll-record --started "$poll_at" --times "$poll_times" --tally "$poll_gh" \
-    --writes-log "$TEHAS_HOME/state/github-writes.log" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
+    --writes-log "$TEHAS_HOME/state/github-writes.log" --starts "$poll_starts" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
     tehas_analytics sample; tehas_analytics prune; }' EXIT
 
 # gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
@@ -1815,6 +1815,9 @@ start_cycles() {
       continue
     fi
     done_any=1
+    # The poll started a cycle: the row of poll_cost says so, and a poll whose
+    # row says 0 is an idle one for `store poll-idle`.
+    poll_starts=$((poll_starts + 1))
     park_spend "$n"
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
     if [ -n "${refresh_pr[$n]:-}" ]; then
