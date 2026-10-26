@@ -75,7 +75,10 @@ when a person pulls and runs `install.sh` there.
 - Which language: the state store, the dispatcher and the cycle supervisor
   are Rust, in the workspace under `console/`. Install, update, bootstrap, the
   units and the glue between commands stay bash. Bash never writes SQL.
-  New logic goes into Rust. The bash of `bin/`, `lib/` and `libexec/` has a
+  New logic goes into Rust. Prefer Rust over bash for new work, and keep
+  scripts to a minimum: as the tehas family grows, logic in bash is harder to
+  test and to change safely. When you touch a script that holds logic,
+  consider moving that logic into Rust. The bash of `bin/`, `lib/` and `libexec/` has a
   ceiling, `scripts/bash-lines.max`, that the gate checks; a change that
   needs more bash takes out as many lines as it adds.
 - Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
