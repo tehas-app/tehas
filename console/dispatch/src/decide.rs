@@ -63,6 +63,11 @@ pub struct Decision {
     pub tidy: bool,
     /// The bot's login, which the poll's writes name.
     pub bot: String,
+    /// Where the poll sweeps the unused locks (after its clean-up) and
+    /// publishes its report (at rule 3): the action and the line each comes
+    /// before, as the bash does them there.
+    pub swept_at: Option<(usize, usize)>,
+    pub reported_at: Option<(usize, usize)>,
 }
 
 /// The poll ends here with this exit status.
@@ -295,6 +300,7 @@ impl<'a> Poll<'a> {
         };
         self.bot = bot.clone();
         self.clean_up(&bot)?;
+        self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             if self.dry || news {
@@ -798,6 +804,7 @@ impl<'a> Poll<'a> {
                 r["endpoint"] = json!(s.endpoint);
             }
             self.d.report = Some(r);
+            self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
         }
         Ok(Room {
             want,

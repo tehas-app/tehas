@@ -70,7 +70,10 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
      poll that held the lock: tidy (once past the bot's checks), its cost
      (`poll-record`, with the poll's own CPU, gh calls and starts) and the
      analytics sample. `poll-begin` names the poll the journal's actions
-     belong to. Nothing chooses it yet.
+     belong to, begun with its first write. Nothing chooses it yet. Its end
+     runs when the poll returns: a SIGTERM, which the bash's EXIT trap
+     catches, ends a Rust poll without its cost and tidy (std Rust has no
+     handler without `unsafe`), and the next poll's tidy covers it.
    - 4b, the gates of a start, as decisions with facts the snapshot reads
      when asked: systemd's LoadState (`units_ok`), the code index
      (`index_gate`: busy, its report, its state, its launch), the checkout's

@@ -15,7 +15,7 @@ use crate::read::host::{epoch, held};
 use crate::read::run::run_quiet;
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -213,17 +213,26 @@ impl Writer {
 
     /// A command of the host whose output the poll's log gets, as status's
     /// and tidy's.
-    pub fn status_of(&mut self, cmd: &str, args: &[String], printed: &mut Vec<String>) {
+    /// Its exit status, None when it did not end in its bound.
+    pub fn status_of(
+        &mut self,
+        cmd: &str,
+        args: &[String],
+        printed: &mut Vec<String>,
+    ) -> Option<i32> {
         // Its output through a file: a pipe would wait for whatever it left
-        // running.
-        if let Some(path) = self.scratch("status") {
-            if let Ok(f) = std::fs::File::create(&path) {
-                run_quiet(cmd, args, Some(f), Duration::from_secs(120));
-                let said = std::fs::read_to_string(&path).unwrap_or_default();
-                printed.extend(said.lines().map(str::to_string));
-            }
-            let _ = std::fs::remove_file(&path);
-        }
+        // running. With no file to write, it runs and its output is lost.
+        let out = self
+            .scratch("status")
+            .and_then(|p| std::fs::File::create(&p).ok().map(|f| (p, f)));
+        let Some((path, f)) = out else {
+            return run_quiet(cmd, args, None, Duration::from_secs(120));
+        };
+        let rc = run_quiet(cmd, args, Some(f), Duration::from_secs(120));
+        let said = std::fs::read_to_string(&path).unwrap_or_default();
+        printed.extend(said.lines().map(str::to_string));
+        let _ = std::fs::remove_file(&path);
+        rc
     }
 
     fn start(&mut self, a: &Value, marked: &mut bool, log: &mut Vec<String>) -> Then {
@@ -571,6 +580,10 @@ impl Writer {
         let m = std::fs::symlink_metadata(&dir).ok()?;
         if !m.is_dir() {
             return None;
+        }
+        // As the bash keeps it: the tehas user's alone.
+        if m.permissions().mode() & 0o777 != 0o700 {
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
         }
         let tag = SystemTime::now()
             .duration_since(UNIX_EPOCH)

@@ -7,13 +7,17 @@
 //! The gates of a start (systemd's answer, the code index, the checkout), the
 //! journal settled first and the setting that chooses this poll are the next
 //! parts of #254: nothing runs this yet.
+//!
+//! The bash poll's end is an EXIT trap, which a SIGTERM runs too. This one
+//! runs when the poll returns: a poll systemd stops records no cost and runs
+//! no tidy, and the next poll's tidy does that one's.
 
 use crate::apply::start::Host;
 use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{run, run_quiet, Calls};
+use crate::read::run::{run, Calls};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
@@ -195,7 +199,17 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             start_wait: secs("TEHAS_CYCLE_START_WAIT", 30),
             status_cmd: or("TEHAS_STATUS_CMD", "status"),
             analytics,
-            analytics_wait: secs("TEHAS_ANALYTICS_WAIT", 5),
+            // tehas_analytics_wait: 1 to 999 seconds, else 5.
+            analytics_wait: Duration::from_secs(
+                Some(env("TEHAS_ANALYTICS_WAIT"))
+                    .filter(|v| {
+                        (1..=3).contains(&v.len())
+                            && !v.starts_with('0')
+                            && v.bytes().all(|b| b.is_ascii_digit())
+                    })
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(5),
+            ),
             work_dir: env("TEHAS_WORK_DIR"),
             user_home: env("HOME"),
             done_wait: secs("TEHAS_CYCLE_DONE_WAIT", 330),
@@ -320,7 +334,8 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
                 .unwrap_or_default()
         };
         let at = first(&taken);
-        if let Ok(t) = at.parse::<u64>() {
+        let digits = !at.is_empty() && at.bytes().all(|b| b.is_ascii_digit());
+        if let Some(t) = at.parse::<u64>().ok().filter(|_| digits) {
             if at.len() <= 12 && now().saturating_sub(t) > HANG && (dry || first(&stuck) != at) {
                 say(&format!("WARN: the dispatcher's lock has been held since {}, more than {HANG}s: a poll hangs, and no poll runs until it ends", iso(t)));
                 if !dry && std::fs::write(&stuck, format!("{at}\n")).is_err() {
@@ -402,37 +417,39 @@ fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut E
     end.gh = src.calls.gh_count;
     end.tidy = d.tidy;
     w.host.bot = d.bot.clone();
-    publish(home, w, &d, &snap);
-    if d.tidy {
-        sweep_locks(w, dry);
-    }
-    if !d.actions.is_empty() && !dry {
-        match w.calls.store(&["poll-begin"]) {
-            Ok(v) => w.poll_at = v.get("at").and_then(Value::as_i64).unwrap_or(now),
-            Err(f) => {
-                let word = f.get("word").and_then(Value::as_str).unwrap_or("");
-                say(&format!(
-                    "ERROR: the state store could not begin the record of this poll ({word})"
-                ));
-                return if f.get("rc") == Some(&json!(1)) {
-                    1
-                } else {
-                    78
-                };
-            }
-        }
-    }
-    // The lines up to each action, then the action: a poll an action ends
-    // logs nothing after it, as the bash exits there.
+    demand_health(home, w, &d);
+    // The decision's lines, the actions between them, and the two steps the
+    // bash takes where they fall: a poll an action ends logs nothing after
+    // it, as the bash exits there.
     let mut next = 0;
     let mut i = 0;
-    while i < d.actions.len() {
-        let line = |a: &Value| a.get("_line").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let upto = line(&d.actions[i]).min(d.log.len());
-        for l in &d.log[next..upto.max(next)] {
+    let (mut swept, mut reported) = (false, false);
+    let lines_to = |upto: usize, next: &mut usize| {
+        let upto = upto.min(d.log.len()).max(*next);
+        for l in &d.log[*next..upto] {
             say(l);
         }
-        next = next.max(upto);
+        *next = upto;
+    };
+    loop {
+        if let Some((_, l)) = d.swept_at.filter(|(a, _)| *a == i && !swept) {
+            lines_to(l, &mut next);
+            sweep_locks(w, dry);
+            swept = true;
+        }
+        if let Some((_, l)) = d.reported_at.filter(|(a, _)| *a == i && !reported) {
+            lines_to(l, &mut next);
+            report(home, w, &d, &snap);
+            reported = true;
+        }
+        if i >= d.actions.len() {
+            break;
+        }
+        let at = d.actions[i]
+            .get("_line")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        lines_to(at, &mut next);
         let run = d.actions[i..]
             .iter()
             .take_while(|a| a.get("start").is_some())
@@ -451,16 +468,13 @@ fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut E
             return rc;
         }
     }
-    for l in &d.log[next..] {
-        say(l);
-    }
+    lines_to(d.log.len(), &mut next);
     d.exit
 }
 
-/// What the poll publishes: live/demand.json and health, then
-/// live/dispatch.json through the store, and the status when its reason
-/// changed. A dry run publishes nothing.
-fn publish(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
+/// live/demand.json and health, as the poll's start writes them. A dry run
+/// writes neither.
+fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
     if let Some(demand) = &d.demand {
         let file = home.join("live/demand.json");
         if demand.is_null() {
@@ -481,10 +495,18 @@ fn publish(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
         let health = Some(env("TEHAS_HEALTH_CMD"))
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| here(home).join("health").to_string_lossy().into_owned());
-        if run_quiet(&health, &[], None, Duration::from_secs(120)) != Some(0) {
+        let mut printed = Vec::new();
+        let rc = w.status_of(&health, &[], &mut printed);
+        pass(&printed);
+        if rc != Some(0) {
             say("WARN: the health file could not be written");
         }
     }
+}
+
+/// live/dispatch.json through the store, with its time, and the status when
+/// its reason changed. A dry run has no report.
+fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
     let Some(report) = &d.report else {
         return;
     };

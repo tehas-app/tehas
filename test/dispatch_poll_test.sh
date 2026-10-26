@@ -85,4 +85,34 @@ reset
 t_run "$rpoll"
 t_eq "$(untimed "$t_out")" "$b"
 
+t_case "a poll takes the ask for it, and a dry run leaves it"
+reset
+echo '[]' >"$fx/ready.json"
+mkdir -p "$home/state"
+: >"$home/state/dispatch.again"
+t_run "$rpoll --dry-run"
+t_eq "$([ -e "$home/state/dispatch.again" ] && echo kept)" kept
+t_run "$rpoll"
+t_eq "$([ -e "$home/state/dispatch.again" ] && echo kept)" ""
+
+t_case "a lock nothing used for 30 days is swept, and said as the bash says it"
+reset
+echo '[]' >"$fx/ready.json"
+mkdir -p "$home/state/cycles"
+: >"$home/state/cycles/5.lock"
+touch -d '40 days ago' "$home/state/cycles/5.lock"
+t_run "$rpoll --dry-run"
+t_contains "$t_out" "would remove the lock of #5: unused for 30 days"
+t_eq "$([ -e "$home/state/cycles/5.lock" ] && echo kept)" kept
+t_run "$rpoll"
+t_contains "$t_out" "removed the lock of #5: unused for 30 days"
+t_eq "$([ -e "$home/state/cycles/5.lock" ] && echo kept)" ""
+
+t_case "a real poll writes its demand with its time, and its cost counts its start"
+reset
+t_run "$rpoll"
+t_eq "$(jq -r '.time | type' "$home/live/demand.json" 2>/dev/null)" string
+t_eq "$(jq -r .waiting "$home/live/demand.json" 2>/dev/null)" 1
+t_eq "$(TEHAS_HOME=$home "$home/libexec/store" poll-show | jq -r .last.starts)" 1
+
 t_done
