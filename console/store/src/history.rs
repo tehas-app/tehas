@@ -14,17 +14,16 @@ pub struct Call {
 }
 
 /// The `how` words a cycle row can hold: `cycles.how`, in the words of this
-/// release, which a refusal prints. The word of `MILLWRIGHT_WORDS` that a row
-/// is written as heads the list, so its old spelling `fixer` — matched but
-/// never printed — stands beside it and a filter of either word keeps the rows
-/// of both. Part 5 of #686 drops that pair.
-pub const HOWS: [&str; 6] = [
-    crate::approval::MILLWRIGHT,
-    "label",
-    "refresh",
-    "retry-tick",
-    "outage-retry",
-    "hand",
+/// release, in the order a refusal prints them. Each pair is one word and its
+/// old spelling: `fixer` is matched and never printed, and a filter of either
+/// word keeps the rows of both. #686: part 5 drops the alias of the pair.
+pub const HOWS: [(&str, &str); 6] = [
+    (crate::approval::MILLWRIGHT, crate::approval::FIXER),
+    ("label", "label"),
+    ("refresh", "refresh"),
+    ("retry-tick", "retry-tick"),
+    ("outage-retry", "outage-retry"),
+    ("hand", "hand"),
 ];
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -42,26 +41,27 @@ fn args(rest: &[String]) -> Result<Call, String> {
         Some(_) => Some(a.issue()?),
         None => None,
     };
-    let kind = a.word("--kind", &["cycle", "plan"], &[])?;
-    let how = a.word("--how", &HOWS, &[tehas_core::grammar::MILLWRIGHT_WORDS[1]])?;
+    let kind = a.word("--kind", &[("cycle", "cycle"), ("plan", "plan")])?;
+    let how = a.word("--how", &HOWS)?;
     if how.is_some() && kind == Some("plan") {
         return Err(a.usage("--how", "is not taken with --kind plan"));
     }
     Ok(Call { issue, kind, how })
 }
 
-/// The words a history read filters on: one spelling of `how` may stand for
-/// two, because a row written before the rename still says `fixer`. A filter
-/// of any other word is the one word given; a read with no filter is None.
-struct HowFilter(Option<[&'static str; 2]>);
-
-fn how_words(how: Option<&'static str>) -> HowFilter {
+/// The words a history read filters on. `HOWS` pairs each word with the
+/// spelling it replaces, so a filter of either word of the millwright pair
+/// keeps the rows of both: a row written before the rename still says `fixer`.
+/// A filter of any other word is the one word given, and a read with no filter
+/// is None.
+fn how_words(how: Option<&'static str>) -> Option<[Option<&'static str>; 2]> {
     match how {
-        Some(w) if crate::approval::is_millwright(w) => {
-            HowFilter(Some(crate::approval::MILLWRIGHT_WORDS))
-        }
-        Some(w) => HowFilter(Some([w, w])),
-        None => HowFilter(None),
+        Some(w) if crate::approval::is_millwright(w) => Some([
+            Some(crate::approval::MILLWRIGHT),
+            Some(crate::approval::FIXER),
+        ]),
+        Some(w) => Some([Some(w), Some(w)]),
+        None => None,
     }
 }
 
@@ -123,15 +123,17 @@ fn order(r: &rusqlite::Row) -> rusqlite::Result<(i64, i64, i64)> {
 }
 
 fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Result<Vec<Row>, Fail> {
-    let words = how_words(how);
-    let [first, second] = words.0.unwrap_or(["", ""]);
+    // NULL is the filter of no word: no row's `how` is NULL, and the empty
+    // string is no word of `HOWS`, so neither stands for a filter it does not
+    // mean.
+    let [first, second] = how_words(how).unwrap_or([None, None]);
     let mut q = c
         .prepare(
             "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
                park_reason, failure_kind, failure_cause, provider, parked
              FROM cycle_history
              WHERE (?1 IS NULL OR issue = ?1)
-               AND (?2 = '' OR how = ?2 OR how = ?3)",
+               AND (?2 IS NULL OR how = ?2 OR how = ?3)",
         )
         .q()?;
     let rows = q

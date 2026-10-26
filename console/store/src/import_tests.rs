@@ -401,7 +401,7 @@ fn a_millwright_record_imports_under_the_new_names() {
     let p = &ok(&h, &["plan-show", "7"])["planning"];
     assert_eq!(
         p["answers"],
-        serde_json::json!([{"turn":2,"by":"tehas-millwright","fixer":true}])
+        serde_json::json!([{"turn":2,"by":"tehas-millwright","millwright":true,"fixer":true}])
     );
     assert_eq!(p["notes"]["millwright_refused"], serde_json::json!([55]));
     assert_eq!(
@@ -439,6 +439,56 @@ fn a_record_that_names_its_millwright_starts_twice_is_held() {
 }
 
 #[test]
+fn a_record_that_names_one_aliased_key_twice_is_held() {
+    // One key of the pair, spelled twice, with two numbers: `object` reads it
+    // as its last value, so without this guard the import would write rows from
+    // a count the same file denies. The hold can come from no other check: the
+    // second number alone would satisfy `opt_int`, and no second name is there
+    // to compare with.
+    for (key, a, b) in [
+        ("millwright_starts", 2, 9),
+        ("fixer_starts", 2, 9),
+        ("millwright_starts", 2, 2),
+    ] {
+        let h = host(&format!("one-key-twice-{key}-{a}-{b}"));
+        let start = t("2026-10-14T10:00:00Z");
+        put(&h, "cycles/7.taken", "", start);
+        let record = format!(
+            r#"{{"at":"2026-10-14T09:59:00Z","by":"tehas-millwright","how":"millwright","body_sha256":"{SHA}","links":[],
+                "rests_on":{{"at":"2026-10-13T08:00:00Z","by":"bob","how":"label","body_sha256":"{SHA}"}},
+                "{key}":{a},"{key}":{b}}}"#
+        );
+        put(&h, "cycles/7.approved.json", &record, start - 1);
+        let (code, why) = import(&h, false).unwrap_err();
+        assert_eq!(code, 1, "{key} {a} {b}: {why}");
+        assert!(
+            why.contains(&format!("names {key} twice")),
+            "{key} {a} {b}: {why}"
+        );
+        assert!(there(&h, "cycles/7.approved.json"), "the file stays");
+        assert_eq!(count(&h, "approvals"), 0);
+    }
+}
+
+#[test]
+fn a_nested_key_that_spells_an_aliased_key_is_not_named_twice() {
+    // The guard counts the record's own keys: a string that spells one inside a
+    // nested value, or a list of such strings, is not the field named twice.
+    let h = host("nested-spells-a-key");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    let record = format!(
+        r#"{{"at":"2026-10-14T09:59:00Z","by":"tehas-millwright","how":"millwright","body_sha256":"{SHA}","links":[],
+            "rests_on":{{"at":"2026-10-13T08:00:00Z","by":"bob","how":"label","body_sha256":"{SHA}"}},
+            "millwright_starts":2,
+            "retry_context":[{{"source":"comment:9","by":"millwright_starts","text":"millwright_starts"}}]}}"#
+    );
+    put(&h, "cycles/7.approved.json", &record, start - 1);
+    import_ok(&h);
+    assert_eq!(ok(&h, &["approval-current", "7"])["millwright_starts"], 2);
+}
+
+#[test]
 fn a_record_that_marks_its_answer_twice_is_held() {
     // The same answer marked under both names and unequally: the import cannot
     // know which mark the record meant, so the plan file is held.
@@ -453,7 +503,9 @@ fn a_record_that_marks_its_answer_twice_is_held() {
     let (code, why) = import(&h, false).unwrap_err();
     assert_eq!(code, 1, "{why}");
     assert!(
-        why.contains("state/plan-7.json: marks its answer twice, and differently"),
+        why.contains(
+            "state/plan-7.json: has an answer at turn 2 that marks millwright Some(true) and fixer Some(false)"
+        ),
         "{why}"
     );
     assert!(there(&h, "plan-7.json"), "the file stays");

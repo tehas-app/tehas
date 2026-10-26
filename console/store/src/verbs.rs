@@ -228,34 +228,26 @@ impl Args {
             .map(|v| v.expect("the flag was given"))
     }
 
-    /// `words` are the words of today, and the only ones a refusal prints;
-    /// `aliases` are the old spellings of #686 that are taken as well. The
-    /// caller normalises what comes back, so an alias never reaches a row.
-    /// `words` are the words of today, and the only ones a refusal prints;
-    /// `aliases` are the old spellings of #686 that are taken as well and
-    /// answered with the current word that stands beside them, so a row never
-    /// carries the old spelling. Each alias therefore names a pair with the
-    /// word it stands for, in order.
+    /// `words` are the pairs of one word: the spelling of today, which is what
+    /// comes back and the only one a refusal prints, and the old spelling of
+    /// #686 taken beside it. The pair is one value, so an alias cannot stand
+    /// beside the wrong word, and no row ever carries the old spelling. #686:
+    /// part 5 drops each alias and leaves the current word alone.
     pub fn word(
         &self,
         flag: &str,
-        words: &[&'static str],
-        aliases: &[&'static str],
+        words: &[(&'static str, &'static str)],
     ) -> Result<Option<&'static str>, String> {
         let Some(given) = self.value(flag) else {
             return Ok(None);
         };
-        let pairs = words
-            .iter()
-            .zip(aliases.iter().map(Some).chain(std::iter::repeat(None)));
-        for (current, alias) in pairs {
-            if *current == given || alias.is_some_and(|a| *a == given) {
-                return Ok(Some(current));
-            }
+        if let Some((current, _)) = words.iter().find(|(w, a)| *w == given || *a == given) {
+            return Ok(Some(current));
         }
+        let current: Vec<&str> = words.iter().map(|(w, _)| *w).collect();
         Err(self.usage(
             flag,
-            &format!("is not one of {}: {}", words.join(", "), shown(given)),
+            &format!("is not one of {}: {}", current.join(", "), shown(given)),
         ))
     }
 

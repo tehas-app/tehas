@@ -52,7 +52,8 @@ CREATE INDEX issues_checked ON issues (checked_at);
 -- a word outside it as 'unknown'. An ended row with end_reason NULL is a start
 -- the cycle refused. A run by hand has how 'hand' and no started_by.
 -- 'millwright' (v4) is the new name of 'fixer'; both are accepted until the
--- verbs write only the new one.
+-- verbs write only the new one. #686: part 5 drops 'fixer' from this list, with
+-- the aliases in console/store and the two lines of lib/store.sh.
 CREATE TABLE cycles (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,
   attempt        INTEGER NOT NULL DEFAULT 1,
@@ -181,7 +182,8 @@ CREATE TABLE planning_filed (
 -- (v2) The comments the poll spoke about once in this session: a millwright's
 -- reply it refused, and a question whose tick it held. They go with the
 -- session. 'millwright-refused' (v4) is the new name of 'fixer-refused'; both
--- are accepted until the verbs write only the new one.
+-- are accepted until the verbs write only the new one. #686: part 5 drops
+-- 'fixer-refused' from this list, with the aliases in console/store.
 CREATE TABLE planning_notes (
   issue INTEGER NOT NULL REFERENCES planning (issue) ON DELETE CASCADE,
   kind  TEXT NOT NULL CHECK (kind IN ('fixer-refused','millwright-refused','held')),

@@ -32,20 +32,21 @@ pub struct Record {
 /// The word a millwright's start is written as, whatever spelling it was given.
 pub const MILLWRIGHT: &str = tehas_core::grammar::MILLWRIGHT_WORDS[0];
 
-/// The old name of `millwright`, which the shell still sends until part 5 of
-/// #686 and which no row of this release holds.
-const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
+/// #686: the old name of the millwright's word, taken as `MILLWRIGHT` is and
+/// answered with it.
+pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 
-/// The two spellings of the millwright's word that name one class: the pair in
-/// `tehas_core::grammar`, which analytics' marks and the MCP server's filter
-/// read too, so one list stands for all of them. The word of today is first.
+/// The two spellings of the millwright's word that name one class, as the pair
+/// in `tehas_core::grammar` has them: analytics' marks and the MCP server's
+/// filter read that pair too, so one list stands for all of them. The word of
+/// today is first. Each reader of it is pinned to the core pair by a test of
+/// its own: `mcp/tests/sessions.rs`, `analytics`' `plan_how_words` and the
+/// pair's own case in `core`'s `grammar`.
 ///
-/// Everything the transition of #686 keeps is spelled from this pair and says
-/// `part 5 of #686`, so the cleanup is one search: the aliases `Args::word`
-/// takes, the two lines of `lib/store.sh` that name the old words, and the old
-/// keys a read still answers. The pair is pinned by the core test of
-/// `MILLWRIGHT_WORDS`, by the equality in `mcp/tests/sessions.rs`, and by the
-/// two cases of the word in `test/store_lib_test.sh`.
+/// What part 5 of #686 drops is the aliases `Args::word` takes, the words of
+/// the two `lib/store.sh` shapes and the old keys a read still answers. Every
+/// one of them says `part 5 of #686`; the two schema CHECK lists take both
+/// words too and are named at their sites in `db.rs`.
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
@@ -57,30 +58,26 @@ const INPUT_BOUND: u64 = 1 << 20;
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
 
-/// The hows of this release: what `approval-record` takes, and what a refusal
-/// prints, in the order of `MILLWRIGHT_WORDS` so the alias of each word stands
-/// beside it. `fixer` is the old name of `millwright` and has no row of its own.
-const CURRENT_HOWS: [&str; 5] = [MILLWRIGHT, "label", "refresh", "retry-tick", "outage-retry"];
+/// The hows of this release: what `approval-record` takes, in the order a
+/// refusal prints them (the case in `verbs_tests.rs` pins that string), with
+/// `fixer` as the alias `Args::word` takes beside the word it stands for.
+/// `fixer` is the old name of `millwright` and has no row of its own.
+const CURRENT_HOWS: [(&str, &str); 5] = [
+    (MILLWRIGHT, FIXER),
+    ("label", "label"),
+    ("refresh", "refresh"),
+    ("retry-tick", "retry-tick"),
+    ("outage-retry", "outage-retry"),
+];
 
 /// Whether `how` names the millwright's start, in either spelling.
 pub fn is_millwright(how: &str) -> bool {
     MILLWRIGHT_WORDS.contains(&how)
 }
 
-/// The word a plan-note of either spelling is written as, so the Call never
-/// carries an alias and `run` needs no mapping of its own.
-pub fn kept_note_kind(kind: &str) -> Option<&'static str> {
-    match kind {
-        "millwright-refused" | "fixer-refused" => Some(crate::plan::MILLWRIGHT_REFUSED),
-        "held" => Some("held"),
-        _ => None,
-    }
-}
-
-/// The mark on a planning answer, read under its two names. Each name the
-/// record does not give is read as false, as `opt_bool` has always read it, and
-/// the two spellings together are one field: a record that marks the answer
-/// twice and unequally is one the import cannot know, so this is None.
+/// The mark on a planning answer, read under its two names: each name the
+/// record does not give is read as false, and an unequal pair is the one case
+/// the import cannot decide, so this is None and the caller names both values.
 pub fn kept_mark(millwright: Option<bool>, fixer: Option<bool>) -> Option<bool> {
     match (millwright, fixer) {
         (Some(a), Some(b)) if a != b => None,
@@ -93,8 +90,8 @@ pub fn kept_mark(millwright: Option<bool>, fixer: Option<bool>) -> Option<bool> 
 pub fn kept_how(given: &str) -> Option<&'static str> {
     CURRENT_HOWS
         .into_iter()
-        .find(|w| *w == given)
-        .or((given == FIXER).then_some(MILLWRIGHT))
+        .find(|(w, a)| *w == given || *a == given)
+        .map(|(w, _)| w)
 }
 
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
@@ -145,9 +142,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
     a.need("--how")?;
     // The old `fixer` is taken and answered with `millwright`; a refusal names
     // only the words of this release.
-    let how = a
-        .word("--how", &CURRENT_HOWS, &[FIXER])?
-        .expect("--how was given");
+    let how = a.word("--how", &CURRENT_HOWS)?.expect("--how was given");
     let by = a.strict_need("--by", "an account", verbs::account)?;
     let body_sha = a.strict_need("--body-sha", "a sha256", verbs::sha256)?;
     let title_sha = a.strict("--title-sha", "a sha256", verbs::sha256)?;
@@ -413,6 +408,37 @@ pub fn retain(c: &Connection, issue: i64) -> Result<(), Fail> {
     Ok(())
 }
 
+/// The starts on the base above `floor`, as two counts: the millwright's and
+/// the refreshes. One statement, because the two are read together; an old row
+/// still says `fixer`, so a millwright start is either word of the pair and
+/// both are summed.
+fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
+    let mut millwright_starts = 0;
+    let mut refreshes = 0;
+    let mut q = c
+        .prepare(
+            "SELECT how, count(*) FROM approvals
+             WHERE issue = ?1 AND used_by > ?2 AND how IN (?3, ?4, 'refresh')
+             GROUP BY how",
+        )
+        .q()?;
+    let rows = q
+        .query_map(params![issue, floor, MILLWRIGHT, FIXER], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })
+        .q()?;
+    for row in rows {
+        let (how, n) = row.q()?;
+        // A word the IN list does not admit counts nowhere.
+        match how.as_str() {
+            "refresh" => refreshes += n,
+            w if is_millwright(w) => millwright_starts += n,
+            _ => {}
+        }
+    }
+    Ok((millwright_starts, refreshes))
+}
+
 fn current(home: &Path, issue: i64) -> Result<String, Fail> {
     verbs::look(home, |c| {
         let unused = approval_json(
@@ -427,36 +453,7 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
         )?;
         let base = rests_on(c, issue)?;
         let floor = base.as_ref().map_or(0, |b| b.4);
-        // One statement for the three counts. An old row still says `fixer`, so
-        // a millwright start is either word of the pair and both are summed.
-        let mut millwright_starts = 0;
-        let mut refreshes = 0;
-        let mut q = c
-            .prepare(
-                "SELECT how, count(*) FROM approvals
-                 WHERE issue = ?1 AND used_by > ?2 AND how IN (?3, ?4, 'refresh')
-                 GROUP BY how",
-            )
-            .q()?;
-        let rows = q
-            .query_map(
-                params![
-                    issue,
-                    floor,
-                    MILLWRIGHT,
-                    tehas_core::grammar::MILLWRIGHT_WORDS[1]
-                ],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .q()?;
-        for row in rows {
-            let (how, n) = row.q()?;
-            if is_millwright(&how) {
-                millwright_starts += n;
-            } else {
-                refreshes += n;
-            }
-        }
+        let (millwright_starts, refreshes) = starts(c, issue, floor)?;
         let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
             obj(&[
                 ("at", j(at)),
@@ -473,8 +470,8 @@ fn current(home: &Path, issue: i64) -> Result<String, Fail> {
                 ("current", cur),
                 ("rests_on", base),
                 ("millwright_starts", j(millwright_starts)),
-                // The old key, the same number, until part 5 moves the shell's
-                // readers to the new one.
+                // #686: the old key, the same number, until part 5 moves the
+                // shell's readers to the new one.
                 ("fixer_starts", j(millwright_starts)),
                 ("refreshes", j(refreshes)),
             ],

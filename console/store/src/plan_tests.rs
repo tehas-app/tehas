@@ -281,7 +281,11 @@ fn plan_answer_keeps_the_session_and_brief() {
     assert_eq!(p["running"], true);
     assert_eq!(p["pending"], false);
     assert_eq!(p["started_at"], NOW + 30);
-    assert_eq!(p["answers"], json!([{"turn":2,"by":"bob","fixer":true}]));
+    // The answer's mark is answered under both names, one value.
+    assert_eq!(
+        p["answers"],
+        json!([{"turn":2,"by":"bob","millwright":true,"fixer":true}])
+    );
 }
 
 #[test]
@@ -298,7 +302,7 @@ fn the_millwright_is_marked_by_either_flag_and_notes_are_written_as_one_kind() {
     );
     assert_eq!(
         v["planning"]["answers"][0],
-        json!({"turn":2,"by":"bob","fixer":true})
+        json!({"turn":2,"by":"bob","millwright":true,"fixer":true})
     );
     let _ = turn_end(
         &home,
@@ -321,7 +325,7 @@ fn the_millwright_is_marked_by_either_flag_and_notes_are_written_as_one_kind() {
     );
     assert_eq!(
         v["planning"]["answers"][1],
-        json!({"turn":3,"by":"tehas-fixer","fixer":true})
+        json!({"turn":3,"by":"tehas-fixer","millwright":true,"fixer":true})
     );
 }
 
@@ -634,7 +638,10 @@ fn plan_session_brief_and_filed_survive_a_failed_turn() {
     assert_eq!(p["options"], json!([]));
     assert_eq!(p["turns"], 2);
     assert_eq!(p["turn_rc"], 3);
-    assert_eq!(p["answers"], json!([{"turn":2,"by":"bob","fixer":false}]));
+    assert_eq!(
+        p["answers"],
+        json!([{"turn":2,"by":"bob","millwright":false,"fixer":false}])
+    );
     assert_eq!(p["ended_at"], Value::Null);
 }
 

@@ -351,4 +351,38 @@ start 7
 lib 'f=$(tehas_approval_view 7) && jq -c . "$f"'
 t_eq "$t_out" '{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"'"$SUM"'","links":[]}'
 
+t_case "the shapes read what the store itself answers, key for key"
+# The contract across the boundary, read from a store-written answer and not
+# from a hand-built record: a dual key the store stopped answering breaks this
+# case, where the cases above would still pass on the shell's own fallback.
+t_store_home "$home"
+record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
+record 7 --at 1792584000 --by tehas-fixer --how millwright --label tehas:ready --body-sha "$SUM"
+start 7
+# approval-current answers both start keys, and the shape reads them both: the
+# millwright's word in the store becomes the `fixer` of the record file.
+lib 'tehas_store approval-current 7 >/dev/null; tehas_store_get .millwright_starts; tehas_store_get .fixer_starts; tehas_store_get '"'"'.millwright_starts | type'"'"''
+t_eq "$t_out" "1
+1
+number"
+lib 'f=$(tehas_approval_view 7 1) && jq -c "{how, fixer_starts}" "$f"'
+t_eq "$t_out" '{"how":"fixer","fixer_starts":1}'
+# plan-show answers each answer's mark under both names, and the shape gives
+# the file's `fixer` of it: a store that answered only one key breaks here.
+printf '# The brief\n' >"$T/plan-brief.md"
+TEHAS_HOME=$home "$T_STORE" plan-begin 8 --by alice --label tehas:plan --brief-file "$T/plan-brief.md" >/dev/null
+TEHAS_HOME=$home "$T_STORE" plan-end 8 --turn 1 --outcome finished --rc 0 --session s1 >/dev/null
+TEHAS_HOME=$home "$T_STORE" plan-answer 8 --turn 2 --by tehas-fixer --millwright --text-file "$T/plan-brief.md" >/dev/null
+lib 'tehas_store plan-show 8 >/dev/null; tehas_store_get .planning.answers[0].millwright; tehas_store_get .planning.answers[0].fixer; tehas_store_get '"'"'.planning.answers[0].fixer | type'"'"''
+t_eq "$t_out" "true
+true
+boolean"
+lib 'f=$(plan_view 8) && jq -c '.answers' "$f"; rm -f "$f"'
+t_eq "$t_out" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+# A mark that is not a boolean is not renamed into the file's `fixer` slot:
+# the shape of the boundary is the shape lib/fixer.sh checks with a type test,
+# so a string mark reaches the record file as it came and not as a `fixer`.
+lib 'echo "{\"planning\":{\"answers\":[{\"turn\":1,\"by\":\"alice\",\"millwright\":\"yes\"}]}}" | jq -c "$tehas_plan_shape"'
+t_eq "$t_out" '{"session":"","turns":null,"options":[],"pending":null,"failed":null,"running":null,"answers":[{"turn":1,"by":"alice","millwright":"yes"}]}'
+
 t_done
