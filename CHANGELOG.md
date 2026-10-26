@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- The preview notice in a pull request's description is written by the
+  console (#841). The record, the read of the description, the decision
+  whether the block at the top is the bot's and the write move from bash to
+  `console/src/notice.rs`; `libexec/preview` loses 310 lines. A host without
+  the console builds no previews (78) and says to run `install.sh`.
+
 - `TEHAS_DISPATCHER=rust` in the instance settings makes libexec/dispatch
   hand each poll to `tehas-dispatch poll` (#254, part 4c). The default stays
   `bash`. A Rust poll first settles the writes a poll before it left open in
