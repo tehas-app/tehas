@@ -397,6 +397,48 @@ store as it ends, however it ends. A dry run records nothing.
 writes of the last poll by kind. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
 
+### The dispatcher's shadow
+
+`tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
+each poll of `tehas-dispatch.service` while `~/tehas/state/dispatch-shadow.on`
+is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the bash poll
+still does the work. It asks what the poll asks to read, the model endpoints'
+`/models` among them, and, only when an issue it would start needs one, the
+model's answer to a one-pixel image and the sandbox image's
+`--capabilities` (a container that ends at once). It has 120 seconds before
+the poll and 60 after it. Just before
+the poll it reads GitHub, the state store and the host and keeps its decision
+in `~/tehas/state/dispatch-shadow.json`. The poll's own lines are kept in
+`~/tehas/state/dispatch.last` as they go to `logs/dispatch.log`. After the
+poll it sets its decision beside them and adds one line to
+`~/tehas/logs/dispatch-shadow.log`:
+
+```json
+{"time":"2026-10-26T10:00:00Z","same":false,"bash_only":["start #7 (labelled by alice)"],"rust_only":[],"exit":{"bash":0,"rust":0},"needs":[],"picked":[7],"gh_requests":6,"seconds":2.4}
+```
+
+- **same**: the two logged the same lines and ended with the same status.
+- **bash_only**: lines only the poll logged. Most are what a start or a
+  planning turn says as it runs (`start #7 (...)`, the analytics' warnings):
+  the shadow decides, it does not act. A decision line here, a hold or a skip,
+  is a difference to look into.
+- **rust_only**: lines only the shadow said. The world can move in the
+  seconds between the two (a cycle ends, a label is applied), so a single
+  line here is not yet a fault; the same line poll after poll is.
+- **needs**: facts the shadow was given no answer to. It never runs
+  `TEHAS_LOW_GATE`: on an instance that sets one, a poll that would ask it
+  names `gate` here.
+- **gh_requests** and **seconds**: what its snapshot cost.
+
+`jq -c 'select(.same | not)' ~/tehas/logs/dispatch-shadow.log` lists the polls
+that differed. It is off unless a person asks for it: `touch
+~/tehas/state/dispatch-shadow.on` starts it, and removing the file stops it.
+On this repository's queue it costs about 9 s of wall time before each poll,
+3 s of CPU and 20 GitHub reads, so it runs on the host where it is being
+proven and not on every host. A host where `libexec/tehas-dispatch` is not
+installed, or the file is not there, polls as before; the shadow failing never
+fails the poll.
+
 ## 4. Review and merge
 
 The pull request comes from the bot (the factory's app or bot account) against the product's default

@@ -7,6 +7,7 @@ pub mod events;
 pub mod questions;
 pub mod read;
 pub mod settings;
+pub mod shadow;
 pub mod slice;
 pub mod snapshot;
 pub mod text;
