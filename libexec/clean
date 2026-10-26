@@ -316,25 +316,21 @@ roots_of() { # <the issue's workspace> -> roots, one NUL-terminated path per rec
   done
 }
 
-# The gitdir of a tree whose .git file names one, asked of git. 2 when git itself
-# gives no answer, 1 when it answers but not with a directory the cleaner may
-# date, 0 and the path on standard output when it does. The two are told apart
-# because they read differently to the operator: one is a worktree record that no
-# longer matches the tree, the other is a git that answered something unusable.
+# The gitdir of a tree whose .git file names one, asked of git: 0 and the path,
+# 1 when git answers with nothing the cleaner may date, 2 when git gives no
+# answer, 3 for a stale record of a cycle's worktree. A cycle makes worktrees in
+# its container, where the workspace is mounted at the shared checkout's path,
+# so their gitdir is read under the tree's own workspace instead; not there
+# either, the record is stale and no proof of a cycle at work.
 #
-# The bytes of that .git file are container-writable, so this is the one git call
-# the cleaner makes in a tree a cycle wrote, and it is confined: the bound and
-# git itself are taken by absolute path before the environment is cleared, so
-# neither name is answered by a helper a cycle planted in a directory of the
-# tehas user's PATH; no config of any kind is read but the one -c option, and no
-# home's, since a config a container can reach can name a helper to run on the
+# The .git file is container-writable, so the git call is confined: git and the
+# bound by absolute path under a cleared environment, no config but the one -c
+# option, since a config a container can reach can name a helper to run on the
 # host; and the answer is kept only when it names an existing directory under the
-# work dir, so a planted file naming a directory elsewhere buys nothing. The tree
-# is not named to git as a trusted one: git's own rule against a tree of another
-# owner turns a planted tree down, and this call reads one name, so the cleaner
-# has no reason to widen that rule.
-gitdir_of() { # <tree> -> 0 and its gitdir, 1 or 2 when git gives no dateable one
-  local p=$1 _git _timeout rc=0 gitdir
+# work dir. git's own rule against a tree of another owner turns a planted tree
+# down.
+gitdir_of() { # <tree> -> 0 and its gitdir, 1, 2 or 3 when there is no dateable one
+  local p=$1 _git _timeout rc=0 gitdir rel
   [ -f "$p/.git" ] || return 2
   unset -f git timeout 2>/dev/null
   _git=$(command -v git) || return 2
@@ -344,7 +340,12 @@ gitdir_of() { # <tree> -> 0 and its gitdir, 1 or 2 when git gives no dateable on
     GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_COUNT=0 \
     "$_git" -C "$p" -c core.fsmonitor=false \
     rev-parse --absolute-git-dir 2>/dev/null) || rc=$?
-  [ "$rc" = 0 ] || return 2
+  if [ "$rc" != 0 ]; then
+    gitdir=$(sed -n '1s/^gitdir: //p' -- "$p/.git" 2>/dev/null)
+    [[ $gitdir == "$works/$base/.git/worktrees/"?* && ! -e $gitdir ]] || return 2
+    rel=${p#"$works/"}
+    gitdir=$(realpath -e -- "$works/${rel%%/*}/${gitdir#"$works/$base/"}" 2>/dev/null) || return 3
+  fi
   [[ ${gitdir:-} =~ ^/ ]] || return 1
   [[ $gitdir == "$works/"* ]] || return 1
   [ -d "$gitdir" ] || return 1
@@ -352,23 +353,20 @@ gitdir_of() { # <tree> -> 0 and its gitdir, 1 or 2 when git gives no dateable on
 }
 
 # The age rule of an issue: nothing of these paths, nor of the issue's own
-# lock, has been touched within TEHAS_CLEAN_AFTER hours. Returns 1 as soon as
-# one of them is younger than that, and also when find could not read one: a
-# tree the cleaner cannot date is a tree it does not touch. A path that is not
-# there has been touched as little as one that is, so it is skipped. 2 answers
-# for a worktree whose gitdir git could not name, which is not a young tree and
-# is told apart from one by the caller: the record git keeps of a worktree is the
-# only proof a cycle is at work in it, so a stale worktree record keeps the issue
-# whole too, and says which of the two it was.
+# lock, has been touched within TEHAS_CLEAN_AFTER hours. 1 as soon as one is
+# younger, or find could not read one. A path that is not there is skipped. 2
+# for a worktree whose gitdir git could not name: the record git keeps is the
+# only proof a cycle is at work in it, so the issue is kept whole and the caller
+# says why. A stale record of a cycle's worktree keeps nothing; its tree is dated.
 untouched_for_hours() { # <issue> <paths...>
-  local n=$1 p young gitdir
+  local n=$1 p young gitdir rc
   shift
   for p in "$@" "$TEHAS_HOME/state/cycles/$n.lock"; do
     [ -e "$p" ] || continue
     young=$(find "$p" -maxdepth 0 -newermt "-$build_after hours" 2>/dev/null) || return 1
     [ -n "$young" ] && return 1
     if [ -f "$p/.git" ]; then
-      gitdir=$(gitdir_of "$p") || return $?
+      gitdir=$(gitdir_of "$p") || { rc=$?; [ "$rc" = 3 ] && continue; return "$rc"; }
       young=$(find "$gitdir" -maxdepth 0 -newermt "-$build_after hours" 2>/dev/null) ||
         return 1
       [ -n "$young" ] && return 1
