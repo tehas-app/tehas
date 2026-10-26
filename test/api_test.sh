@@ -23,10 +23,11 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '{api, tehas, commit, repo, fixer}' <<<"$t_out")" '{"api":1,"tehas":"v0.8.0","commit":"cb6912a","repo":"acme/widget","fixer":null}'
+t_eq "$(jq -c '{api, tehas, commit, repo, millwright, fixer}' <<<"$t_out")" '{"api":1,"tehas":"v0.8.0","commit":"cb6912a","repo":"acme/widget","millwright":null,"fixer":null}'
 t_eq "$(jq -r '.features | type' <<<"$t_out")" array
 t_eq "$(jq -r '.features | all(type == "string")' <<<"$t_out")" true
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "status"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "millwright-grant"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "fixer-grant"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "all-hands"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "limit"
@@ -35,13 +36,29 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-conflicts"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
-t_case "api --json: the fixer is its login when the instance has one"
+t_case "api --json: the millwright and the old fixer field are its login when the instance has one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=fixbot
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0
-t_eq "$(jq -r .fixer <<<"$t_out")" fixbot
+t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
+
+t_case "api --json: the old setting name gives the same login under both fields"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=millbot
+installed v0.8.0+cb6912a
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
+
+t_case "api without --json prints the millwright's login"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot
+installed v0.8.0+cb6912a
+t_run "$api"
+t_contains "$t_out" "millwright  millbot"
+t_lacks "$t_out" "fixer "
 
 t_case "api --json: a checkout without a tag has a commit and no release"
 reset
@@ -60,7 +77,7 @@ t_case "api without --json: a release install prints the tag with no commit"
 reset
 installed v0.10.2
 t_run "$api"
-t_contains "$t_out" "tehas     v0.10.2"
+t_contains "$t_out" "tehas       v0.10.2"
 t_lacks "$t_out" "("
 
 t_case "api --json: an install with no version file has neither"
@@ -80,10 +97,10 @@ reset
 installed v0.8.0+cb6912a
 t_run "$api"
 t_eq "$t_rc" 0
-t_contains "$t_out" "api       1"
-t_contains "$t_out" "tehas     v0.8.0 (cb6912a)"
-t_contains "$t_out" "repo      acme/widget"
-t_contains "$t_out" "fixer     none"
+t_contains "$t_out" "api         1"
+t_contains "$t_out" "tehas       v0.8.0 (cb6912a)"
+t_contains "$t_out" "repo        acme/widget"
+t_contains "$t_out" "millwright  none"
 
 t_case "api without settings is exit 78, and prints no object"
 reset
