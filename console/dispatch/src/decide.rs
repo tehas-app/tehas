@@ -9,6 +9,8 @@ use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
 
+mod clean;
+
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
 /// in order, and the files it publishes.
 #[derive(Clone, Debug, Default)]
@@ -56,6 +58,8 @@ struct Poll<'a> {
     starts: Vec<(u64, Start)>,
     /// image_ok's answer, asked once a poll: the hold, empty for none.
     image_hold: Option<String>,
+    /// The finished cycles this poll stops: their slots are free.
+    stopped: Vec<u64>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -71,6 +75,7 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         gate_answer: 0,
         starts: Vec::new(),
         image_hold: None,
+        stopped: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -111,8 +116,16 @@ impl<'a> Poll<'a> {
         }
     }
 
+    /// The cycles that hold their lock, less those this poll stops.
+    fn live(&self) -> impl Iterator<Item = &(u64, String)> {
+        self.s
+            .running
+            .iter()
+            .filter(|(n, _)| !self.stopped.contains(n))
+    }
+
     fn running(&self, n: u64) -> bool {
-        self.s.running.iter().any(|(r, _)| *r == n)
+        self.live().any(|(r, _)| *r == n)
     }
 
     fn plan_open(&self, n: u64) -> bool {
@@ -209,6 +222,7 @@ impl<'a> Poll<'a> {
             Some(h) => (Some(h), false),
             None => self.pause_label()?,
         };
+        self.clean_up(&bot)?;
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             if self.dry || news {
@@ -360,11 +374,11 @@ impl<'a> Poll<'a> {
     fn room(&mut self) -> Step<Room> {
         let s = self.s;
         let c = self.c;
-        let count = s.running.len() as i64;
+        let count = self.live().count() as i64;
         let mut cycles = count;
         let mut lane: Option<i64> = None;
         if c.refresh_conflicts && c.refresh_slots > 0 {
-            let refreshing = s.running.iter().filter(|(_, how)| how == "refresh").count() as i64;
+            let refreshing = self.live().filter(|(_, how)| how == "refresh").count() as i64;
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
@@ -1565,7 +1579,7 @@ impl<'a> Poll<'a> {
             }
             self.starts.push((n, st));
         }
-        let count = self.s.running.len();
+        let count = self.live().count();
         if self.dry {
             self.log(format!("{count} cycles running, room for {want} more"));
         }
