@@ -5,9 +5,12 @@
 
 use serde_json::{json, Map, Value};
 use std::fs;
+use tehas_dispatch::text::body_sha256;
 use tehas_dispatch::{decide, Settings, Snapshot};
 
 const GIB: u64 = 1_073_741_824;
+/// The poll's clock: 2026-10-31T00:00:00Z.
+const NOW: u64 = 1_793_404_800;
 
 /// The world of reset(): one issue, #7, labelled tehas:ready by alice; one
 /// slot; a slice of 20 GiB with nothing in it; 40 GB of disk.
@@ -39,6 +42,12 @@ fn base() -> (Value, Value) {
         "endpoint": {},
         "disk_kb": 40 * 1_048_576,
         "issues": {},
+        "now": NOW,
+        "hostname": "tehas-test",
+        "bot_prs": [],
+        "marked": [],
+        "refresh_history": [],
+        "leftovers": [],
     });
     (settings, snapshot)
 }
@@ -286,6 +295,85 @@ fn expand(c: &Value, snap: &mut Value) {
         snap["slice"]["show"] =
             json!({"FragmentPath": "", "ActiveState": "inactive", "MemoryMax": "infinity"});
     }
+    // work: what gh api repos/<repo>/issues/<n> answers, over an open issue.
+    // body: the body of the edit record, the text an approval binds.
+    for (key, field) in [("work", "work"), ("body", "edit")] {
+        if let Some(m) = c.get(key).and_then(Value::as_object) {
+            let mut is = issues(snap);
+            for (n, x) in m {
+                let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+                let mut v = if key == "work" {
+                    json!({"number": n.parse::<u64>().unwrap(), "state": "open"})
+                } else {
+                    json!({"lastEditedAt": null, "editor": null})
+                };
+                if key == "work" {
+                    merge(&mut v, x);
+                } else {
+                    v["body"] = x.clone();
+                }
+                i[field] = v;
+            }
+            snap["issues"] = Value::Object(is);
+        }
+    }
+    // approved: the approval of the issue's latest start, as `past` writes
+    // it: {by, at, body, fixer_starts}. With fixer starts, the latest is the
+    // fixer's and rests on the person's.
+    if let Some(m) = c.get("approved").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let sum = body_sha256(&json!({"body": x["body"]}));
+            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
+            let record = match x.get("fixer_starts").and_then(Value::as_u64) {
+                Some(k) if k > 0 => {
+                    json!({"at": "2026-10-01T05:00:00Z", "by": "tehas-fixer", "how": "fixer",
+                    "body_sha256": sum, "fixer_starts": k, "rests_on": base})
+                }
+                _ => base,
+            };
+            let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+            i["approval"] = record;
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // parked: the park on record, {reason, body, told, retries}.
+    if let Some(m) = c.get("parked").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let told = x.get("told") == Some(&json!(true));
+            let park = json!({"reason": x.get("reason").unwrap_or(&json!("intent-park")),
+                "body_sha256": body_sha256(&json!({"body": x["body"]})),
+                "retries": x.get("retries").unwrap_or(&json!(0)),
+                "told_at": if told { json!("2026-10-01T03:00:00Z") } else { Value::Null }});
+            let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+            i["park"] = park;
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // What gh api answers for an issue marked tehas:running: open, and
+    // carrying the mark.
+    let marked: Vec<u64> = snap["marked"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["number"].as_u64())
+        .collect();
+    let mut is = issues(snap);
+    for n in marked {
+        let i = is.entry(n.to_string()).or_insert_with(|| json!({}));
+        if i.get("work").is_none() {
+            i["work"] =
+                json!({"number": n, "state": "open", "labels": [{"name": "tehas:running"}]});
+        }
+    }
+    // A running cycle's issue is open unless a case says more.
+    for r in snap["running"].as_array().cloned().unwrap_or_default() {
+        if let Some(n) = r["issue"].as_u64() {
+            is.entry(n.to_string()).or_insert_with(|| json!({}));
+        }
+    }
+    snap["issues"] = Value::Object(is);
     // The defaults of every issue the queue names: labelled by alice, an open
     // issue, nothing edited, no pull request.
     let numbers: Vec<u64> = ["ready", "blocked"]
@@ -310,6 +398,9 @@ fn expand(c: &Value, snap: &mut Value) {
             "work": {"number": n.parse::<u64>().unwrap(), "state": "open"},
             "prs": [],
             "comments": {"failed": true},
+            "park": null,
+            "approval": null,
+            "current": null,
         });
         for (k, v) in defaults.as_object().unwrap() {
             if i.get(k).is_none() {
@@ -348,6 +439,21 @@ fn run_suite(name: &str) {
         expand(c, &mut snap);
         if let Some(s) = c.get("after") {
             merge(&mut snap, s);
+        }
+        // drop: facts the snapshot lacks, as dotted paths.
+        for path in c
+            .get("drop")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let keys: Vec<&str> = path.as_str().unwrap().split('.').collect();
+            let (last, up) = keys.split_last().unwrap();
+            let mut at = &mut snap;
+            for k in up {
+                at = &mut at[*k];
+            }
+            at.as_object_mut().unwrap().remove(*last);
         }
         let dry = c.get("dry") == Some(&json!(true));
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
@@ -451,8 +557,9 @@ fn run_suite(name: &str) {
                 bad.push(format!("demand {:?} not {x}", d.demand));
             }
         }
-        if !d.needs.is_empty() {
-            bad.push(format!("needs {:?}", d.needs));
+        let needs = e.get("needs").cloned().unwrap_or_else(|| json!([]));
+        if needs != json!(d.needs) {
+            bad.push(format!("needs {:?} not {needs}", d.needs));
         }
         if !bad.is_empty() {
             failures.push(format!(
@@ -469,6 +576,46 @@ fn run_suite(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn finish() {
+    run_suite("finish");
+}
+
+#[test]
+fn sweep() {
+    run_suite("sweep");
+}
+
+#[test]
+fn refresh() {
+    run_suite("refresh");
+}
+
+#[test]
+fn start() {
+    run_suite("start");
+}
+
+#[test]
+fn guard() {
+    run_suite("guard");
+}
+
+#[test]
+fn images() {
+    run_suite("images");
+}
+
+#[test]
+fn fixer() {
+    run_suite("fixer");
+}
+
+#[test]
+fn park() {
+    run_suite("park");
 }
 
 #[test]
