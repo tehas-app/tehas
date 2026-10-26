@@ -856,6 +856,7 @@ Read the last lines of `~/tehas/logs/improve.log`.
 | --- | --- |
 | Nothing new for hours | The timer is not enabled: `systemctl --user list-timers tehas-improve.timer` |
 | `TEHAS_IMPROVE_REPO is not set` | The loop is off for this instance |
+| `the improvement loop files in <repo>, the product repository` | `TEHAS_IMPROVE_REPO` or `TEHAS_IMPROVE_RUKAS_REPO` names `TEHAS_REPO`. Name a private repository for the findings instead; every command stops with exit 78 until then |
 | `cycles=0, nothing to read` | No cycle has ended since the last run. A cycle that stopped before Pi started leaves no record |
 | `waiting: 10 open issues carry tehas:improvement` | Every repository the loop files in is at the limit. Close some or build some, or raise `TEHAS_IMPROVE_MAX_OPEN` |
 | `findings=0`, or `duplicates` equal to `findings` | The model found nothing new |
