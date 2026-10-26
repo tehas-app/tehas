@@ -1,8 +1,6 @@
 {
  "suite": "test/dispatch_refresh_test.sh",
- "later": [
-  "open planning sessions that cannot be read again keep the refresh waiting: the second read after a planning write, part 3b"
- ],
+ "later": [],
  "cases": [
   {
    "case": "a leftover tehas:refreshing is taken off a pull request whose issue has no cycle",
@@ -6825,6 +6823,7 @@
  ],
  "not_ported": [
   "the pull request is marked first, then the issue; the start comment; the approval record; the marks that fail; and the reaper's unmark that fails: the start and the writes, #254",
-  "the flag alone is not enough, and an image that cannot be asked: what the snapshot asks of the image (continues), part 4"
+  "the flag alone is not enough, and an image that cannot be asked: what the snapshot asks of the image (continues), part 4",
+  "open planning sessions that cannot be read again keep the refresh waiting: the second read after a planning write is the caller's, after it writes"
  ]
 }

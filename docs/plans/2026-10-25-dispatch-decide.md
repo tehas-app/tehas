@@ -84,6 +84,21 @@ What PR 3a decides:
   refreshes (`refresh_held`), the retry spent (`park_retry`), the answer
   recorded (`answered`).
 
+What PR 3b decides:
+
+- A planning turn is the caller's to run (lib/planning.sh): the decision
+  says which step, as an action, and logs what the poll logs before it. A
+  turn that ended or was cut off is `plan_collect`, an outcome that waits is
+  `plan_post`, a session whose issue no longer asks is `plan_close`, an end
+  with its words is `plan_end`, a note the store keeps once is `plan_note`,
+  and a turn is `plan_turn` (first, with its label; next, with the answer's
+  text, who gave it and the reply's id). A refine of rule 5a spends its park
+  (`park_retry`) before its turn.
+- A session this poll collects or posts asks a new question, so the answer
+  read before it answers nothing, and a session it closes is no longer open
+  for the rules after it. The bash reads the open sessions again after such a
+  write; that second read, and a store that fails it, is the caller's.
+
 D2. **A library crate `console/dispatch`** (`tehas-dispatch`). PRs 1 to 3 add
 no binary and nothing is installed, so they cannot change a host. PR 4 adds
 the binary.
