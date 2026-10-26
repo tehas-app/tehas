@@ -197,7 +197,20 @@ t_stub() {
   local name=$1 body=${2:-}
   {
     echo "#!$T_BASH"
-    printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
+    if [ "$name" = gh ]; then
+      # A body given on standard input, as the Rust poll gives it, is written
+      # down as the bash poll's arguments say it: one record for both.
+      cat <<'REC'
+call="$*"
+case " $* " in
+  *" --body-file - "*) body=$(cat); call=${call/--body-file -/--body $body} ;;
+  *" --input - "*) body=$(cat); body=$(jq -r '.body // empty' <<<"$body" 2>/dev/null); call=${call/--input -/-f body=$body} ;;
+esac
+REC
+      printf '%s\n' "printf '%s\\n' \"\$call\" >>\"$T/calls/$name\""
+    else
+      printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
+    fi
     [ -n "$body" ] && echo "$body"
     :
   } >"$T/bin/$name"
@@ -806,6 +819,8 @@ slice_id() { printf "$1%.0s" {1..64}; echo; }
 # way a file gets one.
 T_ENV=()
 t_started=0
+# What every run of a test file is given, whatever its cases set T_ENV to.
+T_ENV_ALWAYS=()
 t_run() {
   # The instance of t_instance goes with the run, and nothing else does: the
   # sweep above took the host's, so a file that names none has the instance
@@ -814,7 +829,7 @@ t_run() {
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
     CARGO_TARGET_DIR="$T/target" \
-    "${instance_env[@]}" "${T_ENV[@]}" \
+    "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?
 }

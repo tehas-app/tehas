@@ -322,9 +322,12 @@ impl Poll<'_> {
                 self.need("hostname");
                 continue;
             };
-            self.log(line);
+            // The issue is read again just before the park: a cycle that
+            // ended since the list was read took tehas:running off. The line
+            // is logged once that read says the park is still due.
             self.act(json!({
                 "issue": n, "remove": ["tehas:running"], "add": ["needs-human-attention"],
+                "reread": "tehas:running", "first": line,
                 "fail": format!("WARN: label change on #{n} failed"),
                 "say": format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."),
             }));

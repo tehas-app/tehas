@@ -424,6 +424,7 @@ start_wait=${TEHAS_CYCLE_START_WAIT:-30}
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+[ "${TEHAS_DISPATCHER:-bash}" = bash ] || exec "${TEHAS_DISPATCH_CMD:-$here/tehas-dispatch}" poll "$@"
 
 mkdir -p "$TEHAS_HOME/state/cycles" "$TEHAS_HOME/logs" "$TEHAS_HOME/live"
 # Held for the poll only. A cycle holds the lock of its own issue. Opened
