@@ -21,8 +21,9 @@
 #                                 read carries one per issue, so a longer list
 #                                 is not truncated: it is no answer at all
 #   tehas_shipped_query           print the GraphQL query: the last closed
-#                                 event of each issue the search $q names, and
-#                                 whether its closer was a merged pull request.
+#                                 event of each issue the search $q names,
+#                                 whether its closer was a merged pull request,
+#                                 and the names of the labels the issue holds.
 #                                 $q must name every issue asked for, and no
 #                                 more than tehas_shipped_page of them
 #   tehas_shipped_rule            print the jq definition of `shipped`: of one
@@ -40,6 +41,13 @@
 #                                 that failed. A response that carries top-level
 #                                 errors is never a whole answer, even when it
 #                                 holds data
+#   tehas_shipped_has <node> <label>
+#                                 of one node of that query: 0 when <label> is
+#                                 one of the names the node holds, 1 when the
+#                                 read named its labels and the label is none,
+#                                 and 2 when it named no list of them - a caller
+#                                 edits on the 2 as on the 1, and never guesses
+#                                 that an issue it cannot read lacks the label
 #
 # Sourcing this file does nothing: it prints nothing and calls nothing.
 
@@ -50,8 +58,8 @@ tehas_shipped_query() {
   # shellcheck disable=SC2016  # $q is a GraphQL variable
   printf 'query($q: String!) { search(type: ISSUE, query: $q, first: %s) { nodes { ... on Issue {\n' "$tehas_shipped_page"
   # shellcheck disable=SC2016  # the rest is a GraphQL document, not shell
-  printf '%s\n' '    number timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {
-      closer { ... on PullRequest { merged } } } } } } } } }'
+  printf '%s\n' '    number labels(first: 100) { nodes { name } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {
+      closer { ... on PullRequest { merged } } } } } } } } } }'
 }
 
 tehas_shipped_rule() {
@@ -61,6 +69,21 @@ tehas_shipped_rule() {
   # false - so a caller may put it in select() and keep the node.
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def shipped: ((.timelineItems.nodes // [])[0].closer.merged | . == true);'
+}
+
+# Does the node carry <label>? Its names reach jq and not the shell, so one of
+# "*" is no glob and one with a space is no two names. 2 is the node that holds
+# no list of names, which is no answer and not the empty list of an issue that
+# carries none.
+# shellcheck disable=SC2329  # tehasbot status calls it, beside the read of the query
+tehas_shipped_has() { # <one node of that query> <label>
+  local names rc=0
+  # shellcheck disable=SC2016  # a jq program
+  names=$(jq -ce ' if (((.labels // {}) | type) != "object"
+        or ((.labels.nodes // null) | type) != "array") then error("no list")
+      else [.labels.nodes[]?.name | tostring] end' <<<"${1:-}" 2>/dev/null) || rc=$?
+  [ "$rc" = 0 ] || return 2
+  jq -e --arg l "${2:-}" 'index($l) != null' <<<"$names" >/dev/null 2>&1
 }
 
 tehas_shipped_answer() { # <issue> <answer of the search>
