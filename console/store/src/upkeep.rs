@@ -11,6 +11,10 @@
 //!                     nothing has used the issue for N days: its cycle on
 //!                     record ended that long ago, or none is on record and the
 //!                     file is that old. Each removal is a sweep_log row
+//!   locks-held        the issues whose state/cycles/<n>.lock is held, or could
+//!                     not be probed, as "held": [n, ...]. One process probes
+//!                     every file; the database is not opened, so a cycle the
+//!                     store does not know of is still named
 //!   upkeep [--dry-run]
 //!                     what tehasbot clean asks once an hour: the logs of
 //!                     cycles, planning turns, index runs and the analyst
@@ -31,6 +35,7 @@ pub enum Call {
     Backup { show: bool },
     Prune { days: i64 },
     SweepLocks { days: i64, max: i64, dry_run: bool },
+    LocksHeld,
     Upkeep { dry_run: bool },
 }
 
@@ -67,6 +72,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 dry_run: a.has("--dry-run"),
             })
         }),
+        "locks-held" => Args::parse("locks-held", rest, &[], false).map(|_| Call::LocksHeld),
         "upkeep" => Args::parse("upkeep", rest, &[("--dry-run", Kind::Switch)], false).map(|a| {
             Call::Upkeep {
                 dry_run: a.has("--dry-run"),
@@ -90,6 +96,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Prune { days } => prune(home, *days, now),
         Call::SweepLocks { days, max, dry_run } => sweep_locks(home, *days, *max, *dry_run, now),
         Call::Upkeep { dry_run } => upkeep(home, *dry_run, now),
+        Call::LocksHeld => locks_held(home),
     }
 }
 
@@ -349,6 +356,17 @@ fn sweep_locks(home: &Path, days: i64, max: i64, dry_run: bool, now: i64) -> Res
             ("kept", ids(&kept)),
         ],
     ))
+}
+
+/// A lock that cannot be probed counts as held, as a failed `flock -n` did.
+fn locks_held(home: &Path) -> Result<String, Fail> {
+    let issues = lock::listed(home).map_err(|e| (1, format!("unreadable state/cycles: {e}")))?;
+    let held: Vec<String> = issues
+        .into_iter()
+        .filter(|n| lock::probe_file(&lock::path(home, *n)).is_some_and(|l| l.rc != 0))
+        .map(j)
+        .collect();
+    Ok(line("locks-held", &[("held", list(&held))]))
 }
 
 // --- upkeep -------------------------------------------------------------------
