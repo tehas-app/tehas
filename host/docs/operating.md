@@ -591,6 +591,28 @@ have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
+A cycle that parks at `child-timeout:develop`, its developer stopped at its
+time bound, first writes a note into the issue's body, because a cycle reads
+the body and none of the comments. The note sits at the end, between
+`<!-- tehas:last-attempt base=... -->` and `<!-- /tehas:last-attempt -->`,
+under the heading "The last attempt ran out of time". It says how long each
+step took, whether the gate last passed, what was left in the workspace, and
+the files the plan named, and asks the next cycle for a smaller change. All of
+it comes from what pi-rukas's driver recorded, none from an agent's words. A
+later develop timeout replaces the note. Edit or delete it as you like. The
+note is written as the bot, so the issue shows an edit by the bot, and a retry
+on it approves the text with the note. A note that cannot be written is a
+warning in the log, and the park is posted as before.
+
+When the note is there and the rest of the body has not changed since it was
+written, a second develop timeout does not write it again, and its park
+comment has no `Retry from a clean start` box, only `Leave it parked`: the
+same text would run into the same bound. The comment says to split the issue
+with `tehas:plan`, or make the body smaller and apply `tehas:ready`. A
+`tehas:ready` on the unchanged text is held as below, the millwright's too.
+The note and the check need `libexec/tehas-cycle`; without it the park is
+posted as before.
+
 A new `tehas:ready` on an issue whose last cycle parked asks for nothing while
 the issue still carries the body that cycle ran on. The dispatcher compares the
 hash of the body that cycle's approval bound, as the state store keeps it for

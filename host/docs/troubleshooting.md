@@ -656,6 +656,11 @@ past its own run bound. pi-rukas told it to wrap up at the bound and ended it
 10 minutes later. Read the run log for what the child was doing. When it was
 progressing, split the issue; when it was stuck, find out why.
 
+A `child-timeout:develop` leaves a note of the attempt at the end of the
+issue's body, which the next cycle reads. A second one on the same text offers
+no retry: split the issue with `tehas:plan`, or make the body smaller. See
+[When a cycle stops](/operating#5-when-a-cycle-stops).
+
 `spawn-backstop`: a child ran past pi-rukas's 2-hour backstop,
 `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, which only catches a child nothing else ended.
 Until result schema 5 (pi-rukas v0.14.0) this cap was named
