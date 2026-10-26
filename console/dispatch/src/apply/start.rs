@@ -228,7 +228,10 @@ impl Writer {
         let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
-        log.push(format!("start #{n} ({} by {by})", text(a, "verb")));
+        log.push(match a.get("log").and_then(Value::as_str) {
+            Some(line) => line.to_string(),
+            None => format!("start #{n} ({} by {by})", text(a, "verb")),
+        });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
         if let Some(pr) = refresh_pr {
             let args = vec![
