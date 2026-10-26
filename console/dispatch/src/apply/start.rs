@@ -50,6 +50,15 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_PLAN_CMD: the program a turn's unit runs, libexec/plan.
+    pub plan_cmd: String,
+    /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
+    pub plan_start_cmd: Option<String>,
+    /// TEHAS_PLAN_TIMEOUT, in seconds: the turn's own limit.
+    pub plan_timeout: u64,
+    /// TEHAS_PLAN_MAX_TURNS.
+    pub plan_max_turns: u64,
+    pub systemd_run: String,
 }
 
 /// How one start ended.
@@ -192,6 +201,12 @@ impl Writer {
                 }
             }
         }
+        self.status(printed);
+        failed.then_some(1)
+    }
+
+    /// The status command, once the poll's work is done; what it printed.
+    pub(super) fn status(&mut self, printed: &mut Vec<String>) {
         // Its output through a file: a pipe would wait for whatever it left
         // running.
         if let Some(path) = self.scratch("status") {
@@ -207,14 +222,16 @@ impl Writer {
             }
             let _ = std::fs::remove_file(&path);
         }
-        failed.then_some(1)
     }
 
     fn start(&mut self, a: &Value, marked: &mut bool, log: &mut Vec<String>) -> Then {
         let n = a.get("start").and_then(Value::as_u64).unwrap_or(0);
         let by = text(a, "by").to_string();
         let given = text(a, "given").to_string();
-        log.push(format!("start #{n} ({} by {by})", text(a, "verb")));
+        log.push(match a.get("log").and_then(Value::as_str) {
+            Some(line) => line.to_string(),
+            None => format!("start #{n} ({} by {by})", text(a, "verb")),
+        });
         let refresh_pr = a.get("refresh_pr").and_then(Value::as_u64);
         if let Some(pr) = refresh_pr {
             let args = vec![

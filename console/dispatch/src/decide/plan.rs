@@ -367,13 +367,29 @@ impl Poll<'_> {
             ));
             return Err(End(0));
         }
-        self.log(format!("planning #{n} continues (answer from {from})"));
-        let mut a = json!({"plan_turn": n, "kind": "next", "answer": text, "by": by});
+        // Its line is logged once the answer is written, as the bash does.
+        let mut a = json!({"plan_turn": n, "kind": "next", "answer": text, "by": by,
+            "log": format!("planning #{n} continues (answer from {from})")});
         if !reply_id.is_empty() {
             a["reply"] = json!(reply_id);
         }
         self.act(a);
         Err(End(0))
+    }
+
+    /// The title and body of the view the poll read, which a first turn's
+    /// brief is written from.
+    fn brief_text(&self, n: u64) -> (Value, Value) {
+        let v = self
+            .s
+            .issues
+            .get(&n)
+            .and_then(|i| i.view.clone())
+            .unwrap_or(Value::Null);
+        (
+            v.get("title").cloned().unwrap_or(Value::Null),
+            v.get("body").cloned().unwrap_or(Value::Null),
+        )
     }
 
     fn refine_path(&self) -> String {
@@ -483,8 +499,15 @@ impl Poll<'_> {
                 ));
                 return Err(End(0));
             }
-            self.log(format!("start planning #{n} (labelled by {who}{to})"));
-            self.act(json!({"plan_turn": n, "kind": "first", "label": label, "by": who, "refine": refine}));
+            // The text the label approved goes in the brief; the line is
+            // logged once the brief is written, as the bash does.
+            let (title, body) = self.brief_text(n);
+            let mut a = json!({"plan_turn": n, "kind": "first", "label": label, "by": who, "refine": refine,
+                "title": title, "body": body, "log": format!("start planning #{n} (labelled by {who}{to})")});
+            if refine {
+                a["brief_extra"] = json!(self.refine_path());
+            }
+            self.act(a);
             return Err(End(0));
         }
         Ok(())
@@ -637,7 +660,7 @@ impl Poll<'_> {
             if !why.is_empty() {
                 self.log(format!("skip #{n}: not refined: {why}"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n}));
+                    self.act(json!({"park_retry": n, "how": "skipped"}));
                 }
                 continue;
             }
@@ -653,11 +676,14 @@ impl Poll<'_> {
                 self.log(format!("would start {line}"));
                 return Err(End(0));
             }
-            self.act(json!({"park_retry": n}));
-            self.log(format!("start {line}"));
+            // Spent once its brief is written, before the session begins: a
+            // poll that fails after it never starts a second session.
+            self.act(json!({"park_retry": n, "how": "refine"}));
+            let (title, body) = self.brief_text(n);
             self.act(
                 json!({"plan_turn": n, "kind": "first", "label": "tehas:refine", "by": by,
-                "refine": true, "auto": reason}),
+                "refine": true, "auto": reason, "title": title, "body": body,
+                "brief_extra": self.refine_path(), "log": format!("start {line}")}),
             );
             return Err(End(0));
         }

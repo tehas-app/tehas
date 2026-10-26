@@ -1781,6 +1781,8 @@ impl<'a> Poll<'a> {
         let mut a = json!({
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
             "given": st.given_how, "remove": st.remove, "verb": st.verb,
+            // The line apply logs as the start begins, which the shadow reads.
+            "log": format!("start #{n} ({} by {})", st.verb, st.starter),
             "text": !t.as_object().is_none_or(|o| o.is_empty()),
             "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
             "links": text::link_list(body),

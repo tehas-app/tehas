@@ -451,7 +451,7 @@ impl Poll<'_> {
             if held {
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
-                    self.act(json!({"park_retry": n}));
+                    self.act(json!({"park_retry": n, "how": "outage"}));
                 }
                 continue;
             }
