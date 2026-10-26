@@ -115,4 +115,28 @@ t_eq "$(jq -r '.time | type' "$home/live/demand.json" 2>/dev/null)" string
 t_eq "$(jq -r .waiting "$home/live/demand.json" 2>/dev/null)" 1
 t_eq "$(TEHAS_HOME=$home "$home/libexec/store" poll-show | jq -r .last.starts)" 1
 
+t_case "a closed low gate holds the lowest issues as the bash poll holds them, the gate asked once"
+gate_once() {
+  t_stub gate-run "echo ran >>\"$T/calls/gate-runs\"
+exit 1"
+  rm -f "$home/state/low-gate.held"
+  slots 3 "TEHAS_LOW_GATE=$T/bin/gate-run"
+  queue "7 tehas:urgent" "8 tehas:next" 11 12
+  label_events 7 tehas:urgent=alice
+  label_events 8 tehas:next=alice
+}
+reset
+gate_once
+t_run "$dispatch"
+b=$(untimed "$t_out")
+t_eq "$(t_calls gate-runs | wc -l)" 1
+reset
+gate_once
+t_run "$rpoll"
+t_eq "$(untimed "$t_out")" "$b"
+t_eq "$(t_calls gate-runs | wc -l)" 1
+t_eq "$(started)" "7 8 "
+t_eq "$([ -e "$home/state/low-gate.held" ] && echo held)" held
+t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
+
 t_done

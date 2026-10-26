@@ -347,6 +347,7 @@ impl Writer {
                 }
             }
         }
+        self.refresh_checkout(log);
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(self.st(n, ".rc"));
         let mut cmd = vec![
