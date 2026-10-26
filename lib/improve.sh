@@ -62,10 +62,10 @@ _tehas_improve_condense='
 tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills> [<image> [<rukas> [<cap> [<reason> [<build>]]]]]]]
   tehas_improve_on || return 0
   local issue=$1 started=$2 rc=$3 status=$4 step=$5 pr=${6:-} kills=${7:-0} image=${8:-} rukas=${9:-} base raw rec tmp f from
-  local cap reason settings retry build=${12:-}
+  local cap=${10:-} reason=${11:-} settings retry build=${12:-} prose='[!A-Za-z0-9 _.,:;/()=+-]'
   [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
-  cap=$(tr -cd 'A-Za-z0-9_.:-' <<<"${10:-}" | head -c 80)
-  reason=$(tr -cd 'A-Za-z0-9 _.,:;/()=+-' <<<"${11:-}" | head -c 200)
+  cap=${cap//[!A-Za-z0-9_.:-]/} reason=${reason//$prose/}
+  cap=${cap:0:80} reason=${reason:0:200}
   [[ $kills =~ ^(0|[1-9][0-9]{0,8})$ ]] || kills=0
   [[ $image =~ ^sha256:[0-9a-f]{64}$ ]] || image=""
   base=$(tehas_improve_dir)
@@ -93,7 +93,8 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
   fi
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=$from
   [[ $rukas =~ ^[0-9a-f]{7,40}$ ]] || rukas=""
-  retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null | tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
+  retry=$(grep -a -m 1 '^provider retry: ' "$raw.preflight" 2>/dev/null)
+  retry=${retry//$prose/} retry=${retry:0:200}
   if ! jq -n --argjson issue "$issue" --argjson started "$started" --argjson rc "$rc" \
     --argjson ended "$EPOCHSECONDS" --arg status "$status" --arg step "$step" --arg pr "$pr" \
     --arg log "$(basename "$raw")" --argjson kills "$kills" --arg rukas "$rukas" --arg image "$image" \
