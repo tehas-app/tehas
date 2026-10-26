@@ -13,6 +13,11 @@ empty one above it.
 
 ### Changes
 
+- The host section of `tehas top` is read and computed by the console
+  (#844, `console top reading|host`, console/src/top.rs) instead of bash, awk and
+  jq in `lib/top.sh`, which loses 176 lines. Same figures, same JSON. Without
+  the console the section is `null`.
+
 - The preview notice in a pull request's description is written by the
   console (#841). The record, the read of the description, the decision
   whether the block at the top is the bot's and the write move from bash to

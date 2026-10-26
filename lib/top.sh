@@ -9,7 +9,7 @@
 # The snapshot reads what the factory already writes under $TEHAS_HOME/live/ -
 # health.json, status.json, running.json, energy.json and the console of a
 # cycle - asks systemctl --user about its units - and reads the host itself in
-# /proc. No GitHub call, no model, no Docker call, no instance settings, and
+# /proc, through the console beside the commands (console/src/top.rs). No GitHub call, no model, no Docker call, no instance settings, and
 # nothing is written. A section whose source is missing, unreadable or too old
 # to believe is null; the others are there all the same.
 #
@@ -237,196 +237,20 @@ tehas_top_snapshot() { # <console lines wanted> [<previous host reading>]
 # that runs it. Nothing outside this directory is opened.
 tehas_proc_dir=${TEHAS_PROC_DIR:-/proc}
 
-# How many processes the section keeps, and the bytes in one page of resident
-# memory, which /proc counts in pages.
-tehas_host_rows=15
-tehas_page_size=$(getconf PAGE_SIZE 2>/dev/null) || tehas_page_size=''
-case "$tehas_page_size" in '' | *[!0-9]*) tehas_page_size=4096 ;; esac
+# The console that reads the host and computes its section
+# (console/src/top.rs): the one beside the commands, or TEHAS_CONSOLE for a
+# tree that has none, read when this is sourced as TEHAS_PROC_DIR is.
+tehas_top_console=${TEHAS_CONSOLE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../libexec/console}
 
-# One reading of the host, as JSON: the clock in seconds (/proc/uptime), the
-# number of CPUs, the load averages, memory in KiB, the aggregate cpu line of
-# /proc/stat, and one row per process: pid, comm, CPU ticks, start ticks and
-# resident pages. A tick is a hundredth of a second on every Linux this reads.
-# The clock is the host's own, so two readings measure a difference without
-# either of them looking at a wall clock or a sleep.
-tehas_host_reading() { # [dir] -> the reading as JSON; nothing when it cannot be read
-  local dir pid row line up n procs mem k v root
-  local -a f load=() files=()
-  local total='' idle='' memtotal='' memavail=''
-  root=${1:-$tehas_proc_dir}
-  [ -r "$root/uptime" ] && [ -r "$root/stat" ] || return 1
-  IFS= read -r up <"$root/uptime" || return 1
-  up=${up%% *}
-  case "$up" in '' | *[!0-9.]*) return 1 ;; esac
-
-  # The first line of /proc/stat is the sum over every cpu: user nice system
-  # idle iowait irq softirq steal. Idle and iowait are not use.
-  IFS= read -r line <"$root/stat" || return 1
-  read -r -a f <<<"$line" || return 1
-  [ "${f[0]:-}" = cpu ] || return 1
-  [ "${#f[@]}" -ge 9 ] || return 1
-  total=0
-  for row in "${f[@]:1:8}"; do
-    case "$row" in '' | *[!0-9]*) return 1 ;; esac
-    total=$((total + row))
-  done
-  idle=$((f[4] + f[5]))
-
-  # The CPUs of this host: the processors /proc/cpuinfo names. Where it names
-  # none, ask the machine.
-  n=0
-  if [ -r "$root/cpuinfo" ]; then
-    while IFS= read -r line; do
-      case "$line" in processor*) n=$((n + 1)) ;; esac
-    done <"$root/cpuinfo"
-  fi
-  if [ "$n" = 0 ]; then
-    n=$(nproc 2>/dev/null) || n=''
-    case "$n" in '' | *[!0-9]*) n=1 ;; esac
-  fi
-
-  # The three load averages and memory in KiB. Either can be absent, and the
-  # section then says so with null rather than guessing at it.
-  load=()
-  if [ -r "$root/loadavg" ] && IFS= read -r line <"$root/loadavg"; then
-    read -r -a f <<<"$line" || true
-    for row in "${f[@]:0:3}"; do
-      case "$row" in '' | *[!0-9.]*) load=(); break ;; esac
-      load+=("$row")
-    done
-    [ "${#load[@]}" = 3 ] || load=()
-  fi
-  if [ -r "$root/meminfo" ]; then
-    while read -r k v _; do
-      case "$k" in
-        MemTotal:) memtotal=$v ;;
-        MemAvailable:) memavail=$v ;;
-      esac
-    done <"$root/meminfo"
-  fi
-  case "$memtotal" in '' | *[!0-9]*) memtotal='' ;; esac
-  case "$memavail" in '' | *[!0-9]*) memavail='' ;; esac
-  if [ -n "$memtotal" ] && [ -n "$memavail" ]; then
-    mem=$(printf '{"totalKb":%s,"availKb":%s}' "$memtotal" "$memavail")
-  else
-    mem=null
-  fi
-
-  # Every process in one pass. A fork for each pid costs more than the reading
-  # itself on a host with hundreds of processes, and two readings go into every
-  # snapshot of a service that runs for ever.
-  files=()
-  for dir in "$root"/*; do
-    pid=${dir##*/}
-    case "$pid" in '' | *[!0-9]*) continue ;; esac
-    if [ -r "$dir/stat" ]; then files+=("$dir"); fi
-  done
-
-  procs='[]'
-  if [ "${#files[@]}" -gt 0 ]; then
-    procs=$(printf '%s\n' "${files[@]}" | _tehas_proc_rows) || procs=''
-    case "$procs" in '' | '['*']') ;; *) procs='[]' ;; esac
-  fi
-
-  printf '{"clock":%s,"cpus":%s,"load":[%s],"memory":%s,"cpuAll":%s,"cpuIdle":%s,"procs":%s}\n' \
-    "$up" "$n" "${load:+$(printf '%s,' "${load[@]}" | LC_ALL=C sed 's/,$//')}" \
-    "$mem" "$total" "$idle" "$procs"
+# One reading of the host as one line of JSON; nothing when it cannot be read.
+tehas_host_reading() { # [dir]
+  "$tehas_top_console" top reading "${1:-$tehas_proc_dir}" 2>/dev/null
 }
 
-# The rows of one reading as a JSON array: [pid,comm,cpu ticks,start ticks,rss
-# pages] for every directory named on stdin. awk reads the stat files, so one
-# process does the work of what was a fork per pid, and jq turns the fields into
-# JSON, so a name is escaped where it is read rather than by string surgery.
-#
-# The comm field of /proc/<pid>/stat is text between brackets that may itself
-# hold a space or a bracket, so it is what lies between the first ( and the last
-# ), and the fields after it are counted from there: state comes first, so utime
-# is the twelfth of those, starttime the twentieth and rss the twenty-second. A
-# file that cannot be read, or that names too few fields, gives no row.
-_tehas_proc_rows() { # <process directory>..., one per line on stdin
-  LC_ALL=C awk '
-    function row(dir,   parts, n, pid, s, line, f, k) {
-      n = split(dir, parts, "/")
-      pid = parts[n]
-      s = ""
-      while ((getline line < (dir "/stat")) > 0) s = s (s == "" ? "" : " ") line
-      close(dir "/stat")
-      if (s == "") return            # unreadable, or gone since it was listed
-      gsub(/[[:cntrl:]]/, " ", s)
-      if (!match(s, /[(].*[)]/)) return
-      k = split(substr(s, RSTART + RLENGTH), f, " ")
-      if (k < 22) return
-      if (f[12] !~ /^[0-9]+$/ || f[13] !~ /^[0-9]+$/) return
-      if (f[20] !~ /^[0-9]+$/ || f[22] !~ /^[0-9]+$/) return
-      # utime and stime are added by jq; here they stay the text of the file.
-      print pid "\t" substr(s, RSTART + 1, RLENGTH - 2) "\t" f[12] "\t" f[13] \
-            "\t" f[20] "\t" f[22]
-    }
-    { row($0) }
-  ' | jq -cRn '
-    [ inputs | select(. != "") | split("\t") | select(length == 6)
-      | [ (.[0] | tonumber), .[1],
-          ((.[2] | tonumber) + (.[3] | tonumber)),
-          (.[4] | tonumber), (.[5] | tonumber) ] ]
-  '
-}
-
-# The host section from two readings: the later one and the earlier one. CPU
-# use is what changed between them - never the average since a process started.
-# A process counts in the difference only when it has the same pid and the same
-# start time in both, so a reused pid is not read as one long process. Two
-# readings at the same instant measure nothing: their CPU figures are null.
+# The host section from two readings: the later one and the earlier one.
 tehas_top_host() { # <later reading> <earlier reading>
-  local now=$1 was=$2
-  [ -n "$now" ] && [ -n "$was" ] || return 1
-  jq -c -n --argjson now "$now" --argjson was "$was" --argjson rows "$tehas_host_rows" \
-    --argjson page "$tehas_page_size" '
-    def num: if type == "number" and . >= 0 then . else null end;
-    def one: (. * 10 | round) / 10;
-    def clamp($lo; $hi): if . < $lo then $lo elif . > $hi then $hi else . end;
-    def row5: select(type == "array" and length == 5);
-    (if ($now | type) == "object" then $now else null end) as $a
-    | (if ($was | type) == "object" then $was else null end) as $b
-    | if $a == null or $b == null then null else
-        ($a.clock | num) as $c2 | ($b.clock | num) as $c1
-        | (if $c2 != null and $c1 != null and $c2 > $c1 then (($c2 - $c1) * 100 | round) else null end) as $dt
-        | ($b.procs // [] | map(row5 | {key: (.[0] | tostring), value: .}) | from_entries) as $prev
-        | ($a.cpuAll | num) as $t2 | ($b.cpuAll | num) as $t1
-        | ($a.cpuIdle | num) as $i2 | ($b.cpuIdle | num) as $i1
-        | (if $t2 != null and $t1 != null then $t2 - $t1 else null end) as $dall
-        | (if $i2 != null and $i1 != null then $i2 - $i1 else null end) as $didle
-        | ($a.memory // null) as $mem
-        | (if $mem == null then null
-           else { totalKb: ($mem.totalKb | num), availKb: ($mem.availKb | num) } end) as $m
-        | {
-            cpus: ($a.cpus | num),
-            load: ($a.load // null | if type == "array" and length == 3 then . else null end),
-            cpuPercent: (if $dt != null and $dall != null and $dall > 0 and $didle != null
-                         then ((($dall - $didle) / $dall * 100) | clamp(0; 100) | one)
-                         else null end),
-            memory: (if $m == null or $m.totalKb == null or $m.availKb == null or $m.totalKb <= 0 then null
-                     else { totalMb: ($m.totalKb / 1024 | round),
-                            usedMb: (($m.totalKb - $m.availKb) / 1024 | round),
-                            percent: ((($m.totalKb - $m.availKb) / $m.totalKb * 100) | clamp(0; 100) | one) } end),
-            processes: ([ $a.procs // [] | .[] | row5
-                          | . as $r | $prev[(.[0] | tostring)] as $p
-                          | select($p != null and ($p[3] | num) == (.[3] | num))
-                          | { pid: .[0], name: (.[1] // ""),
-                              cpuPercent: (if $dt != null and $dt > 0 and ((.[2] | num) != null) and (($p[2] | num) != null)
-                                           then (((.[2] | num) - ($p[2] | num)) / $dt * 100 | clamp(0; 99999) | one)
-                                           else null end),
-                              memPercent: (if $m == null or $m.totalKb == null or $m.totalKb <= 0 or ((.[4] | num) == null)
-                                           then null
-                                           else ((.[4] * $page / 1024) / $m.totalKb * 100 | clamp(0; 100) | one) end),
-                              upSeconds: (if $c2 == null or ((.[3] | num) == null)
-                                          then null
-                                          else ((($c2 * 100 | round) - .[3]) / 100 | floor | clamp(0; 999999999)) end) }
-                        ]
-                        | sort_by([ -(.cpuPercent // -1), .pid ])
-                        | .[0:$rows])
-          }
-      end
-    '
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  "$tehas_top_console" top host "$1" "$2" 2>/dev/null
 }
 
 # What of the snapshot may be published: these keys and nothing else. A key

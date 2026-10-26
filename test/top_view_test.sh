@@ -40,7 +40,7 @@ files
 energy
 jqreal=$(command -v jq)
 t_stub jq 'printf "jq\n" >>"$T/calls/jqcount"; exec '"$jqreal"' "$@"'
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=200)
 seq -f 'console line %g' 1 2 >"$live/console-12.txt"
 rm -f "$T/calls/jqcount"
 t_run "$top --once"
@@ -94,7 +94,7 @@ t_contains "$t_out" "units     no tehas units"
 t_case "--every takes a whole number from 1 to 64"
 reset
 files
-T_ENV=(TEHAS_PROC_DIR="$proc1" LINES=10 COLUMNS=80)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" LINES=10 COLUMNS=80)
 t_run "$top --once --every 5"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas top   snapshot"
@@ -127,7 +127,7 @@ reset
 files
 energy
 before=$(cd "$live" && cksum ./* | LC_ALL=C sort)
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=20)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=20)
 t_run "$top --once && $top --json >/dev/null"
 t_eq "$t_rc" 0
 t_eq "$(cd "$live" && cksum ./* | LC_ALL=C sort)" "$before"
