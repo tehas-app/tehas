@@ -347,6 +347,7 @@ impl Poll<'_> {
             extra.insert("comment".into(), ans["comment"].clone());
             extra.insert("since".into(), ans["asked_at"].clone());
             self.d.picked.push(n);
+            self.act_gates(n);
             self.act_start(
                 n,
                 Start {
@@ -466,6 +467,7 @@ impl Poll<'_> {
             } else {
                 Vec::new()
             };
+            self.act_gates(n);
             self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
             self.d.picked.push(n);
             self.act_start(

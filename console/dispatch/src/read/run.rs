@@ -97,7 +97,11 @@ pub fn run_quiet(
 
 /// The child's exit status, or None when it outlived its bound and was
 /// stopped.
-fn wait(child: &mut std::process::Child, bound: Duration, grace: Duration) -> Option<i32> {
+pub(crate) fn wait(
+    child: &mut std::process::Child,
+    bound: Duration,
+    grace: Duration,
+) -> Option<i32> {
     let began = Instant::now();
     loop {
         match child.try_wait() {
