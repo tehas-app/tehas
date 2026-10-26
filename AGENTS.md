@@ -80,7 +80,10 @@ when a person pulls and runs `install.sh` there.
   test and to change safely. When you touch a script that holds logic,
   consider moving that logic into Rust. The bash of `bin/`, `lib/` and `libexec/` has a
   ceiling, `scripts/bash-lines.max`, that the gate checks; a change that
-  needs more bash takes out as many lines as it adds.
+  needs more bash takes out as many lines as it adds. A change that moves
+  bash to Rust lowers the ceiling to the new count. A raise is a person's
+  call: its pull request says why the logic cannot go into Rust now and
+  names the issue that takes the lines out again.
 - Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
   allows. No `unsafe`. Builds and tests use `--locked`.
 - Prose in comments, the manual and commit messages: plain and direct, short

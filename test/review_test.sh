@@ -112,10 +112,10 @@ t_stub nproc 'echo 16'
 
 # The command as a host has it: beside the console, which is a compiled program
 # a checkout does not hold. The two are put in one directory of the case, the
-# library beside them as test/work_lib.sh does for a cycle, so the mask is asked
-# of a stub the case owns and not of whatever stands beside the checkout. The
-# tests of the mask itself are the console's own (console/src/mask.rs); the
-# question here is that the command asks, and what it does when it is not there.
+# library beside them as test/work_lib.sh does for a cycle. The console is this
+# checkout's own: it reads the range and runs the container
+# (console/src/review.rs), and the tests of its parts are beside its source.
+t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
@@ -237,12 +237,6 @@ case " $* " in
   exit "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" ;;
 esac'
 }
-# The command looks at the container once a second. Here a look costs a tenth
-# of a second, and the container of a case that is still working uses the real
-# sleep, $nap, as test/work_lib.sh's does.
-t_stub sleep '"$(command -pv sleep)" 0.1'
-# shellcheck disable=SC2034  # the body of a container that works reads $nap
-nap=$(command -pv sleep)
 # The clone of the review needs a git identity, as every container's does: the
 # tehas user's own on a host.
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
@@ -294,34 +288,9 @@ turn_says() { # <exit status> [document]
   printf '%s' "${2:-{\}}" >"$fx/doc_plan.json"
   printf '%s\n' "$1" >"$fx/doc_plan.rc"
 }
-# The console of a host, for the two files of a run that are masked before they
-# are kept. It masks one token-shaped string, which is what the tests of the
-# mask itself exist for (console/src/mask.rs); here the question is that the
-# command asks for the mask at all, and what it does when there is none. As in
-# test/export_test.sh, a file with no printable byte is answered with nothing,
-# which is what tehas review then keeps as it was.
+# A token-shaped string the console's mask replaces (console/src/mask.rs).
 token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-console_mask_on() {
-  # The stub beside the command, which is where a host has it and where the
-  # command looks: t_stub puts it on PATH only, and the command does not look
-  # there. Written by hand rather than copied from $T/bin: the file t_stub
-  # makes logs every argument before its body runs, and the mask reads the
-  # document it is given from stdin, so that log would be masked into the file
-  # as if the runner had written it.
-  printf '#!/usr/bin/env bash\n%s\n' "$(console_mask_body)" >"$shim/libexec/console"
-  chmod +x "$shim/libexec/console"
-}
-# The body of the mask, one function so that the same words stand in the file
-# and in the test of the file. It replaces one token-shaped string and answers
-# nothing for a file with no printable byte, as test/export_test.sh's does.
-console_mask_body() {
-  printf '%s\n' "if [ \"\${1-}\" != --mask ]; then exit 64; fi"
-  printf '%s\n' 'bytes=$(cat)'
-  printf '%s\n' '[ -n "$bytes" ] || exit 0'
-  printf '%s\n' 'printf "%s\n" "${bytes//ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/ghp_***}"'
-}
-# A host with no console beside its commands: the files are kept as the run
-# wrote them, and that is said.
+console_on() { cp "$T_CONSOLE" "$shim/libexec/console"; }
 console_absent() { rm -f "$shim/libexec/console"; }
 # The document of a planning turn that drafted a plan to be confirmed.
 turn_doc='{"subcommand":"plan","mode":"turn","exitCode":12,"status":"draft",
@@ -338,19 +307,10 @@ reset() {
   checkout_host
   docker_run
   caps_review
-  rm -f "$T/bin/jq"
-  # A jq that will not make the record, installed by the one case that asks
-  # what the command does then. The rest of the file needs a jq that works.
-  jq_refuses() {
-    printf '%s\n' '#!/usr/bin/env bash' \
-      'for a in "$@"; do case "$a" in *commit*) exit 1 ;; esac; done' \
-      'exec '"$(command -v jq)"' "$@"' >"$T/bin/jq"
-    chmod +x "$T/bin/jq"
-  }
   t_instance "${T_MINIMAL[@]}"
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
   slice_good
-  console_mask_on
+  console_on
   runner_says 0 '{"verdict":"APPROVED","exitCode":0}'
 }
 
@@ -695,11 +655,11 @@ t_case "a record that cannot be written is exit 2 and leaves the old one"
 reset
 mkdir -p "$T/home/tehas/state"
 jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
-# The making of the record is what fails here, so a jq that will not write it.
-# The old record is a file the run reads and never touches again, so it stays
-# exactly as it was, and the range is read again next run. The stub is put
-# back by reset(): every other case of this file needs a jq that works.
-jq_refuses
+# The making of the record is what fails here: a directory where the new
+# record is written first. The old record is a file the run reads and never
+# touches again, so it stays exactly as it was, and the range is read again
+# next run.
+mkdir "$record.new"
 t_run "$review"
 t_eq "$t_rc" 2
 t_contains "$t_out" "could not write $record"
@@ -860,30 +820,24 @@ t_eq "$(cat "$T/home/tehas/logs"/review-*.json)" '{"verdict":"APPROVED","exitCod
 
 # What the mask is for: the token of the host in a file an agent can read.
 # The mask itself is tested in the console (console/src/mask.rs); what is
-# tested here is that the command asks for it, and what it does when there is
-# none to ask.
+# tested here is that the run's files go through it.
 t_case "the run's files are masked: what the mask knows does not reach them"
 reset
-# The mask of a host replaces the names of the models file and the bot's
-# address (lib/private.sh). It is stubbed here to replace one token-shaped
-# string, as test/export_test.sh stubs it, so what is tested is that the
-# command asks for the mask and keeps what it returns.
 runner_says 0 "{\"verdict\":\"x\",\"exitCode\":0,\"note\":\"$token\"}"
 t_run "$review"
 t_eq "$t_rc" 0
 t_lacks "$(cat "$T/home/tehas/logs"/review-*.json)" "$token"
 t_eq "$(cat "$T/home/tehas/logs"/review-*.json | grep -c -o 'ghp_\*\*\*')" 1
 
-t_case "a host with no console keeps the files as the run wrote them, and says so"
+t_case "a host with no console beside the command starts nothing: 78, and says to install"
 reset
-runner_says 0 "{\"verdict\":\"x\",\"exitCode\":0,\"note\":\"$token\"}"
 console_absent
 t_run "$review"
-t_eq "$t_rc" 0
-t_contains "$t_out" "no console to mask the run's logs with"
-# Kept, not lost: the account of a run that happened is worth more than a
-# file that cannot be read at all.
-t_contains "$(cat "$T/home/tehas/logs"/review-*.json)" "$token"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "run install.sh"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
 
 t_case "a run that ran out of time is stopped, exits 2 and records nothing"
 reset
@@ -935,6 +889,33 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "did not end within 1s, killing it"
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
+# The other half of a wedged dockerd: the container is gone, and its client is
+# not. Here the client answers to nothing but KILL, so the bound of the wait on
+# it is what ends the run. The grace is TEHAS_STOP_WAIT, as for the stops.
+t_case "a docker run client that ignores TERM is killed after the stop's grace, and the run ends with 2"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
+cp "$record" "$T/record.before"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
+cat >"$T/container.sh" <<'BODY'
+nap=$(command -pv sleep)
+# Bash runs the trap only once the sleep in front of it ends, so TERM does
+# not end this client; KILL does.
+trap 'exit 143' TERM
+while [ ! -e "$T/calls/stopped" ]; do "$nap" 0.1; done
+"$nap" 120 >/dev/null 2>&1
+exit 137
+BODY
+t_start
+t_run "$review"
+t_fast 9000
+t_eq "$t_rc" 2
+t_contains "$t_out" "the docker client of the review would not end, killing it"
+t_contains "$t_out" "ran out of time"
+t_eq "$(cmp "$T/record.before" "$record" && echo same)" same
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
 # --- One review at a time ---------------------------------------------------------
 
 # The container, the workspace and the record are each one per host, so a
@@ -962,7 +943,7 @@ t_case "a run that could not clone leaves no workspace and no state behind"
 reset
 mkdir -p "$T/bin"
 real_git=$(command -v git)
-printf '%s\n' 'for a in "$@"; do' '  [ "$a" = fetch ] && { echo "git: cannot clone" >&2; exit 128; }' 'done' \
+printf '%s\n' '#!/usr/bin/env bash' 'for a in "$@"; do' '  [ "$a" = fetch ] && { echo "git: cannot clone" >&2; exit 128; }' 'done' \
   'exec '"$real_git"' "$@"' >"$T/bin/git"
 chmod +x "$T/bin/git"
 t_run "$review"

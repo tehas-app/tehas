@@ -3,9 +3,11 @@
 # libexec/ (the files whose first line names bash) may not grow past the
 # number in scripts/bash-lines.max. New factory logic goes into the Rust
 # workspace under console/; bash glues (AGENTS.md, Style). Install, update
-# and bootstrap are outside the count. A person lowers the number when a
-# change moves bash to Rust, and raises it only with a reason in the pull
-# request.
+# and bootstrap are outside the count. A change that takes bash out lowers the
+# number to the new count in the same pull request, so the room it made is not
+# spent by the next one. A raise is a person's call, and its pull request says
+# why the logic cannot go into Rust now and names the issue that takes the
+# lines out again.
 #
 # Over the ceiling, it says how many lines to take out and which files
 # changed since the merge base with the default branch, with their deltas.
@@ -38,6 +40,7 @@ fi
 
 echo "check-bash-lines: $lines lines of bash, over the ceiling of $max (scripts/bash-lines.max)."
 echo "Take out $((lines - max)) lines."
+echo "A raise of the ceiling says why this cannot go into Rust now, and which issue takes the lines out again."
 
 # The lines a path counts for at the merge base, 0 if it was not counted.
 base_lines() { # path
