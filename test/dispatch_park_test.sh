@@ -27,13 +27,13 @@ t_lacks "$(t_calls gh)" "--remove-label needs-human-attention"
 t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
 t_contains "$t_out" "start #7 (retry ticked by alice)"
 
-t_case "a retry tick takes tehas:ready and both escalation labels off"
+t_case "a retry tick takes tehas:ready and the escalation label off"
 parked
-echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"},{"name":"tehas:fixer-escalated"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/asking.json"
+echo '[{"number":7,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:ready"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/asking.json"
 comments 7 "$(park_body x ' ')" alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:fixer-escalated --remove-label tehas:millwright-escalated"
+t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:millwright-escalated"
 
 t_case "a retry tick writes the approval record with the tick's time, before the label changes"
 t_eq "$(at_mark '[.by, .how, .at, .comment_id]')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'

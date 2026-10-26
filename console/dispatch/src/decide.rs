@@ -1730,7 +1730,6 @@ impl<'a> Poll<'a> {
             for l in [
                 "tehas:awaiting-merge",
                 "tehas:question",
-                "tehas:fixer-escalated",
                 "tehas:millwright-escalated",
             ] {
                 if has(&labels, l) {

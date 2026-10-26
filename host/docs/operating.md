@@ -400,7 +400,11 @@ store as it ends, however it ends. A dry run records nothing.
   their writes added up.
 
 `~/tehas/libexec/store poll-show` gives the same figures as JSON, with the
-writes of the last poll by kind. `store prune` drops the records with the
+writes of the last poll by kind. `store poll-show --api --now <unix>` shapes
+them in the names [`tehas api`](/api#tehas-api) prints them under, with the
+last poll's age in minutes counted from `<unix>`; `tehas api --json` carries
+that as its `poll` field, and its plain output prints the line of words below
+the millwright's. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
 
 `~/tehas/libexec/store poll-idle --since <seconds>` answers one object over the
@@ -451,6 +455,40 @@ On this repository's queue it costs about 9 s of wall time before each poll,
 proven and not on every host. A host where `libexec/tehas-dispatch` is not
 installed, or the file is not there, polls as before; the shadow failing never
 fails the poll.
+
+### The cycle's shadow
+
+`tehas-cycle`, a cycle's report written in Rust, decides beside each report
+of `tehasbot cycle` while `~/tehas/state/cycle-shadow.on` is there, and acts
+on nothing on GitHub or in the state store. Just before the cycle reads what
+tehas work left, the shadow reads the same files, the cycle's record and its
+approval, asks GitHub once for the bot's pull requests on the branch (and,
+for a handoff, the issue's labels), decides, and keeps its report in
+`~/tehas/state/cycles/<issue>.shadow.json`. It has 60 seconds. The bash
+report then keeps what it did beside it: each call of `gh`, the park and the
+end it put on record. After the report the shadow sets the two side by side
+and adds one line to `~/tehas/logs/cycle-shadow.log`:
+
+```json
+{"time":"2026-10-26T18:00:00Z","issue":7,"attempt":1,"same":true,"differs":[],"rust_log":[],"done":"done #7 rc=20 status=aborted step=develop minutes=12 pr=none oom_kills=0 forks_refused=0","seconds":1.4}
+```
+
+- **same**: the two made the same writes to GitHub in the same order, and put
+  the same park and the same end on record. A comment counts as the same
+  whether or not it carries the words of a label that could not be changed,
+  since only the bash met that.
+- **differs**: which of `end`, `park` and `writes` differed, each with both
+  sides on the line.
+- **rust_log**: the warnings the shadow's report would log.
+
+A report that differed is kept whole, with what the bash did, in
+`~/tehas/state/cycle-shadow/`, the newest 50. GitHub can answer the shadow
+and the bash differently in the seconds between their asks, so one
+difference is not yet a fault; the same one cycle after cycle is.
+`jq -c 'select(.same | not)' ~/tehas/logs/cycle-shadow.log` lists them. `touch
+~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it. A
+host where `libexec/tehas-cycle` is not installed, or the file is not there,
+reports as before; the shadow failing never fails the report.
 
 ## 4. Review and merge
 
@@ -1339,12 +1377,13 @@ the factory: start one again, start it again working differently, or leave it
 to a person. It may also answer some planning questions. What runs as that account is not part of tehas. The factory says
 what the account may do, and this section is that.
 
-The millwright was called the fixer. Until a release removes them, the old
-names are accepted beside the new ones: the settings `TEHAS_FIXER_LOGIN`,
-`TEHAS_FIXER_MAX_RETRIES` and `TEHAS_FIXER_MAX_PLAN_ANSWERS`, the label
-`tehas:fixer-escalated`, the marker `<!-- tehas:fixer issue=<n> action=... -->`,
-`how: "fixer"` on a record, and `fixer-grant` and `fixer` in
-[`tehas api`](/api#tehas-api).
+The millwright was called the fixer. Its old names are no longer read: a
+`TEHAS_FIXER_*` setting stops every command with 78 and names the new one,
+and the label `tehas:fixer-escalated` and the marker
+`<!-- tehas:fixer issue=<n> action=... -->` count for nothing. A record
+written as `how: "fixer"` still counts as the millwright's, and
+[`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
+the new names.
 
 - **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It is never
   the bot, because every agent posts as the bot: a poll stops with 78 when

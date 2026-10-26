@@ -306,7 +306,10 @@ command; see [tehas update](/tools#tehas-update).
 The improvement loop reads the cycles that ended and files what could be
 better as issues. Set `TEHAS_IMPROVE_REPO` in `instance.env` to the repository
 those issues go to and install the factory's app there (or give the bot account
-write access there). A host
+write access there). It cannot be the product repository: a model writes the
+findings from what cycles saw, so they wait in a private repository of their
+own until a person turns them into tickets. Several factories may share one.
+A host
 installed before you set it enables the timer by hand with
 `systemctl --user enable --now tehas-improve.timer`. The logs of the cycles it
 files about are published in that repository. See [Operating](/operating).

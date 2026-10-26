@@ -47,18 +47,17 @@
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
-#   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
-#     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it, and is not set
-#     with TEHAS_IMPROVE_RUKAS_SKIP=1.
+#   - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is
+#     none. TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
+#     Neither is TEHAS_REPO: a person triages findings before they are tickets.
 #   - TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN
 #     name the GitHub App the factory acts as (lib/github-app.sh), all three or
 #     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
 #   - TEHAS_MILLWRIGHT_LOGIN names the millwright: an account whose tehas:ready
 #     the dispatcher takes, and whose answer to a planning question it takes,
 #     within a narrower grant than a person's (lib/millwright.sh). Unset is valid and
-#     means there is none. It is never one of TEHAS_ALLOWED_LABELERS. The old
-#     TEHAS_FIXER_* names of the three are accepted for one release:
-#     the load says one, and refuses old and new that differ.
+#     means there is none. It is never one of TEHAS_ALLOWED_LABELERS. An old
+#     TEHAS_FIXER_* name stops the load with 78 and names the new one.
 #   - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 #     lowest issues (libexec/dispatch, rule 7). Unset is valid and means there
 #     is no gate, and the dispatcher behaves as it did before the setting. It is
@@ -383,28 +382,17 @@ _tehas_role_models() { # <instance.env>
   return 0
 }
 
-# TEHAS_MILLWRIGHT_*: the names of #676. An old name set alone is taken as the
-# new one and validated
-# as the new one, and old and new that differ stop the load with 78. The load
-# says a move on stderr. A command whose answer is the bytes it prints sets
-# TEHAS_SILENT_RENAMED first (tehas api --json, install.sh's findings, a test
-# that captures a load) to keep its answer free of the line.
-tehas_millwright_renamed=
-_tehas_millwright_compat() {
-  local new old pair
-  tehas_millwright_renamed=
-  for pair in LOGIN:TEHAS_FIXER_LOGIN MAX_RETRIES:TEHAS_FIXER_MAX_RETRIES MAX_PLAN_ANSWERS:TEHAS_FIXER_MAX_PLAN_ANSWERS; do
-    new=TEHAS_MILLWRIGHT_${pair%%:*} old=${pair#*:}
-    [ -n "${!old:-}" ] || continue
-    [ -z "${!new:-}" ] || [ "${!new}" = "${!old}" ] || {
-      tehas_err "$old (${!old}) and $new (${!new}) are both set and differ: keep one (see $file)"
+# The TEHAS_FIXER_* names were renamed TEHAS_MILLWRIGHT_* in v0.14.0 (#676)
+# and stopped being read in a later release (#799).
+_tehas_fixer_names() {
+  local key
+  for key in LOGIN MAX_RETRIES MAX_PLAN_ANSWERS; do
+    local old=TEHAS_FIXER_$key
+    [ -z "${!old+x}" ] || {
+      tehas_err "$old is no longer read: rename it TEHAS_MILLWRIGHT_$key (see $file)"
       return 78
     }
-    export "$new"="${!old}"; unset "$old"
-    tehas_millwright_renamed+="$old is now $new; the old name is accepted until it is removed"$'\n'
   done
-  [ -z "$tehas_millwright_renamed" ] || [ -n "${TEHAS_SILENT_RENAMED:-}" ] ||
-    printf 'tehas: %s' "$tehas_millwright_renamed" >&2
 }
 
 tehas_load() {
@@ -423,7 +411,7 @@ tehas_load() {
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | TEHAS_DISK_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | TEHAS_BUILD_TIMEOUT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS | TEHAS_SILENT_RENAMED) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -454,8 +442,7 @@ tehas_load() {
 
   _tehas_role_models "$file" || return 78
 
-  # The old TEHAS_FIXER_* names, before anything is checked with them.
-  _tehas_millwright_compat || return 78
+  _tehas_fixer_names || return 78
 
   # Database clones are not part of this version. An instance that still asks
   # for them is refused, not run without them.
@@ -664,6 +651,10 @@ tehas_load() {
   fi
   if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ "$TEHAS_IMPROVE_RUKAS_SKIP" = 1 ]; then
     tehas_err "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see $file)"
+    return 78
+  fi
+  if [ -n "${TEHAS_REPO:-}" ] && { [ "${TEHAS_IMPROVE_REPO,,}" = "${TEHAS_REPO,,}" ] || [ "${TEHAS_IMPROVE_RUKAS_REPO,,}" = "${TEHAS_REPO,,}" ]; }; then
+    tehas_err "the improvement loop files in $TEHAS_REPO, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see $file)"
     return 78
   fi
   case " ${TEHAS_ALLOWED_LABELERS:-} " in

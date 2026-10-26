@@ -49,11 +49,6 @@ impl Settings {
                 .and_then(|x| x.as_i64().or_else(|| x.as_str()?.parse().ok()))
                 .unwrap_or(d)
         };
-        // The old name is read for one release, as lib/config.sh does.
-        let n2 = |k: &str, old: &str, d: i64| match v.get(k) {
-            Some(_) => n(k, d),
-            None => n(old, d),
-        };
         let concurrency = n("TEHAS_TICKET_CONCURRENCY", 7);
         let min_free = s("TEHAS_CYCLE_MIN_FREE", "10g");
         let min_free_mb = crate::slice::bytes(&min_free)
@@ -70,11 +65,7 @@ impl Settings {
                 .map(str::to_string)
                 .collect(),
             bot_login: s("TEHAS_BOT_LOGIN", ""),
-            // The old name is read for one release, as lib/config.sh does.
-            millwright: match s("TEHAS_MILLWRIGHT_LOGIN", "") {
-                m if m.is_empty() => s("TEHAS_FIXER_LOGIN", ""),
-                m => m,
-            },
+            millwright: s("TEHAS_MILLWRIGHT_LOGIN", ""),
             concurrency,
             max_awaiting: n("TEHAS_MAX_AWAITING", concurrency + 2),
             reserve: s("TEHAS_CYCLE_RESERVE", "2g"),
@@ -85,7 +76,7 @@ impl Settings {
             branch_check: s("TEHAS_BRANCH_CHECK", ""),
             branch: s("TEHAS_BRANCH", "main"),
             low_gate: s("TEHAS_LOW_GATE", ""),
-            fixer_max_retries: n2("TEHAS_MILLWRIGHT_MAX_RETRIES", "TEHAS_FIXER_MAX_RETRIES", 2),
+            fixer_max_retries: n("TEHAS_MILLWRIGHT_MAX_RETRIES", 2),
             size_max_files: v
                 .get("TEHAS_SIZE_MAX_FILES")
                 .and_then(|x| x.as_u64().or_else(|| x.as_str()?.parse().ok())),
@@ -95,11 +86,7 @@ impl Settings {
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX", 2),
-            fixer_max_plan_answers: n2(
-                "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS",
-                "TEHAS_FIXER_MAX_PLAN_ANSWERS",
-                3,
-            ),
+            fixer_max_plan_answers: n("TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS", 3),
             libexec: s("libexec", "/home/tehas/tehas/libexec"),
         }
     }
@@ -121,18 +108,33 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn the_millwrights_limits_take_the_new_names_and_the_old() {
+    fn the_millwrights_settings_take_only_the_new_names() {
         let new = Settings::parse(&json!({
+            "TEHAS_MILLWRIGHT_LOGIN": "mill-bot",
             "TEHAS_MILLWRIGHT_MAX_RETRIES": "5",
-            "TEHAS_FIXER_MAX_RETRIES": "9",
             "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": 4,
         }));
-        assert_eq!((new.fixer_max_retries, new.fixer_max_plan_answers), (5, 4));
+        assert_eq!(
+            (
+                new.millwright.as_str(),
+                new.fixer_max_retries,
+                new.fixer_max_plan_answers
+            ),
+            ("mill-bot", 5, 4)
+        );
         let old = Settings::parse(&json!({
+            "TEHAS_FIXER_LOGIN": "mill-bot",
             "TEHAS_FIXER_MAX_RETRIES": "7",
             "TEHAS_FIXER_MAX_PLAN_ANSWERS": "6",
         }));
-        assert_eq!((old.fixer_max_retries, old.fixer_max_plan_answers), (7, 6));
+        assert_eq!(
+            (
+                old.millwright.as_str(),
+                old.fixer_max_retries,
+                old.fixer_max_plan_answers
+            ),
+            ("", 2, 3)
+        );
         let none = Settings::parse(&json!({}));
         assert_eq!(
             (none.fixer_max_retries, none.fixer_max_plan_answers),

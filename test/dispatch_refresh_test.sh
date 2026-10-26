@@ -346,7 +346,7 @@ t_run "$dispatch"
 release
 refresh_dropped "a cycle runs on it"
 
-for l in tehas:fixer-escalated tehas:millwright-escalated tehas:running tehas:plan; do
+for l in tehas:millwright-escalated tehas:running tehas:plan; do
   t_case "$l on the issue drops the refresh"
   refresh_setup
   issue7 "$l"

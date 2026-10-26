@@ -735,7 +735,7 @@
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
     "TEHAS_REFRESH_CONFLICTS": "1",
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [],
@@ -2803,124 +2803,6 @@
     "picked": [],
     "log": [
      "drop the refresh of #7: a cycle runs on it"
-    ],
-    "actions": [
-     {
-      "refresh_drop": 7
-     }
-    ],
-    "no_actions": [
-     {
-      "start": 7
-     }
-    ]
-   }
-  },
-  {
-   "case": "tehas:fixer-escalated on the issue drops the refresh",
-   "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
-   },
-   "snapshot": {
-    "ready": [],
-    "awaiting": [
-     {
-      "number": 7
-     }
-    ],
-    "refresh_requests": [
-     7
-    ],
-    "continues": true,
-    "pulls": {
-     "50": {
-      "state": "OPEN",
-      "number": 50,
-      "url": "https://github.com/acme/widget/pull/50",
-      "isDraft": false,
-      "isCrossRepository": false,
-      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "baseRefName": "main",
-      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
-      "mergeable": "CONFLICTING",
-      "author": {
-       "login": "tehas-bot"
-      },
-      "headRepository": {
-       "nameWithOwner": "acme/widget"
-      },
-      "labels": {
-       "nodes": []
-      },
-      "closingIssuesReferences": {
-       "totalCount": 1,
-       "nodes": [
-        {
-         "number": 7,
-         "state": "OPEN",
-         "labels": {
-          "nodes": [
-           {
-            "name": "tehas:awaiting-merge"
-           }
-          ]
-         },
-         "closedByPullRequestsReferences": {
-          "nodes": [
-           {
-            "number": 50,
-            "state": "OPEN"
-           }
-          ]
-         }
-        }
-       ]
-      }
-     }
-    },
-    "issues": {
-     "7": {
-      "events": [],
-      "request": {
-       "at": "2026-10-17T09:00:00Z",
-       "pr": 50,
-       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
-      },
-      "approval": {
-       "at": "2026-10-01T00:00:00Z",
-       "by": "alice",
-       "how": "label",
-       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
-      },
-      "history": [],
-      "work": {
-       "number": 7,
-       "state": "open",
-       "labels": [
-        {
-         "name": "tehas:awaiting-merge"
-        },
-        {
-         "name": "tehas:fixer-escalated"
-        }
-       ]
-      },
-      "edit": {
-       "lastEditedAt": null,
-       "editor": null,
-       "body": "Words."
-      }
-     }
-    },
-    "refreshing": []
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "drop the refresh of #7: it carries tehas:fixer-escalated"
     ],
     "actions": [
      {
