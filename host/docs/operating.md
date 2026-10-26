@@ -400,8 +400,13 @@ other old rows of the store. With no poll on record there is no `poll` line.
 ### The dispatcher's shadow
 
 `tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
-each poll of `tehas-dispatch.service` and acts on nothing: it reads what the
-poll reads and decides, and the bash poll still does the work. Just before
+each poll of `tehas-dispatch.service` and acts on nothing on GitHub or in the
+state store: it reads what the poll reads and decides, and the bash poll
+still does the work. It asks what the poll asks to read, the model endpoints'
+`/models` among them, and, only when an issue it would start needs one, the
+model's answer to a one-pixel image and the sandbox image's
+`--capabilities` (a container that ends at once). It has 120 seconds before
+the poll and 60 after it. Just before
 the poll it reads GitHub, the state store and the host and keeps its decision
 in `~/tehas/state/dispatch-shadow.json`. The poll's own lines are kept in
 `~/tehas/state/dispatch.last` as they go to `logs/dispatch.log`. After the

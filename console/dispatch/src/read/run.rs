@@ -74,6 +74,21 @@ pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Dur
             Ok(Some(s)) => break s.code(),
             Ok(None) if began.elapsed() < bound => std::thread::sleep(Duration::from_millis(20)),
             _ => {
+                // As timeout -k 10: TERM first, so a docker client stops its
+                // container, and KILL when it is still there 10 s later.
+                let _ = Command::new("kill")
+                    .args(["-TERM", &child.id().to_string()])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                let gone = Instant::now();
+                while gone.elapsed() < Duration::from_secs(10) {
+                    if let Ok(Some(_)) = child.try_wait() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 let _ = child.kill();
                 let _ = child.wait();
                 break None;

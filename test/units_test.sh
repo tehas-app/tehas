@@ -64,7 +64,7 @@ t_case "the shadow decides before the poll and compares after it, and neither ca
 t_eq "$(sed -n 's/^ExecStartPre=//p' "$units/tehas-dispatch.service" | sed -n 2p)" \
   "-/bin/bash -c \". %h/tehas/env.sh && . %h/tehas/lib/config.sh && tehas_load && exec timeout 120 %h/tehas/libexec/tehas-dispatch shadow\""
 t_eq "$(sed -n 's/^ExecStopPost=//p' "$units/tehas-dispatch.service")" \
-  "-/bin/bash -c \"exec timeout 60 %h/tehas/libexec/tehas-dispatch compare %h/tehas/state/dispatch.last --exit \$\$EXIT_STATUS\""
+  "-/bin/bash -c \". %h/tehas/env.sh && exec timeout 60 %h/tehas/libexec/tehas-dispatch compare %h/tehas/state/dispatch.last --exit \$\$EXIT_STATUS\""
 t_contains "$(sed -n 's/^ExecStart=//p' "$units/tehas-dispatch.service")" "set -o pipefail && %h/tehas/bin/tehasbot dispatch 2>&1 | tee %h/tehas/state/dispatch.last"
 t_eq "$(sed -n 's/^PathExists=//p' "$units/tehas-dispatch.path")" "%h/tehas/state/dispatch.again"
 

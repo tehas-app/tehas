@@ -71,7 +71,9 @@ impl Models {
             "backupBaseUrl"
         };
         self.file
-            .pointer(&format!("/providers/{p}/{k}"))
+            .get("providers")
+            .and_then(|x| x.get(p))
+            .and_then(|x| x.get(k))
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string()
@@ -79,7 +81,7 @@ impl Models {
 
     /// tehas_endpoint_key: the key as models.json writes it.
     fn key(&self, p: &str, end: &str) -> String {
-        let pr = self.file.pointer(&format!("/providers/{p}"));
+        let pr = self.file.get("providers").and_then(|x| x.get(p));
         let k = |n: &str| pr.and_then(|x| x.get(n)).and_then(Value::as_str);
         let v = if end == "main" {
             k("apiKey")
@@ -252,7 +254,9 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
     };
     let declares = m
         .file
-        .pointer(&format!("/providers/{}/models", m.provider))
+        .get("providers")
+        .and_then(|x| x.get(&m.provider))
+        .and_then(|x| x.get("models"))
         .and_then(Value::as_array)
         .is_some_and(|a| {
             a.iter().any(|x| {
