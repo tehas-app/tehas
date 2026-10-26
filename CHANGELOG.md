@@ -13,6 +13,24 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.14.2 (2026-10-26)
+
+### Changes
+
+- The improvement loop never files in the product repository (#820). Its
+  findings are model-written from what cycles saw, so they go to a repository
+  of their own where a person triages them. Loading stops with exit 78 when
+  `TEHAS_IMPROVE_REPO` or `TEHAS_IMPROVE_RUKAS_REPO` names `TEHAS_REPO`.
+- The conflict refresh takes a handed-off pull request, draft or not (#817).
+  `tehas:question` no longer drops it, and the refresh's start takes
+  `tehas:question` off the issue with `needs-human-attention`.
+- The `gh` shim counts a GraphQL query as a read, not a write (#792): only a
+  `mutation` is logged in `state/github-writes.log`, so the `poll` line of
+  `tehas status` no longer shows a poll's reads as writes.
 - The cycle's shadow (#256, part 2): while `state/cycle-shadow.on` is there,
   `tehas-cycle` decides each cycle's report beside `tehasbot cycle` from the
   same files and its own GitHub reads, and logs what differs from the bash's
@@ -73,6 +91,9 @@ empty one above it.
 
 ### Adopter action
 
+- Set `TEHAS_IMPROVE_REPO` (and `TEHAS_IMPROVE_RUKAS_REPO`, if set) to a
+  repository other than `TEHAS_REPO` before updating, for example a private
+  backlog, and give the bot's account write access to its issues.
 - Rename `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES` and
   `TEHAS_FIXER_MAX_PLAN_ANSWERS` in `instance.env` to `TEHAS_MILLWRIGHT_*`
   before updating. A millwright's program must write
