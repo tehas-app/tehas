@@ -921,11 +921,12 @@ jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$reco
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
 cat >"$T/container.sh" <<'EOF'
 nap=$(command -pv sleep)
-"$nap" 60 >/dev/null 2>&1 &
+"$nap" 5 >/dev/null 2>&1 &
 sleeper=$!
 # A container that ignores the stop entirely: the stop's own bound has to end
-# the wait, and then docker kill is asked, also bounded.
-"$nap" 60
+# the wait, and then docker kill is asked, also bounded. The run waits for the
+# container to end, so it lives past both bounds (2s), not a minute.
+"$nap" 5
 exit 137
 EOF
 printf '%s\n' 'if [ "$1" = stop ] || [ "$1" = kill ]; then "$(command -pv sleep)" 60; exit 0; fi' >>"$T/bin/docker"
@@ -947,7 +948,7 @@ mkdir -p "$T/home/tehas/state"
 # command holds it, so the case holds it with a child that will not let go.
 flock "$T/home/tehas/state/review.lock" -c '"$(command -pv sleep)" 30' &
 holder=$!
-sleep 0.3
+while flock -n "$T/home/tehas/state/review.lock" true; do command -p sleep 0.02; done
 t_run "$review"
 t_eq "$t_rc" 0
 t_contains "$t_out" "another review is going, nothing was reviewed"
