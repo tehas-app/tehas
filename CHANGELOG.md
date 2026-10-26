@@ -13,7 +13,11 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The dispatcher in Rust can start cycles (#254, part 2a): its approval on
+  record with the comments, pull request comments and notes the bash poll
+  gives it, the issue marked running before its unit starts, the wait for the
+  start, and the undo when a start gives up. Nothing calls it yet: the bash
+  poll still starts every cycle.
 
 ### Adopter action
 

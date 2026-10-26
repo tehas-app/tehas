@@ -44,13 +44,30 @@ pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
 
 /// tehas_attachment_links: every attachment link in a text.
 pub fn links(text: &str) -> usize {
+    link_list(text).len()
+}
+
+/// tehas_attachment_links' links, each once, in the order the text has them.
+pub fn link_list(text: &str) -> Vec<String> {
     static LINKS: OnceLock<Regex> = OnceLock::new();
-    LINKS
-        .get_or_init(|| {
-            Regex::new(r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)[A-Za-z0-9._~%/?&=+-]+").unwrap()
-        })
-        .find_iter(text)
-        .count()
+    let re = LINKS.get_or_init(|| {
+        Regex::new(r"https://(?:github\.com/user-attachments/(?:assets|files)/|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\.githubusercontent\.com/)[A-Za-z0-9._~%/?&=+-]+").unwrap()
+    });
+    let mut out: Vec<String> = Vec::new();
+    for m in re.find_iter(text) {
+        if !out.iter().any(|l| l == m.as_str()) {
+            out.push(m.as_str().to_string());
+        }
+    }
+    out
+}
+
+/// tehas_title_sha256: the title without its line ends; None when the
+/// answer names no title, which binds none.
+pub fn title_sha256(issue: &Value) -> Option<String> {
+    let title = issue.get("title")?.as_str()?.replace(['\r', '\n'], "");
+    let sum = Sha256::digest(title.as_bytes());
+    Some(sum.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// tehas_attachment_placeholder: the first unfilled placeholder of a text.

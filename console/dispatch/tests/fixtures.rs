@@ -573,6 +573,14 @@ fn run_suite(name: &str) {
                 }
             }
         }
+        // apply takes a decision's starts as one run, as start_cycles is
+        // called once: no other action stands between two of them.
+        let starts: Vec<usize> = (0..d.actions.len())
+            .filter(|&i| d.actions[i].get("start").is_some())
+            .collect();
+        if starts.windows(2).any(|w| w[1] != w[0] + 1) {
+            bad.push(format!("starts not side by side: {:?}", d.actions));
+        }
         for x in e
             .get("actions")
             .and_then(Value::as_array)

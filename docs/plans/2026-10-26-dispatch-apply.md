@@ -47,7 +47,12 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
    made. Order rule A6 (a comment after its label change, and none after one
    that failed) is tested. `apply` is a library in this part: nothing calls
    it on a host yet.
-2. **Starts and stops.** The approval record, the mark (A1: mark before
+2. **Starts and stops**, in two pull requests: 2a the starts, 2b the stops.
+   A start reads more than the survey's table shows: its approval's inputs
+   are the comments in the approval's window, a retry's comments on the
+   bot's pull requests, the millwright's note and the refresh's, so 2a ports
+   those reads too. What the poll does before its starts (systemd's answer,
+   the code index, the checkout) moves to part 4, where the poll is. The approval record, the mark (A1: mark before
    start; A2: the retry's untick after the mark), the unit and its wait, the undo when a start fails; `stop_done`,
    `quiet`, the sweep. The poll's own steps before a start.
 3. **Planning.** `plan_turn` (first and next), `plan_collect` with its two
