@@ -50,6 +50,9 @@ fn base() -> (Value, Value) {
         "leftovers": [],
         "asking": [],
         "owed": [],
+        "plans": [],
+        "refines": [],
+        "refines_owed": [],
     });
     (settings, snapshot)
 }

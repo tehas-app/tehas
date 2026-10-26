@@ -134,7 +134,7 @@ impl Poll<'_> {
         true
     }
 
-    fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
+    pub(super) fn untick(&mut self, n: u64, ans: &Value, note: Option<&str>) {
         let mut a = json!({
             "untick": n, "comment": ans["comment"],
             "body": questions::untick(ans["body"].as_str().unwrap_or("")),
@@ -148,6 +148,7 @@ impl Poll<'_> {
     /// Rule 4: the questions that wait for an answer. A box ticked to retry
     /// a parked cycle starts it, and the poll ends there.
     pub(super) fn questions(&mut self, room: &Room, bot: &str) -> Step {
+        let fresh = self.plan_turns();
         let Some(asking) = self.s.asking.clone() else {
             self.need("asking");
             return Ok(());
@@ -166,6 +167,8 @@ impl Poll<'_> {
             numbers.push((n, labels(i)));
         }
         numbers.sort_by_key(|(n, _)| *n);
+        let asked: Vec<u64> = numbers.iter().map(|(n, _)| *n).collect();
+        self.plan_over(&fresh, &asked);
         for (n, have) in numbers {
             if self.control_ask(n, "its question was answered") {
                 continue;
@@ -249,10 +252,8 @@ impl Poll<'_> {
                 ans["tick"]["status"] = json!("none");
             }
             if kind == "plan" {
-                // Rule 5's answers: part 3b.
-                if tick != "none" || !ans["reply"].is_null() || !ans["fixer_reply"].is_null() {
-                    self.need("planning");
-                }
+                let row = q.get("plan").cloned().unwrap_or(Value::Null);
+                self.plan_answer(n, &ans, &tick, &row, room)?;
                 continue;
             }
             if kind != "park" || tick != "one" {

@@ -34,6 +34,9 @@ pub struct Settings {
     pub model: String,
     pub image: String,
     pub refresh_max: i64,
+    pub fixer_max_plan_answers: i64,
+    /// Where the poll's libexec is, as the refine brief's path names it.
+    pub libexec: String,
 }
 
 impl Settings {
@@ -82,6 +85,8 @@ impl Settings {
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX", 2),
+            fixer_max_plan_answers: n("TEHAS_FIXER_MAX_PLAN_ANSWERS", 3),
+            libexec: s("libexec", "/home/tehas/tehas/libexec"),
         }
     }
 
