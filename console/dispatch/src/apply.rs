@@ -9,10 +9,12 @@
 //! unticks, the refreshing mark taken off a pull request, the told and said
 //! records, the files of the hold, the gate and the branch check, and the
 //! containers left behind. And the starts (start.rs), which end the poll.
-//! Stops, sweeps and planning turns are the later parts of #254, and come
-//! back in `left`.
+//! And the stops (stop.rs): a quiet cycle, one whose work is done, and the
+//! sweep. The planning turns are the next part of #254, and come back in
+//! `left`.
 
 pub mod start;
+mod stop;
 
 use crate::read::run::{run, run_input, Calls};
 use serde_json::{json, Value};
@@ -33,6 +35,8 @@ pub struct Writer {
     pub before: i64,
     pub bound: Duration,
     pub host: start::Host,
+    /// Set by an action that ends the poll.
+    pub ended: Option<i32>,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -100,6 +104,10 @@ impl Writer {
                 out.left.push(actions[i].clone());
             }
             i += 1;
+            if let Some(rc) = self.ended.take() {
+                out.exit = Some(rc);
+                return out;
+            }
         }
         out
     }
@@ -165,6 +173,14 @@ impl Writer {
             if r.ok() && !r.out.trim().is_empty() {
                 log.push(format!("removed the container {name}: {}", text(a, "why")));
             }
+        } else if let Some(n) = a.get("quiet").and_then(Value::as_u64) {
+            if let stop::Then::End = self.quiet(n, a, log) {
+                self.ended = Some(78);
+            }
+        } else if let Some(n) = a.get("stop_done").and_then(Value::as_u64) {
+            self.stop_done(n, a, log);
+        } else if let Some(n) = a.get("sweep").and_then(Value::as_u64) {
+            self.sweep(n, a, log);
         } else {
             return false;
         }
