@@ -22,6 +22,12 @@ empty one above it.
   from, decided from the state store's answer as the bash poll decides it, a
   cycle whose work is done, and the workspaces of issues unused for 7 days.
   Nothing calls it yet.
+- The dispatcher in Rust can end a planning turn (#254, part 3a): it
+  collects the turn's exit status, posts its question as the bash poll writes
+  it, replaces the issue a refine filed for, and ends a session that was cut
+  off, lost or closed. The state store's journal takes three more kinds of
+  write: `issue-edit`, `sub-issue-add` and `issue-close`. Nothing calls it
+  yet.
 
 ### Adopter action
 
