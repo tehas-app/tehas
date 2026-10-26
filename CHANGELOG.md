@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.14.1 (2026-10-26)
+
+### Changes
+
 - The query `tehas status` and `tehas tidy` send for shipped work had one
   closing brace too many since v0.14.0 (#731), so GitHub refused it: status
   wrote no snapshot of shipped work and tidy added no `tehas:shipped`. The
