@@ -269,7 +269,8 @@ impl Poll<'_> {
                 continue;
             }
             if !self.dry {
-                self.act(json!({"reap": format!("tehas-work-{n}")}));
+                self.act(json!({"reap": format!("tehas-work-{n}"),
+                    "why": format!("no cycle holds the lock of #{n}")}));
             }
             if i.get("state").and_then(Value::as_str) == Some("CLOSED") {
                 let line = format!(
@@ -279,7 +280,8 @@ impl Poll<'_> {
                     self.log(format!("would {line}"));
                 } else {
                     self.log(line);
-                    self.act(json!({"issue": n, "remove": ["tehas:running"]}));
+                    self.act(json!({"issue": n, "remove": ["tehas:running"],
+                        "fail": format!("WARN: label change on #{n} failed")}));
                 }
                 continue;
             }
@@ -321,6 +323,7 @@ impl Poll<'_> {
             self.log(line);
             self.act(json!({
                 "issue": n, "remove": ["tehas:running"], "add": ["needs-human-attention"],
+                "fail": format!("WARN: label change on #{n} failed"),
                 "say": format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."),
             }));
         }

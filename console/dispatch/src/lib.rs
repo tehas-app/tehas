@@ -2,6 +2,7 @@
 //! and returns what it does; it reads and writes nothing itself. The bash poll,
 //! libexec/dispatch, still acts: this library is compared with it first.
 
+pub mod apply;
 pub mod decide;
 pub mod events;
 pub mod questions;

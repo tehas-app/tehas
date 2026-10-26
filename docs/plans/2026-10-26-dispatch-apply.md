@@ -43,10 +43,12 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
    the refreshing mark taken off a pull request; `refresh_said`, `park_told`,
    `plan_note`; the files `refresh_drop`, `refresh_held`, `gate_held`,
    `branch_note`; `reap`. Every GitHub write goes through the journal:
-   intended, attempted, settled. Order rules A2 (untick after mark) and A6
-   (comment after its label change) are tested.
+   intended, attempted, settled; one the journal could not record is not
+   made. Order rule A6 (a comment after its label change, and none after one
+   that failed) is tested. `apply` is a library in this part: nothing calls
+   it on a host yet.
 2. **Starts and stops.** The approval record, the mark (A1: mark before
-   start), the unit and its wait, the undo when a start fails; `stop_done`,
+   start; A2: the retry's untick after the mark), the unit and its wait, the undo when a start fails; `stop_done`,
    `quiet`, the sweep. The poll's own steps before a start.
 3. **Planning.** `plan_turn` (first and next), `plan_collect` with its two
    paths, `plan_post`, `plan_end`, `plan_close`, the three `park_retry`.
