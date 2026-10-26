@@ -93,7 +93,7 @@ t_eq "$(requests)" "7.json"
 
 for kind in "a fork|.isCrossRepository = true" \
   "a branch of another repository|.headRepository.nameWithOwner = \"else/widget\"" \
-  "a draft|.isDraft = true" \
+  "a pull request with no draft state|.isDraft = null" \
   "another account's|.author.login = \"alice\"" \
   "one closing two issues|.closingIssuesReferences.totalCount = 2 | .closingIssuesReferences.nodes += [.closingIssuesReferences.nodes[0] | .number = 9]" \
   "one whose issue has two open pull requests|.closingIssuesReferences.nodes[0].closedByPullRequestsReferences.nodes += [{number: 52, state: \"OPEN\"}]" \
@@ -111,6 +111,16 @@ for kind in "a fork|.isCrossRepository = true" \
   t_eq "$t_rc" 0
   t_eq "$(requests)" ""
 done
+
+t_case "a draft's conflicting pull request gets a request, and one it had is kept"
+reset
+mkdir -p "$dir"
+prs "$(pr 50 7 '.isDraft = true')"
+jq -n '{pr: 51, head_sha: "x"}' >"$dir/7.json"
+t_run "$refresh"
+t_eq "$t_rc" 0
+t_eq "$(requests)" "7.json"
+t_eq "$(jq -r .pr "$dir/7.json")" 50
 
 t_case "a handed-off issue's conflicting pull request gets a request"
 reset
