@@ -76,30 +76,56 @@ pub fn run(program: &str, args: &[String], bound: Duration) -> Ran {
 pub fn gh_reads(args: &[String]) -> bool {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
+        // Only variables and the query, each a flag and its value: no method,
+        // no input file, nothing joined to a flag.
         ["api", "graphql", rest @ ..] => {
-            let query = rest
-                .iter()
-                .find_map(|x| x.strip_prefix("query="))
-                .unwrap_or("");
-            query.trim_start().starts_with("query") && !query.contains("mutation")
+            rest.len() % 2 == 0
+                && rest
+                    .chunks(2)
+                    .all(|p| matches!(p[0], "-f" | "-F") && p[1].contains('='))
+                && rest
+                    .chunks(2)
+                    .find_map(|p| p[1].strip_prefix("query="))
+                    .is_some_and(|q| q.trim_start().starts_with("query") && !q.contains("mutation"))
         }
+        // A path, and at most --paginate.
         ["api", path, rest @ ..] => {
-            !path.starts_with('-')
-                && !rest.iter().any(|x| {
-                    matches!(
-                        *x,
-                        "-X" | "--method" | "-f" | "-F" | "--field" | "--raw-field" | "--input"
-                    ) || x.starts_with("--method=")
-                })
+            !path.starts_with('-') && rest.iter().all(|x| *x == "--paginate")
         }
-        ["issue" | "pr", "list" | "view", ..] => true,
+        ["issue" | "pr", "list" | "view", rest @ ..] => {
+            !rest.iter().any(|x| x.starts_with("--web") || *x == "-w")
+        }
         _ => false,
+    }
+}
+
+/// gh's output as JSON. --paginate prints one array a page, one after
+/// another: they are one list, as `jq -s add` makes them.
+fn parse(out: &str) -> Value {
+    if let Ok(v) = serde_json::from_str(out) {
+        return v;
+    }
+    let pages: Result<Vec<Value>, _> = serde_json::Deserializer::from_str(out)
+        .into_iter::<Value>()
+        .collect();
+    match pages {
+        Ok(p) if !p.is_empty() && p.iter().all(Value::is_array) => Value::Array(
+            p.into_iter()
+                .flat_map(|v| match v {
+                    Value::Array(a) => a,
+                    _ => Vec::new(),
+                })
+                .collect(),
+        ),
+        _ => Value::String(out.to_string()),
     }
 }
 
 /// The calls of one snapshot, and how many went to GitHub.
 pub struct Calls {
     pub bound: Duration,
+    /// lib/store.sh's tehas_store_bound.
+    pub store_bound: Duration,
     pub gh: String,
     pub store: String,
     pub gh_count: u32,
@@ -121,7 +147,19 @@ impl Calls {
         if !r.ok() {
             return Err(GhFail(word));
         }
-        Ok(serde_json::from_str(&r.out).unwrap_or(Value::String(r.out)))
+        Ok(parse(&r.out))
+    }
+
+    /// gh's output as JSON, whatever its exit status: the bash reads some
+    /// answers so, keeping what came back of a partial one.
+    pub fn gh_any(&mut self, args: &[&str]) -> Option<Value> {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        if !gh_reads(&args) {
+            return None;
+        }
+        self.gh_count += 1;
+        let r = run(&self.gh, &args, self.bound);
+        serde_json::from_str(&r.out).ok()
     }
 
     /// The store's answer to a read verb, or its failure as lib/store.sh
@@ -129,7 +167,7 @@ impl Calls {
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
         let verb = args.first().copied().unwrap_or("");
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let r = run(&self.store, &args, self.bound);
+        let r = run(&self.store, &args, self.store_bound);
         let fail = |rc: i32, word: &str, line: String| {
             serde_json::json!({"failed": true, "rc": rc, "word": word,
                 "line": line.chars().map(|c| if c.is_control() { '?' } else { c }).take(300).collect::<String>()})
@@ -137,7 +175,10 @@ impl Calls {
         match r.status {
             Some(0) => {
                 let v: Value = serde_json::from_str(r.out.trim()).unwrap_or(Value::Null);
-                if !r.out.trim().contains('\n')
+                // The bash reads the answer with stderr merged: anything there
+                // makes it no answer.
+                if r.err.is_empty()
+                    && !r.out.trim().contains('\n')
                     && v.get("api") == Some(&serde_json::json!(1))
                     && v.get("ok") == Some(&serde_json::json!(true))
                     && v.get("verb").and_then(Value::as_str) == Some(verb)
@@ -156,7 +197,7 @@ impl Calls {
                 "timeout",
                 format!(
                     "store: timeout: {verb} did not answer in {} s",
-                    self.bound.as_secs()
+                    self.store_bound.as_secs()
                 ),
             )),
             Some(rc @ (1 | 64 | 78)) => {
@@ -239,6 +280,42 @@ mod tests {
         assert!(gh_reads(&a(&["pr", "list", "--repo", "a/b"])));
         assert!(!gh_reads(&a(&["issue", "edit", "7"])));
         assert!(!gh_reads(&a(&["issue", "comment", "7"])));
+        assert!(!gh_reads(&a(&[
+            "api",
+            "-XPOST",
+            "repos/a/b/issues/7/labels"
+        ])));
+        assert!(!gh_reads(&a(&[
+            "api",
+            "repos/a/b/issues/7/labels",
+            "-fa=b"
+        ])));
+        assert!(!gh_reads(&a(&[
+            "api",
+            "repos/a/b/issues/7/labels",
+            "--field=a=b"
+        ])));
+        assert!(!gh_reads(&a(&[
+            "api",
+            "graphql",
+            "--input=x",
+            "-f",
+            "query=query { a }"
+        ])));
+        assert!(!gh_reads(&a(&[
+            "api",
+            "graphql",
+            "-XPOST",
+            "-f",
+            "query=query { a }"
+        ])));
+    }
+
+    #[test]
+    fn pages_are_one_list() {
+        assert_eq!(parse("[1,2][3]"), serde_json::json!([1, 2, 3]));
+        assert_eq!(parse("{\"a\":1}"), serde_json::json!({"a": 1}));
+        assert_eq!(parse("not json"), serde_json::json!("not json"));
     }
 
     #[test]

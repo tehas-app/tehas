@@ -34,6 +34,12 @@ fn usage() -> String {
         .join("\n")
 }
 
+fn set_in(env: &Value, k: &str) -> bool {
+    env.get(k)
+        .and_then(Value::as_str)
+        .is_some_and(|v| !v.is_empty())
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -60,12 +66,60 @@ fn main() {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let repo = env.get("TEHAS_REPO").and_then(Value::as_str).unwrap_or("");
-    if home.is_empty() || repo.is_empty() {
-        eprintln!("tehas-dispatch: TEHAS_HOME and TEHAS_REPO must be set (tehasbot loads them)");
+    // What lib/config.sh's tehas_load always leaves set: a run without one
+    // has no settings to decide by, and stops before any call (rule 2).
+    let set = |k: &str| {
+        env.get(k)
+            .and_then(Value::as_str)
+            .is_some_and(|v| !v.is_empty())
+    };
+    let missing: Vec<&str> = [
+        "TEHAS_HOME",
+        "TEHAS_REPO",
+        "TEHAS_INSTANCE_DIR",
+        "TEHAS_CONTROL_ISSUE",
+        "TEHAS_ALLOWED_LABELERS",
+        "TEHAS_TICKET_CONCURRENCY",
+    ]
+    .into_iter()
+    .filter(|k| !set(k))
+    .collect();
+    if !missing.is_empty() {
+        eprintln!(
+            "tehas-dispatch: {} not set: load the instance's settings first (lib/config.sh, tehas_load)",
+            missing.join(", ")
+        );
         std::process::exit(78);
     }
     let mut env = Value::Object(env);
+    // tehas_branch: the setting, or the checkout's origin/HEAD.
+    if !set_in(&env, "TEHAS_BRANCH") {
+        let checkout = env["TEHAS_WORK_REPO"]
+            .as_str()
+            .unwrap_or("/nonexistent")
+            .to_string();
+        let r = tehas_dispatch::read::run::run(
+            "git",
+            &[
+                "-C".into(),
+                checkout.clone(),
+                "symbolic-ref".into(),
+                "-q".into(),
+                "--short".into(),
+                "refs/remotes/origin/HEAD".into(),
+            ],
+            Duration::from_secs(30),
+        );
+        let b = r.out.trim().trim_start_matches("origin/").to_string();
+        if !r.ok() || b.is_empty() {
+            eprintln!(
+                "tehas-dispatch: the default branch of {checkout} is unknown: run install.sh, or set TEHAS_BRANCH in {}/instance.env",
+                env["TEHAS_INSTANCE_DIR"].as_str().unwrap_or("?")
+            );
+            std::process::exit(78);
+        }
+        env["TEHAS_BRANCH"] = json!(b);
+    }
     // The poll's own libexec, which the refine brief's path is named by.
     env["libexec"] = json!(format!("{home}/libexec"));
     let settings = Settings::parse(&env);
@@ -79,6 +133,12 @@ fn main() {
         home: &home,
         calls: Calls {
             bound: Duration::from_secs(30),
+            store_bound: Duration::from_secs(
+                std::env::var("tehas_store_bound")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(20),
+            ),
             gh: "gh".into(),
             store: home.join("libexec/store").to_string_lossy().into_owned(),
             gh_count: 0,

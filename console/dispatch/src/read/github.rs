@@ -224,7 +224,9 @@ pub fn blocker_states(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Map<Str
     }
     q.push_str(" } }");
     let query = format!("query={q}");
-    if let Ok(v) = calls.gh(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query]) {
+    // As the bash: what came back counts, whatever gh's exit, so a number
+    // GitHub does not know spoils only itself.
+    if let Some(v) = calls.gh_any(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query]) {
         for b in numbers {
             if let Some(s) = v
                 .pointer(&format!("/data/repository/b{b}/state"))
