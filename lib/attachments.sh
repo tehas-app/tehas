@@ -914,18 +914,19 @@ tehas_answer_images() { # <dir> <answer file> <comment id>
 }
 
 # tehas_retry_context <record> [<comments>]: what reviewers wrote on the pull
-# request before a retry, what the fixer wrote when it started the retry, and
-# for a refresh the task tehas set it, from the record's retry_context, as
+# request before a retry, what the millwright wrote when it started the retry,
+# and for a refresh the task tehas set it, from the record's retry_context, as
 # markdown on standard output; nothing when there is none. The reviewers' part
 # only when <comments> is 1, the default: the instance takes comments. The
-# fixer's part is its one comment, by TEHAS_FIXER_LOGIN. The refresh's part is
+# millwright's part is its one comment, by TEHAS_MILLWRIGHT_LOGIN. The refresh's
+# part is
 # the one entry of source refresh in a record whose how is refresh: the
 # dispatcher wrote that text, so it is not quoted. The rest is people's or a
 # model's on a public issue: the head says so, and every line is quoted, so
 # none can start a section of its own. Each comment is cut at 4000 characters
 # and the whole at 32000.
 tehas_retry_context() { # <record> [<comments: 0 or 1>]
-  jq -r --argjson comments "${2:-1}" --arg fixer "${TEHAS_FIXER_LOGIN:-}" 'def ok($src): [(.retry_context // [])[] | select(type == "object" and (.text | type) == "string"
+  jq -r --argjson comments "${2:-1}" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" 'def ok($src): [(.retry_context // [])[] | select(type == "object" and (.text | type) == "string"
       and (.source | type) == "string" and (.source | test("^" + $src + ":[0-9]+$"))
       and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
       and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$")))];

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Say what this factory speaks: the API version, the release and commit it
 # was installed from, its repository, the features this release has and the
-# fixer's login. A program asks this first, before it relies on a feature.
+# millwright's login. A program asks this first, before it relies on a feature.
 #
 # The release and commit are those install.sh wrote to
 # $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
@@ -50,7 +50,7 @@ features='["status", "fixer-grant", "all-hands", "limit", "drain", "history", "e
 # the second has its line, and the version would be lost.
 version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null) || version=""
 version=${version%%$'\n'*}
-object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS_FIXER_LOGIN:-}" --argjson features "$features" '
+object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" --argjson features "$features" '
   ($v | split("+")) as $p
   | (if ($p | length) == 1 and ($v | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) then $v else null end) as $tag
   | {api: 1,

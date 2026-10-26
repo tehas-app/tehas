@@ -601,7 +601,7 @@ fixer_record() { # <rests_on by>
 }
 
 t_case "a start the fixer made on a person's approval takes the links that person approved"
-images_on TEHAS_FIXER_LOGIN=tehas-fixer
+images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 net "$A/1111" "$png"
 issue_is "![a]($A/1111)" NONE
 record_is alice "![a]($A/1111)" "$A/1111"
@@ -611,7 +611,7 @@ t_eq "$t_rc" 2
 t_eq "$(manifest '[(.images | length), .approval.how, .approval.by]')" '[1,"fixer","tehas-fixer"]'
 
 t_case "a fixer's record that rests on no allowed account takes no link"
-images_on TEHAS_FIXER_LOGIN=tehas-fixer
+images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 net "$A/1111" "$png"
 issue_is "![a]($A/1111)" NONE
 record_is alice "![a]($A/1111)" "$A/1111"
@@ -620,7 +620,7 @@ t_run "$work 7"
 t_eq "$(manifest '.images | length')" 0
 
 t_case "the fixer's note reaches the retry without comments on, headed as a model's words"
-images_on TEHAS_FIXER_LOGIN=tehas-fixer
+images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 issue_is "Words." NONE
 record_is alice "Words."
 fixer_record alice
