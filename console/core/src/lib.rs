@@ -5,5 +5,7 @@ pub mod file;
 pub mod grammar;
 #[cfg(feature = "mask")]
 pub mod mask;
+#[cfg(feature = "mask")]
+pub mod question;
 pub mod slow;
 pub mod time;

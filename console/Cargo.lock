@@ -471,6 +471,7 @@ dependencies = [
  "regex",
  "serde_json",
  "sha2",
+ "tehas-core",
 ]
 
 [[package]]
