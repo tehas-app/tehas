@@ -50,6 +50,15 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
+    pub checkout: String,
+    pub branch: String,
+    pub git: String,
+    /// TEHAS_INDEX_CMD, and TEHAS_INDEX_START_CMD, a test's.
+    pub index_cmd: String,
+    pub index_start_cmd: Option<String>,
+    /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
+    pub fetch_wait: Duration,
     /// TEHAS_PLAN_CMD: the program a turn's unit runs, libexec/plan.
     pub plan_cmd: String,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
@@ -186,6 +195,13 @@ impl Writer {
         log: &mut Vec<String>,
         printed: &mut Vec<String>,
     ) -> Option<i32> {
+        // Cycles start from the checkout's tip: refreshed here when the
+        // index's gate did not, as when a cycle runs.
+        if !self.fetched {
+            let mut lines = Vec::new();
+            self.refresh_checkout(&mut lines);
+            log.extend(lines);
+        }
         let mut failed = false;
         let mut marked = false;
         for a in starts {

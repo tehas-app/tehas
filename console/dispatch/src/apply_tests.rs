@@ -66,6 +66,14 @@ case "$name $1" in
         if [ -f "$f" ]; then cat "$f"; else cat "$d/comments" 2>/dev/null || echo '[]'; fi ;;
     esac ;;
   "gh pr") cat "$d/prs" 2>/dev/null || echo '[]' ;;
+  "git -C") case "$3" in
+      status) cat "$d/dirty" 2>/dev/null ;;
+      rev-parse) echo "abc1234" ;;
+    esac ;;
+  "systemctl --user") case "$*" in
+      *LoadState*) cat "$d/loadstate" 2>/dev/null || echo loaded ;;
+      *ActiveState*) cat "$d/activestate" 2>/dev/null || echo inactive ;;
+    esac ;;
   "analytics "*) printf '%s\n' "$*" >>"$d/events"
     while [ $# -gt 0 ]; do
       [ "$1" != --facts ] || { cp "$2" "$d/facts.json"; stat -c %a "$2" >"$d/facts.mode"; }
@@ -98,7 +106,16 @@ fn world() -> World {
         fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
         p
     });
-    for name in ["gh", "store", "docker", "start", "status", "analytics"] {
+    for name in [
+        "gh",
+        "store",
+        "docker",
+        "start",
+        "status",
+        "analytics",
+        "git",
+        "systemctl",
+    ] {
         std::os::unix::fs::symlink(stub, dir.join(name)).unwrap();
     }
     let s = |n: &str| dir.join(n).to_string_lossy().into_owned();
@@ -139,12 +156,19 @@ fn world() -> World {
             plan_timeout: 3600,
             plan_max_turns: 20,
             systemd_run: s("start"),
+            checkout: dir.join("checkout").to_string_lossy().into_owned(),
+            branch: "main".into(),
+            git: s("git"),
+            index_cmd: "/opt/index".into(),
+            index_start_cmd: Some(s("start")),
+            fetch_wait: Duration::from_secs(10),
         },
         ended: None,
         spend: None,
         status_due: false,
         gh_writes: 0,
         starts: 0,
+        fetched: false,
     };
     World { dir, w }
 }
@@ -170,7 +194,7 @@ impl World {
     fn writes(&self) -> Vec<String> {
         self.calls()
             .into_iter()
-            .filter(|c| !c.starts_with("store journal-"))
+            .filter(|c| !c.starts_with("store journal-") && !c.starts_with("git "))
             .collect()
     }
 
@@ -1944,4 +1968,222 @@ fn a_spend_of_no_kind_apply_knows_is_left() {
     let odd = json!({"park_retry": 7, "how": "someday"});
     assert_eq!(t.apply(json!([odd])).left, vec![odd]);
     assert!(t.calls().is_empty());
+}
+
+fn gates(n: u64, running: Value) -> Value {
+    json!([{"units": n}, {"index_gate": running}, start_of(n, "label")])
+}
+
+#[test]
+fn a_unit_systemd_cannot_load_ends_the_poll_before_any_mark() {
+    let mut t = world();
+    t.w.host.start_cmd = None;
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    fs::write(t.dir.join("loadstate"), "not-found\n").unwrap();
+    let a = t.apply(gates(7, json!([3])));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(a.log, vec!["ERROR: systemd cannot load tehas-cycle@.service (LoadState: not-found): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"]);
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+    // With a start command of its own, systemd is not asked.
+    let mut t = world();
+    fs::write(t.dir.join("loadstate"), "not-found\n").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert!(!a.log.iter().any(|l| l.contains("systemd cannot load")));
+    assert!(!t.calls().iter().any(|c| c.contains("LoadState")));
+}
+
+#[test]
+fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout() {
+    let mut t = world();
+    // The cycles counted are the locks held when the gate runs.
+    let cycles = t.w.home.join("state/cycles");
+    fs::create_dir_all(&cycles).unwrap();
+    let held: Vec<fs::File> = [3, 5]
+        .iter()
+        .map(|n| {
+            let f = fs::File::create(cycles.join(format!("{n}.lock"))).unwrap();
+            f.lock().unwrap();
+            f
+        })
+        .collect();
+    let a = t.apply(gates(7, json!([])));
+    drop(held);
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[0],
+        "the code index stays as it is: a cycle is running on #3, #5"
+    );
+    let git: Vec<String> = t
+        .calls()
+        .into_iter()
+        .filter(|c| c.starts_with("git "))
+        .collect();
+    let co = t.w.host.checkout.clone();
+    assert_eq!(
+        git,
+        vec![
+            format!("git -C {co} status --porcelain --untracked-files=no"),
+            format!("git -C {co} checkout -q main"),
+            format!("git -C {co} fetch -q origin"),
+            format!("git -C {co} merge -q --ff-only origin/main"),
+        ]
+    );
+}
+
+#[test]
+fn a_dirty_checkout_keeps_its_branch_and_a_failed_fetch_is_said() {
+    let mut t = world();
+    fs::write(t.dir.join("dirty"), " M src/x\n").unwrap();
+    t.fail("git", "fetch");
+    let a = t.apply(gates(7, json!([3])));
+    let co = t.w.host.checkout.clone();
+    assert!(a.log.contains(&format!(
+        "WARN: {co} has uncommitted changes, leaving its branch alone"
+    )));
+    assert!(a
+        .log
+        .contains(&format!("WARN: could not fast-forward {co}")));
+    assert!(!t.calls().iter().any(|c| c.contains("checkout -q main")));
+}
+
+#[test]
+fn a_busy_index_holds_the_starts_with_0() {
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    fs::write(t.dir.join("activestate"), "activating\n").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, Some(0));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "holding: the cycles wait for the code index, which tehas-index.service is refreshing"
+    );
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+}
+
+#[test]
+fn a_due_index_is_launched_and_holds_and_one_that_ran_lets_the_starts_go() {
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, Some(0));
+    assert_eq!(a.log.last().unwrap(), "holding: the code index is refreshed first, as tehas-index.service; the cycles start on the poll after it");
+    let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(log.contains("start /bin/bash -c log=$1 rc=$2 again=$3; shift 3;"));
+    assert!(log.contains("/opt/index --before-cycle"));
+    // A launcher that ran the index to its end: its report, and the starts.
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    let script = t.dir.join("index-start");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho 1 >{}\n",
+            t.w.home.join("state/index.rc").display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    t.w.host.index_start_cmd = Some(script.to_string_lossy().into_owned());
+    fs::write(t.w.home.join("state/dispatch.again"), "").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert!(a
+        .log
+        .iter()
+        .any(|l| l.starts_with("WARN: the code index was not refreshed, see ")));
+    assert!(!t.w.home.join("state/dispatch.again").exists());
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+}
+
+#[test]
+fn a_current_index_lets_the_starts_go() {
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    let state = t.w.home.join("state");
+    fs::create_dir_all(state.join("index")).unwrap();
+    fs::write(state.join("index.json"), r#"{"commit":"abc1234"}"#).unwrap();
+    fs::write(state.join("index/code.db"), "x").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+    // The start does not fetch a second time.
+    assert_eq!(
+        t.calls()
+            .iter()
+            .filter(|c| c.contains(" fetch -q origin"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_planning_turn_refreshes_the_checkout_before_its_unit() {
+    let mut t = world();
+    t.apply(json!([first_turn(7)]));
+    let c = t.calls();
+    let fetch = c
+        .iter()
+        .position(|l| l.contains(" fetch -q origin"))
+        .unwrap();
+    let unit = c
+        .iter()
+        .position(|l| l.starts_with("start 7 /bin/bash"))
+        .unwrap();
+    assert!(fetch < unit);
+}
+
+#[test]
+fn an_index_that_failed_at_the_tip_is_not_launched_again() {
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    // libexec/index writes the commit with its line end.
+    fs::write(t.w.home.join("state/index.failed"), "abc1234\n").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert!(!fs::read_to_string(t.dir.join("calls.log"))
+        .unwrap()
+        .contains("--before-cycle"));
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+}
+
+#[test]
+fn an_index_that_holds_its_lock_holds_the_starts() {
+    let mut t = world();
+    let lock = fs::File::create(t.w.home.join("state/index.lock")).unwrap();
+    lock.lock().unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, Some(0));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "holding: the cycles wait for the code index, which tehas-index.service is refreshing"
+    );
+}
+
+#[test]
+fn a_planning_turns_refresh_does_not_stand_in_for_a_starts() {
+    let mut t = world();
+    t.apply(json!([first_turn(7)]));
+    t.apply(json!([start_of(8, "label")]));
+    assert_eq!(
+        t.calls()
+            .iter()
+            .filter(|c| c.contains(" fetch -q origin"))
+            .count(),
+        2
+    );
 }

@@ -13,6 +13,7 @@
 //! sweep. And the planning turns: their end (plan.rs) and their start
 //! (turn.rs), with the spends of a park's retry.
 
+mod gate;
 mod plan;
 pub mod start;
 mod stop;
@@ -48,6 +49,9 @@ pub struct Writer {
     pub gh_writes: u32,
     /// The issues marked running this poll, for the poll's cost.
     pub starts: u32,
+    /// The checkout was refreshed this poll by the index's gate, so the
+    /// starts do not refresh it again.
+    pub fetched: bool,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -196,6 +200,14 @@ impl Writer {
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
             self.plan_close(n, log);
+        } else if let Some(n) = a.get("units").and_then(Value::as_u64) {
+            if !self.units(n, log) {
+                self.ended = Some(1);
+            }
+        } else if a.get("index_gate").is_some() {
+            if !self.index_gate(log) {
+                self.ended = Some(0);
+            }
         } else if let Some(n) = a.get("plan_turn").and_then(Value::as_u64) {
             if let turn::Then::End(rc) = self.plan_turn(n, a, log) {
                 self.ended = Some(rc);

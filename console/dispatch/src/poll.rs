@@ -219,12 +219,24 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             plan_timeout: env("TEHAS_PLAN_TIMEOUT").parse().unwrap_or(3600),
             plan_max_turns: env("TEHAS_PLAN_MAX_TURNS").parse().unwrap_or(20),
             systemd_run: "systemd-run".into(),
+            checkout: env("TEHAS_WORK_REPO"),
+            branch: settings.branch.clone(),
+            git: "git".into(),
+            index_cmd: or("TEHAS_INDEX_CMD", "index"),
+            index_start_cmd: opt("TEHAS_INDEX_START_CMD"),
+            // timeout's 0 is no bound.
+            fetch_wait: match env("TEHAS_FETCH_WAIT").parse::<u64>() {
+                Ok(0) => Duration::from_secs(u64::from(u32::MAX)),
+                Ok(n) => Duration::from_secs(n),
+                Err(_) => Duration::from_secs(120),
+            },
         },
         ended: None,
         spend: None,
         status_due: false,
         gh_writes: 0,
         starts: 0,
+        fetched: false,
     }
 }
 
@@ -400,6 +412,7 @@ fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut E
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
+        gate: true,
     };
     let snap = snapshot(&mut src, settings);
     end.gh = src.calls.gh_count;
