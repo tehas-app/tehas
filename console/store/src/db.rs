@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -99,7 +99,7 @@ ALTER TABLE plan_history ADD COLUMN auto INTEGER NOT NULL DEFAULT 0;
 /// last in each as in schema.sql, with its indexes and the triggers that fill
 /// it. The rows there are numbered in the order history-show listed them before,
 /// the end, then the issue, then the row, a cycle before a planning turn.
-const STEP_6: &str = "
+pub const STEP_6: &str = "
 ALTER TABLE cycle_history ADD COLUMN seq INTEGER;
 ALTER TABLE plan_history ADD COLUMN seq INTEGER;
 CREATE TEMP TABLE history_seq AS
@@ -119,6 +119,17 @@ CREATE TRIGGER plan_history_order AFTER INSERT ON plan_history WHEN NEW.seq IS N
   UPDATE plan_history SET seq = 1 + max(coalesce((SELECT max(seq) FROM cycle_history), 0),
     coalesce((SELECT max(seq) FROM plan_history), 0)) WHERE id = NEW.id;
 END;
+";
+
+/// The step from 6 to 7: the table of what each poll cost.
+pub const STEP_7: &str = "
+CREATE TABLE poll_cost (
+  id INTEGER PRIMARY KEY,
+  at INTEGER NOT NULL,
+  wall_ms INTEGER NOT NULL, cpu_ms INTEGER NOT NULL, gh INTEGER NOT NULL,
+  writes INTEGER, label INTEGER, comment INTEGER, edit INTEGER, other INTEGER
+);
+CREATE INDEX poll_cost_at ON poll_cost (at);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -170,7 +181,7 @@ fn read_wait(tries: i32) -> bool {
 /// them. Every CREATE INDEX of schema.sql appears here exactly once, which that
 /// test is what checks.
 #[cfg(test)]
-pub const COUNTED_INDEXES: [&str; 13] = [
+pub const COUNTED_INDEXES: [&str; 14] = [
     "issues_checked",
     "cycles_running",
     "heartbeats_at",
@@ -182,6 +193,7 @@ pub const COUNTED_INDEXES: [&str; 13] = [
     "cycle_history_seq",
     "plan_history_seq",
     "polls_recent",
+    "poll_cost_at",
     "actions_open",
     "journal_action",
 ];
@@ -189,7 +201,7 @@ pub const COUNTED_INDEXES: [&str; 13] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 40] = [
+pub const COUNTED_TABLES: [&str; 41] = [
     "meta",
     "issues",
     "cycles",
@@ -211,6 +223,7 @@ pub const COUNTED_TABLES: [&str; 40] = [
     "plan_history",
     "refined",
     "polls",
+    "poll_cost",
     "poll_demand",
     "queue_snapshot",
     "health_samples",
@@ -814,16 +827,22 @@ pub fn migrate(
             .and_then(|()| step(conn, 3, STEP_3))
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6)),
+            .and_then(|()| step(conn, 6, STEP_6))
+            .and_then(|()| step(conn, 7, STEP_7)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6)),
+            .and_then(|()| step(conn, 6, STEP_6))
+            .and_then(|()| step(conn, 7, STEP_7)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
-            .and_then(|()| step(conn, 6, STEP_6)),
-        4 => step(conn, 5, STEP_5).and_then(|()| step(conn, 6, STEP_6)),
-        5 => step(conn, 6, STEP_6),
+            .and_then(|()| step(conn, 6, STEP_6))
+            .and_then(|()| step(conn, 7, STEP_7)),
+        4 => step(conn, 5, STEP_5)
+            .and_then(|()| step(conn, 6, STEP_6))
+            .and_then(|()| step(conn, 7, STEP_7)),
+        5 => step(conn, 6, STEP_6).and_then(|()| step(conn, 7, STEP_7)),
+        6 => step(conn, 7, STEP_7),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
