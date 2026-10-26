@@ -651,6 +651,11 @@ fn run_suite(name: &str) {
 }
 
 #[test]
+fn approval() {
+    run_suite("approval");
+}
+
+#[test]
 fn finish() {
     run_suite("finish");
 }

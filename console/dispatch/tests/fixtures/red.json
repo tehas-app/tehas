@@ -1,92 +1,585 @@
 {
-  "from": "test/dispatch_red_test.sh",
-  "later": [
-    "red: a retry tick waits while the branch is red: rule 4, PR 3",
-    "red: a planning session still starts, and an answer still runs a turn: rule 5, PR 3"
-  ],
-  "not_ported": ["red: no check named, GitHub is not asked: a count of calls (#253 part 4)"],
-  "cases": [
-    {"case": "red: a failed check on the head starts nothing and says so",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"total_count": 1, "check_runs": [{"name": "verify", "head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "failure"}]}},
-     "expect": {"exit": 0, "picked": [], "log": ["holding: main is red at 0123456789ab"],
-       "report": {"why": "red", "hold": "holding: main is red at 0123456789ab"}, "no_actions": [{"start": 7}]}},
-    {"case": "red: a timed-out check is red too",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "timed_out"}]}},
-     "expect": {"picked": [], "report": {"why": "red"}}},
-    {"case": "red: a startup failure is red too",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "startup_failure"}]}},
-     "expect": {"picked": [], "report": {"why": "red"}}},
-    {"case": "red: said on every poll while issues wait",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"last_why": "red", "checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "failure"}]}},
-     "expect": {"log": ["holding: main is red at 0123456789ab"], "report": {"why": "red"}}},
-    {"case": "red: passed, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "success"}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: in progress, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "in_progress", "conclusion": null}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: queued, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "queued", "conclusion": null}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: cancelled, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "cancelled"}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: skipped, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "skipped"}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: neutral, the cycles start as before",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "ready_n": [7, 8],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "neutral"}]}},
-     "expect": {"picked": [7, 8], "report": {"why": ""}}},
-    {"case": "red: a pending check is said once, with why the poll could not tell",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "in_progress", "conclusion": null}]}},
-     "expect": {"log": ["the check verify on main at 0123456789ab has not finished: cycles start"],
-       "actions": [{"branch_note": "the check verify on main at 0123456789ab has not finished: cycles start"}]}},
-    {"case": "red: a pending check is said once: the next poll",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"branch_note": "the check verify on main at 0123456789ab has not finished: cycles start",
-                  "checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "in_progress", "conclusion": null}]}},
-     "expect": {"log_lacks": ["has not finished"], "no_actions": [{"branch_note": "the check verify on main at 0123456789ab has not finished: cycles start"}]}},
-    {"case": "red: no such check on the head, the cycles start and the log says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"total_count": 0, "check_runs": []}},
-     "expect": {"picked": [7], "log": ["main has no check named verify on its head commit: cycles start"]}},
-    {"case": "red: a call that fails starts cycles and says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"failed": true}},
-     "expect": {"exit": 0, "picked": [7], "log": ["the check verify on main could not be read: cycles start"]}},
-    {"case": "red: a call that answers nonsense starts cycles and says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": "not json"},
-     "expect": {"exit": 0, "picked": [7], "log": ["the check verify on main could not be read: cycles start"]}},
-    {"case": "red: a call whose head is no commit starts cycles and says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "<b>", "status": "completed", "conclusion": "failure"}]}},
-     "expect": {"exit": 0, "picked": [7], "log": ["the check verify on main could not be read: cycles start"]}},
-    {"case": "red: no check named, the cycles start",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2},
-     "expect": {"picked": [7]}},
-    {"case": "red: a running cycle goes on",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "hold": [5],
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "failure"}]}},
-     "expect": {"report": {"why": "red"}, "no_actions": [{"issue": 5}, {"stop": 5}]}},
-    {"case": "red: green again, the hold is released",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"},
-     "snapshot": {"last_why": "red", "checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "success"}]}},
-     "expect": {"picked": [7], "log": ["released: cycles may start again"]}},
-    {"case": "red: a dry run says it and starts nothing",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2, "TEHAS_BRANCH_CHECK": "verify"}, "dry": true,
-     "snapshot": {"checks": {"check_runs": [{"head_sha": "0123456789abcdef0123456789abcdef01234567", "status": "completed", "conclusion": "failure"}]}},
-     "expect": {"log": ["holding: main is red at 0123456789ab"], "log_lacks": ["would run a cycle"]}}
-  ]
+ "from": "test/dispatch_red_test.sh",
+ "later": [
+  "red: a planning session still starts, and an answer still runs a turn: rule 5, part 3b"
+ ],
+ "not_ported": [
+  "red: no check named, GitHub is not asked: a count of calls (#253 part 4)"
+ ],
+ "cases": [
+  {
+   "case": "red: a failed check on the head starts nothing and says so",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: main is red at 0123456789ab"
+    ],
+    "report": {
+     "why": "red",
+     "hold": "holding: main is red at 0123456789ab"
+    },
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a timed-out check is red too",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "timed_out"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [],
+    "report": {
+     "why": "red"
+    }
+   }
+  },
+  {
+   "case": "red: a startup failure is red too",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "startup_failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [],
+    "report": {
+     "why": "red"
+    }
+   }
+  },
+  {
+   "case": "red: said on every poll while issues wait",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "last_why": "red",
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "log": [
+     "holding: main is red at 0123456789ab"
+    ],
+    "report": {
+     "why": "red"
+    }
+   }
+  },
+  {
+   "case": "red: passed, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "success"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: in progress, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "in_progress",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: queued, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "queued",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: cancelled, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "cancelled"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: skipped, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "skipped"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: neutral, the cycles start as before",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "neutral"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  },
+  {
+   "case": "red: a pending check is said once, with why the poll could not tell",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "in_progress",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "log": [
+     "the check verify on main at 0123456789ab has not finished: cycles start"
+    ],
+    "actions": [
+     {
+      "branch_note": "the check verify on main at 0123456789ab has not finished: cycles start"
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a pending check is said once: the next poll",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "branch_note": "the check verify on main at 0123456789ab has not finished: cycles start",
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "in_progress",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "log_lacks": [
+     "has not finished"
+    ],
+    "no_actions": [
+     {
+      "branch_note": "the check verify on main at 0123456789ab has not finished: cycles start"
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: no such check on the head, the cycles start and the log says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "total_count": 0,
+     "check_runs": []
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log": [
+     "main has no check named verify on its head commit: cycles start"
+    ]
+   }
+  },
+  {
+   "case": "red: a call that fails starts cycles and says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "the check verify on main could not be read: cycles start"
+    ]
+   }
+  },
+  {
+   "case": "red: a call that answers nonsense starts cycles and says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": "not json"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "the check verify on main could not be read: cycles start"
+    ]
+   }
+  },
+  {
+   "case": "red: a call whose head is no commit starts cycles and says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "<b>",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "the check verify on main could not be read: cycles start"
+    ]
+   }
+  },
+  {
+   "case": "red: no check named, the cycles start",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "red: a running cycle goes on",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "report": {
+     "why": "red"
+    },
+    "no_actions": [
+     {
+      "issue": 5
+     },
+     {
+      "stop": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: green again, the hold is released",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "last_why": "red",
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "success"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log": [
+     "released: cycles may start again"
+    ]
+   }
+  },
+  {
+   "case": "red: a dry run says it and starts nothing",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "dry": true,
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "log": [
+     "holding: main is red at 0123456789ab"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "red: a retry tick waits while the branch is red",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": []
+   }
+  }
+ ]
 }
