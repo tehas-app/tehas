@@ -48,6 +48,8 @@ fn base() -> (Value, Value) {
         "marked": [],
         "refresh_history": [],
         "leftovers": [],
+        "asking": [],
+        "owed": [],
     });
     (settings, snapshot)
 }
@@ -351,6 +353,76 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
+    // world "parked": issue 7 is parked with the question 4001 on record,
+    // and nothing is queued (dispatch_lib.sh's parked).
+    if c.get("world") == Some(&json!("parked")) {
+        snap["ready"] = json!([]);
+        if c.pointer("/snapshot/asking").is_none() {
+            snap["asking"] = json!([{"number": 7, "labels": [{"name": "needs-human-attention"}, {"name": "tehas:question"}]}]);
+        }
+        let mut is = issues(snap);
+        let i = is.entry("7".to_string()).or_insert_with(|| json!({}));
+        if i.get("question").is_none() {
+            i["question"] = json!({"plan": null, "id": "4001", "kind": "park"});
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // park_q: [retry box, leave box, editor, later comments]: the comments of
+    // #7 as comments 7 "$(park_body ...)" writes them.
+    // asked: {n: [body, editor, later comments]}: the same for any body.
+    let mut asked: Vec<(String, Value)> = Vec::new();
+    if let Some(x) = c.get("park_q").and_then(Value::as_array) {
+        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+            x[0].as_str().unwrap(), x[1].as_str().unwrap());
+        asked.push((
+            "7".into(),
+            json!([
+                body,
+                x.get(2).cloned().unwrap_or(json!("")),
+                x.get(3).cloned().unwrap_or(json!([]))
+            ]),
+        ));
+    }
+    if let Some(m) = c.get("asked").and_then(Value::as_object) {
+        asked.extend(m.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    if !asked.is_empty() {
+        let mut is = issues(snap);
+        for (n, x) in asked {
+            let ed = x[1].as_str().unwrap_or("");
+            let mut nodes = vec![
+                json!({"databaseId": 4001, "author": {"login": "tehas-bot"}, "body": x[0],
+                "createdAt": "2026-01-01T00:00:00Z",
+                "lastEditedAt": if ed.is_empty() { Value::Null } else { json!("2026-01-01T01:00:00Z") },
+                "editor": if ed.is_empty() { Value::Null } else { json!({"login": ed}) }}),
+            ];
+            nodes.extend(
+                x.get(2)
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            let i = is.entry(n).or_insert_with(|| json!({}));
+            i["comments"] =
+                json!({"data": {"repository": {"issue": {"comments": {"nodes": nodes}}}}});
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // An issue that asks a question has an entry, so it gets the defaults.
+    let asking: Vec<u64> = snap["asking"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["number"].as_u64())
+        .collect();
+    let mut is = issues(snap);
+    for n in asking {
+        let i = is.entry(n.to_string()).or_insert_with(|| json!({}));
+        if i.get("events").is_none() {
+            i["events"] = json!([ready_event("alice", None)]);
+        }
+    }
+    snap["issues"] = Value::Object(is);
     // What gh api answers for an issue marked tehas:running: open, and
     // carrying the mark.
     let marked: Vec<u64> = snap["marked"]
@@ -401,6 +473,7 @@ fn expand(c: &Value, snap: &mut Value) {
             "park": null,
             "approval": null,
             "current": null,
+            "refresh_said": "",
         });
         for (k, v) in defaults.as_object().unwrap() {
             if i.get(k).is_none() {
@@ -576,6 +649,11 @@ fn run_suite(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn approval() {
+    run_suite("approval");
 }
 
 #[test]

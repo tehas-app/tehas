@@ -1,8 +1,8 @@
 {
  "suite": "test/dispatch_start_test.sh",
  "later": [
-  "a planning session on an epic is allowed: rule 5, PR 3",
-  "a planning session on such an issue is allowed: deciding where the fix lives is its work: rule 5, PR 3",
+  "a planning session on an epic is allowed: rule 5, part 3b",
+  "a planning session on such an issue is allowed: deciding where the fix lives is its work: rule 5, part 3b",
   "the starts, the analytics, the lock and the wait (the rest of the suite): the start itself, #254, and the poll's I/O, PR 4"
  ],
  "not_ported": [
