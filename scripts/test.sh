@@ -8,14 +8,15 @@
 #   2. the shell tests in test/*_test.sh
 #
 # Before the tests start, the state store (console/store), the attachment
-# checker (console/attach) and tehas-dispatch (console/dispatch) are built
+# checker (console/attach), tehas-dispatch (console/dispatch) and tehas-cycle
+# (console/cycle) are built
 # once, offline, into console/target/shell
 # (when cargo's cache lacks a locked crate, it is fetched once and built again):
 # a target directory of their own, because scripts/verify.sh runs the
 # workspace's cargo test in console/target at the same time. The test files are
-# told where they are in T_STORE_BIN, T_ATTACH_BIN and T_DISPATCH_BIN, or why
-# there are none in T_STORE_WHY (test/lib.sh, t_store, t_attach and
-# t_dispatch). A test that needs one fails without it.
+# told where they are in T_STORE_BIN, T_ATTACH_BIN, T_DISPATCH_BIN and
+# T_CYCLE_BIN, or why there are none in T_STORE_WHY (test/lib.sh, t_store,
+# t_attach, t_dispatch and t_cycle). A test that needs one fails without it.
 #
 # Where a single quote is the point of a line - an assertion that some text is
 # a literal - SC2016 is wrong about it. The manual states the policy for
@@ -114,10 +115,10 @@ limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
 out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
 
-unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN
+unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN T_CYCLE_BIN
 store_build() {
   cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
-    --target-dir "$root/console/target/shell" -p store -p attach -p tehas-dispatch >"$out/store-build.log" 2>&1
+    --target-dir "$root/console/target/shell" -p store -p attach -p tehas-dispatch -p tehas-cycle >"$out/store-build.log" 2>&1
 }
 store_why=""
 if [ ! -f "$root/console/Cargo.toml" ]; then
@@ -132,6 +133,7 @@ elif store_build ||
   export T_STORE_BIN=$root/console/target/shell/debug/store
   export T_ATTACH_BIN=$root/console/target/shell/debug/attach
   export T_DISPATCH_BIN=$root/console/target/shell/debug/tehas-dispatch
+  export T_CYCLE_BIN=$root/console/target/shell/debug/tehas-cycle
 else
   store_why="the store did not build offline: $(tail -n 1 "$out/store-build.log")"
 fi

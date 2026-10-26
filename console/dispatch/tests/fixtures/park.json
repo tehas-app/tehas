@@ -729,7 +729,7 @@
    }
   },
   {
-   "case": "a retry tick takes tehas:ready and both escalation labels off",
+   "case": "a retry tick takes tehas:ready and the escalation label off",
    "world": "parked",
    "park_q": [
     "x",
@@ -752,7 +752,6 @@
       "remove": [
        "tehas:question",
        "tehas:ready",
-       "tehas:fixer-escalated",
        "tehas:millwright-escalated"
       ]
      },
@@ -776,9 +775,6 @@
        },
        {
         "name": "tehas:ready"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"

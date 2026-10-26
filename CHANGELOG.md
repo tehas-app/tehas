@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- The cycle's shadow (#256, part 2): while `state/cycle-shadow.on` is there,
+  `tehas-cycle` decides each cycle's report beside `tehasbot cycle` from the
+  same files and its own GitHub reads, and logs what differs from the bash's
+  writes, park and end to `logs/cycle-shadow.log`. A report that differed is
+  kept in `state/cycle-shadow/`. install.sh builds and installs
+  `libexec/tehas-cycle`, and a release carries it. It acts on nothing.
+- install.sh rebuilds `tehas-dispatch` when `console/core` changes, which it
+  uses since the question comments' text moved there.
+- libexec/cycle no longer has a check that a progress file is newer than the
+  cycle's lock: it compared with a file named by a number and never held.
 - `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
   part 1): from what the cycle left and GitHub's answers it says what
   libexec/cycle does, its warnings, label changes, comments and park question,
@@ -31,6 +41,18 @@ empty one above it.
   while a cycle runs, waited for while it is refreshed, refreshed first when
   it is due), the checkout's refresh before a start or a planning turn, and
   the low gate's run. Nothing chooses it yet.
+- The poll's cost is on the factory API (#745, part 3 of #734): `tehas api
+  --json` carries `poll`, the last poll's wall and CPU time, its `gh` calls,
+  its writes by kind, its starts and its age in whole minutes, beside the
+  polls, CPU time and writes of the last hour, so a program that keeps a copy
+  of them can add the cost of many hosts up. `store poll-show --api --now
+  <unix>` shapes them, and `tehas api` prints the store's own words for them
+  on a `poll` line of its plain output. A store that cannot answer is
+  `"poll": null`, not a failed command. A new test pins what a poll that
+  starts nothing may cost: 0 writes and fewer processes than a ceiling written
+  in the test, counted on a host with 500 lock files, 50 shipped issues and 5
+  blocked ones, so a change that raises the cost of an idle poll has to change
+  the test.
 - The dispatcher in Rust can end a planning turn (#254, part 3a): it
   collects the turn's exit status, posts its question as the bash poll writes
   it, replaces the issue a refine filed for, and ends a session that was cut
@@ -41,10 +63,21 @@ empty one above it.
   turn's brief and its session on record, a next turn's answer, the issue
   marked planning before the turn's unit starts, and the three spends of a
   park's retry. Nothing calls it yet.
+- The fixer's old names are no longer read (#799). A `TEHAS_FIXER_*`
+  setting stops every command with 78 and names its `TEHAS_MILLWRIGHT_*`
+  name. The dispatcher no longer counts the marker `tehas:fixer` or the
+  label `tehas:fixer-escalated`, `tehas labels` no longer makes that label,
+  and `store plan-answer` no longer takes `--fixer`. Records written as
+  `how: "fixer"` still count as the millwright's, and `tehas api` still lists
+  `fixer-grant` and `fixer`, as API version 1 removes no field.
 
 ### Adopter action
 
-- None.
+- Rename `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES` and
+  `TEHAS_FIXER_MAX_PLAN_ANSWERS` in `instance.env` to `TEHAS_MILLWRIGHT_*`
+  before updating. A millwright's program must write
+  `<!-- tehas:millwright ... -->` and `tehas:millwright-escalated`. The label
+  `tehas:fixer-escalated` may be deleted from the product repository.
 
 ## v0.14.1 (2026-10-26)
 

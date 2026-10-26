@@ -1,29 +1,32 @@
 #!/usr/bin/env bash
 # Say what this factory speaks: the API version, the release and commit it
-# was installed from, its repository, the features this release has and the
-# millwright's login. A program asks this first, before it relies on a feature.
-# The old names, the feature fixer-grant and the field fixer, say the same as
-# millwright-grant and millwright until a release removes them.
+# was installed from, its repository, the features this release has, the
+# millwright's login and what the polls cost. A program asks this first, before
+# it relies on a feature. The old names, the feature fixer-grant and the field
+# fixer, say the same as millwright-grant and millwright, and stay for as long
+# as api 1.
 #
 # The release and commit are those install.sh wrote to
 # $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
 # "v0.10.2" from a release, or the bare commit from a checkout with no tag.
 # Either is null when the install recorded only the other, and both when it
-# recorded nothing. No network and no git, and it writes nothing.
+# recorded nothing. The poll comes from the state store, null when no poll is
+# on record. No network and no git, and it writes nothing.
 #
 # Usage: tehas api [--json]
+#
+# Without --json, one line each; the last is the store's own words for the
+# polls, and only while one is on record. With --json the same as one object,
+# whose poll is {"last": {"at", "wallMs", "cpuMs", "gh", "writes", "starts",
+# "kinds", "ageMin"}, "hour": {"polls", "cpuMs", "writes"}}, or null: see
+# host/docs/api.md.
 #
 #   api         1
 #   tehas       v0.8.0 (cb6912a)
 #   repo        tehas-app/tehas
 #   features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
 #   millwright  none
-#
-# With --json the same as one object on standard output:
-#   {"api": 1, "tehas": "v0.8.0", "commit": "cb6912a", "repo": "tehas-app/tehas",
-#    "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit",
-#                 "drain", "history", "export", "refresh-conflicts", "analytics"],
-#    "millwright": null, "fixer": null}
+#   poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 #
 # Exit: 0 printed; 64 an argument this command does not know; 78 instance
 # settings are missing or malformed.
@@ -39,7 +42,9 @@ esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-TEHAS_SILENT_RENAMED=1 tehas_load || exit 78
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
+tehas_load || exit 78
 tehas_require TEHAS_REPO
 
 # What this release can do. A feature is added here in the release that
@@ -47,25 +52,34 @@ tehas_require TEHAS_REPO
 features='["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"]'
 
 # Read without a pipe: under pipefail the first head can die of SIGPIPE when
-# the second has its line, and the version would be lost.
+# the second has its line, and the version would be lost. The last poll is
+# asked in the API's names, and in the words the store itself words them into,
+# which only a person is asked. A store that cannot answer is no poll on
+# record: a report is not a check, so it never fails the command.
 version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null) || version=""
 version=${version%%$'\n'*}
-object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg login "${TEHAS_MILLWRIGHT_LOGIN:-}" --argjson features "$features" '
-  ($v | split("+")) as $p
+tehas_store poll-show --api --now "$EPOCHSECONDS" || tehas_store_out=null
+poll=$tehas_store_out line=""
+[ "$json" = 1 ] || { tehas_store poll-show && line=$(jq -r '.line // ""' <<<"$tehas_store_out"); }
+# The one object, in jq: the version text split into its tag and its commit,
+# the features, the millwright under both of its names, and the poll. The line
+# of words is kept for a person and taken out of what --json prints.
+object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg login "${TEHAS_MILLWRIGHT_LOGIN:-}" --argjson features "$features" --argjson poll "$poll" --arg line "$line" '($v | split("+")) as $p
   | (if ($p | length) == 1 and ($v | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) then $v else null end) as $tag
   | {api: 1,
      tehas: (if $tag != null then $tag elif ($p | length) == 2 then $p[0] else null end),
      commit: (if $v == "" then null elif $tag != null then null else $p[-1] end),
-     repo: $repo,
-     features: $features,
-     millwright: (if $login == "" then null else $login end)} | .fixer = .millwright') || exit 1
-
+     repo: $repo, features: $features,
+     millwright: (if $login == "" then null else $login end)} | .fixer = .millwright
+  | .poll = (if $poll == null or $poll.last == null then null else {last: $poll.last, hour: $poll.hour} end)
+  | .pollLine = (if $line == "" then null else $line end)') || exit 1
 if [ "$json" = 1 ]; then
-  printf '%s\n' "$object"
+  printf '%s\n' "$object" | jq -c 'del(.pollLine)'
 else
   jq -r '"api         \(.api)",
     "tehas       \(.tehas // "unknown")\(if .commit == null then "" else " (\(.commit))" end)",
     "repo        \(.repo)",
     "features    \(.features | join(" "))",
-    "millwright  \(.millwright // "none")"' <<<"$object"
+    "millwright  \(.millwright // "none")",
+    (if .pollLine == null then empty else .pollLine | sub("^poll *"; "poll        ") end)' <<<"$object"
 fi

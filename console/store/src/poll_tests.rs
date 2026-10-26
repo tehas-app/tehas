@@ -113,6 +113,8 @@ fn the_arguments_are_strict() {
     ])
     .contains("--times is not an absolute path"));
     assert!(usage(&["poll-show", "--last"]).contains("unknown flag"));
+    assert!(usage(&["poll-show", "--now", "x"]).contains("--now is not a Unix time"));
+    assert!(usage(&["poll-show", "--api", "--api"]).contains("--api given twice"));
     assert!(usage(&[
         "poll-record",
         "--started",
@@ -177,6 +179,17 @@ fn seconds_read_as_the_status_line_says_them() {
     assert_eq!(secs(9_960), "10");
     assert_eq!(secs(24_400), "24");
     assert_eq!(secs(41_600), "42");
+}
+
+/// `poll-show --api --now <unix>` as `tehas api` asks for it. The verb's
+/// plain shape is the same call without the two flags, so the two readings
+/// are always read against one store.
+fn api(home: &Path, now: i64) -> Value {
+    ok_at(
+        home,
+        now,
+        &["poll-show", "--api", "--now", &now.to_string()],
+    )
 }
 
 #[test]
@@ -264,6 +277,93 @@ fn no_poll_on_record_is_no_line() {
     let s = ok(&home, &["poll-show"]);
     assert!(s["last"].is_null() && s["line"].is_null(), "{s}");
     assert_eq!(s["hour"]["polls"], 0);
+}
+
+#[test]
+fn the_api_shape_names_the_figures_the_api_carries() {
+    let home = home("poll-api");
+    // The last poll ended two minutes ago and started nothing; the host's
+    // write log has five lines of its, of four kinds.
+    // `record` counts the log between the two milliseconds it is given, so
+    // the lines are dated from that second to it: 23:58:00Z to 00:00:00Z.
+    let log = [
+        line(NOW, "label create"),
+        line(NOW, "issue comment"),
+        line(NOW, "issue comment"),
+        line(NOW, "pr edit"),
+        line(NOW, "api POST"),
+    ]
+    .concat();
+    let real = 1_792_000_000_000;
+    let r = files(&home, 12, Some(&log));
+    record(&home, NOW - 120, &r, real - 24_400, real, Some(0));
+    let v = api(&home, NOW);
+    assert_eq!(
+        v["last"],
+        serde_json::json!({
+            "at": NOW - 120,
+            "wallMs": 24_400,
+            "cpuMs": 1500,
+            "gh": 12,
+            "writes": 5,
+            "starts": 0,
+            "kinds": {"label": 1, "comment": 2, "edit": 1, "other": 1},
+            "ageMin": 2,
+        }),
+        "{v}"
+    );
+    assert_eq!(
+        v["hour"],
+        serde_json::json!({"polls": 1, "cpuMs": 1500, "writes": 5}),
+        "{v}"
+    );
+    // The plain reading is the only one with the status line; the API's has
+    // no line of words, and no snake_case figure.
+    assert!(v.get("line").is_none(), "{v}");
+    assert!(v["last"].get("wall_ms").is_none(), "{v}");
+    assert_eq!(v["verb"], "poll-show");
+}
+
+#[test]
+fn the_api_shape_counts_the_hour_and_leaves_a_row_without_answers_out() {
+    let home = home("poll-api-hour");
+    let r = files(&home, 3, None);
+    let real = 1_792_000_001_000;
+    // Two polls of the hour, one of them before it, and none with a write log.
+    record(&home, NOW - 7200, &r, real - 1000, real, Some(0));
+    record(&home, NOW - 600, &r, real - 1000, real, Some(0));
+    record(&home, NOW - 60, &r, real - 2000, real, None);
+    let v = api(&home, NOW);
+    assert_eq!(v["hour"]["polls"], 2);
+    assert_eq!(v["hour"]["cpuMs"], 3000);
+    // Nothing anywhere had a write log, so the figure is null, not 0.
+    assert!(v["hour"]["writes"].is_null(), "{v}");
+    assert!(v["last"]["writes"].is_null(), "{v}");
+    assert!(v["last"]["starts"].is_null(), "{v}");
+    assert!(v["last"]["kinds"].is_null(), "{v}");
+    assert_eq!(v["last"]["ageMin"], 1);
+    // The hour's sums ignore the older poll whatever the reading asks for.
+    assert_eq!(api(&home, NOW - 3600)["hour"]["polls"], 0);
+}
+
+#[test]
+fn the_api_shape_without_a_poll_is_null_last_and_an_empty_hour() {
+    let home = home("poll-api-none");
+    let v = api(&home, NOW);
+    assert!(v["last"].is_null(), "{v}");
+    assert_eq!(
+        v["hour"],
+        serde_json::json!({"polls": 0, "cpuMs": 0, "writes": null}),
+        "{v}"
+    );
+    // A row of an older tehas is still a poll of the hour, and the age of a
+    // row dated after `--now` is 0, never negative.
+    let r = files(&home, 1, None);
+    let real = 1_792_000_001_000;
+    record(&home, NOW + 60, &r, real - 1000, real, Some(0));
+    let v = api(&home, NOW);
+    assert_eq!(v["last"]["ageMin"], 0);
+    assert_eq!(v["hour"]["polls"], 0);
 }
 
 #[test]
