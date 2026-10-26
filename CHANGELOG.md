@@ -19,6 +19,14 @@ empty one above it.
   `factory` line, with the sums of the last hour, and `store poll-show` gives
   them as JSON. The state store moves to schema 7, which adds the table
   `poll_cost`; the install migrates it and keeps a backup.
+- A poll's count of the running cycles no longer grows with the lock files of
+  every issue the host ever ran (#732). The new state store verb `locks-held`
+  tries every lock under `state/cycles` in one process; a held lock counts
+  whether or not the store has the cycle on record. A probe of one lock no
+  longer runs `true`, and the 7-day workspace sweep dates an issue's names
+  with one `stat` in place of one `find` a name. On a dry-run poll over 1,002
+  lock files, flock ran 4,009 times before and once after, for the poll's own
+  lock, and `true` no longer runs at all.
 - `tehas history` and `tehas export` give every line a cursor of its own,
   `<seconds>-<issue>-<place>`, as `1760700000-12-41`, and list the lines in the
   order the state store wrote them (#754). A program that keeps `next` no
@@ -59,6 +67,16 @@ empty one above it.
   `tehasbot health` warns when a tehas unit has failed (`checks.units`), and
   `install.sh` resets the failed tehas units and starts a failed
   `tehas-dispatch.path` again.
+- The factory writes the millwright's names and reads both (#690).
+  `tehas labels` makes `tehas:millwright-escalated` beside
+  `tehas:fixer-escalated`, and a start or a refresh treats the two alike: a
+  start takes both off, either drops a refresh. A comment marked
+  `<!-- tehas:millwright issue=<n> action=... -->` counts as one marked
+  `<!-- tehas:fixer ... -->`, as a retry's context and as a planning answer,
+  and a refused reply names the new marker. The dispatcher tells the store
+  `--how millwright`, `--millwright` and `--kind millwright-refused`. The Rust
+  dispatcher reads the same. The old label and marker are accepted until a
+  later release drops them.
 
 ### Adopter action
 

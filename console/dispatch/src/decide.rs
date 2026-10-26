@@ -1696,6 +1696,7 @@ impl<'a> Poll<'a> {
                 "tehas:awaiting-merge",
                 "tehas:question",
                 "tehas:fixer-escalated",
+                "tehas:millwright-escalated",
             ] {
                 if has(&labels, l) {
                     remove.push(l.into());
@@ -1724,7 +1725,7 @@ impl<'a> Poll<'a> {
                     s("by"),
                     s("at")
                 );
-                st.given_how = "fixer".into();
+                st.given_how = "millwright".into();
                 st.fixer = Some((base, count));
             }
             self.starts.push((n, st));
