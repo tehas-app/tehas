@@ -50,6 +50,11 @@ world() { # <locks> <shipped> <blocked>
       labels: [{name: "tehas:blocked"}]}')$'\n'
   done
   jq -s . <<<"$(echo '[{"number":7,"labels":[{"name":"tehas:ready"}]}]'; printf '%s\n' "$list" | tail -n "$blocked")" >"$fx/ready.json"
+  # Each label came from an event, as on GitHub.
+  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+  for ((n = 100; n < 100 + blocked; n++)); do
+    echo '[{"event":"labeled","label":{"name":"tehas:blocked"},"actor":{"login":"alice"}}]' >"$fx/events-$n.json"
+  done
 }
 
 # One poll of that world, run as the poll really runs: the real libexec/status

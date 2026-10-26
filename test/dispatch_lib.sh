@@ -679,9 +679,11 @@ open_read_fails_again() {
 cat >"$T/page-stub" <<'STUB'
 #!/usr/bin/env bash
 fx=$T/fx
+# Read without cat: an idle poll's count of programs is the poll's, not the
+# stub's.
 read_or() { # <file> <second file or ""> <default>
-  cat "$1" 2>/dev/null && return
-  [ -n "$2" ] && cat "$2" 2>/dev/null && return
+  [ -r "$1" ] && printf '%s' "$(<"$1")" && return
+  [ -n "$2" ] && [ -r "$2" ] && printf '%s' "$(<"$2")" && return
   printf '%s' "$3"
 }
 lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map((. // []) | flatten)')
@@ -689,7 +691,8 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # An issue whose cycle holds a lock file is marked running, as on a host; and
 # an issue a case wrote the REST answer of is on GitHub too: an open one is in
 # the queue whether or not a list names it. With $fx/page-drops-events the
-# page answers every timeline empty, as GitHub can for a large page.
+# page answers every timeline empty, as GitHub can for a large page. A cycle
+# that holds its lock was marked running by the bot ($running).
 # Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
 # a case may count.
 inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
@@ -719,7 +722,8 @@ items=$(for n in $nums; do
 done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
   --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" \
-  --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" '
+  --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" \
+  --argjson running '{"__typename":"LabeledEvent","createdAt":"2026-01-01T00:00:00Z","actor":{"login":"tehas-bot"},"label":{"name":"tehas:running"}}' '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
     # Being on a list is carrying its label, as gh issue list --label has it.
@@ -742,7 +746,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
         subIssuesSummary: (.w.sub_issues_summary // null),
         timelineItems: {nodes: [.ev[] | select($dropped | not) | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
-          createdAt: .created_at, actor: actor, label: .label}]},
+          createdAt: .created_at, actor: actor, label: .label}] + [select(any($locked[]; . == $i.n) and ($dropped | not)) | $running]},
         closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
     closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
 STUB
