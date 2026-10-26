@@ -13,6 +13,9 @@ empty one above it.
 
 ### Changes
 
+- Loading the settings starts no subshell and no program but `nproc`: 2
+  process starts a load instead of 17, about 14 ms instead of 44 ms. Every
+  command and every test loads them.
 - The state store's verbs take and write the millwright's names (#686). An
   `approval-record --how millwright` and the old `--how fixer` both write a row
   of `how` `millwright`, and `approval-current` answers `millwright_starts`
