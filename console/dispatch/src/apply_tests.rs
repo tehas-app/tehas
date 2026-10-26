@@ -2280,6 +2280,58 @@ fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
 }
 
 #[test]
+fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
+    let mut t = world();
+    let args: Vec<String> = [
+        "api",
+        "-X",
+        "POST",
+        "repos/r/issues/7/comments",
+        "--input",
+        "-",
+    ]
+    .map(String::from)
+    .to_vec();
+    let input = json!({"body": "Which?"}).to_string();
+    t.w.write(7, "comment-post", args, Some(&input), None);
+    let record = t
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("store journal-record"))
+        .unwrap();
+    let call: Value = serde_json::from_str(
+        record
+            .split(" --args ")
+            .nth(1)
+            .unwrap()
+            .split(" --before ")
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let mut t = world();
+    left_open(
+        &t,
+        json!([{"id": 6, "kind": "comment-post", "issue": 7, "state": "attempted", "intended_at": 1792000000,
+        "attempted_at": 1792000000, "args": call}]),
+    );
+    // GitHub's clock a few seconds behind the host's.
+    fs::write(
+        t.dir.join("comments"),
+        json!([{"id": 41, "body": "Which?", "user": {"login": "tehas-bot"},
+        "created_at": crate::decide::iso(1791999995), "updated_at": crate::decide::iso(1791999995)}])
+        .to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 6 (comment-post on #7, 10s old) was done"]
+    );
+}
+
+#[test]
 fn an_action_a_read_cannot_settle_stays_open() {
     let mut t = world();
     left_open(

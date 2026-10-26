@@ -239,8 +239,15 @@ impl Writer {
     ) -> Wrote {
         // The body by its sum and length: the settling poll finds a comment
         // by them, and the store's arguments stay short and hold no text.
+        // Given as JSON (--input -), the body is its field: the text GitHub
+        // keeps.
         let body = input;
-        let input = input.map(|b| {
+        let json = args.iter().any(|a| a == "--input");
+        let field = input
+            .filter(|_| json)
+            .and_then(|b| serde_json::from_str::<Value>(b).ok())
+            .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
+        let input = field.as_deref().or(input).map(|b| {
             use sha2::{Digest, Sha256};
             let sum: String = Sha256::digest(b.as_bytes())
                 .iter()
