@@ -1,0 +1,1719 @@
+{
+ "suite": "test/dispatch_plan_test.sh",
+ "cases": [
+  {
+   "case": "a plan label from an allowed account starts a session from the issue's text",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "start planning #7 (labelled by alice)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan",
+      "by": "alice",
+      "refine": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refine label from an allowed account starts a session with the refine brief after the issue's text",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "start planning #7 (labelled by alice, to refine it)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:refine",
+      "by": "alice",
+      "refine": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:refine on a parked issue starts a session with the refine brief",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "start planning #7 (labelled by alice, to refine it)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:refine",
+      "by": "alice",
+      "refine": true
+     }
+    ],
+    "no_actions": [
+     {
+      "untick": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:plan on a parked issue starts a session from the issue's text",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan",
+      "by": "alice",
+      "refine": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a session asked for on a parked issue says so and changes nothing",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would start a planning session for #7 (labelled by alice, to refine it)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an issue that carries tehas:running is not planned, and nothing of it is changed",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ],
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "start planning"
+    ]
+   }
+  },
+  {
+   "case": "an issue that carries tehas:planning is not planned, and nothing of it is changed",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "tehas:planning"
+       }
+      ]
+     }
+    ],
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "tehas:planning"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "start planning"
+    ]
+   }
+  },
+  {
+   "case": "a ticked retry of a parked issue starts its cycle, whatever planning label it carries",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "retry-tick"
+     },
+     {
+      "untick": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refine label from a stranger starts nothing and is taken off the issue",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: tehas:refine was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:refine"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue with both labels is planned, not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       },
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       },
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan",
+      "by": "alice",
+      "refine": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "without the refine brief on the host no session starts, and it is logged",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "refines": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:refine"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refine"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "refine_brief": false
+   },
+   "settings": {
+    "libexec": "/srv/t/libexec"
+   },
+   "expect": {
+    "log": [
+     "ERROR: no refine brief at /srv/t/libexec/../lib/refine-brief.md, not refining #7"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a plan label from the bot or a stranger starts nothing and is taken off the issue: tehas-bot",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: tehas:plan was applied by 'tehas-bot', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:plan"
+      ],
+      "log": "clear #7: tehas:plan off, applied by 'tehas-bot' who may not authorise work here"
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a plan label from the bot or a stranger starts nothing and is taken off the issue: mallory",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: tehas:plan was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:plan"
+      ],
+      "log": "clear #7: tehas:plan off, applied by 'mallory' who may not authorise work here"
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run leaves a stranger's plan label where it is",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would take tehas:plan off #7: it was applied by 'mallory'"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "text changed after the plan label by somebody else is not planned",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ],
+    "log": [
+     "its text was changed by 'mallory'"
+    ]
+   }
+  },
+  {
+   "case": "a dry run says a session would start and changes nothing",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would start a planning session for #7 (labelled by alice)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "planning is not held back by pull requests that await a merge",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "awaiting": [
+     {
+      "number": 1
+     },
+     {
+      "number": 2
+     },
+     {
+      "number": 3
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan",
+      "by": "alice",
+      "refine": false
+     }
+    ]
+   }
+  },
+  {
+   "case": "the pause label stops planning",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a turn cut off is reported like any cut-off turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_collect": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a cut-off turn says it would report it",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would report the cut-off planning turn of #7"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of a turn that ended says it would post it",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true,
+      "rc": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would post the planning turn of #7 that ended"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an answered question is served before a new plan label and before a ready issue",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "plans": [
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ]
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "planning #7 continues (answer from alice)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The operator chose: Adopt all",
+      "by": "alice"
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 8
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:ready on an issue with an open planning session starts no cycle",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a planning session is open on it; end it first"
+    ]
+   }
+  },
+  {
+   "case": "tehas:ready on an issue whose planning turn is marked as running starts no cycle",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:planning"
+       }
+      ]
+     }
+    ],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a planning session is open on it; end it first"
+    ]
+   }
+  },
+  {
+   "case": "an issue with a planning session does not hold up the ready issue behind it",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     },
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "expect": {
+    "picked": [
+     8
+    ]
+   }
+  },
+  {
+   "case": "a plan whose issue GitHub would not show ends the poll",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast.",
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: gh issue view failed"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the poll ends after it starts a planning turn: a ready issue behind it waits",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "plan_turn": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 8
+     }
+    ]
+   }
+  }
+ ],
+ "later": [],
+ "not_ported": [
+  "what a turn runs with and what it leaves: the brief, the record, the labels and comments of a turn, its outcome posted, a failed or lost turn, filed issues and their ledger, and the analytics of a turn: lib/planning.sh, the caller's (plan_turn, plan_collect, plan_post, plan_end), #254",
+  "a session whose start the store will not take, or whose issue cannot be marked: the caller's writes",
+  "the refine brief's own text: lib/refine-brief.md, not a decision"
+ ]
+}

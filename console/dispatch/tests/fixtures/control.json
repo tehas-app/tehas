@@ -1,10 +1,6 @@
 {
  "from": "test/dispatch_control_test.sh",
- "later": [
-  "tehas:plan on the control issue starts no planning turn: rule 5, part 3b",
-  "a plan on the control issue does not read its text: rule 5, part 3b",
-  "the control issue gets at most one skip line per poll: rules 4 and 5, part 3b"
- ],
+ "later": [],
  "cases": [
   {
    "case": "the control issue labelled tehas:ready starts no cycle or changes",
@@ -214,6 +210,114 @@
     "log": [
      "skip #1: the control issue is never worked on (a cycle its provider outage parked asked to start again)"
     ]
+   }
+  },
+  {
+   "case": "tehas:plan on the control issue starts no planning turn",
+   "snapshot": {
+    "ready": [],
+    "plans": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #1: the control issue is never worked on (`tehas:plan`)"
+    ]
+   }
+  },
+  {
+   "case": "a plan on the control issue does not read its text",
+   "snapshot": {
+    "ready": [],
+    "plans": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "skip #1: the control issue is never worked on (`tehas:plan`)"
+    ]
+   }
+  },
+  {
+   "case": "the control issue gets at most one skip line per poll",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "asking": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "plans": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "1": {
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "1": [
+     "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=1 turn=1 -->",
+     "alice"
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log_count": {
+     "the control issue is never worked on": 1
+    }
    }
   }
  ]

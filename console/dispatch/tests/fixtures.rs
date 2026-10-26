@@ -50,6 +50,9 @@ fn base() -> (Value, Value) {
         "leftovers": [],
         "asking": [],
         "owed": [],
+        "plans": [],
+        "refines": [],
+        "refines_owed": [],
     });
     (settings, snapshot)
 }
@@ -396,6 +399,10 @@ fn expand(c: &Value, snap: &mut Value) {
                 "lastEditedAt": if ed.is_empty() { Value::Null } else { json!("2026-01-01T01:00:00Z") },
                 "editor": if ed.is_empty() { Value::Null } else { json!({"login": ed}) }}),
             ];
+            // held_edits: the question's userContentEdits.
+            if let Some(h) = c.get("held_edits") {
+                nodes[0]["userContentEdits"] = h.clone();
+            }
             nodes.extend(
                 x.get(2)
                     .and_then(Value::as_array)
@@ -649,6 +656,31 @@ fn run_suite(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn refine() {
+    run_suite("refine");
+}
+
+#[test]
+fn plan_store() {
+    run_suite("plan_store");
+}
+
+#[test]
+fn turns() {
+    run_suite("turns");
+}
+
+#[test]
+fn plan() {
+    run_suite("plan");
+}
+
+#[test]
+fn plan_answer() {
+    run_suite("plan_answer");
 }
 
 #[test]

@@ -1,15 +1,11 @@
 {
  "suite": "test/dispatch_images_test.sh",
- "later": [
-  "a planning session is not held by the image part of the check: rule 5, part 3b",
-  "a planning turn is not held by the promised file: rule 5, part 3b",
-  "no resources holds a planning session too, and its label stays: rule 5, part 3b",
-  "a retry held on its image holds that issue, not the poll: the next ready issue starts: the bash ends the poll after a tick's start, and the case's ready issue starts because the tick holds; the same as the hold above"
- ],
+ "later": [],
  "not_ported": [
   "what the image request sends, and that it is sent once: the snapshot asks it, PR 4",
   "a dispatch.json that cannot be read does not stop the poll: the snapshot reads the last why, PR 4",
-  "a slice probe that hangs holds within its bound: the snapshot's bound, PR 4"
+  "a slice probe that hangs holds within its bound: the snapshot's bound, PR 4",
+  "a retry held on its image holds that issue, not the poll: the next ready issue starts: the bash ends the poll after a tick's start, and the case's ready issue starts because the tick holds; the same as the hold above"
  ],
  "cases": [
   {
@@ -1264,6 +1260,168 @@
       "start": 7
      }
     ]
+   }
+  },
+  {
+   "case": "a planning session is not held by the image part of the check",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "images": {
+     "rukas": "",
+     "declares": false,
+     "answers": false
+    }
+   },
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a planning turn is not held by the promised file",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE."
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ],
+    "log_lacks": [
+     "hold #7:"
+    ]
+   }
+  },
+  {
+   "case": "no resources holds a planning session too, and its label stays",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "",
+     "hold": "holding: no resources: the model endpoint does not answer"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "nothing": true
    }
   }
  ]
