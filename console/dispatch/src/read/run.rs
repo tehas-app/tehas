@@ -68,7 +68,7 @@ pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Dur
         }
         e
     });
-    let status = wait(&mut child, bound, Duration::from_secs(10));
+    let status = wait(&mut child, bound, Duration::from_secs(10), false);
     Ran {
         status,
         out: reader.join().unwrap_or_default(),
@@ -84,30 +84,57 @@ pub fn run_quiet(
     out: Option<std::fs::File>,
     bound: Duration,
 ) -> Option<i32> {
+    // As the bash runs its host commands: timeout -k 5.
+    run_grace(program, args, out, bound, Duration::from_secs(5))
+}
+
+/// run_quiet with the grace between TERM and KILL its caller gives, as
+/// `timeout -k <grace>`. The program runs in a group of its own, and the
+/// signals go to the group, as timeout sends them: what it started goes too.
+pub fn run_grace(
+    program: &str,
+    args: &[String],
+    out: Option<std::fs::File>,
+    bound: Duration,
+    grace: Duration,
+) -> Option<i32> {
+    use std::os::unix::process::CommandExt;
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(out.map_or_else(Stdio::null, Stdio::from))
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
         .ok()?;
-    // As the bash runs its host commands: timeout -k 5.
-    wait(&mut child, bound, Duration::from_secs(5))
+    wait(&mut child, bound, grace, true)
 }
 
-/// The child's exit status, or None when it outlived its bound and was
-/// stopped.
-fn wait(child: &mut std::process::Child, bound: Duration, grace: Duration) -> Option<i32> {
+/// The child's exit status, 128 and the signal for one a signal ended, as
+/// a shell gives it; None when it outlived its bound and was stopped. With
+/// `group`, the child leads a group of its own and the group is signalled.
+pub(crate) fn wait(
+    child: &mut std::process::Child,
+    bound: Duration,
+    grace: Duration,
+    group: bool,
+) -> Option<i32> {
+    use std::os::unix::process::ExitStatusExt;
     let began = Instant::now();
+    let target = if group {
+        format!("-{}", child.id())
+    } else {
+        child.id().to_string()
+    };
     loop {
         match child.try_wait() {
-            Ok(Some(s)) => break s.code(),
+            Ok(Some(s)) => break s.code().or_else(|| s.signal().map(|g| 128 + g)),
             Ok(None) if began.elapsed() < bound => std::thread::sleep(Duration::from_millis(20)),
             _ => {
                 // As timeout -k: TERM first, so a docker client stops its
                 // container, and KILL when it is still there after the grace.
                 let _ = Command::new("kill")
-                    .args(["-TERM", &child.id().to_string()])
+                    .args(["-TERM", "--", &target])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -118,6 +145,14 @@ fn wait(child: &mut std::process::Child, bound: Duration, grace: Duration) -> Op
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(50));
+                }
+                if group {
+                    let _ = Command::new("kill")
+                        .args(["-KILL", "--", &target])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
                 }
                 let _ = child.kill();
                 let _ = child.wait();

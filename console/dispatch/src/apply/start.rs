@@ -15,7 +15,7 @@ use crate::read::host::{epoch, held};
 use crate::read::run::run_quiet;
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -50,6 +50,15 @@ pub struct Host {
     pub done_wait: Duration,
     /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
     pub image: String,
+    /// TEHAS_WORK_REPO, the product's checkout, and its default branch.
+    pub checkout: String,
+    pub branch: String,
+    pub git: String,
+    /// TEHAS_INDEX_CMD, and TEHAS_INDEX_START_CMD, a test's.
+    pub index_cmd: String,
+    pub index_start_cmd: Option<String>,
+    /// TEHAS_FETCH_WAIT: the bound of the checkout's fetch.
+    pub fetch_wait: Duration,
     /// TEHAS_PLAN_CMD: the program a turn's unit runs, libexec/plan.
     pub plan_cmd: String,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
@@ -186,6 +195,13 @@ impl Writer {
         log: &mut Vec<String>,
         printed: &mut Vec<String>,
     ) -> Option<i32> {
+        // Cycles start from the checkout's tip: refreshed here when the
+        // index's gate did not, as when a cycle runs.
+        if !self.fetched {
+            let mut lines = Vec::new();
+            self.refresh_checkout(&mut lines);
+            log.extend(lines);
+        }
         let mut failed = false;
         let mut marked = false;
         for a in starts {
@@ -206,22 +222,33 @@ impl Writer {
     }
 
     /// The status command, once the poll's work is done; what it printed.
-    pub(super) fn status(&mut self, printed: &mut Vec<String>) {
+    pub fn status(&mut self, printed: &mut Vec<String>) {
+        let cmd = self.host.status_cmd.clone();
+        self.status_of(&cmd, &[], printed);
+    }
+
+    /// A command of the host whose output the poll's log gets, as status's
+    /// and tidy's.
+    /// Its exit status, None when it did not end in its bound.
+    pub fn status_of(
+        &mut self,
+        cmd: &str,
+        args: &[String],
+        printed: &mut Vec<String>,
+    ) -> Option<i32> {
         // Its output through a file: a pipe would wait for whatever it left
-        // running.
-        if let Some(path) = self.scratch("status") {
-            if let Ok(f) = std::fs::File::create(&path) {
-                run_quiet(
-                    &self.host.status_cmd,
-                    &[],
-                    Some(f),
-                    Duration::from_secs(120),
-                );
-                let said = std::fs::read_to_string(&path).unwrap_or_default();
-                printed.extend(said.lines().map(str::to_string));
-            }
-            let _ = std::fs::remove_file(&path);
-        }
+        // running. With no file to write, it runs and its output is lost.
+        let out = self
+            .scratch("status")
+            .and_then(|p| std::fs::File::create(&p).ok().map(|f| (p, f)));
+        let Some((path, f)) = out else {
+            return run_quiet(cmd, args, None, Duration::from_secs(120));
+        };
+        let rc = run_quiet(cmd, args, Some(f), Duration::from_secs(120));
+        let said = std::fs::read_to_string(&path).unwrap_or_default();
+        printed.extend(said.lines().map(str::to_string));
+        let _ = std::fs::remove_file(&path);
+        rc
     }
 
     fn start(&mut self, a: &Value, marked: &mut bool, log: &mut Vec<String>) -> Then {
@@ -353,6 +380,7 @@ impl Writer {
             }
         }
         *marked = true;
+        self.starts += 1;
         if park_now {
             if let Err(f) = self.store_try(3, &["park-retry", &n.to_string()]) {
                 if word(&f) != "unparked" {
@@ -560,7 +588,7 @@ impl Writer {
 
     /// A new name in $TEHAS_HOME/tmp, made 0700 when it is not there; None
     /// when the directory is a link or no directory.
-    pub(super) fn scratch(&self, what: &str) -> Option<PathBuf> {
+    pub fn scratch(&self, what: &str) -> Option<PathBuf> {
         let dir = self.home.join("tmp");
         if !dir.exists() {
             let _ = std::fs::DirBuilder::new().mode(0o700).create(&dir);
@@ -568,6 +596,10 @@ impl Writer {
         let m = std::fs::symlink_metadata(&dir).ok()?;
         if !m.is_dir() {
             return None;
+        }
+        // As the bash keeps it: the tehas user's alone.
+        if m.permissions().mode() & 0o777 != 0o700 {
+            let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
         }
         let tag = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -656,7 +688,7 @@ impl Writer {
         let list = self.comments(n)?;
         let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
         let marker = regex::Regex::new(&format!(
-            "<!-- tehas:(millwright|fixer) issue={n} action=(retry|change) -->"
+            "<!-- tehas:millwright issue={n} action=(retry|change) -->"
         ))
         .ok()?;
         let fixer = self.host.millwright.clone();
@@ -830,7 +862,7 @@ impl Writer {
 
     /// tehas_analytics: an event for the factory's analytics; a failure is
     /// a warning.
-    pub(super) fn analytics(&mut self, args: &[String], log: &mut Vec<String>) {
+    pub fn analytics(&mut self, args: &[String], log: &mut Vec<String>) {
         let Some(bin) = self.host.analytics.clone() else {
             return;
         };

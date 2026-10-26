@@ -44,14 +44,6 @@ t_run "$api --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
 
-t_case "api --json: the old setting name gives the same login under both fields"
-reset
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=millbot
-installed v0.8.0+cb6912a
-t_run "$api --json"
-t_eq "$t_rc" 0
-t_eq "$(jq -c '[.millwright, .fixer]' <<<"$t_out")" '["millbot","millbot"]'
-
 t_case "api without --json prints the millwright's login"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=millbot

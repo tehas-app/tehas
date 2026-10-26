@@ -13,6 +13,24 @@ empty one above it.
 
 ### Changes
 
+- `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
+  part 1): from what the cycle left and GitHub's answers it says what
+  libexec/cycle does, its warnings, label changes, comments and park question,
+  the end and the park on record, the analytics and the improvement record.
+  Its 265 fixture cases are the reports of the bash cycle tests, traced. It
+  writes nothing, and nothing calls it yet. The question comments' text
+  (q_clean, q_render) is now in `console/core`, shared with the dispatcher.
+- `tehas-dispatch poll [--dry-run]` runs one poll of the queue in Rust
+  (#254, part 4a): the dispatcher's lock and its hang warning, the checks
+  before any call, the snapshot and its decision, live/demand.json, health,
+  live/dispatch.json, the unused locks swept, the actions in the order of the
+  poll's lines, and the end of every poll that held the lock (tidy, its cost
+  and the analytics). Nothing chooses it yet: libexec/dispatch still polls.
+- The Rust poll passes the gates of a start as the bash poll does (#254,
+  part 4b): systemd's answer for the cycle's unit, the code index (left alone
+  while a cycle runs, waited for while it is refreshed, refreshed first when
+  it is due), the checkout's refresh before a start or a planning turn, and
+  the low gate's run. Nothing chooses it yet.
 - The poll's cost is on the factory API (#745, part 3 of #734): `tehas api
   --json` carries `poll`, the last poll's wall and CPU time, its `gh` calls,
   its writes by kind, its starts and its age in whole minutes, beside the
@@ -35,10 +53,21 @@ empty one above it.
   turn's brief and its session on record, a next turn's answer, the issue
   marked planning before the turn's unit starts, and the three spends of a
   park's retry. Nothing calls it yet.
+- The fixer's old names are no longer read (#799). A `TEHAS_FIXER_*`
+  setting stops every command with 78 and names its `TEHAS_MILLWRIGHT_*`
+  name. The dispatcher no longer counts the marker `tehas:fixer` or the
+  label `tehas:fixer-escalated`, `tehas labels` no longer makes that label,
+  and `store plan-answer` no longer takes `--fixer`. Records written as
+  `how: "fixer"` still count as the millwright's, and `tehas api` still lists
+  `fixer-grant` and `fixer`, as API version 1 removes no field.
 
 ### Adopter action
 
-- None.
+- Rename `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES` and
+  `TEHAS_FIXER_MAX_PLAN_ANSWERS` in `instance.env` to `TEHAS_MILLWRIGHT_*`
+  before updating. A millwright's program must write
+  `<!-- tehas:millwright ... -->` and `tehas:millwright-escalated`. The label
+  `tehas:fixer-escalated` may be deleted from the product repository.
 
 ## v0.14.1 (2026-10-26)
 

@@ -59,6 +59,15 @@ pub struct Decision {
     /// Facts the snapshot lacked that this decision needed. When any is
     /// named, the caller reads them and decides again.
     pub needs: Vec<&'static str>,
+    /// Past the bot's checks: the poll's end runs tidy from here on.
+    pub tidy: bool,
+    /// The bot's login, which the poll's writes name.
+    pub bot: String,
+    /// Where the poll sweeps the unused locks (after its clean-up) and
+    /// publishes its report (at rule 3): the action and the line each comes
+    /// before, as the bash does them there.
+    pub swept_at: Option<(usize, usize)>,
+    pub reported_at: Option<(usize, usize)>,
 }
 
 /// The poll ends here with this exit status.
@@ -155,7 +164,12 @@ impl<'a> Poll<'a> {
         End(rc)
     }
 
-    fn act(&mut self, a: Value) {
+    /// An action, with its place among the poll's lines: the lines before it
+    /// are logged before it is applied.
+    fn act(&mut self, mut a: Value) {
+        if let Some(o) = a.as_object_mut() {
+            o.insert("_line".into(), json!(self.d.log.len()));
+        }
         self.d.actions.push(a);
     }
 
@@ -265,6 +279,8 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
+        self.d.tidy = true;
+        self.d.bot = bot.clone();
         if let Err((word, rc)) = &s.plan_open {
             let rc = if *rc == 1 { 1 } else { 78 };
             return Err(self.fail(
@@ -284,6 +300,7 @@ impl<'a> Poll<'a> {
         };
         self.bot = bot.clone();
         self.clean_up(&bot)?;
+        self.d.swept_at = Some((self.d.actions.len(), self.d.log.len()));
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
             if self.dry || news {
@@ -787,6 +804,7 @@ impl<'a> Poll<'a> {
                 r["endpoint"] = json!(s.endpoint);
             }
             self.d.report = Some(r);
+            self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
         }
         Ok(Room {
             want,
@@ -1712,7 +1730,6 @@ impl<'a> Poll<'a> {
             for l in [
                 "tehas:awaiting-merge",
                 "tehas:question",
-                "tehas:fixer-escalated",
                 "tehas:millwright-escalated",
             ] {
                 if has(&labels, l) {
@@ -1758,6 +1775,9 @@ impl<'a> Poll<'a> {
             return Ok(());
         }
         let starts = std::mem::take(&mut self.starts);
+        if !self.dry {
+            self.act_gates(self.d.picked[0]);
+        }
         for (n, st) in starts {
             if self.dry {
                 self.log(format!(
@@ -1769,6 +1789,16 @@ impl<'a> Poll<'a> {
             }
         }
         Ok(())
+    }
+
+    /// What every start passes first, before any label changes: systemd's
+    /// answer for the first issue's unit (units_ok) and the code index
+    /// (index_gate), which names the cycles still running after this poll's
+    /// stops.
+    pub(super) fn act_gates(&mut self, first: u64) {
+        let running: Vec<u64> = self.live().map(|(n, _)| *n).collect();
+        self.act(json!({"units": first}));
+        self.act(json!({"index_gate": running}));
     }
 
     /// The start of a cycle as an action: what start_cycles records and

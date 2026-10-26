@@ -334,11 +334,7 @@ impl Poll<'_> {
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
-            for l in [
-                "tehas:ready",
-                "tehas:fixer-escalated",
-                "tehas:millwright-escalated",
-            ] {
+            for l in ["tehas:ready", "tehas:millwright-escalated"] {
                 if has(&have, l) {
                     remove.push(l.into());
                 }
@@ -347,6 +343,7 @@ impl Poll<'_> {
             extra.insert("comment".into(), ans["comment"].clone());
             extra.insert("since".into(), ans["asked_at"].clone());
             self.d.picked.push(n);
+            self.act_gates(n);
             self.act_start(
                 n,
                 Start {
@@ -466,6 +463,7 @@ impl Poll<'_> {
             } else {
                 Vec::new()
             };
+            self.act_gates(n);
             self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
             self.d.picked.push(n);
             self.act_start(
@@ -575,7 +573,6 @@ impl Poll<'_> {
         for l in [
             "tehas:running",
             "tehas:question",
-            "tehas:fixer-escalated",
             "tehas:millwright-escalated",
             "tehas:plan",
             "tehas:planning",

@@ -123,15 +123,14 @@ pub fn answer(
             let e = login(x, "/editor/login");
             login(x, "/author/login") == fixer && (e.is_empty() || e == fixer)
         });
-        let marks = ["millwright", "fixer"]
-            .map(|w| format!("<!-- tehas:{w} issue={issue} action=answer -->"));
+        let mark = format!("<!-- tehas:millwright issue={issue} action=answer -->");
         out["fixer_reply"] = match f {
             None => Value::Null,
             Some(f) => {
                 let b = f.get("body").and_then(Value::as_str).unwrap_or("");
                 let first = b.split('\n').next().unwrap_or("");
                 let first = first.strip_suffix('\r').unwrap_or(first);
-                let marked = marks.iter().any(|m| m == first);
+                let marked = first == mark;
                 let text = if marked {
                     b.split_once('\n').map_or("", |(_, rest)| rest)
                 } else {

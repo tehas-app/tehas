@@ -1,0 +1,2045 @@
+[
+ {
+  "case": "1793029013502141135",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029013,
+   "now": 1793029013,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029013
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793029013,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029015575366317",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029015,
+   "now": 1793029015,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029015
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029015,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029016106190023",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029016,
+   "now": 1793029016,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029016
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029016,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029016603571442",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029016,
+   "now": 1793029016,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029016
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029016,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029017023882398",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029017,
+   "now": 1793029017,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029017
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793029017,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029017466788646",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029017,
+   "now": 1793029017,
+   "start": {
+    "attempt": 3,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029017
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 3,
+     "started_at": 1793029017,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": 1793029017
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "3",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "3",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029018016659724",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029018,
+   "now": 1793029018,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029018
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029018,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029023734388084",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029023,
+   "now": 1793029023,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029023
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029023,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": {
+     "issue": 7,
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": null,
+     "used_by": null,
+     "input": null
+    },
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029024245816103",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029024,
+   "now": 1793029024,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029024
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029024,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029024686322893",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029024,
+   "now": 1793029024,
+   "start": {
+    "attempt": 2,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029024
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 2,
+     "started_at": 1793029024,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": 1793029024
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "2",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "2",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029025163745785",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029025,
+   "now": 1793029025,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1760000000,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029025
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029025,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793029025,
+     "used_by": 1,
+     "input": null
+    },
+    "rests_on": {
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029025895663222",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029025,
+   "now": 1793029025,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1760000000,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029026
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029025,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793029025,
+     "used_by": 1,
+     "input": null
+    },
+    "rests_on": {
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029029080123918",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029030,
+   "now": 1793029030,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1760000000,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029030
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029030,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": {
+     "issue": 7,
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793029030,
+     "used_by": 1,
+     "input": null
+    },
+    "rests_on": {
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029031113619586",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029031,
+   "now": 1793029031,
+   "start": {
+    "attempt": 1,
+    "by": "alice",
+    "how": "label",
+    "approval_at": 1760000000,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029031
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029031,
+     "started_by": "alice",
+     "how": "label",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": {
+     "issue": 7,
+     "at": 1760000100,
+     "by": "bob",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": null,
+     "used_by": null,
+     "input": null
+    },
+    "current": {
+     "issue": 7,
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "label": "tehas:ready",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "title_sha256": null,
+     "comment_id": null,
+     "refresh_pr": null,
+     "refresh_head": null,
+     "used_at": 1793029031,
+     "used_by": 1,
+     "input": null
+    },
+    "rests_on": {
+     "at": 1760000000,
+     "by": "alice",
+     "how": "label",
+     "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+     "used_by": 1
+    },
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029031630502462",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029031,
+   "now": 1793029031,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029031
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029031,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ }
+]

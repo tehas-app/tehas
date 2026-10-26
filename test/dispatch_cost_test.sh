@@ -65,6 +65,55 @@ t_eq "$(cost .last.gh)" "$(calls)"
 # The row of a poll that started cycles is not an idle one.
 t_eq "$(idle 3600 | jq -r .polls)" 0
 
+# An installed home for the shim of host/shim/gh, beside the stub of gh that
+# stays on PATH: the shim reads $TEHAS_HOME/bin/gh, so a call of it reaches the
+# stub through its own path and nothing of the poll's fixtures is disturbed.
+install_shim()
+{
+  local h=$T/home/tehas
+  mkdir -p "$h/bin" "$h/shim"
+  cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
+  chmod +x "$h/shim/gh"
+  cp "$T/bin/gh" "$h/bin/gh"
+  chmod +x "$h/bin/gh"
+}
+
+t_case "the writes of a poll count a graphql mutation and not its queries"
+reset
+: >"$log"
+# both the shim and the gh the poll answers from.
+# The shim of host/shim/gh as the host has it, installed beside the stub of gh
+# that the poll's own calls answer from: the dispatcher asks GitHub for nothing
+# but queries (#792), so none of them belongs in the figure of the poll,
+# whatever the word `mutation` does inside one. The stub keeps no line for a
+# graphql call of its own, so a line of the log is the shim's alone.
+install_shim
+# The shape of its own page: the document of -f beside the variables of -F.
+t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=query { viewer { login } }' -F owner=acme -F name=widget"
+t_eq "$t_rc" 0
+t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -F owner=acme -F name=widget -f 'query=query(\$owner: String!, \$name: String!) {
+  repository(owner: \$owner, name: \$name) { pullRequests(states: OPEN, first: 100) { nodes { mutation } } } }'"
+t_eq "$t_rc" 0
+t_eq "$(cat "$log")" ""
+# A mutation, named first and named after a name of its own: the two lines the
+# figure of the poll counts as other, of the kind no other call of gh gives.
+t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=mutation { addLabels(subjectId: 1) { clientMutationId } }'"
+t_eq "$t_rc" 0
+t_run "TEHAS_HOME=\"\$T/home/tehas\" TEHAS_GITHUB_WRITES_LOG=$log \"\$T/home/tehas/shim/gh\" api graphql -f 'query=AddLabel mutation(\$n: Int!) { updateLabels(subjectId: \$n) { x } }'"
+t_eq "$t_rc" 0
+t_eq "$(wc -l <"$log")" 2
+t_eq "$(tail -n 1 "$log" | cut -f2)" "api POST"
+# The figure the poll records is the log of its window, its own writes included
+# (the two cases above prove the figure and its window). What is said here is
+# only that the shim leaves no line for the queries the poll asks GitHub, and
+# keeps one for each mutation: the four lines of the file are the four calls of
+# this case, whatever the poll adds after it. The two queries are asked the two
+# ways the poll asks them, the document of -f alone and the document of -f
+# beside the variables of -F.
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(cost '.last.writes >= 2')" true
+
 t_case "a dry run records nothing"
 reset
 t_run "$dispatch --dry-run"
