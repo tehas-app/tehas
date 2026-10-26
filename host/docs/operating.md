@@ -1428,8 +1428,9 @@ nothing and the dispatcher says so.
 unless the instance says otherwise), lists the open pull requests of the repository. It keeps the bot's that close
 exactly one open issue carrying `tehas:awaiting-merge`, or `needs-human-attention`
 after a handoff that left the pull request open, without `tehas:running` and not
-the control issue, that are the only open pull request that closes it, come
-from a branch of the repository and are no draft. Those GitHub says are `CONFLICTING` get a request,
+the control issue, that are the only open pull request that closes it, and come
+from a branch of the repository. A draft is read as any other pull request.
+Those GitHub says are `CONFLICTING` get a request,
 `~/tehas/state/refresh/<issue>.json`. `UNKNOWN` is read again on the next run. A
 request whose pull request no longer qualifies goes. `tehas-refresh.timer`
 starts it every minute, and it goes ahead only when the last run began that
@@ -1446,10 +1447,11 @@ rests on (the `by` of the approval of the issue's last start, or the person's
 approval it rests on after the millwright):
 
 - the issue is open, carries `tehas:awaiting-merge` or `needs-human-attention`
-  and none of `tehas:running`, `tehas:question`, `tehas:millwright-escalated`,
+  and none of `tehas:running`, `tehas:millwright-escalated`,
   `tehas:plan`, and no cycle or planning session is open on it. A handed-off
   issue that carries `tehas:ready` gets the fresh cycle a person asked for,
-  not a refresh;
+  not a refresh; a `tehas:question` the handoff left behind is no bar, and the
+  start takes it off;
 - its body is the body that person approved, and nobody outside
   `TEHAS_ALLOWED_LABELERS` renamed or edited it since;
 - the pull request is still the bot's, the one open pull request that closes
@@ -1492,10 +1494,14 @@ and the start takes `tehas:awaiting-merge` off. A refresh goes after `tehas:urge
 `tehas:next`. A refresh that waits for room counts in the demand of
 `tehas status`.
 
-**After a handoff.** The refresh of a handed-off issue is a restart, as a
-person's `tehas:ready` would be: the cycle takes `needs-human-attention` off as
-it starts, and how the refresh ends labels the issue, `tehas:awaiting-merge` or
-a new handoff. The handoff comment stays on the issue.
+**After a handoff.** The refresh takes a handed-off pull request, draft or not:
+a handoff leaves `needs-human-attention` and `tehas:question` on the issue, and
+neither keeps the refresh away. The refresh of a handed-off issue is a restart,
+as a person's `tehas:ready` would be: the cycle takes `needs-human-attention`
+off as it starts, the refresh's start takes `tehas:question` off, and how the
+refresh ends labels the issue, `tehas:awaiting-merge` or a new handoff. The
+handoff comment stays on the issue, and the pull request keeps the draft state
+it had.
 
 **While it runs** the pull request carries `tehas:refreshing`: do not merge or
 push to it. The dispatcher applies it before it marks the issue, and a start

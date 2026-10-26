@@ -58,8 +58,10 @@ tehas_refresh_pr_query() {
 
 # Only the bot's own pull request of one open issue that waits for a merge or
 # was handed off (needs-human-attention) and has no cycle running, from a
-# branch of the repository and no draft, and the only open one that closes
-# that issue. A shape it does not know is a reason too.
+# branch of the repository, and the only open one that closes that issue. A
+# draft is refreshed like any other pull request, and its draft state is left
+# as it is; a draft state the answer does not name is a shape the rule does not
+# know, and a shape it does not know is a reason too.
 tehas_refresh_rule() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def refresh_why:
@@ -67,7 +69,7 @@ tehas_refresh_rule() {
     if type != "object" or (.number | type) != "number" then "it cannot be read"
     elif (.author.login // "") != ($bot | sub("\\[bot\\]$"; "")) then "it is not the bot'"'"'s"
     elif .isCrossRepository != false or ((.headRepository.nameWithOwner // "") | ascii_downcase) != ($repo | ascii_downcase) then "its branch is not in \($repo)"
-    elif .isDraft != false then "it is a draft"
+    elif .isDraft == null then "its draft state cannot be read"
     elif (.closingIssuesReferences.totalCount // 0) != 1 or ((.closingIssuesReferences.nodes // []) | length) != 1 then "it does not close exactly one issue"
     else (.number) as $pr | .closingIssuesReferences.nodes[0]
       | if (.number | type) != "number" then "the issue it closes cannot be read"

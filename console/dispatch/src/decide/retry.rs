@@ -55,8 +55,8 @@ fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
         || !s(pr, "/headRepository/nameWithOwner").eq_ignore_ascii_case(repo)
     {
         format!("its branch is not in {repo}")
-    } else if pr.get("isDraft") != Some(&json!(false)) {
-        "it is a draft".into()
+    } else if !matches!(pr.get("isDraft"), Some(&json!(true)) | Some(&json!(false))) {
+        "its draft state cannot be read".into()
     } else if pr
         .pointer("/closingIssuesReferences/totalCount")
         .and_then(Value::as_f64)
@@ -576,7 +576,6 @@ impl Poll<'_> {
         }
         for l in [
             "tehas:running",
-            "tehas:question",
             "tehas:fixer-escalated",
             "tehas:millwright-escalated",
             "tehas:plan",
@@ -737,7 +736,7 @@ impl Poll<'_> {
             })
             .unwrap_or("");
         let mut remove = Vec::new();
-        for l in ["tehas:awaiting-merge", "tehas:ready"] {
+        for l in ["tehas:awaiting-merge", "tehas:question", "tehas:ready"] {
             if has(&have, l) {
                 remove.push(l.to_string());
             }
