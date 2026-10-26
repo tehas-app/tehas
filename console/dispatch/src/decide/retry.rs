@@ -280,7 +280,9 @@ impl Poll<'_> {
                 .any(|l| l.eq_ignore_ascii_case("- [x] Retry from a clean start"))
             {
                 if !self.dry {
-                    self.act(json!({"issue": n, "remove": ["tehas:question"], "answered": {"id": qid, "by": by}}));
+                    self.act(json!({"issue": n, "remove": ["tehas:question"],
+                        "fail": Self::label_fail(n, &["tehas:question"], &[]),
+                        "answered": {"id": qid, "by": by}}));
                 }
                 continue;
             }
