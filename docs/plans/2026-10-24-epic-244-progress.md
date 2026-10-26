@@ -6,87 +6,49 @@ says the same in short.
 
 ## Owner decisions
 
-- One session builds the rest of #244 (#252, #257, #253, #254, #256) and may
-  merge each unit itself. The factory and the backlog session (tehas-4a) stay
-  off #244 and its sub-issues.
-- Pull requests merge once CI's `verify` is green. The build host is often
-  overloaded (load 40 to 50), so a local gate can fail on timeouts alone. CI on
-  the runner VM is the clean run.
-- **Open question for the owner: tag v0.12.0 now?** On 2026-10-24 the session
-  recommended tagging main (6a1e775) as v0.12.0 and deploying it to tehas-tehas.
-  Reason: the store has to be live there before #253's shadow and the proof weeks
-  of #254 and #256 can start. The deploy would be: drain, install, check the
-  import counts and `store check`, then `limit clear`. Coordinate the timing with
-  the session moving tehas-tehas to the GitHub App (work-66). No answer yet.
-  Don't tag without the owner's yes.
+- One session builds the rest of #244 and may merge each #253, #254 and #256
+  pull request itself once CI's `verify` is green (2026-10-26). The factory and
+  the backlog session stay off #244.
+- Session tehas-69 took #256, the cycle supervisor, at the owner's request
+  (2026-10-26). Its plan is `docs/plans/2026-10-26-cycle-supervisor.md` on its
+  branch. This session keeps #254.
+- Running `TEHAS_DISPATCHER=rust` live on tehas-tehas needs the owner's yes.
 
-## Where things are
+## Where things are (2026-10-26, evening)
 
-**Closed:** #245, #246, #247, #248, #249, #250, #251, #255.
+**Done:** #245 to #253, #255, #257. The store is live on tehas-tehas
+(v0.13.0 and later); v0.14.2 is the latest release.
 
-**#250 and #251 merged** as PR #683 (6a1e775). That PR:
-- moved the shell commands onto the store's verbs through `lib/store.sh`
-- took the store to schema 2
-- added `store import`, which runs on install
-- added the old-path guard (`test/store_paths_test.sh`, and the poll stops at 78
-  on an old record file)
+**#253, the dispatcher's rules in Rust:** complete. The shadow runs on
+tehas-tehas while `~/tehas/state/dispatch-shadow.on` is there, since
+2026-10-26 13:23:06Z. Its 7 days end 2026-11-02 13:23Z. Differences go to
+`~/tehas/logs/dispatch-shadow.log`.
 
-The design is `docs/plans/2026-10-24-store-callers.md`. Its section 8 lists
-what the owner should sign off; the PR text repeats it. Nothing is signed off
-yet.
+**#254, the dispatcher acting in Rust:** plan
+`docs/plans/2026-10-26-dispatch-apply.md`. Merged: part 1 (#785, journal
+verbs and plain writes), 2a starts (#788), 2b stops (#789), 3a planning end
+(#794), 3b planning start (#796), 4a the poll's frame (#798), 4b the start
+gates (#804). Part 4c is PR #831 (branch `dispatch-journal-settle`,
+`~/work/tehas-254g`): the `TEHAS_DISPATCHER=rust` switch and the journal
+settled at the start of a poll. With it, #254's code is complete.
 
-**Releases:** v0.11.0 (PR #668) and v0.11.1 (0fa178f) were cut from main by
-other sessions before #683. They carry #622 only: the store is installed and
-`tehas.db` made, but nothing uses it. The next release from main is the first
-that migrates and imports. It needs the drain step in CHANGELOG Unreleased,
-Adopter action.
+How the Rust poll is tested: `T_RUST_POLL=1 bash test/dispatch_<x>_test.sh`
+runs every poll of a dispatch test file in Rust. All 28 files pass. The page
+stub in `test/dispatch_lib.sh` answers its GraphQL page from the bash's
+fixtures. Checks of the bash's own REST reads are marked `bash_reads`, each
+with a comment saying why.
 
-**#676** (the fixer grant renamed to millwright) touches the store. Its store half
-must be a schema 3 migration that still accepts `fixer` rows. The backlog session
-splits it and was told it can start now that #683 is merged.
+## Left, in order
 
-## Now: #252 and #257 are PRs
-
-Workflow `wf_f24ccaaa-d4e` died about a minute after it started, when its
-session ended (2026-10-24 22:19 local), and left nothing. The owner chose to
-build both by hand in one session.
-
-- **#252: PR #702**, merged 2026-10-25. Sign-off asked: D7
-  (dispatch.json and health.json go through the publisher but are still
-  computed by their commands). Schema 3 is taken here; #676 needs schema 4.
-- **#257: PR #711** (branch `host-retention`, `~/work/tehas-257`), main merged
-  in on 2026-10-25, CI green, waits for the owner's merge (auto mode refuses
-  `gh pr merge`). Sign-off
-  asked: D4 (unused for 30 days, as the host's evidence, in place of "closed").
-  Left open: a size bound for long-lived logs, and pruning the poll tables once
-  #253 and #254 write them.
-- Both add an Unreleased changelog entry with a drain in Adopter action.
-- `test/dispatch_start_test.sh` flakes on CI (the start-wait cases), on main
-  as well; a rerun passes.
-
-## Left after that, in order
-
-1. **#253**, the dispatcher in Rust: split in four pull requests (owner's
-   choice, 2026-10-25), plan `docs/plans/2026-10-25-dispatch-decide.md`. Part 1
-   is PR #747, merged 2026-10-25. Part 2 is PR #758, merged 2026-10-26. Part 3
-   is split in two (owner's choice, 2026-10-26): 3a is PR #764 (branch
-   `dispatch-rule4`), merged 2026-10-26. 3b (PR #771) and 4a (PR #778, the
-   snapshot and the `tehas-dispatch` binary) merged 2026-10-26. The owner
-   lets this session merge #253/#254/#256 PRs on green CI (2026-10-26).
-   4b (PR #782, the host probes left and the shadow beside each poll)
-   merged 2026-10-26, so #253's code is complete. The shadow is opt-in: it
-   runs only while `~/tehas/state/dispatch-shadow.on` is there, because it
-   costs a poll about 9 s wall, 3 s CPU and 20 GitHub reads (asked for
-   v0.14.0, #730). It ships in v0.14.0; the .on file goes on tehas-tehas
-   after that deploy, and #254's 7 days of shadow count from then.
-   D7 measured: a page of 100 issues costs 4 points.
-2. **#254**, part 2: apply through the action journal, then a setting chooses
-   bash or rust. Four PRs, plan `docs/plans/2026-10-26-dispatch-apply.md`.
-   Part 1 (PR #785, the store's journal verbs and `apply` for the plain
-   writes) merged 2026-10-26. Next: part 2, starts and stops. It needs 7 days of shadow and then 7 days live on tehas-tehas
-   before a separate PR removes `libexec/dispatch`.
-3. **#256**, the cycle supervisor in Rust, with the same proof. It is a security
-   change (rule 4).
+1. Merge #831 on green CI.
+2. After 2026-11-02 13:23Z: read the shadow log for the week. Explain or fix
+   every difference.
+3. With the owner's yes: `TEHAS_DISPATCHER=rust` on tehas-tehas for 7 days
+   (a settings change in industry-settings, then a pull on the host).
+4. A pull request that makes `rust` the default, then one that removes
+   `libexec/dispatch`'s poll (the bash ceiling drops a lot).
+5. #256 is tehas-69's. It will want the journal's apply in a shared crate and
+   asks before it moves anything in `console/dispatch`.
 
 ## How the work was run
 
@@ -102,12 +64,12 @@ build both by hand in one session.
 
 ## Worktrees from this session
 
-- `~/work/tehas-244-finish` (`epic-244`) and `~/work/tehas-250-import`
-  (`store-import`): merged, can be removed.
 - `~/work/tehas-244-notes` (`epic-244-notes`): this file.
-- `~/work/tehas-252`, `~/work/tehas-257`: in use.
-- Old remote branches `store-callers-*`, `store-import`, `epic-244` and `wip/*`
-  can be deleted once #252 and #257 are merged.
+- `~/work/tehas-254g` (`dispatch-journal-settle`): #831.
+- `~/work/tehas-253*`, `~/work/tehas-254`, `-254b` to `-254f`, `-252`, `-257`:
+  merged work, can be removed.
+- `~/work/tehas` is a shared checkout other sessions switch; it is stale.
+  Read code only from a worktree.
 
 ## Housekeeping found on the way
 
