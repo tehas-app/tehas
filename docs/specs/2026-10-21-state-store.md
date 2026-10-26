@@ -359,7 +359,7 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 6 for this schema. Schema 1 was
+- The version is `PRAGMA user_version`. It is 7 for this schema. Schema 1 was
   the first on main; the step to 2 only adds columns and one table
   (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
   `planning_notes`; the verbs spec's D29), and the step to 3 adds
@@ -373,7 +373,8 @@ ADR 0003 under *What stays a file*.
   `plan_history.seq` (#754), one sequence across both, numbered for the older
   rows in the order history-show listed them (the end, the issue, the row, a
   cycle first), with a unique index each and a trigger each that gives a new
-  row the next number. An added column comes last in its table,
+  row the next number. The step to 7 adds the table `poll_cost` (#743), one
+  row for what each poll cost. An added column comes last in its table,
   where `ALTER TABLE` puts it. Migrations run forward only, from install or
   update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
