@@ -1159,7 +1159,7 @@ named in the line that says so.
 | 10, 20 | findings, or serious findings: the status the runner gave |
 | 2 | the runner failed, ran out of time, or its record could not be written down |
 | 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
-| 78 | the instance settings are invalid, `tehas.slice` cannot be used, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
+| 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
 
 The container is the one `tehas plan` starts a planning turn in: the same
 image, the same limits in `tehas.slice`, the same mounts and variables from
@@ -1179,16 +1179,23 @@ transcripts go to `~/.pi/agent/ensemble-runs/review`. The
 runner's one JSON document goes to `~/tehas/logs/review-<time>.json` and its
 NDJSON progress beside it as `.jsonl`. Both are masked on the way there, as
 every other log an agent can see is masked before a reader gets it: no other
-reader reaches a file named `review-<time>`. The mask is the console beside
-this command; a host without it keeps the two files as the run wrote them and
-says so.
+reader reaches a file named `review-<time>`.
+
+The shell command prepares the sandbox. The console beside it
+(`~/tehas/libexec/console review`) reads the range, checks the variables
+against the image's `--capabilities`, starts the container, bounds it, masks the
+two files and writes the record. A host without the console reviews nothing:
+78, and `run install.sh`.
 
 One review at a time: the run holds `~/tehas/state/review.lock` for as long as
 it goes, and a second one started beside it says so and starts nothing. A
 container left under the run's name by a client that died is removed before the
 run starts; the `docker rm`, `docker stop` and `docker kill` of these are each
-bounded, so a dockerd that stops answering is reported rather than being the
-last thing the run does.
+bounded by `TEHAS_STOP_WAIT` (60 seconds), so a dockerd that stops answering is
+reported rather than being the last thing the run does. So is the wait on the
+`docker run` client: one that outlives its container is sent `TERM` after that
+grace and `KILL` two seconds later, and the run says the docker client of the
+review would not end.
 
 The limit is `TEHAS_PLAN_TIMEOUT`, the bound of one headless turn: past it the
 container is stopped with `docker stop` and the run exits 2. An image whose
