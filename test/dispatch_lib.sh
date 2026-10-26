@@ -668,8 +668,9 @@ open_read_fails_again() {
 # The open issues as tehas-dispatch's one GraphQL page asks for them, made from
 # the fixtures the bash poll's REST calls answer from: the lists name the
 # issues and their labels, events-<n>.json their label events, work-<n>.json
-# and edit-<n>.json (or edit.json) their text, and prs-<n>.json (or prs.json)
-# the pull requests that close them. An issue marked running and CLOSED is a
+# and edit-<n>.json (or edit.json) their text, prs-<n>.json (or prs.json)
+# the pull requests that close them, and issue-<n>.json with a state their
+# state and labels. An issue marked running and CLOSED is a
 # closed one.
 cat >"$T/page-stub" <<'STUB'
 #!/usr/bin/env bash
@@ -707,7 +708,8 @@ items=$(for n in $nums; do
     --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
     --argjson e "$(read_or "$fx/edit-$n.json" "$fx/edit.json" "{}")" \
     --argjson p "$(read_or "$fx/prs-$n.json" "$fx/prs.json" "{}")" \
-    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p}'
+    --argjson i "$(read_or "$fx/issue-$n.json" "" "{}")" \
+    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p, i: $i}'
 done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
   --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" '
@@ -720,12 +722,15 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
   def actor: if .actor == null then null else {login: .actor.login} end;
   {data: {repository: {nameWithOwner: $repo.nameWithOwner,
     issues: {pageInfo: {hasNextPage: false, endCursor: null},
-      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open") | . as $i | {
+      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open")
+        | select((.i.state // "OPEN") != "CLOSED") | . as $i | {
         number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
         lastEditedAt: .e.lastEditedAt, editor: .e.editor,
         # The labels its lists give it, and those of its REST answer when a case
         # wrote one: on GitHub the two agree.
-        labels: {nodes: [(labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings]
+        # The answer of gh issue view, when a case wrote its state, is the truth.
+        labels: {nodes: [((if $i.i.state then [$i.i.labels[].name]
+            else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
           + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
         timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
