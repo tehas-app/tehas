@@ -563,11 +563,26 @@ mesh() { # [<the endpoint's answer>]
   rm -f "$fx/mesh.json"
   [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
 }
+# curl_heard: the opening of a curl stub. What curl was given is kept the same
+# way from either poll: the bash poll's config in a /dev/fd file and its body on
+# standard input, the Rust poll's config on standard input with the body as its
+# `data` line. The config's lines go to calls/curl-config, the body to
+# calls/curl-body.
+curl_heard='conf=""
+case " $* " in *" -K - "*) conf=$(cat) ;; esac
+for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+if [ -n "$conf" ]; then
+  printf "%s\n" "$conf" | grep -v "^data = " >>"$T/calls/curl-config"
+  body=$(printf "%s\n" "$conf" | sed -n "s/^data = //p")
+  [ -z "$body" ] || jq -r . <<<"$body" >"$T/calls/curl-body"
+fi
+heard() { [ -n "$conf" ] || cat >"$T/calls/curl-body"; }
+'
 # A request with an image is answered when the file reads-images is there; what
 # was sent is kept.
 mesh_curl() {
-  t_stub curl 'case "$*" in
-  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  t_stub curl "$curl_heard"'case "$*" in
+  *"/chat/completions") heard; [ -e "$T/fx/reads-images" ] ;;
   *) cat "$T/fx/mesh.json" 2>/dev/null ;;
 esac'
 }

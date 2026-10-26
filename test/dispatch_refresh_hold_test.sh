@@ -72,6 +72,10 @@ running_refresh() { # <issue>
     --refresh-pr 50 --refresh-head "$rhead"
   t_started "$T/home/tehas" "$1"
   hold "$1"
+  # A running cycle's issue is marked running, as on a host: the queue the
+  # Rust poll reads holds every open issue, so one not on it is closed.
+  jq -c --argjson n "$1" '. + [{number: $n, labels: [{name: "tehas:running"}]}]' "$fx/marked.json" >"$fx/marked.json.new" &&
+    mv "$fx/marked.json.new" "$fx/marked.json"
 }
 # The REST call of rule 4b that takes the mark off a pull request.
 unmark_call="api -X DELETE repos/acme/widget/issues/50/labels/tehas:refreshing"
