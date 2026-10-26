@@ -42,6 +42,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'a' 'b' 'c' >"$tree/libexec/big"
 t_run "GIT_CEILING_DIRECTORIES='$T' $check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "Take out 5 lines."
+t_contains "$t_out" "which issue takes the lines out again"
 t_contains "$t_out" "Largest files:"
 t_contains "$t_out" "4  libexec/big"
 t_contains "$t_out" "2  bin/tool"
