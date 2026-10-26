@@ -322,6 +322,14 @@ t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\""
 t_eq "$([ -e "$shadow_log" ] || [ -e "$T/home/tehas/state/dispatch-shadow.json" ] && echo written)" ""
 rm -f "$T/home/tehas/state/dispatch-shadow.off"
 
+t_case "compare finds the home as env.sh gives it, with TEHAS_HOME unset"
+reset
+mkdir -p "$T/home/tehas/logs"
+rm -f "$shadow_log"
+: >"$T/poll.lines"
+t_run "env -u TEHAS_HOME \"$T_DISPATCH\" compare \"$T/poll.lines\""
+t_eq "$(wc -l <"$shadow_log" 2>/dev/null)" 1
+
 t_case "a snapshot is JSON in the shape the decision reads"
 reset
 t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" snapshot"

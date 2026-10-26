@@ -205,8 +205,12 @@ fn main() {
     }
 }
 
+/// $TEHAS_HOME, or ~/tehas as env.sh gives it.
 fn shadow_home() -> PathBuf {
-    PathBuf::from(std::env::var("TEHAS_HOME").unwrap_or_default())
+    match std::env::var("TEHAS_HOME") {
+        Ok(h) if !h.is_empty() => PathBuf::from(h),
+        _ => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("tehas"),
+    }
 }
 
 /// state/dispatch-shadow.off stops the shadow.
