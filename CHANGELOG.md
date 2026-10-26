@@ -13,6 +13,49 @@ empty one above it.
 
 ### Changes
 
+- None yet.
+
+### Adopter action
+
+- None.
+
+## v0.14.0 (2026-10-26)
+
+### Changes
+
+- The fixer is now the millwright (#676, first stage). Its settings are
+  `TEHAS_MILLWRIGHT_LOGIN`, `TEHAS_MILLWRIGHT_MAX_RETRIES` and
+  `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` (#688); the `TEHAS_FIXER_*` names still
+  load, with a warning, until a later release removes them. `lib/fixer.sh` is
+  `lib/millwright.sh` (#689), and analytics and the MCP server say
+  `millwright` and still read records that say `fixer` (#687). The entries
+  for #686, #690 and #691 below say what the store, the dispatcher and
+  `tehas api` do with both names.
+- A cycle's `/tmp` is half the container's memory ceiling, about 2.7 GiB on a
+  5.35 GiB ceiling, in place of 8 GiB (#761). Files in a tmpfs are memory the
+  container cannot get back, so a full `/tmp` used to end in the kernel killing
+  the agents; now it gives "no space left on device". A container with no
+  usable ceiling is not started.
+- `tehas work` counts the memory kills that end a cycle (#762): once the
+  container has ended, it also counts the kernel log's `oom-kill:` lines for
+  the container's own cgroup, and keeps the larger of that and the cgroup's
+  last count. Reading the kernel log needs the tehas user in
+  `systemd-journal`; without it the count is the cgroup's, as before.
+- The host's `gh` shim appends one line per GitHub write to
+  `state/github-writes.log` (#650), and the container's `gh` shim tries a
+  rate-limited call once more (#681).
+- `tehas status` adds `tehas:shipped` only to a shipped issue that lacks it,
+  not to every shipped issue on every poll (#731).
+- A cycle's kept record keeps its `dispatch-slow` events, so a child that
+  repeats itself shows as such (#723).
+- `tehasbot review` runs pi-rukas `lens-review` on the default branch since
+  the last reviewed commit (#507). It files nothing yet, and no timer runs it.
+- `scripts/check-bash-lines.sh` names the files that grew, and how many lines
+  to take out, when the bash is over its ceiling (#757).
+- Tests: `test/sandbox_test.sh` no longer pins `libexec/work` line numbers
+  (#738). The two slowest dispatch test files are split, and two timing cases
+  count or bound what load cannot stretch, so the gate no longer times out on
+  a loaded runner.
 - Each poll records what it cost in the state store: its wall time, its CPU
   time, its own `gh` calls and the writes the host shim logged while it ran,
   by kind (#743). `tehas status` shows them on a `poll` line under the
@@ -109,6 +152,15 @@ empty one above it.
 - A program that reads the field `fixer` or the feature `fixer-grant` of
   `tehas api` moves to `millwright` and `millwright-grant` before a release
   removes the old names.
+- Drain before you install (`tehas drain`): the state store moves from schema
+  5 to 7 (#754, #743). The install migrates it and keeps a backup.
+- After the update, run `tehas labels` to make `tehas:millwright-escalated`.
+- Rename `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES` and
+  `TEHAS_FIXER_MAX_PLAN_ANSWERS` in the instance's settings to their
+  `TEHAS_MILLWRIGHT_*` names. The old names load, with a warning, until a
+  later release removes them.
+- Optional: add the tehas user to `systemd-journal` so `tehas work` can count
+  the memory kills at a container's end (#762).
 
 ## v0.13.0 (2026-10-25)
 
