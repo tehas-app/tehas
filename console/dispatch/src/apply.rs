@@ -197,7 +197,9 @@ impl Writer {
                 self.ended = Some(rc);
             }
         } else if let Some(n) = a.get("park_retry").and_then(Value::as_u64) {
-            self.park_retry(n, a, log);
+            if !self.park_retry(n, a, log) {
+                return false;
+            }
         } else if let Some(n) = a.get("plan_end").and_then(Value::as_u64) {
             self.plan_end(n, text(a, "say"), false, false, log);
         } else {

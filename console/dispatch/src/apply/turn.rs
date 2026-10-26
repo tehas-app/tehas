@@ -52,14 +52,16 @@ impl Writer {
     /// The park_retry action: the outage's retry and a skipped refine are
     /// spent now; a refine about to start is spent once its brief is
     /// written, by the turn that follows.
-    pub(super) fn park_retry(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
+    /// False for a spend of no kind it knows, which is left.
+    pub(super) fn park_retry(&mut self, n: u64, a: &Value, log: &mut Vec<String>) -> bool {
         let what = match text(a, "how") {
             "refine" => {
                 self.spend = Some(n);
-                return;
+                return true;
             }
             "outage" => "the retry of #N after a provider outage",
-            _ => "the refine of #N",
+            "skipped" => "the refine of #N",
+            _ => return false,
         };
         let tries = if text(a, "how") == "outage" { 1 } else { 3 };
         if let Err(f) = self.store_try(tries, &["park-retry", &n.to_string()]) {
@@ -71,6 +73,7 @@ impl Writer {
                 ));
             }
         }
+        true
     }
 
     /// plan_refused: a turn the store would not begin. A refusal is the
@@ -275,7 +278,9 @@ impl Writer {
             let said = answered
                 .pointer("/planning/answer")
                 .and_then(Value::as_str)
-                .unwrap_or("");
+                .unwrap_or("")
+                // As $(tehas_store_get ...) reads it, without its line ends.
+                .trim_end_matches('\n');
             let body = if filed.is_empty() {
                 format!("{said}\n")
             } else {
@@ -411,7 +416,7 @@ impl Writer {
         if let Some(start) = &self.host.plan_start_cmd {
             let mut args = vec![n.to_string()];
             args.extend(turn);
-            return run_quiet(start, &args, None, Duration::from_secs(60)) == Some(0);
+            return run_quiet(start, &args, None, Duration::from_secs(300)) == Some(0);
         }
         let mut args: Vec<String> = vec![
             "--user".into(),
