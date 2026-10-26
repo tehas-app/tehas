@@ -1,0 +1,1128 @@
+{
+ "suite": "test/dispatch_turns_test.sh",
+ "cases": [
+  {
+   "case": "a parked issue retried by its labels starts a cycle, and its old question goes",
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready",
+       "tehas:question"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "the question label is only taken off an issue that carries it",
+   "expect": {
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:ready on a parked issue starts a cycle and leaves needs-human-attention to the cycle's restart",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:ready on an issue that awaits a merge starts a cycle and takes that label off",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:awaiting-merge"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready",
+       "tehas:awaiting-merge"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "every label of tehas's of an earlier outcome goes with the start",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:awaiting-merge"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready",
+       "tehas:awaiting-merge",
+       "tehas:question"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue left marked as running with no cycle is started on tehas:ready",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a parked issue labelled by a stranger starts nothing and loses that label",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:ready applied while the issue's cycle runs waits, said in the log and not on the issue",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ]
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "hold": [
+    7
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "wait #7: its cycle is still running"
+    ]
+   }
+  },
+  {
+   "case": "and the poll after that cycle ended starts a fresh one",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:awaiting-merge"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label",
+      "remove": [
+       "tehas:ready",
+       "tehas:awaiting-merge"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue that waits behind its own cycle does not hold back the next one",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    "7",
+    "8"
+   ],
+   "hold": [
+    7
+   ],
+   "expect": {
+    "picked": [
+     8
+    ]
+   }
+  },
+  {
+   "case": "a retry tick takes a tehas:ready that was left on the issue with it",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "retry-tick",
+      "remove": [
+       "tehas:question",
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an answer on a question the session is not waiting on runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 9999,
+        "answers": []
+       },
+       "id": "9999",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #7: its question is not among the last 100 comments"
+    ]
+   }
+  },
+  {
+   "case": "an answer to a session whose record names no question runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": null,
+        "answers": []
+       },
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #7: the question answered is not the one this session is waiting on"
+    ]
+   }
+  },
+  {
+   "case": "a newer stray bot comment with a plan marker does not lock the session out",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     [
+      {
+       "databaseId": 4009,
+       "author": {
+        "login": "tehas-bot"
+       },
+       "body": "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=5 -->",
+       "createdAt": "2026-01-01T02:00:00Z",
+       "lastEditedAt": null,
+       "editor": null
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator chose: Change some"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a planning question on record whose marker is a park marker runs no turn and no cycle",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: the question on record does not belong to this issue"
+    ]
+   }
+  },
+  {
+   "case": "a later turn cut off by a restart is reported",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_collect": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_close": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a poll does not wait for a planning turn: a ready issue starts while it runs",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true,
+      "in_flight": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "ready_n": [
+    "8"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     8
+    ],
+    "no_actions": [
+     {
+      "plan_collect": 7
+     },
+     {
+      "plan_close": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an answer waits while another session's turn runs",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     },
+     {
+      "issue": 9,
+      "running": true,
+      "in_flight": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "planning #7 waits: the turn of #9 is still running"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a record of a turn in flight is not cleaned up",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true,
+      "in_flight": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a record of a turn waiting to be posted is not cleaned up",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "pending": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_post": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_close": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a first turn cut off by a restart ends visibly",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_collect": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run reports a cut-off turn and changes nothing",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would report the cut-off planning turn of #7"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a bot account in the allowed list stops the poll before any question is read",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "settings": {
+    "TEHAS_ALLOWED_LABELERS": "alice tehas-bot"
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+    ]
+   }
+  },
+  {
+   "case": "an instance that lists the bot is refused before its slots are swept",
+   "settings": {
+    "TEHAS_ALLOWED_LABELERS": "alice tehas-bot"
+   },
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "exit": 78,
+    "nothing": true,
+    "log": [
+     "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
+    ]
+   }
+  },
+  {
+   "case": "an own login that GitHub answers without one ends the poll before anything is written",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ],
+    "user": {
+     "message": "Bad credentials"
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "nothing": true,
+    "log": [
+     "ERROR: the bot's own login could not be read"
+    ]
+   },
+   "drop": [
+    "user.login"
+   ]
+  },
+  {
+   "case": "with a GitHub App the bot's login is TEHAS_BOT_LOGIN, and GET /user is not asked",
+   "settings": {
+    "TEHAS_BOT_LOGIN": "tehas-app[bot]"
+   },
+   "snapshot": {
+    "user": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "log_lacks": [
+     "the bot's own login could not be read"
+    ],
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a dry run closes no session: it stays open for the outage retry after it",
+   "dry": true,
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "asking": [],
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ],
+    "nothing": true
+   }
+  }
+ ],
+ "later": [],
+ "not_ported": [
+  "every list of issues is read to a thousand: the snapshot's reads",
+  "what a turn does once started: its unit, its lock, its status, its outcome posted once, a question that posted but could not be labelled, a cut-off turn's container and report, a turn that fails or cannot start, and the end of a session said once: lib/planning.sh, the caller's"
+ ]
+}

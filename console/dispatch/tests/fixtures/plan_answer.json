@@ -1,0 +1,928 @@
+{
+ "suite": "test/dispatch_plan_answer_test.sh",
+ "cases": [
+  {
+   "case": "a ticked option goes to the session as the next message",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The operator chose: Change some",
+      "by": "alice"
+     }
+    ],
+    "log": [
+     "planning #7 continues (answer from alice)"
+    ]
+   }
+  },
+  {
+   "case": "a reply goes to the session as it was written",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "alice"
+       },
+       "body": "Adopt all, but keep `tagged-at` open.\nThen file 3 and 5.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The operator replied on the issue:\n\nAdopt all, but keep `tagged-at` open.\nThen file 3 and 5.",
+      "by": "alice",
+      "reply": "4003"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a ticked option passes no comment",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The operator chose: Change some",
+      "by": "alice"
+     }
+    ],
+    "no_actions": [
+     {
+      "reply": "4003"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a reply wins over a tick, and the answer says what was ticked",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "bob"
+       },
+       "body": "actually, wait",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_ALLOWED_LABELERS": "alice bob"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator replied on the issue:\n\nactually, wait\n\nA box was also ticked, by alice: Adopt all",
+      "by": "bob"
+     }
+    ],
+    "log": [
+     "planning #7 continues (answer from bob)"
+    ]
+   }
+  },
+  {
+   "case": "a reply with the way out ticked runs the turn and says the box was ticked",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [x] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "alice"
+       },
+       "body": "one more thing",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator replied on the issue:\n\none more thing\n\nA box was also ticked, by alice: End this planning session"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a reply alone says nothing of a box",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "alice"
+       },
+       "body": "just this",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator replied on the issue:\n\njust this"
+     }
+    ]
+   }
+  },
+  {
+   "case": "an answer on an issue closed since the turn ran runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      },
+      "work": {
+       "number": 7,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: it is closed, and a closed issue is never taken"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a stranger's reply and a stranger's tick run no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "mallory",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "mallory"
+       },
+       "body": "file everything",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the way out ends the session: labels off, record gone, one comment",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [x] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_end": 7,
+      "say": "Planning session ended by alice."
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an answer to a session whose record is gone ends it and says why",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_end": 7,
+      "say": "The record of this planning session is gone from the host, so it cannot continue. Apply `tehas:plan` to start a new one."
+     }
+    ]
+   }
+  },
+  {
+   "case": "an outcome that could not be posted is posted by the next poll, before anything else",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7,
+      "pending": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_post": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_close": 7
+     },
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the record of a session whose issue no longer asks is removed",
+   "snapshot": {
+    "ready": [],
+    "asking": [],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_close": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "say": "Planning session ended by alice."
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a waiting outcome says it would post it",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7,
+      "pending": true
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     []
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would post the waiting planning turn of #7"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the question answered must be the one the session waits on",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4999,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "log": [
+     "skip #7: the question answered is not the one this session is waiting on"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a ticked box that matches no option on record runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "log": [
+     "skip #7: the ticked box matches no option on record"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of an answer says the turn would run",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would run a planning turn for #7 (answer from alice)"
+    ],
+    "nothing": true
+   }
+  }
+ ],
+ "later": [],
+ "not_ported": [
+  "the options the record lists, questions posted as one, what a turn filed and the next turn told of it, and the answer file's lines of filings: the turn's own writes (plan_turn, plan_post)",
+  "a reply's turn given the reply's comment id: the action carries it (reply); the call is the caller's",
+  "the turn limit, a later turn that fails or whose session pi-rukas lost, a refine that hands the issue back, and labels that cannot be taken off: the turn and its end, lib/planning.sh"
+ ]
+}

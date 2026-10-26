@@ -1,8 +1,6 @@
 {
  "suite": "test/dispatch_millwright_test.sh",
- "later": [
-  "the fixer's planning answers, from a marked reply of the fixer's runs the turn to the fixer's tick on a parked cycle's question is a stranger's: rules 4 and 5, part 3b"
- ],
+ "later": [],
  "not_ported": [
   "the fixer's marked comment before its label is the retry's context, and without such a comment the record has no context: the approval record the start writes, #254"
  ],
@@ -1314,6 +1312,1504 @@
    "drop": [
     "issues.7.approval"
    ]
+  },
+  {
+   "case": "a marked reply of the fixer's runs the turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 3,
+          "by": "alice",
+          "fixer": false
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all, as alice chose in #12.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "planning #7 continues (answer from tehas-fixer, the fixer)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The fixer replied on the issue:\n\nAdopt all, as alice chose in #12.",
+      "by": "tehas-fixer",
+      "reply": "4003"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a box the fixer ticked runs the turn as its choice",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The fixer chose: Change some",
+      "by": "tehas-fixer"
+     }
+    ],
+    "no_actions": [
+     {
+      "reply": "4003"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a person's reply wins over a newer reply of the fixer's",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "alice"
+       },
+       "body": "mine",
+       "createdAt": "2026-01-01T01:30:00Z"
+      },
+      {
+       "databaseId": 4004,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator replied on the issue:\n\nmine",
+      "by": "alice"
+     }
+    ]
+   }
+  },
+  {
+   "case": "and a person's tick wins too",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The operator chose: Change some"
+     }
+    ]
+   }
+  },
+  {
+   "case": "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "skip #7: the fixer's answer runs no turn: the fixer answered the question before this one; a person answers this one"
+    ],
+    "actions": [
+     {
+      "plan_note": 7,
+      "kind": "fixer-refused",
+      "id": "4003",
+      "say": "Tehas did not take the fixer's reply as an answer: the fixer answered the question before this one; a person answers this one. A person answers this question."
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the next poll says nothing more of it",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         }
+        ],
+        "notes": {
+         "fixer_refused": [
+          4003
+         ]
+        }
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "the fixer's answer runs no turn"
+    ]
+   }
+  },
+  {
+   "case": "and a person's answer then runs the turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      },
+      {
+       "databaseId": 4005,
+       "author": {
+        "login": "alice"
+       },
+       "body": "go",
+       "createdAt": "2026-01-01T03:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "reply": "4005",
+      "by": "alice"
+     }
+    ]
+   }
+  },
+  {
+   "case": "at the limit the fixer's tick runs no turn and is unticked with a note",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 3,
+          "by": "alice",
+          "fixer": false
+         },
+         {
+          "turn": 4,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 5,
+          "by": "alice",
+          "fixer": false
+         },
+         {
+          "turn": 6,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 7,
+          "by": "alice",
+          "fixer": false
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "the fixer has answered 3 questions in this session, the limit"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "The fixer's tick was not taken as an answer: the fixer has answered 3 questions in this session, the limit. It was unticked. A person answers this question."
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a larger limit lets it answer again",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 3,
+          "by": "alice",
+          "fixer": false
+         },
+         {
+          "turn": 4,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 5,
+          "by": "alice",
+          "fixer": false
+         },
+         {
+          "turn": 6,
+          "by": "tehas-fixer",
+          "fixer": true
+         },
+         {
+          "turn": 7,
+          "by": "alice",
+          "fixer": false
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer",
+    "TEHAS_FIXER_MAX_PLAN_ANSWERS": 4
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "answer": "The fixer chose: Adopt all"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer may not end a session: its tick on the way out is undone and the session goes on",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [x] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "it ticked End this planning session, which only a person may"
+    ],
+    "actions": [
+     {
+      "untick": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_end": 7
+     },
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer cannot end a session with an empty marked reply beside its tick on the way out",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [x] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "it ticked End this planning session, which only a person may"
+    ],
+    "no_actions": [
+     {
+      "plan_end": 7
+     },
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "nor with a marked reply that says something beside that tick",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [x] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nDone, end it.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "it ticked End this planning session, which only a person may"
+    ],
+    "no_actions": [
+     {
+      "plan_end": 7
+     },
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a reply of the fixer's without its marker runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "Adopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "its reply does not start with <!-- tehas:fixer issue=7 action=answer -->"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "in a session started by an account no longer allowed, the fixer answers nothing",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "mallory",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "no person's tehas:plan started this session"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says the fixer's reply would be refused and changes nothing",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "skip #7: the fixer's answer runs no turn"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "with no fixer on the instance, its account's tick and reply are an outsider's",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "log": [
+     "boxes ticked by 'tehas-fixer' are no answer (stranger)"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "A box was ticked by an account that may not answer for this factory (tehas-fixer). It was unticked."
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer's tick on a parked cycle's question is a stranger's",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "tehas-fixer"
+   ],
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "boxes ticked by 'tehas-fixer' are no answer (stranger)"
+    ]
+   }
+  },
+  {
+   "case": "a tick the fixer saved after alice edited the question is held for a person, not unticked",
+   "held_edits": {
+    "totalCount": 2,
+    "nodes": [
+     {
+      "editor": {
+       "login": "alice"
+      }
+     },
+     {
+      "editor": {
+       "login": "tehas-fixer"
+      }
+     }
+    ]
+   },
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "skip #7: the fixer saved the question after another account did, so who ticked it is not known"
+    ],
+    "actions": [
+     {
+      "plan_note": 7,
+      "kind": "held",
+      "id": "4001"
+     }
+    ],
+    "no_actions": [
+     {
+      "untick": 7
+     },
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an answer on record by its old name, millwright, counts as the fixer's",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "millwright": true
+         }
+        ]
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "the fixer answered the question before this one; a person answers this one"
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refused reply noted under the old name is not said again",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [
+         {
+          "turn": 2,
+          "by": "tehas-fixer",
+          "fixer": true
+         }
+        ],
+        "notes": {
+         "millwright_refused": [
+          4003
+         ]
+        }
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "the fixer's answer runs no turn"
+    ]
+   }
+  },
+  {
+   "case": "a held tick noted once is not said again",
+   "held_edits": {
+    "totalCount": 2,
+    "nodes": [
+     {
+      "editor": {
+       "login": "alice"
+      }
+     },
+     {
+      "editor": {
+       "login": "tehas-fixer"
+      }
+     }
+    ]
+   },
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": [],
+        "notes": {
+         "held": [
+          4001
+         ]
+        }
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "tehas-fixer",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "the fixer saved the question"
+    ]
+   }
   }
  ]
 }

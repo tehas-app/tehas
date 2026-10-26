@@ -1,0 +1,1545 @@
+{
+ "suite": "test/dispatch_refine_test.sh",
+ "cases": [
+  {
+   "case": "a cycle parked as underspecified is refined with the refine brief, on the word of its starter",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "start refining #7 (its cycle parked as underspecified, started by alice)"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     },
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:refine",
+      "by": "alice",
+      "refine": true,
+      "auto": "underspecified"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a cycle parked as too large is refined, and the comment names the reason",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "too-large",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "auto": "too-large"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the next poll starts no second session",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "start refining #7"
+    ]
+   }
+  },
+  {
+   "case": "a closed issue is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "CLOSED",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: it is closed"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue that carries tehas:blocked is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:blocked"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:blocked"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: it carries tehas:blocked"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue that carries tehas:refined is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:refined"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:refined"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: it carries tehas:refined"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue that carries tehas:replaced is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:replaced"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:replaced"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: it carries tehas:replaced"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue that carries tehas:running is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:running"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: it carries tehas:running"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue whose park question was answered is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": null,
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: its park question was answered"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue a planning session filed is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "6e56ee198685cbb81b0ce128b83324d990cffa69e098bdfd7de6145e0086d32d"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Replaces #3\n\nMake it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: a planning session filed it"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a sub-issue of a person's epic is refined: a parent alone is no sign of a refine",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "7c9616f368bc1cdc645ede03cf3bbd1bd410545f58378276049e052e97040632"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Part of #3.\n\nMake it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "log": [
+     "start refining #7"
+    ]
+   }
+  },
+  {
+   "case": "a cycle started by an account that may no longer label is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "mallory",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: its cycle was not started by an account that may label (mallory)"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue whose text another account changed since its cycle began is not refined",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      },
+      "edit": {
+       "lastEditedAt": "2099-01-02T00:00:00Z",
+       "editor": {
+        "login": "mallory"
+       },
+       "body": "Make it good.",
+       "title": "Faster search"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: its text changed since its cycle began"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an allowed account's edit since the park stops the refine too: a person is working on the text",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast: 50 ms.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: not refined: its text changed since its cycle began"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "plan_turn": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a Retry ticked while no slot is free is not overridden by the refine",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "alice"
+    ]
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "log": [
+     "skip #7: not refined: a box of its park question is ticked"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a paused factory refines nothing",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    },
+    "pause_flag": {
+     "at": "2026-01-01T00:00:00Z",
+     "by": "alice",
+     "reason": "test"
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a turn of another issue in flight leaves the refine for a later poll",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    },
+    "plan_open": [
+     {
+      "issue": 9,
+      "running": true,
+      "in_flight": true
+     }
+    ]
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "log": [
+     "refining #7 waits: the turn of #9 is still running"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run says what it would do and changes nothing",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "log": [
+     "would start refining #7 (its cycle parked as underspecified, started by alice)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of a refused refine spends nothing",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "mallory",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "skip #7: not refined"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a list of the parks owed a refine that cannot be read ends the poll",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": {
+     "failed": true,
+     "word": "busy",
+     "rc": 1
+    },
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: the state store could not list the parks owed a refine (busy)"
+    ]
+   }
+  },
+  {
+   "case": "without the refine brief the refine starts nothing and is not spent",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "refines_owed": [
+     {
+      "issue": 7,
+      "started_at": 1700000001,
+      "started_by": "alice",
+      "park_reason": "underspecified",
+      "question": "4001",
+      "body_sha256": "705489bc7ef58f045c34222805d3582de88795fad188f8be166763f76e1f5cf0"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "title": "Faster search",
+       "body": "Make it good.",
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "question": {
+       "plan": null,
+       "id": "4001",
+       "kind": "park"
+      }
+     }
+    },
+    "refine_brief": false
+   },
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "log": [
+     "ERROR: no refine brief at"
+    ],
+    "nothing": true
+   }
+  }
+ ],
+ "later": [],
+ "not_ported": [
+  "a park of another reason, and an issue that had a planning session before: the store's rule of which parks owe a refine (park-show --refine)",
+  "a refine whose first label change fails: the caller's write after the spend",
+  "what a refine that files does to the original and the filed issues, the links and the marks: plan_replace in lib/planning.sh, the caller's"
+ ]
+}

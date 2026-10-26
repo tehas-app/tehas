@@ -10,6 +10,7 @@ use crate::text;
 use serde_json::{json, Map, Value};
 
 mod clean;
+mod plan;
 mod retry;
 
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
@@ -70,6 +71,10 @@ struct Poll<'a> {
     refresh_said: bool,
     /// Parked issues with a box ticked: rule 5a leaves them.
     park_ticked: Vec<u64>,
+    /// The issue whose planning turn is still running, and the sessions
+    /// this poll closed.
+    plan_busy: Option<u64>,
+    plan_closed: Vec<u64>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -89,6 +94,8 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         bot: String::new(),
         refresh_said: false,
         park_ticked: Vec::new(),
+        plan_busy: None,
+        plan_closed: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -142,7 +149,7 @@ impl<'a> Poll<'a> {
     }
 
     fn plan_open(&self, n: u64) -> bool {
-        matches!(&self.s.plan_open, Ok(v) if v.contains(&n))
+        matches!(&self.s.plan_open, Ok(v) if v.contains(&n)) && !self.plan_closed.contains(&n)
     }
 
     /// An issue's label events, or the end of the poll.
@@ -246,6 +253,8 @@ impl<'a> Poll<'a> {
         }
         let room = self.room()?;
         self.questions(&room, &bot)?;
+        self.plan_new(&room)?;
+        self.plan_refine(&room)?;
         // With no room for new work, only a refresh may still have room.
         if room.want == 0 {
             if self.dry {
@@ -404,6 +413,10 @@ struct Room {
     /// The refresh lane's share of want_all, when there is a lane.
     want_refresh: Option<i64>,
     hold: String,
+    /// slice_ok, limit_ok and limit_plan_ok: what holds a planning turn.
+    slice_ok: bool,
+    limit_ok: bool,
+    limit_plan_ok: bool,
 }
 
 impl<'a> Poll<'a> {
@@ -510,6 +523,11 @@ impl<'a> Poll<'a> {
             }
             Err(why) => slice_hold = format!("holding: {why}"),
         }
+        let slice_ok = slice_hold.is_empty() && mem_why != "unreadable";
+        let limit_ok = limit_state != "expired" && limit_state != "unreadable";
+        let limit_plan_ok = limit_ok
+            && !matches!(s.limit.get("plan"), Some(Value::Bool(false)))
+            && s.limit.get("plan").and_then(Value::as_str) != Some("false");
         for line in s.endpoint_log.clone() {
             self.log(line);
         }
@@ -612,6 +630,9 @@ impl<'a> Poll<'a> {
                     want_all: 0,
                     want_refresh: None,
                     hold: String::new(),
+                    slice_ok,
+                    limit_ok,
+                    limit_plan_ok,
                 });
             };
             awaiting = self.list(&list)?.len() as i64;
@@ -732,6 +753,9 @@ impl<'a> Poll<'a> {
             want_all,
             want_refresh,
             hold,
+            slice_ok,
+            limit_ok,
+            limit_plan_ok,
         })
     }
 

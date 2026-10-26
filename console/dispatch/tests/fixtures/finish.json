@@ -1,13 +1,12 @@
 {
  "suite": "test/dispatch_finish_test.sh",
- "later": [
-  "when the open planning sessions cannot be read again, the retry waits: the second read after a planning write, part 3b"
- ],
+ "later": [],
  "not_ported": [
   "without the test seams it runs the scripts beside it; a unit systemd cannot load or that gives no answer: the start, #254",
   "a pi-rukas no cycle has run before starts as many cycles as the slots allow, and with one cycle running and five waiting one poll starts three: the start's I/O, #254; the counts are slots.json's",
   "the park is used up and the start marked as the retry, and a start a person asked for is not the retry: the start and the store, #254",
-  "an outage park of a cycle started by hand asks for no retry: the store's rule (park-show --automatic)"
+  "an outage park of a cycle started by hand asks for no retry: the store's rule (park-show --automatic)",
+  "when the open planning sessions cannot be read again, the retry waits: the second read after a planning write is the caller's, after it writes"
  ],
  "cases": [
   {
