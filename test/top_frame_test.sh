@@ -212,15 +212,5 @@ t_eq "$t_rc" 0
 t_eq "$(c1_bytes "$t_out")" 0
 t_contains "$t_out" "Escaped title $(printf '\303\244\303\266')"
 
-# The byte filter itself: the C1 pair goes, and so does every other control that
-# is not a tab or a newline. A character that merely has a continuation byte in
-# the same range - the 0x82 of a euro sign - stays.
-t_case "the byte filter drops C1 controls and leaves other UTF-8 text alone"
-reset
-printf 'a\007b\011c\302\233d \303\244\303\266 \342\202\254 e\177f\n' >"$T/in"
-printf 'ab\tcd \303\244\303\266 \342\202\254 ef\n' >"$T/want"
-t_run '. "$T_ROOT/lib/top.sh"; tehas_sanitize_text <"$T/in" >"$T/out"'
-t_eq "$t_rc" 0
-t_eq "$(cat "$T/out")" "$(cat "$T/want")"
-t_eq "$(c1_bytes "$(cat "$T/out")")" 0
+# The byte filter itself is tested beside it (console/src/snapshot.rs).
 t_done

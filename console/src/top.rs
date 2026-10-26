@@ -37,20 +37,47 @@ pub fn main(given: &[String]) -> u8 {
             None => 1,
         },
         [verb, later, earlier] if verb == "host" => {
-            let parse = |s: &str| serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
-            let section = host(&parse(later), &parse(earlier), page_size()).to_string();
-            // The load averages as the reading wrote them: 0.10 stays 0.10.
-            let section = match raw_load(later) {
-                Some(raw) => section.replacen(LOAD, &raw, 1),
-                None => section.replacen(LOAD, "null", 1),
-            };
-            println!("{section}");
+            println!("{}", host_text(later, earlier));
             0
         }
+        [verb, live, lines, max_age, reading, earlier] if verb == "snapshot" => {
+            match (lines.parse(), max_age.parse()) {
+                (Ok(lines), Ok(max_age)) => {
+                    println!(
+                        "{}",
+                        crate::snapshot::snapshot(
+                            Path::new(live),
+                            lines,
+                            max_age,
+                            reading,
+                            earlier
+                        )
+                    );
+                    0
+                }
+                _ => {
+                    eprintln!("console top: snapshot: <lines> and <max age> are whole numbers");
+                    2
+                }
+            }
+        }
         _ => {
-            eprintln!("console top: usage: reading <dir> | host <later> <earlier>");
+            eprintln!(
+                "console top: usage: reading <dir> | host <later> <earlier> | snapshot <live> <lines> <max age> <reading> <earlier>"
+            );
             2
         }
+    }
+}
+
+/// The section from two readings, as text: null when either is no object.
+pub fn host_text(later: &str, earlier: &str) -> String {
+    let parse = |s: &str| serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
+    let section = host(&parse(later), &parse(earlier), page_size()).to_string();
+    // The load averages as the reading wrote them: 0.10 stays 0.10.
+    match raw_load(later) {
+        Some(raw) => section.replacen(LOAD, &raw, 1),
+        None => section.replacen(LOAD, "null", 1),
     }
 }
 

@@ -92,17 +92,15 @@ t_contains "$t_out" "host      no reading of /proc"
 t_contains "$t_out" "cycle     #12 running"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 
-# The host is read by the console beside the commands. Without one the section
-# is null, as for a tree that cannot be read, and the rest of the snapshot is
-# there all the same.
-t_case "a host with no console has a null host section and the rest"
+# The snapshot is read and put together by the console beside the commands.
+# Without one there is no snapshot, and the command says what to do.
+t_case "a host with no console has no snapshot and says to install"
 reset
 files
 T_ENV=(TEHAS_CONSOLE="$T/no-console" TEHAS_PROC_DIR="$proc1")
 t_run "$top --json"
-t_eq "$t_rc" 0
-t_eq "$(jq -c '[.host, .reading]' <<<"$t_out")" "[null,null]"
-t_eq "$(jq -r '.cycle | type' <<<"$t_out")" object
+t_eq "$t_rc" 1
+t_contains "$t_out" "no console at $T/no-console, run install.sh"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 
 t_case "a process is named by its short name, never by its command line"
