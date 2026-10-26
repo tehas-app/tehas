@@ -5,6 +5,7 @@
 
 use serde_json::{json, Map, Value};
 use std::fs;
+use tehas_dispatch::text::body_sha256;
 use tehas_dispatch::{decide, Settings, Snapshot};
 
 const GIB: u64 = 1_073_741_824;
@@ -286,6 +287,62 @@ fn expand(c: &Value, snap: &mut Value) {
         snap["slice"]["show"] =
             json!({"FragmentPath": "", "ActiveState": "inactive", "MemoryMax": "infinity"});
     }
+    // work: what gh api repos/<repo>/issues/<n> answers, over an open issue.
+    // body: the body of the edit record, the text an approval binds.
+    for (key, field) in [("work", "work"), ("body", "edit")] {
+        if let Some(m) = c.get(key).and_then(Value::as_object) {
+            let mut is = issues(snap);
+            for (n, x) in m {
+                let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+                let mut v = if key == "work" {
+                    json!({"number": n.parse::<u64>().unwrap(), "state": "open"})
+                } else {
+                    json!({"lastEditedAt": null, "editor": null})
+                };
+                if key == "work" {
+                    merge(&mut v, x);
+                } else {
+                    v["body"] = x.clone();
+                }
+                i[field] = v;
+            }
+            snap["issues"] = Value::Object(is);
+        }
+    }
+    // approved: the approval of the issue's latest start, as `past` writes
+    // it: {by, at, body, fixer_starts}. With fixer starts, the latest is the
+    // fixer's and rests on the person's.
+    if let Some(m) = c.get("approved").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let sum = body_sha256(&json!({"body": x["body"]}));
+            let base = json!({"at": x["at"], "by": x["by"], "how": x.get("how").unwrap_or(&json!("label")), "body_sha256": sum});
+            let record = match x.get("fixer_starts").and_then(Value::as_u64) {
+                Some(k) if k > 0 => {
+                    json!({"at": "2026-10-01T05:00:00Z", "by": "tehas-fixer", "how": "fixer",
+                    "body_sha256": sum, "fixer_starts": k, "rests_on": base})
+                }
+                _ => base,
+            };
+            let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+            i["approval"] = record;
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // parked: the park on record, {reason, body, told, retries}.
+    if let Some(m) = c.get("parked").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let told = x.get("told") == Some(&json!(true));
+            let park = json!({"reason": x.get("reason").unwrap_or(&json!("intent-park")),
+                "body_sha256": body_sha256(&json!({"body": x["body"]})),
+                "retries": x.get("retries").unwrap_or(&json!(0)),
+                "told_at": if told { json!("2026-10-01T03:00:00Z") } else { Value::Null }});
+            let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+            i["park"] = park;
+        }
+        snap["issues"] = Value::Object(is);
+    }
     // The defaults of every issue the queue names: labelled by alice, an open
     // issue, nothing edited, no pull request.
     let numbers: Vec<u64> = ["ready", "blocked"]
@@ -469,6 +526,31 @@ fn run_suite(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn start() {
+    run_suite("start");
+}
+
+#[test]
+fn guard() {
+    run_suite("guard");
+}
+
+#[test]
+fn images() {
+    run_suite("images");
+}
+
+#[test]
+fn fixer() {
+    run_suite("fixer");
+}
+
+#[test]
+fn park() {
+    run_suite("park");
 }
 
 #[test]

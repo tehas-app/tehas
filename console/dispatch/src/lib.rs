@@ -7,6 +7,7 @@ pub mod events;
 pub mod settings;
 pub mod slice;
 pub mod snapshot;
+pub mod text;
 
 pub use decide::{decide, Decision};
 pub use settings::Settings;

@@ -37,6 +37,46 @@ pub struct Issue {
     /// The states of the issues its blocker comment names, by number: OPEN,
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.
     pub blockers: BTreeMap<u64, String>,
+    /// The issue's park on the state store (park-show's .park), or the store's
+    /// word and exit status when it could not say.
+    pub park: Result<Option<Value>, StoreErr>,
+    /// The approval of its latest start (tehas_approval_view), Err when the
+    /// store could not answer.
+    pub approval: Result<Option<Value>, ()>,
+}
+
+/// A call to the state store that failed: its word, exit status and first
+/// line, as lib/store.sh keeps them.
+#[derive(Clone, Debug, Default)]
+pub struct StoreErr {
+    pub word: String,
+    pub rc: i32,
+    pub line: String,
+}
+
+impl StoreErr {
+    fn parse(v: &Value) -> StoreErr {
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        StoreErr {
+            word: s("word"),
+            rc: v.get("rc").and_then(Value::as_i64).unwrap_or(1) as i32,
+            line: s("line"),
+        }
+    }
+}
+
+/// What a poll asks before it starts an issue that links an attachment, with
+/// TEHAS_WORK_IMAGES=1.
+#[derive(Clone, Debug, Default)]
+pub struct Images {
+    /// The sandbox image's tehas.rukas.images label: 1, 0, or empty.
+    pub rukas: String,
+    /// Its tehas.rukas label: the pi-rukas commit, or empty.
+    pub commit: String,
+    /// models.json declares image input for the subagent model.
+    pub declares: bool,
+    /// The model answered a request that carries an image.
+    pub answers: bool,
 }
 
 /// The gate of the lowest issues (TEHAS_LOW_GATE).
@@ -90,6 +130,7 @@ pub struct Snapshot {
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
     /// first.
     pub refresh_requests: Vec<u64>,
+    pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
 }
 
@@ -203,6 +244,16 @@ fn issue(v: &Value) -> Issue {
                     .collect()
             })
             .unwrap_or_default(),
+        park: match v.get("park") {
+            None | Some(Value::Null) => Ok(None),
+            Some(p) if failed(p) => Err(StoreErr::parse(p)),
+            Some(p) => Ok(Some(p.clone())),
+        },
+        approval: match v.get("approval") {
+            None | Some(Value::Null) => Ok(None),
+            Some(a) if failed(a) => Err(()),
+            Some(a) => Ok(Some(a.clone())),
+        },
     }
 }
 
@@ -298,6 +349,12 @@ impl Snapshot {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(number).collect())
                 .unwrap_or_default(),
+            images: v.get("images").map(|i| Images {
+                rukas: i.get("rukas").and_then(Value::as_str).unwrap_or("").into(),
+                commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
+                declares: i.get("declares").and_then(Value::as_bool) == Some(true),
+                answers: i.get("answers").and_then(Value::as_bool) == Some(true),
+            }),
             issues: v
                 .get("issues")
                 .and_then(Value::as_object)
