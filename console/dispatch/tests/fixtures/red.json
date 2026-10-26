@@ -1,8 +1,6 @@
 {
  "from": "test/dispatch_red_test.sh",
- "later": [
-  "red: a planning session still starts, and an answer still runs a turn: rule 5, part 3b"
- ],
+ "later": [],
  "not_ported": [
   "red: no check named, GitHub is not asked: a count of calls (#253 part 4)"
  ],
@@ -579,6 +577,136 @@
    },
    "expect": {
     "picked": []
+   }
+  },
+  {
+   "case": "red: a planning session still starts",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: an answer still runs a turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "checks": {
+     "total_count": 1,
+     "check_runs": [
+      {
+       "name": "verify",
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "failure"
+      }
+     ]
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next"
+     }
+    ]
    }
   }
  ]

@@ -1,10 +1,6 @@
 {
  "from": "test/dispatch_limit_test.sh",
- "later": [
-  "limit: planning off holds a new planning session, not an answer: rule 5, part 3b",
-  "limit: an expired limit holds an answer too, and a retry tick: rules 4 and 5, part 3b",
-  "limit: cycles 0 holds a retry tick, planning on lets a session start: rules 4 and 5, part 3b"
- ],
+ "later": [],
  "cases": [
   {
    "case": "limit: cycles 0 with 0 running",
@@ -446,6 +442,227 @@
    },
    "expect": {
     "picked": []
+   }
+  },
+  {
+   "case": "limit: planning off holds a new planning session",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": false
+    }
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
+   }
+  },
+  {
+   "case": "limit: planning off does not hold an answer",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": false
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next"
+     }
+    ]
+   }
+  },
+  {
+   "case": "limit: an expired limit holds an answer too",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "limit": {
+     "state": "expired",
+     "cycles": 3,
+     "plan": true,
+     "until": "2020-01-01T00:00:00Z"
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next"
+     }
+    ]
+   }
+  },
+  {
+   "case": "limit: cycles 0 with planning on lets a session start",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
    }
   }
  ]

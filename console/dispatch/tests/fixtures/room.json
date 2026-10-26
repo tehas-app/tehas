@@ -1,9 +1,6 @@
 {
  "from": "test/dispatch_room_test.sh",
- "later": [
-  "a planning turn is held by an unreadable probe, and no slice holds a tick, an answer or a plan label: rules 4 and 5, part 3b",
-  "no room still does not hold planning, nor a full disk: rule 5, part 3b"
- ],
+ "later": [],
  "not_ported": [
   "which endpoint is asked, with which token, how often: the endpoint is asked by the snapshot (#253 part 4), which gives decide its hold, its word and its log",
   "a token models.json names and the host has not set stops the dispatcher: lib/config.sh",
@@ -908,6 +905,312 @@
    "expect": {
     "picked": [],
     "nothing": true
+   }
+  },
+  {
+   "case": "a planning turn is held by an unreadable probe",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "slice": {
+     "pressure": null
+    }
+   },
+   "expect": {
+    "nothing": true,
+    "report": {
+     "why": "unreadable"
+    }
+   }
+  },
+  {
+   "case": "an unreadable probe holds an answer too",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "slice": {
+     "pressure": null
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "an unreadable probe is named before a full count",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "slice": {
+     "pressure": null
+    }
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "log": [
+     "holding: the slice's use could not be read"
+    ],
+    "log_lacks": [
+     "cycles are running"
+    ],
+    "report": {
+     "why": "unreadable"
+    }
+   }
+  },
+  {
+   "case": "no room still does not hold planning",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "other": 20937965568,
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
+   }
+  },
+  {
+   "case": "memory pressure does not hold an answer",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "other": 20937965568,
+   "slice_state": [
+    "12.00"
+   ],
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a full disk does not hold planning",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "disk_kb": 1048576
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
    }
   }
  ]

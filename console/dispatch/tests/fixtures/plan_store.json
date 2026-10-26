@@ -1,0 +1,400 @@
+{
+ "suite": "test/dispatch_plan_store_test.sh",
+ "cases": [
+  {
+   "case": "F5: once a turn begins, the question it answered no longer counts: a tick in it runs no second turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": null,
+        "answers": []
+       },
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #7: the question answered is not the one this session is waiting on"
+    ]
+   }
+  },
+  {
+   "case": "F5: a reply after a question the session no longer has on record runs no turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": null,
+        "answers": []
+       },
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "alice"
+       },
+       "body": "go on",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #7: the question answered is not the one this session is waiting on"
+    ]
+   }
+  },
+  {
+   "case": "F5: a question whose record could not be read is neither answered nor unticked",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan",
+       "failed": true,
+       "word": "busy",
+       "rc": 1
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "nothing": true,
+    "log": [
+     "skip #7: its question on record could not be read (busy)"
+    ]
+   }
+  },
+  {
+   "case": "F5: a store that cannot be used for the question stops the poll at 78",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan",
+       "failed": true,
+       "word": "corrupt",
+       "rc": 78,
+       "line": "store: corrupt: the file is not a database"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [x] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "alice",
+     []
+    ]
+   },
+   "expect": {
+    "exit": 78,
+    "nothing": true
+   }
+  },
+  {
+   "case": "A13: open sessions that cannot be read hold every start: busy",
+   "snapshot": {
+    "plan_open": {
+     "word": "busy",
+     "rc": 1
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store could not list the open planning sessions"
+    ]
+   }
+  },
+  {
+   "case": "A13: open sessions that cannot be read hold every start: corrupt",
+   "snapshot": {
+    "plan_open": {
+     "word": "corrupt",
+     "rc": 78
+    }
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store could not list the open planning sessions"
+    ]
+   }
+  },
+  {
+   "case": "A13: a turn running on record is not begun twice: its cut-off turn is reported, and a new tehas:plan asks for a session the store refuses",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    },
+    "plan_open": [
+     {
+      "issue": 7,
+      "running": true
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "plan_collect": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "B4: a new tehas:plan replaces a session",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      },
+      "question": {
+       "plan": {
+        "by": "alice",
+        "turns": 2,
+        "options": [
+         "Adopt all"
+        ],
+        "comment_id": 4001
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    },
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ]
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->",
+     ""
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ]
+   }
+  }
+ ],
+ "later": [],
+ "not_ported": [
+  "B8 and D2, what a failed, lost or unrecorded turn leaves and how the next poll posts it once; the keep directory and a work directory tehas did not make; an answer whose turn the store will not begin; and what a replaced session keeps: lib/planning.sh and the store, the caller's",
+  "A13: when the open sessions cannot be read again after a planning write: the second read is the caller's, after it writes"
+ ]
+}

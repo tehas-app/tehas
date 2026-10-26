@@ -1,8 +1,6 @@
 {
  "suite": "test/dispatch_start_test.sh",
  "later": [
-  "a planning session on an epic is allowed: rule 5, part 3b",
-  "a planning session on such an issue is allowed: deciding where the fix lives is its work: rule 5, part 3b",
   "the starts, the analytics, the lock and the wait (the rest of the suite): the start itself, #254, and the poll's I/O, PR 4"
  ],
  "not_ported": [
@@ -867,6 +865,122 @@
    "drop": [
     "marked"
    ]
+  },
+  {
+   "case": "a planning session on an epic is allowed",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "work": {
+    "7": {
+     "title": "Faster search",
+     "body": "Make it fast.",
+     "sub_issues_summary": {
+      "total": 4,
+      "completed": 0
+     }
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "a planning session on such an issue is allowed: deciding where the fix lives is its work",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       },
+       {
+        "name": "tehas:improvement"
+       },
+       {
+        "name": "cross-project"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "first",
+      "label": "tehas:plan"
+     }
+    ],
+    "log_lacks": [
+     "another repository"
+    ]
+   }
   }
  ]
 }

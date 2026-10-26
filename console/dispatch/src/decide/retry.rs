@@ -252,6 +252,11 @@ impl Poll<'_> {
                 ans["tick"]["status"] = json!("none");
             }
             if kind == "plan" {
+                // A turn this poll collects or posts asks a new question: the
+                // one read before it answers nothing.
+                if fresh.contains(&n) {
+                    continue;
+                }
                 let row = q.get("plan").cloned().unwrap_or(Value::Null);
                 self.plan_answer(n, &ans, &tick, &row, room)?;
                 continue;
