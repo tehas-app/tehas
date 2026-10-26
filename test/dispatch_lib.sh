@@ -83,6 +83,8 @@ case "$1 $2" in
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
         fails unmark-fails ;;
+      # A question as the Rust poll posts it, with its method said.
+      "POST repos/acme/widget/issues/"*/comments) [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
       *) fails patch-fails ;;
     esac ;;
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;

@@ -254,8 +254,10 @@ impl Poll<'_> {
             }
             if kind == "plan" {
                 // A turn this poll collects or posts asks a new question: the
-                // one read before it answers nothing.
-                if fresh.contains(&n) {
+                // one read before it answers nothing. A turn still in flight
+                // posts none, and its issue is read as the bash reads it.
+                let in_flight = self.s.sessions.iter().any(|s| s.issue == n && s.in_flight);
+                if fresh.contains(&n) && !in_flight {
                     continue;
                 }
                 let row = q.get("plan").cloned().unwrap_or(Value::Null);

@@ -58,7 +58,7 @@ case "$name $1" in
       "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
       "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
     esac ;;
-  "gh api") case "$*" in *"-X POST"*/comments*) echo '{"id":99}' ;; esac
+  "gh api") case "$*" in *"-X POST"*/comments*) echo 99 ;; esac
     case "$2" in
       repos/*/issues/[0-9]*) case "$2" in
           */comments*) ;;
