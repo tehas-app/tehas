@@ -349,6 +349,105 @@ pub fn disk(home: &Path) -> Value {
     }
 }
 
+/// What sweep_workspaces finds: each issue with something left on this host,
+/// in the order the bash's globs find them, whether any of it (or its lock)
+/// was used within 7 days or cannot be dated, and whether its lock is a lock
+/// file.
+pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Value {
+    let work = Path::new(work_dir);
+    let (works, base) = (
+        work.parent().unwrap_or(Path::new("/")),
+        work.file_name().and_then(|b| b.to_str()).unwrap_or(""),
+    );
+    let marked = works.join(".tehas-workspaces").is_file();
+    let number = |s: &str| -> Option<u64> {
+        (!s.is_empty()
+            && s.len() <= 10
+            && !s.starts_with('0')
+            && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
+    };
+    let names = |dir: &Path| -> Vec<String> {
+        let mut n: Vec<String> = fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        n.sort();
+        n
+    };
+    let mut list: Vec<u64> = Vec::new();
+    if marked {
+        let prefix = format!("{base}-");
+        for name in names(works) {
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
+            let n = [".before-retry", ".images", ".state"]
+                .iter()
+                .find_map(|x| rest.strip_suffix(x))
+                .unwrap_or(rest);
+            if let Some(n) = number(n) {
+                list.push(n);
+            }
+        }
+    }
+    let runs = user_home.join(".pi/agent/ensemble-runs");
+    for kind in ["issue-", "plan-"] {
+        for name in names(&runs) {
+            if let Some(n) = name.strip_prefix(kind).and_then(number) {
+                list.push(n);
+            }
+        }
+    }
+    for name in names(&home.join("live")) {
+        if let Some(n) = name
+            .strip_prefix("console-")
+            .and_then(|r| r.strip_suffix(".txt"))
+            .and_then(number)
+        {
+            list.push(n);
+        }
+    }
+    let mut seen = Vec::new();
+    let mut out = Vec::new();
+    for n in list {
+        if seen.contains(&n) {
+            continue;
+        }
+        seen.push(n);
+        let lock = home.join(format!("state/cycles/{n}.lock"));
+        // tehas_cycle_lock_free: a lock that is not there (a dangling link
+        // too) is free; one that is there is a plain file and no link.
+        let lock_ok =
+            !lock.exists() || fs::symlink_metadata(&lock).is_ok_and(|m| m.file_type().is_file());
+        let mut files = vec![lock];
+        if marked {
+            for x in ["", ".before-retry", ".images", ".state"] {
+                files.push(works.join(format!("{base}-{n}{x}")));
+            }
+        }
+        files.push(runs.join(format!("issue-{n}")));
+        files.push(runs.join(format!("plan-{n}")));
+        files.push(home.join(format!("live/console-{n}.txt")));
+        // The age rule of tehasbot clean: a name used within 7 days keeps
+        // the issue, and so does one that cannot be dated.
+        let young = files.iter().any(|f| match fs::symlink_metadata(f) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(_) => true,
+            Ok(m) => m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .is_none_or(|t| (t.as_secs() as i64) > now - 7 * 86_400),
+        });
+        out.push(json!({"issue": n, "young": young, "lock_ok": lock_ok}));
+    }
+    Value::Array(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

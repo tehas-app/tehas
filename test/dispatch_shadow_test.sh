@@ -184,6 +184,67 @@ echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
 agree
 release
 
+# The model endpoints, as the dispatch tests stand them in: curl answers
+# mesh.test from mesh.json and backup.test from backup.json, and an image
+# request while reads-images is there.
+t_stub curl 'case "$*" in
+  *"/chat/completions") cat >/dev/null; [ -e "$T/fx/reads-images" ] ;;
+  *backup.test*) cat "$T/fx/backup.json" 2>/dev/null ;;
+  *) cat "$T/fx/mesh.json" 2>/dev/null ;;
+esac'
+
+t_case "a model endpoint that does not answer: both hold on no resources"
+reset
+mesh
+agree
+
+t_case "a model endpoint that does not offer the model: both hold, and say which"
+reset
+mesh '{"data":[{"id":"other"}]}'
+agree
+
+t_case "a main endpoint down and its backup up: both say so and would run the cycle"
+reset
+mesh
+jq -n '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1", backupBaseUrl: "http://backup.test/v1"}}}' >"$T/home/.pi/agent/models.json"
+echo '{"data":[{"id":"test-model"}]}' >"$fx/backup.json"
+agree
+rm -f "$fx/backup.json"
+
+t_case "an issue that links an image, a model that does not declare image input: both hold it"
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1
+mesh '{"data":[{"id":"test-model"}]}'
+jq -n '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1", models: [{id: "test-model", input: ["text"]}]}}}' >"$T/home/.pi/agent/models.json"
+jq -nc '{number: 7, state: "open", body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-7.json"
+agree
+
+t_case "the same issue and a model that reads images: both would run the cycle"
+: >"$fx/reads-images"
+jq -n '{providers: {"test-provider": {baseUrl: "http://mesh.test/v1", models: [{id: "test-model", input: ["text", "image"]}]}}}' >"$T/home/.pi/agent/models.json"
+agree
+rm -f "$fx/reads-images" "$T/home/.pi/agent/models.json" "$fx/mesh.json"
+
+t_case "a workspace no cycle has used for seven days: both would remove it"
+reset
+works=$T/home/tehas/work
+mkdir -p "$works/widget-5" "$T/home/tehas/state/cycles"
+: >"$works/.tehas-workspaces"
+touch -d "8 days ago" "$works/widget-5" "$T/home/tehas/state/cycles/5.lock"
+agree
+rm -rf "$works/widget-5" "$T/home/tehas/state/cycles/5.lock"
+
+t_case "a cycle not heard from for 20 minutes: both would stop it"
+reset
+slots 2
+# Its issue is open and marked, as a running cycle's is: the page lists it.
+echo '[{"number":9}]' >"$fx/marked.json"
+hold 9
+t_at "$(($(date +%s) - 3600))" cycle-start 9 --by-hand >/dev/null
+t_at "$(($(date +%s) - 1300))" cycle-heartbeat 9 --running --status running --step develop >/dev/null
+agree
+release
+
 # tehas-dispatch is given a gh that refuses every call that is no read: it
 # must not make one, whatever it decides. The calls it makes are recorded.
 t_case "tehas-dispatch makes no call that writes, and changes no file of the home"
@@ -202,6 +263,74 @@ t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls gh)" "api -X"
 t_contains "$(t_calls gh)" "api graphql"
+
+# The shadow beside a real poll, as its unit runs it: shadow before the poll,
+# the poll's lines in a file, compare after it.
+shadow_log=$T/home/tehas/logs/dispatch-shadow.log
+beside() { # <what the poll is given>: one shadowed poll
+  mkdir -p "$T/home/tehas/logs"
+  : >"$T/home/tehas/state/dispatch-shadow.on"
+  rm -f "$shadow_log"
+  t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
+  t_run "$dispatch"
+  printf '%s\n' "$t_out" >"$T/poll.lines"
+  poll_rc=$t_rc
+  t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\" --exit $poll_rc"
+}
+
+t_case "a poll that holds: the shadow agrees, and says so in one line"
+reset
+hold 9
+beside
+release
+t_eq "$(wc -l <"$shadow_log")" 1
+t_eq "$(jq -c '[.same, .bash_only, .rust_only, .exit.bash, .exit.rust]' "$shadow_log")" '[true,[],[],0,0]'
+t_eq "$(jq -r '.gh_requests | type' "$shadow_log")" number
+t_eq "$([ -e "$T/home/tehas/state/dispatch-shadow.json" ] && echo kept)" ""
+
+t_case "a poll that starts a cycle: the lines of the start are the poll's own"
+reset
+beside
+t_eq "$(jq -r .same "$shadow_log")" false
+t_contains "$(jq -r '.bash_only[]' "$shadow_log")" "start #7 (labelled by alice)"
+t_eq "$(jq -c .rust_only "$shadow_log")" '[]'
+t_eq "$(jq -c .picked "$shadow_log")" '[7]'
+
+t_case "a world that changed between the shadow and the poll is a difference"
+reset
+hold 9
+mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
+rm -f "$shadow_log"
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
+release
+t_run "$dispatch"
+printf '%s\n' "$t_out" >"$T/poll.lines"
+t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\" --exit 0"
+t_eq "$(jq -r .same "$shadow_log")" false
+t_contains "$(jq -r '.rust_only[]' "$shadow_log")" "holding: 1 cycles are running (limit 1)"
+
+t_case "a compare with no decision kept says so, and a shadow not turned on does nothing"
+reset
+mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
+rm -f "$shadow_log" "$T/home/tehas/state/dispatch-shadow.json"
+: >"$T/poll.lines"
+t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\""
+t_contains "$(jq -r '.rust_only[]' "$shadow_log")" "the shadow decided nothing before this poll"
+rm -f "$shadow_log" "$T/home/tehas/state/dispatch-shadow.on"
+t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
+t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\""
+t_eq "$([ -e "$shadow_log" ] || [ -e "$T/home/tehas/state/dispatch-shadow.json" ] && echo written)" ""
+
+t_case "compare finds the home as env.sh gives it, with TEHAS_HOME unset"
+reset
+mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
+rm -f "$shadow_log"
+: >"$T/poll.lines"
+t_run "env -u TEHAS_HOME \"$T_DISPATCH\" compare \"$T/poll.lines\""
+t_eq "$(wc -l <"$shadow_log" 2>/dev/null)" 1
 
 t_case "a snapshot is JSON in the shape the decision reads"
 reset

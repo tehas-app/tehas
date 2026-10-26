@@ -6,7 +6,16 @@ Type=oneshot
 # The file that started this poll goes before it runs, so a poll that stops on
 # its settings does not leave it for tehas-dispatch.path to start again at once.
 ExecStartPre=-/bin/rm -f %h/tehas/state/dispatch.again
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot dispatch >> %h/tehas/logs/dispatch.log 2>&1"
+# The shadow (tehas-dispatch, console/dispatch) decides from its own reads
+# just before the poll, and after it sets that beside what the poll logged,
+# in logs/dispatch-shadow.log. It runs only while state/dispatch-shadow.on is
+# there, and writes nothing else; a shadow that fails, is off or is not
+# installed changes nothing of the poll.
+ExecStartPre=-/bin/bash -c ". %h/tehas/env.sh && . %h/tehas/lib/config.sh && tehas_load && exec timeout 120 %h/tehas/libexec/tehas-dispatch shadow"
+# The poll's own lines are kept in state/dispatch.last for the shadow too.
+# A cycle runs as its own unit, so none of its lines are among them.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && set -o pipefail && %h/tehas/bin/tehasbot dispatch 2>&1 | tee %h/tehas/state/dispatch.last >> %h/tehas/logs/dispatch.log 2>&1"
+ExecStopPost=-/bin/bash -c ". %h/tehas/env.sh && exec timeout 60 %h/tehas/libexec/tehas-dispatch compare %h/tehas/state/dispatch.last --exit $$EXIT_STATUS"
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
 # code index as tehas-index.service; no poll waits for either. A poll that
 # hangs past this is stopped: while it lives, every later poll stops at its

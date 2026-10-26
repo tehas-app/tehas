@@ -1,5 +1,5 @@
 {
- "suite": "test/dispatch_park_test.sh",
+ "suite": "test/dispatch_park_test.sh, test/dispatch_park_record_test.sh and test/dispatch_park_hold_test.sh",
  "later": [],
  "not_ported": [
   "a hold whose tell the store would not take tells it again on the next poll, and says so: the record of the tell follows the comment, which the caller does",

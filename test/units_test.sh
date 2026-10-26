@@ -54,8 +54,18 @@ t_case "the poll's unit removes the file that starts it before the poll runs"
 # A poll that stops on its settings writes nothing, so the unit removes the
 # file: left in place, tehas-dispatch.path would start poll after poll until
 # systemd failed it at the service's start limit.
-t_eq "$(sed -n 's/^ExecStartPre=//p' "$units/tehas-dispatch.service")" \
+t_eq "$(sed -n 's/^ExecStartPre=//p' "$units/tehas-dispatch.service" | head -n 1)" \
   "-/bin/rm -f %h/tehas/state/dispatch.again"
+
+t_case "the shadow decides before the poll and compares after it, and neither can fail the poll"
+# The shadow's two steps start with "-": one that fails, or a host where
+# tehas-dispatch is not installed, leaves the poll as it was. The poll keeps
+# its own exit status through the pipe that copies its lines.
+t_eq "$(sed -n 's/^ExecStartPre=//p' "$units/tehas-dispatch.service" | sed -n 2p)" \
+  "-/bin/bash -c \". %h/tehas/env.sh && . %h/tehas/lib/config.sh && tehas_load && exec timeout 120 %h/tehas/libexec/tehas-dispatch shadow\""
+t_eq "$(sed -n 's/^ExecStopPost=//p' "$units/tehas-dispatch.service")" \
+  "-/bin/bash -c \". %h/tehas/env.sh && exec timeout 60 %h/tehas/libexec/tehas-dispatch compare %h/tehas/state/dispatch.last --exit \$\$EXIT_STATUS\""
+t_contains "$(sed -n 's/^ExecStart=//p' "$units/tehas-dispatch.service")" "set -o pipefail && %h/tehas/bin/tehasbot dispatch 2>&1 | tee %h/tehas/state/dispatch.last"
 t_eq "$(sed -n 's/^PathExists=//p' "$units/tehas-dispatch.path")" "%h/tehas/state/dispatch.again"
 
 t_case "every unit that redirects writes a log its command does not"

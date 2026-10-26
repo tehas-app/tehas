@@ -15,6 +15,15 @@ mod retry;
 
 pub(crate) use clean::iso;
 
+/// The time now as log() writes it.
+pub fn iso_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    iso(secs)
+}
+
 /// The numbers every blocker comment of an issue names, for the snapshot to
 /// ask their states: blocked_ok reads the newest one an allowed account wrote.
 pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
