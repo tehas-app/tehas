@@ -1,0 +1,911 @@
+{
+ "suite": "test/dispatch_sweep_test.sh",
+ "not_ported": [
+  "which names an issue has on this host, how they are dated, the marker of tehas work, the dated directories of ensemble-runs and what a lock points at: the snapshot's reads of the disk, PR 4",
+  "a stop that failed is said: the stop's exit status, which the caller logs",
+  "a quiet cycle whose episode the store cannot take, a store that cannot be used, a line or a stop the store does not record, a record that does not read as one, and a cycle whose record ends after the poll listed it: the store's answers to the writes, which the caller acts on",
+  "a stuck cycle whose last-heard time cannot be read says nothing and keeps its note: the store's reading",
+  "the issue's next cycle starts with no quiet episode on record, the lock of an issue nothing has used for 30 days goes, and a backup restored into a fresh home: the store's own rules (sweep-locks), which the caller runs on every poll"
+ ],
+ "cases": [
+  {
+   "case": "a cycle that holds its lock and has not been heard from for 20 minutes is reported and stopped, once",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s: stopping tehas-cycle@9.service"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "said_for": 1793403500,
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the next poll of the same episode says nothing and asks nothing",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793404795,
+      "asked": 1793404795,
+      "times": 1
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "#9 holds its lock"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "said_for": 1793403500
+     }
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     },
+     {
+      "asked": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "a stop that failed is asked again once the wait has passed: not yet",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404210,
+      "times": 1
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "a stop that failed is asked again once the wait has passed",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 1
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "WARN: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s: the poll asks tehas-cycle@9.service to stop again"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fifth ask is asked as the others",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 5
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "the poll asks tehas-cycle@9.service to stop again"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "the sixth ask waits for its 10 minutes like the others",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404210,
+      "times": 6
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     },
+     {
+      "asked": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "after six asks the poll says the episode is a person's, recorded as one more",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 6
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "WARN: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s: the poll asked 6 times to stop tehas-cycle@9.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@9.service"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "asked": true,
+      "said_only": false
+     }
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "that line is said again once an hour: not yet",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793401210,
+      "times": 7
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     },
+     {
+      "asked": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "that line is said again once an hour, and the stop is never asked again",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793401199,
+      "times": 7
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "asked 6 times to stop tehas-cycle@9.service and asks no more"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "asked": true,
+      "said_only": true
+     }
+    ],
+    "no_actions": [
+     {
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "an ask is recorded before the stop, so a slow stop does not put off the next ask",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404201,
+      "times": 1
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "the poll asks tehas-cycle@9.service to stop again"
+    ]
+   }
+  },
+  {
+   "case": "a quiet cycle that is heard from again is left alone",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793404780,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793401199,
+      "times": 2
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "no_actions": [
+     {
+      "quiet": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a quiet cycle heard from since its episode is a new episode, whose asks count from one",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793399800",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 4
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "stopping tehas-cycle@9.service"
+    ],
+    "actions": [
+     {
+      "quiet": 9,
+      "said_for": 1793403500,
+      "stop": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "a quiet cycle whose record has ended is not stopped by the poll, which says so for a person",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 0,
+      "heard": 1793403500
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "WARN: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s, and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop 9 or systemctl --user stop tehas-cycle@9.service"
+    ],
+    "log_lacks": [
+     "stopping tehas-cycle@9.service"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a quiet cycle whose record has ended: a dry run says so too",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 0,
+      "heard": 1793403500
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "and the state store has no open record of it, so the poll does not stop it"
+    ],
+    "log_lacks": [
+     "would stop"
+    ]
+   }
+  },
+  {
+   "case": "a cycle heard from lately is left alone",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793404780
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a cycle that took its lock lately is left alone",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404740,
+      "heard": 1793318400
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a cycle the store knows nothing of is asked nothing and said nothing",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": ""
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "holds its lock but"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run says what the poll would do about a quiet cycle, and stops nothing",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "would stop tehas-cycle@9.service: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of an ask again",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 2
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "would ask tehas-cycle@9.service to stop again: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run of the line",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404199,
+      "times": 6
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log": [
+     "would say that tehas-cycle@9.service needs a person and ask no more: the cycle for #9 holds its lock but has not been heard from since 2026-10-30T23:38:20Z, more than 1200s"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run while the wait lasts says nothing",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793401200,
+      "heard": 1793403500,
+      "said_for": "1793403500",
+      "quiet_at": 1793318400,
+      "asked": 1793404700,
+      "times": 2
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "log_lacks": [
+     "would"
+    ]
+   }
+  },
+  {
+   "case": "a workspace no cycle has used for seven days goes, with what is beside it, its transcripts and its console, and that is logged",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 5,
+      "log": "removed what #5 left on this host: no cycle has run on it for 7 days"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a workspace whose issue's lock is held is kept, however old, and so are its transcripts and its console",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "transcripts and a console written within seven days are kept",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5,
+      "young": true
+     }
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "orphans count toward the three issues a poll takes",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 2
+     },
+     {
+      "issue": 3
+     },
+     {
+      "issue": 4
+     },
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 2
+     },
+     {
+      "sweep": 3
+     },
+     {
+      "sweep": 4
+     }
+    ],
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "a lock that is no lock file keeps the whole issue",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5,
+      "lock_ok": false
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "WARN: the lock of #5 is no lock file, so nothing of it was removed"
+    ],
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue the poll cannot date is kept",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5,
+      "young": true
+     }
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue whose lock is no lock file does not spend one of the three a poll takes",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 1,
+      "lock_ok": false
+     },
+     {
+      "issue": 2
+     },
+     {
+      "issue": 3
+     },
+     {
+      "issue": 4
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 2
+     },
+     {
+      "sweep": 3
+     },
+     {
+      "sweep": 4
+     }
+    ],
+    "log": [
+     "the lock of #1 is no lock file"
+    ]
+   }
+  },
+  {
+   "case": "a young issue does not spend one of the three either",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 1,
+      "young": true
+     },
+     {
+      "issue": 2
+     },
+     {
+      "issue": 3
+     },
+     {
+      "issue": 4
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 2
+     },
+     {
+      "sweep": 3
+     },
+     {
+      "sweep": 4
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says what would go and removes nothing",
+   "dry": true,
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "would remove what #5 left on this host: no cycle has run on it for 7 days"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a poll removes the workspaces of three issues at most",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 2
+     },
+     {
+      "issue": 3
+     },
+     {
+      "issue": 4
+     },
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 2
+     },
+     {
+      "sweep": 3
+     },
+     {
+      "sweep": 4
+     }
+    ],
+    "no_actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the next poll takes the last",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "a paused poll still sweeps",
+   "snapshot": {
+    "leftovers": [
+     {
+      "issue": 5
+     }
+    ],
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "sweep": 5
+     }
+    ]
+   }
+  },
+  {
+   "case": "a snapshot that lacks the clock names it before it says a cycle is quiet",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 100,
+      "heard": 100
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "needs": [
+     "now"
+    ],
+    "log_lacks": [
+     "holds its lock but"
+    ]
+   },
+   "drop": [
+    "now"
+   ]
+  },
+  {
+   "case": "a snapshot that lacks the leftovers names them",
+   "expect": {
+    "needs": [
+     "leftovers"
+    ]
+   },
+   "drop": [
+    "leftovers"
+   ]
+  }
+ ]
+}

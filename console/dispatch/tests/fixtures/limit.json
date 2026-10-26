@@ -1,56 +1,413 @@
 {
-  "from": "test/dispatch_limit_test.sh",
-  "later": [
-    "limit: an expired limit still lets the poll clean up: rule 2's clean-ups, PR 2",
-    "limit: planning off holds a new planning session, not an answer: rule 5, PR 3",
-    "limit: an expired limit holds an answer too, and a retry tick: rules 4 and 5, PR 3",
-    "limit: cycles 0 holds a retry tick, planning on lets a session start: rules 4 and 5, PR 3"
-  ],
-  "cases": [
-    {"case": "limit: cycles 0 with 0 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9],
-     "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: cycles 0 with 1 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5],
-     "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: cycles 0 with 2 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5, 6],
-     "snapshot": {"limit": {"state": "ok", "cycles": 0, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: cycles 1 with 0 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9],
-     "snapshot": {"limit": {"state": "ok", "cycles": 1, "plan": true}}, "expect": {"exit": 0, "picked": [7]}},
-    {"case": "limit: cycles 1 with 1 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5],
-     "snapshot": {"limit": {"state": "ok", "cycles": 1, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: cycles 1 with 2 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5, 6],
-     "snapshot": {"limit": {"state": "ok", "cycles": 1, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: cycles 3 with 0 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9],
-     "snapshot": {"limit": {"state": "ok", "cycles": 3, "plan": true}}, "expect": {"exit": 0, "picked": [7, 8]}},
-    {"case": "limit: cycles 3 with 1 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5],
-     "snapshot": {"limit": {"state": "ok", "cycles": 3, "plan": true}}, "expect": {"exit": 0, "picked": [7]}},
-    {"case": "limit: cycles 3 with 2 running", "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8, 9], "hold": [5, 6],
-     "snapshot": {"limit": {"state": "ok", "cycles": 3, "plan": true}}, "expect": {"exit": 0, "picked": []}},
-    {"case": "limit: a limit that holds every slot says so, by the word limit",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "hold": [5],
-     "snapshot": {"limit": {"state": "ok", "cycles": 1, "plan": true, "reason": "held for alpha"}},
-     "expect": {"picked": [], "log": ["holding: the limit allows 1 cycle at once"],
-       "report": {"why": "limit", "hold": "holding: the limit allows 1 cycle at once and 1 is running: held for alpha", "free": 1, "limitRoom": 0}}},
-    {"case": "limit: fewer start than the slots allow, and the limit is the reason",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 3}, "ready_n": [7, 8, 9],
-     "snapshot": {"limit": {"state": "ok", "cycles": 1, "plan": true}},
-     "expect": {"picked": [7], "report": {"why": "limit", "hold": "holding: 1 of 3 free slots start: the limit allows 1 cycle at once"}}},
-    {"case": "limit: no limit leaves the room as it was, and writes no room under it",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2}, "ready_n": [7, 8],
-     "expect": {"picked": [7, 8], "report_lacks": ["limitRoom"]}},
-    {"case": "limit: expired, nothing starts and the hold says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2},
-     "snapshot": {"limit": {"state": "expired", "cycles": 3, "plan": true, "until": "2020-01-01T00:00:00Z"}},
-     "expect": {"exit": 0, "picked": [], "report": {"why": "limit"},
-       "log": ["holding: the limit expired at 2020-01-01T00:00:00Z: nothing starts"]}},
-    {"case": "limit: unreadable or of another version, nothing starts and the hold says why",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2},
-     "snapshot": {"limit": {"state": "unreadable"}},
-     "expect": {"exit": 0, "picked": [], "report": {"why": "limit"},
-       "log": ["holding: the limit cannot be read: nothing starts"]}},
-    {"case": "limit: a paused factory stays paused under any limit",
-     "settings": {"TEHAS_TICKET_CONCURRENCY": 2},
-     "snapshot": {"limit": {"state": "ok", "cycles": 3, "plan": true},
-                  "pause_flag": {"by": "boss", "at": "2026-10-15T10:00:00Z", "reason": "weekend"}},
-     "expect": {"picked": []}}
-  ]
+ "from": "test/dispatch_limit_test.sh",
+ "later": [
+  "limit: planning off holds a new planning session, not an answer: rule 5, PR 3",
+  "limit: an expired limit holds an answer too, and a retry tick: rules 4 and 5, PR 3",
+  "limit: cycles 0 holds a retry tick, planning on lets a session start: rules 4 and 5, PR 3"
+ ],
+ "cases": [
+  {
+   "case": "limit: cycles 0 with 0 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 0 with 1 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 0 with 2 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5,
+    6
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 1 with 0 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 1,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "limit: cycles 1 with 1 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 1,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 1 with 2 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5,
+    6
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 1,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 3 with 0 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7,
+     8
+    ]
+   }
+  },
+  {
+   "case": "limit: cycles 3 with 1 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "limit: cycles 3 with 2 running",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "hold": [
+    5,
+    6
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": true
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: a limit that holds every slot says so, by the word limit",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "hold": [
+    5
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 1,
+     "plan": true,
+     "reason": "held for alpha"
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "holding: the limit allows 1 cycle at once"
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: the limit allows 1 cycle at once and 1 is running: held for alpha",
+     "free": 1,
+     "limitRoom": 0
+    }
+   }
+  },
+  {
+   "case": "limit: fewer start than the slots allow, and the limit is the reason",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 3
+   },
+   "ready_n": [
+    7,
+    8,
+    9
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 1,
+     "plan": true
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "report": {
+     "why": "limit",
+     "hold": "holding: 1 of 3 free slots start: the limit allows 1 cycle at once"
+    }
+   }
+  },
+  {
+   "case": "limit: no limit leaves the room as it was, and writes no room under it",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "report_lacks": [
+     "limitRoom"
+    ]
+   }
+  },
+  {
+   "case": "limit: expired, nothing starts and the hold says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "limit": {
+     "state": "expired",
+     "cycles": 3,
+     "plan": true,
+     "until": "2020-01-01T00:00:00Z"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "report": {
+     "why": "limit"
+    },
+    "log": [
+     "holding: the limit expired at 2020-01-01T00:00:00Z: nothing starts"
+    ]
+   }
+  },
+  {
+   "case": "limit: unreadable or of another version, nothing starts and the hold says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "limit": {
+     "state": "unreadable"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "report": {
+     "why": "limit"
+    },
+    "log": [
+     "holding: the limit cannot be read: nothing starts"
+    ]
+   }
+  },
+  {
+   "case": "limit: a paused factory stays paused under any limit",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 3,
+     "plan": true
+    },
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": "weekend"
+    }
+   },
+   "expect": {
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: an expired limit still lets the poll clean up",
+   "snapshot": {
+    "limit": {
+     "state": "expired",
+     "cycles": 3,
+     "plan": true,
+     "until": "2020-01-01T00:00:00Z"
+    },
+    "marked": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:running"
+      ],
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ]
+   }
+  }
+ ]
 }

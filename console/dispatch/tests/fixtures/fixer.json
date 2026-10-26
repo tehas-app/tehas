@@ -1,0 +1,1319 @@
+{
+ "suite": "test/dispatch_fixer_test.sh",
+ "later": [
+  "the fixer's planning answers, from a marked reply of the fixer's runs the turn to the fixer's tick on a parked cycle's question is a stranger's: rules 4 and 5, PR 3"
+ ],
+ "not_ported": [
+  "the fixer's marked comment before its label is the retry's context, and without such a comment the record has no context: the approval record the start writes, #254"
+ ],
+ "cases": [
+  {
+   "case": "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "tehas-fixer",
+      "given": "fixer",
+      "fixer_starts": 1,
+      "how": "`tehas:ready` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z",
+      "rests_on": {
+       "by": "alice",
+       "at": "2026-10-01T00:00:00Z",
+       "how": "label"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "case": "the start takes tehas:fixer-escalated off with the rest of the earlier outcome",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "start": 7,
+      "remove": [
+       "tehas:ready",
+       "tehas:question",
+       "tehas:fixer-escalated"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of the fixer's start says who labelled it",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "dry": true,
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log": [
+     "would run a cycle for #7 (labelled by the fixer by tehas-fixer)"
+    ]
+   }
+  },
+  {
+   "case": "a second fixer start counts on from the first and keeps the person's approval",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 1
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "fixer",
+      "fixer_starts": 2,
+      "rests_on": {
+       "by": "alice"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "case": "at the limit the fixer's label comes off, and the issue says a person decides",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 2
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit"
+    ],
+    "log_lacks": [
+     "not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: the fixer has started 2 cycles on it since alice approved it, the limit. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."
+     }
+    ]
+   }
+  },
+  {
+   "case": "no approval by a person before: the fixer's label starts nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it"
+    ]
+   }
+  },
+  {
+   "case": "a person's approval whose start never ran is no base for the fixer",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it"
+    ]
+   }
+  },
+  {
+   "case": "a body changed since the person's approval: the fixer's label starts nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Other words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its text is not the text alice approved"
+    ]
+   }
+  },
+  {
+   "case": "a busy store leaves the fixer's label for the next poll: no label comes off, nothing is said",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: tehas:ready from the fixer waits: its approvals on the state store could not be read"
+    ]
+   }
+  },
+  {
+   "case": "the fixer's label on the control issue starts nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 1,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "1": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "1": "Words."
+   },
+   "approved": {
+    "1": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #1: the control issue is never worked on (`tehas:ready`)"
+    ]
+   }
+  },
+  {
+   "case": "with no fixer on the instance, its account is an outsider like any other",
+   "settings": {},
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "log": "clear #7: tehas:ready off, applied by 'tehas-fixer' who may not authorise work here"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a bot that is the fixer stops the poll: exit 78",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "user": {
+     "login": "tehas-fixer"
+    },
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "log": [
+     "the bot account tehas-fixer is TEHAS_FIXER_LOGIN"
+    ]
+   }
+  },
+  {
+   "case": "a title changed by an outsider since the person's approval: the fixer's label starts nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "renamed",
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T12:00:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its title or text was changed since alice approved it"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a text changed by an outsider since the fixer's label waits, with its label left",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       },
+       {
+        "event": "renamed",
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-02T01:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'mallory' after the fixer applied tehas:ready; the fixer or a person applies it again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a refused fixer label says it and changes nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:fixer-escalated"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 2
+    }
+   },
+   "dry": true,
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: tehas:ready from the fixer starts nothing: the fixer has started 2 cycles on it since alice approved it, the limit",
+     "would take tehas:ready off #7"
+    ]
+   }
+  },
+  {
+   "case": "an approval by an account no longer allowed is no base for the fixer",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "bob",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "an approval of a kind the fixer may not rest on is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "manual",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "an approval whose hash is not one is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "abc"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "a fixer start with no person's approval under it is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "fixer",
+       "by": "tehas-fixer",
+       "fixer_starts": 1,
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "a refresh's approval rests on the person's, and carries no fixer starts",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "refresh",
+       "by": "alice",
+       "at": "2026-10-03T00:00:00Z",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "rests_on": {
+        "at": "2026-10-01T00:00:00Z",
+        "by": "alice",
+        "how": "label",
+        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "fixer",
+      "fixer_starts": 1,
+      "rests_on": {
+       "by": "alice",
+       "how": "label"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "case": "a fixer record that counts no fixer start does not say how many",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "fixer",
+       "by": "tehas-fixer",
+       "fixer_starts": 0,
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "rests_on": {
+        "at": "2026-10-01T00:00:00Z",
+        "by": "alice",
+        "how": "label",
+        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "tehas:ready from the fixer starts nothing: its approval record does not say how many cycles the fixer started"
+    ]
+   }
+  },
+  {
+   "case": "a snapshot that lacks the approval names it, and refuses nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "needs": [
+     "approval"
+    ]
+   },
+   "drop": [
+    "issues.7.approval"
+   ]
+  }
+ ]
+}
