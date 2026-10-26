@@ -1,8 +1,8 @@
 {
  "from": "test/dispatch_room_test.sh",
  "later": [
-  "a planning turn is held by an unreadable probe, and no slice holds a tick, an answer or a plan label: rules 4 and 5, PR 3",
-  "no room still does not hold planning, nor a full disk: rule 5, PR 3"
+  "a planning turn is held by an unreadable probe, and no slice holds a tick, an answer or a plan label: rules 4 and 5, part 3b",
+  "no room still does not hold planning, nor a full disk: rule 5, part 3b"
  ],
  "not_ported": [
   "which endpoint is asked, with which token, how often: the endpoint is asked by the snapshot (#253 part 4), which gives decide its hold, its word and its log",
@@ -894,6 +894,20 @@
     "log": [
      "holding: 1.0 GiB free on the disk"
     ]
+   }
+  },
+  {
+   "case": "no slice holds a retry tick",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "no_slice": true,
+   "expect": {
+    "picked": [],
+    "nothing": true
    }
   }
  ]
