@@ -59,6 +59,10 @@ pub struct Decision {
     /// Facts the snapshot lacked that this decision needed. When any is
     /// named, the caller reads them and decides again.
     pub needs: Vec<&'static str>,
+    /// Past the bot's checks: the poll's end runs tidy from here on.
+    pub tidy: bool,
+    /// The bot's login, which the poll's writes name.
+    pub bot: String,
 }
 
 /// The poll ends here with this exit status.
@@ -155,7 +159,12 @@ impl<'a> Poll<'a> {
         End(rc)
     }
 
-    fn act(&mut self, a: Value) {
+    /// An action, with its place among the poll's lines: the lines before it
+    /// are logged before it is applied.
+    fn act(&mut self, mut a: Value) {
+        if let Some(o) = a.as_object_mut() {
+            o.insert("_line".into(), json!(self.d.log.len()));
+        }
         self.d.actions.push(a);
     }
 
@@ -265,6 +274,8 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
+        self.d.tidy = true;
+        self.d.bot = bot.clone();
         if let Err((word, rc)) = &s.plan_open {
             let rc = if *rc == 1 { 1 } else { 78 };
             return Err(self.fail(
