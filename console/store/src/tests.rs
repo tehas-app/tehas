@@ -106,7 +106,7 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
         "created_at=1792000000",
         "instance=tehas-tehas",
         "repo=example-owner/example-product",
-        "schema=5",
+        "schema=6",
         "tehas_commit=cb6912a",
         "tehas_version=v0.10.2",
     ]
@@ -310,7 +310,7 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
     let (code, err) = check(&home).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("future the database"), "{err}");
-    assert!(err.contains("schema 6"), "{err}");
+    assert!(err.contains("schema 7"), "{err}");
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
         line.starts_with("{\"api\":1,\"verb\":\"check\",\"ok\":true"),
         "{line}"
     );
-    assert!(line.contains("\"schema\":5"), "{line}");
+    assert!(line.contains("\"schema\":6"), "{line}");
     assert!(line.contains("\"integrity\":\"ok\""), "{line}");
     assert!(line.contains("\"meta\":6"), "{line}");
     assert!(line.contains("\"issues\":0"), "{line}");
@@ -703,7 +703,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "5"
+        "6"
     );
     drop(conn);
     assert_eq!(fs::read(&file).unwrap(), before, "a failed backup migrated");
@@ -716,7 +716,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
         "tehas.db",
         "tehas.db-shm",
         "tehas.db-wal",
-        &format!("tehas-5-{}.db", 1_792_000_000),
+        &format!("tehas-6-{}.db", 1_792_000_000),
     ]
     .iter()
     .map(std::ffi::OsString::from)
@@ -843,13 +843,13 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     let line = migrate(&home, &home.join("state")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
-    assert_eq!(value["to"], 5, "{line}");
+    assert_eq!(value["to"], 6, "{line}");
     let file = db::path(&home);
     let conn = db::open_read_only(&file).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 5);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 6);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "5"
+        "6"
     );
     // The migration writes the rows a database at 1 holds and has no way to
     // get: the four the caller gave, and the instant.
@@ -863,7 +863,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
             "created_at=1792000000",
             "instance=tehas-tehas",
             "repo=example-owner/example-product",
-            "schema=5",
+            "schema=6",
             "tehas_commit=cb6912a",
             "tehas_version=v0.10.2",
         ]
@@ -890,7 +890,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // say a migration went wrong.
     let report = check(&home).unwrap();
     let report: serde_json::Value = serde_json::from_str(&report).unwrap();
-    assert_eq!(report["schema"], 5);
+    assert_eq!(report["schema"], 6);
     assert_eq!(report["integrity"], "ok");
     assert_eq!(
         report["rows"].as_object().unwrap().len(),
@@ -922,7 +922,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         .filter(|n| n.starts_with("tehas-"))
         .collect();
     let found = format!("tehas-0-{}.db", 1_792_000_000);
-    let made = format!("tehas-5-{}.db", 1_792_000_000);
+    let made = format!("tehas-6-{}.db", 1_792_000_000);
     assert!(
         copies.contains(&found),
         "the copy of the file as it was found is not in state/: {copies:?}"
@@ -939,7 +939,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     let copy = PathBuf::from(value["backup"].as_str().unwrap());
     assert_eq!(
         copy,
-        db::backup_name(&state, 5, 1_792_000_000),
+        db::backup_name(&state, 6, 1_792_000_000),
         "{line} reports a copy other than the one taken first"
     );
     assert!(copy.exists(), "{line} names a copy that is not there");
@@ -982,14 +982,14 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
 fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // The name the answer carries is the name the caller opens, so it is the
     // name that must be written before the step can commit -- not after it.
-    // Two verbs of one update land in the same second, so `tehas-5-<now>.db`
+    // Two verbs of one update land in the same second, so `tehas-6-<now>.db`
     // can be held by a file the verb did not make, and the verb must then
     // change nothing at all.
     let home = scratch("migrate-after");
     fs::create_dir_all(home.join("state")).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     let state = home.join("state");
-    let foreign = db::backup_name(&state, 5, 1_792_000_000);
+    let foreign = db::backup_name(&state, 6, 1_792_000_000);
     fs::write(&foreign, b"not a backup").unwrap();
 
     let (code, err) = migrate(&home, &state).unwrap_err();
@@ -1019,7 +1019,7 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
 }
 
 #[test]
-fn migrate_reports_the_three_fields_and_a_database_at_5_stays_at_5() {
+fn migrate_reports_the_three_fields_and_a_database_at_6_stays_at_6() {
     let home = scratch("migrate-json");
     init(&home, false).unwrap();
     let state = home.join("state");
@@ -1036,8 +1036,8 @@ fn migrate_reports_the_three_fields_and_a_database_at_5_stays_at_5() {
     assert_eq!(value["api"], 1, "{line}");
     assert_eq!(value["verb"], "migrate", "{line}");
     assert_eq!(value["ok"], true, "{line}");
-    assert_eq!(value["from"], 5, "{line}");
-    assert_eq!(value["to"], 5, "{line}");
+    assert_eq!(value["from"], 6, "{line}");
+    assert_eq!(value["to"], 6, "{line}");
     assert!(value["backup"].is_string(), "{line}");
     for field in ["api", "verb", "ok", "from", "to", "backup"] {
         assert!(value.get(field).is_some(), "{field} is missing from {line}");
@@ -1045,8 +1045,8 @@ fn migrate_reports_the_three_fields_and_a_database_at_5_stays_at_5() {
     // Already at 1: nothing to run, and the same answer shape. The backup is
     // still written, because the verb promises a copy before it touches the
     // file and has no way to know it will not need it until it has looked.
-    assert_eq!(value["from"], 5, "{line}");
-    assert_eq!(value["to"], 5, "{line}");
+    assert_eq!(value["from"], 6, "{line}");
+    assert_eq!(value["to"], 6, "{line}");
     assert!(db::is_database(&PathBuf::from(
         value["backup"].as_str().unwrap()
     )));
@@ -1069,7 +1069,7 @@ fn migrate_reports_the_three_fields_and_a_database_at_5_stays_at_5() {
     let again = migrate_at(&home, &state, 1_792_000_060).unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&again).unwrap()["from"],
-        5,
+        6,
         "{again}"
     );
     assert_eq!(
@@ -1098,7 +1098,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     let state = home.join("state");
     {
         let conn = Connection::open(&file).unwrap();
-        conn.pragma_update(None, "user_version", 6).unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
     }
     checkpoint(&file);
     let before = fs::read(&file).unwrap();
@@ -1160,7 +1160,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     assert!(
         copies
             .iter()
-            .any(|n| n.to_string_lossy().starts_with("tehas-5-")),
+            .any(|n| n.to_string_lossy().starts_with("tehas-6-")),
         "the copy the verb reports: {copies:?}"
     );
     // A file with tables and no version is the same case seen from the other
@@ -1655,7 +1655,10 @@ fn slow_leaves_no_file_when_the_cycle_had_no_notice() {
         "slow-none",
     )
     .unwrap();
-    assert!(answer.starts_with("{\"api\":1,\"verb\":\"slow\",\"ok\":true,\"lines\":0}"), "{answer}");
+    assert!(
+        answer.starts_with("{\"api\":1,\"verb\":\"slow\",\"ok\":true,\"lines\":0}"),
+        "{answer}"
+    );
     // Nothing after the answer: the caller's file was never made.
     assert!(!answer.contains('\n'), "{answer}");
 }
@@ -1695,7 +1698,12 @@ fn slow_names_a_file_argument_and_refuses_any_other_shape() {
         vec!["slow".to_string()],
         vec!["slow".to_string(), "/a".to_string()],
         vec!["slow".to_string(), "/a".to_string(), "--out".to_string()],
-        vec!["slow".to_string(), "/a".to_string(), "--into".to_string(), "/b".to_string()],
+        vec![
+            "slow".to_string(),
+            "/a".to_string(),
+            "--into".to_string(),
+            "/b".to_string(),
+        ],
     ] {
         assert_eq!(parse(&args), None, "{args:?}");
     }
