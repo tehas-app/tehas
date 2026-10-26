@@ -8,6 +8,10 @@
 # GitHub, a model or Docker, and no case reads the machine that runs it.
 # The part has sourced test/lib.sh before this.
 
+# The console that reads the host (console/src/top.rs): this checkout's own,
+# named to the library in TEHAS_CONSOLE, since the checkout has none beside it.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
 top=$T_ROOT/libexec/top
 publish=$T_ROOT/libexec/top-publish
 live=$T/home/tehas/live
@@ -69,7 +73,7 @@ reset() {
     '100 systemd 150 300' '200 tehas-cycle 0 800' '300 pi-rukas 730 1200' '400 gh 10 100'
   # A command line is never opened. It is here to be missed.
   printf '%s\n' 'gh_SecretTokenInACommandLine --repo acme/widget' >"$proc1/400/cmdline"
-  T_ENV=(TEHAS_PROC_DIR="$proc1")
+  T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 }
 
 # The files a working factory leaves behind. Times are seconds before now, so

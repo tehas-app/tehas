@@ -1884,7 +1884,9 @@ output, and with `--once`, it prints one frame as plain text: no escape codes.
 It reads what the factory already writes under `~/tehas/live/` - the [health
 file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
 the console of a cycle - asks `systemctl --user` about its units, and reads the
-host's own numbers from `/proc`. No GitHub call, no model call, no Docker call,
+host's own numbers from `/proc`, through the console beside the commands
+(`~/tehas/libexec/console top`; without it the host section is `null`). No
+GitHub call, no model call, no Docker call,
 no instance settings, and nothing is written. What it shows is as old as those
 files, and every section that has an age prints it. A file older than ten
 minutes is not believed, the same rule `tehas status` uses.

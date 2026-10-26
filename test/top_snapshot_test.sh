@@ -80,7 +80,7 @@ t_eq "$(jq -c '[.host.cpuPercent] + [.host.processes[].cpuPercent]' <<<"$t_out")
 t_case "a host that cannot be read is a null section and one line"
 reset
 files
-T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$T/no-such-tree")
 t_run "$top --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '.host' <<<"$t_out")" "null"
@@ -90,7 +90,20 @@ t_run "$top --once"
 t_eq "$t_rc" 0
 t_contains "$t_out" "host      no reading of /proc"
 t_contains "$t_out" "cycle     #12 running"
-T_ENV=(TEHAS_PROC_DIR="$proc1")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
+
+# The host is read by the console beside the commands. Without one the section
+# is null, as for a tree that cannot be read, and the rest of the snapshot is
+# there all the same.
+t_case "a host with no console has a null host section and the rest"
+reset
+files
+T_ENV=(TEHAS_CONSOLE="$T/no-console" TEHAS_PROC_DIR="$proc1")
+t_run "$top --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.host, .reading]' <<<"$t_out")" "[null,null]"
+t_eq "$(jq -r '.cycle | type' <<<"$t_out")" object
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 
 t_case "a process is named by its short name, never by its command line"
 reset
@@ -117,7 +130,7 @@ proc_files "$proc3" 1000 '1000 100 500 8000 200 10 5 20' \
   '100 systemd 150 300' '500 a(b)c\"d 20 100' '600 [bracket] 30 100'
 mkdir -p "$proc3/notapid" "$proc3/700"
 printf '%s\n' '700 (notapid) S 1 1 1 0 -1 1 0 0 0 0 1 1 0 0 20 0 1 0 900 1048576 10 0' >"$proc3/notapid/stat"
-T_ENV=(TEHAS_PROC_DIR="$proc3")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc3")
 t_run "$top --json"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '[.host.processes[].pid] | join(",")' <<<"$t_out")" "100,500,600"
@@ -136,7 +149,7 @@ files
 proc4=$T/proc4
 proc_files "$proc4" 1000 '1000 100 500 8000 200 10 5 20' '100 systemd 150 300'
 rm -f "$proc4/loadavg" "$proc4/meminfo"
-T_ENV=(TEHAS_PROC_DIR="$proc4")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc4")
 t_run "$top --json"
 t_eq "$(jq -c '[.host.load, .host.memory, .host.cpuPercent]' <<<"$t_out")" "[null,null,null]"
 t_run "$top --once"
@@ -176,16 +189,16 @@ t_eq "$(jq -r '(.reading.clock == 1000), .reading.cpus, (.reading.procs | length
 object"
 # A tree that cannot be read gives no reading either: the next call has nothing
 # to compare against and takes a pair.
-T_ENV=(TEHAS_PROC_DIR="$T/no-such-tree")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$T/no-such-tree")
 t_run "$top --json"
 t_eq "$(jq -c '.reading' <<<"$t_out")" "null"
-T_ENV=(TEHAS_PROC_DIR="$proc1")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 
 t_case "a snapshot given the reading of the frame before does not wait for a second one"
 reset
 files
 nosleep
-T_ENV=(TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" PATH="$T/nosleep:$T/bin:$PATH")
 t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 >"$T/one"'
 t_eq "$t_rc" 0
 # Nothing to compare with: a pair of readings, and the second one a second on.
