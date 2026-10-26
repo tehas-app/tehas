@@ -59,6 +59,8 @@ t_eq "$(cycle_args | security_of --security-opt)" "no-new-privileges:true"
 # flag wherever it stands, the one drift security_line's contiguous match
 # cannot see, so the whole line must hold exactly one.
 t_eq "$(cycle_args | security_of --tmpfs)" "$security_tmpfs"
+# Half of --memory 2048m, so a full /tmp is ENOSPC and not an OOM kill.
+t_eq "$(cycle_args | security_of --tmpfs)" "/tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
 t_eq "$(cycle_args | count_of --tmpfs)" "1"
 t_eq "$(printf 'run\n--tmpfs=/tmp\n' | count_of --tmpfs)" "1"
 t_eq "$(printf 'run\n--tmpfs\n/tmp:rw\n--tmpfs\n/dev/shm\n' | count_of --tmpfs)" "2"

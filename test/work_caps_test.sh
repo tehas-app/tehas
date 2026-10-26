@@ -482,19 +482,38 @@ t_lacks "$given" "--privileged"
 # cycle, the planning turn, the session and the push check are all given them
 # from. The units pin them on the docker line; this pins the source of them.
 t_case "the security options drop every capability and take privileges away"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security | tr '\0' '\n'"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security | tr '\0' '\n'"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | tr '\n' ' ')" "$security_opts "
 # The library's own two guards, which the four commands ask before Docker is
 # called: they are asked here of the function, so a guard that drifted from the
 # list is a failure in this file and not a cycle that stops on a host.
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security_count"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_count"
 t_eq "$t_out" "$(printf '%s\n' "$security_opts" | wc -w)"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_security_ok"
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_ok"
 t_eq "$t_rc" 0
 # No capability is left in the default list by name, and nothing is added
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
+
+# A cycle's /tmp is a tmpfs, whose pages count against --memory and cannot be
+# reclaimed: one as large as the ceiling ends in OOM kills, not ENOSPC. It is
+# half the ceiling, and without a ceiling there is no list to start with.
+t_case "the /tmp tmpfs is half the container's memory ceiling, and no ceiling gives no options"
+# size=0 would be no bound at all, so a ceiling under 10 MiB is no ceiling.
+for pair in 2048:1024m 5478:2739m 10:5m; do
+  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=${pair%%:*}; tehas_sandbox_security | tr '\0' '\n' | grep -c 'size=${pair#*:},'; tehas_sandbox_security_ok"
+  t_eq "$t_rc" 0
+  t_eq "$t_out" 1
+done
+for bad in "" 0 1 9 8g 1+1 abc; do
+  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security | wc -c; tehas_sandbox_security_ok"
+  t_eq "$t_rc" 1
+  t_eq "$t_out" 0
+  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security_take 'tehas work' 'a cycle'"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "not starting a cycle"
+done
 
 # The manual's table of "What a container may not do" is the same list as the
 # function's, option by option and value by value: the page and the container

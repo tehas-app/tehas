@@ -23,6 +23,9 @@
 T_ROOT=${T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 # shellcheck source=lib/sandbox.sh
 . "$T_ROOT/lib/sandbox.sh"
+# The ceiling the stubbed slice gives a container (--memory 2048m): the size of
+# its /tmp is computed from it.
+TEHAS_SLICE_CEILING_MB=2048
 # The documented list is read once, into a string, and the three names below
 # are made from it. They are strings, not arrays: the suites that source this
 # write their own lists of mounts and variables, and an array of the same name
@@ -118,5 +121,5 @@ unknown_options() { # <image> <options that take a value> <options that take non
 # pinned to the same list and one is not a copy of the other kept by hand.
 security_doc_rows() {
   printf '%s\n' '--cap-drop|ALL' '--cap-add|CHOWN' '--cap-add|FOWNER' \
-    '--security-opt|no-new-privileges:true' "--tmpfs|$security_tmpfs"
+    '--security-opt|no-new-privileges:true' "--tmpfs|${security_tmpfs/size=1024m/size=<half of --memory>m}"
 }
