@@ -88,7 +88,7 @@ t_case "a health file older than ten minutes reads stale, and is still shown"
 reset
 files
 jq --arg t "$(iso 700)" '.time = $t' "$live/health.json" >"$T/h" && mv "$T/h" "$live/health.json"
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=24)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=24)
 t_run "$top --json"
 t_eq "$(jq -r '.factory.stale' <<<"$t_out")" "true"
 t_run "$top --once"
@@ -100,12 +100,12 @@ t_case "a width of 40 and of 200 columns gives no line longer than the width"
 reset
 files
 energy
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=40 LINES=16)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=40 LINES=16)
 t_run "$top --once"
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | awk 'length > 40' | wc -l)" 0
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" 16
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=16)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=200 LINES=16)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | awk 'length > 200' | wc -l)" 0
 
@@ -117,7 +117,7 @@ files "$(printf '%150s' w | tr ' ' w)"
 energy
 t_stub stty 'printf "30 100\n"'
 seq -f 'console line %g' 1 40 >"$live/console-12.txt"
-T_ENV=(TEHAS_PROC_DIR="$proc1")
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
 t_run "$top --once"
 t_eq "$t_rc" 0
 t_contains "$(t_calls stty)" "size"
@@ -134,7 +134,7 @@ files
 energy
 # Named lines: a bare number could match the snapshot's clock.
 seq -f 'console line %g' 1 30 >"$live/console-12.txt"
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=12)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=12)
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" 12
 for line in "factory   pass" "queue     1 in line" "cycle     #12 running" "units     3 units" \
@@ -149,12 +149,12 @@ files
 energy
 seq -f 'console line %g' 1 30 >"$live/console-12.txt"
 # The whole frame at a height that drops nothing.
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=64)
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=64)
 t_run "$top --once"
 t_eq "$t_rc" 0
 full=$(printf '%s\n' "$t_out" | wc -l)
 # One row short: a process row goes, and no console line or unit row.
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 1)))
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 1)))
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" $((full - 1))
 t_lacks "$t_out" "  400  gh"
@@ -162,7 +162,7 @@ t_contains "$t_out" "  100  systemd"
 t_contains "$t_out" "console line 30"
 t_contains "$t_out" "tehas-dispatch.timer        enabled"
 # Four rows short: every process row goes, and still no console line.
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 4)))
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 4)))
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" $((full - 4))
 t_lacks "$t_out" "  400  gh"
@@ -170,7 +170,7 @@ t_lacks "$t_out" "  100  systemd"
 t_contains "$t_out" "console line 30"
 t_contains "$t_out" "host      2 cpus, load"
 # Eight rows short: the console lines go before any unit row is touched.
-T_ENV=(TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 8)))
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" COLUMNS=80 LINES=$((full - 8)))
 t_run "$top --once"
 t_eq "$(printf '%s\n' "$t_out" | wc -l)" $((full - 8))
 t_lacks "$t_out" "console line 30"

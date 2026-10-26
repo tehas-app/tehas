@@ -26,6 +26,10 @@
 //! The notice tehasbot preview keeps in a pull request's description, see
 //! src/notice.rs.
 //!
+//!   console top reading|host ...
+//!
+//! The host section of tehas top, see src/top.rs.
+//!
 //!   console review since|refused|run ...
 //!
 //! What tehasbot review decides and how it runs its container, see
@@ -38,6 +42,7 @@ mod notice;
 mod render;
 mod review;
 mod tail;
+mod top;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -213,6 +218,7 @@ fn main() -> ExitCode {
         match given.first().map(String::as_str) {
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(notice::main(&given[1..])),
+            Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}
         }
     }
