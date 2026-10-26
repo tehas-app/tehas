@@ -90,7 +90,7 @@ files="./.bashrc
 ./tehas/lib/describe.sh
 ./tehas/lib/disk.sh
 ./tehas/lib/edge.sh
-./tehas/lib/fixer.sh
+./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
 ./tehas/lib/headless.sh
 ./tehas/lib/improve-prompt.md

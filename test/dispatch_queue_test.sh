@@ -36,7 +36,7 @@ t_eq "$(started)" "8 9 3 "
 
 t_case "tehas:next from the fixer counts"
 reset
-slots 2 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 2 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 queue 3 "9 tehas:next"
 label_events 9 tehas:next=tehas-fixer
 t_run "$dispatch"
@@ -44,7 +44,7 @@ t_eq "$(started)" "9 3 "
 
 t_case "tehas:next from an outsider is ignored, and the poll says so"
 reset
-slots 2 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 2 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 queue 3 "9 tehas:next"
 label_events 9 tehas:next=alice tehas:next=mallory
 t_run "$dispatch"
@@ -94,7 +94,7 @@ t_contains "$(t_calls gh)" "b34: issueOrPullRequest(number: 34)"
 
 t_case "a blocked issue that starts is recorded as the ready label's, not the blocked label's"
 reset
-slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 queue "7 tehas:blocked"
 label_events 7 tehas:blocked=tehas-fixer
 notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
@@ -117,7 +117,7 @@ t_contains "$t_out" "wait #7: tehas:blocked holds it: #34 is open"
 
 t_case "the fixer's tehas:blocked and its comment count"
 reset
-slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 queue "7 tehas:blocked"
 label_events 7 tehas:blocked=tehas-fixer
 notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
@@ -300,7 +300,7 @@ t_lacks "$(t_calls gh)" "issue edit 7 "
 
 t_case "tehas:blocked alone from the fixer holds the issue but does not start it"
 reset
-slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 alone 7
 blocked_by 7 tehas-fixer
 notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
@@ -412,7 +412,7 @@ t_eq "$(jq -c '{waiting, oldest}' "$demand_file")" '{"waiting":1,"oldest":"2026-
 
 t_case "demand: the fixer's label waits like a person's"
 reset
-slots 1 TEHAS_FIXER_LOGIN=tehas-fixer
+slots 1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 ready_at 7 tehas-fixer 2026-10-17T10:00:00Z
 hold 5
 t_run "$dispatch"
