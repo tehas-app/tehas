@@ -1111,7 +1111,8 @@ CREATE TABLE actions (
                                          -- it; not the poll that settled it
   kind        TEXT NOT NULL,             -- label-add, label-remove, comment-post,
                                          -- comment-edit, container-start, unit-stop,
-                                         -- label-remove-only, refresh-begin, refresh-end
+                                         -- label-remove-only, refresh-begin, refresh-end,
+                                         -- issue-edit, sub-issue-add, issue-close
   issue       INTEGER NOT NULL,
   args_json   TEXT NOT NULL,             -- the exact call: repo, label, body, name
   before_snapshot INTEGER NOT NULL,      -- the read this rests on (A5)
@@ -1167,6 +1168,9 @@ outcome is decided by `kind`, from a fresh read, never from the row alone:
 | `container-start` | `docker` for the pinned name, and the lock. Container there: `done`. Not there and no lock: `abandoned`, so the poll recomputes and may start it again. There and never journaled as started: `done`, and the `cycles` row is written from the host's facts (C13: what the host saw) |
 | `unit-stop` | the unit's `ActiveState` and the lock. Inactive and free: `done`. Still active: re-ask, bounded (C11), and after the bound `abandoned` with one line, which is what C6 asks for |
 | `refresh-begin`, `refresh-end` | the pull request's labels. `tehas:refreshing` present where wanted: `done`. Rule 4b re-reads the whole precondition anyway, so `abandoned` is safe |
+| `issue-edit` | the issue's body. Its first line says `Replaces #<n>`: `done`. Not: `abandoned`, because the replace step reads the body again and edits it then (#254) |
+| `sub-issue-add` | the issue's sub-issues. The one named is there: `done`. Not: `abandoned`; a missing link is a warning, never a reason to stop |
+| `issue-close` | the issue's state. Closed: `done`. Open: `abandoned`, and the next poll that ends the session closes it again |
 
 Two rules hold throughout. An action is never replayed blindly: the read decides
 whether it happened. And an action that cannot be settled is said, not swallowed:

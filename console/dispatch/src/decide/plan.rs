@@ -21,7 +21,7 @@ fn digits(v: &Value) -> Option<String> {
 /// tehas_plan_shape: the session as plan_view gives it, from plan-show's
 /// `.planning`: the refused replies of both names and the held ticks from
 /// the notes, and an answer's millwright as fixer.
-fn shape(row: &Value) -> Value {
+pub(crate) fn shape(row: &Value) -> Value {
     if !row.is_object() {
         return Value::Null;
     }
