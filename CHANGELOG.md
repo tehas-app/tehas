@@ -67,6 +67,16 @@ empty one above it.
   `tehasbot health` warns when a tehas unit has failed (`checks.units`), and
   `install.sh` resets the failed tehas units and starts a failed
   `tehas-dispatch.path` again.
+- The factory writes the millwright's names and reads both (#690).
+  `tehas labels` makes `tehas:millwright-escalated` beside
+  `tehas:fixer-escalated`, and a start or a refresh treats the two alike: a
+  start takes both off, either drops a refresh. A comment marked
+  `<!-- tehas:millwright issue=<n> action=... -->` counts as one marked
+  `<!-- tehas:fixer ... -->`, as a retry's context and as a planning answer,
+  and a refused reply names the new marker. The dispatcher tells the store
+  `--how millwright`, `--millwright` and `--kind millwright-refused`. The Rust
+  dispatcher reads the same. The old label and marker are accepted until a
+  later release drops them.
 - `tehas api` names the millwright (#691). `--json` lists the feature
   `millwright-grant` beside `fixer-grant` and has the field `millwright` beside
   `fixer`, both the login or `null`. The old names stay until a release removes

@@ -26,6 +26,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -67,7 +70,7 @@
      {
       "start": 7,
       "by": "tehas-fixer",
-      "given": "fixer",
+      "given": "millwright",
       "fixer_starts": 1,
       "how": "`tehas:ready` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z",
       "rests_on": {
@@ -80,7 +83,7 @@
    }
   },
   {
-   "case": "the start takes tehas:fixer-escalated off with the rest of the earlier outcome",
+   "case": "the start takes both escalation labels off with the rest of the earlier outcome",
    "settings": {
     "TEHAS_FIXER_LOGIN": "tehas-fixer"
    },
@@ -100,6 +103,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -139,7 +145,8 @@
       "remove": [
        "tehas:ready",
        "tehas:question",
-       "tehas:fixer-escalated"
+       "tehas:fixer-escalated",
+       "tehas:millwright-escalated"
       ]
      }
     ]
@@ -166,6 +173,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -229,6 +239,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -268,7 +281,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "fixer",
+      "given": "millwright",
       "fixer_starts": 2,
       "rests_on": {
        "by": "alice"
@@ -298,6 +311,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -370,6 +386,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -422,6 +441,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -474,6 +496,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -534,6 +559,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -638,6 +666,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -701,6 +732,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -765,6 +799,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -840,6 +877,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -908,6 +948,9 @@
        },
        {
         "name": "tehas:fixer-escalated"
+       },
+       {
+        "name": "tehas:millwright-escalated"
        }
       ]
      }
@@ -1201,7 +1244,7 @@
     "actions": [
      {
       "start": 7,
-      "given": "fixer",
+      "given": "millwright",
       "fixer_starts": 1,
       "rests_on": {
        "by": "alice",
@@ -1389,6 +1432,77 @@
       "plan_turn": 7,
       "kind": "next",
       "answer": "The fixer replied on the issue:\n\nAdopt all, as alice chose in #12.",
+      "by": "tehas-fixer",
+      "reply": "4003"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a reply marked as the millwright's runs the turn",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 7
+     }
+    ],
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "issues": {
+     "7": {
+      "question": {
+       "plan": {
+        "by": "alice",
+        "label": "tehas:plan",
+        "turns": 1,
+        "options": [
+         "Adopt all",
+         "Change some"
+        ],
+        "comment_id": 4001,
+        "answers": []
+       },
+       "id": "4001",
+       "kind": "plan"
+      }
+     }
+    }
+   },
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
+     "",
+     [
+      {
+       "databaseId": 4003,
+       "author": {
+        "login": "tehas-fixer"
+       },
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
+       "createdAt": "2026-01-01T02:00:00Z"
+      }
+     ]
+    ]
+   },
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "log": [
+     "planning #7 continues (answer from tehas-fixer, the fixer)"
+    ],
+    "actions": [
+     {
+      "plan_turn": 7,
+      "kind": "next",
+      "answer": "The fixer replied on the issue:\n\nAdopt all.",
       "by": "tehas-fixer",
       "reply": "4003"
      }
@@ -1665,7 +1779,7 @@
     "actions": [
      {
       "plan_note": 7,
-      "kind": "fixer-refused",
+      "kind": "millwright-refused",
       "id": "4003",
       "say": "Tehas did not take the fixer's reply as an answer: the fixer answered the question before this one; a person answers this one. A person answers this question."
      }
@@ -2278,7 +2392,7 @@
    },
    "expect": {
     "log": [
-     "its reply does not start with <!-- tehas:fixer issue=7 action=answer -->"
+     "its reply does not start with <!-- tehas:millwright issue=7 action=answer -->"
     ],
     "no_actions": [
      {
