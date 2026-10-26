@@ -512,7 +512,8 @@ These are the caps the factory posted on its own issues from 10 to 14 October
 
 After the develop step, the driver ran the checks itself, and they did not
 back the developer's claim that the work is done. The lines under "What this
-cap means" say which check. Four kinds were seen:
+cap means" say which check. Four kinds were seen, and the last of them has
+two forms:
 
 - `touched out-of-scope path <file> - declared fence violated
   (issue-fenced)`. The plan marked that file as out of scope for the work,
@@ -532,19 +533,18 @@ cap means" say which check. Four kinds were seen:
   note, the severity the lint runs at and the one suppression it accepts are
   under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
-  nothing, or it removed lines it should not have. When the cap is
-  `fix-pass-park` and it names a test file, and the reason reads `it sits
-  behind this workstream's outOfScope fence, which the spec does not lift`,
-  read the issue's `Out of scope` section first: the plan read that section as
-  part of the fence, so the fix pass was refused the file its own deliverable
-  told it to write. The cap names the refused file but not the entry that
-  refused it, so compare the file against every `Out of scope` bullet: a
-  directory, a pattern or a cut-down entry can cover it. Name the file in the
-  deliverable and drop it from `Out of scope`, as step 1 of
-  [Operating](/operating) says, then run `tehas dispatch --dry-run` to see the
-  fence before you spend the retry. Approve the edited body again as the end
-  of step 5 of [Operating](/operating) says: remove `tehas:ready` and apply
-  it again, or untick the retry box and tick it again.
+  nothing, or it removed lines it should not have. When it names a test file
+  and the reason reads `it sits behind this workstream's outOfScope fence,
+  which the spec does not lift`, the refusal is the fence: the plan read the
+  issue's `Out of scope` section as part of that fence (step 1 of
+  [Operating](/operating) says why), so the fix pass was refused the file its
+  own deliverable told it to write. It is the same refusal as the first entry
+  above, met later. The reason names the refused file but not the `Out of
+  scope` entry that refused it, so compare the file against every bullet: a
+  directory, a pattern or a cut-down entry can cover it. Then name the file in
+  the deliverable, drop it from `Out of scope`, and approve the edited body
+  again, as step 1 and the end of step 5 of [Operating](/operating) say: the
+  label or the tick approves the body as it was then.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
   failure: the driver would not run the consolidated gate at all because it
   found files in the checkout that git does not ignore. When the names are
