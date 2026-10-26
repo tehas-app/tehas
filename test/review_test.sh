@@ -935,6 +935,38 @@ t_eq "$t_rc" 2
 t_contains "$t_out" "did not end within 1s, killing it"
 t_eq "$([ -e "$tree" ] && echo left)" ""
 
+# The other half of a wedged dockerd: the container is gone, and its client is
+# not. The wait of the case above ends because the container ends; here the
+# client answers to nothing at all, so the bound of that wait is what ends the
+# run. The grace is TEHAS_STOP_WAIT, the bound of stop_review's two calls.
+t_case "a docker run client that ignores TERM is killed after the stop's grace, and the run ends with 2"
+reset
+mkdir -p "$T/home/tehas/state"
+jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
+cp "$record" "$T/record.before"
+t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
+cat >"$T/container.sh" <<'EOF'
+nap=$(command -pv sleep)
+# The client of a container dockerd has forgotten: it lives past the stop's
+# bound and ends only for KILL. The sleep that runs is a child of its own, so
+# the trap is what answers TERM: the case can tell the -KILL of the command
+# from a client that let TERM through.
+trap 'kill "$sleeper" 2>/dev/null; exit 143' TERM
+"$nap" 120 >/dev/null 2>&1 &
+sleeper=$!
+while [ ! -e "$T/calls/stopped" ]; do "$nap" 0.1; done
+"$nap" 120 >/dev/null 2>&1
+exit 137
+EOF
+t_start
+t_run "$review"
+t_fast 9000
+t_eq "$t_rc" 2
+t_contains "$t_out" "the docker client of the review would not end, killing it"
+t_contains "$t_out" "ran out of time"
+t_eq "$(cmp "$T/record.before" "$record" && echo same)" same
+t_eq "$([ -e "$tree" ] && echo left)" ""
+
 # --- One review at a time ---------------------------------------------------------
 
 # The container, the workspace and the record are each one per host, so a

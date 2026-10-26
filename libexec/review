@@ -266,7 +266,8 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
 
 # A container under this name outlived its client: this run holds the lock,
-# so it is no review's. Every docker call here is bounded.
+# so it is no review's. Every docker call here is bounded, and so is the wait
+# on the client.
 stop_wait=${TEHAS_STOP_WAIT:-60}
 timeout -k 10 "$stop_wait" docker rm -f "$name" >/dev/null 2>&1
 # stop_review <grace>: docker stop, then docker kill, both bounded.
@@ -279,6 +280,20 @@ stop_review() {
   echo "tehas review: docker stop of $name did not end within ${stop_wait}s, killing it" >&2
   timeout -k 5 "$stop_wait" docker kill "$name" >/dev/null 2>&1 ||
     echo "tehas review: docker kill of $name did not work either" >&2
+}
+# wait_review: the wait below, bounded. A client dockerd has forgotten is
+# killed after the stop's grace, TEHAS_STOP_WAIT seconds: TERM first, so a
+# client that traps it can clean up, then KILL for one that does not answer.
+# shellcheck disable=SC2016  # $1 is the child's own argument, read in the child
+wait_review() {
+  kill -0 "$pid" 2>/dev/null || return 0
+  # The poll is a child: a subshell could not wait this process's own child.
+  timeout -k 5 "$stop_wait" bash -c '
+    while kill -0 "$1" 2>/dev/null; do command -p sleep 0.2; done' _ "$pid" && return 0
+  echo "tehas review: the docker client of the review would not end, killing it" >&2
+  kill -TERM "$pid" 2>/dev/null
+  command -p sleep 2
+  kill -KILL "$pid" 2>/dev/null
 }
 user="$(id -u):$(id -g)"
 # The log's directory is made by the run that writes a log.
@@ -305,6 +320,9 @@ while kill -0 "$pid" 2>/dev/null; do
   fi
   sleep 1
 done
+# The wait of the client is bounded too: its container may be gone and the
+# client still there.
+wait_review
 wait "$pid" 2>/dev/null
 rc=$?
 rm -rf "$tree" "$container" || echo "tehas review: could not remove the workspace $tree" >&2
