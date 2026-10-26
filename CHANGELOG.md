@@ -77,12 +77,22 @@ empty one above it.
   `--how millwright`, `--millwright` and `--kind millwright-refused`. The Rust
   dispatcher reads the same. The old label and marker are accepted until a
   later release drops them.
+- `tehas api` names the millwright (#691). `--json` lists the feature
+  `millwright-grant` beside `fixer-grant` and has the field `millwright` beside
+  `fixer`, both the login or `null`. The old names stay until a release removes
+  them. The text form prints `millwright` in place of `fixer`, with its labels
+  two columns wider. The manual says "millwright" where it said "fixer", and
+  "The fixer's grant" in `operating.md` is now "The millwright's grant"
+  (`#the-millwrights-grant`).
 
 ### Adopter action
 
 - A program that reads `tehas history` or `tehas export` and checks the shape
   of a cursor must take the third number. One that only keeps `next` and
   passes it back needs no change.
+- A program that reads the field `fixer` or the feature `fixer-grant` of
+  `tehas api` moves to `millwright` and `millwright-grant` before a release
+  removes the old names.
 
 ## v0.13.0 (2026-10-25)
 
