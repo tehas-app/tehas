@@ -654,7 +654,7 @@ t_plan() { # <home> <issue> <JSON>
     t_by=$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].by // "alice"' <<<"$t_j")
     t_args=(plan-answer "$t_n" --turn "$1" --by "$t_by" --text-file "$t_brief")
     [ "$(jq -r --argjson t "$1" '[(.answers // [])[] | select(.turn == $t)][0].fixer // false' <<<"$t_j")" != true ] ||
-      t_args+=(--fixer)
+      t_args+=(--millwright)
     _t_when "${2:-}" "${t_args[@]}"
   }
   t_args=(plan-begin "$t_n" --by "$(jq -r '.by // "alice"' <<<"$t_j")" --label "$(jq -r '.label // "tehas:plan"' <<<"$t_j")" --brief-file "$t_brief")

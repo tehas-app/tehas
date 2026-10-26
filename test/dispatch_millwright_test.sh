@@ -13,7 +13,7 @@ fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
   local i
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/ready.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
   echo '[]' >"$fx/icomments-7.json"
@@ -38,8 +38,8 @@ t_case "the store is told the millwright's word"
 t_contains "$(t_calls store)" "approval-record 7 --at 1790899200 --by tehas-fixer --how millwright "
 t_lacks "$(t_calls store)" "--how fixer"
 
-t_case "the start takes both escalation labels off with the rest of the earlier outcome"
-t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:fixer-escalated --remove-label tehas:millwright-escalated"
+t_case "the start takes the escalation label off with the rest of the earlier outcome"
+t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:millwright-escalated"
 
 t_case "a second fixer start counts on from the first and keeps the person's approval"
 fixer_ready 1
@@ -114,33 +114,31 @@ t_case "the fixer's marked comment before its label is the retry's context, what
 fixer_ready
 {
   echo '['
-  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:fixer issue=7 action=change -->\nRun the gate first.'
+  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
   echo ','
-  icomment 80 tehas-fixer 2026-10-01T20:00:00Z 2026-10-01T20:00:00Z $'<!-- tehas:fixer issue=7 action=change -->\nAn older decision.'
+  icomment 80 tehas-fixer 2026-10-01T20:00:00Z 2026-10-01T20:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nAn older decision.'
   echo ','
-  icomment 82 mallory 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:fixer issue=7 action=change -->\nNot the fixer.'
+  icomment 82 mallory 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:millwright issue=7 action=change -->\nNot the fixer.'
   echo ','
-  icomment 83 tehas-fixer 2026-10-01T23:59:00Z 2026-10-02T01:00:00Z $'<!-- tehas:fixer issue=7 action=change -->\nEdited after the label.'
+  icomment 83 tehas-fixer 2026-10-01T23:59:00Z 2026-10-02T01:00:00Z $'<!-- tehas:millwright issue=7 action=change -->\nEdited after the label.'
   echo ']'
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(approval '.retry_context')" \
-  "$(sorted '[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]')"
+  "$(sorted '[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:millwright issue=7 action=change -->\nRun the gate first."}]')"
 t_eq "$(approval 'has("comment_links")')" false
 
-t_case "the millwright's marker counts as the fixer's, the newer of the two is the context"
+t_case "the old fixer marker is no longer the retry's context"
 fixer_ready
 {
   echo '['
-  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:fixer issue=7 action=change -->\nRun the gate first.'
-  echo ','
-  icomment 84 tehas-fixer 2026-10-01T23:56:00Z 2026-10-01T23:56:00Z $'<!-- tehas:millwright issue=7 action=retry -->\nTry once more.'
+  icomment 84 tehas-fixer 2026-10-01T23:56:00Z 2026-10-01T23:56:00Z $'<!-- tehas:fixer issue=7 action=retry -->\nTry once more.'
   echo ']'
 } >"$fx/icomments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
-t_eq "$(approval '[.retry_context[].source]')" '["millwright:84"]'
+t_eq "$(approval 'has("retry_context")')" false
 
 t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
 fixer_ready
@@ -158,7 +156,7 @@ t_eq "$(approval 'has("retry_context")')" false
 # --- The fixer's planning answers --------------------------------------------
 # Issue 7 has a planning question open in a session alice started, on an
 # instance with a fixer.
-fmark='<!-- tehas:fixer issue=7 action=answer -->'
+fmark='<!-- tehas:millwright issue=7 action=answer -->'
 # The session has had as many turns as the last answer on record names.
 fixer_planning() { # [<answers on record as JSON> [<who started the session>]]
   planning
