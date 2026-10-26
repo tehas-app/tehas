@@ -34,9 +34,9 @@
 # installed, and the build that fetches the crates from the network is the
 # first one on a host that has never fetched. The console's source leaves out
 # console/analytics, console/mcp, console/store, console/attach and
-# console/dispatch, so a change there builds that program alone. The console,
-# analytics, the MCP server and the store use the library in console/core, so
-# a change there builds those four. --check
+# console/dispatch, so a change there builds that program alone. All but the
+# attachment checker use the library in console/core, so a change there builds
+# those five. --check
 # compares the checksums and builds nothing. A
 # program that does not build stops a real run before it changes anything.
 #
@@ -794,10 +794,10 @@ else
   attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher's shadow reads its own directory and the workspace's
-  # manifest and lock.
+  # The dispatcher's shadow reads its own directory, the workspace's manifest
+  # and lock, and core/.
   dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
-    -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
+    -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
   program_sum() { sha256sum <"$1" | cut -d' ' -f1; }
   # program_label <name>: how a message names it.

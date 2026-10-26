@@ -13,6 +13,8 @@ empty one above it.
 
 ### Changes
 
+- install.sh rebuilds `tehas-dispatch` when `console/core` changes, which it
+  uses since the question comments' text moved there.
 - libexec/cycle no longer has a check that a progress file is newer than the
   cycle's lock: it compared with a file named by a number and never held.
 - `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
