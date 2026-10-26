@@ -489,14 +489,19 @@ t_eq "$(jq -r .why "$dispatch_json")" ""
 t_case "a slice probe that hangs holds within its bound"
 reset
 : >"$fx/slice-hangs"
+# The probe hangs for 120 seconds and TEHAS_SLICE_WAIT is 1. A loaded runner
+# makes the poll slower, but not by a minute: a poll under 60 seconds was cut
+# short by the bound, not by luck.
+t_stub systemctl "${systemctl_stub/sleep 20/sleep 120}"
 began=$SECONDS
 T_ENV+=(TEHAS_SLICE_WAIT=1)
 t_run "$dispatch"
 unset 'T_ENV[-1]'
-t_eq "$([ $((SECONDS - began)) -le 6 ] && echo in time)" "in time"
+t_eq "$([ $((SECONDS - began)) -lt 60 ] && echo in time)" "in time"
 t_eq "$t_rc" 0
 t_contains "$t_out" "holding: systemctl gave no answer"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
+t_stub systemctl "$systemctl_stub"
 
 t_done
