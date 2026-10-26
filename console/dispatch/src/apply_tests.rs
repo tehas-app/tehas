@@ -1035,3 +1035,69 @@ fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
     );
     assert!(t.w.home.join("live/console-5.txt").exists());
 }
+
+#[test]
+fn a_quiet_cycle_asked_again_and_one_that_was_said_for_only() {
+    let mut t = world();
+    fs::write(
+        t.dir.join("note"),
+        r#"{"api":1,"verb":"cycle-note","ok":true,"times":2,"stop_asked_at":1}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([quiet_of(7)]));
+    assert!(a.log[0].ends_with(": the poll asks tehas-cycle@7.service to stop again"));
+    assert!(t.calls().contains(&"start 7".to_string()));
+    // Past the six asks, by more: the line is said only, not counted again.
+    let mut t = world();
+    fs::write(
+        t.dir.join("note"),
+        r#"{"api":1,"verb":"cycle-note","ok":true,"times":7,"stop_asked_at":1}"#,
+    )
+    .unwrap();
+    t.apply(json!([quiet_of(7)]));
+    assert!(t
+        .writes()
+        .contains(&"store cycle-stop-asked 7 --said-only".to_string()));
+}
+
+#[test]
+fn a_quiet_stop_that_fails_is_said_with_its_exit() {
+    let mut t = world();
+    t.fail("start", "7");
+    let a = t.apply(json!([quiet_of(7)]));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "WARN: could not stop tehas-cycle@7.service (exit 1): it holds its slot, and the poll asks again"
+    );
+}
+
+#[test]
+fn a_finished_cycle_that_keeps_its_lock_is_said() {
+    let mut t = world();
+    let cycles = t.w.home.join("state/cycles");
+    fs::create_dir_all(&cycles).unwrap();
+    let lock = fs::File::create(cycles.join("7.lock")).unwrap();
+    lock.lock().unwrap();
+    let a = t.apply(json!([{"stop_done": 7, "why": "merged"}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the cycle for #7 still holds its lock after its stop"]
+    );
+}
+
+#[test]
+fn a_sweep_removes_a_link_and_never_what_it_points_at() {
+    let mut t = world();
+    let keep = t.dir.join("keep");
+    fs::create_dir_all(keep.join("inside")).unwrap();
+    let runs = t.dir.join("user/.pi/agent/ensemble-runs");
+    fs::create_dir_all(&runs).unwrap();
+    std::os::unix::fs::symlink(&keep, runs.join("issue-5")).unwrap();
+    std::os::unix::fs::symlink(t.dir.join("nowhere"), runs.join("plan-5")).unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left"}]));
+    assert_eq!(a.log, vec!["removed what #5 left"]);
+    assert!(fs::symlink_metadata(runs.join("issue-5")).is_err());
+    assert!(fs::symlink_metadata(runs.join("plan-5")).is_err());
+    assert!(keep.join("inside").is_dir());
+}

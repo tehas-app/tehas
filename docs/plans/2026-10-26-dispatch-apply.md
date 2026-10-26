@@ -62,6 +62,10 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
    action (A14); the lock, `live/dispatch.json`, the log, the exit statuses;
    the setting `TEHAS_DISPATCHER=bash|rust` (bash the default, malformed is
    78); the process cases of `test/dispatch_test.sh` run against the binary.
+   Two things to settle there: a poll that `apply` ends early (a quiet
+   cycle's store that cannot be used, exit 78) logs only the decision's lines
+   up to the action it reached, as the bash exits there; and no child of the
+   poll inherits the poll's lock, as the bash's `8>&-` sees to.
 
 The default changes only after 7 days of shadow and 7 days as the dispatcher
 on tehas-tehas, each recorded in `host/docs/features.md`. Removing
