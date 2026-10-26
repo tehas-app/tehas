@@ -9,8 +9,10 @@ cycles=$home/state/cycles
 SUM=$(printf 'a%.0s' {1..64})
 OTHER=$(printf 'b%.0s' {1..64})
 
-# lib <snippet>: run it with the settings and the fixer's library loaded.
-lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/store.sh"; . "$T_ROOT/lib/fixer.sh"; tehas_load || exit 78; '"$1"; }
+# lib <snippet>: run it with the settings and the fixer's library loaded. The
+# answer is what the snippet prints, so the line for an old fixer name is not
+# wanted in it (lib/config.sh, TEHAS_SILENT_RENAMED).
+lib() { t_run 'TEHAS_SILENT_RENAMED=1; . "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/store.sh"; . "$T_ROOT/lib/fixer.sh"; tehas_load || exit 78; '"$1"; }
 # record <issue> <JSON>: the approval of the issue's last start, on the store.
 record() { t_record "$home" "$1" "$2"; }
 # view <issue>: that approval as its readers have it, in a file; then <snippet>
