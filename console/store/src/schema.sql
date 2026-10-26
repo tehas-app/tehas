@@ -315,6 +315,15 @@ CREATE TABLE polls (
   settled       INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX polls_recent ON polls (at DESC);
+-- What each poll that held the lock cost, written as it ends (poll-record).
+-- writes and its four kinds are NULL when there was no write log to count.
+CREATE TABLE poll_cost (
+  id INTEGER PRIMARY KEY,
+  at INTEGER NOT NULL,
+  wall_ms INTEGER NOT NULL, cpu_ms INTEGER NOT NULL, gh INTEGER NOT NULL,
+  writes INTEGER, label INTEGER, comment INTEGER, edit INTEGER, other INTEGER
+);
+CREATE INDEX poll_cost_at ON poll_cost (at);
 CREATE TABLE poll_demand (
   at INTEGER PRIMARY KEY REFERENCES polls (at) ON DELETE CASCADE,
   waiting INTEGER NOT NULL, oldest_at INTEGER, refresh_hold TEXT

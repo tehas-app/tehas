@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- Each poll records what it cost in the state store: its wall time, its CPU
+  time, its own `gh` calls and the writes the host shim logged while it ran,
+  by kind (#743). `tehas status` shows them on a `poll` line under the
+  `factory` line, with the sums of the last hour, and `store poll-show` gives
+  them as JSON. The state store moves to schema 7, which adds the table
+  `poll_cost`; the install migrates it and keeps a backup.
 - `tehas history` and `tehas export` give every line a cursor of its own,
   `<seconds>-<issue>-<place>`, as `1760700000-12-41`, and list the lines in the
   order the state store wrote them (#754). A program that keeps `next` no

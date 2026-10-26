@@ -30,7 +30,10 @@ pub fn run(file: &Path, out: &Path) -> Result<String, (u8, String)> {
     let (bytes, _) = read_file(file, MAX_BYTES).map_err(|_| {
         (
             1,
-            format!("slow: {} is not a plain file under the bound", file.display()),
+            format!(
+                "slow: {} is not a plain file under the bound",
+                file.display()
+            ),
         )
     })?;
     let text = String::from_utf8_lossy(&bytes);
@@ -40,7 +43,8 @@ pub fn run(file: &Path, out: &Path) -> Result<String, (u8, String)> {
     if !kept.is_empty() {
         // Both paths are the caller's: the record writer names the stream it
         // owns and the record it is building, as it names every file of a record.
-        fs::write(out, kept.as_bytes()).map_err(|e| (1, format!("slow: write {}: {e}", out.display())))?;
+        fs::write(out, kept.as_bytes())
+            .map_err(|e| (1, format!("slow: write {}: {e}", out.display())))?;
     }
     Ok(format!(
         "{{\"api\":1,\"verb\":\"slow\",\"ok\":true,\"lines\":{}}}",

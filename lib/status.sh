@@ -9,16 +9,15 @@
 #   tehas_health_readable <file>    0 when the file is there and holds a status
 #   tehas_health_stale <file> <now> 0 when the file is older than the rule
 #                                   (a time that cannot be read counts as old)
-#   tehas_state_lines <json> <now> <stale>   the factory line, the queue line,
-#                                            and a line for each pause switch
+#   tehas_state_lines <json> <now> <stale> [<poll>]  the factory line, the
+#              poll line given (store poll-show), the queue, each pause switch
 #   tehas_cycle_line <json> <now>            one cycle, as health.json writes it
 #   tehas_plan_lines <health json> <now>     a line for each planning turn in
 #                                            flight; nothing without one
 #   tehas_slice_line <health json> <now>     the last poll's slice check
-#   tehas_platform_line <health json> <now>  the platform the host runs (its
-#                                            release, or its checkout against
-#                                            origin) as one line; nothing
-#                                            without either
+#   tehas_platform_line <health json> <now>  the platform the host runs, its
+#                                            release or its checkout against
+#                                            origin, as one line, or nothing
 #   tehas_status_json <health json> <now> <stale>
 #                                            the object of tehas status --json
 #
@@ -26,9 +25,8 @@
 #
 #   tehas_pause_read <file>       the flag tehas pause writes, {by, at, reason}
 #
-# <json> is JSON text given as an argument: nothing here loads the instance
-# settings or writes anything. tehas_pause_read is the one function that reads a
-# file, and it reads only the one its argument names.
+# <json> is JSON text given as an argument: nothing here loads the settings or
+# writes anything. tehas_pause_read reads only the file its argument names.
 #
 # The jq behind the state lines and the cycle line is named - tehas_state_line_jq
 # and tehas_cycle_line_jq - because `tehas top` draws a whole frame in one jq
@@ -122,6 +120,7 @@ tehas_pause_read() { # <file>
 tehas_state_line_jq='
     (if $stale then "factory   stale: the dispatcher last reported \(.time | age($now)), is its timer running? It said \(.status): \(.output // "")"
      else "factory   \(.status): \(.output // "") (\(.time | age($now)))" end),
+    ($ARGS.named.poll // "" | select(. != "")),
     (.checks.queue // null | if . == null then "queue     no snapshot yet"
      else "queue     \(.inLine) in line, \(.building) building, \(.review) in review, \(.stopped) stopped"
           + (if .paused then ", paused" else "" end) + " (\(.time // "" | age($now)))" end),
@@ -131,8 +130,8 @@ tehas_state_line_jq='
     (if .checks.allHands == true then "all-hands tehas:all-hands is on the control issue, applied by an allowed account" else empty end)
   '
 
-tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false>
-  jq -r --argjson now "$2" --argjson stale "$3" "$tehas_state_defs$tehas_state_line_jq" <<<"$1"
+tehas_state_lines() { # <health json> <now epoch seconds> <stale true|false> [<poll line>]
+  jq -r --argjson now "$2" --argjson stale "$3" --arg poll "${4:-}" "$tehas_state_defs$tehas_state_line_jq" <<<"$1"
 }
 
 # One cycle as health.json writes it: issue, running, status, step, startedAt,
