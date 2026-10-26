@@ -71,7 +71,7 @@ gh_edits() { t_calls gh | grep '^issue edit' || true; }
 
 reset() {
   release
-  rm -rf "$th" "$runs" "$T"/calls/* "$T/holder" "$T/holder-keep" "$T/gone"
+  rm -rf "$th" "$runs" "$T"/calls/* "$T/holder" "$T/holder-keep" "$T/gone" "$T/bin/sleep"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   # The state store with nothing on record.
@@ -103,6 +103,8 @@ hold_whole() { # <issue>
   # A holder of no cycle at all, so the stop's kill ends nothing of this case.
   : >"$T/holder"
   T_ENV=("${T_ENV[@]}" KILL=0)
+  # The lock never frees, so the stop's ten seconds of naps are cut to one.
+  t_stub sleep 'command -p sleep 0.05'
 }
 release() {
   local pid
