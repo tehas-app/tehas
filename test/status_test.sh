@@ -47,6 +47,10 @@ closed() { # number closedAt closer [label]: a closed issue as the search for sh
   printf '{"number":%s,"title":"t","url":"u","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
     "$1" "$2" "$2" "$label" "$3"
 }
+no_labels() { # number closedAt closer: as closed, with no labels field at all - a read that said nothing of them
+  printf '{"number":%s,"title":"t","url":"u","updatedAt":"%s","closedAt":"%s","timelineItems":{"nodes":[{"closer":%s}]}}' \
+    "$1" "$2" "$2" "$3"
+}
 shipped() { # closed issues, as the GraphQL answer
   local IFS=,
   printf '{"data":{"search":{"nodes":[%s]}}}' "$*" >"$T/shipped.json"
@@ -296,16 +300,55 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 
 t_case "a shipped issue is given the label whatever else it carries, and once"
-# The shared read answers by the closer, not by the labels: the query names no
-# labels at all, so the loop gives the label to what the read finds shipped and
-# GitHub makes the edit idempotent for the rest.
+# The read answers by the closer and not by the labels, so an issue that carries
+# another label is shipped and edited like one that carries none: three issues,
+# three edits, the label itself absent from all of them.
 reset
 jq -n '{data: {search: {nodes: [range(6; 9) | {number: ., title: "t", url: "u",
   updatedAt: "2026-01-02T00:00:00Z", closedAt: "2026-01-02T00:00:00Z",
+  labels: {nodes: [{name: "bug"}]},
   timelineItems: {nodes: [{closer: {merged: true}}]}}]}}}' >"$T/shipped.json"
 t_run "$status"
 t_eq "$(jq -c '[.completed[].number] | sort' "$live/status.json")" "[6,7,8]"
 t_eq "$(t_calls gh | grep -c 'issue edit')" 3
+
+t_case "an issue already labelled tehas:shipped is not asked for it, whatever the poll"
+# The read names the labels of every issue it lists, so the edit is asked for
+# only an issue that does not carry the label. gh issue edit is no no-op: it
+# reads the issue and sends a mutation every time, and one poll used to pay 45
+# of them for issues that all held the label already (#731).
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}' tehas:shipped)"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 0
+
+# One of three that shipped without it is the issue the poll edits, and the only
+# one: the two that hold the label are left alone.
+t_case "of three shipped issues, only the one that lacks the label is edited"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}' tehas:shipped)" \
+  "$(closed 21 2026-01-03T00:00:00Z '{"merged":true}')" \
+  "$(closed 22 2026-01-04T00:00:00Z '{"merged":true}' tehas:shipped)"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number] | sort' "$live/status.json")" "[20,21,22]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 1
+t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:shipped"
+t_lacks "$(t_calls gh)" "issue edit 20 --repo"
+t_lacks "$(t_calls gh)" "issue edit 22 --repo"
+
+# A label the read could not read is a missing label: the edit is sent, as it
+# was before the query read the labels at all.
+t_case "a shipped issue whose labels the read did not answer is edited"
+reset
+shipped "$(no_labels 20 2026-01-02T00:00:00Z '{"merged":true}')"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[20]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 1
+t_contains "$(t_calls gh)" "issue edit 20 --repo acme/widget --add-label tehas:shipped"
 
 t_case "the control issue is not listed as shipped and not given the label, whatever the read answers"
 # It holds the pause switch and is not work: libexec/status leaves the number
