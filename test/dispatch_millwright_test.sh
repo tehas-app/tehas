@@ -13,7 +13,7 @@ fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
   local i
   reset
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
-  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"}]}]' >"$fx/ready.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"},{"name":"tehas:millwright-escalated"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
   echo '[]' >"$fx/icomments-7.json"
@@ -25,6 +25,7 @@ fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
 
 t_case "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval"
 fixer_ready
+store_refuses none 1 none
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "7"
@@ -33,8 +34,12 @@ t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.at, .rests_
 t_contains "$t_out" "start #7 (labelled by the fixer by tehas-fixer)"
 t_contains "$(t_calls gh)" "authorized by @tehas-fixer's \`tehas:ready\` label as the fixer, on alice's approval of 2026-10-01T00:00:00Z"
 
-t_case "the start takes tehas:fixer-escalated off with the rest of the earlier outcome"
-t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:fixer-escalated"
+t_case "the store is told the millwright's word"
+t_contains "$(t_calls store)" "approval-record 7 --at 1790899200 --by tehas-fixer --how millwright "
+t_lacks "$(t_calls store)" "--how fixer"
+
+t_case "the start takes both escalation labels off with the rest of the earlier outcome"
+t_contains "$(t_calls gh)" "--remove-label tehas:ready --remove-label tehas:question --remove-label tehas:fixer-escalated --remove-label tehas:millwright-escalated"
 
 t_case "a second fixer start counts on from the first and keeps the person's approval"
 fixer_ready 1
@@ -121,8 +126,21 @@ fixer_ready
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(approval '.retry_context')" \
-  "$(sorted '[{"source":"fixer:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]')"
+  "$(sorted '[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-01T23:55:00Z","text":"<!-- tehas:fixer issue=7 action=change -->\nRun the gate first."}]')"
 t_eq "$(approval 'has("comment_links")')" false
+
+t_case "the millwright's marker counts as the fixer's, the newer of the two is the context"
+fixer_ready
+{
+  echo '['
+  icomment 81 tehas-fixer 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:fixer issue=7 action=change -->\nRun the gate first.'
+  echo ','
+  icomment 84 tehas-fixer 2026-10-01T23:56:00Z 2026-10-01T23:56:00Z $'<!-- tehas:millwright issue=7 action=retry -->\nTry once more.'
+  echo ']'
+} >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(approval '[.retry_context[].source]')" '["millwright:84"]'
 
 t_case "a title changed by an outsider since the person's approval: the fixer's label starts nothing"
 fixer_ready
@@ -163,6 +181,15 @@ Adopt all, as alice chose in #12.'
 t_contains "$t_out" "planning #7 continues (answer from tehas-fixer, the fixer)"
 t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":4,"by":"tehas-fixer","fixer":true}'
 
+t_case "a reply marked as the millwright's runs the turn, and the store is told the millwright answered"
+fixer_planning
+store_refuses none 1 none
+comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply '<!-- tehas:millwright issue=7 action=answer -->'$'\nAdopt all.')"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
+t_contains "$(t_calls store)" "--millwright"
+t_lacks "$(t_calls store)" "--fixer"
+
 t_case "a box the fixer ticked runs the turn as its choice"
 fixer_planning
 comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
@@ -186,6 +213,7 @@ t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "never two in a row: after the fixer's answer its next one runs no turn, and the issue says so once"
 fixer_planning '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
+store_refuses none 1 none
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -193,6 +221,7 @@ t_contains "$t_out" "skip #7: the fixer's answer runs no turn: the fixer answere
 t_eq "$(t_calls gh | grep -c '^issue comment 7 ')" 1
 t_contains "$(t_calls gh)" "Tehas did not take the fixer's reply as an answer"
 t_eq "$(rec | jq -c '.fixer_refused')" '[4003]'
+t_contains "$(t_calls store)" "--kind millwright-refused --id 4003"
 rm -f "$T"/calls/*
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
@@ -284,7 +313,7 @@ fixer_planning
 comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply 'Adopt all.')"
 t_run "$dispatch"
 t_eq "$(plan_calls)" ""
-t_contains "$t_out" "its reply does not start with <!-- tehas:fixer issue=7 action=answer -->"
+t_contains "$t_out" "its reply does not start with <!-- tehas:millwright issue=7 action=answer -->"
 
 t_case "in a session started by an account no longer allowed, the fixer answers nothing"
 fixer_planning '[]' mallory

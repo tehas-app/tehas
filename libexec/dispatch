@@ -106,7 +106,7 @@
 #      --continue-pr; otherwise it starts nothing, said once. Read again at the
 #      start: the issue is open, carries tehas:awaiting-merge or
 #      needs-human-attention (a handoff, and then not tehas:ready) and none of
-#      tehas:running, tehas:question, tehas:fixer-escalated, tehas:plan, and
+#      tehas:running, tehas:question, either escalation label, tehas:plan, and
 #      no cycle or planning session is open on it; its text is the text that
 #      person approved, renamed or edited by nobody else since; the pull
 #      request is still the one open pull request that closes it, the bot's,
@@ -129,8 +129,8 @@
 #      person answered, in a session an allowed account's tehas:plan
 #      started, fewer than TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS times in the session,
 #      never for two turns in a row and never as the way out; its reply
-#      starts with <!-- tehas:fixer issue=<n> action=answer -->. Otherwise
-#      a tick is undone and a reply is said once on the issue. An issue
+#      starts with <!-- tehas:millwright issue=<n> action=answer --> or the
+#      old tehas:fixer. Otherwise a tick is undone and a reply is said once. An issue
 #      whose tehas:plan or tehas:refine label was applied by an
 #      allowed account starts a session, a parked one included: as with
 #      tehas:ready, tehas:question is no bar to asking for a session, and the
@@ -176,8 +176,8 @@
 #      its tehas:ready starts a cycle on an issue an allowed account approved
 #      before, whose body is still the body that account approved, at most
 #      TEHAS_MILLWRIGHT_MAX_RETRIES times since (lib/millwright.sh). Otherwise the poll
-#      takes its label off and says why. A start takes tehas:fixer-escalated
-#      off, whoever made it.
+#      takes its label off and says why. A start takes tehas:millwright-escalated
+#      and the old tehas:fixer-escalated off, whoever made it.
 #      An issue that carries tehas:blocked waits while any issue it names is
 #      open. The names are in the newest comment with the marker
 #      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
@@ -1239,14 +1239,14 @@ fixer_ok() {
 # when the answer may run the turn (tehas_millwright_answer in lib/millwright.sh, a
 # marked reply, never the way out). Otherwise it is an outsider's: a tick is
 # undone with a note, as a stranger's is, and a reply is logged and said on the
-# issue once, its id noted with the session (plan-note --kind fixer-refused).
+# issue once, its id noted with the session (plan-note --kind millwright-refused).
 fixer_answer_ok() {
   local n=$1 view=$2 ans=$3 said=$4 why="" id
   # The way out is a person's, whether the fixer's tick or its reply is used.
   if [ "$(jq -r .tick.status <<<"$ans")" = fixer ] && [ "$(jq -r .tick.index <<<"$ans")" = "$(($(jq -r .boxes <<<"$ans") - 1))" ]; then
     why="it ticked End this planning session, which only a person may"
   elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
-    why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
+    why="its reply does not start with <!-- tehas:millwright issue=$n action=answer -->"
   elif ! tehas_millwright_answer "$view"; then
     why=$tehas_millwright_why
   else
@@ -1263,7 +1263,7 @@ fixer_answer_ok() {
   jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 1
   log "skip #$n: the fixer's answer runs no turn: $why"
   [ "$dry" = 0 ] || return 1
-  if plan_store plan-note "$n" --kind fixer-refused --id "$id"; then
+  if plan_store plan-note "$n" --kind millwright-refused --id "$id"; then
     [ "$(tehas_store_get .said)" != true ] ||
       say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
   else
@@ -1381,7 +1381,7 @@ approved_record() {
         { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
     fi
   fi
-  if [ "${given_how[$n]}" = fixer ]; then
+  if [ "${given_how[$n]}" = millwright ]; then
     retry=$(fixer_note "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   fi
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
@@ -1409,7 +1409,7 @@ approved_record() {
     return 1
   fi
   args=("$n" --at "$at" --by "${starter[$n]}" --how "${given_how[$n]}" --body-sha "$sum" --input-file "$input")
-  case ${given_how[$n]} in label | fixer) args+=(--label tehas:ready) ;; esac
+  case ${given_how[$n]} in label | millwright) args+=(--label tehas:ready) ;; esac
   [ -z "$tsum" ] || args+=(--title-sha "$tsum")
   [[ ${given_comment[$n]:-} =~ ^[1-9][0-9]{0,15}$ ]] && args+=(--comment-id "${given_comment[$n]}")
   [ -z "${refresh_pr[$n]:-}" ] ||
@@ -1493,9 +1493,9 @@ fixer_note() {
     | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
         and (.user.login // "") == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
         and .created_at >= $since and .created_at <= $at and .updated_at <= $at
-        and (.body | test("<!-- tehas:fixer issue=" + $n + " action=(retry|change) -->")))]
+        and (.body | test("<!-- tehas:(millwright|fixer) issue=" + $n + " action=(retry|change) -->")))]
     | sort_by(.created_at, .id) | .[-1:]
-    | {links: [], context: map({source: "fixer:\(.id)", by: .user.login, at: .created_at,
+    | {links: [], context: map({source: "millwright:\(.id)", by: .user.login, at: .created_at,
         text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
 }
 
@@ -1912,7 +1912,7 @@ refresh_ok() {
   # starts: a refresh must not take its place.
   [[ $have != *" needs-human-attention "* || $have != *" tehas:ready "* ]] ||
     { refresh_drop "$n" "it was handed off and carries tehas:ready"; return 1; }
-  for l in tehas:running tehas:question tehas:fixer-escalated tehas:plan tehas:planning; do
+  for l in tehas:running tehas:question tehas:fixer-escalated tehas:millwright-escalated tehas:plan tehas:planning; do
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
   # The person whose approval the pull request's cycle rests on, and the
@@ -3144,8 +3144,7 @@ for n in $asking; do
       drop[$n]="--remove-label tehas:question"
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
-      [[ $have == *" tehas:ready "* ]] && drop[$n]+=" --remove-label tehas:ready"
-      [[ $have == *" tehas:fixer-escalated "* ]] && drop[$n]+=" --remove-label tehas:fixer-escalated"
+      for l in tehas:ready tehas:fixer-escalated tehas:millwright-escalated; do [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"; done
       # One tick is one start. The start takes the question off the record
       # and then marks the issue: when the mark fails the question goes back
       # on record, the poll ends here and the tick stays, so the next poll
@@ -3655,14 +3654,14 @@ while read -r kind n; do
   if [ "$by_fixer" = 1 ]; then
     verb[$n]="labelled by the fixer"
     how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_millwright_rests_on")'s approval of $(jq -r .at <<<"$tehas_millwright_rests_on")"
-    given_how[$n]=fixer
+    given_how[$n]=millwright
   fi
   drop[$n]="--remove-label $ask"
   [ "$ask" = tehas:blocked ] || [[ $have != *" tehas:blocked "* ]] || drop[$n]+=" --remove-label tehas:blocked"
   # What an earlier cycle left goes with the start, only what is there: gh refuses
   # a label the repository lacks. needs-human-attention is pi-rukas's to clear
   # (the cycle starts with --restart).
-  for l in tehas:awaiting-merge tehas:question tehas:fixer-escalated; do
+  for l in tehas:awaiting-merge tehas:question tehas:fixer-escalated tehas:millwright-escalated; do
     [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"
   done
 done <<<"$order"

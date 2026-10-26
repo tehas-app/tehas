@@ -167,7 +167,9 @@ impl Poll<'_> {
         {
             "it ticked End this planning session, which only a person may".to_string()
         } else if said == "reply" && ans["fixer_reply"]["marked"] != json!(true) {
-            format!("its reply does not start with <!-- tehas:fixer issue={n} action=answer -->")
+            format!(
+                "its reply does not start with <!-- tehas:millwright issue={n} action=answer -->"
+            )
         } else {
             self.fixer_answer_why(view)
         };
@@ -194,7 +196,7 @@ impl Poll<'_> {
         }
         self.log(format!("skip #{n}: the fixer's answer runs no turn: {why}"));
         if !self.dry {
-            self.act(json!({"plan_note": n, "kind": "fixer-refused", "id": id,
+            self.act(json!({"plan_note": n, "kind": "millwright-refused", "id": id,
                 "say": format!("Tehas did not take the fixer's reply as an answer: {why}. A person answers this question.")}));
         }
         false
