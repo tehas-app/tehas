@@ -81,10 +81,21 @@ mod tests {
         let poll = "2026-10-26T10:00:00Z holding: 1 cycles are running (limit 1)\n2026-10-26T10:00:01Z clear #9: it is closed\n";
         let r = compare(&d, poll, Some(0), "t");
         assert_eq!(r["same"], json!(true));
-        let r = compare(&d, "2026-10-26T10:00:00Z start #7 (labelled by alice)\n", Some(0), "t");
+        let r = compare(
+            &d,
+            "2026-10-26T10:00:00Z start #7 (labelled by alice)\n",
+            Some(0),
+            "t",
+        );
         assert_eq!(r["same"], json!(false));
         assert_eq!(r["bash_only"], json!(["start #7 (labelled by alice)"]));
-        assert_eq!(r["rust_only"], json!(["holding: 1 cycles are running (limit 1)", "clear #9: it is closed"]));
+        assert_eq!(
+            r["rust_only"],
+            json!([
+                "holding: 1 cycles are running (limit 1)",
+                "clear #9: it is closed"
+            ])
+        );
         assert_eq!(compare(&d, poll, Some(1), "t")["same"], json!(false));
     }
 }

@@ -201,10 +201,21 @@ pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value>
     let list: Vec<Vec<String>> = numbers
         .iter()
         .map(|n| {
-            ["api", "graphql", "-F", &owner, "-F", &name, "-F", &format!("number={n}"), "-f", &query]
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
+            [
+                "api",
+                "graphql",
+                "-F",
+                &owner,
+                "-F",
+                &name,
+                "-F",
+                &format!("number={n}"),
+                "-f",
+                &query,
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
         })
         .collect();
     calls

@@ -30,7 +30,11 @@ pub fn run(program: &str, args: &[String], bound: Duration) -> Ran {
 pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Duration) -> Ran {
     let child = Command::new(program)
         .args(args)
-        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -174,7 +178,10 @@ impl Calls {
                     .collect();
                 handles
                     .into_iter()
-                    .map(|h| h.join().unwrap_or_else(|_| Err(GhFail("ERROR: gh failed".into()))))
+                    .map(|h| {
+                        h.join()
+                            .unwrap_or_else(|_| Err(GhFail("ERROR: gh failed".into())))
+                    })
                     .collect()
             });
             self.gh_count += chunk.len() as u32;

@@ -361,9 +361,12 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
     );
     let marked = works.join(".tehas-workspaces").is_file();
     let number = |s: &str| -> Option<u64> {
-        (!s.is_empty() && s.len() <= 10 && !s.starts_with('0') && s.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| s.parse().ok())
-            .flatten()
+        (!s.is_empty()
+            && s.len() <= 10
+            && !s.starts_with('0')
+            && s.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| s.parse().ok())
+        .flatten()
     };
     let names = |dir: &Path| -> Vec<String> {
         let mut n: Vec<String> = fs::read_dir(dir)
@@ -379,7 +382,9 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
     if marked {
         let prefix = format!("{base}-");
         for name in names(works) {
-            let Some(rest) = name.strip_prefix(&prefix) else { continue };
+            let Some(rest) = name.strip_prefix(&prefix) else {
+                continue;
+            };
             let n = [".before-retry", ".images", ".state"]
                 .iter()
                 .find_map(|x| rest.strip_suffix(x))
