@@ -246,6 +246,20 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
         let poll_cost = c
             .execute("DELETE FROM poll_cost WHERE at < ?1", [before])
             .q()?;
+        // A poll's row goes once no action names it: an action intended and
+        // never settled keeps its poll (section 5), and says so by count.
+        let polls = c
+            .execute(
+                "DELETE FROM polls WHERE at < ?1
+                   AND NOT EXISTS (SELECT 1 FROM actions WHERE poll_at = polls.at)",
+                [before],
+            )
+            .q()?;
+        let polls_kept: i64 = c
+            .query_row("SELECT count(*) FROM polls WHERE at < ?1", [before], |r| {
+                r.get(0)
+            })
+            .q()?;
         Ok(vec![
             ("before", j(before)),
             ("endings", j(endings)),
@@ -254,6 +268,8 @@ fn pruned(home: &Path, days: i64, now: i64) -> Result<Vec<(&'static str, String)
             ("heartbeats", j(heartbeats)),
             ("sweep_log", j(sweep_log)),
             ("poll_cost", j(poll_cost)),
+            ("polls", j(polls)),
+            ("polls_kept", j(polls_kept)),
         ])
     })
 }

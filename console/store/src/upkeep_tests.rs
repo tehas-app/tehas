@@ -135,7 +135,7 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     conn(&home)
         .execute_batch(&format!(
             "INSERT INTO endings (issue, started_at, ended_at, status) VALUES (20, 1, {recent}, 'merged');
-             INSERT INTO polls (at, lock_taken_at) VALUES (1, 1);
+             INSERT INTO polls (at, lock_taken_at) VALUES (1, 1), (2, 2), ({recent}, {recent});
              INSERT INTO actions (id, poll_at, kind, issue, args_json, before_snapshot, state, intended_at, settled_at)
                VALUES (1, 1, 'label', 8, '{{}}', 1, 'done', {old}, {old}),
                       (2, 1, 'label', 8, '{{}}', 1, 'intended', {old}, NULL),
@@ -149,6 +149,11 @@ fn prune_removes_old_ends_settled_actions_and_old_heartbeats_of_ended_cycles() {
     assert_eq!(v["actions"], 1);
     assert_eq!(v["journal"], 1);
     assert_eq!(v["heartbeats"], 2);
+    // Poll 2 goes; poll 1 stays while its action 2 is unsettled, and the
+    // recent one is not old enough.
+    assert_eq!(v["polls"], 1);
+    assert_eq!(v["polls_kept"], 1);
+    assert_eq!(count(&home, "polls"), 2);
     assert_eq!(count(&home, "endings"), 1);
     assert_eq!(count(&home, "actions"), 2);
     assert_eq!(count(&home, "journal"), 2);

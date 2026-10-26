@@ -103,11 +103,19 @@
 //!                --writes-log <file>
 //!   store poll-show
 //!                (what each poll cost: src/poll.rs)
+//!   store poll-begin
+//!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
+//!                --before <at>
+//!   store journal-attempt --action N
+//!   store journal-settle --action N (--result <result> | --abandoned)
+//!                [--evidence <json>]
+//!   store journal-open
+//!                (the action journal: src/journal.rs)
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
-//! `store: <word> #<issue>: ...` (1). The rest of the 13 groups, state-audit
-//! and the journal are later parts of epic #244; an argument this command does
+//! `store: <word> #<issue>: ...` (1). The rest of the 13 groups and
+//! state-audit are later parts of epic #244; an argument this command does
 //! not know is exit 64. A build with debug assertions also has `test-write`,
 //! the writer its own tests run (src/exercise.rs), and reads its clock from
 //! TEHAS_STORE_TEST_NOW when that is set; a release build has neither.
@@ -142,6 +150,7 @@ mod db;
 mod exercise;
 mod history;
 mod import;
+mod journal;
 mod live;
 mod lock;
 mod park;
@@ -159,6 +168,8 @@ mod cycle_tests;
 mod history_tests;
 #[cfg(test)]
 mod import_tests;
+#[cfg(test)]
+mod journal_tests;
 #[cfg(test)]
 mod live_tests;
 #[cfg(test)]
