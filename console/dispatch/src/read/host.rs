@@ -91,7 +91,7 @@ pub fn pause(home: &Path) -> Value {
 
 /// Seconds since the epoch of an ISO 8601 UTC time as fromdateiso8601 reads
 /// it: YYYY-MM-DDTHH:MM:SSZ.
-fn epoch(s: &str) -> Option<i64> {
+pub(crate) fn epoch(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     if b.len() != 20
         || b[4] != b'-'

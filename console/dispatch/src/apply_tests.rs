@@ -13,13 +13,15 @@ const STUB: &str = r#"#!/bin/bash
 d=$(dirname "$0")
 name=$(basename "$0")
 input=""
-if [ "$name" != store ] && [ "$name" != docker ]; then input=$(cat); fi
+case $name in gh) input=$(cat) ;; esac
 printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
 if [ -f "$d/fail-$name" ]; then
-  while IFS= read -r p; do
+  while IFS= read -r line; do
+    p=${line%%|*} w=${line#*|}
+    [ "$w" != "$line" ] || w=busy
     case "$* $input" in *"$p"*)
       case "$p" in slow*) sleep 5 ;; esac
-      case "$*" in *DELETE*) echo "gh: Not Found (HTTP 404)" >&2 ;; *) echo "store: busy: stub" >&2 ;; esac
+      case "$*" in *DELETE*) echo "gh: Not Found (HTTP 404)" >&2 ;; *) echo "store: $w: stub" >&2 ;; esac
       exit 1 ;;
     esac
   done <"$d/fail-$name"
@@ -27,9 +29,18 @@ fi
 case "$name $1" in
   "store journal-record") n=$(($(cat "$d/n" 2>/dev/null || echo 0) + 1)); echo "$n" >"$d/n"
     echo "{\"api\":1,\"verb\":\"journal-record\",\"ok\":true,\"action\":$n}" ;;
+  "store cycle-show") a=0; [ ! -f "$d/started" ] || a=1
+    echo "{\"api\":1,\"verb\":\"cycle-show\",\"ok\":true,\"cycle\":{\"attempt\":$a}}" ;;
+  "store park-show") echo "{\"api\":1,\"verb\":\"park-show\",\"ok\":true,\"park\":$(cat "$d/park" 2>/dev/null || echo null)}" ;;
+  "store approval-record")
+    while [ $# -gt 0 ]; do [ "$1" != --input-file ] || cp "$2" "$d/input.json"; shift; done
+    echo '{"api":1,"verb":"approval-record","ok":true}' ;;
+  "start "*) : >"$d/started" ;;
+  "status "*) echo "the status line" ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
   "docker rm") echo "$3" ;;
+  "gh api") case "$2" in *comments*) cat "$d/comments" 2>/dev/null || echo '[]' ;; esac ;;
 esac
 "#;
 
@@ -57,7 +68,7 @@ fn world() -> World {
         fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
         p
     });
-    for name in ["gh", "store", "docker"] {
+    for name in ["gh", "store", "docker", "start", "status"] {
         std::os::unix::fs::symlink(stub, dir.join(name)).unwrap();
     }
     let s = |n: &str| dir.join(n).to_string_lossy().into_owned();
@@ -76,6 +87,20 @@ fn world() -> World {
         poll_at: 1000,
         before: 990,
         bound: Duration::from_secs(10),
+        host: start::Host {
+            name: "tehas-tehas".into(),
+            comments: false,
+            allowed: vec!["alice".into()],
+            millwright: "mill-bot".into(),
+            bot: "tehas-bot".into(),
+            systemctl: s("start"),
+            start_cmd: Some(s("start")),
+            stop_cmd: Some(s("start")),
+            start_wait: Duration::from_secs(2),
+            status_cmd: s("status"),
+            analytics: None,
+            analytics_wait: Duration::from_secs(5),
+        },
     };
     World { dir, w }
 }
@@ -371,8 +396,227 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
 #[test]
 fn the_actions_of_the_later_parts_are_left_in_order() {
     let mut t = world();
-    let start = json!({"start": 7, "by": "alice", "given": "label"});
     let stop = json!({"stop_done": 8, "why": "merged"});
-    let a = t.apply(json!([start, {"gate_held": true}, stop]));
-    assert_eq!(a.left, vec![start, stop]);
+    let sweep = json!({"sweep": 9, "log": "removed what #9 left"});
+    let a = t.apply(json!([stop, {"gate_held": true}, sweep]));
+    assert_eq!(a.left, vec![stop, sweep]);
+}
+
+fn start_of(n: u64, given: &str) -> Value {
+    json!({"start": n, "by": "alice", "how": "`tehas:ready` label", "at": "2026-10-26T10:00:00Z",
+        "given": given, "remove": ["tehas:ready"], "verb": "labelled", "text": true,
+        "body_sha256": "a".repeat(64), "title_sha256": "b".repeat(64),
+        "links": ["https://github.com/user-attachments/assets/1"]})
+}
+
+/// The calls a test reads, each as its program and first word.
+fn steps(t: &World) -> Vec<String> {
+    t.writes()
+        .iter()
+        .map(|c| c.split(' ').take(2).collect::<Vec<_>>().join(" "))
+        .collect()
+}
+
+#[test]
+fn a_start_records_marks_says_and_starts_in_that_order() {
+    let mut t = world();
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    assert_eq!(a.log, vec!["start #7 (labelled by alice)"]);
+    assert_eq!(a.printed, vec!["the status line"]);
+    assert_eq!(
+        steps(&t),
+        vec![
+            "store approval-record",
+            "store cycle-show",
+            "store park-show",
+            "gh issue",
+            "gh issue",
+            "start 7",
+            "store cycle-show",
+            "status ",
+        ]
+    );
+    let c = t.writes();
+    assert!(c[0].contains("approval-record 7 --at 1793008800 --by alice --how label"));
+    assert!(c[0].contains(&format!("--body-sha {} ", "a".repeat(64))));
+    assert!(c[0].contains("--label tehas:ready"));
+    assert!(c[0].contains(&format!("--title-sha {}", "b".repeat(64))));
+    assert_eq!(c[3], "gh issue edit 7 --repo example-owner/example-product --add-label tehas:running --remove-label tehas:ready");
+    assert!(c[4].contains("Tehas cycle started on `tehas-tehas` at "));
+    assert!(c[4].contains("(authorized by @alice's `tehas:ready` label)"));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(
+        input,
+        json!({"links": ["https://github.com/user-attachments/assets/1"]})
+    );
+    // The input file goes once the store has it.
+    assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn an_approval_the_store_refuses_starts_nothing() {
+    let mut t = world();
+    t.fail("store", "approval-record 7|busy");
+    let a = t.apply(json!([start_of(7, "label"), start_of(8, "label")]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        &a.log[..2],
+        &[
+            "start #7 (labelled by alice)",
+            "ERROR: could not write the approval record of #7 (busy), not starting a cycle"
+        ]
+    );
+    assert!(!t.writes().iter().any(|c| c.contains("issue edit 7")));
+    // The issue after it still starts: the bash goes on to the next one.
+    assert!(t.writes().iter().any(|c| c.contains("issue edit 8")));
+}
+
+#[test]
+fn an_approval_that_started_a_cycle_already_is_skipped() {
+    let mut t = world();
+    t.fail("store", "approval-record|used");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log,
+        vec![
+            "start #7 (labelled by alice)",
+            "skip #7: its approval of 2026-10-26T10:00:00Z started a cycle already"
+        ]
+    );
+}
+
+#[test]
+fn a_store_that_cannot_be_used_ends_the_poll_with_78_before_any_mark() {
+    let mut t = world();
+    t.fail("store", "approval-record|absent");
+    let a = t.apply(json!([start_of(7, "label"), {"gate_held": true}]));
+    assert_eq!(a.exit, Some(78));
+    assert!(a.log[1].starts_with(
+        "ERROR: the state store cannot be used, not starting a cycle for #7: store: absent"
+    ));
+    assert!(a.printed.is_empty());
+    assert!(!t.w.home.join("state/low-gate.held").exists());
+}
+
+#[test]
+fn a_mark_that_fails_takes_the_approval_back_and_starts_nothing() {
+    let mut t = world();
+    t.fail("gh", "--add-label tehas:running");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: could not mark #7 as running, not starting a cycle"
+    );
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store approval-record 7 --undo --at 1793008800")));
+    assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+}
+
+#[test]
+fn a_unit_that_never_says_it_started_is_put_back_and_said() {
+    let mut t = world();
+    t.fail("start", "7");
+    let a = t.apply(json!([start_of(7, "label")]));
+    assert_eq!(a.exit, Some(1));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: the cycle for #7 did not start"
+    );
+    let w = t.writes();
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("store approval-record 7 --undo")));
+    assert!(w.iter().any(|c| c == "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:running --add-label needs-human-attention"));
+    assert!(w.last().unwrap().starts_with("status"));
+    assert!(w
+        .iter()
+        .any(|c| c.contains("`tehas-cycle@7.service` did not come up")));
+}
+
+#[test]
+fn a_retry_unticks_only_after_its_start_worked() {
+    let untick = json!({"untick": 7, "comment": 55, "body": "- [ ] Retry", "fail": "x"});
+    let mut retry = start_of(7, "retry-tick");
+    retry["comment"] = json!(55);
+    let mut t = world();
+    let a = t.apply(json!([retry.clone(), untick.clone()]));
+    assert_eq!(a.exit, None);
+    assert!(t.writes().iter().any(|c| c.contains("PATCH")));
+    assert!(t.writes()[0].contains("--comment-id 55"));
+    assert!(!t.writes()[0].contains("--label"));
+    let mut t = world();
+    t.fail("start", "7");
+    let a = t.apply(json!([retry, untick]));
+    assert_eq!(a.exit, Some(1));
+    assert!(!t.writes().iter().any(|c| c.contains("PATCH")));
+}
+
+#[test]
+fn a_start_takes_its_park_question_off_and_spends_the_retry_after_the_mark() {
+    let mut t = world();
+    fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
+    t.apply(json!([start_of(7, "label")]));
+    let s = steps(&t);
+    let w = t.writes();
+    let withdraw = w
+        .iter()
+        .position(|c| c == "store question-answered 7 --id 41 --withdraw")
+        .unwrap();
+    let mark = w
+        .iter()
+        .position(|c| c.contains("--add-label tehas:running"))
+        .unwrap();
+    let spend = s.iter().position(|c| c == "store park-retry").unwrap();
+    assert!(withdraw < mark && mark < spend);
+    // A mark that fails puts the question back.
+    let mut t = world();
+    fs::write(t.dir.join("park"), r#"{"question": 41}"#).unwrap();
+    t.fail("gh", "--add-label tehas:running");
+    t.apply(json!([start_of(7, "label")]));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c == "store question-asked 7 --id 41 --kind park"));
+}
+
+#[test]
+fn the_approval_names_the_comments_an_allowed_account_wrote_before_it() {
+    let mut t = world();
+    t.w.host.comments = true;
+    let comments = r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
+        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
+      {"id": 2, "body": "https://github.com/user-attachments/assets/3", "user": {"login": "mallory"},
+        "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"},
+      {"id": 3, "body": "later https://github.com/user-attachments/assets/4", "user": {"login": "alice"},
+        "created_at": "2026-10-26T11:00:00Z", "updated_at": "2026-10-26T11:00:00Z"}]"#;
+    fs::write(t.dir.join("comments"), comments).unwrap();
+    t.apply(json!([start_of(7, "label")]));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(
+        input["comment_links"],
+        json!([{"link": "https://github.com/user-attachments/assets/2", "source": "comment:1", "by": "alice"}])
+    );
+}
+
+#[test]
+fn a_start_with_no_text_read_records_nothing() {
+    let mut t = world();
+    let mut a = start_of(7, "label");
+    a["text"] = json!(false);
+    let r = t.apply(json!([a]));
+    assert_eq!(
+        r.log[1],
+        "ERROR: could not write the approval record of #7, not starting a cycle"
+    );
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store approval-record")));
 }
