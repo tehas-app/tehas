@@ -227,11 +227,11 @@ fn now() -> u64 {
 }
 
 impl Writer {
-    fn st(&self, n: u64, end: &str) -> PathBuf {
+    pub(super) fn st(&self, n: u64, end: &str) -> PathBuf {
         self.home.join(format!("state/plan-{n}.json{end}"))
     }
 
-    fn keep(&self, n: u64) -> PathBuf {
+    pub(super) fn keep(&self, n: u64) -> PathBuf {
         PathBuf::from(format!("{}-plan-{n}.keep", self.host.work_dir))
     }
 
@@ -313,7 +313,7 @@ impl Writer {
         }
     }
 
-    fn plan_collect(&mut self, n: u64, log: &mut Vec<String>) {
+    pub(super) fn plan_collect(&mut self, n: u64, log: &mut Vec<String>) {
         let rc = std::fs::read_to_string(self.st(n, ".rc")).unwrap_or_default();
         let rc = rc.trim_end_matches('\n');
         let rc = if !rc.is_empty() && rc.bytes().all(|b| b.is_ascii_digit()) {
@@ -445,7 +445,7 @@ impl Writer {
         }
     }
 
-    fn plan_finish(
+    pub(super) fn plan_finish(
         &mut self,
         n: u64,
         rc: &str,

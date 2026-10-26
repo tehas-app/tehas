@@ -288,11 +288,11 @@ t_eq "$(jq -c '[.same, .bash_only, .rust_only, .exit.bash, .exit.rust]' "$shadow
 t_eq "$(jq -r '.gh_requests | type' "$shadow_log")" number
 t_eq "$([ -e "$T/home/tehas/state/dispatch-shadow.json" ] && echo kept)" ""
 
-t_case "a poll that starts a cycle: the lines of the start are the poll's own"
+t_case "a poll that starts a cycle is the same, its start line too"
 reset
 beside
-t_eq "$(jq -r .same "$shadow_log")" false
-t_contains "$(jq -r '.bash_only[]' "$shadow_log")" "start #7 (labelled by alice)"
+t_eq "$(jq -r .same "$shadow_log")" true
+t_lacks "$(jq -r '.bash_only[]' "$shadow_log")" "start #7 (labelled by alice)"
 t_eq "$(jq -c .rust_only "$shadow_log")" '[]'
 t_eq "$(jq -c .picked "$shadow_log")" '[7]'
 
