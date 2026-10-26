@@ -48,6 +48,8 @@ pub struct Host {
     pub user_home: String,
     /// TEHAS_CYCLE_DONE_WAIT: how long the stop of a finished cycle waits.
     pub done_wait: Duration,
+    /// PI_ENSEMBLE_IMAGE, whose pi-rukas a planning turn's end names.
+    pub image: String,
 }
 
 /// How one start ended.
@@ -224,7 +226,7 @@ impl Writer {
                 "labels[]=tehas:refreshing".into(),
             ];
             let w = self.write(pr, "refresh-begin", args, None, None);
-            if !matches!(w, Wrote::Done) {
+            if !matches!(w, Wrote::Done(_)) {
                 if matches!(w, Wrote::Unrecorded) {
                     log.push(Writer::unrecorded(pr));
                 }
@@ -320,7 +322,7 @@ impl Writer {
             args.extend(["--remove-label".into(), l]);
         }
         match self.write(n, "label-add", args, None, None) {
-            Wrote::Done => {}
+            Wrote::Done(_) => {}
             other => {
                 if matches!(other, Wrote::Unrecorded) {
                     log.push(Writer::unrecorded(n));
@@ -382,7 +384,7 @@ impl Writer {
             "--add-label".into(),
             "needs-human-attention".into(),
         ];
-        if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done) {
+        if !matches!(self.write(n, "label-add", args, None, None), Wrote::Done(_)) {
             log.push(format!("WARN: label change on #{n} failed"));
         }
         self.say(n, &format!("Tehas could not start the cycle for this issue on `{host}`: `tehas-cycle@{n}.service` did not come up. See `journalctl --user -u tehas-cycle@{n}` and `~/tehas/logs/dispatch.log` there. To retry, apply `tehas:ready`."), log);
@@ -541,7 +543,7 @@ impl Writer {
 
     /// A new name in $TEHAS_HOME/tmp, made 0700 when it is not there; None
     /// when the directory is a link or no directory.
-    fn scratch(&self, what: &str) -> Option<PathBuf> {
+    pub(super) fn scratch(&self, what: &str) -> Option<PathBuf> {
         let dir = self.home.join("tmp");
         if !dir.exists() {
             let _ = std::fs::DirBuilder::new().mode(0o700).create(&dir);
@@ -811,7 +813,7 @@ impl Writer {
 
     /// tehas_analytics: an event for the factory's analytics; a failure is
     /// a warning.
-    fn analytics(&mut self, args: &[String], log: &mut Vec<String>) {
+    pub(super) fn analytics(&mut self, args: &[String], log: &mut Vec<String>) {
         let Some(bin) = self.host.analytics.clone() else {
             return;
         };

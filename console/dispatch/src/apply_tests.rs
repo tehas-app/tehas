@@ -38,16 +38,33 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
+  "store plan-end") case "$*" in
+      *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
+      *) echo '{"api":1,"verb":"plan-end","ok":true}' ;;
+    esac ;;
   "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
   "docker rm") echo "$3" ;;
-  "gh api") case "$2" in
+  "gh issue") case "$2 $*" in
+      "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
+      "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
+    esac ;;
+  "gh api") case "$*" in *"-X POST"*/comments*) echo '{"id":99}' ;; esac
+    case "$2" in
+      repos/*/issues/[0-9]*) case "$2" in */comments*) ;; *) echo '{"id":555}' ;; esac ;;
+    esac
+    case "$2" in
       */issues/[0-9]*/comments*) f=${2#*/issues/}; f=$d/comments-${f%%/*}
         if [ -f "$f" ]; then cat "$f"; else cat "$d/comments" 2>/dev/null || echo '[]'; fi ;;
     esac ;;
   "gh pr") cat "$d/prs" 2>/dev/null || echo '[]' ;;
-  "analytics "*) printf '%s\n' "$*" >>"$d/events" ;;
+  "analytics "*) printf '%s\n' "$*" >>"$d/events"
+    while [ $# -gt 0 ]; do
+      [ "$1" != --facts ] || { cp "$2" "$d/facts.json"; stat -c %a "$2" >"$d/facts.mode"; }
+      shift
+    done ;;
 esac
 "#;
 
@@ -110,6 +127,7 @@ fn world() -> World {
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
             user_home: dir.join("user").to_string_lossy().into_owned(),
             done_wait: Duration::from_secs(5),
+            image: "tehas-sandbox:test".into(),
         },
         ended: None,
     };
@@ -408,9 +426,9 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
 fn the_actions_of_the_later_parts_are_left_in_order() {
     let mut t = world();
     let turn = json!({"plan_turn": 8, "kind": "first", "label": "tehas:plan", "by": "alice"});
-    let close = json!({"plan_close": 9});
-    let a = t.apply(json!([turn, {"gate_held": true}, close]));
-    assert_eq!(a.left, vec![turn, close]);
+    let spend = json!({"park_retry": 9});
+    let a = t.apply(json!([turn, {"gate_held": true}, spend]));
+    assert_eq!(a.left, vec![turn, spend]);
 }
 
 fn start_of(n: u64, given: &str) -> Value {
@@ -1100,4 +1118,506 @@ fn a_sweep_removes_a_link_and_never_what_it_points_at() {
     assert!(fs::symlink_metadata(runs.join("issue-5")).is_err());
     assert!(fs::symlink_metadata(runs.join("plan-5")).is_err());
     assert!(keep.join("inside").is_dir());
+}
+
+use super::plan::{no_later_parts, plan_view, q_clean, q_render};
+
+#[test]
+fn an_agents_words_are_masked_before_they_are_posted() {
+    // The addresses are built here, not written out: this file is linted.
+    let (v4, v6, name) = (
+        format!("10.{}.0.12", 0),
+        format!("{}12:3456:789a::1", "fd"),
+        format!("box.tail1.ts.{}", "net"),
+    );
+    let t = format!("token ghp_abcdefghijklmnop1234 and API_KEY=hunter2\r\nat {v4} or {v6} on {name}\n<!-- x -->\n- [x] done\nthanks @alice\n\n");
+    assert_eq!(
+        q_clean(&t, 60000),
+        "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- \\[x] done\nthanks @\u{200b}alice"
+    );
+    assert_eq!(q_clean("abcdef", 3), "abc");
+    assert_eq!(q_clean("", 10), "");
+}
+
+#[test]
+fn a_planning_question_is_rendered_as_the_bash_renders_it() {
+    let out = json!({"text": "Two ways.", "question": {"question": "Which?", "options": [
+        {"label": "A\nfirst", "description": "the first"}, {"label": "B"}]},
+        "marker": "<!-- pi-rukas:handoff issue=7 cap=plan -->"});
+    assert_eq!(
+        q_render(7, 2, &out, "Filed in this turn: #9"),
+        "<!-- pi-rukas:handoff issue=7 cap=plan -->\nTwo ways.\n\nWhich?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+    );
+    let many: Vec<Value> = (0..22).map(|i| json!({"label": format!("o{i}")})).collect();
+    let r = q_render(
+        7,
+        1,
+        &json!({"text": "", "question": {"question": "", "options": many}}),
+        "",
+    );
+    assert!(r.contains("Options left out: 2. A reply can name another choice."));
+    assert_eq!(r.matches("- [ ] o").count(), 20);
+    // Another issue's marker is no marker.
+    assert!(!q_render(8, 1, &out, "").starts_with("<!-- pi-rukas"));
+}
+
+#[test]
+fn later_parts_of_none_and_of_something() {
+    assert!(no_later_parts(
+        "## Plan\nx\n## Later parts\nNone.\n## Next\nmore"
+    ));
+    assert!(no_later_parts("**Later parts:** none"));
+    assert!(!no_later_parts("## Later parts\n- the rest"));
+    assert!(!no_later_parts("no section at all"));
+    assert!(no_later_parts("Later parts (if any): None"));
+}
+
+fn plan_row(t: &World, planning: Value) {
+    fs::write(
+        t.dir.join("plan"),
+        json!({"api": 1, "verb": "plan-show", "ok": true, "planning": planning}).to_string(),
+    )
+    .unwrap();
+}
+
+fn turn_ended(t: &World, n: u64, rc: &str, out: Value) {
+    fs::write(
+        t.w.home.join(format!("state/plan-{n}.json.rc")),
+        format!("{rc}\n"),
+    )
+    .unwrap();
+    fs::write(
+        t.w.home.join(format!("state/plan-{n}.json.out")),
+        out.to_string(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_turn_that_ended_is_recorded_and_its_question_posted() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Which?", "question": {"question": "Q", "options": [{"label": "A"}]},
+        "filed": ["https://github.com/example-owner/example-product/issues/9", "no address"]}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=2 rc=0"]);
+    let w = t.writes();
+    let end = w
+        .iter()
+        .find(|c| c.starts_with("store plan-end 7 --turn"))
+        .unwrap();
+    assert!(end.contains("--turn 2 --outcome finished --rc 0 --session s-2 --option A --filed https://github.com/example-owner/example-product/issues/9 --out "));
+    assert!(w.iter().any(|c| c.starts_with(
+        "gh api -X POST repos/example-owner/example-product/issues/7/comments --input -"
+    ) && c.contains(
+        "Filed in this turn: https://github.com/example-owner/example-product/issues/9"
+    )));
+    assert!(w.contains(&"store question-asked 7 --id 99 --kind plan".to_string()));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()));
+    assert!(w.contains(&"store plan-end 7 --posted".to_string()));
+    assert!(!t.w.home.join("state/plan-7.json.rc").exists());
+    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+}
+
+#[test]
+fn a_turn_that_left_no_session_goes_to_a_person() {
+    let mut t = world();
+    plan_row(&t, json!({"turns": 0, "label": "tehas:plan"}));
+    turn_ended(&t, 7, "3", json!({}));
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=1 rc=3, no session"]);
+    let w = t.writes();
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:plan --remove-label tehas:planning --add-label needs-human-attention".to_string()));
+    assert!(w.contains(&"store plan-end 7 --turn 1 --outcome failed --rc 3".to_string()));
+    assert!(w
+        .iter()
+        .any(|c| c
+            .contains("The planning session could not start (the runner exited with status 3).")));
+}
+
+#[test]
+fn a_failed_turn_of_a_session_can_be_run_again() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan", "failed": true}),
+    );
+    turn_ended(&t, 7, "1", json!({}));
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["done planning #7 turn=3 rc=1"]);
+    let w = t.writes();
+    assert!(w
+        .iter()
+        .any(|c| c
+            .starts_with("store plan-end 7 --turn 3 --outcome failed --rc 1 --session s-1 --out")));
+    assert!(w
+        .iter()
+        .any(|c| c.contains("This planning turn did not finish: it exited with status 1.")));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question --add-label needs-human-attention".to_string()));
+}
+
+#[test]
+fn a_turn_cut_off_is_reaped_and_finished_as_interrupted() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "removed the container tehas-plan-7: the planning turn of #7 was cut off",
+            "planning #7: a turn was cut off",
+            "done planning #7 turn=2 rc=interrupted"
+        ]
+    );
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("store plan-end 7 --turn 2 --outcome interrupted --session s-1")));
+}
+
+#[test]
+fn a_session_pi_lost_is_ended_and_said_once() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "auto": true}),
+    );
+    turn_ended(&t, 7, "1", json!({"lost": true}));
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "planning #7: Pi no longer has session s-1",
+            "planning #7 ended"
+        ]
+    );
+    let w = t.writes();
+    assert!(w.contains(&"store plan-end 7 --turn 2 --outcome lost --rc 1".to_string()));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --add-label needs-human-attention".to_string()));
+    assert!(w.contains(&"store plan-end 7 --close".to_string()));
+    // A close the store refuses says nothing yet: the next poll ends it.
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    turn_ended(&t, 7, "1", json!({"lost": true}));
+    t.fail("store", "--close|busy");
+    t.apply(json!([{"plan_collect": 7}]));
+    assert!(!t
+        .writes()
+        .iter()
+        .any(|c| c.contains("pi-rukas has no record of it")));
+}
+
+#[test]
+fn a_refine_that_filed_replaces_its_issue() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "The plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "Done.", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["planning #7 ended: tehas:replaced by https://github.com/example-owner/example-product/issues/9", "done planning #7 turn=2 rc=0"]);
+    let w = t.writes();
+    assert!(w.iter().any(|c| c.starts_with(
+        "gh issue edit 9 --repo example-owner/example-product --body-file - <<< Replaces #7"
+    )));
+    assert!(w.contains(&"gh api -X POST repos/example-owner/example-product/issues/7/sub_issues -F sub_issue_id=555".to_string()));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:refined --add-label tehas:replaced".to_string()));
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("gh issue comment 7") && c.contains("Replaced by #9.")));
+    assert!(w.contains(
+        &"gh issue close 7 --repo example-owner/example-product --reason not planned".to_string()
+    ));
+    let ledger = fs::read_to_string(t.w.home.join("state/refined.jsonl")).unwrap();
+    assert!(ledger.contains(
+        r#""source":7,"filed":9,"url":"https://github.com/example-owner/example-product/issues/9"}"#
+    ));
+}
+
+#[test]
+fn a_refine_with_later_parts_is_refined_and_stays_open() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "## Later parts\n- part two"}).to_string(),
+    )
+    .unwrap();
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(w
+        .iter()
+        .any(|c| c.ends_with("--remove-label tehas:replaced --add-label tehas:refined")));
+    assert!(!w.iter().any(|c| c.starts_with("gh issue close")));
+}
+
+#[test]
+fn a_session_ended_by_a_person_is_closed_and_said() {
+    let mut t = world();
+    let a = t.apply(json!([{"plan_end": 7, "say": "Planning session ended by alice."}]));
+    assert_eq!(a.log, vec!["planning #7 ended"]);
+    let w = t.writes();
+    assert_eq!(w[0], "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention");
+    assert_eq!(w[1], "store plan-end 7 --close");
+    assert!(w[2].ends_with("<<< Planning session ended by alice."));
+}
+
+#[test]
+fn the_plan_view_is_the_whole_shape_the_analytics_reads() {
+    let v = plan_view(
+        &json!({"session": "s-1", "turns": 2, "options": ["A"], "pending": false, "failed": false,
+        "running": true, "started_at": 1793000000, "comment_id": 55, "lost": false, "by": "alice",
+        "label": "tehas:plan", "answers": [{"turn": 2, "by": "mill-bot", "millwright": true}], "filed": [],
+        "notes": {"held": [1]}}),
+    );
+    assert_eq!(
+        v,
+        json!({"session": "s-1", "turns": 2, "options": ["A"], "pending": false, "failed": false,
+        "running": true, "startedAt": "2026-10-26T07:33:20Z", "comment": 55, "by": "alice", "label": "tehas:plan",
+        "answers": [{"turn": 2, "by": "mill-bot", "fixer": true}], "held": [1]})
+    );
+    assert_eq!(plan_view(&json!(null)), json!(null));
+}
+
+#[test]
+fn a_turns_end_tells_the_analytics_with_the_whole_view_in_a_private_file() {
+    let mut t = world();
+    t.w.host.analytics = Some(t.dir.join("analytics").to_string_lossy().into_owned());
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "running": true, "started_at": 1793000000}),
+    );
+    turn_ended(&t, 7, "0", json!({"session": "s-1", "text": "Q"}));
+    t.apply(json!([{"plan_collect": 7}]));
+    let events = fs::read_to_string(t.dir.join("events")).unwrap();
+    assert!(events.starts_with("plan 7 --facts "));
+    assert!(events.trim_end().ends_with("--rc 0"));
+    let facts: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("facts.json")).unwrap()).unwrap();
+    assert_eq!(facts["running"], true);
+    assert_eq!(facts["startedAt"], "2026-10-26T07:33:20Z");
+    assert_eq!(facts["turns"], 1);
+    assert_eq!(
+        fs::read_to_string(t.dir.join("facts.mode")).unwrap().trim(),
+        "600"
+    );
+    assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn an_option_labelled_false_is_recorded_as_none() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 0, "session": "", "label": "tehas:plan"}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "question": {"options": [{"label": false}, {"label": 3}, "x"]}}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.contains("--option - --option 3 --option - --out")));
+}
+
+#[test]
+fn a_question_already_posted_is_not_posted_again() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "label": "tehas:plan", "comment_id": 41}),
+    );
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"text": "Q"}).to_string(),
+    )
+    .unwrap();
+    assert!(t.apply(json!([{"plan_post": 7}])).log.is_empty());
+    let w = t.writes();
+    assert!(!w.iter().any(|c| c.contains("/comments")));
+    assert!(w.contains(&"store plan-end 7 --posted".to_string()));
+    // A record the store will not update after the post is said, and the
+    // labels wait for the next poll.
+    let mut t = world();
+    plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"text": "Q"}).to_string(),
+    )
+    .unwrap();
+    t.fail("store", "question-asked|conflict");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "WARN: the record of #7 could not be updated after its question was posted (conflict)"
+        ]
+    );
+    assert!(!t
+        .writes()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:question")));
+}
+
+#[test]
+fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
+    // An issue of another repository is said, never edited: the original stays.
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "filed": ["https://github.com/other/place/issues/3"]}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(w.iter().any(|c| c.ends_with("--add-label tehas:refined")));
+    assert!(w
+        .iter()
+        .any(|c| c.contains("Replaced by https://github.com/other/place/issues/3.")));
+    assert!(!w.iter().any(|c| c.starts_with("gh issue edit 3")));
+    // A second poll after a body that says Replaces already, and the mark on:
+    // nothing is edited or said again.
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    fs::write(
+        t.dir.join("body-9"),
+        json!({"body": "Replaces #7\r\n\nThe plan.\n## Later parts\nNone"}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("labels-7"),
+        json!({"labels": [{"name": "tehas:replaced"}]}).to_string(),
+    )
+    .unwrap();
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"filed": ["https://github.com/example-owner/example-product/issues/9"]}).to_string(),
+    )
+    .unwrap();
+    plan_row(
+        &t,
+        json!({"turns": 1, "label": "tehas:refine", "comment_id": null}),
+    );
+    t.apply(json!([{"plan_post": 7}]));
+    let w = t.writes();
+    assert!(!w
+        .iter()
+        .any(|c| c.starts_with("gh issue edit 9") || c.contains("issue comment")));
+    assert!(w.iter().any(|c| c.starts_with("gh issue close 7")));
+}
+
+#[test]
+fn a_repository_named_issues_is_its_own() {
+    let mut t = world();
+    t.w.repo = "owner/issues".into();
+    plan_row(&t, json!({"turns": 1, "label": "tehas:refine"}));
+    fs::write(t.dir.join("body-5"), json!({"body": "x"}).to_string()).unwrap();
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"filed": ["https://github.com/owner/issues/issues/5"]}).to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_post": 7}]));
+    assert!(t
+        .writes()
+        .iter()
+        .any(|c| c.starts_with("gh issue edit 5 --repo owner/issues --body-file -")));
+}
+
+#[test]
+fn the_refined_ledger_keeps_its_last_500_lines() {
+    let mut t = world();
+    let ledger = t.w.home.join("state/refined.jsonl");
+    fs::write(
+        &ledger,
+        (0..500)
+            .map(|i| format!("{{\"old\":{i}}}\n"))
+            .collect::<String>(),
+    )
+    .unwrap();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "filed": ["https://github.com/example-owner/example-product/issues/9"]}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    let lines: Vec<String> = fs::read_to_string(&ledger)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(lines.len(), 500);
+    assert_eq!(lines[0], r#"{"old":1}"#);
+    assert!(lines[499].contains(r#""filed":9"#));
+}
+
+#[test]
+fn more_of_what_q_clean_masks() {
+    assert_eq!(
+        q_clean("postgres://u:pw@db/x github_pat_abcdefghijklmnopqrst", 100),
+        "postgres://u:***@\u{200b}db/x github_pat_***"
+    );
+    assert_eq!(
+        q_clean(
+            &format!("{0}.16.0.1 {1}.64.1.2 {2}.254.0.9 8.8.8.8", 172, 100, 169),
+            100
+        ),
+        "[private address] [private address] [private address] 8.8.8.8"
+    );
+    assert_eq!(
+        q_clean("* [ ] a\n  + [x] b\na@b", 100),
+        "* \\[ ] a\n  + \\[x] b\na@\u{200b}b"
+    );
+    assert_eq!(q_clean("äöå", 2), "äö");
 }
