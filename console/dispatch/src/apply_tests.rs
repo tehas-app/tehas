@@ -22,6 +22,7 @@ if [ -f "$d/fail-$name" ]; then
     case "$* $input" in *"$p"*)
       case "$p" in slow*) sleep 5 ;; esac
       case "$*" in *DELETE*) echo "gh: Not Found (HTTP 404)" >&2 ;; *) echo "store: $w: stub" >&2 ;; esac
+      case $w in absent | unreadable) exit 78 ;; esac
       exit 1 ;;
     esac
   done <"$d/fail-$name"
@@ -37,6 +38,7 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "store cycle-note") cat "$d/note" 2>/dev/null || echo '{"api":1,"verb":"cycle-note","ok":true,"times":0,"stop_asked_at":0}' ;;
   "store plan-note") echo "{\"api\":1,\"verb\":\"plan-note\",\"ok\":true,\"said\":$(cat "$d/said" 2>/dev/null || echo true)}" ;;
   "store "*) echo "{\"api\":1,\"verb\":\"$1\",\"ok\":true}" ;;
   "docker rm") echo "$3" ;;
@@ -105,7 +107,11 @@ fn world() -> World {
             status_cmd: s("status"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
+            work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
+            user_home: dir.join("user").to_string_lossy().into_owned(),
+            done_wait: Duration::from_secs(5),
         },
+        ended: None,
     };
     World { dir, w }
 }
@@ -401,10 +407,10 @@ fn a_container_removed_is_said_and_one_not_there_is_not() {
 #[test]
 fn the_actions_of_the_later_parts_are_left_in_order() {
     let mut t = world();
-    let stop = json!({"stop_done": 8, "why": "merged"});
-    let sweep = json!({"sweep": 9, "log": "removed what #9 left"});
-    let a = t.apply(json!([stop, {"gate_held": true}, sweep]));
-    assert_eq!(a.left, vec![stop, sweep]);
+    let turn = json!({"plan_turn": 8, "kind": "first", "label": "tehas:plan", "by": "alice"});
+    let close = json!({"plan_close": 9});
+    let a = t.apply(json!([turn, {"gate_held": true}, close]));
+    assert_eq!(a.left, vec![turn, close]);
 }
 
 fn start_of(n: u64, given: &str) -> Value {
@@ -909,4 +915,123 @@ fn a_lock_held_without_a_start_on_record_is_taken_as_started() {
         &"WARN: the cycle for #7 holds its lock but did not say so in 0s; taking it as started"
             .to_string()
     ));
+}
+
+fn quiet_of(n: u64) -> Value {
+    json!({"quiet": n, "said_for": 1793000000, "stop": true,
+        "log": format!("WARN: predicted line for #{n}")})
+}
+
+#[test]
+fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
+    let mut t = world();
+    let a = t.apply(json!([quiet_of(7)]));
+    let line = "WARN: the cycle for #7 holds its lock but has not been heard from since 2026-10-26T07:33:20Z, more than 1200s: stopping tehas-cycle@7.service";
+    assert_eq!(a.log, vec![line]);
+    assert_eq!(
+        t.writes(),
+        vec![
+            "store cycle-note 7 --kind quiet --said-for 1793000000",
+            "store cycle-stop-asked 7",
+            "start 7",
+        ]
+    );
+}
+
+#[test]
+fn a_quiet_cycle_whose_record_says_wait_is_left_and_one_asked_six_times_is_a_persons() {
+    let mut t = world();
+    let at = now_secs();
+    fs::write(
+        t.dir.join("note"),
+        format!(r#"{{"api":1,"verb":"cycle-note","ok":true,"times":2,"stop_asked_at":{at}}}"#),
+    )
+    .unwrap();
+    let a = t.apply(json!([quiet_of(7)]));
+    assert!(a.log.is_empty());
+    assert_eq!(t.writes().len(), 1);
+    let mut t = world();
+    fs::write(
+        t.dir.join("note"),
+        r#"{"api":1,"verb":"cycle-note","ok":true,"times":6,"stop_asked_at":1}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([quiet_of(7)]));
+    assert!(a.log[0].ends_with("the poll asked 6 times to stop tehas-cycle@7.service and asks no more: it needs a person, who can stop it with systemctl --user stop tehas-cycle@7.service"));
+    assert_eq!(t.writes()[1], "store cycle-stop-asked 7");
+    assert!(!t.calls().iter().any(|c| c.starts_with("start ")));
+}
+
+#[test]
+fn a_quiet_cycle_the_store_cannot_note() {
+    let mut t = world();
+    t.fail("store", "cycle-note|nocycle");
+    let a = t.apply(json!([quiet_of(7)]));
+    assert!(a.log[0].ends_with("and the state store has no open record of it, so the poll does not stop it: if it stays, a person can, with tehas stop 7 or systemctl --user stop tehas-cycle@7.service"));
+    // A store that cannot be used ends the poll there.
+    let mut t = world();
+    t.fail("store", "cycle-note|absent");
+    let a = t.apply(json!([quiet_of(7), {"gate_held": true}]));
+    assert_eq!(a.exit, Some(78));
+    assert!(a.log[0].starts_with("ERROR: the state store cannot be used: store: absent"));
+    assert!(!t.w.home.join("state/low-gate.held").exists());
+}
+
+#[test]
+fn a_finished_cycle_is_told_why_and_stopped() {
+    let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    let a = t.apply(json!([{"stop_done": 7, "why": "merged"}]));
+    assert!(a.log.is_empty());
+    assert_eq!(
+        fs::read_to_string(t.w.home.join("state/cycles/7.done")).unwrap(),
+        "merged\n"
+    );
+    assert!(t.calls().contains(&"start 7".to_string()));
+    let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    t.fail("start", "7");
+    let a = t.apply(json!([{"stop_done": 7, "why": "closed"}]));
+    assert_eq!(a.log, vec!["WARN: could not stop tehas-cycle@7.service"]);
+}
+
+#[test]
+fn a_sweep_removes_an_issues_names_under_its_lock_and_no_other_issues() {
+    let mut t = world();
+    let works = t.dir.join("works");
+    fs::create_dir_all(works.join("tehas-work-5/src")).unwrap();
+    fs::create_dir_all(works.join("tehas-work-51")).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    fs::write(works.join("tehas-work-5.state"), "x").unwrap();
+    let runs = t.dir.join("user/.pi/agent/ensemble-runs");
+    fs::create_dir_all(runs.join("issue-5")).unwrap();
+    fs::create_dir_all(t.w.home.join("live")).unwrap();
+    fs::write(t.w.home.join("live/console-5.txt"), "x").unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host: no cycle has run on it for 7 days"}]));
+    assert_eq!(
+        a.log,
+        vec!["removed what #5 left on this host: no cycle has run on it for 7 days"]
+    );
+    assert!(!works.join("tehas-work-5").exists());
+    assert!(!works.join("tehas-work-5.state").exists());
+    assert!(!runs.join("issue-5").exists());
+    assert!(!t.w.home.join("live/console-5.txt").exists());
+    assert!(works.join("tehas-work-51").exists());
+}
+
+#[test]
+fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
+    let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::create_dir_all(t.w.home.join("live")).unwrap();
+    fs::write(t.w.home.join("live/console-5.txt"), "x").unwrap();
+    let lock = fs::File::create(t.w.home.join("state/cycles/5.lock")).unwrap();
+    lock.lock().unwrap();
+    let a = t.apply(json!([{"sweep": 5, "log": "removed"}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: could not take the lock of #5, so nothing of it was removed"]
+    );
+    assert!(t.w.home.join("live/console-5.txt").exists());
 }

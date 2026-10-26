@@ -539,7 +539,10 @@ fn run_suite(name: &str) {
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
         let e = &c["expect"];
         let mut bad = Vec::new();
-        let log = d.log.join("\n");
+        // As the shadow reads a decision: its lines, then those its actions
+        // log once they worked.
+        let log = tehas_dispatch::shadow::expected(&json!({"log": d.log, "actions": d.actions}))
+            .join("\n");
         if let Some(x) = e.get("exit") {
             if x != &json!(d.exit) {
                 bad.push(format!("exit {} not {x}", d.exit));
