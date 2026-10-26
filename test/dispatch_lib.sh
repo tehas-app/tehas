@@ -728,7 +728,7 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     issues: {pageInfo: {hasNextPage: false, endCursor: null},
       nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open")
         | select((.i.state // "OPEN") != "CLOSED") | . as $i | {
-        number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
+        number: .n, title: (.e.title // .i.title // .w.title // ""), body: (.e.body // .i.body // .w.body),
         lastEditedAt: .e.lastEditedAt, editor: .e.editor,
         # The labels its lists give it, and those of its REST answer when a case
         # wrote one: on GitHub the two agree.
