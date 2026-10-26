@@ -469,6 +469,20 @@
      "ERROR: gh pr list failed"
     ]
    }
+  },
+  {
+   "case": "a snapshot that lacks the history of refreshes names it",
+   "settings": {
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "expect": {
+    "needs": [
+     "refresh_history"
+    ]
+   },
+   "drop": [
+    "refresh_history"
+   ]
   }
  ]
 }

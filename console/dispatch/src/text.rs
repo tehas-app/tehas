@@ -77,9 +77,10 @@ fn placeholder(text: &str) -> Option<String> {
         "prototype",
     ];
     let said = SAID.get_or_init(|| {
-        Regex::new(r"(?i)[a-z0-9_.-]+(?:[[:space:]]+|_)goes(?:[[:space:]]+|_)here").unwrap()
+        // \s, not [[:space:]]: jq's class takes Unicode spaces, Rust's is ASCII.
+        Regex::new(r"(?i)[a-z0-9_.-]+(?:\s+|_)goes(?:\s+|_)here").unwrap()
     });
-    let space = SPACE.get_or_init(|| Regex::new("[[:space:]]+").unwrap());
+    let space = SPACE.get_or_init(|| Regex::new(r"\s+").unwrap());
     said.find_iter(text)
         .map(|m| m.as_str())
         .find(|m| {
@@ -108,10 +109,20 @@ pub fn promise(answer: &Value) -> Option<String> {
     if texts.iter().any(|t| links(t) > 0) {
         return None;
     }
-    texts
+    // jq writes the word as JSON: a form feed comes out as the two
+    // characters \f, and any other control character as an escape the bash
+    // refuses.
+    let word = texts
         .iter()
         .filter_map(|t| placeholder(t))
-        .find(|p| !p.is_empty() && p.len() <= 80 && !p.contains(['\t', '\r', '\n']))
+        .find(|p| !p.is_empty() && p.chars().count() <= 80 && !p.contains(['\t', '\r', '\n']))?;
+    if word
+        .chars()
+        .any(|c| (c < ' ' && c != '\x0c') || c == '\x7f')
+    {
+        return None;
+    }
+    Some(word.replace('\x0c', "\\f"))
 }
 
 #[cfg(test)]
@@ -125,10 +136,19 @@ mod tests {
             body_sha256(&json!({"body": "a\r\nb"})),
             body_sha256(&json!({"body": "a\nb"}))
         );
-        // printf '' | sha256sum
+        // printf '' | sha256sum, printf 'Words.' | sha256sum, and the same of
+        // a\nb.
         assert_eq!(
             body_sha256(&json!({})),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            body_sha256(&json!({"body": "Words."})),
+            "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+        );
+        assert_eq!(
+            body_sha256(&json!({"body": "a\r\nb"})),
+            "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78"
         );
     }
 
@@ -153,6 +173,17 @@ mod tests {
             Some("IMAGE_GOES_HERE")
         );
         assert_eq!(promise(&json!({"body": "the value goes here"})), None);
+        // jq's [[:space:]] takes a no-break space and an em space.
+        assert_eq!(
+            promise(&json!({"body": "SCREENSHOT\u{a0}GOES HERE"})).as_deref(),
+            Some("SCREENSHOT\u{a0}GOES HERE")
+        );
+        assert!(promise(&json!({"body": "image\u{2003}goes here"})).is_some());
+        assert_eq!(promise(&json!({"body": "SCREENSHOT\u{b}GOES HERE"})), None);
+        assert_eq!(
+            promise(&json!({"body": "SCREENSHOT\u{c}GOES HERE"})).as_deref(),
+            Some("SCREENSHOT\\fGOES HERE")
+        );
         assert_eq!(
             promise(
                 &json!({"body": "image goes here ![a](https://github.com/user-attachments/assets/0f3e-41)"})

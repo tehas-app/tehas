@@ -105,11 +105,17 @@ impl Poll<'_> {
     /// A cycle that holds its lock and has not been heard from for 20
     /// minutes is stopped, and asked again, spaced, until it is a person's.
     fn quiet(&mut self, running: &[u64]) {
-        let now = self.s.now;
         for &n in running {
             let r = self.cycle(n);
             let heard = r.heard.max(r.took);
-            if heard == 0 || now.saturating_sub(heard) <= QUIET_BOUND {
+            if heard == 0 {
+                continue;
+            }
+            let Some(now) = self.s.now else {
+                self.need("now");
+                return;
+            };
+            if now.saturating_sub(heard) <= QUIET_BOUND {
                 continue;
             }
             let why = format!("the cycle for #{n} holds its lock but has not been heard from since {}, more than {QUIET_BOUND}s", iso(heard));
@@ -237,7 +243,11 @@ impl Poll<'_> {
     /// An issue marked tehas:running with no cycle behind it: a closed one
     /// loses the mark, an open one is handed to a person.
     fn marked(&mut self) -> Step {
-        let list = match &self.s.marked {
+        let Some(marked) = &self.s.marked else {
+            self.need("marked");
+            return Ok(());
+        };
+        let list = match marked {
             v if v.get("failed") == Some(&json!(true)) => {
                 return Err(self.fail("ERROR: gh issue list failed", 1))
             }
@@ -304,8 +314,11 @@ impl Poll<'_> {
                 self.log(format!("would {line}"));
                 continue;
             }
+            let Some(host) = self.s.hostname.clone() else {
+                self.need("hostname");
+                continue;
+            };
             self.log(line);
-            let host = self.s.hostname.clone();
             self.act(json!({
                 "issue": n, "remove": ["tehas:running"], "add": ["needs-human-attention"],
                 "say": format!("Tehas found this issue marked `tehas:running` with no cycle behind it on `{host}`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-{n}.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."),
@@ -318,8 +331,12 @@ impl Poll<'_> {
     /// or whose mark the bot did not apply, loses the mark.
     fn refreshing(&mut self, bot: &str) -> Step {
         let history = match &self.s.refresh_history {
-            Ok(h) => h.clone(),
-            Err(e) => {
+            None => {
+                self.need("refresh_history");
+                return Ok(());
+            }
+            Some(Ok(h)) => h.clone(),
+            Some(Err(e)) => {
                 let word = e.word.clone();
                 self.log(format!("WARN: the history of refreshes could not be read ({word}), so no pull request is cleared of tehas:refreshing this poll"));
                 return Ok(());
@@ -367,12 +384,10 @@ impl Poll<'_> {
         let mut owner = std::collections::BTreeMap::new();
         if !prs.is_empty() {
             for &n in &from {
-                let current = self
-                    .s
-                    .issues
-                    .get(&n)
-                    .map(|i| i.current.clone())
-                    .unwrap_or(Ok(None));
+                let Some(current) = self.s.issues.get(&n).and_then(|i| i.current.clone()) else {
+                    self.need("current");
+                    return Ok(());
+                };
                 match current {
                     Err(e) => {
                         self.log(format!("WARN: the approval of #{n} could not be read ({}), so no pull request is cleared of tehas:refreshing this poll", e.word));
@@ -429,7 +444,11 @@ impl Poll<'_> {
     fn sweep(&mut self) {
         let mut seen = Vec::new();
         let mut count = 0;
-        for l in self.s.leftovers.clone() {
+        let Some(leftovers) = self.s.leftovers.clone() else {
+            self.need("leftovers");
+            return;
+        };
+        for l in leftovers {
             let n = l.issue;
             if seen.contains(&n) {
                 continue;

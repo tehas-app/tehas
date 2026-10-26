@@ -59,6 +59,17 @@ What PR 2 decides, and what it leaves to the caller:
   old they are, are the snapshot's (`leftovers`).
 - The size measure ports the count of files alone, the one count the poll
   reads.
+- A fact the snapshot lacks is named in `needs`, never read as none: the
+  marked issues, the clock, the host's name, the refresh history, the
+  leftovers, an issue's park, approval and current approval.
+- Two known differences from jq, left for the shadow to measure. The texts of
+  an answer are read in key order, where jq reads them in GitHub's order, so
+  of two promised files the log may name the other one; keeping GitHub's
+  order needs serde_json's `preserve_order`, which would change the order of
+  every crate's JSON in the workspace. And jq's `$` also matches before a
+  final newline, which no field the checks read ends with.
+- The fixtures match a log line by its text, not as a whole line: the shadow
+  of PR 4 is what compares the log line by line.
 
 D2. **A library crate `console/dispatch`** (`tehas-dispatch`). PRs 1 to 3 add
 no binary and nothing is installed, so they cannot change a host. PR 4 adds
