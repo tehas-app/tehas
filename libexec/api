@@ -3,7 +3,7 @@
 # was installed from, its repository, the features this release has and the
 # millwright's login. A program asks this first, before it relies on a feature.
 # The old names, the feature fixer-grant and the field fixer, say the same as
-# millwright-grant and millwright until a release removes them.
+# millwright-grant and millwright, and stay for as long as api 1.
 #
 # The release and commit are those install.sh wrote to
 # $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
@@ -39,7 +39,7 @@ esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-TEHAS_SILENT_RENAMED=1 tehas_load || exit 78
+tehas_load || exit 78
 tehas_require TEHAS_REPO
 
 # What this release can do. A feature is added here in the release that

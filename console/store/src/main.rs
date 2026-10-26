@@ -87,7 +87,6 @@
 //!                | --undo
 //!   store plan-answer <issue> --turn N --by <account> [--millwright] [--text-file <file>]
 //!                | --turn N --undo
-//!                (the old `--fixer` is taken too, and means the same)
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
 //!   store plan-note <issue> --kind millwright-refused|held --id <id>
 //!                (the old `fixer-refused` is taken too, and is written as

@@ -688,7 +688,7 @@ impl Writer {
         let list = self.comments(n)?;
         let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
         let marker = regex::Regex::new(&format!(
-            "<!-- tehas:(millwright|fixer) issue={n} action=(retry|change) -->"
+            "<!-- tehas:millwright issue={n} action=(retry|change) -->"
         ))
         .ok()?;
         let fixer = self.host.millwright.clone();
