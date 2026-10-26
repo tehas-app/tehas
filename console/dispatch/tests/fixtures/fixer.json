@@ -1,5 +1,5 @@
 {
- "suite": "test/dispatch_fixer_test.sh",
+ "suite": "test/dispatch_millwright_test.sh",
  "later": [],
  "not_ported": [
   "the fixer's marked comment before its label is the retry's context, and without such a comment the record has no context: the approval record the start writes, #254"
@@ -740,7 +740,7 @@
     "exit": 78,
     "picked": [],
     "log": [
-     "the bot account tehas-fixer is TEHAS_FIXER_LOGIN"
+     "the bot account tehas-fixer is TEHAS_MILLWRIGHT_LOGIN"
     ]
    }
   },

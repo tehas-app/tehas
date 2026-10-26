@@ -233,8 +233,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
-# shellcheck source=lib/fixer.sh
-. "$here/../lib/fixer.sh"
+# shellcheck source=lib/millwright.sh
+. "$here/../lib/millwright.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
 # shellcheck source=lib/store.sh

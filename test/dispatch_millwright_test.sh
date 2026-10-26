@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/dispatch: the fixer's labels and its planning answers.
+# Tests for libexec/dispatch: the millwright's labels and its planning answers.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -12,7 +12,7 @@
 fixer_ready() { # [<fixer starts since alice's approval, or - for no approval>]
   local i
   reset
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
   echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"},{"name":"tehas:question"},{"name":"tehas:fixer-escalated"}]}]' >"$fx/ready.json"
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
   jq -n '{data: {repository: {issue: {lastEditedAt: null, editor: null, body: "Words."}}}}' >"$fx/edit-7.json"
@@ -102,7 +102,7 @@ fixer_ready
 echo '{"login":"tehas-fixer"}' >"$fx/user.json"
 t_run "$dispatch"
 t_eq "$t_rc" 78
-t_contains "$t_out" "the bot account tehas-fixer is TEHAS_FIXER_LOGIN"
+t_contains "$t_out" "the bot account tehas-fixer is TEHAS_MILLWRIGHT_LOGIN"
 t_eq "$(t_calls fake-start)" ""
 
 t_case "the fixer's marked comment before its label is the retry's context, whatever the comments setting"
@@ -144,7 +144,7 @@ fmark='<!-- tehas:fixer issue=7 action=answer -->'
 # The session has had as many turns as the last answer on record names.
 fixer_planning() { # [<answers on record as JSON> [<who started the session>]]
   planning
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
   t_plan "$T/home/tehas" 7 "$(jq -nc --argjson a "${1:-[]}" --arg by "${2:-alice}" \
     '{by: $by, turns: ([1] + [$a[].turn] | max), options: ["Adopt all", "Change some"], comment: 4001, answers: $a}')"
 }
@@ -215,7 +215,7 @@ t_contains "$(t_calls gh)" "The fixer's tick was not taken as an answer"
 
 t_case "a larger limit lets it answer again"
 comments 7 "$(plan_body x ' ' ' ')" tehas-fixer
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_PLAN_ANSWERS=4
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
 t_run "$dispatch"
 t_eq "$(cat "$keep/answer.md")" "The fixer chose: Adopt all"
 
@@ -271,7 +271,7 @@ t_eq "$(cat "$keep/answer.md")" "The operator chose: Change some"
 
 t_case "a held tick on a parked cycle's question starts nothing and stays"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 comments 7 "$(park_body x ' ')" tehas-fixer
 jq '.data.repository.issue.comments.nodes[0].userContentEdits = {totalCount: 2, nodes: [{editor: {login: "alice"}}, {editor: {login: "tehas-fixer"}}]}' \
   "$fx/comments-7.json" >"$fx/c.json" && mv "$fx/c.json" "$fx/comments-7.json"
@@ -313,7 +313,7 @@ t_contains "$(t_calls gh)" "may not answer for this factory (tehas-fixer)"
 
 t_case "the fixer's tick on a parked cycle's question is a stranger's"
 parked
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 comments 7 "$(park_body x ' ')" tehas-fixer
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""

@@ -21,7 +21,7 @@
 #   tehas_refresh_count <record> <base>
 #                                 the refreshes the approval record counts
 #                                 since the approval <base> (JSON, from
-#                                 tehas_fixer_base): its refreshes when it is
+#                                 tehas_millwright_base): its refreshes when it is
 #                                 a refresh resting on that approval, else 0
 #   tehas_refresh_parked <issue> <base>
 #                                 0 when a refresh of the issue parked since
@@ -33,7 +33,7 @@
 #                                 --continue-pr: its --capabilities answer has
 #                                 features.continuePr. Asked once per command
 #
-# Needs TEHAS_HOME, lib/fixer.sh and lib/store.sh for the history and
+# Needs TEHAS_HOME, lib/millwright.sh and lib/store.sh for the history and
 # lib/headless.sh for the answer. Sourcing it does nothing.
 
 tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_HOME"; }

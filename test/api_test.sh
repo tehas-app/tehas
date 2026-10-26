@@ -37,7 +37,7 @@ t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the fixer is its login when the instance has one"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=fixbot
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=fixbot
 installed v0.8.0+cb6912a
 t_run "$api --json"
 t_eq "$t_rc" 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for lib/fixer.sh: the fixer's grant and the cycle history it reads.
+# Tests for lib/millwright.sh: the millwright's grant and the cycle history it reads.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -12,7 +12,7 @@ OTHER=$(printf 'b%.0s' {1..64})
 # lib <snippet>: run it with the settings and the fixer's library loaded. The
 # answer is what the snippet prints, so the line for an old fixer name is not
 # wanted in it (lib/config.sh, TEHAS_SILENT_RENAMED).
-lib() { t_run 'TEHAS_SILENT_RENAMED=1; . "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/store.sh"; . "$T_ROOT/lib/fixer.sh"; tehas_load || exit 78; '"$1"; }
+lib() { t_run 'TEHAS_SILENT_RENAMED=1; . "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/labels.sh"; . "$T_ROOT/lib/store.sh"; . "$T_ROOT/lib/millwright.sh"; tehas_load || exit 78; '"$1"; }
 # record <issue> <JSON>: the approval of the issue's last start, on the store.
 record() { t_record "$home" "$1" "$2"; }
 # view <issue>: that approval as its readers have it, in a file; then <snippet>
@@ -22,21 +22,21 @@ person() { echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"${1:-alice}\",\"how\"
 by_fixer() { # <starts> [<rests_on>]
   echo "{\"at\":\"2026-10-02T00:00:00Z\",\"by\":\"tehas-fixer\",\"how\":\"fixer\",\"body_sha256\":\"$SUM\",\"links\":[],\"fixer_starts\":$1,\"rests_on\":${2:-$(person)}}"
 }
-grant() { lib "if tehas_fixer_grant ${1:-7} ${2:-$SUM}; then echo \"yes \$tehas_fixer_count \$(jq -r .by <<<\"\$tehas_fixer_rests_on\")\"; else echo \"no: \$tehas_fixer_why\"; fi"; }
+grant() { lib "if tehas_millwright_grant ${1:-7} ${2:-$SUM}; then echo \"yes \$tehas_millwright_count \$(jq -r .by <<<\"\$tehas_millwright_rests_on\")\"; else echo \"no: \$tehas_millwright_why\"; fi"; }
 
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 
 # --- The grant ---------------------------------------------------------------
 t_case "the fixer is the account the instance names, and nobody when it names none"
-lib 'tehas_fixer_is tehas-fixer && echo a; tehas_fixer_is alice || echo b; tehas_fixer_is "" || echo c'
+lib 'tehas_millwright_is tehas-fixer && echo a; tehas_millwright_is alice || echo b; tehas_millwright_is "" || echo c'
 t_eq "$t_out" "a
 b
 c"
 t_instance "${T_MINIMAL[@]}"
-lib 'tehas_fixer_on || echo off; tehas_fixer_is "" || echo nobody'
+lib 'tehas_millwright_on || echo off; tehas_millwright_is "" || echo nobody'
 t_eq "$t_out" "off
 nobody"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 
 t_store_home "$home"
 
@@ -58,10 +58,10 @@ t_case "at the limit the fixer may start no more"
 record 7 "$(by_fixer 2)"
 grant
 t_contains "$t_out" "no: the fixer has started 2 cycles on it since alice approved it, the limit"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_RETRIES=3
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_RETRIES=3
 grant
 t_eq "$t_out" "yes 3 alice"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 
 # A refresh's record, resting on alice's approval.
 by_refresh() { # <refreshes> [<fixer starts>]
@@ -70,13 +70,13 @@ by_refresh() { # <refreshes> [<fixer starts>]
 
 t_case "a refresh rests on the person's approval, and carries the fixer's count on"
 record 7 "$(by_refresh 1 1)"
-view 7 'tehas_fixer_base "$v" | jq -c "[.by, .how]"; tehas_fixer_starts "$v"'
+view 7 'tehas_millwright_base "$v" | jq -c "[.by, .how]"; tehas_millwright_starts "$v"'
 t_eq "$t_out" '["alice","label"]
 1'
 grant
 t_eq "$t_out" "yes 2 alice"
 record 7 "$(by_refresh 1)"
-view 7 'tehas_fixer_starts "$v"'
+view 7 'tehas_millwright_starts "$v"'
 t_eq "$t_out" 0
 
 t_case "the refreshes a record counts since an approval"
@@ -142,7 +142,7 @@ t_contains "$t_out" "no: no person approved"
 t_case "approvals the store cannot read decide nothing: 2, and the fixer's label waits"
 record 7 "$(person)"
 t_store_answers approval-current 1 'store: busy #7: the database is locked'
-lib "tehas_fixer_grant 7 $SUM; echo \"\$? \$tehas_fixer_why\""
+lib "tehas_millwright_grant 7 $SUM; echo \"\$? \$tehas_millwright_why\""
 t_eq "$t_out" "2 its approvals on the state store could not be read"
 t_store_home "$home"
 
@@ -150,7 +150,7 @@ t_store_home "$home"
 # session <JSON>: the planning session of issue 7, as plan_view writes it.
 view=$T/plan-view.json
 session() { printf '%s\n' "$1" >"$view"; }
-answer() { lib "if tehas_fixer_answer $(t_q "$view"); then echo yes; else echo \"no: \$tehas_fixer_why\"; fi"; }
+answer() { lib "if tehas_millwright_answer $(t_q "$view"); then echo yes; else echo \"no: \$tehas_millwright_why\"; fi"; }
 p=false
 f=true
 turns() { # fixer flags of the answers so far, oldest first
@@ -183,10 +183,10 @@ t_case "at the limit the fixer answers no more in the session"
 session "$(turns $f $p $f $p $f $p)"
 answer
 t_eq "$t_out" "no: the fixer has answered 3 questions in this session, the limit"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_FIXER_MAX_PLAN_ANSWERS=4
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=4
 answer
 t_eq "$t_out" "yes"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 
 t_case "answers on record of a shape tehas does not know take no fixer answer"
 for bad in '"lots"' '[{"turn":2,"by":"alice"}]' '[1]' '{}'; do
@@ -208,7 +208,7 @@ session '{"session":"s","turns":1,"by":"alice"}'
 t_instance "${T_MINIMAL[@]}"
 answer
 t_eq "$t_out" "no: there is no fixer"
-t_instance "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
 
 # --- History -----------------------------------------------------------------
 t_case "a cycle's history is the store's, in the shape of the lines it had: 51 ends keep 50"
