@@ -1,7 +1,7 @@
 //! tehas-dispatch: the dispatcher's decisions in Rust, beside the bash poll.
-//! It reads what one poll would read and prints it, or what it would decide.
-//! It writes no label, no comment, no record and no unit: the shadow's two
-//! files below are all it writes.
+//! It reads what one poll would read and prints it, or what it would decide,
+//! and writes nothing but the shadow's two files below. `poll` is the one
+//! command that acts.
 //!
 //! Usage:
 //!   tehas-dispatch snapshot             print the snapshot, as JSON
@@ -17,6 +17,9 @@
 //!                                       <lines>) and its exit status, and add
 //!                                       one JSON line to
 //!                                       logs/dispatch-shadow.log
+//!   tehas-dispatch poll [--dry-run]     one poll, as libexec/dispatch runs it:
+//!                                       it acts. Nothing chooses it yet
+//!                                       (#254 parts 4b and 4c)
 //!   tehas-dispatch -h|--help            print this text
 //!
 //! Reads the instance's settings from the environment, as lib/config.sh
@@ -55,15 +58,17 @@ fn set_in(env: &Value, k: &str) -> bool {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (print_snapshot, dry, keep) = match a.as_slice() {
+    let (print_snapshot, dry, keep, poll) = match a.as_slice() {
         ["-h" | "--help"] => {
             println!("{}", usage());
             return;
         }
-        ["snapshot"] => (true, false, false),
-        ["decide"] => (false, false, false),
-        ["decide", "--dry-run"] => (false, true, false),
-        ["shadow"] => (false, false, true),
+        ["snapshot"] => (true, false, false, false),
+        ["decide"] => (false, false, false, false),
+        ["decide", "--dry-run"] => (false, true, false, false),
+        ["shadow"] => (false, false, true, false),
+        ["poll"] => (false, false, false, true),
+        ["poll", "--dry-run"] => (false, true, false, true),
         ["compare", lines] => return compare(lines, None),
         ["compare", lines, "--exit", rc] => return compare(lines, rc.parse().ok()),
         _ => {
@@ -141,6 +146,13 @@ fn main() {
     // The poll's own libexec, which the refine brief's path is named by.
     env["libexec"] = json!(format!("{home}/libexec"));
     let settings = Settings::parse(&env);
+    if poll {
+        std::process::exit(tehas_dispatch::poll::run_poll(
+            &PathBuf::from(&home),
+            &settings,
+            dry,
+        ));
+    }
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

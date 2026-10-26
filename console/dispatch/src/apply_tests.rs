@@ -143,6 +143,8 @@ fn world() -> World {
         ended: None,
         spend: None,
         status_due: false,
+        gh_writes: 0,
+        starts: 0,
     };
     World { dir, w }
 }
