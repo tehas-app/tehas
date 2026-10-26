@@ -1,0 +1,558 @@
+{
+ "suite": "test/dispatch_approval_test.sh",
+ "later": [
+  "a closed issue labelled for planning starts no session: rule 5, part 3b"
+ ],
+ "not_ported": [
+  "while the label cannot be taken off nothing is said on the issue: the comment follows a label change that worked",
+  "a labeller list with stray spaces is refused: lib/config.sh, before a snapshot",
+  "the approval record a start writes, with its hashes, links, comments and pull request comments, the reads it makes for them, and the store that refuses it: the start, #254"
+ ],
+ "cases": [
+  {
+   "case": "a dry run picks the issue an allowed account labelled",
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "log": [
+     "would run a cycle for #7 (labelled by alice)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an issue labelled by another account is skipped",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: tehas:ready was applied by 'mallory', not an allowed account",
+     "0 cycles running, room for 1 more",
+     "nothing to do"
+    ]
+   }
+  },
+  {
+   "case": "a tehas:ready applied by tehas-bot is taken off the issue and said once",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready was applied by 'tehas-bot', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "log": "clear #7: tehas:ready off, applied by 'tehas-bot' who may not authorise work here"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a tehas:ready applied by mallory is taken off the issue and said once",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:ready was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "log": "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says the label would come off and changes nothing",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "would take tehas:ready off #7: it was applied by 'tehas-bot'"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a stale approval from an allowed account keeps its label on the issue",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       }
+      ],
+      "edit": {
+       "lastEditedAt": "2026-01-02T00:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the most recent labelling decides, not an earlier one",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7"
+    ]
+   }
+  },
+  {
+   "case": "a login that only contains an allowed one is not allowed",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice2"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7"
+    ]
+   }
+  },
+  {
+   "case": "a label event with no actor is not an allowed account",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": null
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: tehas:ready was applied by 'unknown'",
+     "nothing to do"
+    ]
+   }
+  },
+  {
+   "case": "an issue with no label event at all is skipped",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7",
+     "nothing to do"
+    ]
+   }
+  },
+  {
+   "case": "when the pause check cannot reach GitHub nothing is dispatched",
+   "snapshot": {
+    "control": {
+     "labels": {
+      "failed": true
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: gh issue view failed"
+    ]
+   }
+  },
+  {
+   "case": "when the awaiting-merge count cannot be read nothing is dispatched",
+   "snapshot": {
+    "awaiting": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: gh issue list failed"
+    ]
+   }
+  },
+  {
+   "case": "when the label events cannot be read the issue is not taken",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an issue closed after the queue was read starts nothing",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it is closed, and a closed issue is never taken"
+    ]
+   }
+  },
+  {
+   "case": "an issue closed after the queue was read: a dry run",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: it is closed, and a closed issue is never taken"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "a pull request is refused, open, merged or closed: open",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "open",
+       "pull_request": {
+        "url": "u"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: it is a pull request, not an issue the factory works on"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "a pull request is refused, open, merged or closed: closed",
+   "dry": true,
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "closed",
+       "pull_request": {
+        "url": "u"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "skip #7: it is a pull request, not an issue the factory works on"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: not json",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": "not json"
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: []",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  },
+  {
+   "case": "an answer that cannot be read: the call failed",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: gh api repos/acme/widget/issues/7 failed"
+    ]
+   }
+  },
+  {
+   "case": "an issue no allowed account labelled is not asked for",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ],
+      "work": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: the empty answer",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": ""
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  },
+  {
+   "case": "an answer that cannot be read stops the poll before any label change: null",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": null
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  }
+ ]
+}

@@ -10,6 +10,7 @@ use crate::text;
 use serde_json::{json, Map, Value};
 
 mod clean;
+mod retry;
 
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
 /// in order, and the files it publishes.
@@ -44,6 +45,9 @@ struct Start {
     /// A start of the fixer's: the person's approval it rests on, and its
     /// starts with this one.
     fixer: Option<(Value, u64)>,
+    /// What a start of its kind adds to the action: the comment of a retry
+    /// tick, the pull request of a refresh.
+    extra: Map<String, Value>,
 }
 
 struct Poll<'a> {
@@ -60,6 +64,12 @@ struct Poll<'a> {
     image_hold: Option<String>,
     /// The finished cycles this poll stops: their slots are free.
     stopped: Vec<u64>,
+    /// The bot's login, once the poll has read it.
+    bot: String,
+    /// "hold refreshes" was said this poll.
+    refresh_said: bool,
+    /// Parked issues with a box ticked: rule 5a leaves them.
+    park_ticked: Vec<u64>,
 }
 
 /// The decisions of one poll, a dry run when `dry`.
@@ -76,6 +86,9 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         starts: Vec::new(),
         image_hold: None,
         stopped: Vec::new(),
+        bot: String::new(),
+        refresh_said: false,
+        park_ticked: Vec::new(),
     };
     p.d.exit = match p.run() {
         Ok(()) => 0,
@@ -222,6 +235,7 @@ impl<'a> Poll<'a> {
             Some(h) => (Some(h), false),
             None => self.pause_label()?,
         };
+        self.bot = bot.clone();
         self.clean_up(&bot)?;
         // 1b. The pause switches end the poll here.
         if let Some(h) = holds {
@@ -231,6 +245,17 @@ impl<'a> Poll<'a> {
             return Ok(());
         }
         let room = self.room()?;
+        self.questions(&room, &bot)?;
+        // With no room for new work, only a refresh may still have room.
+        if room.want == 0 {
+            if self.dry {
+                self.log(room.hold.clone());
+            }
+            if room.want_all <= 0 || self.s.refresh_requests.is_empty() {
+                return Ok(());
+            }
+        }
+        self.outage(&room)?;
         self.candidates(room)
     }
 
@@ -324,10 +349,49 @@ impl<'a> Poll<'a> {
                 oldest = at;
             }
         }
+        // A refresh request waits as a ready issue does, unless refreshes are
+        // held. The hold is in the file, and the log has it once.
+        let mut held = String::new();
+        let requests = self.s.refresh_requests.clone();
+        if !requests.is_empty() {
+            held = self.refresh_held().unwrap_or_default();
+            if held != self.s.refresh_held {
+                if !held.is_empty() {
+                    self.log(format!("hold refreshes: {held}"));
+                }
+                self.act(json!({"refresh_held": held}));
+            }
+            self.refresh_said = true;
+        } else if !self.s.refresh_held.is_empty() {
+            self.act(json!({"refresh_held": ""}));
+        }
+        if held.is_empty() {
+            for n in requests {
+                if self.plan_open(n) || self.running(n) {
+                    continue;
+                }
+                let at = self
+                    .s
+                    .issues
+                    .get(&n)
+                    .and_then(|i| i.request.as_ref())
+                    .and_then(|r| r.get("at"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                waiting += 1;
+                if !at.is_empty() && (oldest.is_empty() || at < oldest) {
+                    oldest = at;
+                }
+            }
+        }
         let mut m = Map::new();
         m.insert("waiting".into(), json!(waiting));
         if !oldest.is_empty() {
             m.insert("oldest".into(), json!(oldest));
+        }
+        if !held.is_empty() {
+            m.insert("refreshHold".into(), json!(held));
         }
         Value::Object(m)
     }
@@ -337,6 +401,8 @@ impl<'a> Poll<'a> {
 struct Room {
     want: i64,
     want_all: i64,
+    /// The refresh lane's share of want_all, when there is a lane.
+    want_refresh: Option<i64>,
     hold: String,
 }
 
@@ -450,6 +516,7 @@ impl<'a> Poll<'a> {
         let room_mem_i = room_mem as i64;
         let (mut hold, mut why) = (String::new(), String::new());
         let (mut want, mut want_all) = (0i64, 0i64);
+        let mut want_refresh = None;
         let mut cut = "";
         let mut await_room: Option<i64> = None;
         let mut awaiting = 0i64;
@@ -529,6 +596,7 @@ impl<'a> Poll<'a> {
                     want_all = want_all.min(l);
                 }
                 want_all = want_all.min(room_mem_i);
+                want_refresh = Some(want_all);
             }
         } else {
             want_all = free + lane.unwrap_or(0);
@@ -536,11 +604,13 @@ impl<'a> Poll<'a> {
                 want_all = want_all.min(l);
             }
             want_all = want_all.min(room_mem_i);
+            want_refresh = lane.map(|l| l.min(want_all));
             let Some(list) = s.awaiting.clone() else {
                 self.need("awaiting");
                 return Ok(Room {
                     want: 0,
                     want_all: 0,
+                    want_refresh: None,
                     hold: String::new(),
                 });
             };
@@ -660,6 +730,7 @@ impl<'a> Poll<'a> {
         Ok(Room {
             want,
             want_all,
+            want_refresh,
             hold,
         })
     }
@@ -1386,17 +1457,9 @@ impl<'a> Poll<'a> {
         let Room {
             want,
             want_all,
-            hold,
+            want_refresh,
+            ..
         } = room;
-        // With no room for new work, only a refresh may still have room.
-        if want == 0 {
-            if self.dry {
-                self.log(hold);
-            }
-            if want_all <= 0 || self.s.refresh_requests.is_empty() {
-                return Ok(());
-            }
-        }
         let ready = self.ready()?;
         let mut urgent = Vec::new();
         for i in ready.iter().filter(|i| has(&i.labels, "tehas:urgent")) {
@@ -1436,6 +1499,7 @@ impl<'a> Poll<'a> {
                 .filter(|n| urgent.contains(n))
                 .map(|n| ('u', *n)),
         );
+        order.extend(self.s.refresh_requests.iter().map(|n| ('r', *n)));
         order.extend(
             numbers
                 .iter()
@@ -1449,11 +1513,31 @@ impl<'a> Poll<'a> {
                 .map(|n| ('x', *n)),
         );
         let mut ready_picked = 0;
+        let mut refresh_picked = 0;
         for (kind, n) in order {
             if self.d.picked.len() as i64 >= want_all {
                 break;
             }
             if self.d.picked.contains(&n) {
+                continue;
+            }
+            if kind == 'r' {
+                if want_refresh.is_some_and(|w| refresh_picked >= w) {
+                    let refreshing = self.live().filter(|(_, h)| h == "refresh").count() as i64;
+                    let lane = (self.c.refresh_slots - refreshing).max(0);
+                    self.log(format!(
+                        "wait #{n}: the refresh lane is full ({} of {})",
+                        self.c.refresh_slots - lane + refresh_picked,
+                        self.c.refresh_slots
+                    ));
+                    continue;
+                }
+                let bot = self.bot.clone();
+                if let Some(st) = self.refresh_ok(n, &bot)? {
+                    self.d.picked.push(n);
+                    refresh_picked += 1;
+                    self.starts.push((n, st));
+                }
                 continue;
             }
             if kind == 'x' && self.gate_asked && self.gate_answer != 0 {
@@ -1573,6 +1657,7 @@ impl<'a> Poll<'a> {
                 given_how: "label".into(),
                 remove,
                 fixer: None,
+                extra: Map::new(),
             };
             if let Some((base, count)) = fixer {
                 let s = |k: &str| {
@@ -1610,18 +1695,27 @@ impl<'a> Poll<'a> {
                     st.verb, st.starter
                 ));
             } else {
-                let mut a = json!({
-                    "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
-                    "given": st.given_how, "remove": st.remove,
-                });
-                if let Some((base, count)) = st.fixer {
-                    a["rests_on"] = base;
-                    a["fixer_starts"] = json!(count);
-                }
-                self.act(a);
+                self.act_start(n, st);
             }
         }
         Ok(())
+    }
+
+    /// The start of a cycle as an action: what start_cycles records and
+    /// changes.
+    fn act_start(&mut self, n: u64, st: Start) {
+        let mut a = json!({
+            "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
+            "given": st.given_how, "remove": st.remove,
+        });
+        if let Some((base, count)) = st.fixer {
+            a["rests_on"] = base;
+            a["fixer_starts"] = json!(count);
+        }
+        for (k, v) in st.extra {
+            a[k] = v;
+        }
+        self.act(a);
     }
 }
 

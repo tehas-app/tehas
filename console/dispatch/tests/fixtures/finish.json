@@ -1,11 +1,13 @@
 {
  "suite": "test/dispatch_finish_test.sh",
  "later": [
-  "a cycle a provider outage parked starts again once, and the cases of that retry after it: rule 4a, PR 3"
+  "when the open planning sessions cannot be read again, the retry waits: the second read after a planning write, part 3b"
  ],
  "not_ported": [
   "without the test seams it runs the scripts beside it; a unit systemd cannot load or that gives no answer: the start, #254",
-  "a pi-rukas no cycle has run before starts as many cycles as the slots allow, and with one cycle running and five waiting one poll starts three: the start's I/O, #254; the counts are slots.json's"
+  "a pi-rukas no cycle has run before starts as many cycles as the slots allow, and with one cycle running and five waiting one poll starts three: the start's I/O, #254; the counts are slots.json's",
+  "the park is used up and the start marked as the retry, and a start a person asked for is not the retry: the start and the store, #254",
+  "an outage park of a cycle started by hand asks for no retry: the store's rule (park-show --automatic)"
  ],
  "cases": [
   {
@@ -648,6 +650,492 @@
     "report": {
      "why": ""
     }
+   }
+  },
+  {
+   "case": "a cycle a provider outage parked starts again once, without a tick, and the issue is told",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+     },
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "outage-retry",
+      "how": "start of the cycle a provider outage parked",
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "untick": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a park that asks for no retry starts nothing and stays",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the retry waits while the endpoint does not answer, and its park stays",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "hold": "holding: no resources: the model endpoint does not answer"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the retry waits while the slots are full, and its park stays",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run says what it would do and changes nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would run a cycle for #7 (retry after a provider outage, started by alice)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "no retry when its starter is no longer allowed",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "mallory"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "no retry when the text was changed by another",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": "2026-01-01T03:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "no retry when the issue is closed",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "CLOSED",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "no retry when the issue is not parked",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": []
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue a person labelled tehas:ready is left to that label",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:ready"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "given": "label"
+     }
+    ],
+    "no_actions": [
+     {
+      "park_retry": 7
+     },
+     {
+      "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+     }
+    ]
+   },
+   "after": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       }
+      ]
+     }
+    ]
    }
   }
  ]

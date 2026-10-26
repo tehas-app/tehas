@@ -14,14 +14,16 @@ Part of #244. Builds on #245 (spec `docs/specs/2026-10-21-state-store.md`),
 
 ## Decisions
 
-D1. **Four pull requests**, each reviewable alone. Only the last changes
-anything on a host.
+D1. **Five pull requests**, each reviewable alone. Only the last changes
+anything on a host. Part 3 was split in two (3a, 3b) on 2026-10-26, the
+owner's choice: its eight suites hold 336 cases.
 
 | PR | What | Tests ported from |
 | --- | --- | --- |
 | 1 | The crate, its types, rules 1 and 1b (the pause switches), the holds of rules 2 and 3 (the slots, the refresh lane, the limit, the slice's room, the endpoint, the disk, a red branch, the review cap), the order of rule 7 with the low gate, eligibility by label (allowed list, control issue, urgent, next, blocked, planning open, cycle running, closed by a pull request), and the demand | slots, queue, room, control, limit, red: their cases of the start path (166) |
 | 2 | The rest of rule 6 (epic, cross-project, size, images, fixer, the park of rule 4c) and the clean-ups of rule 2 (quiet cycles, finished cycles, marks with no cycle, tehas:refreshing with no refresh) | guard, images, fixer, finish, sweep |
-| 3 | Rules 4, 4a, 4b, 5 and 5a: ticks, outage retries, refreshes, planning turns, refines, and the cases of PR 1's suites that touch them | park, plan, plan_answer, plan_store, refine, refresh, turns, approval |
+| 3a | Rules 4, 4a and 4b: the retry tick of a park's question, the outage retry and refreshes, the refresh half of the demand, and the cases of the earlier suites that touch them | park, refresh, approval |
+| 3b | Rule 5 and 5a, and the planning half of rule 4: planning turns in flight, their answers, new sessions and refines | plan, plan_answer, plan_store, turns, refine |
 | 4 | `snapshot()`, the `tehas-dispatch --shadow` binary, the shadow log and the manual | start, checkout (the I/O), and the shadow test |
 
 The demand of PR 1 counts the ready issues only. The refresh requests it also
@@ -70,6 +72,17 @@ What PR 2 decides, and what it leaves to the caller:
   final newline, which no field the checks read ends with.
 - The fixtures match a log line by its text, not as a whole line: the shadow
   of PR 4 is what compares the log line by line.
+
+What PR 3a decides:
+
+- A retry tick or an outage retry starts one cycle and the decision ends
+  there, as the poll does. The untick of the tick follows its start.
+- A planning question that has an answer names `planning` in `needs`: its
+  turn is part 3b's. One with no answer decides nothing, as in the bash.
+- The writes a refresh or a park leaves to the caller: the request removed
+  (`refresh_drop`), the note of what was said (`refresh_said`), the hold of
+  refreshes (`refresh_held`), the retry spent (`park_retry`), the answer
+  recorded (`answered`).
 
 D2. **A library crate `console/dispatch`** (`tehas-dispatch`). PRs 1 to 3 add
 no binary and nothing is installed, so they cannot change a host. PR 4 adds

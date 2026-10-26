@@ -31,8 +31,10 @@ pub struct Settings {
     pub size_max_bytes: usize,
     pub size_max_lines: usize,
     pub work_images: bool,
-    /// PI_ENSEMBLE_SUBAGENT_MODEL.
+    /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
+    pub image: String,
+    pub refresh_max: i64,
 }
 
 impl Settings {
@@ -83,6 +85,8 @@ impl Settings {
             size_max_lines: n("TEHAS_SIZE_MAX_LINES", 1000) as usize,
             work_images: s("TEHAS_WORK_IMAGES", "0") == "1",
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
+            image: s("PI_ENSEMBLE_IMAGE", ""),
+            refresh_max: n("TEHAS_REFRESH_MAX", 2),
         }
     }
 

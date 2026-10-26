@@ -4,6 +4,7 @@
 
 pub mod decide;
 pub mod events;
+pub mod questions;
 pub mod settings;
 pub mod slice;
 pub mod snapshot;
