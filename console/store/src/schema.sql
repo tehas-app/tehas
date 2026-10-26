@@ -321,7 +321,8 @@ CREATE TABLE poll_cost (
   id INTEGER PRIMARY KEY,
   at INTEGER NOT NULL,
   wall_ms INTEGER NOT NULL, cpu_ms INTEGER NOT NULL, gh INTEGER NOT NULL,
-  writes INTEGER, label INTEGER, comment INTEGER, edit INTEGER, other INTEGER
+  writes INTEGER, label INTEGER, comment INTEGER, edit INTEGER, other INTEGER,
+  starts INTEGER
 );
 CREATE INDEX poll_cost_at ON poll_cost (at);
 CREATE TABLE poll_demand (

@@ -390,12 +390,21 @@ store as it ends, however it ends. A dry run records nothing.
   `comment`, `edit` and other. They are the writes of the whole host in that
   time, a cycle's included. Without that log, on a host with no GitHub App,
   the writes are not counted and the line leaves them out.
+- **starts**: the cycles the poll started, 0 when it started none. A poll of an
+  older tehas keeps no answer for that, which is not the same as 0.
 - **last hour**: the polls that ended in the last hour, their CPU time and
   their writes added up.
 
 `~/tehas/libexec/store poll-show` gives the same figures as JSON, with the
 writes of the last poll by kind. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
+
+`~/tehas/libexec/store poll-idle --since <seconds>` answers one object over the
+polls of the last `<seconds>` that started no cycle: `{"polls": n, "cpu_ms": m,
+"wall_ms": m, "writes": m}`, the three `m` being the median of those polls. The
+`writes` figure is left out when none of them had a write log, and `{"polls":
+0}` is the answer when no idle poll is on record. A poll with no `starts` on its
+row is not one of them. The health check uses it for the budget of idle polls.
 
 ### The dispatcher's shadow
 
