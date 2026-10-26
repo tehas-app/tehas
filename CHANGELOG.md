@@ -13,7 +13,13 @@ empty one above it.
 
 ### Changes
 
-- None yet.
+- The state store keeps the action journal (#254): `store poll-begin`,
+  `journal-record`, `journal-attempt`, `journal-settle` and `journal-open`
+  record what a poll means to write before it writes it, and how the write
+  ended. A comment is recorded by its sum and length, not its text. `store
+  prune` now also removes old rows of `polls`, never one an unsettled action
+  names. Nothing calls the journal yet: the dispatcher in Rust that writes
+  through it (`console/dispatch`, `apply`) is not used by the poll.
 
 ### Adopter action
 
