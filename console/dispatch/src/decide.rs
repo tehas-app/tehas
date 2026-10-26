@@ -1773,9 +1773,16 @@ impl<'a> Poll<'a> {
     /// The start of a cycle as an action: what start_cycles records and
     /// changes.
     fn act_start(&mut self, n: u64, st: Start) {
+        // What the approval binds: the sums and links of the text this poll
+        // read, which the record is written from.
+        let t = self.text(n);
+        let body = t.get("body").and_then(Value::as_str).unwrap_or("");
         let mut a = json!({
             "start": n, "by": st.starter, "how": st.how, "at": st.given_at,
-            "given": st.given_how, "remove": st.remove,
+            "given": st.given_how, "remove": st.remove, "verb": st.verb,
+            "text": !t.as_object().is_none_or(|o| o.is_empty()),
+            "body_sha256": text::body_sha256(&t), "title_sha256": text::title_sha256(&t),
+            "links": text::link_list(body),
         });
         if let Some((base, count)) = st.fixer {
             a["rests_on"] = base;

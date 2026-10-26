@@ -68,8 +68,37 @@ pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Dur
         }
         e
     });
+    let status = wait(&mut child, bound);
+    Ran {
+        status,
+        out: reader.join().unwrap_or_default(),
+        err: ereader.join().unwrap_or_default(),
+    }
+}
+
+/// Run a program with a bound and no pipe: nothing it leaves running can hold
+/// the poll. Its output goes to `out`, or nowhere.
+pub fn run_quiet(
+    program: &str,
+    args: &[String],
+    out: Option<std::fs::File>,
+    bound: Duration,
+) -> Option<i32> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(out.map_or_else(Stdio::null, Stdio::from))
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    wait(&mut child, bound)
+}
+
+/// The child's exit status, or None when it outlived its bound and was
+/// stopped.
+fn wait(child: &mut std::process::Child, bound: Duration) -> Option<i32> {
     let began = Instant::now();
-    let status = loop {
+    loop {
         match child.try_wait() {
             Ok(Some(s)) => break s.code(),
             Ok(None) if began.elapsed() < bound => std::thread::sleep(Duration::from_millis(20)),
@@ -94,11 +123,6 @@ pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Dur
                 break None;
             }
         }
-    };
-    Ran {
-        status,
-        out: reader.join().unwrap_or_default(),
-        err: ereader.join().unwrap_or_default(),
     }
 }
 
