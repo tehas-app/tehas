@@ -465,6 +465,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tehas-cycle"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde_json",
+ "sha2",
+ "tehas-core",
+]
+
+[[package]]
 name = "tehas-dispatch"
 version = "0.1.0"
 dependencies = [
