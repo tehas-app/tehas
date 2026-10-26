@@ -10,9 +10,10 @@
 //! records, the files of the hold, the gate and the branch check, and the
 //! containers left behind. And the starts (start.rs), which end the poll.
 //! And the stops (stop.rs): a quiet cycle, one whose work is done, and the
-//! sweep. The planning turns are the next part of #254, and come back in
-//! `left`.
+//! sweep. And the end of a planning turn (plan.rs). The start of a planning
+//! turn is the next part of #254, and comes back in `left`.
 
+mod plan;
 pub mod start;
 mod stop;
 
@@ -55,7 +56,8 @@ pub struct Applied {
 
 /// How a journaled call ended.
 enum Wrote {
-    Done,
+    /// What gh printed: a comment posted names its id there.
+    Done(String),
     Failed,
     /// Not made: the journal could not record it.
     Unrecorded,
@@ -165,14 +167,7 @@ impl Writer {
                 log.push(format!("WARN: could not write {}", path.display()));
             }
         } else if let Some(name) = a.get("reap").and_then(Value::as_str) {
-            let r = run(
-                &self.docker,
-                &["rm".into(), "-f".into(), name.into()],
-                Duration::from_secs(60),
-            );
-            if r.ok() && !r.out.trim().is_empty() {
-                log.push(format!("removed the container {name}: {}", text(a, "why")));
-            }
+            self.reap(name, text(a, "why"), log);
         } else if let Some(n) = a.get("quiet").and_then(Value::as_u64) {
             if let stop::Then::End = self.quiet(n, a, log) {
                 self.ended = Some(78);
@@ -181,6 +176,14 @@ impl Writer {
             self.stop_done(n, a, log);
         } else if let Some(n) = a.get("sweep").and_then(Value::as_u64) {
             self.sweep(n, a, log);
+        } else if let Some(n) = a.get("plan_collect").and_then(Value::as_u64) {
+            self.plan_collect_action(n, log);
+        } else if let Some(n) = a.get("plan_post").and_then(Value::as_u64) {
+            self.plan_post(n, log);
+        } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
+            self.plan_close(n, log);
+        } else if let Some(n) = a.get("plan_end").and_then(Value::as_u64) {
+            self.plan_end(n, text(a, "say"), false, false, log);
         } else {
             return false;
         }
@@ -252,9 +255,22 @@ impl Writer {
             .calls
             .store(&["journal-settle", "--action", &id, "--result", result]);
         if r.ok() || (there && r.status.is_some()) {
-            Wrote::Done
+            Wrote::Done(r.out)
         } else {
             Wrote::Failed
+        }
+    }
+
+    /// reap: a container no cycle holds, removed; said only when docker
+    /// named one it removed.
+    fn reap(&mut self, name: &str, why: &str, log: &mut Vec<String>) {
+        let r = run(
+            &self.docker,
+            &["rm".into(), "-f".into(), name.into()],
+            Duration::from_secs(60),
+        );
+        if r.ok() && !r.out.trim().is_empty() {
+            log.push(format!("removed the container {name}: {why}"));
         }
     }
 
@@ -294,7 +310,7 @@ impl Writer {
             "-".into(),
         ];
         match self.write(n, "comment-post", args, Some(body), None) {
-            Wrote::Done => {}
+            Wrote::Done(_) => {}
             Wrote::Failed => log.push(format!("WARN: comment on #{n} failed")),
             Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
@@ -324,7 +340,7 @@ impl Writer {
             "label-add"
         };
         match self.write(n, kind, args, None, None) {
-            Wrote::Done => {}
+            Wrote::Done(_) => {}
             Wrote::Failed => {
                 log.push(text(a, "fail").to_string());
                 return;
@@ -383,7 +399,7 @@ impl Writer {
         ];
         let body = json!({"body": text(a, "body")}).to_string();
         match self.write(n, "comment-edit", args, Some(&body), None) {
-            Wrote::Done => {
+            Wrote::Done(_) => {
                 if let Some(say) = a.get("say").and_then(Value::as_str) {
                     self.say(n, say, log);
                 }
@@ -403,7 +419,7 @@ impl Writer {
             format!("repos/{}/issues/{pr}/labels/tehas:refreshing", self.repo),
         ];
         let worked = match self.write(pr, "refresh-end", args, None, Some("Not Found")) {
-            Wrote::Done => true,
+            Wrote::Done(_) => true,
             Wrote::Failed => false,
             Wrote::Unrecorded => {
                 log.push(Self::unrecorded(pr));
