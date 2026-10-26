@@ -5,4 +5,5 @@ pub mod file;
 pub mod grammar;
 #[cfg(feature = "mask")]
 pub mod mask;
+pub mod slow;
 pub mod time;
