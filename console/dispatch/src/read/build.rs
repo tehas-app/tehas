@@ -3,12 +3,13 @@
 //! the issues they decide about, the store's read verbs, and this host's files
 //! and locks. Nothing is written.
 
-use super::run::{Calls, GhFail};
+use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::time::Duration;
 
 /// Where the snapshot reads from, and with what.
 pub struct Sources<'a> {
@@ -19,6 +20,9 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
+    /// Whether the low gate may be run: a poll's, never the shadow's, which
+    /// the poll has run already.
+    pub gate: bool,
 }
 
 /// The facts a decision names in needs that are read only when it asks:
@@ -34,7 +38,67 @@ pub fn fill(src: &Sources, snap: &mut Value, needs: &[&str]) -> bool {
         snap["continues"] = json!(models::continues());
         read = true;
     }
+    if needs.contains(&"gate") && snap.get("gate").is_none() && src.gate {
+        snap["gate"] = low_gate(src.home);
+        read = true;
+    }
     read
+}
+
+/// low_gate's run: TEHAS_LOW_GATE in an empty environment but PATH, its
+/// output in logs/low-gate.log, bounded by TEHAS_LOW_GATE_WAIT; its exit
+/// status as timeout gives it (124 out of time, 126 not runnable, 127 not
+/// there, 128 and the signal), and state/low-gate.held as the bash reads it:
+/// a link is "other", anything else there is "file".
+fn low_gate(home: &Path) -> Value {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let file = home.join("state/low-gate.held");
+    let held = match std::fs::symlink_metadata(&file) {
+        Err(_) => "",
+        Ok(m) if m.file_type().is_symlink() => "other",
+        Ok(_) => "file",
+    };
+    let gate = std::env::var("TEHAS_LOW_GATE").unwrap_or_default();
+    // lib/config.sh's default.
+    let wait = std::env::var("TEHAS_LOW_GATE_WAIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+    // A log that cannot be written is a redirection that failed: the shell
+    // answers 1 and runs nothing.
+    let Ok(out) = std::fs::File::create(home.join("logs/low-gate.log")) else {
+        return json!({"answer": 1, "held": held});
+    };
+    let Ok(err) = out.try_clone() else {
+        return json!({"answer": 1, "held": held});
+    };
+    let child = Command::new(&gate)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .stdin(Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .process_group(0)
+        .spawn();
+    let answer = match child {
+        // EACCES and ENOEXEC: there, and not runnable.
+        Err(e)
+            if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(8) =>
+        {
+            126
+        }
+        Err(_) => 127,
+        // As timeout -k 10: TERM at the bound, KILL ten seconds on.
+        Ok(mut c) => run::wait(
+            &mut c,
+            Duration::from_secs(wait),
+            Duration::from_secs(10),
+            true,
+        )
+        .unwrap_or(124),
+    };
+    json!({"answer": answer, "held": held})
 }
 
 fn has(labels: &[String], l: &str) -> bool {

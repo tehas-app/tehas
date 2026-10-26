@@ -42,7 +42,6 @@ mk tehas:refine 0e8a16 "Tehas: plan this request into one issue sized for one cy
 mk tehas:planning 1d76db "Tehas: a planning turn is running for this issue"
 mk tehas:replaced c5def5 "Tehas: replaced by the issue a refine filed"
 mk tehas:refined c5def5 "Tehas: refined; later parts are planned by hand"
-mk tehas:fixer-escalated c5def5 "Tehas: the fixer left this issue to a person"
 mk tehas:millwright-escalated c5def5 "Tehas: the millwright left this issue to a person"
 mk tehas:next bfd4f2 "Tehas: dispatch after urgent issues, before the rest"
 mk tehas:blocked e4e669 "Tehas: started once every issue it names is closed"

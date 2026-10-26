@@ -13,6 +13,7 @@
 //! sweep. And the planning turns: their end (plan.rs) and their start
 //! (turn.rs), with the spends of a park's retry.
 
+mod gate;
 mod plan;
 pub mod start;
 mod stop;
@@ -44,6 +45,13 @@ pub struct Writer {
     pub spend: Option<u64>,
     /// Set by a turn: the status command runs after it, as after a start.
     pub status_due: bool,
+    /// The gh calls the writes made, for the poll's cost.
+    pub gh_writes: u32,
+    /// The issues marked running this poll, for the poll's cost.
+    pub starts: u32,
+    /// The checkout was refreshed this poll by the index's gate, so the
+    /// starts do not refresh it again.
+    pub fetched: bool,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -192,6 +200,14 @@ impl Writer {
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
             self.plan_close(n, log);
+        } else if let Some(n) = a.get("units").and_then(Value::as_u64) {
+            if !self.units(n, log) {
+                self.ended = Some(1);
+            }
+        } else if a.get("index_gate").is_some() {
+            if !self.index_gate(log) {
+                self.ended = Some(0);
+            }
         } else if let Some(n) = a.get("plan_turn").and_then(Value::as_u64) {
             if let turn::Then::End(rc) = self.plan_turn(n, a, log) {
                 self.ended = Some(rc);
@@ -232,6 +248,14 @@ impl Writer {
             json!({"sha256": sum, "bytes": b.len()})
         });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
+        // The poll's row, begun with its first write: a store that cannot
+        // begin it records, and so makes, no write this poll.
+        if self.poll_at == 0 {
+            match self.calls.store(&["poll-begin"]) {
+                Ok(v) => self.poll_at = v.get("at").and_then(Value::as_i64).unwrap_or(0),
+                Err(_) => return Wrote::Unrecorded,
+            }
+        }
         let recorded = self.calls.store(&[
             "journal-record",
             "--poll",
@@ -259,6 +283,7 @@ impl Writer {
         {
             return Wrote::Unrecorded;
         }
+        self.gh_writes += 1;
         let r = run_input(&self.gh, &args, body, self.bound);
         let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
         let result = match r.status {
@@ -294,7 +319,7 @@ impl Writer {
 
     /// tehas_store_try: asked again, a second apart, only when the store
     /// answered 1 busy or timeout.
-    fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
+    pub fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
         let mut i = 1;
         loop {
             let r = self.calls.store(args);

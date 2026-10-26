@@ -1,0 +1,3939 @@
+[
+ {
+  "case": "1793028991705861129",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028991,
+   "now": 1793028991,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028991
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028991,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `done`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028992151358814",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": true,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028992,
+   "now": 1793028992,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028992
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028992,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "merged",
+    "--step",
+    "done"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x` (status `merged`, last step `done`, 0 min). Nothing was removed; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=done kind= provider=0 sig=0c39b8f47f0e645fa8481c9d6bd5c17880503b99e32f42a13c476ba251fefc36 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028992715575238",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028992,
+   "now": 1793028992,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028992
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028992,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "merged",
+    "--step",
+    "done",
+    "--pr",
+    "9"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/x` (status `merged`, last step `done`, 0 min). Nothing was removed; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=done kind= provider=0 sig=0c39b8f47f0e645fa8481c9d6bd5c17880503b99e32f42a13c476ba251fefc36 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028993281764034",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028993,
+   "now": 1793028993,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/issue-9-other\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028993
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028993,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-other"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-9-other",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "merged",
+    "--step",
+    "done"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped: its state says `merged`, but the bot has no merged pull request for this issue on `feature/issue-9-other` (status `merged`, last step `done`, 0 min). Nothing was removed; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The branch `feature/issue-9-other` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=done kind= provider=0 sig=0c39b8f47f0e645fa8481c9d6bd5c17880503b99e32f42a13c476ba251fefc36 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028993841911900",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793028993,
+   "now": 1793028993,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/issue-9-other\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028993
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028993,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #9 and mentions #7",
+      "headRefName": "feature/issue-9-other"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-9-other",
+    "--cap",
+    "awaiting-human-merge",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "awaiting-human-merge",
+    "--step",
+    "commit-pr"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The branch `feature/issue-9-other` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028994492442193",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793028994,
+   "now": 1793028994,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/issue-7-the-change\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028994
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028994,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "No keyword here.",
+      "headRefName": "feature/issue-7-the-change"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/issue-7-the-change",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028995019404061",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793028995,
+   "now": 1793028995,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028995
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028995,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Closes #70",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "awaiting-human-merge",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "awaiting-human-merge",
+    "--step",
+    "commit-pr"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. The branch `feature/x` has a pull request of the bot that does not name this issue, so it is not taken as this cycle's.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028995584008189",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028995,
+   "now": 1793028995,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": {
+     "link": true
+    },
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028995
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028995,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 is a link, it is not read",
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028996143202210",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793028996,
+   "now": 1793028996,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028996
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028996,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--cap",
+    "awaiting-human-merge",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "awaiting-human-merge",
+    "--step",
+    "commit-pr"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028996702157182",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028996,
+   "now": 1793028996,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028996
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028996,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028997247630033",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028997,
+   "now": 1793028997,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 3,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028997
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028997,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028997809414958",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028997,
+   "now": 1793028997,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 8,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028997
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028997,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028998381086122",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793028998,
+   "now": 1793028998,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028998
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028998,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028998969660821",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793028999,
+   "now": 1793028999,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"handoff\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028999
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028999,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=merged step=handoff minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "handoff",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `handoff`, 0 min, runner exit 2). Nothing more is needed here. The workspace is kept at `~/tehas/work/widget-7`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793028999583475558",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793028999,
+   "now": 1793028999,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793028999
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793028999,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "CLOSED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=running step=review minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "running",
+    "--step",
+    "review",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "comment",
+     "Tehas cycle stopped: its pull request https://github.com/acme/widget/pull/9 was closed without being merged (status `running`, last step `review`, 0 min, runner exit 2). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. To retry, apply `tehas:ready`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029000093090604",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793029000,
+   "now": 1793029000,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029000
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029000,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/8",
+      "state": "CLOSED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     },
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029000583921018",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029000,
+   "now": 1793029000,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029000
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029000,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {}
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=unknown step=- minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "unknown",
+    "--step",
+    "-",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "unknown",
+    "--step",
+    "-"
+   ],
+   "log": [
+    "WARN: the result of #7 holds nothing, so its step is read from its run log"
+   ],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029001107800603",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793029001,
+   "now": 1793029001,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029001
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029001,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029001597091110",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": true,
+   "rc": 10,
+   "signalled": false,
+   "started": 1793029001,
+   "now": 1793029001,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"handoff\",\n      \"failedStep\": \"commit-pr\",\n      \"branch\": \"feature/x\",\n      \"cap\": \"awaiting-human-merge\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029001
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029001,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "OPEN",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ],
+    "attention": false
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=10 status=handoff step=commit-pr minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "handoff",
+    "--step",
+    "commit-pr",
+    "--rc",
+    "10",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9",
+    "--cap",
+    "awaiting-human-merge"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label tehas:awaiting-merge"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `handoff`, last step `commit-pr`, 0 min. Pull request waiting for a human: https://github.com/acme/widget/pull/9"
+    ],
+    [
+     "pr_comment",
+     "https://github.com/acme/widget/pull/9\nTehas cycle for #7: status `handoff`, last step `commit-pr`, 0 min.\n\nNo token usage was recorded for this cycle."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029002115889700",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029002,
+   "now": 1793029002,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029002
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029002,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `done`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029002582194481",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793029002,
+   "now": 1793029002,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029002
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029002,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "aborted",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029003102038680",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": true,
+   "rc": 20,
+   "signalled": false,
+   "started": 1793029003,
+   "now": 1793029003,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"aborted\",\n      \"failedStep\": \"develop\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029003
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029003,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=20 status=aborted step=develop minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "aborted",
+    "--step",
+    "develop",
+    "--rc",
+    "20",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "aborted",
+    "--step",
+    "develop"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `aborted`, last step `develop`, 0 min (runner exit 20). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029003659268848",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793029003,
+   "now": 1793029003,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029003
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029003,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=merged step=review minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "review",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `review`, 0 min, runner exit 2). Nothing more is needed here. The workspace is kept at `~/tehas/work/widget-7`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029004184706639",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": true,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793029004,
+   "now": 1793029004,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029004
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029004,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=merged step=review minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "review",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle ended: its pull request https://github.com/acme/widget/pull/9 was merged while the cycle ran (last step `review`, 0 min, runner exit 2). Nothing more is needed here. The workspace is kept at `~/tehas/work/widget-7`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029004674701491",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 2,
+   "signalled": false,
+   "started": 1793029004,
+   "now": 1793029004,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"running\",\n      \"failedStep\": \"adversarial\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n",
+    "done": "closed\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029004
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029004,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=2 status=closed step=adversarial minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "closed",
+    "--step",
+    "adversarial",
+    "--rc",
+    "2",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas stopped the cycle: this issue was closed while it ran (status `running`, last step `adversarial`, 0 min). Nothing more is needed here. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`."
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029005141787631",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": false,
+   "rc": 21,
+   "signalled": false,
+   "started": 1793029005,
+   "now": 1793029005,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"interrupted\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029005
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029005,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=21 status=interrupted step=review minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "interrupted",
+    "--step",
+    "review",
+    "--rc",
+    "21",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "interrupted",
+    "--step",
+    "review"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `review`, 0 min (runner exit 21). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029005722365447",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": false,
+   "before_retry_dir": true,
+   "rc": 21,
+   "signalled": false,
+   "started": 1793029005,
+   "now": 1793029005,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"interrupted\",\n      \"failedStep\": \"review\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029005
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029005,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": []
+   }
+  },
+  "met": {
+   "recorded": true,
+   "posted": true,
+   "relabel": [
+    "ok",
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=21 status=interrupted step=review minutes=0 pr=none oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "interrupted",
+    "--step",
+    "review",
+    "--rc",
+    "21",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--parked"
+   ],
+   "park": [
+    "7",
+    "--attempt",
+    "1",
+    "--reason",
+    "interrupted",
+    "--step",
+    "review"
+   ],
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running --add-label needs-human-attention"
+    ],
+    [
+     "question",
+     "Tehas cycle stopped without a pull request: status `interrupted`, last step `review`, 0 min (runner exit 21). The workspace is kept at `~/tehas/work/widget-7.before-retry`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+    ],
+    [
+     "relabel",
+     "--add-label tehas:question"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029006284556425",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": false,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029006,
+   "now": 1793029006,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029006
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029006,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `done`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029006800376077",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029006,
+   "now": 1793029006,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029006
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029006,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `done`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ },
+ {
+  "case": "1793029007262954871",
+  "facts": {
+   "issue": 7,
+   "repo": "acme/widget",
+   "home": "/T/home",
+   "hostname": "tehas-test",
+   "workdir": "/T/home/tehas/work/widget-7",
+   "workspaces_marked": true,
+   "workdir_dir": true,
+   "before_retry_dir": false,
+   "rc": 0,
+   "signalled": false,
+   "started": 1793029007,
+   "now": 1793029007,
+   "start": {
+    "attempt": 1,
+    "by": "",
+    "how": "hand",
+    "approval_at": null,
+    "requeued": false
+   },
+   "files": {
+    "result.json": "{\n  \"schemaVersion\": 5,\n  \"issues\": [\n    {\n      \"issue\": 7,\n      \"status\": \"merged\",\n      \"failedStep\": \"done\",\n      \"branch\": \"feature/x\"\n    }\n  ]\n}\n",
+    "progress.json": "{\"roles\":[],\"reason\":\"\",\"reviewHeld\":false}\n"
+   },
+   "record": {
+    "api": 1,
+    "verb": "cycle-show",
+    "ok": true,
+    "issue": 7,
+    "lock": {
+     "state": "held",
+     "probe_rc": 1,
+     "file": true,
+     "seen_at": 1793029007
+    },
+    "cycle": {
+     "issue": 7,
+     "attempt": 1,
+     "started_at": 1793029007,
+     "started_by": null,
+     "how": "hand",
+     "requeued": false,
+     "rukas_commit": null,
+     "image": null,
+     "branch": null,
+     "end_reason": null,
+     "ended_at": null,
+     "oom_kills": null,
+     "forks_refused": null,
+     "stalled_seconds": null,
+     "timed_out": false,
+     "runner_exit": null,
+     "watched": false,
+     "host_saw": null,
+     "stop_asked_at": null,
+     "stop_said_times": 0,
+     "settings": {},
+     "quiet": null,
+     "heard_at": null
+    }
+   },
+   "approval": {
+    "api": 1,
+    "verb": "approval-current",
+    "ok": true,
+    "approval": null,
+    "current": null,
+    "rests_on": null,
+    "millwright_starts": 0,
+    "fixer_starts": 0,
+    "refreshes": 0
+   },
+   "github": {
+    "prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/9",
+      "state": "MERGED",
+      "body": "Fixes #7",
+      "headRefName": "feature/x"
+     }
+    ]
+   }
+  },
+  "met": {
+   "recorded": false,
+   "posted": false,
+   "relabel": [
+    "ok"
+   ]
+  },
+  "expect": {
+   "done": "done #7 rc=0 status=merged step=done minutes=0 pr=https://github.com/acme/widget/pull/9 oom_kills=0 forks_refused=0",
+   "end": [
+    "7",
+    "--attempt",
+    "1",
+    "--status",
+    "merged",
+    "--step",
+    "done",
+    "--rc",
+    "0",
+    "--oom",
+    "0",
+    "--forks",
+    "0",
+    "--branch",
+    "feature/x",
+    "--pr",
+    "9"
+   ],
+   "park": null,
+   "log": [],
+   "writes": [
+    [
+     "relabel",
+     "--remove-label tehas:running"
+    ],
+    [
+     "comment",
+     "Tehas cycle finished: status `merged`, last step `done`, 0 min. The change was merged: https://github.com/acme/widget/pull/9"
+    ]
+   ]
+  }
+ }
+]

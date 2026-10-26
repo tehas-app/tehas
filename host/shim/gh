@@ -15,6 +15,9 @@
 # status, and 403 or 429 when gh's error stream says so, else `-`. Fields are
 # tab-separated and carry nothing else: not the token, not a body, not a field
 # value. A read is never logged and still execs, so it costs no extra process.
+# `gh api graphql` sends POST whatever it asks for, so it is told by the
+# operation at the start of its query and not by its method: a query is a read
+# and a mutation a write of kind `api POST` (#792).
 # The log has no bound and no rotation: the report that reads it is #649 part 2.
 #
 # Exit: gh's own; 1 when no token could be had (tehasbot github-token says why).
@@ -26,6 +29,11 @@ if [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
   export GH_TOKEN
 fi
 
+# Where the name of a GraphQL operation ends: at a quote or a bracket, which is
+# where the document itself begins. The two quotes are named by their octal
+# codes, because a pattern of them cannot be written between quotes of its own.
+doc_ends=$'["\042\047[{(]*'
+
 # The kind of a write, and the repository and number it names, from the
 # arguments alone. A call this does not recognise as a write is a read, so
 # nothing unknown is charged as a write and no read pays for the copy of stderr
@@ -36,26 +44,64 @@ case "${1:-}" in
 api)
   # gh decides its own method: -X wins, a call with fields and no method posts,
   # a call with neither is a read. The -XPOST and --method=POST forms count.
-  path="" method="" fields=0 prev=""
+  # graphql is the exception to all of that: gh always posts it, so its method
+  # says nothing and the operation at the start of its query says everything
+  # (#792). The document is the value of the field named query as -f gives it:
+  # -F gives a variable of that name, which is no document, and a search string
+  # of q= is none either.
+  path="" method="" fields=0 graphql=0 query="" given="" prev=""
   for a in "$@"; do
     case $prev in
     -R | --repo) repo=$a ;;
     -X | --method) method=$a ;;
+    -f | --field | --raw-field) given=$a ;;
+    *) given="" ;;
     esac
     prev=$a
     case $a in
     -X[A-Za-z]*) method=${a#-X} ;;
     --method=*) method=${a#--method=} ;;
     -R=* | --repo=*) repo=${a#*=} ;;
+    graphql) [ "$a" = "${2:-}" ] && graphql=1 ;;
     -f | -F | --field | --raw-field | --input) fields=1 ;;
+    query=*) [ -n "$given" ] && query=${a#query=} ;;
     [A-Za-z]*/*) [ -n "$path" ] || path=$a ;;
     esac
   done
-  method=${method^^}
-  case $method in
-  '') [ "$fields" = 1 ] && kind="api POST" ;;
-  *) kind="api $method" ;;
-  esac
+  if [ "$graphql" = 1 ]; then
+    # The operation is the first word of the document, or its second when the
+    # first is the name the operation carries: `AddLabel mutation` is one
+    # mutation, not a name and a query. The document begins at its first quote
+    # or bracket, so a word of it - a field, an alias or a string that reads
+    # `mutation` - never stands as the operation, and `mutation($n: Int!)` is
+    # read whole, as the operation it is. Each word is read whole, so a word
+    # that only reads like the operation, `mutations` or `addMutation`, is
+    # never taken for it. A mutation is a write of kind `api POST`; a query, a
+    # fragment, or a document that names neither asks for something and is a
+    # read.
+    q=${query//$'\t'/ }
+    q=${q//$'\n'/ }
+    q=${q//$'\r'/ }
+    # The two words before the document, and nothing of the document itself.
+    # The set the word ends at is split off once and thrown away, so a word of
+    # the body cannot reach the second reading.
+    set -f
+    # shellcheck disable=SC2295
+    read -r first second _ <<<"${q%%$doc_ends}"
+    set +f
+    case " ${first,,} ${second,,} " in
+    *" mutation "*) kind="api POST" ;;
+    *) kind="" ;;
+    esac
+    method=""
+    path=""
+  else
+    method=${method^^}
+    case $method in
+    '') [ "$fields" = 1 ] && kind="api POST" ;;
+    *) kind="api $method" ;;
+    esac
+  fi
   if [ -n "$kind" ]; then
     # repos/<owner>/<name> as one field: the two words after it are the owner
     # and the name. The number is the word after issues/ or pulls/. A query

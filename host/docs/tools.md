@@ -78,12 +78,12 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
-| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright. The old name `TEHAS_FIXER_LOGIN` is still accepted, with a warning, until it is removed |
+| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
-| `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it. The old name `TEHAS_FIXER_MAX_RETRIES` is accepted until it is removed |
-| `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)). The old name `TEHAS_FIXER_MAX_PLAN_ANSWERS` is accepted until it is removed |
+| `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
+| `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
@@ -1455,7 +1455,8 @@ In order, stopping at the first step that fails:
    `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and
    `TEHAS_BOT_LOGIN=<slug>[bot]`. Another key or other app settings are
    replaced only with `--force`. From here `gh` runs through `~/tehas/shim/gh`,
-   which reads the app from these files.
+   which reads the app from these files and keeps the account of what the
+   factory writes ([GitHub App identity](/github-app)).
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
    With an app the login is `<slug>[bot]` and the ID the one step 1 read,
@@ -1499,12 +1500,11 @@ missing, malformed or differs.
 tehas labels        # one line per label
 ```
 
-Creates the nineteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the eighteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
-filed a ticket for), `tehas:millwright-escalated` (and `tehas:fixer-escalated`, its old name, kept
-until a release removes it), `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
+filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
 pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
@@ -2842,6 +2842,14 @@ hour only.
 
 GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
 where tehas compares a GraphQL author with the bot it drops the `[bot]`.
+
+What the shim of `~/tehas/shim/gh` counts as a write is what a call asks GitHub
+to do, and not how it asks it. `gh api graphql` sends POST whatever it asks
+for, a query among them, so the method says nothing there and the shim reads
+the first word of the document instead: a query, a fragment, or a document that
+names no operation reads and is not logged, and only a `mutation` adds a line
+of kind `api POST`. An idle poll of the dispatcher asks nothing but queries, so
+it writes nothing. See [GitHub App identity](/github-app).
 
 Exit 0 a token or a check that passed; 1 no token could be had, or it does not
 reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
