@@ -994,7 +994,7 @@ fn plan_note_usage() {
     for (args, says) in [
         (
             &["plan-note", "1", "--kind", "seen", "--id", "5"][..],
-            "--kind is not one of millwright-refused, fixer-refused, held: \"seen\"",
+            "--kind is not one of millwright-refused, held: \"seen\"",
         ),
         (&["plan-note", "1", "--id", "5"][..], "--kind is required"),
         (

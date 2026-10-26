@@ -411,6 +411,92 @@ fn a_millwright_record_imports_under_the_new_names() {
 }
 
 #[test]
+fn a_record_that_names_its_millwright_starts_twice_is_held() {
+    // Both spellings of the count in one record, with two numbers: the file
+    // says two things, so nothing is imported and the file stays where it is.
+    let h = host("starts-twice");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    let record = format!(
+        r#"{{"at":"2026-10-14T09:59:00Z","by":"tehas-millwright","how":"millwright","body_sha256":"{SHA}","links":[],
+            "rests_on":{{"at":"2026-10-13T08:00:00Z","by":"bob","how":"label","body_sha256":"{SHA}"}},
+            "millwright_starts":2,"fixer_starts":1}}"#
+    );
+    put(&h, "cycles/7.approved.json", &record, start - 1);
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains(
+            "state/cycles/7.approved.json: names its millwright starts twice, and differently"
+        ),
+        "{why}"
+    );
+    assert!(there(&h, "cycles/7.approved.json"), "the file stays");
+    assert_eq!(count(&h, "approvals"), 0);
+    // An undo of nothing changes nothing: the store still holds no row.
+    ok(&h, &["approval-record", "7", "--undo", "--at", "1"]);
+    assert_eq!(count(&h, "approvals"), 0);
+}
+
+#[test]
+fn a_record_that_marks_its_answer_twice_is_held() {
+    // The same answer marked under both names and unequally: the import cannot
+    // know which mark the record meant, so the plan file is held.
+    let h = host("mark-twice");
+    let start = t("2026-10-14T10:00:00Z");
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":2,"answers":[{"turn":2,"by":"alice","millwright":true,"fixer":false}]}"#,
+        start,
+    );
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(
+        why.contains("state/plan-7.json: marks its answer twice, and differently"),
+        "{why}"
+    );
+    assert!(there(&h, "plan-7.json"), "the file stays");
+    assert_eq!(count(&h, "planning_answers"), 0);
+}
+
+#[test]
+fn a_record_of_both_spellings_imports_the_notes_once_each() {
+    // One list of refused comments under each name: the rows are the notes of
+    // both, one per comment, and the answer's mark reads as the new field.
+    let h = host("both-spellings");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    let record = format!(
+        r#"{{"at":"2026-10-14T09:59:00Z","by":"tehas-millwright","how":"millwright","body_sha256":"{SHA}","links":[],
+            "rests_on":{{"at":"2026-10-13T08:00:00Z","by":"bob","how":"label","body_sha256":"{SHA}"}},
+            "millwright_starts":2,"fixer_starts":2}}"#
+    );
+    put(&h, "cycles/7.approved.json", &record, start - 1);
+    put(
+        &h,
+        "plan-7.json",
+        r#"{"session":"sess-1","turns":2,"answers":[{"turn":2,"by":"alice","fixer":true}],
+            "millwright_refused":[55],"fixer_refused":[56,55]}"#,
+        start,
+    );
+    import_ok(&h);
+    assert_eq!(
+        count(&h, "planning_notes WHERE kind = 'millwright-refused'"),
+        2,
+        "the ids of both lists, 55 once"
+    );
+    let p = &ok(&h, &["plan-show", "7"])["planning"];
+    assert_eq!(
+        p["notes"]["millwright_refused"],
+        serde_json::json!([55, 56])
+    );
+    let cur = ok(&h, &["approval-current", "7"]);
+    assert_eq!(cur["current"]["how"], "millwright");
+    assert_eq!(cur["millwright_starts"], 2, "both spellings, one number");
+}
+
+#[test]
 fn a_refresh_start_keeps_its_base_its_fixer_starts_and_refreshes() {
     let h = host("refresh");
     let start = t("2026-10-14T10:00:00Z");

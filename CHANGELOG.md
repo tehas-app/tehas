@@ -23,8 +23,11 @@ empty one above it.
   `millwright-refused`, and `plan-show` lists it under `millwright_refused`
   beside `fixer_refused`. `history-show --how millwright` keeps the rows of both
   words. An old imported record with `how: fixer`, `fixer_starts`, an answer's
-  `fixer` or a `fixer_refused` list becomes rows under the new names. The old
-  spellings are accepted until the shell's own readers move to the new ones.
+  `fixer` or a `fixer_refused` list becomes rows under the new names. A record
+  that gives one of those fields under both names is held: the import says the
+  file names it twice rather than keeping the value it read last. The old
+  spellings are accepted until the shell's own readers move to the new ones, and
+  no refusal of a verb names them.
 
 ### Adopter action
 
