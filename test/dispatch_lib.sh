@@ -681,8 +681,19 @@ read_or() { # <file> <second file or ""> <default>
 }
 lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
 nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
-# An issue a case wrote the REST answer of is on GitHub too: an open one is
-# in the queue whether or not a list names it.
+# An issue whose cycle holds a lock file is marked running, as on a host; and
+# an issue a case wrote the REST answer of is on GitHub too: an open one is in
+# the queue whether or not a list names it.
+# Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
+# a case may count.
+inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
+locked=$(for l in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
+  [ -e "$l" ] || continue
+  case "$inodes" in *" $(stat -c %i "$l") "*) n=${l##*/}; echo "${n%.lock}" ;; esac
+done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
+for n in $(jq -r '.[]' <<<"$locked"); do
+  [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
+done
 for w in "$fx"/work-*.json; do
   [ -f "$w" ] || continue
   n=${w##*/work-}
@@ -699,7 +710,7 @@ items=$(for n in $nums; do
     '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p}'
 done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
-  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" '
+  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
     # Being on a list is carrying its label, as gh issue list --label has it.
@@ -714,7 +725,8 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
         lastEditedAt: .e.lastEditedAt, editor: .e.editor,
         # The labels its lists give it, and those of its REST answer when a case
         # wrote one: on GitHub the two agree.
-        labels: {nodes: [(labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings]) | unique | .[] | {name: .}]},
+        labels: {nodes: [(labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings]
+          + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
         timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
