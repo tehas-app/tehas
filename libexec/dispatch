@@ -106,7 +106,7 @@
 #      --continue-pr; otherwise it starts nothing, said once. Read again at the
 #      start: the issue is open, carries tehas:awaiting-merge or
 #      needs-human-attention (a handoff, and then not tehas:ready) and none of
-#      tehas:running, tehas:question, either escalation label, tehas:plan, and
+#      tehas:running, either escalation label, tehas:plan, and
 #      no cycle or planning session is open on it; its text is the text that
 #      person approved, renamed or edited by nobody else since; the pull
 #      request is still the one open pull request that closes it, the bot's,
@@ -121,9 +121,9 @@
 #      has no cycle, and one that the bot did not apply. Rules 1 and 2, the
 #      limit and the slice's room hold a refresh; the cap of rule 3 does not:
 #      its pull request is open already, and the start takes
-#      tehas:awaiting-merge off. A refresh of a handed-off issue is a restart:
-#      tehas cycle passes --restart, which takes needs-human-attention off,
-#      and the refresh's own end labels the issue.
+#      tehas:awaiting-merge off, and tehas:question off too. A refresh of a
+#      handed-off issue is a restart: tehas cycle passes --restart, which takes
+#      needs-human-attention off, and the refresh's own end labels the issue.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The millwright's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -1915,7 +1915,7 @@ refresh_ok() {
   # starts: a refresh must not take its place.
   [[ $have != *" needs-human-attention "* || $have != *" tehas:ready "* ]] ||
     { refresh_drop "$n" "it was handed off and carries tehas:ready"; return 1; }
-  for l in tehas:running tehas:question tehas:millwright-escalated tehas:plan tehas:planning; do
+  for l in tehas:running tehas:millwright-escalated tehas:plan tehas:planning; do
     [[ $have != *" $l "* ]] || { refresh_drop "$n" "it carries $l"; return 1; }
   done
   # The person whose approval the pull request's cycle rests on, and the
@@ -1997,8 +1997,9 @@ refresh_ok() {
   refresh_of[$n]=$(jq -n -c --argjson pr "$pr" --arg head "$head" --arg base "$base" --arg branch "${b:-$branch}" \
     '{$pr, head_sha: $head, base_sha: $base, $branch}')
   drop[$n]=""
-  [[ $have != *" tehas:awaiting-merge "* ]] || drop[$n]="--remove-label tehas:awaiting-merge"
-  [[ $have != *" tehas:ready "* ]] || drop[$n]+=" --remove-label tehas:ready"
+  for l in tehas:awaiting-merge tehas:question tehas:ready; do
+    [[ $have != *" $l "* ]] || drop[$n]+=" --remove-label $l"
+  done
 }
 
 # park_holds <issue>: does this issue's park hold a fresh tehas:ready back?
