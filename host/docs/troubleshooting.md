@@ -533,11 +533,18 @@ cap means" say which check. Four kinds were seen:
   under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
   nothing, or it removed lines it should not have. When the cap is
-  `fix-pass-park` and it names a test file, read the issue's `Out of scope`
-  section first: the plan read that section as part of the fence, so the fix
-  pass was refused the file its own deliverable told it to write. Name the
-  file in the deliverable and drop it from `Out of scope`, as step 1 of
-  [Operating](/operating) says.
+  `fix-pass-park` and it names a test file, and the reason reads `it sits
+  behind this workstream's outOfScope fence, which the spec does not lift`,
+  read the issue's `Out of scope` section first: the plan read that section as
+  part of the fence, so the fix pass was refused the file its own deliverable
+  told it to write. The cap names the refused file but not the entry that
+  refused it, so compare the file against every `Out of scope` bullet: a
+  directory, a pattern or a cut-down entry can cover it. Name the file in the
+  deliverable and drop it from `Out of scope`, as step 1 of
+  [Operating](/operating) says, then run `tehas dispatch --dry-run` to see the
+  fence before you spend the retry. Approve the edited body again as the end
+  of step 5 of [Operating](/operating) says: remove `tehas:ready` and apply
+  it again, or untick the retry box and tick it again.
 - `consolidated verify was refused  repoRoot is dirty (...)`. Not a gate
   failure: the driver would not run the consolidated gate at all because it
   found files in the checkout that git does not ignore. When the names are

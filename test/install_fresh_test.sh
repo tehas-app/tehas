@@ -335,6 +335,10 @@ pin=$(tr '\n' ' ' <"$th/docs/operating.md")
 t_eq "$(printf '%s' "$pin" | grep -c 'test/install_lib\.sh')" "1"
 t_contains "$pin" "must name \`install.sh\` and \`test/install_lib.sh\`"
 t_contains "$pin" "a cycle that changes a file outside the fence parks"
+# The fence rule of step 1 and the refine brief's "Out of scope" line must say
+# the same thing: the section is a fence, not a note.
+t_contains "$pin" "is part of that fence"
+t_contains "$(cat "$T_ROOT/lib/refine-brief.md")" "Out of scope"
 # The page is one of the installed manual's own: nothing planted beside it.
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
   "$(cd "$T_ROOT/host/docs" && find . -type f | LC_ALL=C sort)"
