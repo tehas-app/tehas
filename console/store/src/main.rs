@@ -282,12 +282,10 @@ fn parse(args: &[String]) -> Option<Verb> {
         // The record writer's one selection that is not a copy: the driver's
         // slow notices of a cycle, kept in the record so a stuck child reads
         // without the console (tehas_core::slow).
-        [verb, file, flag, out] if verb == "slow" && flag == "--out" => {
-            Some(Verb::Slow {
-                file: PathBuf::from(file),
-                out: PathBuf::from(out),
-            })
-        }
+        [verb, file, flag, out] if verb == "slow" && flag == "--out" => Some(Verb::Slow {
+            file: PathBuf::from(file),
+            out: PathBuf::from(out),
+        }),
         [verb, rest @ ..] if verb == "import" => {
             flags(rest, &["--json", "--dry-run"])?;
             Some(Verb::Import {
