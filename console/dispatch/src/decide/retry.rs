@@ -331,7 +331,11 @@ impl Poll<'_> {
                 return Err(End(0));
             }
             let mut remove = vec!["tehas:question".to_string()];
-            for l in ["tehas:ready", "tehas:fixer-escalated"] {
+            for l in [
+                "tehas:ready",
+                "tehas:fixer-escalated",
+                "tehas:millwright-escalated",
+            ] {
                 if has(&have, l) {
                     remove.push(l.into());
                 }
@@ -566,6 +570,7 @@ impl Poll<'_> {
             "tehas:running",
             "tehas:question",
             "tehas:fixer-escalated",
+            "tehas:millwright-escalated",
             "tehas:plan",
             "tehas:planning",
         ] {

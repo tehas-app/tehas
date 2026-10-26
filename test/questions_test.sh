@@ -282,14 +282,19 @@ freplies=$(jq -nc --arg m "$mark" '[
 t_eq "$(ask "$body" "" "$freplies" | q_answer tehas-bot "alice bob" "" tehas-fixer | got '[.reply.by, .fixer_reply]')" \
   '["alice",{"by":"tehas-fixer","text":"Adopt all, as in #12.","at":"2026-01-01T05:00:00Z","id":8,"marked":true}]'
 
+t_case "a reply marked with the millwright's marker counts as one marked with the fixer's"
+one=$(jq -nc '[{databaseId: 8, author: {login: "tehas-fixer"}, body: "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.", createdAt: "t"}]')
+t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got '[.fixer_reply.marked, .fixer_reply.text]')" '[true,"Adopt all."]'
+
 t_case "a marked reply of the fixer's with nothing after the marker is no reply"
-for b in "$mark" "$mark"$'\n' "$mark"$'\n  \n\t'; do
+for b in "$mark" "$mark"$'\n' "$mark"$'\n  \n\t' "<!-- tehas:millwright issue=7 action=answer -->"; do
   one=$(jq -nc --arg b "$b" '[{databaseId: 8, author: {login: "tehas-fixer"}, body: $b, createdAt: "t"}]')
   t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got .fixer_reply)" 'null'
 done
 
 t_case "a fixer reply without the marker of this issue, or with it later in the text, is not marked"
-for b in "Adopt all." "<!-- tehas:fixer issue=8 action=answer -->"$'\nAdopt all.' $'Adopt all.\n'"$mark" "<!-- tehas:fixer issue=7 action=retry -->"$'\nAdopt all.'; do
+for b in "Adopt all." "<!-- tehas:fixer issue=8 action=answer -->"$'\nAdopt all.' $'Adopt all.\n'"$mark" "<!-- tehas:fixer issue=7 action=retry -->"$'\nAdopt all.' \
+  "<!-- tehas:millwright issue=8 action=answer -->"$'\nAdopt all.' "<!-- tehas:millwrightx issue=7 action=answer -->"$'\nAdopt all.'; do
   one=$(jq -nc --arg b "$b" '[{databaseId: 8, author: {login: "tehas-fixer"}, body: $b, createdAt: "2026-01-01T05:00:00Z"}]')
   t_eq "$(ask "$body" "" "$one" | q_answer tehas-bot "alice bob" "" tehas-fixer | got '[.fixer_reply.marked, .fixer_reply.text]')" "[false,$(jq -nc --arg b "$b" '$b')]"
 done
