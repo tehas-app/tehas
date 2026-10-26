@@ -47,8 +47,9 @@ pub struct Issue {
     pub approval: Option<Result<Option<Value>, ()>>,
     /// approval-current's .current, for the owner of a refresh.
     pub current: Option<Result<Option<Value>, StoreErr>>,
-    /// The question on record: {plan, id, kind} as plan-show, park-show and
-    /// question-known answer for it.
+    /// The question on record: {plan, id, kind}. plan is plan-show's
+    /// `.planning` of an open session, null for none; id and kind as
+    /// park-show and question-known answer for it.
     pub question: Option<Result<Value, StoreErr>>,
     /// gh issue view --json state,labels, for a retry after an outage.
     pub view: Option<Value>,

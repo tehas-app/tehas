@@ -1066,6 +1066,58 @@
      7
     ]
    }
+  },
+  {
+   "case": "a dry run closes no session: it stays open for the outage retry after it",
+   "dry": true,
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "plan_open": [
+     {
+      "issue": 7
+     }
+    ],
+    "asking": [],
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ],
+    "nothing": true
+   }
   }
  ],
  "later": [],

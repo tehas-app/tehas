@@ -18,10 +18,55 @@ fn digits(v: &Value) -> Option<String> {
         .then_some(s)
 }
 
-fn listed(v: &Value, key: &str, id: &str) -> bool {
-    v.get(key)
+/// tehas_plan_shape: the session as plan_view gives it, from plan-show's
+/// `.planning`: the refused replies of both names and the held ticks from
+/// the notes, and an answer's millwright as fixer.
+fn shape(row: &Value) -> Value {
+    if !row.is_object() {
+        return Value::Null;
+    }
+    let notes = |k: &str| {
+        row.pointer(&format!("/notes/{k}"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let mut refused = notes("millwright_refused");
+    refused.extend(notes("fixer_refused"));
+    let answers: Vec<Value> = row
+        .get("answers")
         .and_then(Value::as_array)
-        .is_some_and(|a| a.iter().any(|x| digits(x).as_deref() == Some(id)))
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| match a.get("millwright") {
+            Some(Value::Bool(m)) => json!({"turn": a.get("turn"), "by": a.get("by"), "fixer": m}),
+            _ => a,
+        })
+        .collect();
+    let mut v = json!({"answers": answers});
+    for k in ["by", "label"] {
+        if let Some(x) = row.get(k).filter(|x| !x.is_null()) {
+            v[k] = x.clone();
+        }
+    }
+    if !refused.is_empty() {
+        v["fixer_refused"] = json!(refused);
+    }
+    let held = notes("held");
+    if !held.is_empty() {
+        v["held"] = json!(held);
+    }
+    v
+}
+
+/// Whether a list of the record holds the id, a number as jq's index finds
+/// it.
+fn listed(v: &Value, key: &str, id: &str) -> bool {
+    v.get(key).and_then(Value::as_array).is_some_and(|a| {
+        a.iter()
+            .any(|x| x.as_u64().is_some_and(|v| v.to_string() == id))
+    })
 }
 
 impl Poll<'_> {
@@ -66,10 +111,12 @@ impl Poll<'_> {
             if fresh.contains(&n) || asking.contains(&n) {
                 continue;
             }
+            // A dry run closes nothing: the session stays open for the rules
+            // after this one.
             if !self.dry {
                 self.act(json!({"plan_close": n}));
+                self.plan_closed.push(n);
             }
-            self.plan_closed.push(n);
         }
     }
 
@@ -197,7 +244,7 @@ impl Poll<'_> {
         } else if tick == "one" {
         } else if tick == "held" {
             if row.is_object() {
-                self.fixer_held(n, row, ans);
+                self.fixer_held(n, &shape(row), ans);
             }
             return Ok(());
         } else if !ans["fixer_reply"].is_null() {
@@ -236,7 +283,7 @@ impl Poll<'_> {
                 ));
                 return Ok(());
             }
-            if !self.fixer_answer_ok(n, row, ans, fixer_said) {
+            if !self.fixer_answer_ok(n, &shape(row), ans, fixer_said) {
                 return Ok(());
             }
             speaker = "The fixer";
@@ -252,11 +299,13 @@ impl Poll<'_> {
         }
         let boxes = ans["boxes"].as_u64().unwrap_or(0);
         let index = ans["tick"]["index"].as_u64();
+        // As `$(jq -r ...)` leaves it: no final newlines.
         let option = |i: u64| {
             row.get("options")
                 .and_then(|o| o.get(i as usize))
                 .and_then(Value::as_str)
                 .unwrap_or("")
+                .trim_end_matches('\n')
                 .to_string()
         };
         let text = if !reply.is_empty() {
@@ -394,15 +443,15 @@ impl Poll<'_> {
                 }
                 break;
             }
-            if self
-                .s
-                .issues
-                .get(&n)
-                .and_then(|i| i.view.as_ref())
-                .is_none()
-            {
-                self.need("view");
-                return Ok(());
+            match self.s.issues.get(&n).and_then(|i| i.view.as_ref()) {
+                None => {
+                    self.need("view");
+                    return Ok(());
+                }
+                Some(v) if v.get("failed") == Some(&json!(true)) => {
+                    return Err(self.fail("ERROR: gh issue view failed", 1));
+                }
+                Some(_) => {}
             }
             let who = match self.approval(n, label)? {
                 Ok((who, _)) => who,
@@ -470,7 +519,7 @@ impl Poll<'_> {
                 continue;
             }
             let field = |k: &str| match p.get(k) {
-                None | Some(Value::Null) => "-".to_string(),
+                None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                 Some(Value::String(s)) => s.clone(),
                 Some(v) => v.to_string(),
             };
@@ -551,15 +600,15 @@ impl Poll<'_> {
                 if qid == "-" {
                     why = "its park question was answered".into();
                 }
-                let first = view
+                let line = view
                     .get("body")
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .split('\n')
                     .next()
-                    .unwrap_or("")
-                    .trim_end_matches('\r')
-                    .to_string();
+                    .unwrap_or("");
+                // rtrimstr("\r"): one carriage return.
+                let first = line.strip_suffix('\r').unwrap_or(line).to_string();
                 let replaces = first
                     .strip_prefix("Replaces #")
                     .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));

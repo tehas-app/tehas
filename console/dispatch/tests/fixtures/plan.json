@@ -1599,6 +1599,115 @@
      8
     ]
    }
+  },
+  {
+   "case": "a plan whose issue GitHub would not show ends the poll",
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast.",
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: gh issue view failed"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the poll ends after it starts a planning turn: a ready issue behind it waits",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "endpoint": {
+     "end": "main"
+    },
+    "plans": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:plan"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:plan"
+        },
+        "actor": {
+         "login": "alice"
+        }
+       }
+      ],
+      "view": {
+       "title": "Faster search",
+       "body": "Make it fast."
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "plan_turn": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 8
+     }
+    ]
+   }
   }
  ],
  "later": [],
