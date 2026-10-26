@@ -12,7 +12,7 @@
 use super::{text, word, Writer, Wrote};
 use crate::decide::iso;
 use crate::read::host::{epoch, held};
-use crate::read::run::run;
+use crate::read::run::run_quiet;
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -184,8 +184,21 @@ impl Writer {
                 }
             }
         }
-        let r = run(&self.host.status_cmd, &[], Duration::from_secs(120));
-        printed.extend(r.out.lines().map(str::to_string));
+        // Its output through a file: a pipe would wait for whatever it left
+        // running.
+        if let Some(path) = self.scratch("status") {
+            if let Ok(f) = std::fs::File::create(&path) {
+                run_quiet(
+                    &self.host.status_cmd,
+                    &[],
+                    Some(f),
+                    Duration::from_secs(120),
+                );
+                let said = std::fs::read_to_string(&path).unwrap_or_default();
+                printed.extend(said.lines().map(str::to_string));
+            }
+            let _ = std::fs::remove_file(&path);
+        }
         failed.then_some(1)
     }
 
@@ -204,10 +217,11 @@ impl Writer {
                 "-f".into(),
                 "labels[]=tehas:refreshing".into(),
             ];
-            if !matches!(
-                self.write(pr, "refresh-begin", args, None, None),
-                Wrote::Done
-            ) {
+            let w = self.write(pr, "refresh-begin", args, None, None);
+            if !matches!(w, Wrote::Done) {
+                if matches!(w, Wrote::Unrecorded) {
+                    log.push(Writer::unrecorded(pr));
+                }
                 log.push(format!(
                     "ERROR: could not mark pull request #{pr} as refreshing, not starting a cycle"
                 ));
@@ -519,9 +533,9 @@ impl Writer {
         }
     }
 
-    /// The approval's inputs in a file of $TEHAS_HOME/tmp, readable by the
-    /// tehas user alone.
-    fn input_file(&self, body: &str) -> Option<PathBuf> {
+    /// A new name in $TEHAS_HOME/tmp, made 0700 when it is not there; None
+    /// when the directory is a link or no directory.
+    fn scratch(&self, what: &str) -> Option<PathBuf> {
         let dir = self.home.join("tmp");
         if !dir.exists() {
             let _ = std::fs::DirBuilder::new().mode(0o700).create(&dir);
@@ -530,19 +544,29 @@ impl Writer {
         if !m.is_dir() {
             return None;
         }
+        let tag = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        Some(dir.join(format!("{what}.{}{tag:x}", std::process::id())))
+    }
+
+    /// The approval's inputs in a file of $TEHAS_HOME/tmp, readable by the
+    /// tehas user alone.
+    fn input_file(&self, body: &str) -> Option<PathBuf> {
         for i in 0..20 {
-            let tag = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.subsec_nanos())
-                .unwrap_or(0);
-            let path = dir.join(format!("approval-input.{}{tag:x}{i}", std::process::id()));
+            let path = PathBuf::from(format!("{}{i}", self.scratch("approval-input")?.display()));
             if let Ok(mut f) = std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .mode(0o600)
                 .open(&path)
             {
-                return f.write_all(body.as_bytes()).ok().map(|()| path);
+                if f.write_all(body.as_bytes()).is_ok() {
+                    return Some(path);
+                }
+                let _ = std::fs::remove_file(&path);
+                return None;
             }
         }
         None
@@ -717,19 +741,22 @@ impl Writer {
     /// start_cycle: the unit started, and its start on record as an attempt
     /// later than `before`, within the wait.
     fn unit_start(&mut self, n: u64, before: u64, log: &mut Vec<String>) -> bool {
-        let r = match &self.host.start_cmd {
-            Some(cmd) => run(cmd, &[n.to_string()], Duration::from_secs(300)),
-            None => run(
+        // systemctl start waits for the unit. The bound is the poll's: a start
+        // past it gave up, and its late unit finds no approval on record.
+        let rc = match &self.host.start_cmd {
+            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(300)),
+            None => run_quiet(
                 &self.host.systemctl,
                 &[
                     "--user".into(),
                     "start".into(),
                     format!("tehas-cycle@{n}.service"),
                 ],
+                None,
                 Duration::from_secs(300),
             ),
         };
-        if !r.ok() {
+        if rc != Some(0) {
             return false;
         }
         let began = Instant::now();
@@ -760,19 +787,20 @@ impl Writer {
 
     /// stop_unit: the issue's unit stopped and waited for.
     fn unit_stop(&mut self, n: u64) -> bool {
-        match &self.host.stop_cmd {
-            Some(cmd) => run(cmd, &[n.to_string()], Duration::from_secs(30)).ok(),
-            None => run(
+        let rc = match &self.host.stop_cmd {
+            Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(30)),
+            None => run_quiet(
                 &self.host.systemctl,
                 &[
                     "--user".into(),
                     "stop".into(),
                     format!("tehas-cycle@{n}.service"),
                 ],
+                None,
                 Duration::from_secs(30),
-            )
-            .ok(),
-        }
+            ),
+        };
+        rc == Some(0)
     }
 
     /// tehas_analytics: an event for the factory's analytics; a failure is
@@ -781,12 +809,12 @@ impl Writer {
         let Some(bin) = self.host.analytics.clone() else {
             return;
         };
-        let r = run(&bin, args, self.host.analytics_wait);
-        if !r.ok() {
+        let rc = run_quiet(&bin, args, None, self.host.analytics_wait);
+        if rc != Some(0) {
             log.push(format!(
                 "WARN analytics {}: exit {}",
                 args.first().map_or("", String::as_str),
-                r.status.unwrap_or(124)
+                rc.unwrap_or(124)
             ));
         }
     }
