@@ -34,10 +34,21 @@ empty one above it.
   turn's brief and its session on record, a next turn's answer, the issue
   marked planning before the turn's unit starts, and the three spends of a
   park's retry. Nothing calls it yet.
+- The fixer's old names are no longer read (#799). A `TEHAS_FIXER_*`
+  setting stops every command with 78 and names its `TEHAS_MILLWRIGHT_*`
+  name. The dispatcher no longer counts the marker `tehas:fixer` or the
+  label `tehas:fixer-escalated`, `tehas labels` no longer makes that label,
+  and `store plan-answer` no longer takes `--fixer`. Records written as
+  `how: "fixer"` still count as the millwright's, and `tehas api` still lists
+  `fixer-grant` and `fixer`, as API version 1 removes no field.
 
 ### Adopter action
 
-- None.
+- Rename `TEHAS_FIXER_LOGIN`, `TEHAS_FIXER_MAX_RETRIES` and
+  `TEHAS_FIXER_MAX_PLAN_ANSWERS` in `instance.env` to `TEHAS_MILLWRIGHT_*`
+  before updating. A millwright's program must write
+  `<!-- tehas:millwright ... -->` and `tehas:millwright-escalated`. The label
+  `tehas:fixer-escalated` may be deleted from the product repository.
 
 ## v0.14.1 (2026-10-26)
 

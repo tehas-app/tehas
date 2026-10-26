@@ -26,7 +26,6 @@ pub enum Call {
         issue: i64,
         turn: i64,
         by: String,
-        /// Set by either `--millwright` or the old `--fixer`.
         millwright: bool,
         text: Option<PathBuf>,
     },
@@ -210,7 +209,6 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
             ("--turn", Kind::Value),
             ("--by", Kind::Value),
             ("--millwright", Kind::Switch),
-            ("--fixer", Kind::Switch),
             ("--text-file", Kind::Value),
             ("--undo", Kind::Switch),
         ],
@@ -226,11 +224,7 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         issue,
         turn,
         by: a.strict_need("--by", "an account", verbs::account)?,
-        // `--fixer` is the old name of `--millwright` and means the same, so
-        // both are the one mark and giving both asks for nothing new: unlike
-        // --refresh-pr and --refresh-head, the two are not a pair to match.
-        // #686: part 5 drops `--fixer` and this arm with it.
-        millwright: a.has("--millwright") || a.has("--fixer"),
+        millwright: a.has("--millwright"),
         text: a.path("--text-file")?,
     })
 }

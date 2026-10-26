@@ -272,7 +272,15 @@ fn plan_answer_keeps_the_session_and_brief() {
     let v = ok_at(
         &home,
         NOW + 30,
-        &["plan-answer", "17", "--turn", "2", "--by", "bob", "--fixer"],
+        &[
+            "plan-answer",
+            "17",
+            "--turn",
+            "2",
+            "--by",
+            "bob",
+            "--millwright",
+        ],
     );
     assert_eq!(v["turn"], 2);
     let p = &v["planning"];
@@ -289,16 +297,22 @@ fn plan_answer_keeps_the_session_and_brief() {
 }
 
 #[test]
-fn the_millwright_is_marked_by_either_flag_and_notes_are_written_as_one_kind() {
+fn the_millwright_is_marked_by_its_flag_and_notes_are_written_as_one_kind() {
     let home = home("plan-millwright");
     begin(&home, 45);
     finished(&home, 45, 1);
-    // The dispatcher of this release still sends --fixer; part 5 sends
-    // --millwright. Both mark the answer the same way.
     let v = ok_at(
         &home,
         NOW + 30,
-        &["plan-answer", "45", "--turn", "2", "--by", "bob", "--fixer"],
+        &[
+            "plan-answer",
+            "45",
+            "--turn",
+            "2",
+            "--by",
+            "bob",
+            "--millwright",
+        ],
     );
     assert_eq!(
         v["planning"]["answers"][0],
@@ -475,7 +489,9 @@ fn plan_answer_states_its_preconditions_and_arguments() {
         &["plan-answer", "22", "--by", "bob"][..],
         &["plan-answer", "22", "--turn", "2"][..],
         &["plan-answer", "22", "--turn", "2", "--undo", "--by", "bob"][..],
-        &["plan-answer", "22", "--turn", "2", "--undo", "--fixer"][..],
+        &["plan-answer", "22", "--turn", "2", "--undo", "--millwright"][..],
+        // The old name of --millwright, no longer taken (#799).
+        &["plan-answer", "22", "--turn", "2", "--by", "bob", "--fixer"][..],
     ] {
         assert!(usage(args).starts_with("usage plan-answer: "), "{args:?}");
     }

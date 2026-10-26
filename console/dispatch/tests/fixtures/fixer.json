@@ -8,7 +8,7 @@
   {
    "case": "the fixer's tehas:ready on an issue alice approved starts a cycle that rests on her approval",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -23,9 +23,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -83,9 +80,9 @@
    }
   },
   {
-   "case": "the start takes both escalation labels off with the rest of the earlier outcome",
+   "case": "the start takes the escalation label off with the rest of the earlier outcome",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -100,9 +97,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -145,7 +139,6 @@
       "remove": [
        "tehas:ready",
        "tehas:question",
-       "tehas:fixer-escalated",
        "tehas:millwright-escalated"
       ]
      }
@@ -155,7 +148,7 @@
   {
    "case": "a dry run of the fixer's start says who labelled it",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -170,9 +163,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -221,7 +211,7 @@
   {
    "case": "a second fixer start counts on from the first and keeps the person's approval",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -236,9 +226,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -293,7 +280,7 @@
   {
    "case": "at the limit the fixer's label comes off, and the issue says a person decides",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -308,9 +295,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -368,7 +352,7 @@
   {
    "case": "no approval by a person before: the fixer's label starts nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -383,9 +367,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -423,7 +404,7 @@
   {
    "case": "a person's approval whose start never ran is no base for the fixer",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -438,9 +419,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -478,7 +456,7 @@
   {
    "case": "a body changed since the person's approval: the fixer's label starts nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -493,9 +471,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -541,7 +516,7 @@
   {
    "case": "a busy store leaves the fixer's label for the next poll: no label comes off, nothing is said",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -556,9 +531,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -600,7 +572,7 @@
   {
    "case": "the fixer's label on the control issue starts nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -665,9 +637,6 @@
         "name": "tehas:question"
        },
        {
-        "name": "tehas:fixer-escalated"
-       },
-       {
         "name": "tehas:millwright-escalated"
        }
       ]
@@ -714,7 +683,7 @@
   {
    "case": "a bot that is the fixer stops the poll: exit 78",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -729,9 +698,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -781,7 +747,7 @@
   {
    "case": "a title changed by an outsider since the person's approval: the fixer's label starts nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -796,9 +762,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -859,7 +822,7 @@
   {
    "case": "a text changed by an outsider since the fixer's label waits, with its label left",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -874,9 +837,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -930,7 +890,7 @@
   {
    "case": "a dry run of a refused fixer label says it and changes nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "snapshot": {
     "ready": [
@@ -945,9 +905,6 @@
        },
        {
         "name": "tehas:question"
-       },
-       {
-        "name": "tehas:fixer-escalated"
        },
        {
         "name": "tehas:millwright-escalated"
@@ -996,7 +953,7 @@
   {
    "case": "an approval by an account no longer allowed is no base for the fixer",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1045,7 +1002,7 @@
   {
    "case": "an approval of a kind the fixer may not rest on is no base",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1094,7 +1051,7 @@
   {
    "case": "an approval whose hash is not one is no base",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1143,7 +1100,7 @@
   {
    "case": "a fixer start with no person's approval under it is no base",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1192,7 +1149,7 @@
   {
    "case": "a refresh's approval rests on the person's, and carries no fixer starts",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1257,7 +1214,7 @@
   {
    "case": "a fixer record that counts no fixer start does not say how many",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1312,7 +1269,7 @@
   {
    "case": "a snapshot that lacks the approval names it, and refuses nothing",
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "body": {
     "7": "Words."
@@ -1414,14 +1371,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all, as alice chose in #12.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all, as alice chose in #12.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -1492,7 +1449,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -1554,7 +1511,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "actions": [
@@ -1626,14 +1583,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "actions": [
@@ -1692,14 +1649,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "actions": [
@@ -1763,14 +1720,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -1849,14 +1806,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "nothing": true,
@@ -1918,7 +1875,7 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       },
       {
@@ -1933,7 +1890,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "actions": [
@@ -2021,7 +1978,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2116,8 +2073,8 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer",
-    "TEHAS_FIXER_MAX_PLAN_ANSWERS": 4
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS": 4
    },
    "expect": {
     "actions": [
@@ -2173,7 +2130,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2241,14 +2198,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2311,14 +2268,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nDone, end it.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nDone, end it.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2388,7 +2345,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2446,7 +2403,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2512,14 +2469,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "dry": true,
    "expect": {
@@ -2576,7 +2533,7 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
@@ -2603,7 +2560,7 @@
     "tehas-fixer"
    ],
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "picked": [],
@@ -2674,14 +2631,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2757,14 +2714,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "log": [
@@ -2835,14 +2792,14 @@
        "author": {
         "login": "tehas-fixer"
        },
-       "body": "<!-- tehas:fixer issue=7 action=answer -->\nAdopt all.",
+       "body": "<!-- tehas:millwright issue=7 action=answer -->\nAdopt all.",
        "createdAt": "2026-01-01T02:00:00Z"
       }
      ]
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "nothing": true,
@@ -2916,7 +2873,7 @@
     ]
    },
    "settings": {
-    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
    },
    "expect": {
     "nothing": true,
