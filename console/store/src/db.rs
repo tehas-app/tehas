@@ -44,6 +44,10 @@ ALTER TABLE heartbeats ADD COLUMN text TEXT;
 /// `planning_answers.fixer` is named `millwright`. SQLite cannot change a CHECK
 /// in place, so the two tables are rebuilt as schema.sql writes them and every
 /// row is copied. See `step_4` for why foreign keys are off while it runs.
+///
+/// #686: these two CHECK lists hold both spellings, and are the schema's part of
+/// the transition: part 5 drops the old word from them, with `schema.sql` and
+/// the aliases `Args::word` takes. The migration keeps the rows a host has.
 pub(crate) const STEP_4: &str = "
 CREATE TABLE cycles_new (
   issue          INTEGER PRIMARY KEY REFERENCES issues (issue) ON DELETE CASCADE,

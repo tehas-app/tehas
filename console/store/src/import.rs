@@ -44,7 +44,7 @@ use tehas_core::time::{civil_from_days, days_from_civil};
 
 /// The most a record file may hold.
 const BOUND: u64 = 1 << 20;
-/// The most rows a fixer or refresh record may ask the import to make up.
+/// The most rows a millwright or refresh record may ask the import to make up.
 const MAX_STARTS: i64 = 100;
 
 const MARKER: &str = ".tehas-home";
@@ -322,6 +322,89 @@ fn object(bytes: &[u8]) -> Result<Map<String, Value>, String> {
     }
 }
 
+/// A record that gives one field twice is read by `object` as its last value,
+/// so a file that names an aliased word twice holds a number the import cannot
+/// know. `once_each` refuses that, by counting the keys of the record's own
+/// text at its top level: a key of a nested object is not the field. A record
+/// is JSON the caller has already read as UTF-8, so the walk here works on
+/// bytes. A file that does not parse is the caller's to refuse, not this
+/// guard's, so an unbalanced walk simply finds no key twice.
+fn once_each(bytes: &[u8], keys: &[&str]) -> Result<(), String> {
+    let t = match std::str::from_utf8(bytes) {
+        Ok(t) => t,
+        // Not UTF-8: `text` says so, and this guard has nothing to check.
+        Err(_) => return Ok(()),
+    };
+    let b = t.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut seen: Vec<(&str, usize)> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'"' => in_string = true,
+            // A `[` does not open an object, so the strings of a list value
+            // are not keys: an array at the top level holds no key at all.
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        // A key of the record itself is a string at depth one followed, past
+        // any space, by `:`. Count it: the second time the record names it.
+        if depth == 1 && c == b'"' {
+            let start = i + 1;
+            let mut end = start;
+            let mut escaped_key = false;
+            while end < b.len() && b[end] != b'"' {
+                if b[end] == b'\\' {
+                    escaped_key = true;
+                    end += 1;
+                }
+                end += 1;
+            }
+            // The name and its closing quote, then the `:` of its pair.
+            let mut after = end + 1;
+            while after < b.len() && b[after].is_ascii_whitespace() {
+                after += 1;
+            }
+            if !escaped_key && after < b.len() && b[after] == b':' {
+                let name = &t[start..end];
+                if keys.contains(&name) {
+                    match seen.iter_mut().find(|(k, _)| *k == name) {
+                        Some((_, n)) => {
+                            *n += 1;
+                            if *n == 2 {
+                                return Err(format!("names {name} twice"));
+                            }
+                        }
+                        None => seen.push((name, 1)),
+                    }
+                }
+            }
+            // Resume on the key's closing quote, which the walk above stopped
+            // on: the next round reads it as the end of the string and walks
+            // the value whole, so the depth stays in step with the record.
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 fn clean(s: Option<&str>, keep: fn(u8) -> bool, max: usize) -> Option<String> {
     let mut v: String = s?
         .chars()
@@ -341,9 +424,15 @@ fn opt_str<'a>(m: &'a Map<String, Value>, k: &str) -> Result<Option<&'a str>, St
 }
 
 fn opt_bool(m: &Map<String, Value>, k: &str) -> Result<bool, String> {
+    Ok(opt_present(m, k)?.unwrap_or(false))
+}
+
+/// A field that is absent or null is None; one of another type is the error.
+/// Where a field has two names, this says which of them the record gives.
+fn opt_present(m: &Map<String, Value>, k: &str) -> Result<Option<bool>, String> {
     match m.get(k) {
-        None | Some(Value::Null) => Ok(false),
-        Some(Value::Bool(b)) => Ok(*b),
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
         Some(_) => Err(format!("has a {k} that is not true or false")),
     }
 }
@@ -396,11 +485,21 @@ fn pr_number(url: &str) -> Option<i64> {
 }
 
 fn label_of(how: &str) -> String {
-    if how == "label" || how == "fixer" {
+    if how == "label" || crate::approval::is_millwright(how) {
         "tehas:ready".to_string()
     } else {
         how.to_string()
     }
+}
+
+/// The `how` of a history line, as the row writes it: the old `fixer` becomes
+/// `millwright`. A word the store does not know is kept as it came, which is
+/// what a history line has always done; the approval record is the path that
+/// refuses one, in `approval_in`.
+fn kept_line_how(word: String) -> String {
+    crate::approval::kept_how(&word)
+        .map(str::to_string)
+        .unwrap_or(word)
 }
 
 // --- the records as parsed -------------------------------------------------------
@@ -463,7 +562,7 @@ fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
             parked: opt_bool(&m, "parked").map_err(|e| format!("line {}: {e}", i + 1))?,
             pr: s("pr")?.and_then(pr_number),
             by: s("by")?.and_then(verbs::account),
-            how: clean(s("how")?, kebab_char, 40),
+            how: clean(s("how")?, kebab_char, 40).map(kept_line_how),
         });
     }
     Ok(out)
@@ -555,8 +654,8 @@ struct ApprovalIn {
     title_sha: Option<String>,
     refresh: Option<(i64, String)>,
     input: Option<String>,
-    /// The base a fixer or refresh start rests on, and the starts on it the
-    /// record counts beside its own: (base, fixer starts, refreshes).
+    /// The base a millwright or refresh start rests on, and the starts on it the
+    /// record counts beside its own: (base, millwright starts, refreshes).
     rests: Option<(Base, i64, i64)>,
 }
 
@@ -570,13 +669,13 @@ struct Base {
 
 fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
     let m = object(&g.bytes)?;
+    // #686: the aliased pair of the record's own count.
+    once_each(&g.bytes, &["millwright_starts", "fixer_starts"])?;
     let at = need_time(&m, "at")?;
     let by = need(account(&m, "by")?, "by")?;
     let how_word = opt_str(&m, "how")?.unwrap_or("");
-    let how = crate::approval::HOWS
-        .iter()
-        .find(|h| **h == how_word)
-        .copied()
+    // An old record says `fixer`; the row is written under the new word.
+    let how = crate::approval::kept_how(how_word)
         .ok_or_else(|| format!("has a how it does not know: {}", verbs::shown(how_word)))?;
     let body_sha = need(
         opt_str(&m, "body_sha256")?.and_then(verbs::sha256),
@@ -606,7 +705,7 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
     } else {
         None
     };
-    let rests = if how == "fixer" || how == "refresh" {
+    let rests = if crate::approval::is_millwright(how) || how == "refresh" {
         let r = match m.get("rests_on") {
             Some(Value::Object(o)) => o,
             _ => return Err(format!("is a {how} start with no rests_on")),
@@ -624,9 +723,21 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
                 "rests_on.body_sha256",
             )?,
         };
-        let starts = opt_int(&m, "fixer_starts")?.unwrap_or(0);
+        // A record of either spelling is one field under two names: both
+        // present and unequal is a file the import cannot know, so it is
+        // refused rather than read as whichever key came last.
+        let starts = match (
+            opt_int(&m, "millwright_starts")?,
+            opt_int(&m, "fixer_starts")?,
+        ) {
+            (Some(a), Some(b)) if a != b => {
+                return Err("names its millwright starts twice, and differently".to_string())
+            }
+            (Some(a), _) | (None, Some(a)) => a,
+            (None, None) => 0,
+        };
         let refreshes = opt_int(&m, "refreshes")?.unwrap_or(0);
-        let ok = if how == "fixer" {
+        let ok = if crate::approval::is_millwright(how) {
             starts >= 1 && refreshes == 0
         } else {
             starts >= 0 && refreshes >= 1
@@ -714,6 +825,8 @@ fn ids(m: &Map<String, Value>, k: &str) -> Result<Vec<i64>, String> {
 
 fn plan_in(g: &Got) -> Result<PlanIn, String> {
     let m = object(&g.bytes)?;
+    // #686: the aliased pair of the record's own notes.
+    once_each(&g.bytes, &["millwright_refused", "fixer_refused"])?;
     let options = match m.get("options") {
         None | Some(Value::Null) => Vec::new(),
         // Labels the runner wrote, kept as plan-end keeps them; one that is not
@@ -735,7 +848,22 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
                     .filter(|n| *n >= 1)
                     .ok_or("has an answer with no turn")?;
                 let by = need(account(o, "by")?, "answer by")?;
-                Ok((turn, by, opt_bool(o, "fixer")?))
+                // The old record marks the millwright's answer `fixer`: one
+                // field under two names, read as one mark. An answer marked
+                // twice and unequally is the record the import cannot know.
+                let (millwright, fixer) = (
+                    opt_present(o, "millwright")?,
+                    opt_present(o, "fixer")?,
+                );
+                let millwright = crate::approval::kept_mark(millwright, fixer).ok_or_else(
+                    || {
+                        format!(
+                            "has an answer at turn {turn} that marks millwright {:?} and fixer {:?}",
+                            millwright, fixer
+                        )
+                    },
+                )?;
+                Ok((turn, by, millwright))
             })
             .collect::<Result<_, String>>()?,
         Some(_) => return Err("has answers that are not a list".to_string()),
@@ -763,13 +891,20 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
             verbs::comment_id(&n.to_string()).ok_or("has a comment that is not a comment id")?,
         ),
     };
-    let mut notes: Vec<(&'static str, i64)> = Vec::new();
-    for id in ids(&m, "fixer_refused")? {
-        notes.push(("fixer-refused", id));
+    // The old record lists the refused comments under `fixer_refused` and a
+    // newer one under `millwright_refused`, and the rows are the same notes.
+    // The set is what keeps one row per comment: `INSERT OR IGNORE` would drop
+    // the duplicate anyway, but the read-back check asks once per note.
+    let mut notes: BTreeSet<(&'static str, i64)> = BTreeSet::new();
+    for key in ["millwright_refused", "fixer_refused"] {
+        for id in ids(&m, key)? {
+            notes.insert((plan::MILLWRIGHT_REFUSED, id));
+        }
     }
     for id in ids(&m, "held")? {
-        notes.push(("held", id));
+        notes.insert(("held", id));
     }
+    let notes: Vec<(&'static str, i64)> = notes.into_iter().collect();
     Ok(PlanIn {
         session: opt_str(&m, "session")?
             .filter(|s| plan::session_ok(s))
@@ -1586,19 +1721,19 @@ fn plan_cycle(issue: i64, mut files: Files, rec: &OnRecord, w: &mut Group) -> Re
 }
 
 /// The approvals a record of a start becomes: the start itself, used by
-/// `attempt`; for a fixer or refresh start also the base it rests on and one
+/// `attempt`; for a millwright or refresh start also the base it rests on and one
 /// used row for each start the record counts besides itself, at times strictly
 /// between, so approval-current never counts fewer than the file did.
 fn approval_rows(a: &ApprovalIn, attempt: i64, used_at: i64, mtime: i64) -> Vec<ApprovalRow> {
     let mut rows = Vec::new();
     let mut at = a.at;
     if let Some((base, starts, refreshes)) = &a.rests {
-        let (fixers, refreshes) = if a.how == "fixer" {
+        let (millwrights, refreshes) = if crate::approval::is_millwright(a.how) {
             (starts - 1, 0)
         } else {
             (*starts, refreshes - 1)
         };
-        let k = fixers + refreshes;
+        let k = millwrights + refreshes;
         let first = attempt - k - 1;
         rows.push(ApprovalRow {
             at: base.at,
@@ -1615,10 +1750,15 @@ fn approval_rows(a: &ApprovalIn, attempt: i64, used_at: i64, mtime: i64) -> Vec<
             rows.push(ApprovalRow {
                 at: base.at + i,
                 by: a.by.clone(),
-                how: if i <= fixers { "fixer" } else { "refresh" }.to_string(),
+                how: if i <= millwrights {
+                    crate::approval::MILLWRIGHT
+                } else {
+                    "refresh"
+                }
+                .to_string(),
                 body_sha: base.body_sha.clone(),
                 title_sha: None,
-                refresh: (i > fixers).then(|| a.refresh.clone()).flatten(),
+                refresh: (i > millwrights).then(|| a.refresh.clone()).flatten(),
                 used_at: base.at + i,
                 used_by: first + i,
                 input: None,
@@ -1698,9 +1838,9 @@ fn plan_planning(home: &Path, issue: i64, mut files: Files, w: &mut Group) -> Re
             }),
         ));
         let last_turn = p.answers.iter().map(|a| a.0).max();
-        for (turn, by, fixer) in &p.answers {
+        for (turn, by, millwright) in &p.answers {
             let text = answer_v.clone().filter(|_| Some(*turn) == last_turn);
-            planning_ops.push(Op::Answer(issue, *turn, by.clone(), *fixer, text));
+            planning_ops.push(Op::Answer(issue, *turn, by.clone(), *millwright, text));
         }
         for url in &p.filed {
             if let Some(n) = plan::filed_issue(url) {

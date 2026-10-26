@@ -33,6 +33,14 @@ pub fn is_image(s: &str) -> bool {
     s.strip_prefix("sha256:").is_some_and(|h| is_hex(h, 64, 64))
 }
 
+/// The two spellings of the millwright's word. The store writes `millwright`;
+/// a record or a row written before #686 part 1 still says `fixer`, and the
+/// two name one class. Every program that reads a record's `how` matches this
+/// pair: the store's rows and its filters, analytics' marks on a planning
+/// answer, and the MCP server's filter of `factory_sessions`. Part 5 of #686
+/// removes the old word, and with it the arm of each match that needs it.
+pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +68,12 @@ mod tests {
         assert!(!is_image(&h));
         assert!(!is_image(&format!("sha256:{}", &h[1..])));
         assert!(!is_image(&format!("sha256:{}", h.to_uppercase())));
+    }
+
+    #[test]
+    fn the_millwright_pair_is_the_new_word_and_the_old_one() {
+        // The one list the store, analytics and the MCP server all read. Each
+        // of them has a test of its own that its words are these two.
+        assert_eq!(MILLWRIGHT_WORDS, ["millwright", "fixer"]);
     }
 }

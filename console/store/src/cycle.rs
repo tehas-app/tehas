@@ -224,7 +224,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
         rc: a.strict("--rc", "an exit status", verbs::count)?,
         runner_exit: a.strict("--runner-exit", "an exit status", verbs::count)?,
         watched: a.has("--watched"),
-        host_saw: a.word("--host-saw", &["killed"])?,
+        host_saw: a.word("--host-saw", &[("killed", "killed")])?,
         oom: a.strict("--oom", "a count", verbs::count)?,
         forks: a.strict("--forks", "a count", verbs::count)?,
         stalled: a.strict("--stalled", "a count", verbs::count)?,
@@ -258,7 +258,7 @@ fn note_args(rest: &[String]) -> Result<Call, String> {
     )?;
     let issue = a.issue()?;
     a.need("--kind")?;
-    a.word("--kind", &["quiet"])?;
+    a.word("--kind", &[("quiet", "quiet")])?;
     let said_for = a.strict_need("--said-for", "a note key", |s| {
         let ok = (1..=64).contains(&s.len()) && s.bytes().all(cap_char);
         ok.then(|| s.to_string())

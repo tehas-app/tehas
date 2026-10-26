@@ -206,7 +206,13 @@ fn the_how_schema_accepts_every_word_of_the_filter() {
         accepted,
         mcp::sessions::HOWS.iter().copied().collect::<BTreeSet<_>>()
     );
-    // The class words must be accepted, or the equivalence is dead code.
+    // The class words must be accepted, or the equivalence is dead code. The
+    // pair is the one in tehas_core, which the store's rows and analytics'
+    // marks read too, so this also pins those crates to the tool's words.
+    assert_eq!(
+        mcp::sessions::MILLWRIGHT_WORDS,
+        tehas_core::grammar::MILLWRIGHT_WORDS
+    );
     assert!(mcp::sessions::MILLWRIGHT_WORDS
         .iter()
         .all(|w| accepted.contains(w)));

@@ -79,13 +79,19 @@
 //!   store question-answered <issue> --id <id> --by <account> | --withdraw
 //!   store approval-record <issue> --at <unix> --by <account> --how <how> ...
 //!                [--input-file <file>] | --undo --at <unix>
+//!                (the hows are label, refresh, retry-tick, outage-retry and
+//!                millwright; the old `fixer` is taken too, and is written as
+//!                `millwright` until the shell stops sending it)
 //!   store approval-current <issue>
 //!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> [--auto]
 //!                | --undo
-//!   store plan-answer <issue> --turn N --by <account> [--fixer] [--text-file <file>]
+//!   store plan-answer <issue> --turn N --by <account> [--millwright] [--text-file <file>]
 //!                | --turn N --undo
+//!                (the old `--fixer` is taken too, and means the same)
 //!   store plan-end <issue> --turn N --outcome <o> [...] | --posted | --close
-//!   store plan-note <issue> --kind fixer-refused|held --id <id>
+//!   store plan-note <issue> --kind millwright-refused|held --id <id>
+//!                (the old `fixer-refused` is taken too, and is written as
+//!                `millwright-refused`)
 //!   store plan-show <issue> | --open
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
 //!   store backup [--show]

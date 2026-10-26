@@ -14,12 +14,12 @@ const OUTCOMES: [&str; 7] = [
     "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
 const KINDS: [&str; 2] = ["work", "plan"];
-// Every word a record's `how` can hold, work and plan words alike: the work
-// words of the store (`history::HOWS`, `approval::HOWS`) and the plan words
-// analytics' `plan::how` writes. The tool's schema enum and its filter both
-// read this list, and nothing else in the crate names it; the test of the
-// filter reads it here, so it pins the tool to what it says rather than to a
-// list written twice.
+// Every word a record's `how` can hold, work and plan words alike: the words
+// the store's verbs take and the plan words analytics' `plan::how` writes, with
+// the old `fixer` the store still matches. The tool's schema enum and its
+// filter both read this list, and nothing else in the crate names it; the test
+// of the filter reads it here, so it pins the tool to what it says rather than
+// to a list written twice.
 pub const HOWS: [&str; 9] = [
     "label",
     "refresh",
@@ -35,8 +35,10 @@ pub const HOWS: [&str; 9] = [
 // `fixer` are found by the new word and new records by the old one. The `how`
 // a session returns stays what it says. The words are matched exactly: an
 // absent `how` matches no filter, so no filter word names a starter here.
-// Read by the same test as HOWS.
-pub const MILLWRIGHT_WORDS: [&str; 2] = ["millwright", "fixer"];
+// The pair is the one in `tehas_core::grammar`, which the store's rows and
+// analytics' marks read too, so the class is spelled in one place; the test of
+// the filter asserts these are those two words.
+pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 const DEFAULT_LIMIT: u64 = 50;
 const MAX_LIMIT: u64 = 200;
 const TOP_CAUSES: usize = 5;

@@ -649,7 +649,9 @@ when it is not installed.
   renames the column of a planning answer from `fixer` to `millwright`, and
   keeps every row. It rebuilds the two tables whose lists changed and then
   compacts the file. If the compaction fails, the store is at 4 with its rows
-  and passes `store check`. The verbs still write the old words.
+  and passes `store check`. The verbs now write the new words and accept the
+  old ones; the release note in `CHANGELOG.md` names each pair and says which
+  answers carry both spellings, so the shell keeps reading what it always read.
   The step to 5 adds a mark to each planning session and each of its turns:
   a refine the poll started on its own for a parked cycle. Every older row
   is a refine a person asked for.
