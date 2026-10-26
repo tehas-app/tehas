@@ -1,10 +1,12 @@
 {
  "suite": "test/dispatch_park_test.sh",
- "later": [
-  "every case of rules 4 and 4a, the ticks and the outage retries, and of 4c the ticked retry and the outage retry that start all the same: PR 3"
- ],
+ "later": [],
  "not_ported": [
-  "a hold whose tell the store would not take tells it again on the next poll, and says so: the record of the tell follows the comment, which the caller does"
+  "a hold whose tell the store would not take tells it again on the next poll, and says so: the record of the tell follows the comment, which the caller does",
+  "a retry tick writes the approval record, the question used up by the start, a tick that counts once, the start that does not come up, the mark or withdraw that fails, and a retry the store would not spend: the start, #254",
+  "the comments are read a hundred at a time, and a question on record of another issue, of an earlier attempt: the snapshot's reads and the store's question-known",
+  "when a refused tick or an unrecorded box cannot be undone, nothing is said, and a leave it parked whose label or answer cannot be changed: the note follows an untick or a label change that worked, which the caller does",
+  "one retry after an outage then a person, an outage park of a cycle by hand, and a retry whose unit never comes up: the store's rule of which parks owe a retry (park-show --automatic)"
  ],
  "cases": [
   {
@@ -676,6 +678,1863 @@
     "picked": [],
     "log": [
      "hold #7: its last cycle parked on nothing and the body has not changed since"
+    ]
+   }
+  },
+  {
+   "case": "an unanswered question starts nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a retry ticked by an allowed account starts a cycle",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "how": "retry tick",
+      "at": "2026-01-01T01:00:00Z",
+      "given": "retry-tick",
+      "comment": 4001,
+      "remove": [
+       "tehas:question"
+      ]
+     },
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry tick is used up once the issue is marked: the untick follows the start",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a retry waits while every slot is taken, and the tick stays",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "hold": [
+    9
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a retry waits while every slot is taken: a dry run says the hold",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "hold": [
+    9
+   ],
+   "expect": {
+    "log": [
+     "holding: 1 cycles are running (limit 1)"
+    ],
+    "picked": []
+   }
+  },
+  {
+   "case": "a dry run says what the tick would do and changes nothing",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "log": [
+     "would run a cycle for #7 (retry ticked by alice)"
+    ],
+    "nothing": true,
+    "picked": []
+   }
+  },
+  {
+   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: 'tehas-bot'",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "tehas-bot"
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "say": "A box was ticked by an account that may not answer for this factory (tehas-bot). It was unticked."
+     }
+    ],
+    "log": [
+     "skip #7: boxes ticked by 'tehas-bot' are no answer (stranger)"
+    ]
+   }
+  },
+  {
+   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: 'mallory'",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "mallory"
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "say": "A box was ticked by an account that may not answer for this factory (mallory). It was unticked."
+     }
+    ],
+    "log": [
+     "skip #7: boxes ticked by 'mallory' are no answer (stranger)"
+    ]
+   }
+  },
+  {
+   "case": "a retry ticked by the bot or a stranger starts nothing and is undone: ''",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    ""
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "say": "A box was ticked by an account that may not answer for this factory (unknown). It was unticked."
+     }
+    ],
+    "log": [
+     "skip #7: boxes ticked by 'unknown' are no answer (stranger)"
+    ]
+   }
+  },
+  {
+   "case": "both boxes ticked is no choice: nothing starts, the boxes are emptied, one note",
+   "world": "parked",
+   "park_q": [
+    "x",
+    "x",
+    "alice"
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "More than one box was ticked, so nothing was chosen. Tick one."
+     }
+    ]
+   }
+  },
+  {
+   "case": "leave it parked takes the question away and keeps the issue parked",
+   "world": "parked",
+   "park_q": [
+    " ",
+    "x",
+    "alice"
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:question"
+      ],
+      "answered": {
+       "id": "4001",
+       "by": "alice"
+      }
+     }
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of leave it parked changes nothing",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    " ",
+    "x",
+    "alice"
+   ],
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a comment from an allowed account on a parked issue is discussion, not an answer",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    "",
+    [
+     {
+      "databaseId": 4003,
+      "author": {
+       "login": "alice"
+      },
+      "body": "retry please",
+      "createdAt": "2026-01-01T02:00:00Z"
+     }
+    ]
+   ],
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "and it does not hide a tick made after it",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice",
+    [
+     {
+      "databaseId": 4003,
+      "author": {
+       "login": "alice"
+      },
+      "body": "hm",
+      "createdAt": "2026-01-01T00:30:00Z"
+     }
+    ]
+   ],
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a retry does not approve text that somebody else changed after the tick",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "edit": {
+       "lastEditedAt": "2026-01-01T03:00:00Z",
+       "editor": {
+        "login": "mallory"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "a retry waits while too many pull requests await a merge",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "awaiting": [
+     {
+      "number": 1
+     },
+     {
+      "number": 2
+     },
+     {
+      "number": 3
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the pause label stops a retry too",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": []
+   }
+  },
+  {
+   "case": "a marker in somebody else's comment is not a question",
+   "world": "parked",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "comments": {
+       "data": {
+        "repository": {
+         "issue": {
+          "comments": {
+           "nodes": [
+            {
+             "databaseId": 9,
+             "author": {
+              "login": "mallory"
+             },
+             "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+             "createdAt": "t",
+             "lastEditedAt": "t",
+             "editor": {
+              "login": "alice"
+             }
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "when the comments cannot be read nothing is decided",
+   "world": "parked",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "comments": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: gh api graphql failed"
+    ]
+   }
+  },
+  {
+   "case": "a question on one issue does not hold up a ready issue behind it",
+   "snapshot": {
+    "asking": [
+     {
+      "number": 5
+     }
+    ],
+    "issues": {
+     "5": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      },
+      "comments": {
+       "data": {
+        "repository": {
+         "issue": {
+          "comments": {
+           "nodes": [
+            {
+             "databaseId": 9,
+             "author": {
+              "login": "tehas-bot"
+             },
+             "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+             "createdAt": "t",
+             "lastEditedAt": null,
+             "editor": null
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a retry tick on an issue whose cycle was an epic starts nothing, and the tick stays",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "work": {
+    "7": {
+     "title": "Faster search",
+     "body": "Make it fast.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ],
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 0
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+    ]
+   }
+  },
+  {
+   "case": "and a dry run of that tick says the same and changes nothing",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "work": {
+    "7": {
+     "title": "Faster search",
+     "body": "Make it fast.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ],
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 0
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "a retry tick on an issue whose sub-issues are all closed starts the cycle",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "work": {
+    "7": {
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ],
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 13
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "a retry ticked on an issue that is not parked starts nothing: tehas:question",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a retry was ticked but the issue is not parked"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry ticked on an issue that is not parked starts nothing: needs-human-attention tehas:question tehas:running",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:running"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a retry was ticked but the issue is not parked"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry ticked on an issue that is not parked starts nothing: needs-human-attention tehas:question tehas:awaiting-merge",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:awaiting-merge"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a retry was ticked but the issue is not parked"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "comment": 4001,
+      "say": "Retry was ticked, but this issue is not parked, so nothing was started."
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run leaves a retry tick on an issue that is not parked alone",
+   "world": "parked",
+   "dry": true,
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "skip #7: a retry was ticked but the issue is not parked"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a retry tick on an issue closed since its cycle stopped starts nothing",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it is closed, and a closed issue is never taken"
+    ]
+   }
+  },
+  {
+   "case": "and so does a tehas:ready applied to that closed issue, said once",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "work": {
+       "number": 7,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "after": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log_count": {
+     "skip #7: it is closed, and a closed issue is never taken": 1
+    }
+   }
+  },
+  {
+   "case": "a bot comment with a park marker that the host has no record of starts nothing",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "9": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "9": [
+     "Please confirm you have seen this.\n\n- [x] Retry from a clean start\n\n<!-- tehas:question kind=park issue=3 turn=1 -->",
+     "alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #9: a box was ticked in a question this host has no record of"
+    ],
+    "actions": [
+     {
+      "untick": 9,
+      "comment": 4001,
+      "body": "Please confirm you have seen this.\n\n- [ ] Retry from a clean start\n\n<!-- tehas:question kind=park issue=3 turn=1 -->",
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run changes nothing on a question the host has no record of",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "9": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "9": [
+     "Please confirm you have seen this.\n\n- [x] Retry from a clean start\n\n<!-- tehas:question kind=park issue=3 turn=1 -->",
+     "alice"
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "nothing": true,
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "an unticked question the host has no record of is left alone",
+   "snapshot": {
+    "ready": [],
+    "asking": [
+     {
+      "number": 9,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "9": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "asked": {
+    "9": [
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     ""
+    ]
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a tick in a question taken off the record starts nothing",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: a box was ticked in a question this host has no record of"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
+     }
+    ]
+   }
+  },
+  {
+   "case": "a question on record that could not be read skips the issue: no tick counts and none is undone",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "mallory"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "question": {
+       "failed": true,
+       "word": "busy",
+       "rc": 1,
+       "line": "store: busy #7: the database is locked"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its question on record could not be read (busy)"
+    ]
+   }
+  },
+  {
+   "case": "a store that cannot be used for the question on record stops the poll at 78, and nothing is undone",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "mallory"
+   ],
+   "snapshot": {
+    "issues": {
+     "7": {
+      "question": {
+       "failed": true,
+       "word": "corrupt",
+       "rc": 78,
+       "line": "store: corrupt: the file is not a database"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store cannot be used: store: corrupt"
+    ]
+   }
+  },
+  {
+   "case": "a tick in another bot comment than the question on record starts nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    "",
+    [
+     {
+      "databaseId": 4005,
+      "author": {
+       "login": "tehas-bot"
+      },
+      "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "createdAt": "2026-01-01T02:00:00Z",
+      "lastEditedAt": "2026-01-01T03:00:00Z",
+      "editor": {
+       "login": "alice"
+      }
+     }
+    ]
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a question on record whose marker names another issue starts nothing",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=3 turn=1 -->\n",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: the question on record does not belong to this issue"
+    ]
+   }
+  },
+  {
+   "case": "a park id that names a planning question starts nothing",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: the question on record does not belong to this issue"
+    ]
+   }
+  },
+  {
+   "case": "a question on record that is not among the comments read is said in the log",
+   "world": "parked",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "comments": {
+       "data": {
+        "repository": {
+         "issue": {
+          "comments": {
+           "nodes": [
+            {
+             "databaseId": 9,
+             "author": {
+              "login": "alice"
+             },
+             "body": "hm",
+             "createdAt": "t",
+             "lastEditedAt": null,
+             "editor": null
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: its question is not among the last 100 comments"
+    ]
+   }
+  },
+  {
+   "case": "retry is the ticked line's text, not its place: leave it parked first",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [x] Leave it parked\n- [ ] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "retry is the ticked line's text, not its place: retry second",
+   "world": "parked",
+   "asked": {
+    "7": [
+     "Tehas cycle stopped.\n\n- [ ] Leave it parked\n- [x] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     "alice"
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a ticked retry on the body its last cycle parked on starts all the same",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "parked": {
+    "7": {
+     "reason": "intent-park",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
+    ],
+    "no_actions": [
+     {
+      "park_told": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "a park of a provider outage is retried as today, on its own body",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+     },
+     {
+      "start": 7,
+      "by": "alice",
+      "how": "start of the cycle a provider outage parked",
+      "at": "2026-01-01T02:00:00Z",
+      "given": "outage-retry",
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
+    ],
+    "no_actions": [
+     {
+      "park_told": true
+     }
+    ]
+   }
+  },
+  {
+   "case": "the retry rests on who started the parked cycle, not on a later approval of another account",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "approved": {
+    "7": {
+     "by": "bob",
+     "at": "2026-01-01T20:00:00Z",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry whose account may no longer label spends it, and starts nothing",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "carol"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run of that leaves the retry owed",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "carol"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "an open planning session holds the retry after an outage, and spends it (A13)",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    },
+    "plan_open": [
+     7
+    ]
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry whose text another changed since its cycle began waits for a person",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": "2026-01-01T03:00:00Z",
+       "editor": {
+        "login": "mallory"
+       },
+       "body": "Words."
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its text was changed by 'mallory' after its last cycle began; apply tehas:ready to approve it",
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ]
+   }
+  },
+  {
+   "case": "a dry run of the retry after an outage says it",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "dry": true,
+   "expect": {
+    "log": [
+     "would run a cycle for #7 (retry after a provider outage, started by alice)"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the retry after an outage waits while the slots are full",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a tehas:ready of a person's leaves the outage retry to rule 6",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:ready"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "park_retry": 7
+     },
+     {
+      "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
+     }
+    ]
+   }
+  },
+  {
+   "case": "a busy store keeps the retry after an outage for the next poll: nothing starts, the park stays",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": {
+     "failed": true,
+     "word": "busy",
+     "rc": 1
+    },
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store could not list the parks owed a retry (busy)"
+    ]
+   }
+  },
+  {
+   "case": "a store that cannot be used for the retry after an outage stops the poll at 78",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": {
+     "failed": true,
+     "word": "corrupt",
+     "rc": 78
+    },
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 78,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store could not list the parks owed a retry (corrupt)"
+    ]
+   }
+  },
+  {
+   "case": "a park of a cycle started by hand names no body and starts as today",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "its last cycle parked on"
     ]
    }
   }

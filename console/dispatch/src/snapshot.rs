@@ -47,6 +47,17 @@ pub struct Issue {
     pub approval: Option<Result<Option<Value>, ()>>,
     /// approval-current's .current, for the owner of a refresh.
     pub current: Option<Result<Option<Value>, StoreErr>>,
+    /// The question on record: {plan, id, kind} as plan-show, park-show and
+    /// question-known answer for it.
+    pub question: Option<Result<Value, StoreErr>>,
+    /// gh issue view --json state,labels, for a retry after an outage.
+    pub view: Option<Value>,
+    /// The cycle history on record (tehas_cycle_history), Err when the store
+    /// could not answer.
+    pub history: Option<Result<Vec<Value>, ()>>,
+    /// state/refresh/<n>.json, as written; and what <n>.said holds.
+    pub request: Option<Value>,
+    pub refresh_said: String,
 }
 
 /// A running cycle as cycle-show --running has it. 0 is none on record.
@@ -159,6 +170,17 @@ pub struct Snapshot {
     /// The issues with a refresh request (state/refresh/<n>.json), lowest
     /// first.
     pub refresh_requests: Vec<u64>,
+    /// What state/refresh/.held says, and whether the sandbox's pi-rukas takes
+    /// --continue-pr (asked when a refresh may start).
+    pub refresh_held: String,
+    pub continues: Option<bool>,
+    /// The pull requests a refresh reads, by number: GraphQL's
+    /// .data.repository.pullRequest, or {"failed": true}.
+    pub pulls: BTreeMap<u64, Value>,
+    /// gh issue list --label tehas:question.
+    pub asking: Option<Value>,
+    /// park-show --automatic's parks, owed a retry after an outage.
+    pub owed: Option<Result<Vec<Value>, StoreErr>>,
     pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
     /// The poll's clock, in seconds, and this host's name.
@@ -304,6 +326,24 @@ fn issue(v: &Value) -> Issue {
             a if failed(a) => Err(StoreErr::parse(a)),
             a => Ok(Some(a.clone())),
         }),
+        question: v.get("question").map(|q| {
+            if failed(q) {
+                Err(StoreErr::parse(q))
+            } else {
+                Ok(q.clone())
+            }
+        }),
+        view: v.get("view").cloned(),
+        history: v.get("history").map(|h| match h {
+            h if failed(h) => Err(()),
+            h => Ok(h.as_array().cloned().unwrap_or_default()),
+        }),
+        request: v.get("request").cloned(),
+        refresh_said: v
+            .get("refresh_said")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
     }
 }
 
@@ -424,6 +464,25 @@ impl Snapshot {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(number).collect())
                 .unwrap_or_default(),
+            refresh_held: s("refresh_held"),
+            continues: v.get("continues").and_then(Value::as_bool),
+            pulls: v
+                .get("pulls")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, p)| Some((k.parse().ok()?, p.clone())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            asking: v.get("asking").cloned(),
+            owed: v.get("owed").map(|o| {
+                if failed(o) {
+                    Err(StoreErr::parse(o))
+                } else {
+                    Ok(o.as_array().cloned().unwrap_or_default())
+                }
+            }),
             images: v.get("images").map(|i| Images {
                 rukas: i.get("rukas").and_then(Value::as_str).unwrap_or("").into(),
                 commit: i.get("commit").and_then(Value::as_str).unwrap_or("").into(),
