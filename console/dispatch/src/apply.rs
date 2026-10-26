@@ -8,8 +8,11 @@
 //! the comment, log line and answer that follow one that worked, the
 //! unticks, the refreshing mark taken off a pull request, the told and said
 //! records, the files of the hold, the gate and the branch check, and the
-//! containers left behind. Starts, stops, sweeps and planning turns are the
-//! later parts of #254, and come back in `left`.
+//! containers left behind. And the starts (start.rs), which end the poll.
+//! Stops, sweeps and planning turns are the later parts of #254, and come
+//! back in `left`.
+
+pub mod start;
 
 use crate::read::run::{run, run_input, Calls};
 use serde_json::{json, Value};
@@ -29,6 +32,7 @@ pub struct Writer {
     /// The read the actions rest on.
     pub before: i64,
     pub bound: Duration,
+    pub host: start::Host,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -37,6 +41,12 @@ pub struct Writer {
 pub struct Applied {
     pub log: Vec<String>,
     pub left: Vec<Value>,
+    /// What the status command printed after the starts.
+    pub printed: Vec<String>,
+    /// The poll's exit status when its starts ended it: no action after
+    /// them is applied (A2: a retry's untick follows only a start that
+    /// worked).
+    pub exit: Option<i32>,
 }
 
 /// How a journaled call ended.
@@ -71,10 +81,25 @@ fn strings(a: &Value, k: &str) -> Vec<String> {
 impl Writer {
     pub fn apply(&mut self, actions: &[Value]) -> Applied {
         let mut out = Applied::default();
-        for a in actions {
-            if !self.one(a, &mut out.log) {
-                out.left.push(a.clone());
+        let mut i = 0;
+        while i < actions.len() {
+            let run = actions[i..]
+                .iter()
+                .take_while(|a| a.get("start").is_some())
+                .count();
+            if run > 0 {
+                let starts = &actions[i..i + run];
+                i += run;
+                if let Some(rc) = self.starts(starts, &mut out.log, &mut out.printed) {
+                    out.exit = Some(rc);
+                    return out;
+                }
+                continue;
             }
+            if !self.one(&actions[i], &mut out.log) {
+                out.left.push(actions[i].clone());
+            }
+            i += 1;
         }
         out
     }
@@ -217,6 +242,26 @@ impl Writer {
         }
     }
 
+    /// tehas_store_try: asked again, a second apart, only when the store
+    /// answered 1 busy or timeout.
+    fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
+        let mut i = 1;
+        loop {
+            let r = self.calls.store(args);
+            match &r {
+                Err(f)
+                    if i < tries
+                        && f.get("rc") == Some(&json!(1))
+                        && matches!(word(f).as_str(), "busy" | "timeout") =>
+                {
+                    i += 1;
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+                _ => return r,
+            }
+        }
+    }
+
     fn unrecorded(n: u64) -> String {
         format!("WARN: the journal could not record a write on #{n}, so it was not made")
     }
@@ -285,24 +330,17 @@ impl Writer {
                 other => other.to_string(),
             });
             let by = text(q, "by").to_string();
-            let mut last = Ok(Value::Null);
-            for i in 0..3 {
-                last = self.calls.store(&[
+            let last = self.store_try(
+                3,
+                &[
                     "question-answered",
                     &n.to_string(),
                     "--id",
                     id.as_deref().unwrap_or(""),
                     "--by",
                     &by,
-                ]);
-                // tehas_store_try: again only on busy or timeout.
-                match &last {
-                    Err(f) if i < 2 && matches!(word(f).as_str(), "busy" | "timeout") => {
-                        std::thread::sleep(Duration::from_secs(1));
-                    }
-                    _ => break,
-                }
-            }
+                ],
+            );
             if let Err(f) = last {
                 log.push(format!(
                     "WARN: could not record the answer to the question of #{n} ({})",
