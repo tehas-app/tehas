@@ -47,9 +47,9 @@
 #   - Loading runs no git command, makes no network call and writes nothing.
 #     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
 #     tehas_load: nothing sources this file and reads it from the environment.
-#   - TEHAS_IMPROVE_REPO switches the improvement loop on. Unset is valid and
-#     means there is none. TEHAS_IMPROVE_RUKAS_REPO needs it, and is not set
-#     with TEHAS_IMPROVE_RUKAS_SKIP=1.
+#   - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is
+#     none. TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
+#     Neither is TEHAS_REPO: a person triages findings before they are tickets.
 #   - TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN
 #     name the GitHub App the factory acts as (lib/github-app.sh), all three or
 #     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
@@ -651,6 +651,10 @@ tehas_load() {
   fi
   if [ -n "$TEHAS_IMPROVE_RUKAS_REPO" ] && [ "$TEHAS_IMPROVE_RUKAS_SKIP" = 1 ]; then
     tehas_err "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see $file)"
+    return 78
+  fi
+  if [ -n "${TEHAS_REPO:-}" ] && { [ "${TEHAS_IMPROVE_REPO,,}" = "${TEHAS_REPO,,}" ] || [ "${TEHAS_IMPROVE_RUKAS_REPO,,}" = "${TEHAS_REPO,,}" ]; }; then
+    tehas_err "the improvement loop files in $TEHAS_REPO, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see $file)"
     return 78
   fi
   case " ${TEHAS_ALLOWED_LABELERS:-} " in
