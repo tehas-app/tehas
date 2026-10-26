@@ -1158,7 +1158,8 @@ fn a_sweep_removes_a_link_and_never_what_it_points_at() {
     assert!(keep.join("inside").is_dir());
 }
 
-use super::plan::{no_later_parts, plan_view, q_clean, q_render};
+use super::plan::{no_later_parts, plan_view, q_render};
+use tehas_core::question::q_clean;
 
 #[test]
 fn an_agents_words_are_masked_before_they_are_posted() {

@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
+  part 1): from what the cycle left and GitHub's answers it says what
+  libexec/cycle does, its warnings, label changes, comments and park question,
+  the end and the park on record, the analytics and the improvement record.
+  Its 265 fixture cases are the reports of the bash cycle tests, traced. It
+  writes nothing, and nothing calls it yet. The question comments' text
+  (q_clean, q_render) is now in `console/core`, shared with the dispatcher.
 - `tehas-dispatch poll [--dry-run]` runs one poll of the queue in Rust
   (#254, part 4a): the dispatcher's lock and its hang warning, the checks
   before any call, the snapshot and its decision, live/demand.json, health,
