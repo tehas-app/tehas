@@ -160,7 +160,9 @@ for the rest. Give it:
 - one outcome, small enough for one pull request,
 - a `## Acceptance criteria` section with checkable items,
 - the files or area involved, if you know them,
-- the test file and the manual page the change will touch.
+- the test file and the manual page the change will touch,
+- an `Out of scope` section, when the change works beside files it must not
+  touch: one path per entry, as the next paragraph says.
 
 Name the tests and the pages even when they seem obvious: the plan fences the
 work to what the issue names, and a cycle that changes a file outside the
@@ -173,18 +175,36 @@ against the list in the second file exactly (`test/install_fresh_test.sh`), so a
 plan that leaves the two out parks hours later on a file nobody was allowed to
 edit.
 
-An `Out of scope` section of the issue is part of that fence too, not a hint:
-the plan reads every entry of it as a file the cycle must not change. So a
-file a deliverable creates must be named by that deliverable and left out of
-`Out of scope`. The two must not disagree. A deliverable that says "tests in
-`test/foo_test.sh` (new)" beside an `Out of scope` entry naming a test file
-parks the cycle in the review fix pass, after the work is written and the
-consolidated gate is green.
+The `Out of scope` section of the issue's spec is part of that fence, not a
+hint: it is the section the refine brief tells the planner to write, and that
+brief is installed as `~/tehas/lib/refine-brief.md`. The plan carries each
+entry into the fence and matches it as a git pathspec: the file it names
+exactly, everything under it when it names a directory (`test/`, `test/**`),
+or every path a pattern matches (`test/*_test.sh`). The fence only ever
+narrows what a cycle may change: naming a file in a deliverable cannot
+override an entry still present, and taking an entry out is what lets the
+cycle reach the file. So a file a deliverable creates is named by that
+deliverable, by exact path, a directory, a template or one alternative of a
+declared set, and is left out of `Out of scope`. A deliverable that says
+"tests in `test/work_test.sh` (new)" beside an entry that matches that path
+parks the cycle with `fix-pass-park` in the fix pass after the adversarial
+review, after the work is written and the whole gate has passed. Write one
+thing per entry, a path rather than a sentence, and keep the section to the
+files the cycle must not touch: the driver bounds the entries, and a long one
+is cut, which can widen it to a whole subtree, while a crowded list loses the
+entries past its ceiling; the cycle's run log says what it dropped. The
+driver may open a fence your own acceptance criteria name as a requirement,
+and opens docs and test fences for a plan with one workstream, so what parks
+is the fence the plan kept: the `planQuality.unfence` record and the `fence
+lifted by the issue's Test surface` line in the cycle's run log say which
+happened.
 
 Vague issues park at the first step with "underspecified", and the factory
 then refines them once on its own (see [Refined on its own](#refined-on-its-own)). Text in the issue is
-treated as untrusted input: it cannot change the gates, and the cycle halts if
-its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to
+treated as untrusted input: it shapes the plan (the fence, the paths, the
+deliverables) but cannot reach the gates or the mounts the container is
+given, and the cycle halts if its patch touches `.pi/`, `.github/`,
+`CODEOWNERS` or `agents.json`. An edit to
 `AGENTS.md` or `CLAUDE.md` is not halted: it ships, and you see it in the diff.
 What the cycle is judged against is the doctrine at the commit it started from,
 so an edit of its own changes nothing for that cycle.
