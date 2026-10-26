@@ -65,7 +65,7 @@ fn how_words(how: Option<&'static str>) -> Option<[Option<&'static str>; 2]> {
     }
 }
 
-const CYCLE_NAMES: [&str; 17] = [
+const CYCLE_NAMES: [&str; 18] = [
     "id",
     "issue",
     "attempt",
@@ -83,9 +83,10 @@ const CYCLE_NAMES: [&str; 17] = [
     "failure_cause",
     "provider?",
     "parked?",
+    "seq",
 ];
 
-const PLAN_NAMES: [&str; 10] = [
+const PLAN_NAMES: [&str; 11] = [
     "id",
     "issue",
     "turn",
@@ -96,10 +97,12 @@ const PLAN_NAMES: [&str; 10] = [
     "rc",
     "by",
     "label",
+    "seq",
 ];
 
-/// One row as answered, with what orders it: `(at, issue, id, kind)`.
-type Row = ((i64, i64, i64, u8), String);
+/// One row as answered, with what orders it: its `seq`, the order the ends
+/// were written in.
+type Row = (i64, String);
 
 pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
     verbs::look(home, |c| {
@@ -117,11 +120,6 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
     })
 }
 
-/// `(at, issue, id)` of a row both SELECTs start with `id, issue, _, at`.
-fn order(r: &rusqlite::Row) -> rusqlite::Result<(i64, i64, i64)> {
-    Ok((r.get(3)?, r.get(1)?, r.get(0)?))
-}
-
 fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Result<Vec<Row>, Fail> {
     // NULL is the filter of no word: no row's `how` is NULL, and the empty
     // string is no word of `HOWS`, so neither stands for a filter it does not
@@ -130,7 +128,7 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
     let mut q = c
         .prepare(
             "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
-               park_reason, failure_kind, failure_cause, provider, parked
+               park_reason, failure_kind, failure_cause, provider, parked, seq
              FROM cycle_history
              WHERE (?1 IS NULL OR issue = ?1)
                AND (?2 IS NULL OR how = ?2 OR how = ?3)",
@@ -138,14 +136,14 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
         .q()?;
     let rows = q
         .query_map(rusqlite::params![issue, first, second], |r| {
-            Ok((order(r)?, row_json(r, &CYCLE_NAMES)?))
+            Ok((r.get(CYCLE_NAMES.len() - 1)?, row_json(r, &CYCLE_NAMES)?))
         })
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let ((at, n, id), mut p) = row.q()?;
+        let (seq, mut p) = row.q()?;
         p.insert(0, ("kind", j("cycle")));
-        out.push(((at, n, id, 0), obj(&p)));
+        out.push((seq, obj(&p)));
     }
     Ok(out)
 }
@@ -153,7 +151,7 @@ fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Resu
 fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
     let mut q = c
         .prepare(
-            "SELECT id, issue, turn, at, outcome, session, started_at, rc, by_account, label,
+            "SELECT id, issue, turn, at, outcome, session, started_at, rc, by_account, label, seq,
                filed_json, auto
              FROM plan_history WHERE (?1 IS NULL OR issue = ?1)",
         )
@@ -161,7 +159,7 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
     let rows = q
         .query_map([issue], |r| {
             Ok((
-                order(r)?,
+                r.get(PLAN_NAMES.len() - 1)?,
                 row_json(r, &PLAN_NAMES)?,
                 r.get::<_, Option<String>>(PLAN_NAMES.len())?,
                 r.get::<_, bool>(PLAN_NAMES.len() + 1)?,
@@ -170,7 +168,7 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
         .q()?;
     let mut out = Vec::new();
     for row in rows {
-        let ((at, n, id), mut p, filed, auto) = row.q()?;
+        let (seq, mut p, filed, auto) = row.q()?;
         // plan-end writes the kept URLs as a JSON list; anything else is none.
         let filed = filed
             .and_then(|f| serde_json::from_str::<Value>(&f).ok())
@@ -179,7 +177,7 @@ fn plans(c: &Connection, issue: Option<i64>) -> Result<Vec<Row>, Fail> {
         p.insert(0, ("kind", j("plan")));
         p.push(("filed", filed.to_string()));
         p.push(("auto", j(auto)));
-        out.push(((at, n, id, 1), obj(&p)));
+        out.push((seq, obj(&p)));
     }
     Ok(out)
 }

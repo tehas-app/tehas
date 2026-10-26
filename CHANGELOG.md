@@ -13,6 +13,15 @@ empty one above it.
 
 ### Changes
 
+- `tehas history` and `tehas export` give every line a cursor of its own,
+  `<seconds>-<issue>-<place>`, as `1760700000-12-41`, and list the lines in the
+  order the state store wrote them (#754). A program that keeps `next` no
+  longer misses a line that was written after its read for the same second,
+  and a cycle and a planning turn of one issue that ended in one second no
+  longer share a cursor. A cursor of the old shape, `1760700000-12`, is still
+  taken and read as before. The state store moves to schema 6, which numbers
+  every line of history in one sequence; the install migrates it and keeps a
+  backup.
 - Loading the settings starts no subshell and no program but `nproc`: 2
   process starts a load instead of 17, about 14 ms instead of 44 ms. Every
   command and every test loads them.
@@ -35,7 +44,9 @@ empty one above it.
 
 ### Adopter action
 
-- None.
+- A program that reads `tehas history` or `tehas export` and checks the shape
+  of a cursor must take the third number. One that only keeps `next` and
+  passes it back needs no change.
 
 ## v0.13.0 (2026-10-25)
 

@@ -266,7 +266,8 @@ CREATE TABLE cycle_history (
   status TEXT NOT NULL, step TEXT, by_account TEXT, how TEXT, pr INTEGER,
   started_at INTEGER, rc INTEGER, cap TEXT, park_reason TEXT,
   failure_kind TEXT, failure_cause TEXT,
-  provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0
+  provider INTEGER NOT NULL DEFAULT 0, parked INTEGER NOT NULL DEFAULT 0,
+  seq INTEGER
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (
@@ -274,9 +275,24 @@ CREATE TABLE plan_history (
   issue INTEGER NOT NULL, turn INTEGER NOT NULL, at INTEGER NOT NULL,
   outcome TEXT NOT NULL, session TEXT,
   started_at INTEGER, rc INTEGER, by_account TEXT, label TEXT, filed_json TEXT,
-  auto INTEGER NOT NULL DEFAULT 0
+  auto INTEGER NOT NULL DEFAULT 0,
+  seq INTEGER
 );
 CREATE INDEX plan_history_issue ON plan_history (issue, at);
+-- seq is the order the ends were written in, one sequence across both tables,
+-- which is what a history cursor names. A row is given the next number as it is
+-- written. The newest row of an issue is never the one the 50 are trimmed of, so
+-- a number is not given twice.
+CREATE UNIQUE INDEX cycle_history_seq ON cycle_history (seq);
+CREATE UNIQUE INDEX plan_history_seq ON plan_history (seq);
+CREATE TRIGGER cycle_history_order AFTER INSERT ON cycle_history WHEN NEW.seq IS NULL BEGIN
+  UPDATE cycle_history SET seq = 1 + max(coalesce((SELECT max(seq) FROM cycle_history), 0),
+    coalesce((SELECT max(seq) FROM plan_history), 0)) WHERE id = NEW.id;
+END;
+CREATE TRIGGER plan_history_order AFTER INSERT ON plan_history WHEN NEW.seq IS NULL BEGIN
+  UPDATE plan_history SET seq = 1 + max(coalesce((SELECT max(seq) FROM cycle_history), 0),
+    coalesce((SELECT max(seq) FROM plan_history), 0)) WHERE id = NEW.id;
+END;
 CREATE TABLE refined (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, at INTEGER NOT NULL, kept INTEGER, outcome TEXT

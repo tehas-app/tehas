@@ -824,7 +824,7 @@ once.
 
 ```
 tehas history                    # what ended, oldest first
-tehas history --json --after 1760700000-12
+tehas history --json --after 1760700000-12-41
 ```
 
 One line for each cycle and each planning turn, `kind` telling them apart: when
@@ -833,7 +833,7 @@ JSON with `--json`. It reads only what the units wrote, takes no lock a running
 cycle holds, and writes nothing, so it is safe to run while the factory works.
 
 ```
-tehas export --after 1760700000-12 ~/archive
+tehas export --after 1760700000-12-41 ~/archive
 ```
 
 Copies the result, the logs, the agents' transcripts and the Protolab page of

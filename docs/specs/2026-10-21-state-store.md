@@ -359,7 +359,7 @@ ADR 0003 under *What stays a file*.
 
 - Times are **columns**, UTC Unix seconds, never file mtimes. A column named
   `*_at` is an instant; `*_seconds` is a duration.
-- The version is `PRAGMA user_version`. It is 5 for this schema. Schema 1 was
+- The version is `PRAGMA user_version`. It is 6 for this schema. Schema 1 was
   the first on main; the step to 2 only adds columns and one table
   (`approvals.input_json`, `parks.told_at`, `planning_answers.text`,
   `planning_notes`; the verbs spec's D29), and the step to 3 adds
@@ -369,7 +369,11 @@ ADR 0003 under *What stays a file*.
   with `ALTER TABLE ... RENAME COLUMN`. SQLite cannot change a CHECK in place,
   so the two tables are rebuilt with foreign keys off for the step, and every
   row is kept. The step to 5 adds `planning.auto` and `plan_history.auto`
-  (#679), 0 on every older row. An added column comes last in its table,
+  (#679), 0 on every older row. The step to 6 adds `cycle_history.seq` and
+  `plan_history.seq` (#754), one sequence across both, numbered for the older
+  rows in the order history-show listed them (the end, the issue, the row, a
+  cycle first), with a unique index each and a trigger each that gives a new
+  row the next number. An added column comes last in its table,
   where `ALTER TABLE` puts it. Migrations run forward only, from install or
   update under `state/update.lock`, after a `VACUUM INTO` backup.
 - WAL, a busy wait of 5000 ms (1 s for a reader, section 4),
@@ -710,14 +714,16 @@ Replaces `state/cycles/<n>.history.jsonl`, `state/plan-<n>.history.jsonl`,
 CREATE TABLE cycle_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, attempt INTEGER NOT NULL, at INTEGER NOT NULL,
-  status TEXT NOT NULL, step TEXT, by_account TEXT, how TEXT, pr INTEGER
+  status TEXT NOT NULL, step TEXT, by_account TEXT, how TEXT, pr INTEGER,
+  seq INTEGER                          -- v6 (#754): the order the ends were written in
 );
 CREATE INDEX cycle_history_issue ON cycle_history (issue, at);
 CREATE TABLE plan_history (
   id INTEGER PRIMARY KEY,
   issue INTEGER NOT NULL, turn INTEGER NOT NULL, at INTEGER NOT NULL,
   outcome TEXT NOT NULL, session TEXT,
-  auto INTEGER NOT NULL DEFAULT 0      -- v5 (#679): a turn of such a refine
+  auto INTEGER NOT NULL DEFAULT 0,     -- v5 (#679): a turn of such a refine
+  seq INTEGER                          -- v6 (#754): one sequence with cycle_history
 );
 CREATE INDEX plan_history_issue ON plan_history (issue, at);
 CREATE TABLE refined (

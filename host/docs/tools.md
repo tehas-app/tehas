@@ -1605,7 +1605,7 @@ tehas history [--json] [--after CURSOR] [--issue N]
 ```
 
 What has ended, oldest first: one line for each cycle and each planning turn,
-with `kind` telling them apart. It reads both from the state store
+in the order the state store wrote them, with `kind` telling them apart. It reads both from the state store
 (`history-show`), so it needs no network, takes no lock a running cycle holds, and writes
 nothing. A line it cannot read is left out, not an error. A store that does not
 answer prints nothing, never a listing without the cycles: exit 1 when it was
