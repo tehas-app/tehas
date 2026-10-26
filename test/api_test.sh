@@ -84,6 +84,92 @@ installed v0.8.0+cb6912a
 t_run "$api --json 2>/dev/null"
 t_eq "$(jq -s length <<<"$t_out")" 1
 
+t_case "api --json: the last poll's figures and the hour's sums, from the store"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.8.0+cb6912a
+printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
+printf '\n\n\n' >"$T/poll.tally"
+now=$(date +%s)
+t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
+  --tally "$T/poll.tally" --writes-log "$T/github-writes.log" --starts 0 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.poll.last.cpuMs' <<<"$t_out")" 3100
+t_eq "$(jq -r '.poll.last.gh' <<<"$t_out")" 3
+t_eq "$(jq -r '.poll.last.starts' <<<"$t_out")" 0
+t_eq "$(jq -r '.poll.last.wallMs > 0' <<<"$t_out")" true
+t_eq "$(jq -r '.poll.last.at' <<<"$t_out")" "$now"
+t_eq "$(jq -r '.poll.last.ageMin' <<<"$t_out")" 0
+t_eq "$(jq -r '[.poll.hour.polls, .poll.hour.cpuMs] | @json' <<<"$t_out")" '[1,3100]'
+# No write log on this host, so the writes are not on record: null, not 0.
+t_eq "$(jq -r '.poll.last.writes | type' <<<"$t_out")" null
+t_eq "$(jq -r '.poll.hour.writes | type' <<<"$t_out")" null
+t_eq "$(jq -r '.poll.last.kinds | type' <<<"$t_out")" null
+
+t_case "api --json: the writes of the last poll, by kind"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.8.0+cb6912a
+printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
+printf '\n\n\n' >"$T/poll.tally"
+now=$(date +%s)
+{
+  printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "label create"
+  printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "issue comment"
+  printf '%s\t%s\tacme/widget\t7\t0\t-\n' "$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)" "pr edit"
+} >"$T/github-writes.log"
+t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
+  --tally "$T/poll.tally" --writes-log "$T/github-writes.log" --starts 2 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api --json"
+t_eq "$(jq -r '.poll.last.writes' <<<"$t_out")" 3
+t_eq "$(jq -r '.poll.last.starts' <<<"$t_out")" 2
+t_eq "$(jq -c '[.poll.last.kinds.label, .poll.last.kinds.comment, .poll.last.kinds.edit, .poll.last.kinds.other]' <<<"$t_out")" '[1,1,1,0]'
+t_eq "$(jq -r '.poll.hour.writes' <<<"$t_out")" 3
+
+t_case "api without --json: the poll line of the store, under the millwright's"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.8.0+cb6912a
+printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
+printf '\n\n\n' >"$T/poll.tally"
+now=$(date +%s)
+t_at "$now" poll-record --started "$((now - 24))" --times "$T/poll.times" \
+  --tally "$T/poll.tally" --writes-log "$T/no-such.log" --starts 0 >/dev/null ||
+  t_bad "no poll recorded"
+t_run "$api"
+t_eq "$t_rc" 0
+t_contains "$t_out" "poll        last 2"
+t_contains "$t_out" " s wall, 3.1 s CPU, 3 gh; last hour 1 poll, 3.1 s CPU"
+
+t_case "api: a factory with no poll on record says null and prints no poll line"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.8.0+cb6912a
+t_run "$api --json"
+t_eq "$t_rc" 0
+t_eq "$(jq -r '.poll | type' <<<"$t_out")" null
+t_run "$api"
+t_lacks "$t_out" "poll "
+
+t_case "api: a store that cannot answer is no poll on record, and still exits 0"
+reset
+t_store_home "$T/home/tehas" || t_skip "no store: $t_store_why"
+installed v0.8.0+cb6912a
+rm -f "$T/home/tehas/libexec/store"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "store: corrupt: not a database\n" >&2' 'exit 78' >"$T/home/tehas/libexec/store"
+chmod 755 "$T/home/tehas/libexec/store"
+t_run "$api --json 2>/dev/null"
+t_eq "$t_rc" 0
+t_eq "$(jq -s length <<<"$t_out")" 1
+t_eq "$(jq -r '.poll | type' <<<"$t_out")" null
+t_run "$api 2>/dev/null"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "poll "
+
 t_case "api without --json prints for a person"
 reset
 installed v0.8.0+cb6912a

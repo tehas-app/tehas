@@ -15,6 +15,13 @@
 //!   store poll-show
 //!     The last poll's row, the sums of the last hour, and the line `tehas
 //!     status` prints, null when no poll is on record.
+//!   store poll-show --api --now <unix>
+//!     The same reading shaped for `tehas api`: the last poll under `last`
+//!     with its figures in the API's names and `ageMin`, its minutes since
+//!     `--now`, and `hour` as {polls, cpuMs, writes}. One object and no `line`.
+//!     `last` is null when no poll is on record, and `writes` is null when
+//!     neither the poll nor the hour has a write on it: no write log, so no
+//!     count. An hour with no poll is {polls: 0, cpuMs: 0, writes: null}.
 //!   store poll-idle --since <seconds>
 //!     The median wall, CPU and write cost of the polls of the last
 //!     <seconds> that started no cycle, as one object: {"polls": n, "cpu_ms":
@@ -31,8 +38,17 @@ use tehas_core::time::days_from_civil;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
     Record(Record),
-    Show,
+    Show(Show),
     Idle(Idle),
+}
+
+/// `poll-show`: what `tehas status` reads, or the same reading in the names
+/// `tehas api` prints. `now` is the `--now` of the API shape, the second the
+/// age of the last poll is counted from.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Show {
+    pub api: bool,
+    pub now: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -81,7 +97,18 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 starts: a.strict("--starts", "a number of cycles", verbs::count)?,
             }))
         }),
-        "poll-show" => Args::parse("poll-show", rest, &[], false).map(|_| Call::Show),
+        "poll-show" => Args::parse(
+            "poll-show",
+            rest,
+            &[("--api", Kind::Switch), ("--now", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Show(Show {
+                api: a.has("--api"),
+                now: a.strict("--now", "a Unix time", verbs::unix)?,
+            }))
+        }),
         "poll-idle" => {
             Args::parse("poll-idle", rest, &[("--since", Kind::Value)], false).and_then(|a| {
                 Ok(Call::Idle(Idle {
@@ -245,7 +272,7 @@ pub struct Last {
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Record(r) => record(home, r, now, now_ms()),
-        Call::Show => show(home, now),
+        Call::Show(s) => show(home, s, now),
         Call::Idle(i) => idle(home, i, now),
     }
 }
@@ -380,7 +407,14 @@ fn idle(home: &Path, i: &Idle, now: i64) -> Result<String, Fail> {
     })
 }
 
-fn show(home: &Path, now: i64) -> Result<String, Fail> {
+/// `ageMin` of the API's poll object: whole minutes since the poll ended,
+/// never below 0, which is what a row dated after the call is.
+fn age_min(now: i64, at: i64) -> i64 {
+    (now - at).max(0) / 60
+}
+
+fn show(home: &Path, s: &Show, now: i64) -> Result<String, Fail> {
+    let now = s.now.unwrap_or(now);
     verbs::look(home, |c| {
         let last = c
             .query_row(
@@ -413,6 +447,55 @@ fn show(home: &Path, now: i64) -> Result<String, Fail> {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .q()?;
+        if s.api {
+            // The names of host/docs/api.md, counted from the caller's --now.
+            // One `writes` for the whole object: null when neither the poll
+            // nor the hour has a write, which is a host with no write log.
+            return Ok(line(
+                "poll-show",
+                &[
+                    (
+                        "last",
+                        last.as_ref().map_or_else(
+                            || "null".to_string(),
+                            |l| {
+                                obj(&[
+                                    ("at", j(l.at)),
+                                    ("wallMs", j(l.wall_ms)),
+                                    ("cpuMs", j(l.cpu_ms)),
+                                    ("gh", j(l.gh)),
+                                    ("writes", j(l.writes)),
+                                    ("starts", j(l.starts)),
+                                    (
+                                        "kinds",
+                                        l.kinds.map_or_else(
+                                            || "null".to_string(),
+                                            |[la, co, ed, ot]| {
+                                                obj(&[
+                                                    ("label", j(la)),
+                                                    ("comment", j(co)),
+                                                    ("edit", j(ed)),
+                                                    ("other", j(ot)),
+                                                ])
+                                            },
+                                        ),
+                                    ),
+                                    ("ageMin", j(age_min(now, l.at))),
+                                ])
+                            },
+                        ),
+                    ),
+                    (
+                        "hour",
+                        obj(&[
+                            ("polls", j(polls)),
+                            ("cpuMs", j(cpu)),
+                            ("writes", j(writes.or(last.as_ref().and_then(|l| l.writes)))),
+                        ]),
+                    ),
+                ],
+            ));
+        }
         let hour = obj(&[
             ("polls", j(polls)),
             ("cpu_ms", j(cpu)),

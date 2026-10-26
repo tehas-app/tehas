@@ -400,7 +400,11 @@ store as it ends, however it ends. A dry run records nothing.
   their writes added up.
 
 `~/tehas/libexec/store poll-show` gives the same figures as JSON, with the
-writes of the last poll by kind. `store prune` drops the records with the
+writes of the last poll by kind. `store poll-show --api --now <unix>` shapes
+them in the names [`tehas api`](/api#tehas-api) prints them under, with the
+last poll's age in minutes counted from `<unix>`; `tehas api --json` carries
+that as its `poll` field, and its plain output prints the line of words below
+the millwright's. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
 
 `~/tehas/libexec/store poll-idle --since <seconds>` answers one object over the

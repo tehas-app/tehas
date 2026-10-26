@@ -1846,14 +1846,17 @@ tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
 features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
 millwright  none
+poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
 
 What this factory speaks: the API version, the release and commit it was
-installed from, its repository, what this release can do and the millwright's
-login. A program asks it first. See [the factory API](/api#tehas-api). It
-reads the instance settings and the version file `install.sh` writes; no
-network, no git, and it writes nothing. Exit 0, 64 on an argument it does not
-know, 78 when the settings are missing or malformed.
+installed from, its repository, what this release can do, the millwright's
+login and what the polls cost. A program asks it first. See [the factory
+API](/api#tehas-api), where the fields of `poll` are written out. It reads the
+instance settings, the version file `install.sh` writes and the state store, a
+store that cannot answer being no poll on record; no network, no git, and it
+writes nothing. Exit 0, 64 on an argument it does not know, 78 when the
+settings are missing or malformed.
 
 ## tehas top
 

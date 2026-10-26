@@ -31,6 +31,18 @@ empty one above it.
   while a cycle runs, waited for while it is refreshed, refreshed first when
   it is due), the checkout's refresh before a start or a planning turn, and
   the low gate's run. Nothing chooses it yet.
+- The poll's cost is on the factory API (#745, part 3 of #734): `tehas api
+  --json` carries `poll`, the last poll's wall and CPU time, its `gh` calls,
+  its writes by kind, its starts and its age in whole minutes, beside the
+  polls, CPU time and writes of the last hour, so a program that keeps a copy
+  of them can add the cost of many hosts up. `store poll-show --api --now
+  <unix>` shapes them, and `tehas api` prints the store's own words for them
+  on a `poll` line of its plain output. A store that cannot answer is
+  `"poll": null`, not a failed command. A new test pins what a poll that
+  starts nothing may cost: 0 writes and fewer processes than a ceiling written
+  in the test, counted on a host with 500 lock files, 50 shipped issues and 5
+  blocked ones, so a change that raises the cost of an idle poll has to change
+  the test.
 - The dispatcher in Rust can end a planning turn (#254, part 3a): it
   collects the turn's exit status, posts its question as the bash poll writes
   it, replaces the issue a refine filed for, and ends a session that was cut
