@@ -268,9 +268,9 @@
 #
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
-# The file is removed at the end. While the cycle runs, this command reads how
-# many processes the kernel killed for memory in the container, from the
-# container's own cgroup. A count above 0 is printed and left in
+# The file is removed at the end. This command counts the processes the kernel
+# killed for memory in the container from its cgroup while it runs, and from
+# the kernel log when it has ended. A count above 0 is printed and left in
 # state/cycles/<issue>.oom for tehasbot cycle. The starts of a process that the
 # pids limit refused are counted the same way, into state/cycles/<issue>.forks.
 #
@@ -933,28 +933,21 @@ now_file() { # running? status
 live_on=1
 now_file true running
 
-# How many processes the kernel has killed for memory in this container, and
-# how many starts of a process its pids limit refused, from the container's
-# own cgroup. The last numbers seen are kept: the cgroup goes with the
-# container.
-ooms=0
-forks=0
+# The processes the kernel killed for memory in this container and the starts
+# its pids limit refused, from its cgroup. The last numbers seen are kept.
+ooms=0 forks=0 oom_id=""
 oom_look() {
-  local id="" scope key value
-  [ -r "$cid_file" ] || return 0
-  read -r id <"$cid_file" 2>/dev/null || true
-  [[ $id =~ ^[0-9a-f]{64}$ ]] || return 0
-  scope=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$id.scope
-  if [ -r "$scope/memory.events" ]; then
-    while read -r key value; do
-      if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
-    done 2>/dev/null <"$scope/memory.events"
-  fi
-  if [ -r "$scope/pids.events" ]; then
-    while read -r key value; do
-      if [ "$key" = max ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then forks=$value; fi
-    done 2>/dev/null <"$scope/pids.events"
-  fi
+  local scope key value
+  read -r oom_id 2>/dev/null <"$cid_file" || true
+  [[ $oom_id =~ ^[0-9a-f]{64}$ ]] || { oom_id="" && return 0; }
+  scope=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$oom_id.scope
+  # A file that is gone, with the container, reads as nothing.
+  while read -r key value; do
+    if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
+  done 2>/dev/null <"$scope/memory.events"
+  while read -r key value; do
+    if [ "$key" = max ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then forks=$value; fi
+  done 2>/dev/null <"$scope/pids.events"
   return 0
 }
 
@@ -1005,7 +998,12 @@ fi
 wait "$pid" 2>/dev/null
 rc=$?
 [ -z "$renewer" ] || kill "$renewer" 2>/dev/null
+oom_look
 rm -f "$cid_file"
+# The kills since the last look went with the cgroup. The kernel log names the
+# cgroup of each kill, but rate-limits those lines, so the larger count stands.
+if [ -n "$oom_id" ] && oom_log=$(timeout -k 5 "$stop_wait" journalctl -k -q -o cat --no-pager --since "@$started" 2>/dev/null |
+  grep -c "^oom-kill:.*task_memcg=/tehas.slice/docker-$oom_id.scope,") && [ "$oom_log" -gt "$ooms" ]; then ooms=$oom_log; fi
 have=0 error_only=0
 outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
 [ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1

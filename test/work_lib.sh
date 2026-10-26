@@ -144,6 +144,8 @@ slice_good() {
   slice_state 0.00
 }
 t_stub systemctl 'cat "$T/slice.show"'
+# The kernel log, as journalctl -k -o cat prints it, from a file a case writes.
+t_stub journalctl 'cat "$T/kernel.log"'
 slice_good
 env_ok=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
 

@@ -1060,7 +1060,13 @@ the process killed is a build step, the cycle goes on with a failed step. If
 it is Pi itself, the container ends with status 137.
 
 `tehas work` reads the container's own count of such kills while the cycle
-runs. A count above 0 is in its output and in the comment that reports the
+runs. The cgroup goes with the container, so the kills that end a cycle often
+come after the last look. When the container has ended, `tehas work` counts
+the kernel log's `oom-kill:` lines that name the container's cgroup since the
+cycle started (`journalctl -k`), and keeps the larger of the two counts. The
+kernel rate-limits those lines, and reading them needs a user in the
+`systemd-journal` group; without it the count is the last one the cgroup
+showed. A count above 0 is in its output and in the comment that reports the
 cycle:
 
 ```
