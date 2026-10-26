@@ -22,6 +22,12 @@ empty one above it.
   taken and read as before. The state store moves to schema 6, which numbers
   every line of history in one sequence; the install migrates it and keeps a
   backup.
+- `tehasbot cycle` starts fewer processes at the end of a cycle: it reads the
+  start, the result and the pull requests in one jq call each, and the marker
+  files and words it filters without head, tr, dirname or date. The park
+  marker, the improvement record and the comment cleaner filter text the same
+  way. Nothing it decides changes. Four test files wait less: review_test,
+  stop_test, top_view_test and top_frame_test.
 - Loading the settings starts no subshell and no program but `nproc`: 2
   process starts a load instead of 17, about 14 ms instead of 44 ms. Every
   command and every test loads them.
