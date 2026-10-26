@@ -556,4 +556,75 @@ t_run "$cycle 7"
 t_eq "$(park_of .body_sha256)" null
 t_eq "$(t_row cycle-show 7 -- '[.cycle.attempt, .cycle.how] | tostring')" '[2,"hand"]'
 
+# --- A develop timeout (#832, #833) --------------------------------------------
+# A cycle stopped at its developer's bound, the driver's work-state in the
+# workspace, tehas-cycle of this checkout, and the issue's body.
+develop_timeout() { # <body>
+  ended aborted develop feature/issue-7-x child-timeout:develop
+  jq '.issues[0].failure = {errorTail: "[pi-rukas] killed after 5400000ms child-bound"}' \
+    "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  mkdir -p "$workdir/.pi/work-state" "$T/home/tehas/libexec"
+  jq -n '{pipelineState: {normalisedSpec: {deliverables: [{id: "d1", paths: ["libexec/drain"]}]}}}' \
+    >"$workdir/.pi/work-state/7.json"
+  cp "$T_CYCLE" "$T/home/tehas/libexec/tehas-cycle"
+  jq -n --arg body "$1" '{number: 7, state: "open", body: $body}' >"$fx/issue-7.json"
+}
+# The body the first timeout writes on <body>.
+noted() { develop_timeout "$1" && jq -r .body "$fx/issue-7.json" | jq -Rs '{body: .}' |
+  "$T_CYCLE" last-attempt 7 "$fx/result.json" "$workdir" | jq -r .body; }
+
+if t_cycle; then
+  t_case "a develop timeout leaves a note of the attempt in the issue's body, and still offers a retry"
+  reset
+  develop_timeout "Fix the drain."
+  t_run "$cycle 7"
+  t_eq "$t_rc" 0
+  t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/7 -f body=Fix the drain.
+
+<!-- tehas:last-attempt base="
+  t_contains "$(t_calls gh)" "the developer ran past its time bound of 90 minutes"
+  t_contains "$(t_calls gh)" '  - `libexec/drain`'
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_eq "$(park_of .reason)" child-timeout:develop
+
+  t_case "a second develop timeout on the same text writes nothing, offers no retry and names tehas:plan"
+  reset
+  body=$(noted "Fix the drain.")
+  develop_timeout "$body"
+  t_run "$cycle 7"
+  t_lacks "$(t_calls gh)" "api -X PATCH"
+  t_lacks "$(t_calls gh)" "Retry from a clean start"
+  t_contains "$(t_calls gh)" "- [ ] Leave it parked"
+  t_contains "$(t_calls gh)" 'ran out of time in develop twice on the same text: split it with `tehas:plan`'
+  t_eq "$(park_q)" 4002
+
+  t_case "a timeout after the text changed outside the note writes a fresh note and offers a retry"
+  reset
+  body=$(noted "Fix the drain.")
+  develop_timeout "${body/Fix the drain./Fix only the drain\'s check.}"
+  t_run "$cycle 7"
+  t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/7 -f body=Fix only the drain's check."
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+
+  t_case "a note GitHub will not take is a warning, and the park is posted as before"
+  reset
+  develop_timeout "Fix the drain."
+  : >"$fx/patch-fails"
+  t_run "$cycle 7"
+  t_contains "$t_out" "WARN: could not leave the last attempt's note in the body of #7"
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+  t_eq "$(park_q)" 4002
+
+  t_case "another cap leaves the body alone"
+  reset
+  develop_timeout "Fix the drain."
+  jq '.issues[0].cap = "child-timeout:explore"' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
+  t_run "$cycle 7"
+  t_lacks "$(t_calls gh)" "api -X PATCH"
+  t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+else
+  t_case "a develop timeout's note"
+  t_bad "no tehas-cycle: $t_cycle_why"
+fi
+
 t_done
