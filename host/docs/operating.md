@@ -388,8 +388,12 @@ store as it ends, however it ends. A dry run records nothing.
   `~/tehas/state/github-writes.log` (see [GitHub App identity](/github-app)),
   dated from the second the poll started to its end, by kind: `label`,
   `comment`, `edit` and other. They are the writes of the whole host in that
-  time, a cycle's included. Without that log, on a host with no GitHub App,
-  the writes are not counted and the line leaves them out.
+  time, a cycle's included. What the shim counts as a write is what a call asks
+  GitHub to do, not how it asks it: a `gh api graphql` call sends POST whether
+  it reads or writes, and the shim logs it only when the query names a
+  `mutation`. An idle poll reads and writes nothing, and its figure is 0.
+  Without that log, on a host with no GitHub App, the writes are not counted
+  and the line leaves them out.
 - **starts**: the cycles the poll started, 0 when it started none. A poll of an
   older tehas keeps no answer for that, which is not the same as 0.
 - **last hour**: the polls that ended in the last hour, their CPU time and
