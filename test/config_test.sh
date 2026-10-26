@@ -1216,4 +1216,15 @@ for bad in main latest release: release:0.14.1 release:v0 "commit:${commit40:0:3
 done
 t_instance "${T_MINIMAL[@]}"
 
+# Every command loads the settings, so a load starts no program but nproc:
+# with nothing else on PATH it still loads.
+t_case "loading the settings runs no program but nproc"
+t_instance "${T_MINIMAL[@]}" "TEHAS_CYCLE_MIN_FREE=2g" "PI_ENSEMBLE_MODEL_OPS=m"
+mkdir -p "$T/only"
+printf '#!/bin/bash\necho 4\n' >"$T/only/nproc"
+chmod +x "$T/only/nproc"
+t_run "PATH=\$T/only; $load; echo \"rc=\$? \$TEHAS_CYCLE_MIN_FREE_MB \$TEHAS_TICKET_CONCURRENCY \$PI_ENSEMBLE_IMAGE\""
+t_eq "$t_out" "rc=0 2048 3 tehas/pi-rukas:uid$EUID"
+t_instance "${T_MINIMAL[@]}"
+
 t_done
