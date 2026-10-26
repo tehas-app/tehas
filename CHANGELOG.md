@@ -13,6 +13,8 @@ empty one above it.
 
 ### Changes
 
+- libexec/cycle no longer has a check that a progress file is newer than the
+  cycle's lock: it compared with a file named by a number and never held.
 - `tehas-cycle report <facts.json>` decides a cycle's report in Rust (#256,
   part 1): from what the cycle left and GitHub's answers it says what
   libexec/cycle does, its warnings, label changes, comments and park question,
