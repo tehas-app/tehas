@@ -41,6 +41,9 @@ esac'
 # A release host reads the list with gh when it is signed in and with curl
 # otherwise; CURL_RC is what curl answers with, and 22 is no answer at all.
 t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
+# The failed tehas units, as systemctl --user --failed --plain --no-legend lists
+# them: none until a case writes $T/failed-units.
+t_stub systemctl 'cat "$T/failed-units" 2>/dev/null'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -98,6 +101,23 @@ t_eq "$t_out" ""
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
+
+t_case "no failed tehas unit is no warning"
+reset
+rm -f "$T/failed-units"
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c .checks.units "$live/health.json")" '[]'
+t_contains "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
+
+t_case "a failed tehas-dispatch.path is a warning that names it"
+reset
+echo "tehas-dispatch.path loaded failed failed Tehas: a poll as soon as a cycle has ended" >"$T/failed-units"
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -c .checks.units "$live/health.json")" '["tehas-dispatch.path"]'
+t_contains "$(jq -r .output "$live/health.json")" "systemd gave up on tehas-dispatch.path"
+rm -f "$T/failed-units"
 
 t_case "a closed issue is not in line, being worked on or stopped, whatever label it carries"
 reset
@@ -1606,13 +1626,14 @@ t_run "$summary"
 t_eq "$t_rc" 0
 t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
 
-t_case "health and summary read files only: no systemctl, no docker"
+t_case "health and summary read files only, and ask systemd only for the failed units"
 reset
 t_stub systemctl
 t_stub docker
 poll room "holding: the reason"
 t_run "$status && $summary"
-t_eq "$(t_calls systemctl)$(t_calls docker)" ""
+t_eq "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
+t_eq "$(t_calls docker)" ""
 
 t_case "a lost cycle ends two minutes after its last heartbeat"
 reset

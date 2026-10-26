@@ -77,6 +77,31 @@ t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^next: //p')" \
 t_lacks "$t_out" "docker compose -f"
 t_lacks "$t_out" "systemctl --user enable"
 
+t_case "a later install resets the failed tehas units and starts a failed path unit again"
+fresh
+instance
+t_stub systemctl
+t_run "$install"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls systemctl)" "reset-failed"
+rm -f "$T/calls/systemctl"
+t_stub systemctl 'case "$*" in "--user is-failed tehas-dispatch.path") echo failed ;; esac'
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
+--user reset-failed tehas-*
+--user start tehas-dispatch.path"
+t_contains "$t_out" "systemd: tehas-dispatch.path had failed; reset and started"
+
+t_case "a later install with no failed path unit resets the others and starts nothing"
+rm -f "$T/calls/systemctl"
+t_stub systemctl 'case "$*" in "--user is-failed tehas-dispatch.path") echo active; exit 1 ;; esac'
+t_run "$install"
+t_eq "$t_rc" 0
+t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
+--user reset-failed tehas-*"
+t_stub systemctl
+
 t_case "--check reports follow-ups an earlier run left undone"
 # One of the two lines is a step no version of tehas here knows: install.sh --check
 # reports whatever is in the record, because it cannot perform any of them either.

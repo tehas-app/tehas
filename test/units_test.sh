@@ -50,6 +50,14 @@ for name in "${self_writing[@]}"; do
     "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot $name\""
 done
 
+t_case "the poll's unit removes the file that starts it before the poll runs"
+# A poll that stops on its settings writes nothing, so the unit removes the
+# file: left in place, tehas-dispatch.path would start poll after poll until
+# systemd failed it at the service's start limit.
+t_eq "$(sed -n 's/^ExecStartPre=//p' "$units/tehas-dispatch.service")" \
+  "-/bin/rm -f %h/tehas/state/dispatch.again"
+t_eq "$(sed -n 's/^PathExists=//p' "$units/tehas-dispatch.path")" "%h/tehas/state/dispatch.again"
+
 t_case "every unit that redirects writes a log its command does not"
 # The same property as the two cases above, for the units that do keep a
 # redirect: each keeps one only while nothing under libexec opens that file.
