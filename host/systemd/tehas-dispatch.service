@@ -3,6 +3,9 @@ Description=Tehas: one poll of the issue queue, starts the cycles
 
 [Service]
 Type=oneshot
+# The file that started this poll goes before it runs, so a poll that stops on
+# its settings does not leave it for tehas-dispatch.path to start again at once.
+ExecStartPre=-/bin/rm -f %h/tehas/state/dispatch.again
 ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot dispatch >> %h/tehas/logs/dispatch.log 2>&1"
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
 # code index as tehas-index.service; no poll waits for either. A poll that

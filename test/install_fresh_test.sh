@@ -213,7 +213,9 @@ rm -f "$T"/calls/*
 t_run "$install"
 t_eq "$t_rc" 0
 t_eq "$(t_calls gh)" ""
-t_eq "$(t_calls systemctl)" ""
+# Only the reset of a tehas unit systemd failed, which enables nothing.
+t_eq "$(t_calls systemctl)" "--user is-failed tehas-dispatch.path
+--user reset-failed tehas-*"
 
 t_case "a host installed before needs no first install"
 t_run "$install"

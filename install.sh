@@ -1470,6 +1470,24 @@ first_install() {
   echo "first install: labels made in $TEHAS_REPO, enabled ${units[*]}"
 }
 
+# A unit systemd gave up on stays failed until it is reset: a failed
+# tehas-dispatch.path (its service hit its start limit) starts no poll when a
+# cycle ends. Not on a first install, which has enabled nothing yet. The path
+# unit is started again when it was the one that failed; the other units are
+# reset and left to their timers.
+reset_failed_units() {
+  local path_state
+  [ ! -f "$first_owed" ] || return 0
+  path_state=$(systemctl --user is-failed tehas-dispatch.path 2>/dev/null) || true
+  systemctl --user reset-failed 'tehas-*' >/dev/null 2>&1 || return 0
+  [ "$path_state" = failed ] || return 0
+  if systemctl --user start tehas-dispatch.path >/dev/null 2>&1; then
+    echo "systemd: tehas-dispatch.path had failed; reset and started"
+  else
+    echo "later: systemctl --user start tehas-dispatch.path   (it had failed and did not start again)"
+  fi
+}
+
 # The one file of the host this run cannot bring current, because it belongs to
 # root: said as a later line, naming the command that does it. Not a step - no
 # command runs sudo - so it is never printed as "next:".
@@ -1482,6 +1500,7 @@ report_login() {
 if [ "${#changed[@]}" = 0 ] && [ "$sandbox_changed" != 1 ]; then
   echo "tehas is up to date"
   dispatch_release
+  reset_failed_units
   first_install
   report_login
   first_index
@@ -1542,6 +1561,7 @@ if [ "${#old[@]}" -gt 0 ]; then
 fi
 dispatch_release
 [ -z "$retire_later" ] || echo "later: ./install.sh again $retire_later"
+reset_failed_units
 first_install
 report_login
 first_index
