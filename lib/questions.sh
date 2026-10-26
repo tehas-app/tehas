@@ -6,8 +6,9 @@
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
 #   q_render <kind> <issue> <turn> <result.json> [line]
-#                                    the body of a question comment; a
-#                                    "marker" of pi-rukas's handoff goes on top,
+#                                    the body of a question comment (a park's
+#                                    has no retry box when .retry is false); a
+#                                    "marker" of pi-rukas's handoff on top,
 #                                    a "park" marker of tehas_park_marker above
 #                                    the question's own; <line>, when it is
 #                                    given, is the host's own and says what the
@@ -88,7 +89,8 @@ q_render() {
       printf 'Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n'
       ;;
     park)
-      printf -- '- [ ] Retry from a clean start\n- [ ] Leave it parked\n\n'
+      [ "$(jq '.retry != false' "$file")" = false ] || printf -- '- [ ] Retry from a clean start\n'
+      printf -- '- [ ] Leave it parked\n\n'
       printf 'Tick one box. Only a tick from an account that may authorise work counts.\n'
       ;;
     *) return 1 ;;

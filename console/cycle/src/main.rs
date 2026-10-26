@@ -15,18 +15,30 @@
 //!   tehas-cycle compare <issue>       after the report: set the bash's
 //!                                     beside it and add one line to
 //!                                     logs/cycle-shadow.log
+//!   tehas-cycle last-attempt <issue> <result.json> <workspace>
+//!                                     the issue as GitHub's REST API answers
+//!                                     it on standard input: what a cycle
+//!                                     that ended at child-timeout:develop
+//!                                     does with its body, as JSON
+//!                                     {"action": "none"|"edit"|"repeat",
+//!                                     "body": <the body to write>,
+//!                                     "say": <a repeat's words for the park>}
+//!                                     (src/last_attempt.rs)
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
 //! not there. They read $TEHAS_HOME, TEHAS_REPO and TEHAS_WORK_DIR from the
 //! environment, as tehas_load leaves them, and gh and the store.
 //!
+//! last-attempt reads what it is given and changes nothing.
+//!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
 //! read, said on standard error; 64 an argument it does not know.
 
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tehas_cycle::host::Start;
+use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
 use tehas_cycle::{report, shadow, Facts};
 
@@ -69,6 +81,9 @@ fn main() {
     match a.as_slice() {
         ["-h" | "--help"] => println!("{}", usage()),
         ["report", file] => print_report(file),
+        ["last-attempt", n, result, workspace] => {
+            last_attempt(issue(n, &args), result, Path::new(workspace))
+        }
         ["shadow", n, rest @ ..] => {
             let n = issue(n, &args);
             let mut start = Start {
@@ -128,4 +143,39 @@ fn print_report(file: &str) {
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
     let r = report(&facts, &mut gh);
     println!("{}", to_json(&r, facts.issue));
+}
+
+fn last_attempt(n: u64, result: &str, workspace: &Path) {
+    let mut stdin = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let issue: Value = serde_json::from_str(&stdin)
+        .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
+    let r: Value = std::fs::read_to_string(result)
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+        .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
+    let entry = r
+        .get("issues")
+        .and_then(Value::as_array)
+        .and_then(|l| {
+            l.iter()
+                .find(|e| e.get("issue").and_then(Value::as_u64) == Some(n))
+        })
+        .cloned()
+        .unwrap_or(Value::Null);
+    let body = match issue.get("body") {
+        Some(Value::String(b)) => b.as_str(),
+        Some(Value::Null) => "",
+        _ => fail("the issue has no body".to_string()),
+    };
+    let action = last_attempt::decide(body, &entry, last_attempt::state(workspace, n).as_ref());
+    println!(
+        "{}",
+        match action {
+            Action::Nothing => json!({"action": "none"}),
+            Action::Edit(body) => json!({"action": "edit", "body": body}),
+            Action::Repeat => json!({"action": "repeat", "say": last_attempt::REPEAT}),
+        }
+    );
 }
