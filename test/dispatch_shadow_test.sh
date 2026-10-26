@@ -269,6 +269,7 @@ t_contains "$(t_calls gh)" "api graphql"
 shadow_log=$T/home/tehas/logs/dispatch-shadow.log
 beside() { # <what the poll is given>: one shadowed poll
   mkdir -p "$T/home/tehas/logs"
+  : >"$T/home/tehas/state/dispatch-shadow.on"
   rm -f "$shadow_log"
   t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
   t_run "$dispatch"
@@ -299,6 +300,7 @@ t_case "a world that changed between the shadow and the poll is a difference"
 reset
 hold 9
 mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
 rm -f "$shadow_log"
 t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
 release
@@ -308,23 +310,23 @@ t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\" --exit 0"
 t_eq "$(jq -r .same "$shadow_log")" false
 t_contains "$(jq -r '.rust_only[]' "$shadow_log")" "holding: 1 cycles are running (limit 1)"
 
-t_case "a compare with no decision kept says so, and a stopped shadow does nothing"
+t_case "a compare with no decision kept says so, and a shadow not turned on does nothing"
 reset
 mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
 rm -f "$shadow_log" "$T/home/tehas/state/dispatch-shadow.json"
 : >"$T/poll.lines"
 t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\""
 t_contains "$(jq -r '.rust_only[]' "$shadow_log")" "the shadow decided nothing before this poll"
-rm -f "$shadow_log"
-: >"$T/home/tehas/state/dispatch-shadow.off"
+rm -f "$shadow_log" "$T/home/tehas/state/dispatch-shadow.on"
 t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" shadow"
 t_run "\"$T_DISPATCH\" compare \"$T/poll.lines\""
 t_eq "$([ -e "$shadow_log" ] || [ -e "$T/home/tehas/state/dispatch-shadow.json" ] && echo written)" ""
-rm -f "$T/home/tehas/state/dispatch-shadow.off"
 
 t_case "compare finds the home as env.sh gives it, with TEHAS_HOME unset"
 reset
 mkdir -p "$T/home/tehas/logs"
+: >"$T/home/tehas/state/dispatch-shadow.on"
 rm -f "$shadow_log"
 : >"$T/poll.lines"
 t_run "env -u TEHAS_HOME \"$T_DISPATCH\" compare \"$T/poll.lines\""

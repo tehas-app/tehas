@@ -400,8 +400,8 @@ other old rows of the store. With no poll on record there is no `poll` line.
 ### The dispatcher's shadow
 
 `tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
-each poll of `tehas-dispatch.service` and acts on nothing on GitHub or in the
-state store: it reads what the poll reads and decides, and the bash poll
+each poll of `tehas-dispatch.service` while `~/tehas/state/dispatch-shadow.on`
+is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the bash poll
 still does the work. It asks what the poll asks to read, the model endpoints'
 `/models` among them, and, only when an issue it would start needs one, the
 model's answer to a one-pixel image and the sandbox image's
@@ -431,9 +431,13 @@ poll it sets its decision beside them and adds one line to
 - **gh_requests** and **seconds**: what its snapshot cost.
 
 `jq -c 'select(.same | not)' ~/tehas/logs/dispatch-shadow.log` lists the polls
-that differed. `touch ~/tehas/state/dispatch-shadow.off` stops the shadow, and
-removing the file starts it again. A host where `libexec/tehas-dispatch` is
-not installed polls as before; the shadow failing never fails the poll.
+that differed. It is off unless a person asks for it: `touch
+~/tehas/state/dispatch-shadow.on` starts it, and removing the file stops it.
+On this repository's queue it costs about 9 s of wall time before each poll,
+3 s of CPU and 20 GitHub reads, so it runs on the host where it is being
+proven and not on every host. A host where `libexec/tehas-dispatch` is not
+installed, or the file is not there, polls as before; the shadow failing never
+fails the poll.
 
 ## 4. Review and merge
 
