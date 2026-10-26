@@ -37,7 +37,7 @@ all_present() {
   t_stub vipune "echo 'vipune $VIPUNE_VERSION'"
   t_stub oo "echo 'oo $OO_VERSION'"
   t_stub codebase-memory-mcp "echo 'codebase-memory-mcp $CBM_VERSION'"
-  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.80\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
+  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;; *rev-parse*) echo $rukas_head ;; *) echo 'git version 2.53.0' ;; esac"
   t_stub docker 'echo "Docker version 29.1.3"'
   t_stub loginctl 'echo yes'
   t_stub curl 'echo "curl 8.0.0"'
@@ -457,11 +457,21 @@ t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'npm ci --ignore-scripts -
 # Nothing in the recipe takes Playwright from a registry by name and version.
 t_lacks "$(cat "$T_ROOT/host/sandbox/Dockerfile")" "playwright@"
 
+# The stub git of the pi-rukas cases: it answers for the address in
+# PI_RUKAS_REPO with $rukas_head as the commit of the newest release tag, and
+# with $rukas_stub_behind as the commit the clone is at, so a run of `user` has
+# something to move it to.
+behind_head() {
+  t_stub git "case \"\$*\" in
+  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *rev-parse*) echo $rukas_stub_behind ;;
+  *) echo 'git version 2.53.0' ;;
+esac"
+}
+rukas_stub_behind=$(printf '0%.0s' {1..40})
+
 t_case "an existing pi-rukas clone is fetched from the repository in versions.env"
 all_present
-behind_head() {
-  t_stub git "case \"\$*\" in *ls-remote*) printf '%s\trefs/tags/v0.12.80\n' $rukas_head ;; *rev-parse*) echo 0000000000000000000000000000000000000000 ;; *) echo 'git version 2.53.0' ;; esac"
-}
 behind_head
 mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
 printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
@@ -473,7 +483,41 @@ t_contains "$(t_calls git)" "remote set-url origin $PI_RUKAS_REPO"
 t_case "pi-rukas behind its newest release is moved to it"
 t_contains "$(t_calls git)" "checkout -q $rukas_head"
 
+# The clone is only a copy of upstream, so its fetch takes the tags by force,
+# which is what lets a release tag upstream re-points be taken at all: without
+# --force git refuses it as one that would clobber a tag the clone has, and the
+# run stopped right there and said nothing, because the fetch asked for quiet.
+t_case "the pi-rukas fetch forces the tags it takes"
+t_contains "$(t_calls git)" "fetch --tags --force origin"
+
+# A fetch that cannot be made says so, with git's own words: this is the run
+# that used to leave nothing behind after the line naming the commit it wanted.
+t_case "a pi-rukas fetch that fails names the step and git's reason"
+all_present
+behind_head
+t_stub git "case \"\$*\" in
+  *fetch*) echo 'fatal: the remote did not answer' >&2; exit 128 ;;
+  *ls-remote*) printf '%s\trefs/tags/v0.12.81\n' $rukas_head ;;
+  *rev-parse*) echo $rukas_stub_behind ;;
+  *) echo 'git version 2.53.0' ;;
+esac"
+mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
+rm -f "$T"/calls/*
+t_run "$bootstrap user"
+t_eq "$t_rc" 1
+t_contains "$t_out" "git fetch --tags --force failed for the pi-rukas clone"
+t_contains "$t_out" "the remote did not answer"
+rm -rf "$T/home/tehas/repos"
+behind_head
+
 t_case "check reports a pi-rukas behind its newest release"
+all_present
+behind_head
+mkdir -p "$T/home/tehas/repos/pi-rukas/.git"
+printf '#!/bin/sh\n' >"$T/home/tehas/repos/pi-rukas/install.sh"
+chmod +x "$T/home/tehas/repos/pi-rukas/install.sh"
 t_run "$bootstrap check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "$rukas_head"
@@ -528,6 +572,93 @@ t_case "root refuses to run without root"
 t_run "$bootstrap root someone"
 t_eq "$t_rc" 1
 t_contains "$t_out" "must run as root"
+
+# --- a tag upstream moved ---------------------------------------------------
+# The two cases above check what the script asks of git and what it says when
+# git refuses. These check the thing only git decides: they use a remote that
+# is a real repository, a clone of it standing for the host, and upstream having
+# re-pointed the release tag in between. The question is which fetch gets the
+# clone onto the commit the release names now.
+
+# The commits and tags these three cases make in the scratch directory need a
+# name of their own and a branch of the same name, so the test reads the same
+# whatever the person who runs it has set for themselves.
+# shellcheck disable=SC2329  # the three cases below call it
+t_git() {
+  git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@"
+}
+
+# A bare repository standing for pi-rukas's, its upstream, and the host's clone
+# made from it before upstream moved the tag. Two commits land on top of what
+# the clone was made on, and the annotated release tag v0.12.80 is pointed at
+# the first of them while v0.12.81 names the second. The clone therefore holds
+# the tag at a commit upstream no longer calls a release, and the newest release
+# is a tag the clone has never seen. Everything is under $T/rukas-moved.
+# shellcheck disable=SC2329  # the three cases below call it
+rukas_moved() {
+  local r=$T/rukas-moved ref
+  rm -rf "$r"
+  mkdir -p "$r"
+  t_git init --quiet --bare "$r/origin.git"
+  t_git clone --quiet "$r/origin.git" "$r/up" 2>/dev/null
+  printf 'first\n' >"$r/up/one"
+  t_git -C "$r/up" add one
+  t_git -C "$r/up" commit --quiet -m first
+  t_git -C "$r/up" tag -a -m 'Release v0.12.80 - first' v0.12.80
+  t_git -C "$r/up" push --quiet origin main v0.12.80
+  t_git clone --quiet "$r/origin.git" "$r/host" 2>/dev/null
+  t_git -C "$r/up" checkout --quiet -b release
+  printf 'second\n' >"$r/up/two"
+  t_git -C "$r/up" add two
+  t_git -C "$r/up" commit --quiet -m second
+  t_git -C "$r/up" tag --force -a -m 'Release v0.12.80 - moved' v0.12.80
+  printf 'third\n' >"$r/up/three"
+  t_git -C "$r/up" add three
+  t_git -C "$r/up" commit --quiet -m third
+  t_git -C "$r/up" tag v0.12.81
+  t_git -C "$r/up" push --quiet --force origin release
+  # The remote answers as upstream does now: its head, and the two tags as
+  # upstream has them. The host's clone keeps what it read before the move.
+  t_git -C "$r/origin.git" update-ref refs/heads/main "$(t_git -C "$r/up" rev-parse HEAD)"
+  for ref in refs/tags/v0.12.80 refs/tags/v0.12.81; do
+    t_git -C "$r/origin.git" fetch --quiet --force "$r/up" "+$ref:$ref"
+  done
+}
+
+t_case "a clone of a remote whose tag moved holds the tag upstream moved"
+rukas_moved
+# The clone was made from the one commit the remote had then, and still has the
+# tag where that left it, with no sign of the release that came after.
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)" "$(t_git -C "$T/rukas-moved/up" rev-parse "HEAD~2^{commit}")"
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)"
+t_eq "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse HEAD~1)"
+t_lacks "$(t_git -C "$T/rukas-moved/host" tag --list)" v0.12.81
+
+# The fetch the script used, the same arguments bar --force: git refuses the
+# moved tag and exits 1, which is the failure that stopped the run.
+t_case "a fetch without --force refuses the moved tag and fails"
+rukas_moved
+git -C "$T/rukas-moved/host" fetch -q --tags origin >"$T/fetch.out" 2>&1
+t_eq "$?" 1
+t_lacks "$(cat "$T/fetch.out")" "clobber"
+git -C "$T/rukas-moved/host" fetch --tags origin >"$T/fetch.out" 2>&1
+t_eq "$?" 1
+t_contains "$(cat "$T/fetch.out")" "would clobber existing tag"
+t_lacks "$(t_git -C "$T/rukas-moved/host" tag --list)" v0.12.81
+
+# What the script does now, on the same remote and the same clone: the moved tag
+# is taken, the newer release is there, and the checkout gets onto it. This is
+# the acceptance criterion: a clone whose tag upstream moved updates without a
+# person fetching by hand.
+t_case "the fetch the script makes takes the moved tag and the release on it"
+rukas_moved
+newest=$(t_git -C "$T/rukas-moved/up" rev-parse HEAD)
+git -C "$T/rukas-moved/host" fetch --tags --force origin >"$T/fetch.out" 2>&1
+t_eq "$?" 0
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.80^{commit}")" "$(t_git -C "$T/rukas-moved/up" rev-parse "v0.12.80^{commit}")"
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse "v0.12.81^{commit}")" "$newest"
+git -C "$T/rukas-moved/host" checkout -q "$newest"
+t_eq "$(t_git -C "$T/rukas-moved/host" rev-parse HEAD)" "$newest"
 
 # --- dev: let other accounts start a session ---------------------------------
 # Stubs for everything that would change the system. The files go to scratch

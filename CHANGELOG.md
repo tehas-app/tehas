@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- `bootstrap.sh user` no longer stops in silence when pi-rukas re-points a tag
+  (#793). The clone of pi-rukas is a copy of upstream, so its fetch takes the
+  tags by force; a fetch or a checkout that fails names the step and gives
+  git's own words. `scripts/tag-release.sh` and `scripts/tag-deploy.sh` fetch
+  the remote's tags the same way, which is what let tehas's own tags be re-made
+  after the history rewrite.
+
 - The host section of `tehas top` is read and computed by the console
   (#844, `console top reading|host`, console/src/top.rs) instead of bash, awk and
   jq in `lib/top.sh`, which loses 176 lines. Same figures, same JSON. Without
