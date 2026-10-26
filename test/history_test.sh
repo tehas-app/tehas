@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for libexec/history: the cycles and planning turns that ended, in the
-# order they ended, after a cursor, for one issue, with the park fields.
+# order they were written, after a cursor, for one issue, with the park fields.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -45,8 +45,8 @@ reset
 work 12 "$T0" '{"kind":"work","started":1760696400,"rc":10,"status":"handoff","step":"review","cap":"awaiting-human-merge","park_reason":"merge","failure_kind":"review","failure_cause":"findings-open","provider":false,"parked":true,"pr":"https://github.com/acme/widget/pull/9","by":"alice","how":"label"}'
 run_json
 t_eq "$t_rc" 0
-t_eq "$(jq -c 'del(.cycles)' <<<"$t_out")" '{"api":1,"next":"1760700000-12"}'
-t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"label\"}"
+t_eq "$(jq -c 'del(.cycles)' <<<"$t_out")" '{"api":1,"next":"1760700000-12-1"}'
+t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso 1760696400)\",\"status\":10,\"outcome\":\"handoff\",\"step\":\"review\",\"cap\":\"awaiting-human-merge\",\"parkReason\":\"merge\",\"failureKind\":\"review\",\"failureCause\":\"findings-open\",\"provider\":false,\"parked\":true,\"pr\":\"https://github.com/acme/widget/pull/9\",\"by\":\"alice\",\"how\":\"label\"}"
 t_eq "$(jq -r '.cycles[0] | (.status|type), (.parked|type), (.provider|type), (.issue|type), (.turn|type)' <<<"$t_out")" "number
 boolean
 boolean
@@ -59,7 +59,7 @@ t_case "a field the line does not have is left out, never null"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_json
-t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
+t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700000-12-1\",\"kind\":\"work\",\"issue\":12,\"ended\":\"$(iso "$T0")\",\"started\":\"$(iso $((T0 - 60)))\",\"status\":0,\"outcome\":\"merged\",\"provider\":false,\"parked\":false,\"how\":\"hand\"}"
 t_eq "$(jq -r '.cycles[0] | has("step"), has("cap"), has("parkReason"), has("pr"), has("by")' <<<"$t_out")" "false
 false
 false
@@ -68,27 +68,27 @@ false"
 
 t_case "oldest first, across issues, with the cursor of each"
 reset
-work 12 "$((T0 + 600))" '{"kind":"work","rc":0,"status":"merged"}'
-work 7 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 work 9 "$((T0 - 10))" '{"kind":"work","rc":1,"status":"failed"}'
+work 7 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+work 12 "$((T0 + 600))" '{"kind":"work","rc":0,"status":"merged"}'
 run_json
-t_eq "$(cursors "$t_out")" "1760699990-9	1760700000-7	1760700600-12"
-t_eq "$(jq -r .next <<<"$t_out")" 1760700600-12
+t_eq "$(cursors "$t_out")" "1760699990-9-1	1760700000-7-2	1760700600-12-3"
+t_eq "$(jq -r .next <<<"$t_out")" 1760700600-12-3
 
-t_case "two cycles that ended in the same second have an order of their own, and neither is repeated or skipped"
+t_case "lines that ended in the same second are listed in the order they were written, and none is repeated or skipped"
 reset
 work 3 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 work 11 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 work 4 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_json
-t_eq "$(cursors "$t_out")" "1760700000-3	1760700000-4	1760700000-11"
+t_eq "$(cursors "$t_out")" "1760700000-3-1	1760700000-11-2	1760700000-4-3"
 t_eq "$(jq -r '[.cycles[].cursor] | unique | length' <<<"$t_out")" 3
 # A program keeps "next" and asks again: what it has read is never offered
 # again, and nothing that ended later is missed.
 mid=$(jq -r '.cycles[1].cursor' <<<"$t_out")
 last=$(jq -r .next <<<"$t_out")
 run_json "--after $mid"
-t_eq "$(cursors "$t_out")" "1760700000-11"
+t_eq "$(cursors "$t_out")" "1760700000-4-3"
 run_json "--after $last"
 t_eq "$(jq -c '{cycles, next}' <<<"$t_out")" "{\"cycles\":[],\"next\":\"$last\"}"
 
@@ -99,20 +99,42 @@ for n in 1 2 3; do
 done
 run_json "--after $((T0 - 10))-1"
 t_eq "$(jq -r '[.cycles[].issue] | @tsv' <<<"$t_out")" "1	2	3"
-t_eq "$(jq -r .next <<<"$t_out")" "1760700003-3"
+t_eq "$(jq -r .next <<<"$t_out")" "1760700003-3-3"
 
-t_case "the cursor of two lines in one second separates them, so a resume takes the later one only"
+t_case "an old cursor, without the place, is read as before: on the seconds, then the issue"
 reset
 work 3 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 work 4 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 run_json "--after 1760700000-3"
-t_eq "$(cursors "$t_out")" "1760700000-4"
+t_eq "$(cursors "$t_out")" "1760700000-4-2"
+t_eq "$(jq -r .next <<<"$t_out")" "1760700000-4-2"
+
+# The old cursor named the seconds and the issue only: a program that read #12
+# kept 1760700000-12, and #7, written a moment later for the same second, was
+# never listed to it.
+t_case "a line written after a read, for the same second and a lower issue, is listed by the next read"
+reset
+work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+run_json
+next=$(jq -r .next <<<"$t_out")
+work 7 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+run_json "--after $next"
+t_eq "$(cursors "$t_out")" "1760700000-7-2"
+
+t_case "a cycle and a planning turn of one issue in one second each have a cursor of their own"
+reset
+work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+plan 12 "$T0" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
+run_json
+t_eq "$(cursors "$t_out")" "1760700000-12-1	1760700000-12-2"
+run_json "--after 1760700000-12-1"
+t_eq "$(jq -r '[.cycles[].kind] | @tsv' <<<"$t_out")" plan
 
 t_case "--issue lists one issue's lines, from its cycle and its planning turns"
 reset
+plan 12 "$((T0 - 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 work 121 "$T0" '{"kind":"work","rc":1,"status":"failed"}'
-plan 12 "$((T0 - 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
 run_json "--issue 12"
 t_eq "$(jq -r '[.cycles[] | "\(.kind):\(.issue)"] | @tsv' <<<"$t_out")" "plan:12	work:12"
 t_eq "$(jq -r '[.cycles[].issue] | unique | @tsv' <<<"$t_out")" 12
@@ -125,8 +147,8 @@ t_case "a planning turn is listed the same way, with kind plan"
 reset
 plan 7 "$((T0 + 300))" '{"kind":"plan","started":1760700000,"rc":0,"status":"finished","turn":1,"by":"alice"}'
 run_json
-t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700300-7\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:plan\"}"
-t_eq "$(jq -r .next <<<"$t_out")" 1760700300-7
+t_eq "$(jq -c '.cycles[0]' <<<"$t_out")" "{\"cursor\":\"1760700300-7-1\",\"kind\":\"plan\",\"issue\":7,\"ended\":\"$(iso "$((T0 + 300))")\",\"started\":\"$(iso 1760700000)\",\"status\":0,\"outcome\":\"finished\",\"turn\":1,\"by\":\"alice\",\"label\":\"tehas:plan\"}"
+t_eq "$(jq -r .next <<<"$t_out")" 1760700300-7-1
 
 t_case "a refining turn names its label and the issues it filed, as JSON and as text"
 reset
@@ -151,10 +173,7 @@ reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 plan 12 "$T0" '{"kind":"plan","status":"not-started","turn":1,"by":"alice"}'
 run_json
-t_eq "$(jq -r '[.cycles[] | "\(.kind) \(.outcome) \(.status // "none")"] | @tsv' <<<"$t_out")" "plan not-started none	work merged 0"
-# The two ended in one second and the issue is the same, so the pair orders
-# them by kind only as far as the cursor goes; both are listed once.
-t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 2
+t_eq "$(jq -r '[.cycles[] | "\(.kind) \(.outcome) \(.status // "none")"] | @tsv' <<<"$t_out")" "work merged 0	plan not-started none"
 
 t_case "the files the planning history was kept in before the store are not read"
 reset
@@ -180,12 +199,12 @@ t_eq "$(jq -s length <<<"$t_out")" 1
 
 t_case "without --json, one line each, oldest first, and the plan's turn"
 reset
-work 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 plan 12 "$((T0 - 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1}'
+work 12 "$T0" '{"kind":"work","rc":10,"status":"handoff","step":"review","parked":true,"pr":"https://github.com/acme/widget/pull/9"}'
 t_run "$history"
 t_eq "$t_rc" 0
-t_eq "$t_out" "1760699940-12  plan  #12  finished  turn 1
-1760700000-12  work  #12  handoff  rc 10  step review  parked  pr https://github.com/acme/widget/pull/9"
+t_eq "$t_out" "1760699940-12-1  plan  #12  finished  turn 1
+1760700000-12-2  work  #12  handoff  rc 10  step review  parked  pr https://github.com/acme/widget/pull/9"
 t_case "a factory with no history of its own says nothing and exits 0"
 reset
 t_run "$history"
@@ -207,15 +226,16 @@ done
 t_case "a cursor this command could never print is a bad argument"
 reset
 work 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
-for cursor in "9999999999999999-1" "123456789012345-1" "1760700000-1234567890" "-1" "1760700000-1-1" "17607000000000-1"; do
+for cursor in "9999999999999999-1" "123456789012345-1" "1760700000-1234567890" "-1" "1760700000-1-0" "1760700000-1-1234567890123456" "1760700000-1-" "1760700000-1-1-1" "17607000000000-1"; do
   run_json "--after $cursor"
   t_eq "$t_rc" 64
   t_contains "$t_out" "usage: tehas history"
 done
-# The widest cursor it can print is taken: 10 digits of seconds and 9 of issue.
-run_json "--after 9999999999-999999999"
+# The widest cursor it can print is taken: 10 digits of seconds, 9 of issue and
+# 15 of place.
+run_json "--after 9999999999-999999999-999999999999999"
 t_eq "$t_rc" 0
-t_eq "$(jq -c '{cycles, next}' <<<"$t_out")" '{"cycles":[],"next":"9999999999-999999999"}'
+t_eq "$(jq -c '{cycles, next}' <<<"$t_out")" '{"cycles":[],"next":"9999999999-999999999-999999999999999"}'
 
 t_case "a store that cannot answer prints nothing: 1 when it is busy, 78 when it cannot be used or is not there"
 reset
