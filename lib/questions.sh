@@ -29,7 +29,7 @@
 # starts, so a lone one would start an unescaped box.
 q_clean() {
   local zw=$'\xe2\x80\x8b' max=${1:-60000}
-  tr -d '\r' | sed -E \
+  sed -E -e 's/\r//g' \
     -e 's/(^|[^A-Za-z0-9_])(gh[pousr]_|github_pat_)[A-Za-z0-9_]{16,}/\1\2***/g' \
     -e 's#(postgres(ql)?://[^:[:space:]/]+:)[^@[:space:]]+@#\1***@#g' \
     -e 's/(^|[^A-Z0-9_])([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)[^[:space:]]+/\1\2***/g' \
