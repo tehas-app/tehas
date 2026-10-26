@@ -65,7 +65,11 @@ impl Models {
 
     /// tehas_endpoint_url.
     fn url(&self, p: &str, end: &str) -> String {
-        let k = if end == "main" { "baseUrl" } else { "backupBaseUrl" };
+        let k = if end == "main" {
+            "baseUrl"
+        } else {
+            "backupBaseUrl"
+        };
         self.file
             .pointer(&format!("/providers/{p}/{k}"))
             .and_then(Value::as_str)
@@ -107,7 +111,14 @@ fn auth(key: &str) -> String {
 fn ask(url: &str, key: &str, models: &[String]) -> Result<(), String> {
     let r = run_input(
         "curl",
-        &["-fsS".into(), "-K".into(), "-".into(), "-m".into(), "10".into(), format!("{url}/models")],
+        &[
+            "-fsS".into(),
+            "-K".into(),
+            "-".into(),
+            "-m".into(),
+            "10".into(),
+            format!("{url}/models"),
+        ],
         Some(&auth(key)),
         Duration::from_secs(15),
     );
@@ -115,11 +126,18 @@ fn ask(url: &str, key: &str, models: &[String]) -> Result<(), String> {
         return Err("does not answer".into());
     }
     let list: Value = serde_json::from_str(&r.out).unwrap_or(Value::Null);
-    let Some(data) = list.get("data").and_then(Value::as_array).filter(|d| !d.is_empty()) else {
+    let Some(data) = list
+        .get("data")
+        .and_then(Value::as_array)
+        .filter(|d| !d.is_empty())
+    else {
         return Err("offers no models".into());
     };
     for m in models {
-        if !data.iter().any(|x| x.get("id").and_then(Value::as_str) == Some(m)) {
+        if !data
+            .iter()
+            .any(|x| x.get("id").and_then(Value::as_str) == Some(m))
+        {
             return Err(format!("does not offer {m}"));
         }
     }
@@ -132,7 +150,11 @@ pub fn endpoint(m: &Models) -> (Value, String, String) {
     let mut log: Vec<String> = Vec::new();
     let (mut url_used, mut key_used, mut end) = (String::new(), String::new(), String::new());
     if m.url(&m.provider, "main").is_empty() || m.model.is_empty() {
-        return (json!({"hold": "", "end": "", "log": []}), url_used, key_used);
+        return (
+            json!({"hold": "", "end": "", "log": []}),
+            url_used,
+            key_used,
+        );
     }
     let mut providers: Vec<&str> = Vec::new();
     for (p, _) in &m.used {
@@ -145,7 +167,12 @@ pub fn endpoint(m: &Models) -> (Value, String, String) {
         if url.is_empty() {
             continue;
         }
-        let models: Vec<String> = m.used.iter().filter(|(x, _)| x == p).map(|(_, y)| y.clone()).collect();
+        let models: Vec<String> = m
+            .used
+            .iter()
+            .filter(|(x, _)| x == p)
+            .map(|(_, y)| y.clone())
+            .collect();
         let why = match ask(&url, &m.key(p, "main"), &models) {
             Ok(()) => {
                 if p == m.provider {
@@ -169,12 +196,22 @@ pub fn endpoint(m: &Models) -> (Value, String, String) {
                     }
                     continue;
                 }
-                Err(w2) => format!("holding: no resources: the model endpoint {why}, and its backup {w2}"),
+                Err(w2) => {
+                    format!("holding: no resources: the model endpoint {why}, and its backup {w2}")
+                }
             }
         };
-        return (json!({"hold": hold, "end": end, "log": log}), url_used, key_used);
+        return (
+            json!({"hold": hold, "end": end, "log": log}),
+            url_used,
+            key_used,
+        );
     }
-    (json!({"hold": "", "end": end, "log": log}), url_used, key_used)
+    (
+        json!({"hold": "", "end": end, "log": log}),
+        url_used,
+        key_used,
+    )
 }
 
 /// What image_ok asks: the sandbox image's labels, and, with an endpoint
@@ -193,14 +230,26 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
         ],
         Duration::from_secs(30),
     );
-    let line = if r.ok() { r.out.lines().next().unwrap_or("").to_string() } else { String::new() };
+    let line = if r.ok() {
+        r.out.lines().next().unwrap_or("").to_string()
+    } else {
+        String::new()
+    };
     let (commit, reads) = line.split_once('|').unwrap_or((&line, ""));
-    let commit = if (7..=40).contains(&commit.len()) && commit.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    let commit = if (7..=40).contains(&commit.len())
+        && commit
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
         commit
     } else {
         ""
     };
-    let reads = if matches!(reads, "0" | "1") { reads } else { "" };
+    let reads = if matches!(reads, "0" | "1") {
+        reads
+    } else {
+        ""
+    };
     let declares = m
         .file
         .pointer(&format!("/providers/{}/models", m.provider))
@@ -215,20 +264,35 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
         });
     // Asked only where image_ok would ask it: a reading image, an endpoint,
     // a model that says it takes images.
-    let answers = reads != "0" && !url.is_empty() && declares && {
-        let body = json!({"model": m.model, "max_tokens": 1, "messages": [{"role": "user", "content": [
+    let answers = reads != "0"
+        && !url.is_empty()
+        && declares
+        && {
+            let body = json!({"model": m.model, "max_tokens": 1, "messages": [{"role": "user", "content": [
             {"type": "text", "text": "."},
             {"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{PIXEL}")}}]}]});
-        let config = format!("{}data = {}\n", auth(key), serde_json::to_string(&body.to_string()).unwrap_or_default());
-        run_input(
-            "curl",
-            &["-fsS".into(), "-K".into(), "-".into(), "-m".into(), "30".into(), "-H".into(),
-              "Content-Type: application/json".into(), format!("{url}/chat/completions")],
-            Some(&config),
-            Duration::from_secs(35),
-        )
-        .ok()
-    };
+            let config = format!(
+                "{}data = {}\n",
+                auth(key),
+                serde_json::to_string(&body.to_string()).unwrap_or_default()
+            );
+            run_input(
+                "curl",
+                &[
+                    "-fsS".into(),
+                    "-K".into(),
+                    "-".into(),
+                    "-m".into(),
+                    "30".into(),
+                    "-H".into(),
+                    "Content-Type: application/json".into(),
+                    format!("{url}/chat/completions"),
+                ],
+                Some(&config),
+                Duration::from_secs(35),
+            )
+            .ok()
+        };
     json!({"rukas": reads, "commit": commit, "declares": declares, "answers": answers})
 }
 
@@ -241,8 +305,14 @@ pub fn continues() -> bool {
         .unwrap_or(120);
     let r = run(
         "docker",
-        &["run".into(), "--rm".into(), "--init".into(), env("PI_ENSEMBLE_IMAGE"),
-          "/opt/pi-rukas/bin/pi-rukas-headless".into(), "--capabilities".into()],
+        &[
+            "run".into(),
+            "--rm".into(),
+            "--init".into(),
+            env("PI_ENSEMBLE_IMAGE"),
+            "/opt/pi-rukas/bin/pi-rukas-headless".into(),
+            "--capabilities".into(),
+        ],
         Duration::from_secs(wait),
     );
     let caps: Value = serde_json::from_str(&r.out).unwrap_or(Value::Null);

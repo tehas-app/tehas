@@ -187,6 +187,26 @@ What PR 4a reads, and how:
   lines must be the same; the stub of gh answers the one page from the same
   fixtures the bash's calls read.
 
+What PR 4b adds, and how the shadow runs:
+
+- The reads 4a left: the model endpoints (mesh_check, through curl as the
+  bash asks them), the sandbox image's labels, the model's answer to an
+  image and whether the image takes `--continue-pr` (these three only when
+  the decision names them in `needs`, and it is decided again), and the
+  workspaces of the sweep. The comments of the issues that ask a question are
+  read side by side, eight at a time.
+- The low gate is never run: it is a command of the instance's, and the poll
+  has run it already. A decision that would ask it names `gate` in `needs`.
+- `tehas-dispatch.service` runs `tehas-dispatch shadow` before the poll and
+  `tehas-dispatch compare` after it, both with "-" so neither can fail the
+  poll, and keeps the poll's lines in `state/dispatch.last` through a pipe
+  that keeps the poll's exit status (`set -o pipefail`). Before the poll, so
+  both decide on the same world; the lines a start or a turn logs as it runs
+  are the bash's own, and the log says them as `bash_only`.
+- `install.sh`, `scripts/pack-release.sh` and the release workflow build and
+  carry `libexec/tehas-dispatch`. A host without it polls as before.
+  `state/dispatch-shadow.off` stops the shadow.
+
 ## For the owner to sign off
 
 - D1: four pull requests in place of the issue's one, and the start left to
