@@ -8,9 +8,9 @@ Type=oneshot
 ExecStartPre=-/bin/rm -f %h/tehas/state/dispatch.again
 # The shadow (tehas-dispatch, console/dispatch) decides from its own reads
 # just before the poll, and after it sets that beside what the poll logged,
-# in logs/dispatch-shadow.log. It writes nothing else; a shadow that fails or
-# is not installed changes nothing of the poll, and
-# state/dispatch-shadow.off stops it.
+# in logs/dispatch-shadow.log. It runs only while state/dispatch-shadow.on is
+# there, and writes nothing else; a shadow that fails, is off or is not
+# installed changes nothing of the poll.
 ExecStartPre=-/bin/bash -c ". %h/tehas/env.sh && . %h/tehas/lib/config.sh && tehas_load && exec timeout 120 %h/tehas/libexec/tehas-dispatch shadow"
 # The poll's own lines are kept in state/dispatch.last for the shadow too.
 # A cycle runs as its own unit, so none of its lines are among them.

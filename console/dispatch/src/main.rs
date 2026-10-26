@@ -22,7 +22,8 @@
 //! Reads the instance's settings from the environment, as lib/config.sh
 //! leaves them (tehasbot loads them), $TEHAS_HOME, and gh, systemctl, curl,
 //! docker and $TEHAS_HOME/libexec/store from the PATH and the home. While
-//! state/dispatch-shadow.off is there, shadow and compare do nothing.
+//! state/dispatch-shadow.on is not there, shadow and compare do nothing: the
+//! shadow is opt-in, for the host where it is being proven.
 //!
 //! Exit: 0 it printed or kept its answer, whatever the decision says; 1 a
 //! read it cannot do without failed, said on standard error; 64 an argument
@@ -74,7 +75,7 @@ fn main() {
             std::process::exit(64);
         }
     };
-    if keep && off() {
+    if keep && !on() {
         return;
     }
     let env: Map<String, Value> = std::env::vars().map(|(k, v)| (k, json!(v))).collect();
@@ -213,9 +214,9 @@ fn shadow_home() -> PathBuf {
     }
 }
 
-/// state/dispatch-shadow.off stops the shadow.
-fn off() -> bool {
-    shadow_home().join("state/dispatch-shadow.off").exists()
+/// state/dispatch-shadow.on starts the shadow; without it, it costs nothing.
+fn on() -> bool {
+    shadow_home().join("state/dispatch-shadow.on").exists()
 }
 
 /// The decision kept for compare, written whole or not at all.
@@ -230,7 +231,7 @@ fn save(home: &std::path::Path, decision: &Value) {
 /// compare: the decision kept, set beside the poll's lines, one line of the
 /// shadow's log. The decision is used once.
 fn compare(lines: &str, exit: Option<i64>) {
-    if off() {
+    if !on() {
         return;
     }
     let home = shadow_home();

@@ -205,7 +205,10 @@ What PR 4b adds, and how the shadow runs:
   are the bash's own, and the log says them as `bash_only`.
 - `install.sh`, `scripts/pack-release.sh` and the release workflow build and
   carry `libexec/tehas-dispatch`. A host without it polls as before.
-  `state/dispatch-shadow.off` stops the shadow.
+  The shadow runs only while `state/dispatch-shadow.on` is there: it costs a
+  poll about 9 s of wall time, 3 s of CPU and 20 GitHub reads, and only the
+  host where it is proven needs it (asked by the release's session for
+  v0.14.0, #730's cost of an idle poll).
 
 ## For the owner to sign off
 
