@@ -400,11 +400,13 @@ t_attach() {
   cp "$target/debug/attach" "$T_ATTACH"
 }
 # t_dispatch: tehas-dispatch of this checkout, in $T_DISPATCH, as t_store gets
-# the store: from T_DISPATCH_BIN, or built here when the file runs alone.
-T_DISPATCH=$T/dispatch-bin
+# the store: from T_DISPATCH_BIN, or built here when the file runs alone. It
+# sits in a libexec with the checkout's lib beside it, as on a host.
+T_DISPATCH=$T/dispatch/libexec/tehas-dispatch
 t_dispatch_why=""
 t_dispatch() {
   [ -x "$T_DISPATCH" ] && return 0
+  mkdir -p "$T/dispatch/libexec" && ln -sfn "$T_ROOT/lib" "$T/dispatch/lib" || return 1
   if [ -n "${T_DISPATCH_BIN:-}" ]; then
     cp "$T_DISPATCH_BIN" "$T_DISPATCH" && return 0
     t_dispatch_why="tehas-dispatch built for this run cannot be copied: $T_DISPATCH_BIN"
