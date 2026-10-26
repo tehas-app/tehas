@@ -13,12 +13,31 @@ instance
 t_run "$install --check"
 t_eq "$([ -e "$th" ] && echo made)" ""
 
+# The files a home holds that the list install.sh and this suite keep together
+# in test/install_lib.sh does not name. Compared as sets: `expected '', got
+# './tehas/lib/x.sh'` reads like a stray artefact, not like a file nobody added
+# to the install list.
+extra_files() { # <expected files, newline separated> <installed files, same>
+  comm -13 <(printf '%s\n' "$1" | LC_ALL=C sort) \
+    <(printf '%s\n' "$2" | LC_ALL=C sort)
+}
+
+# The whole report of a comparison: one line per extra file, naming it and what
+# to do with it. Empty when the home holds exactly the list.
+install_list_report() { # <expected files, newline separated> <installed files, same>
+  local one
+  while read -r one; do
+    [ -n "$one" ] || continue
+    printf 'new installed file %s: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it\n' "$one"
+  done < <(extra_files "$1" "$2")
+}
+
 t_case "a fresh install: exactly these files"
 fresh
 instance
 t_run "$install"
 t_eq "$t_rc" 0
-t_eq "$(core_files)" "$(sorted "$files")"
+t_eq "$(install_list_report "$(sorted "$files")" "$(core_files)")" ""
 # The two pause commands are installed beside the other commands, ready to run.
 t_eq "$([ -x "$th/libexec/pause" ] && [ -x "$th/libexec/resume" ] && echo both)" "both"
 # Every script in libexec/ is installed: a command bin/tehas knows has its script.
@@ -254,5 +273,29 @@ t_run "$install"
 t_contains "$t_out" "first install: labels made in acme/widget"
 t_eq "$([ -e "$th/state/first-install" ] && echo owed)" ""
 t_contains "$(t_calls systemctl)" "--user enable --now tehas-dispatch.timer tehas-dispatch.path"
+
+# The round trip of the failure line above: a home with one file too many is
+# reported by name and given the advice, rather than the bare diff of two lists
+# that a cycle read as a stray artefact and parked on (tehas#725, tehas#743).
+t_case "an installed file the list does not name is named, with the two files to edit"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+echo '# a file no install list names' >"$th/lib/stray.sh"
+report=$(install_list_report "$(sorted "$files")" "$(core_files)")
+t_eq "$report" "new installed file ./tehas/lib/stray.sh: add it to the files= list of install.sh and of test/install_lib.sh, or stop shipping it"
+
+# The rule the line points at, kept honest by the page that states it. The
+# second grep is asked of a copy with the sentence taken out, so a pin that
+# matches nothing is red here rather than quietly green.
+t_case "the manual names the install list beside the rule about a fence"
+t_contains "$(cat "$T_ROOT/host/docs/operating.md")" "must name \`install.sh\` and \`test/install_lib.sh\`"
+nomatch=$T/manual/host/docs
+mkdir -p "$nomatch"
+grep -v 'must name `install.sh` and `test/install_lib.sh`' \
+  "$T_ROOT/host/docs/operating.md" >"$nomatch/operating.md"
+t_eq "$(grep -c 'must name `install.sh` and `test/install_lib.sh`' "$nomatch/operating.md")" "0"
+t_contains "$(cat "$nomatch/operating.md")" "the plan fences the"
 
 t_done
