@@ -435,10 +435,11 @@ poll it sets its decision beside them and adds one line to
 ```
 
 - **same**: the two logged the same lines and ended with the same status.
-- **bash_only**: lines only the poll logged. Most are what a start or a
-  planning turn says as it runs (`start #7 (...)`, the analytics' warnings):
-  the shadow decides, it does not act. A decision line here, a hold or a skip,
-  is a difference to look into.
+- **bash_only**: lines only the poll logged. Some are what only acting says:
+  the code index's hold before a start (`holding: the code index is
+  refreshed first ...`), tidy's lines, the analytics' warnings. The shadow
+  decides, it does not act. A decision line here, a hold or a skip, is a
+  difference to look into.
 - **rust_only**: lines only the shadow said. The world can move in the
   seconds between the two (a cycle ends, a label is applied), so a single
   line here is not yet a fault; the same line poll after poll is.
@@ -798,6 +799,31 @@ reads a label or changes one. The Protolab refuses the same list, with an error
 before it reads, builds or removes a page. A poll or a pass that cannot read
 its own login stops there and does nothing else.
 
+
+### The dispatcher in Rust
+
+`TEHAS_DISPATCHER=rust` in `instance.env` hands every poll to
+`~/tehas/libexec/tehas-dispatch poll`, once `libexec/dispatch` has checked
+the settings, the model keys and the checkout. It is the same poll, in the
+same order and with the same lines in `logs/dispatch.log`: the lock, the
+snapshot of the queue (one GraphQL query in pages of 100 where the bash poll
+makes a call for each list), the decision, the actions, and the end every
+poll that held the lock has. Each write to GitHub goes through the state
+store's action journal first. `bash`, or leaving the setting out, is the bash
+poll. A value of neither is exit 78.
+
+Where it differs from the bash poll:
+
+- A poll systemd stops with TERM ends without its cost record and tidy; the
+  next poll's tidy covers it.
+- The low gate is run while the poll decides, so a poll that an earlier step
+  ends has run it; it writes `logs/low-gate.log` and nothing else.
+- The open planning sessions are read once, with the queue; the bash poll
+  reads them again after its own planning writes.
+
+It is not the default, and not proven on a host yet (see
+[features.md](features.md)). To go back, take the line out of
+`instance.env`: the next poll is the bash poll.
 ### Refining a request
 
 A parked issue is not held back: `tehas:refine` or `tehas:plan` from an allowed
