@@ -85,6 +85,16 @@ pub struct Leftover {
     pub lock_ok: bool,
 }
 
+/// An open planning session.
+#[derive(Clone, Debug, Default)]
+pub struct Session {
+    pub issue: u64,
+    pub running: bool,
+    pub pending: bool,
+    pub in_flight: bool,
+    pub rc: bool,
+}
+
 /// A call to the state store that failed: its word, exit status and first
 /// line, as lib/store.sh keeps them.
 #[derive(Clone, Debug, Default)]
@@ -143,6 +153,18 @@ pub struct Snapshot {
     /// The issues with a planning session open, or the store's word and exit
     /// status when it could not say.
     pub plan_open: Result<Vec<u64>, (String, i32)>,
+    /// The open sessions as plan-show --open lists them, a number or
+    /// {issue, running, pending}, with what the host says of a running turn:
+    /// its unit runs or holds the lock (in_flight), it left an exit status
+    /// (rc).
+    pub sessions: Vec<Session>,
+    /// gh issue list --label tehas:plan and --label tehas:refine.
+    pub plans: Option<Value>,
+    pub refines: Option<Value>,
+    /// lib/refine-brief.md is there and not empty.
+    pub refine_brief: bool,
+    /// park-show --refine's parks, owed a refine.
+    pub refines_owed: Option<Result<Vec<Value>, StoreErr>>,
     /// The issues whose cycle holds its lock, with how each started on record.
     pub running: Vec<(u64, String)>,
     pub ready: Issues,
@@ -389,7 +411,10 @@ impl Snapshot {
                 .map(|l| names(Some(l))),
             control_events: control.get("events").map(Events::parse),
             plan_open: match v.get("plan_open") {
-                Some(Value::Array(a)) => Ok(a.iter().filter_map(number).collect()),
+                Some(Value::Array(a)) => Ok(a
+                    .iter()
+                    .filter_map(|x| number(x).or_else(|| x.get("issue").and_then(number)))
+                    .collect()),
                 Some(Value::Object(e)) => Err((
                     e.get("word")
                         .and_then(Value::as_str)
@@ -399,6 +424,34 @@ impl Snapshot {
                 )),
                 _ => Ok(Vec::new()),
             },
+            sessions: v
+                .get("plan_open")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| {
+                            let b = |k: &str| x.get(k).and_then(Value::as_bool) == Some(true);
+                            Some(Session {
+                                issue: number(x).or_else(|| x.get("issue").and_then(number))?,
+                                running: b("running"),
+                                pending: b("pending"),
+                                in_flight: b("in_flight"),
+                                rc: b("rc"),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            plans: v.get("plans").cloned(),
+            refines: v.get("refines").cloned(),
+            refine_brief: v.get("refine_brief").and_then(Value::as_bool) != Some(false),
+            refines_owed: v.get("refines_owed").map(|o| {
+                if failed(o) {
+                    Err(StoreErr::parse(o))
+                } else {
+                    Ok(o.as_array().cloned().unwrap_or_default())
+                }
+            }),
             running: v
                 .get("running")
                 .and_then(Value::as_array)
