@@ -245,4 +245,19 @@ t_run "$preview"
 t_eq "$(writes | wc -l)" 1
 t_contains "$(writes)" "Unable to create a preview"
 
+# The notice is written by the console beside the command. A host without one
+# is a host install.sh did not finish: nothing is built that it could not tell.
+t_case "a host with no console beside the command builds nothing and says to install"
+reset
+a=$(commit feature)
+pulls "$(pull 12 "$a")"
+rm -f "$T/tree/libexec/console"
+t_run "$preview"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "run install.sh"
+t_eq "$(writes)" ""
+t_eq "$(find "$root" -name state.json 2>/dev/null | wc -l)" 0
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+
 t_done

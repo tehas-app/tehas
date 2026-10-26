@@ -21,6 +21,11 @@
 //! The mask alone: standard input to standard output, for libexec/work's own
 //! line on the dashboard, so that the mask is written in one place.
 //!
+//!   console preview tell ...
+//!
+//! The notice tehasbot preview keeps in a pull request's description, see
+//! src/notice.rs.
+//!
 //!   console review since|refused|run ...
 //!
 //! What tehasbot review decides and how it runs its container, see
@@ -29,6 +34,7 @@
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
+mod notice;
 mod render;
 mod review;
 mod tail;
@@ -204,8 +210,10 @@ fn main() -> ExitCode {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "console: an argument is not UTF-8".to_string());
     if let Ok(given) = &given {
-        if given.first().is_some_and(|a| a == "review") {
-            return ExitCode::from(review::main(&given[1..]));
+        match given.first().map(String::as_str) {
+            Some("review") => return ExitCode::from(review::main(&given[1..])),
+            Some("preview") => return ExitCode::from(notice::main(&given[1..])),
+            _ => {}
         }
     }
     let given = given.and_then(|mut given| {
