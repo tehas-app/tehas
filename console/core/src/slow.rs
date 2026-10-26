@@ -31,11 +31,12 @@ pub const BOUND: usize = 65_536;
 /// some other value, or is no JSON at all, is not.
 fn slow_line(line: &str) -> bool {
     match serde_json::from_str::<Value>(line) {
-        Ok(v) => v
-            .get("kind")
-            .or_else(|| v.get("type"))
-            .and_then(Value::as_str)
-            == Some("dispatch-slow"),
+        Ok(v) => {
+            v.get("kind")
+                .or_else(|| v.get("type"))
+                .and_then(Value::as_str)
+                == Some("dispatch-slow")
+        }
         Err(_) => false,
     }
 }
@@ -172,7 +173,11 @@ mod tests {
         assert!(out.len() < BOUND, "{} bytes", out.len());
         let kept = kept(&out);
         assert!(!kept.is_empty());
-        assert!(kept.len() < LIMIT, "the bound should bite first: {}", kept.len());
+        assert!(
+            kept.len() < LIMIT,
+            "the bound should bite first: {}",
+            kept.len()
+        );
         assert!(kept.iter().all(|l| l.ends_with('}')));
         assert!(kept.last().unwrap().contains("s30"));
     }
@@ -184,7 +189,10 @@ mod tests {
             &format!(",\"tail\":\"{}\"", "y".repeat(BOUND)),
         );
         let small = slow("handoff", "");
-        assert_eq!(lines(&[huge, small.clone()].join("\n")), format!("{small}\n"));
+        assert_eq!(
+            lines(&[huge, small.clone()].join("\n")),
+            format!("{small}\n")
+        );
     }
 
     #[test]
