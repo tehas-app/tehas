@@ -1,5 +1,5 @@
 {
- "suite": "test/dispatch_refresh_test.sh",
+ "suite": "test/dispatch_refresh_test.sh and test/dispatch_refresh_hold_test.sh",
  "later": [],
  "cases": [
   {
