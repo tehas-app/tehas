@@ -81,7 +81,9 @@ build both by hand in one session.
    after that deploy, and #254's 7 days of shadow count from then.
    D7 measured: a page of 100 issues costs 4 points.
 2. **#254**, part 2: apply through the action journal, then a setting chooses
-   bash or rust. It needs 7 days of shadow and then 7 days live on tehas-tehas
+   bash or rust. Four PRs, plan `docs/plans/2026-10-26-dispatch-apply.md`.
+   Part 1 (PR #785, the store's journal verbs and `apply` for the plain
+   writes) merged 2026-10-26. Next: part 2, starts and stops. It needs 7 days of shadow and then 7 days live on tehas-tehas
    before a separate PR removes `libexec/dispatch`.
 3. **#256**, the cycle supervisor in Rust, with the same proof. It is a security
    change (rule 4).
