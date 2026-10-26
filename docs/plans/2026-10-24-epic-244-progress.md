@@ -28,7 +28,7 @@ tehas-tehas while `~/tehas/state/dispatch-shadow.on` is there, since
 `docs/plans/2026-10-26-dispatch-apply.md`. Merged: part 1 (#785, journal
 verbs and plain writes), 2a starts (#788), 2b stops (#789), 3a planning end
 (#794), 3b planning start (#796), 4a the poll's frame (#798), 4b the start
-gates (#804). Part 4c is PR #831 (branch `dispatch-journal-settle`,
+gates (#804), 4c (#831, merged 20:06Z) (branch `dispatch-journal-settle`,
 `~/work/tehas-254g`): the `TEHAS_DISPATCHER=rust` switch and the journal
 settled at the start of a poll. With it, #254's code is complete.
 
@@ -40,7 +40,7 @@ with a comment saying why.
 
 ## Left, in order
 
-1. Merge #831 on green CI.
+1. #831 merged 2026-10-26 20:06Z.
 2. After 2026-11-02 13:23Z: read the shadow log for the week. Explain or fix
    every difference.
 3. With the owner's yes: `TEHAS_DISPATCHER=rust` on tehas-tehas for 7 days
