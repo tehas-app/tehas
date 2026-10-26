@@ -443,13 +443,6 @@ tidy() {
 }
 
 started=$EPOCHSECONDS
-# When this cycle took its lock and started tehas work, in whole seconds. The
-# files tehas work leaves for a cycle it watched are this cycle's own only when
-# they are no older than this: they were removed before tehas work started, and
-# one older is what a cycle that was killed outright left behind. The whole
-# second counts, not only a time strictly after it: a tehas work that ends in
-# the second it was started in writes its files at this second, not after it.
-lock_taken=$started
 # An issue a handoff left with needs-human-attention starts again only on a
 # person's answer: the label or the tick that started this cycle, or the one
 # start after a provider outage the dispatcher makes for the account that
@@ -594,16 +587,9 @@ rm -f "${cycles:?}/${issue:?}.nostart"
 # disagree. Only a cycle tehas work watched has a log of its own, and the
 # summary it wrote of that log is what says so: only such a cycle is read for
 # one. The summary is this cycle's own as well: the cycle removed it when it
-# took its lock, and tehas work writes no progress of its own before the
-# container runs, so a file that is newer than the start of this cycle was
-# written by it. An older one is what a cycle that was killed outright before
-# it could report left behind, and a log of that run is no log of this one.
+# took its lock, before tehas work started.
 read_log_steps=$no_result
 [ "$watched" = 1 ] && [ "$progress_seen" = 1 ] || read_log_steps=0
-if [ "$read_log_steps" = 1 ] && [ ! "$progress" -nt "$lock_taken" ] &&
-  [ "$(stat -c %Y "$progress" 2>/dev/null)" != "$lock_taken" ]; then
-  read_log_steps=0
-fi
 # Where the step now on record was read is said below, beside the words the
 # comment uses for it.
 # A step of tehas work's own files: the step it saw in flight when it stopped
