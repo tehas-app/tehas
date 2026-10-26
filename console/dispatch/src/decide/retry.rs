@@ -71,13 +71,13 @@ fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
             return "the issue it closes cannot be read".into();
         };
         let l = names(i);
-        let open: Vec<u64> = i
+        let open: Vec<Option<u64>> = i
             .pointer("/closedByPullRequestsReferences/nodes")
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
                     .filter(|p| p.get("state").and_then(Value::as_str) == Some("OPEN"))
-                    .filter_map(|p| p.get("number").and_then(Value::as_u64))
+                    .map(|p| p.get("number").and_then(Value::as_u64))
                     .collect()
             })
             .unwrap_or_default();
@@ -89,7 +89,7 @@ fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
             format!("#{n} carries neither tehas:awaiting-merge nor needs-human-attention")
         } else if has(&l, "tehas:running") {
             format!("#{n} carries tehas:running")
-        } else if open != [num] {
+        } else if open != [Some(num)] {
             format!("it is not the one open pull request that closes #{n}")
         } else {
             String::new()
@@ -104,14 +104,19 @@ fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
             .iter()
             .all(|k| r.get(*k).unwrap_or(&Value::Null) == base.get(*k).unwrap_or(&Value::Null))
     };
-    if record.get("how").and_then(Value::as_str) == Some("refresh")
-        && record.get("rests_on").is_some_and(same)
-    {
+    if record.get("how").and_then(Value::as_str) == Some("refresh") {
+        // jq's (.rests_on | {at, by}) fails on anything but an object or null.
+        let rests = record.get("rests_on").unwrap_or(&Value::Null);
+        if !rests.is_object() && !rests.is_null() {
+            return None;
+        }
+        if !same(rests) {
+            return Some(0);
+        }
         let n = record.get("refreshes")?.as_f64()?;
-        (n >= 1.0 && n.fract() == 0.0 && n < 1_000_000.0).then_some(n as u64)
-    } else {
-        Some(0)
+        return (n >= 1.0 && n.fract() == 0.0 && n < 1_000_000.0).then_some(n as u64);
     }
+    Some(0)
 }
 
 impl Poll<'_> {
@@ -495,12 +500,10 @@ impl Poll<'_> {
     /// refresh_say: a hold a person can act on, said once for each key.
     fn refresh_say(&mut self, n: u64, key: &str, why: &str) -> Step<Option<Start>> {
         self.refresh_drop(n, why)?;
-        let said = self
-            .s
-            .issues
-            .get(&n)
-            .map(|i| i.refresh_said.clone())
-            .unwrap_or_default();
+        let Some(said) = self.s.issues.get(&n).and_then(|i| i.refresh_said.clone()) else {
+            self.need("refresh_said");
+            return Ok(None);
+        };
         if !self.dry && said != key {
             self.act(json!({
                 "issue": n, "refresh_said": key,
@@ -523,19 +526,16 @@ impl Poll<'_> {
             self.refresh_said = true;
             return Ok(None);
         }
-        let req = self
-            .s
-            .issues
-            .get(&n)
-            .and_then(|i| i.request.clone())
-            .filter(|r| {
-                r.get("pr").is_some_and(Value::is_number)
-                    && hex40(r.get("head_sha"))
-                    && hex40(r.get("base_sha"))
-            });
-        let Some(req) = req else {
-            return self.refresh_drop(n, "its request cannot be read");
+        let Some(req) = self.s.issues.get(&n).and_then(|i| i.request.clone()) else {
+            self.need("request");
+            return Ok(None);
         };
+        if !(req.get("pr").is_some_and(Value::is_number)
+            && hex40(req.get("head_sha"))
+            && hex40(req.get("base_sha")))
+        {
+            return self.refresh_drop(n, "its request cannot be read");
+        }
         let pr = req["pr"].as_u64().unwrap_or(0);
         if self.running(n) {
             return self.refresh_drop(n, "a cycle runs on it");

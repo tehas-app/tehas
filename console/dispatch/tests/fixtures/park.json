@@ -723,7 +723,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n"
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    }
@@ -739,7 +739,8 @@
    "expect": {
     "picked": [
      7
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -775,7 +776,8 @@
     "log": [
      "holding: 1 cycles are running (limit 1)"
     ],
-    "picked": []
+    "picked": [],
+    "exit": 0
    }
   },
   {
@@ -792,7 +794,8 @@
      "would run a cycle for #7 (retry ticked by alice)"
     ],
     "nothing": true,
-    "picked": []
+    "picked": [],
+    "exit": 0
    }
   },
   {
@@ -809,13 +812,14 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (tehas-bot). It was unticked."
      }
     ],
     "log": [
      "skip #7: boxes ticked by 'tehas-bot' are no answer (stranger)"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -832,13 +836,14 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (mallory). It was unticked."
      }
     ],
     "log": [
      "skip #7: boxes ticked by 'mallory' are no answer (stranger)"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -855,13 +860,14 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (unknown). It was unticked."
      }
     ],
     "log": [
      "skip #7: boxes ticked by 'unknown' are no answer (stranger)"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -879,7 +885,8 @@
       "untick": 7,
       "say": "More than one box was ticked, so nothing was chosen. Tick one."
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -910,7 +917,8 @@
        "needs-human-attention"
       ]
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -923,7 +931,8 @@
     "alice"
    ],
    "expect": {
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -946,7 +955,8 @@
    ],
    "expect": {
     "picked": [],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -970,7 +980,8 @@
    "expect": {
     "picked": [
      7
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -997,7 +1008,8 @@
     "picked": [],
     "log": [
      "its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1023,7 +1035,8 @@
    },
    "expect": {
     "picked": [],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -1044,7 +1057,8 @@
     }
    },
    "expect": {
-    "picked": []
+    "picked": [],
+    "exit": 0
    }
   },
   {
@@ -1064,7 +1078,7 @@
              "author": {
               "login": "mallory"
              },
-             "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+             "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
              "createdAt": "t",
              "lastEditedAt": "t",
              "editor": {
@@ -1082,7 +1096,8 @@
    },
    "expect": {
     "picked": [],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -1131,7 +1146,7 @@
              "author": {
               "login": "tehas-bot"
              },
-             "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+             "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
              "createdAt": "t",
              "lastEditedAt": null,
              "editor": null
@@ -1221,7 +1236,8 @@
     ],
     "log_lacks": [
      "would run a cycle"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1294,7 +1310,8 @@
      {
       "issue": 7
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1339,7 +1356,8 @@
      {
       "issue": 7
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1384,7 +1402,8 @@
      {
       "issue": 7
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1412,7 +1431,8 @@
     "log": [
      "skip #7: a retry was ticked but the issue is not parked"
     ],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -1621,7 +1641,7 @@
    },
    "asked": {
     "9": [
-     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
      ""
     ]
    },
@@ -1658,7 +1678,8 @@
       "untick": 7,
       "say": "This question is not one the factory is waiting on. To retry, apply `tehas:ready`."
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1732,7 +1753,7 @@
       "author": {
        "login": "tehas-bot"
       },
-      "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+      "body": "Tehas cycle stopped.\n\n- [x] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "createdAt": "2026-01-01T02:00:00Z",
       "lastEditedAt": "2026-01-01T03:00:00Z",
       "editor": {
@@ -1761,7 +1782,8 @@
     "nothing": true,
     "log": [
      "skip #7: the question on record does not belong to this issue"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1769,7 +1791,7 @@
    "world": "parked",
    "asked": {
     "7": [
-     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n",
+     "Two ways.\n\nAdopt?\n\n- [x] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
      "alice"
     ]
    },
@@ -1778,7 +1800,8 @@
     "nothing": true,
     "log": [
      "skip #7: the question on record does not belong to this issue"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1816,7 +1839,8 @@
     "picked": [],
     "log": [
      "skip #7: its question is not among the last 100 comments"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1824,7 +1848,7 @@
    "world": "parked",
    "asked": {
     "7": [
-     "Tehas cycle stopped.\n\n- [x] Leave it parked\n- [ ] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     "Tehas cycle stopped.\n\n- [x] Leave it parked\n- [ ] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
      "alice"
     ]
    },
@@ -1837,7 +1861,8 @@
        "tehas:question"
       ]
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -1845,14 +1870,15 @@
    "world": "parked",
    "asked": {
     "7": [
-     "Tehas cycle stopped.\n\n- [ ] Leave it parked\n- [x] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n",
+     "Tehas cycle stopped.\n\n- [ ] Leave it parked\n- [x] Retry from a clean start\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
      "alice"
     ]
    },
    "expect": {
     "picked": [
      7
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -2022,7 +2048,8 @@
       "start": 7,
       "by": "alice"
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -2131,7 +2158,8 @@
     "log": [
      "skip #7: its retry after a provider outage is not started; it waits for a person"
     ],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -2247,7 +2275,8 @@
     "log": [
      "its text was changed by 'mallory' after its last cycle began; apply tehas:ready to approve it",
      "skip #7: its retry after a provider outage is not started; it waits for a person"
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -2299,7 +2328,8 @@
     "log": [
      "would run a cycle for #7 (retry after a provider outage, started by alice)"
     ],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -2351,7 +2381,8 @@
    ],
    "expect": {
     "picked": [],
-    "nothing": true
+    "nothing": true,
+    "exit": 0
    }
   },
   {
@@ -2406,7 +2437,8 @@
      {
       "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."
      }
-    ]
+    ],
+    "exit": 0
    }
   },
   {
@@ -2535,6 +2567,58 @@
     ],
     "log_lacks": [
      "its last cycle parked on"
+    ]
+   }
+  },
+  {
+   "case": "a marker with a number too large for an integer is read as jq reads it, and the poll goes on",
+   "snapshot": {
+    "asking": [
+     {
+      "number": 5
+     }
+    ],
+    "issues": {
+     "5": {
+      "question": {
+       "plan": null,
+       "id": "",
+       "kind": ""
+      },
+      "comments": {
+       "data": {
+        "repository": {
+         "issue": {
+          "comments": {
+           "nodes": [
+            {
+             "databaseId": 9,
+             "author": {
+              "login": "tehas-bot"
+             },
+             "body": "x\n\n- [x] Retry from a clean start\n\n<!-- tehas:question kind=park issue=99999999999999999999999 turn=1 -->",
+             "createdAt": "t",
+             "lastEditedAt": "t",
+             "editor": {
+              "login": "alice"
+             }
+            }
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "skip #5: a box was ticked in a question this host has no record of"
     ]
    }
   }

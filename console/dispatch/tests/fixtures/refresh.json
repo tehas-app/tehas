@@ -964,7 +964,7 @@
    },
    "asked": {
     "7": [
-     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->\n",
+     "Two ways.\n\nAdopt?\n\n- [ ] Adopt all\n  Apply all five\n- [ ] Change some\n- [ ] End this planning session\n\n<!-- tehas:question kind=plan issue=7 turn=1 -->",
      ""
     ]
    },
@@ -6797,6 +6797,28 @@
      {
       "start": 7
      }
+    ]
+   }
+  },
+  {
+   "case": "a request the snapshot did not read is named, not dropped",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "refreshing": []
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "needs": [
+     "request"
     ]
    }
   }

@@ -101,12 +101,19 @@ pub fn answer(
     } else {
         json!({"status": "one", "by": ed, "index": ticks[0], "at": edited_at})
     };
-    let issue: u64 = m["issue"].parse().ok()?;
+    // jq's tonumber: digits too many for an integer are a float, never an
+    // error.
+    let num = |d: &str| -> Value {
+        d.parse::<u64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| json!(d.parse::<f64>().unwrap_or(f64::MAX)))
+    };
+    let issue = &m["issue"];
     let mut out = json!({
         "asked": true, "comment": qv.get("databaseId").cloned().unwrap_or(Value::Null),
         "asked_at": qv.get("createdAt").and_then(Value::as_str).unwrap_or(""),
-        "body": body, "kind": &m["kind"], "issue": issue,
-        "turn": m["turn"].parse::<u64>().ok()?,
+        "body": body, "kind": &m["kind"], "issue": num(issue),
+        "turn": num(&m["turn"]),
         "boxes": boxes.len(), "tick": tick,
         "reply": reply.map(|r| json!({"by": login(r, "/author/login"), "text": r.get("body"),
             "at": r.get("createdAt"), "id": r.get("databaseId")})),
@@ -141,8 +148,10 @@ pub fn answer(
 }
 
 /// q_untick: a body with every box empty.
+/// The body is read as `$(jq -r .body)` reads it: with no final newlines.
 pub fn untick(body: &str) -> String {
-    body.split('\n')
+    body.trim_end_matches('\n')
+        .split('\n')
         .map(|l| match l.get(..6) {
             Some("- [x] " | "- [X] ") => format!("- [ ] {}", &l[6..]),
             _ => l.to_string(),
