@@ -18,6 +18,11 @@ empty one above it.
   `bash`. A Rust poll first settles the writes a poll before it left open in
   the action journal, from what GitHub says now, and never repeats one. See
   "The dispatcher in Rust" in the operating page for how it differs.
+- `tehasbot review` runs its container from Rust (#829): the console reads
+  the range, checks the image's inputs, bounds the run and writes the record.
+  `libexec/review` keeps the sandbox and loses 155 lines. The wait on the
+  `docker run` client is now bounded too (#774). A host without the console
+  reviews nothing (78) instead of keeping the logs unmasked.
 
 ### Adopter action
 
