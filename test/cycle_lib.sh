@@ -73,6 +73,9 @@ case "$1 $2" in
     elif api_rest DELETE "*/labels/*"; then
       [ ! -e "$T/fx/label-missing" ] || not_found
       fails unmark-fails unmark-fails-times
+    # The body of the issue, written. $fx/patch-fails makes it fail.
+    elif api_rest PATCH 7; then
+      fails patch-fails
     else
       exit 1
     fi ;;

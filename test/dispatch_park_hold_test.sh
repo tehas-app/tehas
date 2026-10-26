@@ -70,6 +70,15 @@ holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 t_lacks "$(t_calls gh)" "issue comment 7"
 
+t_case "the millwright's tehas:ready on the body its last cycle parked on is held too"
+# A second develop timeout on unchanged text offers no retry box, and leaves
+# the millwright's label as the one way round it: held as a person's is.
+parked_again "Words."
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"tehas-fixer"},"created_at":"2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+holds "Words."
+t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
+
 t_case "a dry run of the hold says it and changes nothing, not its park"
 parked_again "Words."
 new_poll

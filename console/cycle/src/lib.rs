@@ -6,6 +6,7 @@
 
 pub mod facts;
 pub mod host;
+pub mod last_attempt;
 pub mod report;
 pub mod runner;
 pub mod shadow;

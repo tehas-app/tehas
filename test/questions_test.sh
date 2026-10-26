@@ -38,6 +38,12 @@ t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Retry from 
 - [ ] Leave it parked'
 t_contains "$(q_render park 7 1 "$T/park.json")" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
+t_case "a park that offers no retry has only the box to leave it"
+jq -n '{text: "Tehas cycle stopped.", question: null, retry: false}' >"$T/park.json"
+t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Leave it parked'
+jq -n '{text: "Tehas cycle stopped.", question: null, retry: true}' >"$T/park.json"
+t_contains "$(q_render park 7 1 "$T/park.json")" "- [ ] Retry from a clean start"
+
 t_case "a park's handoff marker goes first, and only pi-rukas's marker of this issue"
 jq -n '{text: "Tehas cycle stopped.", question: null, marker: "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->"}' >"$T/park.json"
 t_eq "$(q_render park 7 1 "$T/park.json" | head -n 2)" "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->

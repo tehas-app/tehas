@@ -36,10 +36,10 @@
 # until the next poll clears it.
 #
 # A TERM, INT or HUP is passed on to tehas work, which stops the container. The
-# cycle is then reported like any other that stopped without a pull request,
-# but with one try for each call to GitHub, each bounded, and no refresh of the
-# status: systemd kills the unit TimeoutStopSec after the stop, and a report
-# cut off there leaves the issue marked tehas:running.
+# cycle is then reported as any other that stopped without a pull request, but
+# with one bounded try for each call to GitHub and no refresh of the status:
+# systemd kills the unit TimeoutStopSec after the stop, and a report cut off
+# there leaves the issue marked tehas:running.
 #
 # The cycle's outcome is the result of pi-rukas's headless runner, which tehas
 # work leaves in state/cycles/<issue>.result.json (lib/headless.sh reads it):
@@ -57,11 +57,10 @@
 # its branch. What each part means, and what is said from it, is the manual's
 # (host/docs/tools.md, the section of tehasbot cycle on a runner that died).
 #
-# state/cycles/<issue>.runner_exit, which tehas work writes, gives the
-# runner's own status for the comment: this command's own is 2 for a runner
-# that died however it died. tehas work and tehasbot cycle each clear the files
-# of this protocol before they start, so a cycle never reports an earlier
-# one's end.
+# state/cycles/<issue>.runner_exit, which tehas work writes, gives the runner's
+# own status for the comment: this command's own is 2 for a runner that died
+# however it died. tehas work and tehasbot cycle each clear the files of this
+# protocol before they start, so a cycle never reports an earlier one's end.
 #
 # A runner that exits 137 with no result had its container killed: the status
 # reported is "killed" and the issue is parked. tehas work leaves in state/cycles/<issue>.oom how many
@@ -139,13 +138,12 @@
 # --restart: the start is a person's answer to the handoff. pi-rukas then takes
 # the label off. This command and the dispatcher remove it nowhere.
 #
-# The label change that ends a cycle is tried three
-# times, and so is the question about the pull request, and so is the call
-# that asks what the number is. A pull request that could not be looked up is
-# not taken for none: the issue is parked with a comment that says so and names
-# the branch, which stays on the cycle's record. If GitHub still refuses it, or the cycle is
-# killed outright, the issue stays marked tehas:running and the dispatcher's
-# next poll finds it.
+# The label change that ends a cycle, the question about the pull request and
+# the call that asks what the number is are each tried three times. A pull
+# request that could not be looked up is not taken for none: the issue is parked
+# with a comment that says so and names the branch, which stays on the cycle's
+# record. If GitHub still refuses it, or the cycle is killed outright, the issue
+# stays marked tehas:running and the dispatcher's next poll finds it.
 #
 # The cap that ended a cycle and the failure before it go into the record. A
 # cycle that parks the issue puts its park on the state store too (store park),
@@ -160,19 +158,18 @@
 # step-failed:* or adversarial-infra-failure cap whose reason names the
 # provider, a timeout, a connection or a 5xx.
 #
-# A cycle that stopped without a pull request asks what to do next, in a
-# comment with boxes. The id of that comment goes on record as the park's
-# question (store question-asked), with the sha256 of the body posted: the
-# dispatcher takes a tick only in the question on record. A park the store
+# A cycle that stopped without a pull request asks what to do next, in a comment
+# with boxes. One that ended at child-timeout:develop first leaves a note of the
+# attempt in the issue's body, which the next cycle reads, or, when that note is
+# there and the text has not changed, offers no retry box and names tehas:plan
+# (tehas-cycle last-attempt). The id of that comment goes on record as the
+# park's question (store question-asked), with the sha256 of the body posted:
+# the dispatcher takes a tick only in the question on record. A park the store
 # would not take asks no question: its comment has no boxes. A question whose
 # label could not be added is taken off the record again.
 #
-# A refresh, a start whose approval has how "refresh", put
-# tehas:refreshing on its pull request; it comes off when the cycle has been
-# reported, whatever the outcome.
-#
-# The pi-rukas commit of the sandbox image when the cycle starts goes on the
-# cycle's record with its start.
+# A refresh (approval how "refresh") put tehas:refreshing on its pull request;
+# it comes off once the cycle is reported, whatever the outcome.
 #
 # The dispatcher stops a cycle whose work is done, and says why first in
 # state/cycles/<issue>.done: closed (the issue was closed), merged or
@@ -180,11 +177,9 @@
 # cycle as merged, as above. A cycle stopped because its issue was closed only
 # loses tehas:running, and nothing is asked.
 #
-# When the cycle has been reported it leaves state/dispatch.again and starts one
-# poll of the dispatcher (tehas-dispatch.service, without waiting for it), so
-# that its slot is filled at once and not at the next tick of the timer. The
-# file is for tehas-dispatch.path: it starts a poll after one that was already
-# running when the cycle ended. A file or start that fails is a warning: the
+# When the cycle has been reported it leaves state/dispatch.again (for
+# tehas-dispatch.path, after a poll already running) and starts one poll
+# without waiting, so its slot is filled at once. A failure is a warning: the
 # timer still runs the poll.
 #
 # Once the comments and labels are done it ends the cycle's record on the
@@ -196,16 +191,11 @@
 # approval off the record with it: an approval that started nothing is no
 # approval a later start can rest on.
 #
-# Then it records the run and its end in the factory's analytics,
-# state/analytics.db, with `analytics run` and `analytics event <issue> ended`
-# (lib/analytics.sh). Each call has a time limit, and one that fails or runs
-# out of time is a WARN line: it changes nothing in the report.
-# TEHAS_ANALYTICS=off makes no call.
+# Then it records the run and its end in state/analytics.db (lib/analytics.sh),
+# each call bounded, a failure a WARN line; TEHAS_ANALYTICS=off makes no call.
 #
-# Where the instance has an improvement loop (TEHAS_IMPROVE_REPO), it leaves
-# the cycle's record for it at the end, in tmp/improve/window (lib/improve.sh),
-# with the image and the pi-rukas commit tehas work put on the cycle's record
-# as the container started.
+# With TEHAS_IMPROVE_REPO it leaves the cycle's record, with the image and the
+# pi-rukas commit, in tmp/improve/window for the loop (lib/improve.sh).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO,
 # TEHAS_ANALYTICS.
@@ -1140,7 +1130,7 @@ fi
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  local parked="$1" park_marker question="" on_record=0 why
+  local parked="$1" park_marker question="" on_record=0 why last retry
   local -a park_args
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
@@ -1164,6 +1154,15 @@ park() {
   else
     log "WARN: could not record the park of #$issue ($tehas_store_word: $tehas_store_line), so it asks no question"
   fi
+  # A develop timeout leaves a note in the body, which the next cycle reads; a
+  # second one on the same text offers no retry (#832, #833).
+  retry=true
+  if [ "$cap" = child-timeout:develop ] && [ "$signalled" = 0 ] && last=$(timeout 30 gh api "repos/$repo/issues/$issue" 2>/dev/null |
+    timeout 30 "$TEHAS_HOME/libexec/tehas-cycle" last-attempt "$issue" "$result" "$workdir" 2>/dev/null); then
+    [ "$(jq -r .action <<<"$last")" != repeat ] || { retry=false && parked+=" $(jq -r .say <<<"$last")"; }
+    [ "$(jq -r .action <<<"$last")" != edit ] || jq '{body}' <<<"$last" | timeout 30 gh api -X PATCH "repos/$repo/issues/$issue" --input - >/dev/null 2>&1 ||
+      log "WARN: could not leave the last attempt's note in the body of #$issue"
+  fi
   if [ -n "$parked_auto" ]; then
     if [ "$on_record" = 1 ]; then
       parked+=$parked_auto
@@ -1180,7 +1179,7 @@ park() {
 
 $handoff}
 
-${usage}" --arg marker "$marker" --arg park "$park_marker" '{text: $text, question: null, marker: $marker, park: $park}' \
+${usage}" --arg marker "$marker" --arg park "$park_marker" --argjson retry "$retry" '{text: $text, question: null, marker: $marker, park: $park, retry: $retry}' \
       >"$question" 2>/dev/null; then
       rm -f "$question"
       question=""
