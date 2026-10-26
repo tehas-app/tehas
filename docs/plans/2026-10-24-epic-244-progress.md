@@ -68,10 +68,11 @@ build both by hand in one session.
 
 1. **#253**, the dispatcher in Rust: split in four pull requests (owner's
    choice, 2026-10-25), plan `docs/plans/2026-10-25-dispatch-decide.md`. Part 1
-   is PR #747 (branch `dispatch-decide`, CI green, owner merges). Next: part 2,
-   the rest of rule 6 and the clean-ups of rule 2.
-   Split it as its resume notes say: decide plus fixtures in one PR, then snapshot
-   plus shadow in a second. Measure the GraphQL cost against spec section 6.
+   is PR #747, merged 2026-10-25. Part 2 is PR #758 (branch `dispatch-rule6`,
+   worktree `~/work/tehas-253b`): the rest of rule 6 and the clean-ups of rule
+   2, 378 fixture cases in all. Next: part 3, rules 4, 4a, 4b, 5 and 5a, and the
+   `later` cases the fixture files list. Part 4 is the snapshot and the shadow;
+   measure the GraphQL cost against spec section 6 there.
 2. **#254**, part 2: apply through the action journal, then a setting chooses
    bash or rust. It needs 7 days of shadow and then 7 days live on tehas-tehas
    before a separate PR removes `libexec/dispatch`.
