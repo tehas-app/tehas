@@ -78,12 +78,12 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO` |
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
-| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the fixer's grant](/operating#the-fixers-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright. The old name `TEHAS_FIXER_LOGIN` is still accepted, with a warning, until it is removed |
+| `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright. The old name `TEHAS_FIXER_LOGIN` is still accepted, with a warning, until it is removed |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it. The old name `TEHAS_FIXER_MAX_RETRIES` is accepted until it is removed |
-| `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the fixer's grant](/operating#the-fixers-grant)). The old name `TEHAS_FIXER_MAX_PLAN_ANSWERS` is accepted until it is removed |
+| `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)). The old name `TEHAS_FIXER_MAX_PLAN_ANSWERS` is accepted until it is removed |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
@@ -227,7 +227,7 @@ it takes a pull request out of awaiting merge as it starts. A `tehas:urgent`
 counts only when an allowed account applied it most recently: one applied by
 the bot or anyone else is ignored and logged, and the issue keeps its place by
 number. A `tehas:next` counts when its latest event applies it and is by an
-allowed account or the fixer. The urgent and next checks run for every ready
+allowed account or the millwright. The urgent and next checks run for every ready
 issue that carries the label and this poll could still start, before the free
 slots cut the queue; who applied `tehas:ready` is read at the decision, when
 the issue is picked. A `tehas:blocked` with no `tehas:ready` beside it
@@ -1503,7 +1503,7 @@ Creates the eighteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
-filed a ticket for), `tehas:fixer-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
+filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
 pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
@@ -1840,15 +1840,15 @@ tehas api [--json]
 ```
 
 ```
-api       1
-tehas     v0.8.0 (cb6912a)
-repo      tehas-app/tehas
-features  status fixer-grant all-hands limit drain history export refresh-conflicts analytics
-fixer     none
+api         1
+tehas       v0.8.0 (cb6912a)
+repo        tehas-app/tehas
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
+millwright  none
 ```
 
 What this factory speaks: the API version, the release and commit it was
-installed from, its repository, what this release can do and the fixer's
+installed from, its repository, what this release can do and the millwright's
 login. A program asks it first. See [the factory API](/api#tehas-api). It
 reads the instance settings and the version file `install.sh` writes; no
 network, no git, and it writes nothing. Exit 0, 64 on an argument it does not
@@ -2025,7 +2025,7 @@ or file it could not be given, or an issue whose text or title is not the approv
 and tehasbot cycle's own line names the exit status, who approved the start and
 when from the approval its start used, and where the run log is, naming no
 status, step, duration or token usage as that cycle's. The approval of such a
-start is taken off the record with the report: the fixer, a refresh and a later
+start is taken off the record with the report: the millwright, a refresh and a later
 start never rest on an approval that started nothing.
 A retry moves a stopped workspace to
 `<name>-<issue>.before-retry`, which is removed and kept by the same rule.
@@ -2059,7 +2059,7 @@ poll that started the unit takes such a cycle as one that came up: the issue
 keeps `tehas:running`, and the next poll clears it in silence.
 
 **The start on record.** The record holds the attempt, when it started, the
-approval it used and who gave it, how (`label`, `retry-tick`, `fixer`,
+approval it used and who gave it, how (`label`, `retry-tick`, `millwright`,
 `refresh`, `outage-retry`, or `hand`), whether it is the one retry after an
 outage, and the pi-rukas commit of the sandbox image. Started by
 `tehas-cycle@.service`, which sets `TEHAS_CYCLE_FROM=unit` (a unit file not
