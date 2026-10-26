@@ -13,6 +13,11 @@ empty one above it.
 
 ### Changes
 
+- The query `tehas status` and `tehas tidy` send for shipped work had one
+  closing brace too many since v0.14.0 (#731), so GitHub refused it: status
+  wrote no snapshot of shipped work and tidy added no `tehas:shipped`. The
+  brace is gone, and `test/shipped_test.sh` checks that the query's brackets
+  balance, since the tests stub GitHub.
 - The dispatcher in Rust can start cycles (#254, part 2a): its approval on
   record with the comments, pull request comments and notes the bash poll
   gives it, the issue marked running before its unit starts, the wait for the

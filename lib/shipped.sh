@@ -59,7 +59,7 @@ tehas_shipped_query() {
   printf 'query($q: String!) { search(type: ISSUE, query: $q, first: %s) { nodes { ... on Issue {\n' "$tehas_shipped_page"
   # shellcheck disable=SC2016  # the rest is a GraphQL document, not shell
   printf '%s\n' '    number labels(first: 100) { nodes { name } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {
-      closer { ... on PullRequest { merged } } } } } } } } } }'
+      closer { ... on PullRequest { merged } } } } } } } } }'
 }
 
 tehas_shipped_rule() {
