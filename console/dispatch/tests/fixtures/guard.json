@@ -1,10 +1,7 @@
 {
  "suite": "test/dispatch_guard_test.sh",
  "later": [
-  "a refresh of a wide issue starts: the hold is never asked of one: rule 4b, PR 3",
-  "a planning turn on a wide issue is not held: rule 5, PR 3",
-  "a retry tick on a wide parked issue starts the cycle: rule 4, PR 3",
-  "a cycle a provider outage parked starts again on a wide issue: rule 4a, PR 3",
+  "a planning turn on a wide issue is not held: rule 5, part 3b",
   "a poll runs tidy once, after the cycles it starts, and the other cases of tidy: the poll's end, PR 4",
   "a poll that stops before the bot's login runs no tidy: the poll's end, PR 4"
  ],
@@ -643,6 +640,228 @@
        "tehas:ready"
       ],
       "log": "clear #7: tehas:ready off, applied by 'bob' who may not authorise work here"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry tick on a wide parked issue starts the cycle",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "settings": {
+    "TEHAS_SIZE_MAX_FILES": "3"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    }
+   },
+   "work": {
+    "7": {
+     "title": "Wide",
+     "body": "Wide issue, one cycle.\nChange `lib/aa1.sh`.\nChange `lib/aa2.sh`.\nChange `lib/aa3.sh`.\nChange `lib/aa4.sh`.\nChange `lib/aa5.sh`.\nChange `lib/aa6.sh`.\n",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "TEHAS_SIZE_MAX_FILES"
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a cycle a provider outage parked starts again on a wide issue",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    ""
+   ],
+   "snapshot": {
+    "ready": [],
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "settings": {
+    "TEHAS_SIZE_MAX_FILES": "3"
+   },
+   "work": {
+    "7": {
+     "title": "Wide",
+     "body": "Wide issue, one cycle.\nChange `lib/aa1.sh`.\nChange `lib/aa2.sh`.\nChange `lib/aa3.sh`.\nChange `lib/aa4.sh`.\nChange `lib/aa5.sh`.\nChange `lib/aa6.sh`.\n",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "TEHAS_SIZE_MAX_FILES"
+    ]
+   }
+  },
+  {
+   "case": "a refresh of a wide issue starts: the hold is never asked of one",
+   "settings": {
+    "TEHAS_SIZE_MAX_FILES": "3",
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "refreshing": [],
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ],
+       "body": "Wide issue, one cycle.\nChange `lib/aa1.sh`.\nChange `lib/aa2.sh`.\nChange `lib/aa3.sh`.\nChange `lib/aa4.sh`.\nChange `lib/aa5.sh`.\nChange `lib/aa6.sh`.\n"
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "TEHAS_SIZE_MAX_FILES"
+    ],
+    "no_actions": [
+     {
+      "add": [
+       "needs-human-attention"
+      ]
      }
     ]
    }

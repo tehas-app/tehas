@@ -1,9 +1,9 @@
 {
  "from": "test/dispatch_limit_test.sh",
  "later": [
-  "limit: planning off holds a new planning session, not an answer: rule 5, PR 3",
-  "limit: an expired limit holds an answer too, and a retry tick: rules 4 and 5, PR 3",
-  "limit: cycles 0 holds a retry tick, planning on lets a session start: rules 4 and 5, PR 3"
+  "limit: planning off holds a new planning session, not an answer: rule 5, part 3b",
+  "limit: an expired limit holds an answer too, and a retry tick: rules 4 and 5, part 3b",
+  "limit: cycles 0 holds a retry tick, planning on lets a session start: rules 4 and 5, part 3b"
  ],
  "cases": [
   {
@@ -407,6 +407,45 @@
       ]
      }
     ]
+   }
+  },
+  {
+   "case": "limit: an expired limit holds a retry tick",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "expired",
+     "cycles": 3,
+     "plan": true,
+     "until": "2020-01-01T00:00:00Z"
+    }
+   },
+   "expect": {
+    "picked": []
+   }
+  },
+  {
+   "case": "limit: cycles 0 holds a retry tick",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "snapshot": {
+    "limit": {
+     "state": "ok",
+     "cycles": 0,
+     "plan": true
+    }
+   },
+   "expect": {
+    "picked": []
    }
   }
  ]

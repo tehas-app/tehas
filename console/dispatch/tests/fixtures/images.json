@@ -1,13 +1,10 @@
 {
  "suite": "test/dispatch_images_test.sh",
  "later": [
-  "a retry of an issue that links an image waits for a model that reads one, and the tick stays: rule 4, PR 3",
-  "a retry held on its image holds that issue, not the poll: the next ready issue starts: rule 4, PR 3",
-  "a retry of an issue whose text promises a file waits, and the tick stays: rule 4, PR 3",
-  "a refresh of an issue whose text promises a file starts nothing: rule 4b, PR 3",
-  "a planning session is not held by the image part of the check: rule 5, PR 3",
-  "a planning turn is not held by the promised file: rule 5, PR 3",
-  "no resources holds a planning session too, and its label stays: rule 5, PR 3"
+  "a planning session is not held by the image part of the check: rule 5, part 3b",
+  "a planning turn is not held by the promised file: rule 5, part 3b",
+  "no resources holds a planning session too, and its label stays: rule 5, part 3b",
+  "a retry held on its image holds that issue, not the poll: the next ready issue starts: the bash ends the poll after a tick's start, and the case's ready issue starts because the tick holds; the same as the hold above"
  ],
  "not_ported": [
   "what the image request sends, and that it is sent once: the snapshot asks it, PR 4",
@@ -1062,6 +1059,210 @@
     ],
     "picked": [
      7
+    ]
+   }
+  },
+  {
+   "case": "a retry of an issue that links an image waits for a model that reads one, and the tick stays",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": false,
+     "answers": false
+    }
+   },
+   "work": {
+    "7": {
+     "body": "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text links an attachment"
+    ]
+   }
+  },
+  {
+   "case": "a retry of an issue whose text promises a file waits, and the tick stays",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    "alice"
+   ],
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model"
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "work": {
+    "7": {
+     "body": "The screenshot is the place; this text deliberately does not say it. SCREENSHOT GOES HERE.",
+     "labels": [
+      {
+       "name": "needs-human-attention"
+      },
+      {
+       "name": "tehas:question"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "hold #7: its text says SCREENSHOT GOES HERE"
+    ]
+   }
+  },
+  {
+   "case": "a refresh of an issue whose text promises a file starts nothing",
+   "settings": {
+    "TEHAS_WORK_IMAGES": "1",
+    "PI_ENSEMBLE_SUBAGENT_MODEL": "test-model",
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "refreshing": [],
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ],
+       "body": "Words."
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "The screenshot is the place. SCREENSHOT GOES HERE."
+      }
+     }
+    },
+    "endpoint": {
+     "end": "main"
+    },
+    "images": {
+     "rukas": "",
+     "declares": true,
+     "answers": true
+    }
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 7
+     }
     ]
    }
   }
