@@ -681,6 +681,16 @@ read_or() { # <file> <second file or ""> <default>
 }
 lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
 nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
+# An issue a case wrote the REST answer of is on GitHub too: an open one is
+# in the queue whether or not a list names it.
+for w in "$fx"/work-*.json; do
+  [ -f "$w" ] || continue
+  n=${w##*/work-}
+  n=${n%.json}
+  [ "$(jq -r '.state // "open" | ascii_downcase' "$w" 2>/dev/null)" = open ] && nums=$(printf '%s
+%s
+' "$nums" "$n" | sort -un)
+done
 items=$(for n in $nums; do
   jq -nc --argjson n "$n" --argjson ev "$(read_or "$fx/events-$n.json" "" "[]")" \
     --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
@@ -702,7 +712,9 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
       nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open") | . as $i | {
         number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
         lastEditedAt: .e.lastEditedAt, editor: .e.editor,
-        labels: {nodes: [labels($i.n)[] | {name: .}]},
+        # The labels its lists give it, and those of its REST answer when a case
+        # wrote one: on GitHub the two agree.
+        labels: {nodes: [(labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings]) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
         timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
