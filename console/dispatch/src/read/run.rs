@@ -142,9 +142,13 @@ pub(crate) fn wait(
                 let gone = Instant::now();
                 while gone.elapsed() < grace {
                     if let Ok(Some(_)) = child.try_wait() {
+                        // Out of time and ended by TERM: timeout's 124.
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(50));
+                }
+                if let Ok(Some(_)) = child.try_wait() {
+                    break None;
                 }
                 if group {
                     let _ = Command::new("kill")
@@ -156,7 +160,8 @@ pub(crate) fn wait(
                 }
                 let _ = child.kill();
                 let _ = child.wait();
-                break None;
+                // One that had to be killed: timeout -k answers 137.
+                break Some(137);
             }
         }
     }
@@ -355,6 +360,15 @@ impl Calls {
                 78,
                 "absent",
                 format!("store: absent: {} could not be run", self.store),
+            )),
+            // timeout's answers, as lib/store.sh reads them: out of time.
+            Some(124 | 137) => Err(fail(
+                1,
+                "timeout",
+                format!(
+                    "store: timeout: {verb} did not answer in {} s",
+                    self.store_bound.as_secs()
+                ),
             )),
             Some(rc) => Err(fail(
                 78,
