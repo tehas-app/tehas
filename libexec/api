@@ -2,6 +2,8 @@
 # Say what this factory speaks: the API version, the release and commit it
 # was installed from, its repository, the features this release has and the
 # millwright's login. A program asks this first, before it relies on a feature.
+# The old names, the feature fixer-grant and the field fixer, say the same as
+# millwright-grant and millwright until a release removes them.
 #
 # The release and commit are those install.sh wrote to
 # $TEHAS_HOME/docs/version.txt: "v0.8.0+cb6912a" from a checkout, the bare tag
@@ -11,17 +13,17 @@
 #
 # Usage: tehas api [--json]
 #
-#   api       1
-#   tehas     v0.8.0 (cb6912a)
-#   repo      tehas-app/tehas
-#   features  status fixer-grant all-hands limit drain history export refresh-conflicts analytics
-#   fixer     none
+#   api         1
+#   tehas       v0.8.0 (cb6912a)
+#   repo        tehas-app/tehas
+#   features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
+#   millwright  none
 #
 # With --json the same as one object on standard output:
 #   {"api": 1, "tehas": "v0.8.0", "commit": "cb6912a", "repo": "tehas-app/tehas",
-#    "features": ["status", "fixer-grant", "all-hands", "limit", "drain",
-#                 "history", "export", "refresh-conflicts", "analytics"],
-#    "fixer": null}
+#    "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit",
+#                 "drain", "history", "export", "refresh-conflicts", "analytics"],
+#    "millwright": null, "fixer": null}
 #
 # Exit: 0 printed; 64 an argument this command does not know; 78 instance
 # settings are missing or malformed.
@@ -42,15 +44,13 @@ tehas_require TEHAS_REPO
 
 # What this release can do. A feature is added here in the release that
 # brings it, and never taken out within api 1.
-features='["status", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"]'
+features='["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"]'
 
-# "v0.8.0+cb6912a" from a checkout, "v0.10.2" from a release, or "cb6912a"
-# from a checkout with no tag.
 # Read without a pipe: under pipefail the first head can die of SIGPIPE when
 # the second has its line, and the version would be lost.
 version=$(head -c 200 "$TEHAS_HOME/docs/version.txt" 2>/dev/null) || version=""
 version=${version%%$'\n'*}
-object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" --argjson features "$features" '
+object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg login "${TEHAS_MILLWRIGHT_LOGIN:-}" --argjson features "$features" '
   ($v | split("+")) as $p
   | (if ($p | length) == 1 and ($v | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) then $v else null end) as $tag
   | {api: 1,
@@ -58,14 +58,14 @@ object=$(jq -nc --arg v "$version" --arg repo "$TEHAS_REPO" --arg fixer "${TEHAS
      commit: (if $v == "" then null elif $tag != null then null else $p[-1] end),
      repo: $repo,
      features: $features,
-     fixer: (if $fixer == "" then null else $fixer end)}') || exit 1
+     millwright: (if $login == "" then null else $login end)} | .fixer = .millwright') || exit 1
 
 if [ "$json" = 1 ]; then
   printf '%s\n' "$object"
 else
-  jq -r '"api       \(.api)",
-    "tehas     \(.tehas // "unknown")\(if .commit == null then "" else " (\(.commit))" end)",
-    "repo      \(.repo)",
-    "features  \(.features | join(" "))",
-    "fixer     \(.fixer // "none")"' <<<"$object"
+  jq -r '"api         \(.api)",
+    "tehas       \(.tehas // "unknown")\(if .commit == null then "" else " (\(.commit))" end)",
+    "repo        \(.repo)",
+    "features    \(.features | join(" "))",
+    "millwright  \(.millwright // "none")"' <<<"$object"
 fi
