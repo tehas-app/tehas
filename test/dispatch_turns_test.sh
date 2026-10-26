@@ -51,6 +51,9 @@ t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label 
 t_case "every label of tehas's of an earlier outcome goes with the start"
 reset
 has 7 needs-human-attention tehas:question tehas:awaiting-merge
+# The Rust poll reads the comments of an issue its label says asks; there are
+# none here, so no question waits.
+echo '{"data":{"repository":{"issue":{"comments":{"nodes":[]}}}}}' >"$fx/comments-7.json"
 t_run "$dispatch"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:ready --remove-label tehas:awaiting-merge --remove-label tehas:question')" 1
 
@@ -111,8 +114,11 @@ t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label 
 t_case "every list of issues is read to a thousand"
 reset
 t_run "$dispatch"
-t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 8
-t_lacks "$(t_calls gh)" "--limit 100 "
+# The bash poll's lists; the Rust poll reads them as one page of 100 at a time.
+if bash_reads; then
+  t_eq "$(t_calls gh | grep -c -e '^issue list .* --limit 1000 ')" 8
+  t_lacks "$(t_calls gh)" "--limit 100 "
+fi
 
 t_case "an answer on a question the session is not waiting on runs no turn"
 planning

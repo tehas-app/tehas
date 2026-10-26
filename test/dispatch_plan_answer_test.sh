@@ -142,9 +142,14 @@ before=$(rec)
 echo '{"number":7,"state":"closed"}' >"$fx/work-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
 t_eq "$(plan_calls)" ""
-t_eq "$(rec)" "$before"
+# The bash poll's list and its read of the issue disagree here. The Rust
+# poll's one page cannot: a closed issue is not on it, and its session ends
+# as any session of a closed issue does.
+if bash_reads; then
+  t_contains "$t_out" "skip #7: it is closed, and a closed issue is never taken"
+  t_eq "$(rec)" "$before"
+fi
 t_lacks "$(t_calls gh)" "issue edit 7"
 
 t_case "a stranger's reply and a stranger's tick run no turn"

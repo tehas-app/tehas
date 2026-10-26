@@ -83,6 +83,8 @@ case "$1 $2" in
       "DELETE repos/acme/widget/issues/"*/labels/*)
         [ ! -e "$T/fx/label-missing" ] || not_found
         fails unmark-fails ;;
+      # A question as the Rust poll posts it, with its method said.
+      "POST repos/acme/widget/issues/"*/comments) [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
       *) fails patch-fails ;;
     esac ;;
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
@@ -114,7 +116,11 @@ case "$1 $2" in
     case "$*" in
       # The open issues in one page, as tehas-dispatch asks for them.
       *"issues(states: OPEN"*) "$T/page-stub" || exit 1 ;;
-      *"comments(last"*) cat "$T/fx/comments-$n.json" || exit 1 ;;
+      # Or the REST answer a case wrote, as GraphQL gives it.
+      *"comments(last"*) cat "$T/fx/comments-$n.json" 2>/dev/null ||
+        jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
+          body, createdAt: .created_at, lastEditedAt: (if .updated_at == .created_at then null else .updated_at end),
+          editor: (if .updated_at == .created_at then null else {login: .user.login} end)}]}}}}}" "$T/fx/icomments-$n.json" || exit 1 ;;
       # The states of the issues a tehas:blocked comment names.
       # One pull request, as a refresh reads it at the start.
       *"pullRequest(number"*) cat "$T/fx/pull-$n.json" || exit 1 ;;
@@ -326,6 +332,14 @@ reset() {
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
+  # T_RUST_POLL=1 runs every poll of the case in Rust, as TEHAS_DISPATCHER=rust
+  # does on a host: libexec/dispatch hands the poll to tehas-dispatch.
+  if [ -n "${T_RUST_POLL:-}" ]; then
+    # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
+    t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD="$T_ROOT/libexec/health")
+    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=rust "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=rust) ;; esac
+  fi
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
 # A cycle that is running: its lock, held by this shell until release.
@@ -555,11 +569,26 @@ mesh() { # [<the endpoint's answer>]
   rm -f "$fx/mesh.json"
   [ "$#" = 0 ] || echo "$1" >"$fx/mesh.json"
 }
+# curl_heard: the opening of a curl stub. What curl was given is kept the same
+# way from either poll: the bash poll's config in a /dev/fd file and its body on
+# standard input, the Rust poll's config on standard input with the body as its
+# `data` line. The config's lines go to calls/curl-config, the body to
+# calls/curl-body.
+curl_heard='conf=""
+case " $* " in *" -K - "*) conf=$(cat) ;; esac
+for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+if [ -n "$conf" ]; then
+  printf "%s\n" "$conf" | grep -v "^data = " >>"$T/calls/curl-config"
+  body=$(printf "%s\n" "$conf" | sed -n "s/^data = //p")
+  [ -z "$body" ] || jq -r . <<<"$body" >"$T/calls/curl-body"
+fi
+heard() { [ -n "$conf" ] || cat >"$T/calls/curl-body"; }
+'
 # A request with an image is answered when the file reads-images is there; what
 # was sent is kept.
 mesh_curl() {
-  t_stub curl 'case "$*" in
-  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+  t_stub curl "$curl_heard"'case "$*" in
+  *"/chat/completions") heard; [ -e "$T/fx/reads-images" ] ;;
   *) cat "$T/fx/mesh.json" 2>/dev/null ;;
 esac'
 }
@@ -643,8 +672,9 @@ open_read_fails_again() {
 # The open issues as tehas-dispatch's one GraphQL page asks for them, made from
 # the fixtures the bash poll's REST calls answer from: the lists name the
 # issues and their labels, events-<n>.json their label events, work-<n>.json
-# and edit-<n>.json (or edit.json) their text, and prs-<n>.json (or prs.json)
-# the pull requests that close them. An issue marked running and CLOSED is a
+# and edit-<n>.json (or edit.json) their text, prs-<n>.json (or prs.json)
+# the pull requests that close them, and issue-<n>.json with a state their
+# state and labels. An issue marked running and CLOSED is a
 # closed one.
 cat >"$T/page-stub" <<'STUB'
 #!/usr/bin/env bash
@@ -654,17 +684,40 @@ read_or() { # <file> <second file or ""> <default>
   [ -n "$2" ] && cat "$2" 2>/dev/null && return
   printf '%s' "$3"
 }
-lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
+lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map((. // []) | flatten)')
 nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
+# An issue whose cycle holds a lock file is marked running, as on a host; and
+# an issue a case wrote the REST answer of is on GitHub too: an open one is in
+# the queue whether or not a list names it.
+# Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
+# a case may count.
+inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
+# One ls for all of them: a host has hundreds.
+locked=$(ls -i "$T"/home/tehas/state/cycles/ 2>/dev/null | while read -r ino f; do
+  case "$f" in [0-9]*.lock) ;; *) continue ;; esac
+  case "$inodes" in *" $ino "*) echo "${f%.lock}" ;; esac
+done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
+for n in $(jq -r '.[]' <<<"$locked"); do
+  [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
+done
+for w in "$fx"/work-*.json; do
+  [ -f "$w" ] || continue
+  n=${w##*/work-}
+  n=${n%.json}
+  [ "$(jq -r '.state // "open" | ascii_downcase' "$w" 2>/dev/null)" = open ] && nums=$(printf '%s
+%s
+' "$nums" "$n" | sort -un)
+done
 items=$(for n in $nums; do
   jq -nc --argjson n "$n" --argjson ev "$(read_or "$fx/events-$n.json" "" "[]")" \
     --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
     --argjson e "$(read_or "$fx/edit-$n.json" "$fx/edit.json" "{}")" \
     --argjson p "$(read_or "$fx/prs-$n.json" "$fx/prs.json" "{}")" \
-    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p}'
+    --argjson i "$(read_or "$fx/issue-$n.json" "" "{}")" \
+    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p, i: $i}'
 done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
-  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" '
+  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
     # Being on a list is carrying its label, as gh issue list --label has it.
@@ -674,10 +727,16 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
   def actor: if .actor == null then null else {login: .actor.login} end;
   {data: {repository: {nameWithOwner: $repo.nameWithOwner,
     issues: {pageInfo: {hasNextPage: false, endCursor: null},
-      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open") | . as $i | {
-        number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
+      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open")
+        | select((.i.state // "OPEN") != "CLOSED") | . as $i | {
+        number: .n, title: (.e.title // .i.title // .w.title // ""), body: (.e.body // .i.body // .w.body),
         lastEditedAt: .e.lastEditedAt, editor: .e.editor,
-        labels: {nodes: [labels($i.n)[] | {name: .}]},
+        # The labels its lists give it, and those of its REST answer when a case
+        # wrote one: on GitHub the two agree.
+        # The answer of gh issue view, when a case wrote its state, is the truth.
+        labels: {nodes: [((if $i.i.state then [($i.i.labels // [])[] | .name? // . | strings]
+            else labels($i.n) + [($i.w.labels // [])[] | .name? // . | strings] end)
+          + (if any($locked[]; . == $i.n) then ["tehas:running"] else [] end)) | unique | .[] | {name: .}]},
         subIssuesSummary: (.w.sub_issues_summary // null),
         timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
@@ -686,3 +745,9 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
     closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
 STUB
 chmod +x "$T/page-stub"
+
+# bash_reads: whether the poll under test makes the bash poll's own reads,
+# its REST calls and their words. The Rust poll (T_RUST_POLL) reads the queue
+# in one GraphQL page instead, and ends the poll on its failure with its own
+# words, so a case that checks those calls checks them for the bash alone.
+bash_reads() { [ -z "${T_RUST_POLL:-}" ]; }

@@ -30,15 +30,18 @@ pub fn expected(decision: &Value) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(str::to_string)
         .collect();
-    out.extend(
-        decision
-            .get("actions")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|a| a.get("log").and_then(Value::as_str))
-            .map(str::to_string),
-    );
+    for a in decision
+        .get("actions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        for k in ["first", "log"] {
+            if let Some(l) = a.get(k).and_then(Value::as_str) {
+                out.push(l.to_string());
+            }
+        }
+    }
     out
 }
 

@@ -38,6 +38,7 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "store journal-open") cat "$d/open" 2>/dev/null || echo '{"api":1,"verb":"journal-open","ok":true,"actions":[]}' ;;
   "store plan-begin")
     for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
     echo '{"api":1,"verb":"plan-begin","ok":true}' ;;
@@ -57,9 +58,12 @@ case "$name $1" in
       "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
       "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
     esac ;;
-  "gh api") case "$*" in *"-X POST"*/comments*) echo '{"id":99}' ;; esac
+  "gh api") case "$*" in *"-X POST"*/comments*) echo 99 ;; esac
     case "$2" in
-      repos/*/issues/[0-9]*) case "$2" in */comments*) ;; *) echo '{"id":555}' ;; esac ;;
+      repos/*/issues/[0-9]*) case "$2" in
+          */comments*) ;;
+          *) f=${2#*/issues/}; if [ -f "$d/issue-$f" ]; then cat "$d/issue-$f"; else echo '{"id":555}'; fi ;;
+        esac ;;
     esac
     case "$2" in
       */issues/[0-9]*/comments*) f=${2#*/issues/}; f=$d/comments-${f%%/*}
@@ -218,7 +222,7 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
     assert_eq!(
         t.writes(),
         vec![
-            "gh issue edit 7 --repo example-owner/example-product --add-label needs-human-attention --remove-label tehas:ready",
+            "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:ready --add-label needs-human-attention",
             "gh issue comment 7 --repo example-owner/example-product --body-file - <<< Tehas took it off.",
         ]
     );
@@ -2187,4 +2191,157 @@ fn a_planning_turns_refresh_does_not_stand_in_for_a_starts() {
             .count(),
         2
     );
+}
+
+fn left_open(t: &World, actions: Value) {
+    fs::write(
+        t.dir.join("open"),
+        json!({"api": 1, "verb": "journal-open", "ok": true, "actions": actions}).to_string(),
+    )
+    .unwrap();
+}
+
+fn settled(t: &World) -> Vec<String> {
+    t.calls()
+        .into_iter()
+        .filter(|c| c.starts_with("store journal-settle"))
+        .collect()
+}
+
+#[test]
+fn a_write_never_attempted_is_abandoned_and_one_that_landed_is_done() {
+    let mut t = world();
+    left_open(
+        &t,
+        json!([
+            {"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
+             "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}},
+            {"id": 4, "kind": "label-add", "issue": 8, "state": "attempted", "intended_at": 990, "attempted_at": 991,
+             "args": {"gh": ["issue", "edit", "8", "--repo", "r", "--remove-label", "tehas:ready", "--add-label", "tehas:running"]}},
+            {"id": 5, "kind": "label-add", "issue": 9, "state": "attempted", "intended_at": 990, "attempted_at": 991,
+             "args": {"gh": ["issue", "edit", "9", "--repo", "r", "--add-label", "tehas:running"]}},
+        ]),
+    );
+    fs::write(
+        t.dir.join("issue-8"),
+        r#"{"labels":[{"name":"tehas:running"}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("issue-9"),
+        r#"{"labels":[{"name":"tehas:ready"}]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
+        "journal: action 4 (label-add on #8, 10s old) was done",
+        "journal: action 5 (label-add on #9, 10s old) did not happen (the labels are not as it wanted them); this poll decides it again",
+    ]);
+    let s = settled(&t);
+    assert_eq!(s[0], "store journal-settle --action 3 --abandoned");
+    assert!(s[1].starts_with("store journal-settle --action 4 --result ok --evidence "));
+    assert_eq!(s[2], "store journal-settle --action 5 --abandoned");
+}
+
+#[test]
+fn a_comment_is_found_by_its_sum_and_one_not_there_is_not_posted_again() {
+    use sha2::{Digest, Sha256};
+    let sum: String = Sha256::digest(b"Tehas cycle started.")
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    let open = |id: u64| {
+        json!({"id": id, "kind": "comment-post", "issue": 7, "state": "attempted", "intended_at": 1792000000,
+        "attempted_at": 1792000000, "args": {"gh": ["issue", "comment", "7"], "input": {"sha256": sum, "bytes": 20}}})
+    };
+    let mut t = world();
+    left_open(&t, json!([open(6)]));
+    fs::write(
+        t.dir.join("comments"),
+        json!([{"id": 41, "body": "Tehas cycle started.", "user": {"login": "tehas-bot"},
+        "created_at": "2026-10-15T00:00:00Z", "updated_at": "2026-10-15T00:00:00Z"}])
+        .to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 6 (comment-post on #7, 10s old) was done"]
+    );
+    let mut t = world();
+    left_open(&t, json!([open(6)]));
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert!(log[0].contains("did not happen (no comment of the bot with its text is there)"));
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh issue comment")));
+}
+
+#[test]
+fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
+    let mut t = world();
+    let args: Vec<String> = [
+        "api",
+        "-X",
+        "POST",
+        "repos/r/issues/7/comments",
+        "--input",
+        "-",
+    ]
+    .map(String::from)
+    .to_vec();
+    let input = json!({"body": "Which?"}).to_string();
+    t.w.write(7, "comment-post", args, Some(&input), None);
+    let record = t
+        .calls()
+        .into_iter()
+        .find(|c| c.starts_with("store journal-record"))
+        .unwrap();
+    let call: Value = serde_json::from_str(
+        record
+            .split(" --args ")
+            .nth(1)
+            .unwrap()
+            .split(" --before ")
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    let mut t = world();
+    left_open(
+        &t,
+        json!([{"id": 6, "kind": "comment-post", "issue": 7, "state": "attempted", "intended_at": 1792000000,
+        "attempted_at": 1792000000, "args": call}]),
+    );
+    // GitHub's clock a few seconds behind the host's.
+    fs::write(
+        t.dir.join("comments"),
+        json!([{"id": 41, "body": "Which?", "user": {"login": "tehas-bot"},
+        "created_at": crate::decide::iso(1791999995), "updated_at": crate::decide::iso(1791999995)}])
+        .to_string(),
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1792000010, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 6 (comment-post on #7, 10s old) was done"]
+    );
+}
+
+#[test]
+fn an_action_a_read_cannot_settle_stays_open() {
+    let mut t = world();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "issue-close", "issue": 7, "state": "attempted", "intended_at": 990,
+        "attempted_at": 991, "args": {"gh": ["issue", "close", "7"]}}]),
+    );
+    t.fail("gh", "repos/example-owner/example-product/issues/7");
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec!["WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: gh api repos/example-owner/example-product/issues/7 failed; the next poll tries again"]);
+    assert!(settled(&t).is_empty());
 }

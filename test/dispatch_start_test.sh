@@ -184,7 +184,7 @@ t_contains "$(t_calls gh)" "An epic is never started. Apply \`tehas:ready\` to o
 t_eq "$(grep -c '^issue comment 7 ' <<<"$(t_calls gh)")" 1
 
 t_case "and the ask costs no call to GitHub beyond the issue it already read"
-t_eq "$(grep -c -x 'api repos/acme/widget/issues/7' <<<"$(t_calls gh)")" 1
+bash_reads && t_eq "$(grep -c -x 'api repos/acme/widget/issues/7' <<<"$(t_calls gh)")" 1
 
 t_case "when its label cannot be changed nothing is said on it, and the poll goes on"
 reset
@@ -233,7 +233,7 @@ reset
 printf '%s' '[]' >"$fx/work-7.json"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: GitHub's answer for #7 could not be read"
+bash_reads && t_contains "$t_out" "ERROR: GitHub's answer for #7 could not be read"
 t_eq "$(t_calls fake-start)" ""
 
 t_case "and an answer whose counts are not numbers starts too"
@@ -301,7 +301,7 @@ t_case "and the hold sits before every ask that a start would have made"
 # that approved it, and the one ask work_ok makes. None of the asks that follow
 # it for an issue this poll takes - a pull request that closes it, an attachment
 # its text links - is made for one it holds, and no cycle is started for it.
-t_eq "$(grep "^api repos/acme/widget/issues/7" <<<"$(t_calls gh)" | sort -u | tr '\n' ' ')" "api repos/acme/widget/issues/7 api repos/acme/widget/issues/7/events?per_page=100 --paginate "
+bash_reads && t_eq "$(grep "^api repos/acme/widget/issues/7" <<<"$(t_calls gh)" | sort -u | tr '\n' ' ')" "api repos/acme/widget/issues/7 api repos/acme/widget/issues/7/events?per_page=100 --paginate "
 t_eq "$(t_calls fake-start)" ""
 
 t_case "cross-project alone is no hold: the issue of a person starts as any other"
@@ -361,7 +361,7 @@ release
 t_case "closed issues are asked for too"
 reset
 t_run "$dispatch"
-t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --label tehas:running"
+bash_reads && t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --label tehas:running"
 
 t_case "a lock file nobody holds does not make it a running cycle"
 reset
@@ -454,20 +454,23 @@ t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its 
 t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:running --add-label needs-human-attention"
 
 t_case "when the issues marked as running cannot be read nothing is dispatched"
-reset
-rm -f "$fx/marked.json"
-t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh issue list failed"
-t_lacks "$(t_calls gh)" "issue edit"
-t_eq "$(t_calls fake-start)" ""
+# The Rust poll has no list of its own to fail: its one page is the read.
+if bash_reads; then
+  reset
+  rm -f "$fx/marked.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "ERROR: gh issue list failed"
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_eq "$(t_calls fake-start)" ""
+fi
 
 t_case "an answer that is no list of issues dispatches nothing"
 reset
 echo '{"oops":1}' >"$fx/marked.json"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: unreadable list of issues marked as running"
+bash_reads && t_contains "$t_out" "ERROR: unreadable list of issues marked as running"
 t_eq "$(t_calls fake-start)" ""
 
 t_case "the lock file of a cycle that ended holds nothing back"

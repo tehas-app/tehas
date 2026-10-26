@@ -329,12 +329,15 @@ impl Writer {
                 "image".into(),
                 "inspect".into(),
                 "--format".into(),
-                "{{index .Config.Labels \"tehas.rukas\"}}".into(),
+                "{{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}}"
+                    .into(),
                 self.host.image.clone(),
             ],
             std::time::Duration::from_secs(30),
         );
-        let c = r.out.lines().next().unwrap_or("").to_string();
+        // As tehas_rukas_ask asks it: the commit, then whether it reads images.
+        let line = r.out.lines().next().unwrap_or("");
+        let c = line.split('|').next().unwrap_or("").to_string();
         if r.ok()
             && (7..=40).contains(&c.len())
             && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
@@ -650,15 +653,15 @@ impl Writer {
             format!("repos/{}/issues/{n}/comments", self.repo),
             "--input".into(),
             "-".into(),
+            "--jq".into(),
+            ".id".into(),
         ];
         let input = json!({"body": body}).to_string();
         let Wrote::Done(said) = self.write(n, "comment-post", args, Some(&input), None) else {
             return None;
         };
-        let id = serde_json::from_str::<Value>(&said)
-            .ok()?
-            .get("id")
-            .and_then(Value::as_u64)?;
+        // gh prints the id alone, as --jq .id has it.
+        let id = said.trim().parse::<u64>().ok()?;
         Some(id.to_string())
     }
 

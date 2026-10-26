@@ -146,8 +146,9 @@ ready 3 8!
 t_run "$dispatch"
 t_eq "$t_rc" 0
 # Once for the demand, once for the order, once when #8 is picked: no start
-# rests on the reads before the decision.
-t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "3"
+# rests on the reads before the decision. The bash poll's reads: the Rust
+# poll reads every issue's events once, with its page, just before it decides.
+bash_reads && t_eq "$(grep -c -e 'api repos/acme/widget/issues/8/events' <<<"$(t_calls gh)")" "3"
 
 t_case "an urgent issue this poll cannot start is not asked about"
 reset
@@ -171,26 +172,36 @@ t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/.*would run a cycle for #\([0-9]*\).*/\1/p' | tr '\n' ' ')" "8 3 "
 
 t_case "when the urgent label events cannot be read nothing is started and no label changes"
-reset
-slots 2
-ready 3 8!
-rm "$fx/events-8.json"
-t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/8/events?per_page=100 failed"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
+# A read of the bash poll's own: the Rust poll has every issue's label events
+# from its one page of the queue, so a fixture of one issue's events changes
+# nothing for it.
+if bash_reads; then
+  reset
+  slots 2
+  ready 3 8!
+  rm "$fx/events-8.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/8/events?per_page=100 failed"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+fi
 
 t_case "label events that are not JSON end the poll, whatever label is being read"
-reset
-slots 2
-ready 3 8!
-echo 'not json' >"$fx/events-8.json"
-t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: unreadable label events of #8"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
+# A read of the bash poll's own: the Rust poll has every issue's label events
+# from its one page of the queue, so a fixture of one issue's events changes
+# nothing for it.
+if bash_reads; then
+  reset
+  slots 2
+  ready 3 8!
+  echo 'not json' >"$fx/events-8.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "ERROR: unreadable label events of #8"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+fi
 
 t_case "label events that answer with an object end the poll too"
 reset
@@ -199,7 +210,8 @@ ready 3 8!
 echo '{"message":"Bad credentials"}' >"$fx/events-8.json"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: unreadable label events of #8"
+# The Rust poll's page fails as a whole, with its own words.
+bash_reads && t_contains "$t_out" "ERROR: unreadable label events of #8"
 t_eq "$(t_calls fake-start)" ""
 t_lacks "$(t_calls gh)" "issue edit"
 
@@ -222,7 +234,8 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 # The demand reads the list and who labelled each issue; nothing else is asked.
-t_eq "$(grep -c -e 'tehas:ready' <<<"$(t_calls gh)")" 1
+# The bash poll's calls; the Rust poll asks one page and nothing per issue.
+bash_reads && t_eq "$(grep -c -e 'tehas:ready' <<<"$(t_calls gh)")" 1
 t_eq "$(grep -c -x -e 'api repos/acme/widget/issues/[78]' -e 'issue view [78] .*' <<<"$(t_calls gh)")" 0
 t_lacks "$(t_calls gh)" "awaiting-merge"
 t_run "$dispatch --dry-run"
