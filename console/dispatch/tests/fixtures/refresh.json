@@ -1,0 +1,488 @@
+{
+ "suite": "test/dispatch_refresh_test.sh",
+ "later": [
+  "the requests of rule 4b, their checks, their lane and their start: PR 3"
+ ],
+ "cases": [
+  {
+   "case": "a leftover tehas:refreshing is taken off a pull request whose issue has no cycle",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "pr": 50,
+      "remove": [
+       "tehas:refreshing"
+      ],
+      "log": "clear pull request #50: tehas:refreshing off, no cycle runs on #7"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the leftover is cleared while the factory is paused",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    },
+    "pause_flag": {
+     "by": "alice",
+     "at": "2026-10-17T00:00:00Z",
+     "reason": ""
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "pr": 50,
+      "remove": [
+       "tehas:refreshing"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "the mark of a running refresh stays when the bot applied it",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     },
+     "50": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refreshing"
+        },
+        "actor": {
+         "login": "tehas-bot"
+        },
+        "created_at": "2026-10-17T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "running": [
+     {
+      "issue": 7,
+      "how": "refresh"
+     }
+    ]
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "pr": 50
+     }
+    ]
+   }
+  },
+  {
+   "case": "a tehas:refreshing applied by anyone else is taken off, also while a refresh runs",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     },
+     "50": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:refreshing"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-17T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "running": [
+     {
+      "issue": 7,
+      "how": "refresh"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "pr": 50,
+      "remove": [
+       "tehas:refreshing"
+      ],
+      "log": "clear pull request #50: tehas:refreshing off, it was applied by 'alice', not by tehas"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a tehas:refreshing on a pull request no refresh of this host names is taken off",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": []
+     }
+    }
+   },
+   "expect": {
+    "actions": [
+     {
+      "pr": 50,
+      "log": "clear pull request #50: tehas:refreshing off, no refresh on this host names it"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a host that never refreshed does not ask for the mark",
+   "settings": {},
+   "snapshot": {
+    "ready": []
+   },
+   "expect": {
+    "nothing": true
+   }
+  },
+  {
+   "case": "a history of refreshes the store cannot read clears no mark",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": {
+     "failed": true,
+     "word": "busy",
+     "rc": 1
+    },
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "pr": 50
+     }
+    ],
+    "log": [
+     "WARN: the history of refreshes could not be read (busy)"
+    ]
+   }
+  },
+  {
+   "case": "an approval the store cannot read clears no mark",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "failed": true,
+       "word": "busy",
+       "rc": 1
+      }
+     }
+    }
+   },
+   "expect": {
+    "no_actions": [
+     {
+      "pr": 50
+     }
+    ],
+    "log": [
+     "WARN: the approval of #7 could not be read (busy)"
+    ]
+   }
+  },
+  {
+   "case": "a dry run says the mark would come off and changes nothing",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "dry": true,
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": [
+     {
+      "number": 50,
+      "labels": [
+       {
+        "name": "tehas:refreshing"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "would take tehas:refreshing off pull request #50: no cycle runs on #7"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a list of marked pull requests that cannot be read ends the poll",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_history": [
+     7
+    ],
+    "refreshing": {
+     "failed": true
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "current": {
+       "how": "refresh",
+       "by": "alice",
+       "refresh_pr": 50
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: gh pr list failed"
+    ]
+   }
+  },
+  {
+   "case": "a snapshot that lacks the history of refreshes names it",
+   "settings": {
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "expect": {
+    "needs": [
+     "refresh_history"
+    ]
+   },
+   "drop": [
+    "refresh_history"
+   ]
+  }
+ ]
+}

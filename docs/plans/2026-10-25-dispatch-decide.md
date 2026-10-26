@@ -35,6 +35,42 @@ I/O only (a count of calls, how a command runs).
 The start itself (`start_cycles`: approval record, label, comment, unit,
 wait) is #254's: it is acting, and this issue only decides.
 
+PR 2 also ports the pause cases of the guard suite, which PR 1 left without
+fixtures, and from the suites of PR 3 and PR 4 the cases of its own rules:
+the park's hold of rule 4c (park), the stray tehas:refreshing (refresh), and
+the epics, cross-project issues and marks with no cycle (start).
+
+What PR 2 decides, and what it leaves to the caller:
+
+- A write whose result changes what a poll says is the caller's: the comment
+  that follows a label change that worked, the line of a container docker
+  removed, the record of a tell. The action carries the line or the comment
+  for that case.
+- A quiet cycle's episode is read from the store's record, as a dry run reads
+  it; the caller writes the note (`quiet`) and asks the stop (`stop`) or
+  records the line (`asked`). A store that refuses those writes is the
+  caller's to say.
+- A finished cycle that is stopped frees its slot in the same decision, as if
+  the stop worked. The bash waits for the lock and counts again; the shadow
+  of PR 4 will show any difference. Its mark is left to its own end, not
+  reaped.
+- The sweep of unused locks (sweep-locks) is the store's own rule, and the
+  caller runs it on every poll. Which names an issue has on the disk, and how
+  old they are, are the snapshot's (`leftovers`).
+- The size measure ports the count of files alone, the one count the poll
+  reads.
+- A fact the snapshot lacks is named in `needs`, never read as none: the
+  marked issues, the clock, the host's name, the refresh history, the
+  leftovers, an issue's park, approval and current approval.
+- Two known differences from jq, left for the shadow to measure. The texts of
+  an answer are read in key order, where jq reads them in GitHub's order, so
+  of two promised files the log may name the other one; keeping GitHub's
+  order needs serde_json's `preserve_order`, which would change the order of
+  every crate's JSON in the workspace. And jq's `$` also matches before a
+  final newline, which no field the checks read ends with.
+- The fixtures match a log line by its text, not as a whole line: the shadow
+  of PR 4 is what compares the log line by line.
+
 D2. **A library crate `console/dispatch`** (`tehas-dispatch`). PRs 1 to 3 add
 no binary and nothing is installed, so they cannot change a host. PR 4 adds
 the binary.

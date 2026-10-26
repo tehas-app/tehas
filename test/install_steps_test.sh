@@ -263,7 +263,7 @@ if real_store "a first install makes state/tehas.db 0600 in a 0700 state/"; then
   t_eq "$(stat -c %a "$th/state/tehas.db")" 600
   t_run "TEHAS_HOME='$th' '$th/libexec/store' check"
   t_eq "$t_rc" 0
-  t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "5 ok"
+  t_eq "$(jq -r '"\(.schema) \(.integrity)"' <<<"$t_out")" "6 ok"
   t_eq "$([ -e "$th/state/backup" ] && echo there)" ""
 fi
 
@@ -271,10 +271,10 @@ if real_store "a second install migrates and leaves a backup under state/backup/
   chmod 755 "$th/state"
   t_run "umask 022; $install"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "store: $th/state/tehas.db at schema 5, backup $th/state/backup/tehas-5-"
+  t_contains "$t_out" "store: $th/state/tehas.db at schema 6, backup $th/state/backup/tehas-6-"
   t_eq "$(stat -c %a "$th/state")" 700
   t_eq "$(stat -c %a "$th/state/backup")" 700
-  copies=$(find "$th/state/backup" -type f -name 'tehas-5-*.db')
+  copies=$(find "$th/state/backup" -type f -name 'tehas-6-*.db')
   t_eq "$(printf '%s\n' "$copies" | grep -c .)" 1
   t_eq "$(stat -c %a "$copies")" 600
   t_eq "$(stat -c %a "$th/state/tehas.db")" 600
@@ -300,7 +300,7 @@ if real_store "a database the install did not make is migrated and not replaced"
   made=$(sha256sum <"$th/state/tehas.db")
   t_run "$install"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "backup $th/state/backup/tehas-5-"
+  t_contains "$t_out" "backup $th/state/backup/tehas-6-"
   t_eq "$(sha256sum <"$th/state/tehas.db")" "$made"
   t_lacks "$t_out" "store: made"
 fi
@@ -326,8 +326,8 @@ if real_store "a home reached through a link installs a second time"; then
   t_eq "$t_rc" 0
   t_run "$install"
   t_eq "$t_rc" 0
-  t_contains "$t_out" "backup $T/disk/state/backup/tehas-5-"
-  t_eq "$(find "$T/disk/state/backup" -type f -name 'tehas-5-*.db' | wc -l)" 1
+  t_contains "$t_out" "backup $T/disk/state/backup/tehas-6-"
+  t_eq "$(find "$T/disk/state/backup" -type f -name 'tehas-6-*.db' | wc -l)" 1
   rm -rf "$T/disk"
 fi
 t_env

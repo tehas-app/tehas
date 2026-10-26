@@ -5,7 +5,8 @@
 # One line per end: the history on the state store (history-show), which
 # tehasbot cycle writes when a cycle ends and the dispatcher when a planning
 # turn ends (plan-end). tehas history reads both kinds, puts the lines in the
-# order they ended, and prints the ones after a cursor. It reads only: no network, no
+# order they were written, which is the order they ended, and prints the ones
+# after a cursor. It reads only: no network, no
 # lock a cycle holds, and nothing under $TEHAS_HOME is written but what SQLite
 # keeps beside the store as it reads. A line it
 # cannot read is left out, not an error; a store that cannot be read is an
@@ -14,8 +15,9 @@
 # Usage: tehas history [--json] [--after CURSOR] [--issue N]
 #
 #   --after CURSOR   what this command printed as "next" before: only the lines
-#                    that ended after it, as 1760700000-12. A cursor the shape
-#                    of none this command could have printed is a bad argument,
+#                    written after it, as 1760700000-12-41. The shape of v0.13
+#                    and before, 1760700000-12, is still read. A cursor the
+#                    shape of none this command could have printed is a bad argument,
 #                    which reads nothing: a mangled cursor does not become an
 #                    empty listing the caller would keep
 #   --issue N        one issue's lines; N is a number that does not start with
@@ -23,32 +25,34 @@
 #
 # Without --json, one line each, oldest first:
 #
-#   1760700000-12  work  #12  handoff  rc 10  step review  parked  pr https://github.com/...
-#   1760700300-7   plan  #7   finished  turn 3
+#   1760700000-12-41  work  #12  handoff  rc 10  step review  parked  pr https://github.com/...
+#   1760700300-7-42   plan  #7   finished  turn 3
 #
 # With --json, one object on standard output and nothing else:
 #
 #   {"api": 1, "cycles": [
-#      {"cursor": "1760700000-12", "kind": "work", "issue": 12,
+#      {"cursor": "1760700000-12-41", "kind": "work", "issue": 12,
 #       "started": "2026-10-17T11:20:00Z", "ended": "2026-10-17T13:20:00Z",
 #       "status": 0, "outcome": "handoff", "pr": "https://github.com/...",
 #       "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
 #       "failureKind": "review", "failureCause": "...", "provider": false,
 #       "parked": true, "by": "alice", "how": "label"},
-#      {"cursor": "1760700300-7", "kind": "plan", "issue": 7,
+#      {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
 #       "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
 #       "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
 #       "label": "tehas:refine", "auto": true, "filed": ["https://github.com/..."]}],
-#    "next": "1760700300-7"}
+#    "next": "1760700300-7-42"}
 #
 # host/docs/api.md has every field and the line it comes from. A field the line
 # does not have is left out, never null.
 #
-# cursor orders the lines by when they ended: the seconds of the end, then the
-# issue, which is what gives two lines that ended in the same second an order
-# of their own. --after takes a cursor this command printed and lists what
-# ended after it, so a program that keeps "next" and asks again neither misses
-# a line nor reads one twice.
+# A cursor is the seconds of the end, the issue, and the line's place in the
+# order the store wrote the ends, one number across cycles and planning turns.
+# The last is what --after reads, so a line written after a read is listed by
+# the next one even when it ended in the same second as one already read, and
+# a program that keeps "next" and asks again neither misses a line nor reads
+# one twice. An old cursor, without the third number, is read as before: the
+# lines after it on the seconds and the issue.
 #
 # Exit: 0 printed, also with nothing to list; 1 the state store did not
 # answer (busy), which prints nothing; 64 an argument this command does not
@@ -73,10 +77,10 @@ while [ "$#" -gt 0 ]; do
     --after)
       [ -z "$after" ] || usage
       [ "$#" -ge 2 ] || usage
-      # The widths this command can print: at most 10 digits of seconds and at
-      # most 9 digits of issue. A wider cursor belongs to no listing, and 10
-      # digits are also the most jq compares as a number without error.
-      [[ $2 =~ ^[0-9]{1,10}-[1-9][0-9]{0,8}$ ]] || usage
+      # The widths this command can print: at most 10 digits of seconds, 9 of
+      # issue and 15 of place. A wider cursor belongs to no listing, and each is
+      # within what jq compares as a number without error.
+      [[ $2 =~ ^[0-9]{1,10}-[1-9][0-9]{0,8}(-[1-9][0-9]{0,14})?$ ]] || usage
       after=$2
       shift 2
       ;;
@@ -115,9 +119,9 @@ if ! tehas_store "${store_args[@]}"; then
 fi
 # shellcheck disable=SC2154  # lib/store.sh sets the shape and the answer
 lines=$(jq -c --arg repo "${TEHAS_REPO:-}" "$tehas_history_line"' .rows[]
-  | if .kind == "cycle" then {issue, kind: "work"} + history_line
+  | if .kind == "cycle" then {issue, kind: "work", seq} + history_line
     elif .kind == "plan" then
-      {issue, kind: "plan", at: (.at | todate), started: .started_at, rc: (.rc // .outcome), status: .outcome,
+      {issue, kind: "plan", seq, at: (.at | todate), started: .started_at, rc: (.rc // .outcome), status: .outcome,
        turn, by, label, filed, auto: (if .auto == true then true else null end)}
       | with_entries(select(.value != null and .value != "" and .value != []))
     else empty end' <<<"$tehas_store_out" 2>/dev/null) || lines=""
@@ -145,20 +149,23 @@ after_json=null
     def is_line: (type) == "object" and ((.kind | type) == "string")
       and ((.kind | test("^(work|plan)$")) == true)
       and whole(.issue) and ((.issue | tostring | tonumber) >= 1)
+      and whole(.seq) and ((.seq | tostring | tonumber) >= 1)
       and ((.at | type) == "string")
       and ((.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) == true)
       and ((.rc | type) == "number" or (.rc | type) == "string")
       and ((.status | type) == "string");
-    # A line is listed when its end is strictly after the cursor, compared on
-    # the pair (the seconds of the end, the issue): that is what gives two lines
-    # that ended in one second an order of their own.
+    # A line is listed when it was written after the line of the cursor. An old
+    # cursor has no place, and is compared as before on the pair (the seconds
+    # of the end, the issue).
     def after_cursor($c; $s): ($c | split("-")) as $p
-      | ($s > ($p[0] | tonumber)) or
-        (($s == ($p[0] | tonumber)) and ((.issue | tostring | tonumber) > ($p[1] | tonumber)));
+      | if ($p | length) == 3 then (.seq | tostring | tonumber) > ($p[2] | tonumber)
+        else ($s > ($p[0] | tonumber)) or
+          (($s == ($p[0] | tonumber)) and ((.issue | tostring | tonumber) > ($p[1] | tonumber)))
+        end;
     # What a caller reads. A release that adds a field to a line adds it here
     # too; nothing here renames or removes one. A line this release cannot read
     # is left out, so an older or a newer file breaks no listing.
-    def publish($s): {cursor: "\($s)-\(.issue)", kind, issue, ended: .at,
+    def publish($s): {cursor: "\($s)-\(.issue)-\(.seq)", kind, issue, ended: .at,
        started: iso_of(.started), status: num(.rc), outcome: .status, turn: num(.turn),
        step: word(.step), cap: word(.cap), parkReason: word(.park_reason),
        failureKind: word(.failure_kind), failureCause: word(.failure_cause),
@@ -173,19 +180,11 @@ after_json=null
     [ .[] | select(is_line) | (.at | try fromdateiso8601 catch null) as $s
       | select($s != null)
       | select(if $after == null then true else after_cursor($after; $s) end)
-      | publish($s) ]
-    # Oldest first: the seconds of the end, then the issue, then the order of a
-    # unit within its turn. Three cycles that ended in one second keep an order
-    # of their own, which is the same order --after reads, so a program that
-    # keeps "next" and asks again is given each line once.
-    #
-    # The key is the negation of what is wanted and the list is reversed, because
-    # jq 1.7 sorts an array key that holds a negated expression as if it were
-    # absent. Reversing a list sorted by the negated pair gives the pair itself,
-    # ascending, which is what a caller reads.
-    | map(. + {e: (0 - (.ended | try fromdateiso8601 catch 0)), i: (0 - .issue)})
-    | sort_by([.e, .i, (.seq // 0)]) | reverse
-    | map(del(.e, .i, .seq)) as $c
+      | {seq: (.seq | tostring | tonumber), line: publish($s)} ]
+    # Oldest first, in the order the store wrote the ends: the order --after
+    # reads, so a program that keeps "next" and asks again is given each line
+    # once.
+    | sort_by(.seq) | map(.line) as $c
     | {api: 1, cycles: $c,
        next: (if ($c | length) == 0 then $after else $c[-1].cursor end)}' |
   if [ "$json" = 1 ]; then

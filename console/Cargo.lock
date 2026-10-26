@@ -468,7 +468,9 @@ dependencies = [
 name = "tehas-dispatch"
 version = "0.1.0"
 dependencies = [
+ "regex",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
