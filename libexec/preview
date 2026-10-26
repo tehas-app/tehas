@@ -76,7 +76,8 @@
 #
 # Exit: 0 done, or GitHub or Docker did not answer and what runs was left
 #       running; 1 it cannot write under $TEHAS_HOME; 64 a wrong argument;
-#       78 the instance settings are invalid or TEHAS_PREVIEWS is not 1.
+#       78 the instance settings are invalid, TEHAS_PREVIEWS is not 1, or the
+#       console is not installed beside this command.
 set -uo pipefail
 umask 022
 
@@ -107,6 +108,8 @@ if [ "$TEHAS_PREVIEWS" != 1 ]; then
   tehas_err "TEHAS_PREVIEWS is not 1: this instance has no previews"
   exit 78
 fi
+console=$here/console
+[ -x "$console" ] || { tehas_err "no console beside this command ($console), run install.sh"; exit 78; }
 
 repo=$TEHAS_REPO
 root=$TEHAS_HOME/preview
@@ -139,19 +142,6 @@ pull_pages=10
 # below the default is taken, and anything else is the default.
 settle=5
 if [[ $settle_asked =~ ^[0-4]$ ]]; then settle=$settle_asked; fi
-# The notice in a description is this command's only between these two lines,
-# only when the first of them is the first line of the description, and only
-# when everything between them is one of the notices it writes.
-marker='<!-- tehas-preview -->'
-marker_end='<!-- /tehas-preview -->'
-# How the three notice lines begin, and the one sentence two of them are
-# followed by. tell builds a notice from these; the jq program that decides
-# whether a block is this command's reads the same two values, so rewording a
-# notice changes this pair and nothing else.
-notice_starts=('Preview of `' 'Unable to create a preview' 'There is no preview')
-notice_tail='It is rebuilt when the branch changes and removed when this pull request is closed.'
-# The same beginnings as one JSON array, for that jq program. Made once here.
-notice_json=$(jq -cn '$ARGS.positional' --args "${notice_starts[@]}")
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 free=""
 low=false
@@ -255,312 +245,12 @@ measure() {
 gb() { awk -v kb="$1" 'BEGIN { printf "%.1f GB", kb / 1048576 }'; }
 
 # --- The notice in the pull request's description ----------------------------
-# What this command already said about one pull request is on record in
-# $root/<number>/.notice, as "<commit> <state> <outcome> <attempts> <time>":
-# none (there was nothing to say), said (the notice is there), refused (the block
-# at the top of the description is not this command's), failed, with how many
-# writes GitHub did not take, or gaveup, after three of them were not taken. The
-# time is the one GitHub gave for that pull request when this command last looked
-# at its description.
-# A record ends the talk about that commit and state: a full disk is not an edit
-# every five minutes, and a notice GitHub will not take is said about once for
-# each attempt and then left to the next commit or state, not at every run until
-# one comes. It does not end the looking. A description edited at the top is
-# found at the next run, because GitHub's time for the pull request is then later
-# than the one on record: the description is read again, so a notice a person
-# removed comes back and one written by someone else in the shape of the bot's is
-# written over. Ownership of a description is only what its text says, so it is
-# looked at again whenever the text can have changed. Only a read that failed
-# leaves nothing on record, so the next run asks again.
-# notice_said <number> <key>: "<outcome> <attempts> <time>" for that commit and
-# state, and nothing at all when there is no record or the key is another one.
-notice_said() {
-  local sha state what tries seen
-  read -r sha state what tries seen <<<"$(cat "$root/$1/.notice" 2>/dev/null)" || return 0
-  [ "$sha $state" = "$2" ] || return 0
-  echo "${what:-} ${tries:-0} ${seen:-}"
-}
-# notice_record <number> <key> <outcome> [attempts] [time]: put that on record. A
-# record this command cannot write is said in the log, because without it the
-# same notice would be written at every run.
-notice_record() {
-  local line
-  line="$2 $3 ${4:-0}"
-  if [ -n "${5-}" ]; then
-    line="$line $5"
-  fi
-  printf '%s\n' "$line" >"$root/$1/.notice" ||
-    echo "#$1: the notice was not recorded on the host, tried again at the next run"
-}
-# why_failed <file>: one short reason for a call or a program that failed, from
-# what it wrote to that file. As in the sweep: a token that lost access gets 404
-# for every pull request, which an operator can tell from a moment of rate limit
-# or from a call that never came back. Control characters go and the text is cut
-# short.
-why_failed() {
-  local line
-  line=$(tail -n 1 "$1" 2>/dev/null | tr -d '[:cntrl:]' | sed 's/^jq: error ([^)]*): //')
-  case "$line" in
-    *"HTTP 404"*) echo "no such pull request (HTTP 404)" ;;
-    *"HTTP 403"* | *"HTTP 429"* | *"rate limit"*) echo "GitHub refused the call (HTTP 403)" ;;
-    "") echo "no answer" ;;
-    *) echo "${line:0:80}" ;;
-  esac
-}
-# notice_plan <number> <block> <create>: ask GitHub what it has as that pull
-# request's description at this moment, and decide what to do with it. Said is
-# the decision as one JSON object: the action (write, none, refuse or closed),
-# the description GitHub had, for a write the whole new description, and the time
-# GitHub gives for that pull request, which is what goes on record with what was
-# said about it.
-# Returns 0 with a decision in Said, 1 when GitHub did not answer, 2 when it
-# answered and this command could not make sense of the answer.
-Said=""
-notice_plan() {
-  local n=$1 block=$2 create=$3 answer err reason
-  if scratch tell; then err=$scratch_file; else err=/dev/null; fi
-  if ! answer=$(gh api "repos/$repo/pulls/$n" --jq '{number, body, state, updated_at}' 2>"$err"); then
-    reason=$(why_failed "$err")
-    [ "$err" = /dev/null ] || rm -f "$err"
-    echo "#$n: the description could not be read ($reason), tried again at the next run"
-    return 1
-  fi
-  # shellcheck disable=SC2016  # a jq program: the variables are jq's
-  Said=$(jq -c --argjson n "$n" --arg marker_open "$marker" \
-    --arg marker_close "$marker_end" --arg notice_tail "$notice_tail" \
-    --argjson notice_starts "$notice_json" --arg block "$block" \
-    --argjson notice_create "$create" '
-    def description: if has("body") | not then error("no description")
-              elif (.body | type) == "string" then .body
-              elif .body == null then ""
-              else error("no description") end;
-    # A line of a description, without the carriage return a CRLF line ending
-    # leaves.
-    def bare: sub("\r$"; "");
-    def at($lines; $m): [range(0; $lines | length) | select(($lines[.] | bare) == $m)];
-    # The new description: the block, then everything after the closing marker
-    # line as GitHub gave it. Everything between the two marker lines is
-    # replaced, all of it, because that region belongs to this command. With no
-    # line under the closing one the block ends the description with the newline
-    # that closing line ended with, so a description that is only the notice, or
-    # one that ends in a blank line under it, keeps its shape and is not written
-    # again at the next look.
-    def splice($i): (.[($i + 1):]) as $rest |
-      if ($rest | length) == 0 then $block + "\n"
-      else $block + "\n" + ($rest | join("\n")) end;
-    # A line of a notice this command writes begins like one of its beginnings.
-    def mine($line): ($line // "") | bare as $text |
-      any($notice_starts[]; . as $p | $text | startswith($p));
-    # All of the region between two marker lines that belongs to this command:
-    # its notice line, and for a preview that was made or attempted, the fixed
-    # sentence after a blank line. A blank line under the opening marker is how
-    # the notice is written, so that it is not part of the HTML comment; one is
-    # allowed there. Either notice is owned whichever one this run would write
-    # now. It owns nothing else.
-    def ours($lines):
-      (if (($lines[0] // "") | bare) == "" then $lines[1:] else $lines end) as $r
-      | mine($r[0]) and (($r | length) == 1 or
-          (($r | length) == 3 and ($r[1] | bare) == "" and
-           ($r[2] | bare) == $notice_tail));
-    if (.number | type) != "number" or .number != $n then error("not this pull request") else . end
-    | (.state // "") as $state
-    # The time GitHub gives for the pull request. It moves when the description
-    # does, and it is the only sign of a description this command did not write.
-    | (.updated_at | if type == "string" then . else "" end) as $seen
-    | description as $b
-    | ($b | split("\n")) as $L
-    | at($L; $marker_open) as $opens
-    | at($L; $marker_close) as $closes
-    # A closing marker of the first line is not under a block of ours.
-    | [($closes[] | select(. > 0))] as $under
-    # What GitHub says about the pull request at this moment, not what the run
-    # was told minutes ago: a merged or closed one keeps its description.
-    | if $state != "open" then {action: "closed", old: $b, seen: $seen}
-      # No marker line anywhere: add the notice, or say nothing at all.
-      elif ($opens | length) == 0 and ($closes | length) == 0 then
-        (if $notice_create
-         then {action: "write", old: $b, seen: $seen,
-               body: (if $b == "" then $block else $block + "\n\n" + $b end)}
-         else {action: "none", old: $b, seen: $seen} end)
-      # The block this command owns is the one at the very top. Marker lines
-      # anywhere else are text of someone else and stay where they are.
-      elif ($opens | length) >= 1 and $opens[0] == 0 and ($under | length) >= 1 and
-        ours($L[1:$under[0]]) then
-        {action: "write", old: $b, seen: $seen, body: ($L | splice($under[0]))}
-      else {action: "refuse", old: $b, seen: $seen} end' \
-    <<<"$answer" 2>"$err") || Said=""
-  if [ -z "$Said" ]; then
-    # jq runs its program on no input at all and says nothing with exit 0, so an
-    # empty answer here is one this command could not make sense of.
-    reason=$(why_failed "$err")
-    [ "$err" = /dev/null ] || rm -f "$err"
-    echo "#$n: the answer about this pull request was not understood ($reason), tried again at the next run"
-    return 2
-  fi
-  [ "$err" = /dev/null ] || rm -f "$err"
-  return 0
-}
-# tell <number> <time>: say where the preview is, or that it could not be created
-# and why, at the top of the pull request's own description, between the marker
-# lines. <time> is the one GitHub gives for that pull request in the list the run
-# was given. Once for each commit and state, on record in
-# $root/<number>/.notice: what this command said about a commit and state is not
-# said again until one of them changes, or until GitHub says the pull request
-# moved since the last look. A call that failed is tried at the next run; three
-# writes GitHub did not take are enough for that commit and state, and the line
-# about it is said with the third of them, not at every run after it. Over the
-# limit and without a recipe there is nothing to say here, so a pull request whose
-# description has no notice gets none for those. One that has a notice has it
-# changed: it would otherwise go on giving an address that answers 404.
-# The description is asked for at the moment of the edit, not from the list the
-# run was given minutes ago, so that a person who changed it before that read is
-# kept. GitHub takes no condition on a write of a description, so an edit made
-# between the read and the write is lost: what was read is kept in
-# $root/<number>/.description, mode 0600, and every write is said in the log.
-# Only a notice this command wrote is changed, and all of it. Anyone can write
-# the marker lines, so a block is this one's only when it opens the description
-# and everything between its two marker lines is one of the notices this command
-# writes. Text between markers it does not own, or marker lines anywhere else,
-# stay as GitHub gave them. Because that test is only the text of a description,
-# it is run again whenever GitHub says the pull request changed: a notice a person
-# removes comes back at the next run, and so is one someone wrote at the top in
-# the shape of the bot's.
+# tell <number> <time>: say where the preview is, or that it could not be
+# created and why, at the top of the pull request's own description. <time> is
+# the one GitHub gives for that pull request in the list the run was given. The
+# console beside this command decides and writes it (console/src/notice.rs).
 tell() {
-  local n=$1 stamp=${2-} sha state reason key record outcome='' tries=0 was='' seen=''
-  local action text block old new create=true answer after=''
-  sha=$(field "$n" sha)
-  state=$(field "$n" state)
-  reason=$(field "$n" reason)
-  key="$sha $state"
-  record=$(notice_said "$n" "$key")
-  if [ -n "$record" ]; then
-    read -r outcome tries was <<<"$record"
-  fi
-  case "$tries" in
-    [0-9]) ;;
-    *) tries=0 ;;
-  esac
-  case "$outcome" in
-    said | none | refused | gaveup)
-      # The record stands while GitHub gives the same time for the pull request
-      # as it did when this command last looked. A later time is a description
-      # someone changed, and the description is read again: no write and no log
-      # line follow unless the read asks for one, so a pull request with a lot of
-      # talk on it costs one read and nothing else.
-      if [ "$was" = "$stamp" ]; then
-        return 0
-      fi
-      ;;
-    failed)
-      if [ "$tries" -ge 3 ]; then
-        # The line about it was said with the third write GitHub did not take.
-        # Put the giving-up on record so that no later run says it again.
-        notice_record "$n" "$key" gaveup "$tries" "$was"
-        return 0
-      fi
-      ;;
-  esac
-  case "$state" in
-    # The first beginning ends with the backtick that opens the commit id.
-    serving) text="${notice_starts[0]}${sha:0:7}\`: https://$(tehas_edge_name uat "$n")/" ;;
-    build-failed | no-space) text="${notice_starts[1]} of \`${sha:0:7}\`. $reason" ;;
-    over-limit | no-recipe)
-      text="${notice_starts[2]} of \`${sha:0:7}\`. $reason"
-      create=false
-      ;;
-    *) return 0 ;;
-  esac
-  # The blank line under the opening marker keeps the notice out of the HTML
-  # comment: without it the notice is part of that comment and renders as raw
-  # text, which is the line that carries the address.
-  block="$marker
-
-$text"
-  [ "$create" = false ] || block="$block
-
-$notice_tail"
-  block="$block
-$marker_end"
-  notice_plan "$n" "$block" "$create" || return 0
-  # The action and the time GitHub gives for the pull request, read from an
-  # answer whose shape this command can use. An answer of another shape is not
-  # acted on.
-  action=$(jq -er 'select((.action | type) == "string" and (.old | type) == "string"
-      and (.action != "write" or (.body | type) == "string")) | .action' <<<"$Said") || {
-    echo "#$n: the answer about this pull request was not understood, tried again at the next run"
-    return 0
-  }
-  seen=$(jq -r 'if (.seen | type) == "string" then .seen else "" end' <<<"$Said" 2>/dev/null) || seen=""
-  case "$action" in
-    none) notice_record "$n" "$key" none 0 "$seen"; return 0 ;;
-    closed)
-      # Merged or closed between the list the run was given and this read. The
-      # description keeps what it has, and the next run removes the preview.
-      notice_record "$n" "$key" none 0 "$seen"
-      echo "#$n: the pull request is no longer open, nothing was written"
-      return 0 ;;
-    refuse)
-      # The block at the top is not this command's. The line is said once for
-      # this commit and state, not again for every later look at the same
-      # description: the description is read again whenever GitHub says it
-      # changed, and a person who clears those marker lines gets the notice then.
-      notice_record "$n" "$key" refused 0 "$seen"
-      if [ "$outcome" != refused ]; then
-        echo "#$n: the description has a preview notice that is not this one, left alone"
-      fi
-      return 0 ;;
-    write) ;;
-    *)
-      # Not an action this command's program answers with. Nothing is written.
-      echo "#$n: the answer about this pull request was not understood ($action), tried again at the next run"
-      return 0 ;;
-  esac
-  # The description GitHub had and the one to write, byte for byte. The X is
-  # there because a command substitution takes the trailing newlines off, and a
-  # person's blank line at the end of a description is kept.
-  old=$(jq -r '(.old // "") + "X"' <<<"$Said")
-  old=${old%X}
-  new=$(jq -r '(.body // "") + "X"' <<<"$Said")
-  new=${new%X}
-  if [ "$new" = "$old" ]; then
-    # The description already says exactly this: nothing to write and nothing to
-    # keep a copy of.
-    notice_record "$n" "$key" none 0 "$seen"
-    return 0
-  fi
-  # What GitHub had as the description before this command changed it, for the
-  # tehas user only. An edit written over by mistake can be read back from here.
-  (umask 077; printf '%s' "$old" >"$root/$n/.description") || {
-    echo "#$n: the description was not backed up, the notice was not written, tried again at the next run"
-    return 0
-  }
-  # GitHub answers a write of a description with the pull request as it has it
-  # then, and that answer carries the new time. The record keeps it, so that the
-  # notice this command wrote is not read back at the next run only to find it
-  # unchanged.
-  if answer=$(gh api -X PATCH "repos/$repo/pulls/$n" -f body="$new" 2>/dev/null); then
-    after=$(jq -r 'if (.updated_at | type) == "string" then .updated_at else "" end' \
-      <<<"$answer" 2>/dev/null) || after=""
-  else
-    tries=$((tries + 1))
-    if [ "$tries" -ge 3 ]; then
-      # Said once, with the third write that GitHub did not take: the record ends
-      # the writes for that commit and state, so a pull request whose description
-      # GitHub will not take says nothing more until the commit or the state
-      # changes, or until GitHub says the description did. A later look at the
-      # same giving-up does not say the line a second time.
-      notice_record "$n" "$key" gaveup "$tries" "$seen"
-      if [ "$outcome" != gaveup ]; then
-        echo "#$n: the notice was not written three times, left to the next commit or state"
-      fi
-    else
-      notice_record "$n" "$key" failed "$tries" "$seen"
-      echo "#$n: the notice was not written, tried again at the next run"
-    fi
-    return 0
-  fi
-  notice_record "$n" "$key" said 0 "${after:-$seen}"
-  echo "#$n: the notice was written"
+  "$console" preview tell "$1" "${2-}" "$repo" "$root" "https://$(tehas_edge_name uat "$1")/"
 }
 
 # --- One build ---------------------------------------------------------------
