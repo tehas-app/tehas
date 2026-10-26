@@ -616,9 +616,6 @@ impl Poll<'_> {
                         why = format!("it carries {l}");
                     }
                 }
-                if view.get("state").and_then(Value::as_str) != Some("OPEN") {
-                    why = "it is closed".into();
-                }
                 if !(has(&have, "needs-human-attention") && has(&have, "tehas:question")) {
                     why = "it is no longer parked".into();
                 }
@@ -645,6 +642,11 @@ impl Poll<'_> {
                 }
                 if sum != "-" && sum != text::body_sha256(&view) {
                     why = "its text changed since its cycle began".into();
+                }
+                // Last: a closed issue is not in the page, so nothing else of
+                // it is known.
+                if view.get("state").and_then(Value::as_str) != Some("OPEN") {
+                    why = "it is closed".into();
                 }
                 if why.is_empty()
                     && !self.unchanged_since(
