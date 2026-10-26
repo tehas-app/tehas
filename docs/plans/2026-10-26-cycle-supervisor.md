@@ -119,3 +119,11 @@ they are; a change there is told to the session doing #254 first.
   compares with a file named by a number, which never exists, so it never
   holds. It costs nothing: the cycle removes the progress before tehas work
   runs. The Rust leaves the check out.
+- Part 2 (2026-10-26): the shadow. libexec/cycle runs `tehas-cycle shadow`
+  just before it reads what tehas work left, and `tehas-cycle compare` after
+  the report, while state/cycle-shadow.on is there. The bash keeps its gh
+  calls, park and end beside the shadow's decision; compare matches each
+  comment against both its words (label changed or not), since only the
+  bash knows how its label changes went, and reads how the park went (asked,
+  posted) off the bash's own writes. The shadow asks GitHub itself, once.
+  The 9 lines of bash it needs come out of the dead check above.
