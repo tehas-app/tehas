@@ -18,14 +18,15 @@ empty one above it.
   of `how` `millwright`, and `approval-current` answers `millwright_starts`
   beside the `fixer_starts` the shell still reads, both the same number. A
   `plan-answer` is marked by `--millwright` or the old `--fixer`, and
-  `plan-show` gives `millwright` beside `fixer` in each answer. A `plan-note`
-  of either `--kind millwright-refused` or the old `fixer-refused` is written as
-  `millwright-refused`, and `plan-show` lists it under `millwright_refused`
-  beside `fixer_refused`. `history-show --how millwright` keeps the rows of both
-  words. An old imported record with `how: fixer`, `fixer_starts`, an answer's
-  `fixer` or a `fixer_refused` list becomes rows under the new names. A record
-  that gives one of those fields under both names is held: the import says the
-  file names it twice rather than keeping the value it read last. The old
+  `plan-show` gives `millwright` beside `fixer` in each answer, both the same
+  mark. A `plan-note` of either `--kind millwright-refused` or the old
+  `fixer-refused` is written as `millwright-refused`, and `plan-show` lists it
+  under `millwright_refused` beside `fixer_refused`. `history-show --how
+  millwright` keeps the rows of both words. An old imported record with `how:
+  fixer`, `fixer_starts`, an answer's `fixer` or a `fixer_refused` list becomes
+  rows under the new names. A record that names one of those fields twice, or
+  gives it under both names with two different values, is held: the import says
+  what the file named twice rather than keeping the value it read last. The old
   spellings are accepted until the shell's own readers move to the new ones, and
   no refusal of a verb names them.
 

@@ -223,7 +223,7 @@ tehas_plan_shape='.planning | if type != "object" then null else
   + (if .lost == true then {lost: true} else {} end)
   + (if .by == null then {} else {by} end)
   + (if .label == null then {} else {label} end)
-  + {answers: ((.answers // []) | map(if .millwright != null then {turn, by, fixer: .millwright} else . end))}
+  + {answers: ((.answers // []) | map(if (.millwright | type) == "boolean" then {turn, by, fixer: .millwright} else . end))} # part 5 of #686
   + (if (.filed // []) == [] then {} else {filed} end)
   + (if $refused == [] then {} else {fixer_refused: $refused} end)
   + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'

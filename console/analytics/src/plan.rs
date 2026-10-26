@@ -37,7 +37,11 @@ pub const RC_WORDS: [&str; 3] = ["interrupted", "not-started", "not-readable"];
 /// The words a planning answer is marked with: `millwright` and the `fixer`
 /// a record written before the rename still carries. The pair is the one in
 /// `tehas_core::grammar`, which the store's rows and the MCP server's filter
-/// read too, so no two of them spell the class apart.
+/// read too, so no two of them spell the class apart; the case named after this
+/// function in `tests.rs` asserts this reader reads those two.
+#[cfg(test)]
+pub const MILLWRIGHT_MARKS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
+#[cfg(not(test))]
 const MILLWRIGHT_MARKS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, String> {

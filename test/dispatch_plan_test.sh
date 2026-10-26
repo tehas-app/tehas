@@ -311,7 +311,7 @@ t_case "while a later turn runs the record names no question"
 planning
 comments 7 "$(plan_body ' ' x ' ')" alice
 t_run "$dispatch"
-t_eq "$(jq -c '.planning | [.session, .turns, .options, .pending, .failed, .running, .comment_id, .answers]' "$T/calls/record.at-turn")" '["abc-123",1,["Adopt all","Change some"],false,false,true,null,[{"turn":2,"by":"alice","fixer":false}]]'
+t_eq "$(jq -c '.planning | [.session, .turns, .options, .pending, .failed, .running, .comment_id, .answers]' "$T/calls/record.at-turn")" '["abc-123",1,["Adopt all","Change some"],false,false,true,null,[{"turn":2,"by":"alice","millwright":false,"fixer":false}]]'
 t_eq "$(jq -r '.planning.started_at | type' "$T/calls/record.at-turn")" number
 # The question answered is answered on record by whoever answered it.
 t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .answered] | tostring')" '[false,true]'

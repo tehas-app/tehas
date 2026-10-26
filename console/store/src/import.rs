@@ -324,9 +324,11 @@ fn object(bytes: &[u8]) -> Result<Map<String, Value>, String> {
 
 /// A record that gives one field twice is read by `object` as its last value,
 /// so a file that names an aliased word twice holds a number the import cannot
-/// know. `once_each` refuses that, by counting the keys in the record's own
-/// text. A record is JSON the caller has already read as UTF-8, so the walk
-/// here works on bytes.
+/// know. `once_each` refuses that, by counting the keys of the record's own
+/// text at its top level: a key of a nested object is not the field. A record
+/// is JSON the caller has already read as UTF-8, so the walk here works on
+/// bytes. A file that does not parse is the caller's to refuse, not this
+/// guard's, so an unbalanced walk simply finds no key twice.
 fn once_each(bytes: &[u8], keys: &[&str]) -> Result<(), String> {
     let t = match std::str::from_utf8(bytes) {
         Ok(t) => t,
@@ -337,6 +339,7 @@ fn once_each(bytes: &[u8], keys: &[&str]) -> Result<(), String> {
     let mut depth = 0usize;
     let mut in_string = false;
     let mut escaped = false;
+    let mut seen: Vec<(&str, usize)> = Vec::new();
     let mut i = 0;
     while i < b.len() {
         let c = b[i];
@@ -353,23 +356,47 @@ fn once_each(bytes: &[u8], keys: &[&str]) -> Result<(), String> {
         }
         match c {
             b'"' => in_string = true,
-            b'{' | b'[' => depth += 1,
-            b'}' | b']' => depth -= 1,
+            // A `[` does not open an object, so the strings of a list value
+            // are not keys: an array at the top level holds no key at all.
+            b'{' => depth += 1,
+            b'}' => depth = depth.saturating_sub(1),
             _ => {}
         }
-        // A key of the record itself is a quoted word at depth one whose name
-        // holds no escape; the keys of a nested object sit at depth two. When
-        // the name is spelled again right after itself, the record names it twice.
+        // A key of the record itself is a string at depth one followed, past
+        // any space, by `:`. Count it: the second time the record names it.
         if depth == 1 && c == b'"' {
             let start = i + 1;
             let mut end = start;
-            while end < b.len() && b[end] != b'"' && b[end] != b'\\' {
+            let mut escaped_key = false;
+            while end < b.len() && b[end] != b'"' {
+                if b[end] == b'\\' {
+                    escaped_key = true;
+                    end += 1;
+                }
                 end += 1;
             }
-            let name = &t[start..end];
-            if keys.contains(&name) && b[end..].starts_with(name.as_bytes()) {
-                return Err(format!("names {name} twice"));
+            // The name and its closing quote, then the `:` of its pair.
+            let mut after = end + 1;
+            while after < b.len() && b[after].is_ascii_whitespace() {
+                after += 1;
             }
+            if !escaped_key && after < b.len() && b[after] == b':' {
+                let name = &t[start..end];
+                if keys.contains(&name) {
+                    match seen.iter_mut().find(|(k, _)| *k == name) {
+                        Some((_, n)) => {
+                            *n += 1;
+                            if *n == 2 {
+                                return Err(format!("names {name} twice"));
+                            }
+                        }
+                        None => seen.push((name, 1)),
+                    }
+                }
+            }
+            // Resume on the key's closing quote, which the walk above stopped
+            // on: the next round reads it as the end of the string and walks
+            // the value whole, so the depth stays in step with the record.
             i = end;
             continue;
         }
@@ -465,14 +492,14 @@ fn label_of(how: &str) -> String {
     }
 }
 
-/// The word a history line writes for a `how` the old files spell the other
-/// way: the one normalising function of the import, used for every field that
-/// carries the word.
-fn kept_how(word: String) -> String {
-    match crate::approval::kept_how(&word) {
-        Some(kept) => kept.to_string(),
-        None => word,
-    }
+/// The `how` of a history line, as the row writes it: the old `fixer` becomes
+/// `millwright`. A word the store does not know is kept as it came, which is
+/// what a history line has always done; the approval record is the path that
+/// refuses one, in `approval_in`.
+fn kept_line_how(word: String) -> String {
+    crate::approval::kept_how(&word)
+        .map(str::to_string)
+        .unwrap_or(word)
 }
 
 // --- the records as parsed -------------------------------------------------------
@@ -535,7 +562,7 @@ fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
             parked: opt_bool(&m, "parked").map_err(|e| format!("line {}: {e}", i + 1))?,
             pr: s("pr")?.and_then(pr_number),
             by: s("by")?.and_then(verbs::account),
-            how: clean(s("how")?, kebab_char, 40).map(kept_how),
+            how: clean(s("how")?, kebab_char, 40).map(kept_line_how),
         });
     }
     Ok(out)
@@ -642,6 +669,7 @@ struct Base {
 
 fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
     let m = object(&g.bytes)?;
+    // #686: the aliased pair of the record's own count.
     once_each(&g.bytes, &["millwright_starts", "fixer_starts"])?;
     let at = need_time(&m, "at")?;
     let by = need(account(&m, "by")?, "by")?;
@@ -797,6 +825,7 @@ fn ids(m: &Map<String, Value>, k: &str) -> Result<Vec<i64>, String> {
 
 fn plan_in(g: &Got) -> Result<PlanIn, String> {
     let m = object(&g.bytes)?;
+    // #686: the aliased pair of the record's own notes.
     once_each(&g.bytes, &["millwright_refused", "fixer_refused"])?;
     let options = match m.get("options") {
         None | Some(Value::Null) => Vec::new(),
@@ -822,11 +851,18 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
                 // The old record marks the millwright's answer `fixer`: one
                 // field under two names, read as one mark. An answer marked
                 // twice and unequally is the record the import cannot know.
-                let millwright = crate::approval::kept_mark(
+                let (millwright, fixer) = (
                     opt_present(o, "millwright")?,
                     opt_present(o, "fixer")?,
-                )
-                .ok_or("marks its answer twice, and differently")?;
+                );
+                let millwright = crate::approval::kept_mark(millwright, fixer).ok_or_else(
+                    || {
+                        format!(
+                            "has an answer at turn {turn} that marks millwright {:?} and fixer {:?}",
+                            millwright, fixer
+                        )
+                    },
+                )?;
                 Ok((turn, by, millwright))
             })
             .collect::<Result<_, String>>()?,
@@ -855,10 +891,11 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
             verbs::comment_id(&n.to_string()).ok_or("has a comment that is not a comment id")?,
         ),
     };
+    // The old record lists the refused comments under `fixer_refused` and a
+    // newer one under `millwright_refused`, and the rows are the same notes.
+    // The set is what keeps one row per comment: `INSERT OR IGNORE` would drop
+    // the duplicate anyway, but the read-back check asks once per note.
     let mut notes: BTreeSet<(&'static str, i64)> = BTreeSet::new();
-    // The old record lists the refused comments under `fixer_refused`; a newer
-    // one may name either key, and the rows are the same notes. The set holds
-    // one row per comment, which is what the key of the table would do too.
     for key in ["millwright_refused", "fixer_refused"] {
         for id in ids(&m, key)? {
             notes.insert((plan::MILLWRIGHT_REFUSED, id));
