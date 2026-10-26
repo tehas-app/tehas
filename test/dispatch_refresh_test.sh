@@ -328,7 +328,7 @@ t_eq "$(find "$refresh_dir" -name '7.json' | wc -l)" 1
 
 for kind in "a closed pull request|.state = \"CLOSED\"|is not open" \
   "a pull request of another account|.author.login = \"alice\"|is not the bot" \
-  "a draft|.isDraft = true|it is a draft" \
+  "a pull request with no draft state|.isDraft = null|its draft state cannot be read" \
   "a second open pull request|.closingIssuesReferences.nodes[0].closedByPullRequestsReferences.nodes += [{number: 51, state: \"OPEN\"}]|not the one open pull request"; do
   t_case "${kind%%|*} drops the refresh"
   refresh_setup
@@ -346,7 +346,7 @@ t_run "$dispatch"
 release
 refresh_dropped "a cycle runs on it"
 
-for l in tehas:question tehas:fixer-escalated tehas:millwright-escalated tehas:running tehas:plan; do
+for l in tehas:fixer-escalated tehas:millwright-escalated tehas:running tehas:plan; do
   t_case "$l on the issue drops the refresh"
   refresh_setup
   issue7 "$l"
@@ -378,6 +378,32 @@ t_contains "$edits" "$mark_call"
 t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running"
 t_lacks "$edits" "--remove-label"
 t_eq "$(approval .how)" refresh
+
+t_case "a draft pull request is refreshed, and it stays a draft"
+refresh_setup
+pull '.isDraft = true'
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_lacks "$(t_calls gh)" "pr edit"
+
+t_case "a handed-off issue that carries tehas:question is refreshed, and the start takes it off"
+refresh_setup
+handed_off tehas:question
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+edits=$(label_pair)
+t_contains "$edits" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+t_eq "$(wc -l <<<"$edits")" 2
+
+t_case "an issue that carries tehas:awaiting-merge and tehas:question has both taken off"
+refresh_setup
+issue7 tehas:question
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(started)" "7 "
+t_contains "$(label_pair)" "--remove-label tehas:awaiting-merge --remove-label tehas:question"
 
 t_case "a handed-off issue that carries tehas:ready drops the refresh: the fresh cycle is the person's"
 refresh_setup

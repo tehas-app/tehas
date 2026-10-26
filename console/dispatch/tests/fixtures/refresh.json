@@ -2460,7 +2460,7 @@
    }
   },
   {
-   "case": "a draft drops the refresh",
+   "case": "a draft pull request is refreshed",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
     "TEHAS_REFRESH_CONFLICTS": "1"
@@ -2558,19 +2558,21 @@
    },
    "expect": {
     "exit": 0,
-    "picked": [],
-    "log": [
-     "drop the refresh of #7: pull request #50: it is a draft"
+    "picked": [
+     7
     ],
     "actions": [
      {
-      "refresh_drop": 7
+      "start": 7,
+      "given": "refresh",
+      "refresh_pr": 50,
+      "remove": [
+       "tehas:awaiting-merge"
+      ]
      }
     ],
-    "no_actions": [
-     {
-      "start": 7
-     }
+    "log_lacks": [
+     "drop the refresh"
     ]
    }
   },
@@ -2801,124 +2803,6 @@
     "picked": [],
     "log": [
      "drop the refresh of #7: a cycle runs on it"
-    ],
-    "actions": [
-     {
-      "refresh_drop": 7
-     }
-    ],
-    "no_actions": [
-     {
-      "start": 7
-     }
-    ]
-   }
-  },
-  {
-   "case": "tehas:question on the issue drops the refresh",
-   "settings": {
-    "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_REFRESH_CONFLICTS": "1"
-   },
-   "snapshot": {
-    "ready": [],
-    "awaiting": [
-     {
-      "number": 7
-     }
-    ],
-    "refresh_requests": [
-     7
-    ],
-    "continues": true,
-    "pulls": {
-     "50": {
-      "state": "OPEN",
-      "number": 50,
-      "url": "https://github.com/acme/widget/pull/50",
-      "isDraft": false,
-      "isCrossRepository": false,
-      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "baseRefName": "main",
-      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
-      "mergeable": "CONFLICTING",
-      "author": {
-       "login": "tehas-bot"
-      },
-      "headRepository": {
-       "nameWithOwner": "acme/widget"
-      },
-      "labels": {
-       "nodes": []
-      },
-      "closingIssuesReferences": {
-       "totalCount": 1,
-       "nodes": [
-        {
-         "number": 7,
-         "state": "OPEN",
-         "labels": {
-          "nodes": [
-           {
-            "name": "tehas:awaiting-merge"
-           }
-          ]
-         },
-         "closedByPullRequestsReferences": {
-          "nodes": [
-           {
-            "number": 50,
-            "state": "OPEN"
-           }
-          ]
-         }
-        }
-       ]
-      }
-     }
-    },
-    "issues": {
-     "7": {
-      "events": [],
-      "request": {
-       "at": "2026-10-17T09:00:00Z",
-       "pr": 50,
-       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
-      },
-      "approval": {
-       "at": "2026-10-01T00:00:00Z",
-       "by": "alice",
-       "how": "label",
-       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
-      },
-      "history": [],
-      "work": {
-       "number": 7,
-       "state": "open",
-       "labels": [
-        {
-         "name": "tehas:awaiting-merge"
-        },
-        {
-         "name": "tehas:question"
-        }
-       ]
-      },
-      "edit": {
-       "lastEditedAt": null,
-       "editor": null,
-       "body": "Words."
-      }
-     }
-    },
-    "refreshing": []
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "drop the refresh of #7: it carries tehas:question"
     ],
     "actions": [
      {
@@ -3619,6 +3503,474 @@
       "given": "refresh",
       "remove": []
      }
+    ]
+   }
+  },
+  {
+   "case": "a pull request with no draft state drops the refresh",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "drop the refresh of #7: pull request #50: its draft state cannot be read"
+    ],
+    "actions": [
+     {
+      "refresh_drop": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:question on the issue is refreshed, and the start takes it off",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": true,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           },
+           {
+            "name": "tehas:question"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "refresh_pr": 50,
+      "remove": [
+       "tehas:awaiting-merge",
+       "tehas:question"
+      ]
+     }
+    ],
+    "log_lacks": [
+     "drop the refresh"
+    ]
+   }
+  },
+  {
+   "case": "a handed-off issue that carries tehas:question is refreshed, and the start takes it off",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": true,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "needs-human-attention"
+           },
+           {
+            "name": "tehas:question"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "refresh_pr": 50,
+      "remove": [
+       "tehas:question"
+      ]
+     }
+    ],
+    "log_lacks": [
+     "drop the refresh"
+    ]
+   }
+  },
+  {
+   "case": "a handed-off issue's draft pull request is refreshed",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": true,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "needs-human-attention"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "refresh_pr": 50,
+      "remove": []
+     }
+    ],
+    "log_lacks": [
+     "drop the refresh"
     ]
    }
   },
