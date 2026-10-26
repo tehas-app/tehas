@@ -28,9 +28,9 @@ tehas-tehas while `~/tehas/state/dispatch-shadow.on` is there, since
 `docs/plans/2026-10-26-dispatch-apply.md`. Merged: part 1 (#785, journal
 verbs and plain writes), 2a starts (#788), 2b stops (#789), 3a planning end
 (#794), 3b planning start (#796), 4a the poll's frame (#798), 4b the start
-gates (#804), 4c (#831, merged 20:06Z) (branch `dispatch-journal-settle`,
-`~/work/tehas-254g`): the `TEHAS_DISPATCHER=rust` switch and the journal
-settled at the start of a poll. With it, #254's code is complete.
+gates (#804), and 4c (#831, merged 20:06Z): the `TEHAS_DISPATCHER=rust`
+switch and the journal settled at the start of a poll. #254's code is
+complete.
 
 How the Rust poll is tested: `T_RUST_POLL=1 bash test/dispatch_<x>_test.sh`
 runs every poll of a dispatch test file in Rust. All 28 files pass. The page
