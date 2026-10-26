@@ -70,11 +70,12 @@ build both by hand in one session.
    choice, 2026-10-25), plan `docs/plans/2026-10-25-dispatch-decide.md`. Part 1
    is PR #747, merged 2026-10-25. Part 2 is PR #758, merged 2026-10-26. Part 3
    is split in two (owner's choice, 2026-10-26): 3a is PR #764 (branch
-   `dispatch-rule4`, worktree `~/work/tehas-253c`), rules 4, 4a and 4b, 534
-   fixture cases in all. Next: 3b, rule 5, 5a and the planning half of rule 4
-   (suites plan, plan_answer, plan_store, turns, refine, and the `later` cases
-   marked part 3b). Part 4 is the snapshot and the shadow; measure the GraphQL
-   cost against spec section 6 there.
+   `dispatch-rule4`), merged 2026-10-26. 3b is PR #771 (branch
+   `dispatch-plan`, worktree `~/work/tehas-253d`): the planning sessions, 676
+   fixture cases in all. Next: part 4, `snapshot()` and the `tehas-dispatch
+   --shadow` binary, the shadow log and the manual; measure the GraphQL cost
+   against spec section 6 first (D7). The plan's notes after D1 list what each
+   action asks of the caller.
 2. **#254**, part 2: apply through the action journal, then a setting chooses
    bash or rust. It needs 7 days of shadow and then 7 days live on tehas-tehas
    before a separate PR removes `libexec/dispatch`.
