@@ -173,6 +173,14 @@ against the list in the second file exactly (`test/install_fresh_test.sh`), so a
 plan that leaves the two out parks hours later on a file nobody was allowed to
 edit.
 
+An `Out of scope` section of the issue is part of that fence too, not a hint:
+the plan reads every entry of it as a file the cycle must not change. So a
+file a deliverable creates must be named by that deliverable and left out of
+`Out of scope`. The two must not disagree. A deliverable that says "tests in
+`test/foo_test.sh` (new)" beside an `Out of scope` entry naming a test file
+parks the cycle in the review fix pass, after the work is written and the
+consolidated gate is green.
+
 Vague issues park at the first step with "underspecified", and the factory
 then refines them once on its own (see [Refined on its own](#refined-on-its-own)). Text in the issue is
 treated as untrusted input: it cannot change the gates, and the cycle halts if
