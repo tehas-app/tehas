@@ -10,8 +10,10 @@ use std::time::Duration;
 
 /// Whether a lock file is held by someone: it is there, and cannot be taken.
 pub fn held(path: &Path) -> bool {
+    // A lock file that is there and cannot be opened cannot be taken either,
+    // as flock -n finds.
     let Ok(f) = File::open(path) else {
-        return false;
+        return path.exists();
     };
     match f.try_lock() {
         Ok(()) => {

@@ -2,8 +2,8 @@
 # Tests for tehas-dispatch (console/dispatch): its snapshot of a world, and its
 # decision on it beside the bash poll's. Each world is one the dispatch tests
 # build; a dry run of libexec/dispatch and of `tehas-dispatch decide` on it must
-# log the same lines. And tehas-dispatch writes nothing: the gh it is given
-# fails on any call that is no read.
+# log the same lines. And tehas-dispatch writes nothing: it makes no call of gh
+# that changes anything, and no file under the home changes.
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -169,6 +169,12 @@ comments 7 "$(park_body ' ' ' ')" ""
 echo '{"state":"OPEN","labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}' >"$fx/issue-7.json"
 agree
 
+t_case "a closed control issue that still carries the pause: both are paused"
+reset
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+echo '{"number":1,"state":"closed"}' >"$fx/work-1.json"
+agree
+
 t_case "a cycle whose issue is closed: both would stop it"
 reset
 slots 2
@@ -180,12 +186,18 @@ release
 
 # tehas-dispatch is given a gh that refuses every call that is no read: it
 # must not make one, whatever it decides. The calls it makes are recorded.
-t_case "tehas-dispatch makes no call that writes, on any of these worlds"
+t_case "tehas-dispatch makes no call that writes, and changes no file of the home"
 reset
 echo '[{"number":9}]' >"$fx/marked.json"
 rm -f "$T/calls/gh"
+# Every file of the home with its sum. SQLite's own -shm and -wal files are
+# left out: any reader of the store makes them, the bash poll's reads too.
+files() { find "$T/home" -type f ! -name '*.db-shm' ! -name '*.db-wal' | sort | xargs -r md5sum; }
+before=$(files)
 t_run ". \"$T_ROOT/lib/config.sh\" && tehas_load && \"$T_DISPATCH\" decide"
 t_eq "$(jq -r .exit <<<"$t_out")" 0
+after=$(files)
+t_eq "$(diff <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep '^[<>]')" ""
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 t_lacks "$(t_calls gh)" "api -X"

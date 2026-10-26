@@ -42,7 +42,10 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["pause_flag"] = host::pause(home);
     s["limit"] = host::limit(home, src.now);
     s["last_why"] = json!(host::last_why(home));
-    s["branch_note"] = json!(host::head(&home.join("state/branch-check"), 4096));
+    // As $(head -c 1000) leaves it: no final newlines.
+    s["branch_note"] = json!(host::head(&home.join("state/branch-check"), 1000)
+        .trim_end_matches('\n')
+        .to_string());
     s["refresh_held"] = json!(host::head(&home.join("state/refresh/.held"), 300));
     s["refine_brief"] = json!(home
         .join("lib/refine-brief.md")
@@ -69,7 +72,16 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             s["control"] = json!({"labels": o.labels.iter().map(|l| json!({"name": l})).collect::<Vec<_>>(),
             "events": github::events(&o.node)})
         }
-        None => s["control"] = json!({"labels": [], "events": []}),
+        None => {
+            let n = c.control.to_string();
+            let labels = calls
+                .gh(&["issue", "view", &n, "--repo", &c.repo, "--json", "labels"])
+                .ok()
+                .and_then(|v| v.get("labels").cloned())
+                .unwrap_or_else(|| json!({"failed": true}));
+            s["control"] =
+                json!({"labels": labels, "events": rest_events(calls, &c.repo, c.control)});
+        }
     }
     for (key, label) in [
         ("ready", "tehas:ready"),
@@ -125,9 +137,16 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .iter()
         .map(|n| json!({"issue": n, "how": ""}))
         .collect();
+    let mut refresh_rows: Vec<u64> = Vec::new();
     if !locks.is_empty() {
         match store::cycles(calls) {
             Ok(records) => {
+                // took_how holds every row the store lists, held or not.
+                refresh_rows = records
+                    .iter()
+                    .filter(|r| r["how"] == "refresh")
+                    .filter_map(|r| r["issue"].as_u64())
+                    .collect();
                 for r in running.iter_mut() {
                     if let Some(rec) = records.iter().find(|x| x["issue"] == r["issue"]) {
                         *r = rec.clone();
@@ -169,13 +188,15 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         .as_array()
         .map(|a| a.iter().filter_map(Value::as_u64).collect())
         .unwrap_or_default();
-    from.extend(
-        running
-            .iter()
-            .filter(|r| r["how"] == "refresh")
-            .filter_map(|r| r["issue"].as_u64()),
-    );
-    s["refresh_history"] = history;
+    from.extend(&refresh_rows);
+    from.sort_unstable();
+    from.dedup();
+    // A refresh row with no lock counts as the bash's took_how does: in the
+    // issues a refresh of this host may own.
+    s["refresh_history"] = match history {
+        Value::Array(_) => json!(from),
+        e => e,
+    };
     if c.refresh_conflicts || !from.is_empty() {
         s["refreshing"] = github::list(
             calls,
@@ -194,6 +215,15 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
                 "number,labels",
             ],
         );
+    }
+    for pr in s["refreshing"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| p["number"].as_u64())
+    {
+        entry(&mut issues, pr)["events"] = rest_events(calls, &c.repo, pr);
     }
     for n in &from {
         let (_, current) = store::approval(calls, *n);
@@ -245,8 +275,11 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         let i = entry(&mut issues, n);
         i["park"] = park;
         i["approval"] = shaped;
-        if has(&labels, "tehas:blocked") && i.get("comments").is_none() {
-            let comments = github::comments(calls, &c.repo, n);
+        if has(&labels, "tehas:blocked") {
+            let comments = match i.get("comments") {
+                Some(c) => c.clone(),
+                None => github::comments(calls, &c.repo, n),
+            };
             let named = crate::decide::named_blockers(&comments);
             let states = github::blocker_states(calls, &c.repo, &named);
             let i = entry(&mut issues, n);
@@ -290,10 +323,23 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
 /// An issue the rules ask about that is not open: closed, as far as the poll
 /// can tell without asking.
 fn closed(issues: &mut Map<String, Value>, n: u64) {
-    issues.entry(n.to_string()).or_insert_with(|| {
-        json!({"work": {"number": n, "state": "closed"}, "view": {"state": "CLOSED", "labels": []},
-            "edit": {"lastEditedAt": null, "editor": null}, "events": [], "prs": []})
-    });
+    let i = entry(issues, n);
+    let defaults = json!({"work": {"number": n, "state": "closed"}, "view": {"state": "CLOSED", "labels": []},
+        "edit": {"lastEditedAt": null, "editor": null}, "events": [], "prs": []});
+    for (k, v) in defaults.as_object().into_iter().flatten() {
+        if i.get(k).is_none() {
+            i[k.as_str()] = v.clone();
+        }
+    }
+}
+
+/// The label events of an issue or pull request as the bash reads them:
+/// the REST events, all pages; {"failed": true} when the call failed.
+fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
+    let path = format!("repos/{repo}/issues/{n}/events?per_page=100");
+    calls
+        .gh(&["api", &path, "--paginate"])
+        .unwrap_or_else(|_| json!({"failed": true}))
 }
 
 fn bot(s: &Value) -> String {
