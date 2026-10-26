@@ -39,7 +39,7 @@ fn secs(k: &str, default: u64) -> Duration {
 
 /// The directory of this program, libexec: where the bash poll's `$here`
 /// finds health, status, tidy and plan.
-fn here(home: &Path) -> PathBuf {
+pub fn here(home: &Path) -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
@@ -192,7 +192,11 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
                 .map(str::to_string)
                 .collect(),
             millwright: env("TEHAS_MILLWRIGHT_LOGIN"),
-            bot: bot.to_string(),
+            bot: if bot.is_empty() {
+                env("TEHAS_BOT_LOGIN")
+            } else {
+                bot.to_string()
+            },
             systemctl: "systemctl".into(),
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
@@ -393,6 +397,15 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
 }
 
 fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut End) -> i32 {
+    // The journal first, before GitHub is read for the queue: what a poll
+    // that died between two writes left is settled from fresh reads.
+    if !dry {
+        let mut lines = Vec::new();
+        w.settle(w.before, &mut lines);
+        for l in &lines {
+            say(l);
+        }
+    }
     if !dry {
         let mut printed = Vec::new();
         w.status(&mut printed);

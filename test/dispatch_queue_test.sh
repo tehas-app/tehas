@@ -135,7 +135,9 @@ states 12=OPEN
 t_run "$dispatch"
 t_eq "$(started)" "7 "
 t_contains "$t_out" "ignore #7: tehas:blocked was applied by 'mallory', not an allowed account"
-t_lacks "$(t_calls gh)" "issueOrPullRequest"
+# The Rust poll asks the states of the blockers its page names, whoever wrote them: more
+# calls, the same decision.
+bash_reads && t_lacks "$(t_calls gh)" "issueOrPullRequest"
 
 t_case "with no fixer on the instance, the fixer account's tehas:blocked is an outsider's"
 reset
@@ -163,7 +165,9 @@ notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')" "$(bnote 11 mallory '
 states 12=CLOSED 13=OPEN
 t_run "$dispatch"
 t_eq "$(started)" "7 "
-t_lacks "$(t_calls gh)" "b13:"
+# The Rust poll asks the states of the blockers its page names, whoever wrote them: more
+# calls, the same decision.
+bash_reads && t_lacks "$(t_calls gh)" "b13:"
 
 t_case "with only an outsider's blocker comment the label holds, with no list"
 reset
@@ -327,7 +331,9 @@ notes 7 "$(bnote 10 alice '<!-- tehas:blocked by=12 -->')"
 states 12=CLOSED
 t_run "$dispatch"
 t_eq "$(started)" ""
-t_lacks "$(t_calls gh)" "issueOrPullRequest"
+# The Rust poll asks the states of the blockers its page names, whoever wrote them: more
+# calls, the same decision.
+bash_reads && t_lacks "$(t_calls gh)" "issueOrPullRequest"
 
 t_case "tehas:blocked alone with an open pull request that closes it comes off"
 reset
@@ -434,7 +440,8 @@ echo '{"time":"2026-10-17T10:00:00Z","waiting":3}' >"$demand_file"
 jq -nc '{by: "boss", at: "2026-10-15T10:00:00Z", reason: "weekend"}' >"$T/home/tehas/state/pause.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$([ -e "$demand_file" ] && echo there)" ""
+# The Rust poll reads the label events with its page: no read of its own fails.
+bash_reads && t_eq "$([ -e "$demand_file" ] && echo there)" ""
 
 t_case "demand: a dry run writes nothing"
 reset
@@ -721,7 +728,7 @@ t_contains "$t_out" "wait #12: the low-priority gate is closed (exit 1)"
 # The first issue of the kind paid the checks of the rules above and asked; the
 # rest are held by that answer alone. The per-issue calls of those checks name
 # the issue in the question this poll asks GitHub.
-t_contains "$(t_calls gh)" "number=7"
+bash_reads && t_contains "$(t_calls gh)" "number=7"
 t_eq "$(t_calls gh | grep -c -e number=8 -e number=11 -e number=12)" 0
 
 t_case "a held marker that is not a regular file is neither read nor written"

@@ -168,13 +168,16 @@ t_contains "$t_out" "only applied it"
 t_eq "$(t_calls fake-start)" ""
 
 t_case "events that cannot be read start nothing"
-reset
-rm -f "$fx/events-1.json"
-t_run "$dispatch"
-t_eq "$t_rc" 1
-t_contains "$t_out" "gh api repos/acme/widget/issues/1/events?per_page=100 failed"
-t_eq "$(t_calls fake-start)" ""
-t_lacks "$(t_calls gh)" "issue edit"
+# The Rust poll reads the label events with its page, which fails as a whole.
+if bash_reads; then
+  reset
+  rm -f "$fx/events-1.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "gh api repos/acme/widget/issues/1/events?per_page=100 failed"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+fi
 
 t_case "events that cannot be understood start nothing"
 reset
@@ -355,7 +358,9 @@ t_case "a poll that fails after the bot's login still tidies, and keeps its exit
 reset
 rm "$fx/control.json"
 t_run "$dispatch"
-t_eq "$t_rc" 1
+# The control issue is a read of the bash poll's own; the Rust poll's page
+# has it, so nothing fails there.
+bash_reads && t_eq "$t_rc" 1
 t_eq "$(t_calls fake-tidy | wc -l)" 1
 
 t_case "a failed tidy does not change the poll's exit status"

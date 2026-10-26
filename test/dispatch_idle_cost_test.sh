@@ -75,8 +75,9 @@ idle_poll
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 # Every call is a read: no comment, no label, no edit, and no line of the
-# host's write log, which is the figure the poll's own record keeps.
-t_eq "$(t_calls gh | grep -cE '(^| )(issue edit|issue comment|api -X|api POST|label) ' || true)" 0
+# host's write log, which is the figure the poll's own record keeps. A call
+# starts its line; the lines of a GraphQL query that follow it are not calls.
+t_eq "$(t_calls gh | grep -cE '^(issue edit|issue comment|api -X|api POST|label) ' || true)" 0
 t_eq "$(t_writes)" ""
 # The poll said so to the store too: 0 starts and no writes on its row.
 t_eq "$(t_at "$(date +%s)" poll-show | jq -r '.last.starts')" 0

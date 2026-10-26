@@ -15,6 +15,7 @@
 
 mod gate;
 mod plan;
+mod settle;
 pub mod start;
 mod stop;
 mod turn;
@@ -238,8 +239,15 @@ impl Writer {
     ) -> Wrote {
         // The body by its sum and length: the settling poll finds a comment
         // by them, and the store's arguments stay short and hold no text.
+        // Given as JSON (--input -), the body is its field: the text GitHub
+        // keeps.
         let body = input;
-        let input = input.map(|b| {
+        let json = args.iter().any(|a| a == "--input");
+        let field = input
+            .filter(|_| json)
+            .and_then(|b| serde_json::from_str::<Value>(b).ok())
+            .and_then(|v| v.get("body").and_then(Value::as_str).map(str::to_string));
+        let input = field.as_deref().or(input).map(|b| {
             use sha2::{Digest, Sha256};
             let sum: String = Sha256::digest(b.as_bytes())
                 .iter()
@@ -362,6 +370,41 @@ impl Writer {
     /// A label change, and what follows one that worked (A6): its line, its
     /// comment, the answer of its question.
     fn label(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
+        // A change that rests on a label read again now: gone, the change is
+        // not made; a read that fails ends the poll.
+        if let Some(want) = a.get("reread").and_then(Value::as_str) {
+            let repo = self.repo.clone();
+            let path = format!("repos/{repo}/issues/{n}");
+            let labels = match self.calls.gh(&["api", &path]) {
+                Ok(v) => v
+                    .get("labels")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .filter(|_| v.is_object()),
+                Err(_) => {
+                    log.push(format!("ERROR: gh api {path} failed"));
+                    self.ended = Some(1);
+                    return;
+                }
+            };
+            let Some(labels) = labels else {
+                log.push(format!("ERROR: GitHub's answer for #{n} could not be read"));
+                self.ended = Some(1);
+                return;
+            };
+            if !labels
+                .iter()
+                .any(|l| l.get("name").and_then(Value::as_str) == Some(want))
+            {
+                log.push(format!(
+                    "skip #{n}: {want} is gone from it since the list was read"
+                ));
+                return;
+            }
+        }
+        if let Some(line) = a.get("first").and_then(Value::as_str) {
+            log.push(line.to_string());
+        }
         let remove = strings(a, "remove");
         let add = strings(a, "add");
         let mut args: Vec<String> = vec![
@@ -371,11 +414,12 @@ impl Writer {
             "--repo".into(),
             self.repo.clone(),
         ];
-        for l in &add {
-            args.extend(["--add-label".into(), l.clone()]);
-        }
+        // As the bash sites give them: what comes off, then what goes on.
         for l in &remove {
             args.extend(["--remove-label".into(), l.clone()]);
+        }
+        for l in &add {
+            args.extend(["--add-label".into(), l.clone()]);
         }
         let kind = if add.is_empty() {
             "label-remove"

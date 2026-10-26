@@ -139,4 +139,16 @@ t_eq "$(started)" "7 8 "
 t_eq "$([ -e "$home/state/low-gate.held" ] && echo held)" held
 t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 
+t_case "a write a dead poll left in the journal is settled first, and decided again"
+reset
+st="$home/libexec/store"
+at=$(TEHAS_HOME=$home "$st" poll-begin | jq -r .at)
+TEHAS_HOME=$home "$st" journal-record --poll "$at" --kind label-add --issue 7 \
+  --args '{"gh":["issue","edit","7","--repo","acme/widget","--add-label","tehas:running"]}' --before "$at" >/dev/null
+t_run "$rpoll"
+t_contains "$t_out" "journal: action 1 (label-add on #7"
+t_contains "$t_out" "did not happen (it was never attempted); this poll decides it again"
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
+
 t_done

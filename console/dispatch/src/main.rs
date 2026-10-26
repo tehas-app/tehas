@@ -33,7 +33,7 @@
 //! it does not know; 78 a setting tehas_load always leaves set is not set.
 
 use serde_json::{json, Map, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tehas_dispatch::read::build::{fill, snapshot, Sources};
 use tehas_dispatch::read::run::Calls;
@@ -144,7 +144,7 @@ fn main() {
         env["TEHAS_BRANCH"] = json!(b);
     }
     // The poll's own libexec, which the refine brief's path is named by.
-    env["libexec"] = json!(format!("{home}/libexec"));
+    env["libexec"] = json!(tehas_dispatch::poll::here(Path::new(&home)));
     let settings = Settings::parse(&env);
     if poll {
         std::process::exit(tehas_dispatch::poll::run_poll(
