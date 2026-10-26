@@ -39,11 +39,11 @@ case "$name $1" in
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
   "store plan-begin")
-    for a; do [ "${prev:-}" != --brief-file ] || cp "$a" "$d/brief"; prev=$a; done
+    for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
     echo '{"api":1,"verb":"plan-begin","ok":true}' ;;
   "store plan-answer")
     for a; do [ "${prev:-}" != --text-file ] || cp "$a" "$d/answer"; prev=$a; done
-    cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A."}}' ;;
+    cat "$d/answered" 2>/dev/null || echo '{"api":1,"verb":"plan-answer","ok":true,"planning":{"answer":"Do A.\n"}}' ;;
   "store plan-show") cat "$d/plan" 2>/dev/null || echo '{"api":1,"verb":"plan-show","ok":true,"planning":null}' ;;
   "store plan-end") case "$*" in
       *--turn*) if [ -f "$d/plan" ]; then sed 's/"verb":"plan-show"/"verb":"plan-end"/' "$d/plan"; else echo '{"api":1,"verb":"plan-end","ok":true}'; fi ;;
@@ -1810,7 +1810,7 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
         &t,
         json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
     );
-    fs::write(t.dir.join("answered"), json!({"api": 1, "verb": "plan-answer", "ok": true, "planning": {"answer": "Do A.",
+    fs::write(t.dir.join("answered"), json!({"api": 1, "verb": "plan-answer", "ok": true, "planning": {"answer": "Do A.\n",
         "filed": ["https://github.com/example-owner/example-product/issues/9", "https://github.com/example-owner/example-product/issues/9"]}}).to_string()).unwrap();
     fs::create_dir_all(t.dir.join("works")).unwrap();
     fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
@@ -1858,4 +1858,88 @@ fn a_session_at_its_limit_of_turns_is_ended() {
         .iter()
         .any(|c| c.contains("This planning session reached its limit of 2 turns and was ended.")));
     assert!(!t.calls().iter().any(|c| c.starts_with("store plan-answer")));
+}
+
+#[test]
+fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
+    let mut t = world();
+    t.w.host.plan_start_cmd = None;
+    t.apply(json!([first_turn(7)]));
+    assert_eq!(
+        fs::read_to_string(t.dir.join("brief.mode")).unwrap().trim(),
+        "600"
+    );
+    let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(log.contains("start --user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c [ ! -r \"$HOME/tehas/env.sh\" ] || . \"$HOME/tehas/env.sh\"; exec \"$@\" env-sh /bin/bash -c log=$1"));
+}
+
+#[test]
+fn a_next_turn_from_a_person_and_one_the_store_refuses() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    fs::create_dir_all(t.dir.join("works")).unwrap();
+    fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
+    t.apply(json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "alice", "log": "planning #7 continues (answer from alice)"}]));
+    assert!(t.writes().iter().any(|c| c
+        .starts_with("store plan-answer 7 --turn 2 --by alice --text-file ")
+        && !c.contains("--millwright")));
+    assert_eq!(
+        fs::read_to_string(t.dir.join("works/tehas-work-plan-7.keep/answer.md")).unwrap(),
+        "Do A.\n"
+    );
+    // An answer the store will not take waits, and the status still runs.
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    t.fail("store", "plan-answer|turn");
+    let a = t
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, None);
+    assert_eq!(
+        a.log[1],
+        "skip #7: the answer could not begin a turn: store: turn: stub"
+    );
+    assert_eq!(a.printed, vec!["the status line"]);
+    assert_eq!(fs::read_dir(t.w.home.join("tmp")).unwrap().count(), 0);
+}
+
+#[test]
+fn a_next_turn_in_a_directory_tehas_did_not_make_starts_nothing() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:plan"}),
+    );
+    fs::create_dir_all(t.dir.join("works")).unwrap();
+    let a = t
+        .apply(json!([{"plan_turn": 7, "kind": "next", "answer": "x", "by": "alice", "log": "l"}]));
+    assert_eq!(a.exit, Some(1));
+    assert!(a
+        .log
+        .iter()
+        .any(|l| l.ends_with("works exists and was not made by tehas, not touching it")));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "ERROR: could not write the answer for #7, not starting a turn"
+    );
+    assert!(t
+        .writes()
+        .contains(&"store plan-answer 7 --turn 2 --undo".to_string()));
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:planning")));
+}
+
+#[test]
+fn a_spend_of_no_kind_apply_knows_is_left() {
+    let mut t = world();
+    let odd = json!({"park_retry": 7, "how": "someday"});
+    assert_eq!(t.apply(json!([odd])).left, vec![odd]);
+    assert!(t.calls().is_empty());
 }
