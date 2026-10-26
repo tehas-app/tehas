@@ -236,6 +236,14 @@ impl Writer {
             json!({"sha256": sum, "bytes": b.len()})
         });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
+        // The poll's row, begun with its first write: a store that cannot
+        // begin it records, and so makes, no write this poll.
+        if self.poll_at == 0 {
+            match self.calls.store(&["poll-begin"]) {
+                Ok(v) => self.poll_at = v.get("at").and_then(Value::as_i64).unwrap_or(0),
+                Err(_) => return Wrote::Unrecorded,
+            }
+        }
         let recorded = self.calls.store(&[
             "journal-record",
             "--poll",
