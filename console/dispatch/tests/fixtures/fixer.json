@@ -951,6 +951,369 @@
      "would take tehas:ready off #7"
     ]
    }
+  },
+  {
+   "case": "an approval by an account no longer allowed is no base for the fixer",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "bob",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "an approval of a kind the fixer may not rest on is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "manual",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "an approval whose hash is not one is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "abc"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "a fixer start with no person's approval under it is no base",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "fixer",
+       "by": "tehas-fixer",
+       "fixer_starts": 1,
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it, so the fixer may not start one"
+    ]
+   }
+  },
+  {
+   "case": "a refresh's approval rests on the person's, and carries no fixer starts",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "refresh",
+       "by": "alice",
+       "at": "2026-10-03T00:00:00Z",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "rests_on": {
+        "at": "2026-10-01T00:00:00Z",
+        "by": "alice",
+        "how": "label",
+        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "fixer",
+      "fixer_starts": 1,
+      "rests_on": {
+       "by": "alice",
+       "how": "label"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "case": "a fixer record that counts no fixer start does not say how many",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ],
+      "approval": {
+       "how": "fixer",
+       "by": "tehas-fixer",
+       "fixer_starts": 0,
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "rests_on": {
+        "at": "2026-10-01T00:00:00Z",
+        "by": "alice",
+        "how": "label",
+        "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+       }
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "tehas:ready from the fixer starts nothing: its approval record does not say how many cycles the fixer started"
+    ]
+   }
+  },
+  {
+   "case": "a snapshot that lacks the approval names it, and refuses nothing",
+   "settings": {
+    "TEHAS_FIXER_LOGIN": "tehas-fixer"
+   },
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "needs": [
+     "approval"
+    ]
+   },
+   "drop": [
+    "issues.7.approval"
+   ]
   }
  ]
 }

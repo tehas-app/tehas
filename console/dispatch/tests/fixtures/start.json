@@ -839,6 +839,34 @@
      "ERROR: the state store could not list the running cycles (busy)"
     ]
    }
+  },
+  {
+   "case": "pull requests GitHub answers with something that is no list end the poll",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "prs": "garbage"
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: unreadable pull requests of #7"
+    ]
+   }
+  },
+  {
+   "case": "a snapshot that lacks the marked list names it",
+   "expect": {
+    "needs": [
+     "marked"
+    ]
+   },
+   "drop": [
+    "marked"
+   ]
   }
  ]
 }

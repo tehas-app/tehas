@@ -618,6 +618,66 @@
      "hold #7: its last cycle parked on null and the body has not changed since"
     ]
    }
+  },
+  {
+   "case": "only the first line of a park's reason is said, as read leaves it",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "7": "Words."
+   },
+   "parked": {
+    "7": {
+     "reason": "  a\nb",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on a and the body has not changed since"
+    ]
+   }
+  },
+  {
+   "case": "a reason whose first line is empty is said as nothing",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "body": {
+    "7": "Words."
+   },
+   "parked": {
+    "7": {
+     "reason": "\nfoo",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "hold #7: its last cycle parked on nothing and the body has not changed since"
+    ]
+   }
   }
  ]
 }

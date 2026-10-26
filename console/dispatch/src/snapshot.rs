@@ -31,6 +31,8 @@ pub struct Issue {
     /// The pull requests that close it, {url, state}; None when the call
     /// failed or the answer cannot be read.
     pub prs: Option<Vec<Value>>,
+    /// The call worked but its answer is no list of pull requests.
+    pub prs_unreadable: bool,
     /// The issue's last 100 comments, for tehas:blocked; None when the call
     /// failed.
     pub comments: Option<Value>,
@@ -39,12 +41,12 @@ pub struct Issue {
     pub blockers: BTreeMap<u64, String>,
     /// The issue's park on the state store (park-show's .park), or the store's
     /// word and exit status when it could not say.
-    pub park: Result<Option<Value>, StoreErr>,
+    pub park: Option<Result<Option<Value>, StoreErr>>,
     /// The approval of its latest start (tehas_approval_view), Err when the
     /// store could not answer.
-    pub approval: Result<Option<Value>, ()>,
+    pub approval: Option<Result<Option<Value>, ()>>,
     /// approval-current's .current, for the owner of a refresh.
-    pub current: Result<Option<Value>, StoreErr>,
+    pub current: Option<Result<Option<Value>, StoreErr>>,
 }
 
 /// A running cycle as cycle-show --running has it. 0 is none on record.
@@ -160,20 +162,20 @@ pub struct Snapshot {
     pub images: Option<Images>,
     pub issues: BTreeMap<u64, Issue>,
     /// The poll's clock, in seconds, and this host's name.
-    pub now: u64,
-    pub hostname: String,
+    pub now: Option<u64>,
+    pub hostname: Option<String>,
     /// The running cycles' records, by issue, from the entries of `running`;
     /// Err when the store could not list them (`cycles_failed`).
     pub cycles: Result<BTreeMap<u64, Cycle>, StoreErr>,
     /// gh pr list --author <bot>: asked when a cycle runs.
     pub bot_prs: Option<Value>,
     /// gh issue list --label tehas:running, as it answered.
-    pub marked: Value,
+    pub marked: Option<Value>,
     /// The issues with a refresh in their history.
-    pub refresh_history: Result<Vec<u64>, StoreErr>,
+    pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
     /// gh pr list --label tehas:refreshing, as it answered.
     pub refreshing: Option<Value>,
-    pub leftovers: Vec<Leftover>,
+    pub leftovers: Option<Vec<Leftover>>,
 }
 
 fn failed(v: &Value) -> bool {
@@ -276,6 +278,7 @@ fn issue(v: &Value) -> Issue {
             .filter(|p| !failed(p))
             .and_then(Value::as_array)
             .cloned(),
+        prs_unreadable: v.get("prs").is_some_and(|p| !failed(p) && !p.is_array()),
         comments: v.get("comments").and_then(opt),
         blockers: v
             .get("blockers")
@@ -286,21 +289,21 @@ fn issue(v: &Value) -> Issue {
                     .collect()
             })
             .unwrap_or_default(),
-        park: match v.get("park") {
-            None | Some(Value::Null) => Ok(None),
-            Some(p) if failed(p) => Err(StoreErr::parse(p)),
-            Some(p) => Ok(Some(p.clone())),
-        },
-        approval: match v.get("approval") {
-            None | Some(Value::Null) => Ok(None),
-            Some(a) if failed(a) => Err(()),
-            Some(a) => Ok(Some(a.clone())),
-        },
-        current: match v.get("current") {
-            None | Some(Value::Null) => Ok(None),
-            Some(a) if failed(a) => Err(StoreErr::parse(a)),
-            Some(a) => Ok(Some(a.clone())),
-        },
+        park: v.get("park").map(|p| match p {
+            Value::Null => Ok(None),
+            p if failed(p) => Err(StoreErr::parse(p)),
+            p => Ok(Some(p.clone())),
+        }),
+        approval: v.get("approval").map(|a| match a {
+            Value::Null => Ok(None),
+            a if failed(a) => Err(()),
+            a => Ok(Some(a.clone())),
+        }),
+        current: v.get("current").map(|a| match a {
+            Value::Null => Ok(None),
+            a if failed(a) => Err(StoreErr::parse(a)),
+            a => Ok(Some(a.clone())),
+        }),
     }
 }
 
@@ -427,38 +430,36 @@ impl Snapshot {
                 declares: i.get("declares").and_then(Value::as_bool) == Some(true),
                 answers: i.get("answers").and_then(Value::as_bool) == Some(true),
             }),
-            now: v.get("now").and_then(Value::as_u64).unwrap_or(0),
-            hostname: s("hostname"),
+            now: v.get("now").and_then(Value::as_u64),
+            hostname: v
+                .get("hostname")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             cycles: match v.get("cycles_failed") {
                 Some(e) => Err(StoreErr::parse(e)),
                 None => cycles(v.get("running")),
             },
             bot_prs: v.get("bot_prs").cloned(),
-            marked: v
-                .get("marked")
-                .cloned()
-                .unwrap_or_else(|| Value::Array(Vec::new())),
-            refresh_history: match v.get("refresh_history") {
-                Some(e) if failed(e) => Err(StoreErr::parse(e)),
-                Some(Value::Array(a)) => Ok(a.iter().filter_map(number).collect()),
-                _ => Ok(Vec::new()),
-            },
+            marked: v.get("marked").cloned(),
+            refresh_history: v.get("refresh_history").map(|h| match h {
+                e if failed(e) => Err(StoreErr::parse(e)),
+                h => Ok(h
+                    .as_array()
+                    .map(|a| a.iter().filter_map(number).collect())
+                    .unwrap_or_default()),
+            }),
             refreshing: v.get("refreshing").cloned(),
-            leftovers: v
-                .get("leftovers")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|l| {
-                            Some(Leftover {
-                                issue: l.get("issue").and_then(number)?,
-                                young: l.get("young").and_then(Value::as_bool) == Some(true),
-                                lock_ok: l.get("lock_ok").and_then(Value::as_bool) != Some(false),
-                            })
+            leftovers: v.get("leftovers").and_then(Value::as_array).map(|a| {
+                a.iter()
+                    .filter_map(|l| {
+                        Some(Leftover {
+                            issue: l.get("issue").and_then(number)?,
+                            young: l.get("young").and_then(Value::as_bool) == Some(true),
+                            lock_ok: l.get("lock_ok").and_then(Value::as_bool) != Some(false),
                         })
-                        .collect()
-                })
-                .unwrap_or_default(),
+                    })
+                    .collect()
+            }),
             issues: v
                 .get("issues")
                 .and_then(Value::as_object)

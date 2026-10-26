@@ -45,6 +45,9 @@ fn base() -> (Value, Value) {
         "now": NOW,
         "hostname": "tehas-test",
         "bot_prs": [],
+        "marked": [],
+        "refresh_history": [],
+        "leftovers": [],
     });
     (settings, snapshot)
 }
@@ -395,6 +398,9 @@ fn expand(c: &Value, snap: &mut Value) {
             "work": {"number": n.parse::<u64>().unwrap(), "state": "open"},
             "prs": [],
             "comments": {"failed": true},
+            "park": null,
+            "approval": null,
+            "current": null,
         });
         for (k, v) in defaults.as_object().unwrap() {
             if i.get(k).is_none() {
@@ -433,6 +439,21 @@ fn run_suite(name: &str) {
         expand(c, &mut snap);
         if let Some(s) = c.get("after") {
             merge(&mut snap, s);
+        }
+        // drop: facts the snapshot lacks, as dotted paths.
+        for path in c
+            .get("drop")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let keys: Vec<&str> = path.as_str().unwrap().split('.').collect();
+            let (last, up) = keys.split_last().unwrap();
+            let mut at = &mut snap;
+            for k in up {
+                at = &mut at[*k];
+            }
+            at.as_object_mut().unwrap().remove(*last);
         }
         let dry = c.get("dry") == Some(&json!(true));
         let d = decide(&Snapshot::parse(&snap), &Settings::parse(&settings), dry);
@@ -536,8 +557,9 @@ fn run_suite(name: &str) {
                 bad.push(format!("demand {:?} not {x}", d.demand));
             }
         }
-        if !d.needs.is_empty() {
-            bad.push(format!("needs {:?}", d.needs));
+        let needs = e.get("needs").cloned().unwrap_or_else(|| json!([]));
+        if needs != json!(d.needs) {
+            bad.push(format!("needs {:?} not {needs}", d.needs));
         }
         if !bad.is_empty() {
             failures.push(format!(

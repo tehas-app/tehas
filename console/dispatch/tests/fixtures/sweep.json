@@ -870,6 +870,42 @@
      }
     ]
    }
+  },
+  {
+   "case": "a snapshot that lacks the clock names it before it says a cycle is quiet",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 100,
+      "heard": 100
+     }
+    ],
+    "ready": []
+   },
+   "expect": {
+    "needs": [
+     "now"
+    ],
+    "log_lacks": [
+     "holds its lock but"
+    ]
+   },
+   "drop": [
+    "now"
+   ]
+  },
+  {
+   "case": "a snapshot that lacks the leftovers names them",
+   "expect": {
+    "needs": [
+     "leftovers"
+    ]
+   },
+   "drop": [
+    "leftovers"
+   ]
   }
  ]
 }

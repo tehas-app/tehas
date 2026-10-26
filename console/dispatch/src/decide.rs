@@ -998,6 +998,9 @@ impl<'a> Poll<'a> {
             return Ok(None);
         };
         let Some(prs) = prs else {
+            if self.s.issues[&n].prs_unreadable {
+                return Err(self.fail(format!("ERROR: unreadable pull requests of #{n}"), 1));
+            }
             return Err(self.fail("ERROR: gh api graphql failed", 1));
         };
         Ok(prs
@@ -1166,12 +1169,10 @@ impl<'a> Poll<'a> {
     /// park_holds: a fresh label on the very body the last cycle parked on
     /// starts nothing. Said on the issue once a park.
     fn park_holds(&mut self, n: u64) -> Step<bool> {
-        let park = self
-            .s
-            .issues
-            .get(&n)
-            .map(|i| i.park.clone())
-            .unwrap_or(Ok(None));
+        let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
+            self.need("park");
+            return Ok(true);
+        };
         let park = match park {
             Ok(p) => p,
             Err(e) if e.rc == 1 => {
@@ -1202,13 +1203,19 @@ impl<'a> Poll<'a> {
         if text::body_sha256(&self.text(n)) != sum {
             return Ok(false);
         }
-        // As `tostring` and `read` leave it: no reason is "null".
-        let cap = match p.get("reason") {
-            None | Some(Value::Null) => "null".to_string(),
-            Some(Value::String(r)) if r.trim().is_empty() => "nothing".to_string(),
-            Some(Value::String(r)) => r.trim().to_string(),
+        // As `tostring` and `read -r` leave it: no reason is "null", and
+        // only its first line counts, trimmed of spaces and tabs.
+        let reason = match p.get("reason") {
+            None => "null".to_string(),
+            Some(Value::String(r)) => r.clone(),
             Some(r) => r.to_string(),
         };
+        let cap = reason
+            .split('\n')
+            .next()
+            .unwrap_or("")
+            .trim_matches([' ', '\t']);
+        let cap = if cap.is_empty() { "nothing" } else { cap }.to_string();
         let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
         if !told && !self.dry {
             self.act(json!({
@@ -1232,6 +1239,11 @@ impl<'a> Poll<'a> {
             "the fixer applied tehas:ready",
             "the fixer or a person applies it again",
         )? {
+            return Ok(None);
+        }
+        if n != self.c.control && !matches!(self.s.issues.get(&n), Some(i) if i.approval.is_some())
+        {
+            self.need("approval");
             return Ok(None);
         }
         let sum = text::body_sha256(&self.text(n));
@@ -1277,7 +1289,7 @@ impl<'a> Poll<'a> {
         if n == self.c.control {
             return Err(("it is the control issue".into(), false));
         }
-        let record = match self.s.issues.get(&n).map(|i| i.approval.clone()) {
+        let record = match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
             Some(Err(())) => {
                 return Err((
                     "its approvals on the state store could not be read".into(),
