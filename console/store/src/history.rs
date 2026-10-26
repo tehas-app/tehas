@@ -13,16 +13,17 @@ pub struct Call {
     pub how: Option<&'static str>,
 }
 
-/// The `how` words a cycle row can hold: `cycles.how`. `fixer` is the old name
-/// of `millwright`; a row written before the rename still says it, and
-/// `--how millwright` keeps the rows of both words.
-pub const HOWS: [&str; 7] = [
+/// The `how` words a cycle row can hold: `cycles.how`, in the words of this
+/// release, which a refusal prints. The word of `MILLWRIGHT_WORDS` that a row
+/// is written as heads the list, so its old spelling `fixer` — matched but
+/// never printed — stands beside it and a filter of either word keeps the rows
+/// of both. Part 5 of #686 drops that pair.
+pub const HOWS: [&str; 6] = [
+    crate::approval::MILLWRIGHT,
     "label",
     "refresh",
     "retry-tick",
     "outage-retry",
-    "millwright",
-    "fixer",
     "hand",
 ];
 
@@ -41,8 +42,8 @@ fn args(rest: &[String]) -> Result<Call, String> {
         Some(_) => Some(a.issue()?),
         None => None,
     };
-    let kind = a.word("--kind", &["cycle", "plan"])?;
-    let how = a.word("--how", &HOWS)?;
+    let kind = a.word("--kind", &["cycle", "plan"], &[])?;
+    let how = a.word("--how", &HOWS, &[tehas_core::grammar::MILLWRIGHT_WORDS[1]])?;
     if how.is_some() && kind == Some("plan") {
         return Err(a.usage("--how", "is not taken with --kind plan"));
     }
@@ -50,15 +51,16 @@ fn args(rest: &[String]) -> Result<Call, String> {
 }
 
 /// The words a history read filters on: one spelling of `how` may stand for
-/// two, because a row written before the rename still says `fixer`.
-struct HowFilter(Option<String>);
+/// two, because a row written before the rename still says `fixer`. A filter
+/// of any other word is the one word given; a read with no filter is None.
+struct HowFilter(Option<[&'static str; 2]>);
 
-fn how_words(how: Option<&str>) -> HowFilter {
+fn how_words(how: Option<&'static str>) -> HowFilter {
     match how {
         Some(w) if crate::approval::is_millwright(w) => {
-            HowFilter(Some(format!("{},{}", crate::approval::MILLWRIGHT, "fixer")))
+            HowFilter(Some(crate::approval::MILLWRIGHT_WORDS))
         }
-        Some(w) => HowFilter(Some(w.to_string())),
+        Some(w) => HowFilter(Some([w, w])),
         None => HowFilter(None),
     }
 }
@@ -120,19 +122,20 @@ fn order(r: &rusqlite::Row) -> rusqlite::Result<(i64, i64, i64)> {
     Ok((r.get(3)?, r.get(1)?, r.get(0)?))
 }
 
-fn cycles(c: &Connection, issue: Option<i64>, how: Option<&str>) -> Result<Vec<Row>, Fail> {
+fn cycles(c: &Connection, issue: Option<i64>, how: Option<&'static str>) -> Result<Vec<Row>, Fail> {
     let words = how_words(how);
+    let [first, second] = words.0.unwrap_or(["", ""]);
     let mut q = c
         .prepare(
             "SELECT id, issue, attempt, at, status, step, by_account, how, pr, started_at, rc, cap,
                park_reason, failure_kind, failure_cause, provider, parked
              FROM cycle_history
              WHERE (?1 IS NULL OR issue = ?1)
-               AND (?2 IS NULL OR instr(',' || ?2 || ',', ',' || how || ',') > 0)",
+               AND (?2 = '' OR how = ?2 OR how = ?3)",
         )
         .q()?;
     let rows = q
-        .query_map(rusqlite::params![issue, words.0.as_deref()], |r| {
+        .query_map(rusqlite::params![issue, first, second], |r| {
             Ok((order(r)?, row_json(r, &CYCLE_NAMES)?))
         })
         .q()?;

@@ -151,7 +151,7 @@ fn asked_args(rest: &[String]) -> Result<Call, String> {
         issue,
         id,
         kind: a
-            .word("--kind", &["park", "plan"])?
+            .word("--kind", &["park", "plan"], &[])?
             .expect("--kind was given"),
         attempt: a.strict("--attempt", "a number", verbs::number)?,
         body_sha: a.strict("--body-sha", "a sha256", verbs::sha256)?,

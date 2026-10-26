@@ -50,17 +50,15 @@
 #                                 lost, by, label, answers, filed, and the
 #                                 notes fixer_refused and held, absent if none
 #   tehas_settings_shape          a jq filter: of a cycle as cycle-show answers
-#                                 it, the settings on its record in the shape
-#                                 tehas_improve_settings writes them,
-#                                 {container, host, concurrentCycles}; null
-#                                 when it has none
+#                                 tehas_improve_settings writes them:
+#                                 {container, host, concurrentCycles}; null when
+#                                 the cycle has none
 #   tehas_history_shape           a jq filter: of history-show's answer, each
-#                                 cycle row as the line of history it was
-#                                 before the store, one object per line: at
-#                                 and started as times, pr as the pull
-#                                 request's address. Needs $repo.
-#                                 tehas_history_line defines history_line, the
-#                                 same of one row
+#                                 cycle row as the line of history it was before
+#                                 the store, one object per line: at and started
+#                                 as times, pr as the pull request's address.
+#                                 Needs $repo. tehas_history_line defines
+#                                 history_line, the same of one row
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -173,22 +171,22 @@ tehas_cycle_attempt() { # <issue>
 # The approval as the dispatcher wrote .approved.json: the inputs it gave the
 # cycle, and for a millwright's or a refresh start the approval it rests on and
 # the starts counted on that. A refresh names the person's approval it rests on,
-# as given_at did: its own row's at is when the dispatcher decided (D5). The
-# shape keeps the old names, and takes `millwright` or `fixer` for either.
+# as given_at did: its own row's at is when the dispatcher decided (D5). The line
+# below is #686's alias: the store writes new words, this shape the old.
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
   def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
-  def mw: if . == "millwright" then "fixer" else . end;
+  def mw: if . == "millwright" then "fixer" else . end; # part 5 of #686
   (.millwright_starts? // .fixer_starts? // 0) as $starts | .current as $c
   | if $c == null or ($want != null and $c.used_by != $want) then null
     elif ($c | type) != "object" then error("not an approval")
-    else ($c.input // {}) as $in | (.rests_on | person) as $base
-    | {at: ($c.at | iso), by: $c.by, how: ($c.how | mw), body_sha256: $c.body_sha256, links: ($in.links // [])}
+    else ($c.input // {}) as $in | (.rests_on | person) as $base | ($c.how | mw) as $how
+    | {at: ($c.at | iso), by: $c.by, how: $how, body_sha256: $c.body_sha256, links: ($in.links // [])}
       + (if $c.title_sha256 == null then {} else {title_sha256: $c.title_sha256} end)
       + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
       + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
-      + (if ($c.how == "millwright" or $c.how == "fixer") then {rests_on: $base, fixer_starts: $starts} else {} end)
-      + (if $c.how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
+      + (if $how == "fixer" then {rests_on: $base, fixer_starts: $starts} else {} end)
+      + (if $how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
            + (if $base == null then {} else {at: $base.at, by: $base.by} end)
          else {} end)
     end'
@@ -214,8 +212,11 @@ tehas_approval_view() { # <issue> [<attempt>]
   printf '%s\n' "$file"
 }
 
+# The planning record as its file had it before the store, and #686's alias: the
+# refused comments go under either name.
 # shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
 tehas_plan_shape='.planning | if type != "object" then null else
+  ((.notes.millwright_refused // []) + (.notes.fixer_refused // [])) as $refused | # part 5 of #686
   {session: (.session // ""), turns, options: (.options // []), pending, failed, running}
   + (if .started_at == null then {} else {startedAt: (.started_at | todate)} end)
   + (if .comment_id == null then {} else {comment: .comment_id} end)
@@ -224,8 +225,7 @@ tehas_plan_shape='.planning | if type != "object" then null else
   + (if .label == null then {} else {label} end)
   + {answers: ((.answers // []) | map(if .millwright != null then {turn, by, fixer: .millwright} else . end))}
   + (if (.filed // []) == [] then {} else {filed} end)
-  + (((.notes.millwright_refused // []) + (.notes.fixer_refused // [])) as $r
-     | if $r == [] then {} else {fixer_refused: $r} end)
+  + (if $refused == [] then {} else {fixer_refused: $refused} end)
   + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'
 
 plan_view() { # <issue>

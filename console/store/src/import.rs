@@ -322,6 +322,62 @@ fn object(bytes: &[u8]) -> Result<Map<String, Value>, String> {
     }
 }
 
+/// A record that gives one field twice is read by `object` as its last value,
+/// so a file that names an aliased word twice holds a number the import cannot
+/// know. `once_each` refuses that, by counting the keys in the record's own
+/// text. A record is JSON the caller has already read as UTF-8, so the walk
+/// here works on bytes.
+fn once_each(bytes: &[u8], keys: &[&str]) -> Result<(), String> {
+    let t = match std::str::from_utf8(bytes) {
+        Ok(t) => t,
+        // Not UTF-8: `text` says so, and this guard has nothing to check.
+        Err(_) => return Ok(()),
+    };
+    let b = t.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == b'\\' {
+                escaped = true;
+            } else if c == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            b'"' => in_string = true,
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+        // A key of the record itself is a quoted word at depth one whose name
+        // holds no escape; the keys of a nested object sit at depth two. When
+        // the name is spelled again right after itself, the record names it twice.
+        if depth == 1 && c == b'"' {
+            let start = i + 1;
+            let mut end = start;
+            while end < b.len() && b[end] != b'"' && b[end] != b'\\' {
+                end += 1;
+            }
+            let name = &t[start..end];
+            if keys.contains(&name) && b[end..].starts_with(name.as_bytes()) {
+                return Err(format!("names {name} twice"));
+            }
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 fn clean(s: Option<&str>, keep: fn(u8) -> bool, max: usize) -> Option<String> {
     let mut v: String = s?
         .chars()
@@ -341,9 +397,15 @@ fn opt_str<'a>(m: &'a Map<String, Value>, k: &str) -> Result<Option<&'a str>, St
 }
 
 fn opt_bool(m: &Map<String, Value>, k: &str) -> Result<bool, String> {
+    Ok(opt_present(m, k)?.unwrap_or(false))
+}
+
+/// A field that is absent or null is None; one of another type is the error.
+/// Where a field has two names, this says which of them the record gives.
+fn opt_present(m: &Map<String, Value>, k: &str) -> Result<Option<bool>, String> {
     match m.get(k) {
-        None | Some(Value::Null) => Ok(false),
-        Some(Value::Bool(b)) => Ok(*b),
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
         Some(_) => Err(format!("has a {k} that is not true or false")),
     }
 }
@@ -403,12 +465,13 @@ fn label_of(how: &str) -> String {
     }
 }
 
-/// The word the record writes for a name the old files spell the other way.
-fn kept_how(word: &str) -> String {
-    if crate::approval::is_millwright(word) {
-        crate::approval::MILLWRIGHT.to_string()
-    } else {
-        word.to_string()
+/// The word a history line writes for a `how` the old files spell the other
+/// way: the one normalising function of the import, used for every field that
+/// carries the word.
+fn kept_how(word: String) -> String {
+    match crate::approval::kept_how(&word) {
+        Some(kept) => kept.to_string(),
+        None => word,
     }
 }
 
@@ -472,7 +535,7 @@ fn cycle_lines(g: &Got) -> Result<Vec<CycleLine>, String> {
             parked: opt_bool(&m, "parked").map_err(|e| format!("line {}: {e}", i + 1))?,
             pr: s("pr")?.and_then(pr_number),
             by: s("by")?.and_then(verbs::account),
-            how: clean(s("how")?, kebab_char, 40).as_deref().map(kept_how),
+            how: clean(s("how")?, kebab_char, 40).map(kept_how),
         });
     }
     Ok(out)
@@ -579,21 +642,12 @@ struct Base {
 
 fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
     let m = object(&g.bytes)?;
+    once_each(&g.bytes, &["millwright_starts", "fixer_starts"])?;
     let at = need_time(&m, "at")?;
     let by = need(account(&m, "by")?, "by")?;
     let how_word = opt_str(&m, "how")?.unwrap_or("");
-    let how = crate::approval::HOWS
-        .iter()
-        .find(|h| **h == how_word)
-        .copied()
-        // An old record says `fixer`; the row is written under the new word.
-        .map(|h| {
-            if crate::approval::is_millwright(h) {
-                crate::approval::MILLWRIGHT
-            } else {
-                h
-            }
-        })
+    // An old record says `fixer`; the row is written under the new word.
+    let how = crate::approval::kept_how(how_word)
         .ok_or_else(|| format!("has a how it does not know: {}", verbs::shown(how_word)))?;
     let body_sha = need(
         opt_str(&m, "body_sha256")?.and_then(verbs::sha256),
@@ -641,8 +695,9 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
                 "rests_on.body_sha256",
             )?,
         };
-        // The old record counts the millwright's starts under `fixer_starts`;
-        // a newer one may name either key, and both hold the same number.
+        // A record of either spelling is one field under two names: both
+        // present and unequal is a file the import cannot know, so it is
+        // refused rather than read as whichever key came last.
         let starts = match (
             opt_int(&m, "millwright_starts")?,
             opt_int(&m, "fixer_starts")?,
@@ -742,6 +797,7 @@ fn ids(m: &Map<String, Value>, k: &str) -> Result<Vec<i64>, String> {
 
 fn plan_in(g: &Got) -> Result<PlanIn, String> {
     let m = object(&g.bytes)?;
+    once_each(&g.bytes, &["millwright_refused", "fixer_refused"])?;
     let options = match m.get("options") {
         None | Some(Value::Null) => Vec::new(),
         // Labels the runner wrote, kept as plan-end keeps them; one that is not
@@ -763,8 +819,14 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
                     .filter(|n| *n >= 1)
                     .ok_or("has an answer with no turn")?;
                 let by = need(account(o, "by")?, "answer by")?;
-                // The old record marks the millwright's answer `fixer`.
-                let millwright = opt_bool(o, "millwright")? || opt_bool(o, "fixer")?;
+                // The old record marks the millwright's answer `fixer`: one
+                // field under two names, read as one mark. An answer marked
+                // twice and unequally is the record the import cannot know.
+                let millwright = crate::approval::kept_mark(
+                    opt_present(o, "millwright")?,
+                    opt_present(o, "fixer")?,
+                )
+                .ok_or("marks its answer twice, and differently")?;
                 Ok((turn, by, millwright))
             })
             .collect::<Result<_, String>>()?,
@@ -793,17 +855,19 @@ fn plan_in(g: &Got) -> Result<PlanIn, String> {
             verbs::comment_id(&n.to_string()).ok_or("has a comment that is not a comment id")?,
         ),
     };
-    let mut notes: Vec<(&'static str, i64)> = Vec::new();
+    let mut notes: BTreeSet<(&'static str, i64)> = BTreeSet::new();
     // The old record lists the refused comments under `fixer_refused`; a newer
-    // one may name either key, and the rows are the same notes.
+    // one may name either key, and the rows are the same notes. The set holds
+    // one row per comment, which is what the key of the table would do too.
     for key in ["millwright_refused", "fixer_refused"] {
         for id in ids(&m, key)? {
-            notes.push(("millwright-refused", id));
+            notes.insert((plan::MILLWRIGHT_REFUSED, id));
         }
     }
     for id in ids(&m, "held")? {
-        notes.push(("held", id));
+        notes.insert(("held", id));
     }
+    let notes: Vec<(&'static str, i64)> = notes.into_iter().collect();
     Ok(PlanIn {
         session: opt_str(&m, "session")?
             .filter(|s| plan::session_ok(s))

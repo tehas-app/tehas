@@ -170,17 +170,36 @@ fn history_show_takes_an_issue_a_kind_and_a_how() {
 
 #[test]
 fn history_show_takes_the_millwright_under_both_words() {
-    let home = home("history-millwright");
-    // One row written before the rename still says `fixer`; the other is a
-    // start of this release's word. A read for either name keeps both.
-    let (l, a) = start_by(&home, 12, "alice", "label", NOW);
-    end(&home, 12, a, "failed");
-    drop(l);
+    let home = home("history-millwright-both");
+    // Three rows, each at a time of its own: a person's label, a start of this
+    // release's word, and a third made as a millwright's start and then read
+    // back as the row a host wrote before the rename, which still says `fixer`.
+    // A read for either millwright word keeps the last two and no other; a read
+    // of another word keeps its own alone.
+    cycle(&home, 12, "label", NOW);
     cycle(&home, 12, "millwright", NOW + 30);
+    let (l, a) = start_by(&home, 12, "tehas-fixer", "millwright", NOW + 50);
+    ok_at(
+        &home,
+        NOW + 60,
+        &[
+            "cycle-end",
+            "12",
+            "--attempt",
+            &a.to_string(),
+            "--status",
+            "failed",
+            "--step",
+            "review",
+        ],
+    );
+    drop(l);
+    // The UPDATE names that one row by the time `cycle-end` wrote it: two rows
+    // already share `at` NOW + 30, so the attempt alone is not enough.
     let c = conn(&home);
     c.execute(
-        "UPDATE cycle_history SET how = 'fixer' WHERE issue = 12 AND how = 'label'",
-        [],
+        "UPDATE cycle_history SET how = 'fixer' WHERE issue = 12 AND at = ?1",
+        [NOW + 60],
     )
     .unwrap();
     drop(c);
@@ -188,16 +207,34 @@ fn history_show_takes_the_millwright_under_both_words() {
         assert_eq!(
             keys(&rows(&home, &["12", "--kind", "cycle", "--how", word])),
             vec![
-                ("cycle".to_string(), 12, NOW),
-                ("cycle".to_string(), 12, NOW + 30)
+                ("cycle".to_string(), 12, NOW + 30),
+                ("cycle".to_string(), 12, NOW + 60),
             ],
             "--how {word}"
         );
     }
-    // Another word still keeps only its own rows.
+    // A row of another word is kept by its own filter and not by the pair's.
+    assert_eq!(
+        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "refresh"])),
+        Vec::<(String, i64, i64)>::new()
+    );
+    assert_eq!(
+        keys(&rows(&home, &["12", "--kind", "cycle", "--how", "hand"])),
+        Vec::<(String, i64, i64)>::new()
+    );
+    // The label row is there, and a filter of `label` keeps it alone: the pair
+    // did not take it.
     assert_eq!(
         keys(&rows(&home, &["12", "--kind", "cycle", "--how", "label"])),
-        Vec::<(String, i64, i64)>::new()
+        vec![("cycle".to_string(), 12, NOW)]
+    );
+    assert_eq!(
+        keys(&rows(&home, &["12", "--kind", "cycle"])),
+        vec![
+            ("cycle".to_string(), 12, NOW),
+            ("cycle".to_string(), 12, NOW + 30),
+            ("cycle".to_string(), 12, NOW + 60),
+        ]
     );
 }
 

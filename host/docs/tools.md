@@ -546,7 +546,7 @@ issue is marked `tehas:running`; if that label change fails, the poll stops.
 Before it marks an issue, the poll records what the start rests on in the
 state store (`~/tehas/state/tehas.db`, through `libexec/store`
 `approval-record`): `at` and `by`, when and by whom it was approved, `how`
-(`label`, `retry-tick`, `fixer`, `refresh`, or `outage-retry` for the one start
+(`label`, `retry-tick`, `millwright`, `refresh`, or `outage-retry` for the one start
 after a provider outage), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's

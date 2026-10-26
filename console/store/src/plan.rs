@@ -79,22 +79,19 @@ const BRIEF_BOUND: u64 = 1 << 20;
 const TEXT_BOUND: u64 = 1 << 20;
 
 /// The kinds of `plan-note`, and the keys plan-show lists them under.
-/// `fixer-refused` is the old name of `millwright-refused`: the shell still
-/// sends it until part 5 of #686, and a note given it is written as
-/// `millwright-refused`.
 const NOTES: [(&str, &str); 2] = [
     ("millwright-refused", "millwright_refused"),
     ("held", "held"),
 ];
-const NOTE_KINDS: [&str; 3] = [NOTES[0].0, "fixer-refused", NOTES[1].0];
+/// The kinds of this release, which `Args::word` prints in a refusal.
+const NOTE_KINDS: [&str; 2] = [NOTES[0].0, NOTES[1].0];
 
 /// The word a refused note is written as, whatever spelling it was given.
-const MILLWRIGHT_REFUSED: &str = "millwright-refused";
+pub const MILLWRIGHT_REFUSED: &str = "millwright-refused";
 
-/// Whether `kind` names the refused note, in either spelling.
-fn is_refused(kind: &str) -> bool {
-    kind == MILLWRIGHT_REFUSED || kind == "fixer-refused"
-}
+/// The old name of `millwright-refused`, which the shell still sends until part
+/// 5 of #686: it is matched, answered as the current word, and never printed.
+const ALIAS_NOTE_KINDS: [&str; 1] = ["fixer-refused"];
 pub const MAX_OPTIONS: usize = 20;
 const OPTION_BYTES: usize = 300;
 
@@ -141,18 +138,15 @@ fn note_args(rest: &[String]) -> Result<Call, String> {
     a.need("--kind")?;
     Ok(Call::Note {
         issue,
-        kind: a.word("--kind", &NOTE_KINDS)?.expect("--kind was given"),
+        // The old `fixer-refused` is normalised here, at the parse boundary, so
+        // the Call carries only a word of today and a refusal names only those.
+        kind: crate::approval::kept_note_kind(
+            a.word("--kind", &NOTE_KINDS, &ALIAS_NOTE_KINDS)?
+                .expect("--kind was given"),
+        )
+        .expect("word named one of the kinds"),
         id: a.strict_need("--id", "a comment id", verbs::comment_id)?,
     })
-}
-
-/// The kind as written: an old `fixer-refused` becomes `millwright-refused`.
-fn note_kind(kind: &'static str) -> &'static str {
-    if is_refused(kind) {
-        MILLWRIGHT_REFUSED
-    } else {
-        kind
-    }
 }
 
 fn begin_args(rest: &[String]) -> Result<Call, String> {
@@ -176,7 +170,7 @@ fn begin_args(rest: &[String]) -> Result<Call, String> {
     let by = a.strict_need("--by", "an account", verbs::account)?;
     a.need("--label")?;
     let label = a
-        .word("--label", &["tehas:plan", "tehas:refine"])?
+        .word("--label", &["tehas:plan", "tehas:refine"], &[])?
         .expect("--label was given");
     a.need("--brief-file")?;
     let brief = a.path("--brief-file")?.expect("--brief-file was given");
@@ -218,6 +212,9 @@ fn answer_args(rest: &[String]) -> Result<Call, String> {
         issue,
         turn,
         by: a.strict_need("--by", "an account", verbs::account)?,
+        // `--fixer` is the old name of `--millwright` and means the same, so
+        // both are the one mark and giving both asks for nothing new: unlike
+        // --refresh-pr and --refresh-head, the two are not a pair to match.
         millwright: a.has("--millwright") || a.has("--fixer"),
         text: a.path("--text-file")?,
     })
@@ -270,7 +267,7 @@ fn end_args(rest: &[String]) -> Result<Call, String> {
     let turn = a.strict_need("--turn", "a number", verbs::number)?;
     a.need("--outcome")?;
     let outcome = a
-        .word("--outcome", &OUTCOMES)?
+        .word("--outcome", &OUTCOMES, &[])?
         .expect("--outcome was given");
     let rc = a.strict("--rc", "an exit status", verbs::count)?;
     match (outcome, rc) {
@@ -347,7 +344,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Posted { issue } => posted(home, *issue),
         Call::Close { issue } => close(home, *issue, now),
         Call::Show { issue } => show(home, *issue),
-        Call::Note { issue, kind, id } => note(home, *issue, note_kind(kind), *id, now),
+        Call::Note { issue, kind, id } => note(home, *issue, kind, *id, now),
     }
 }
 

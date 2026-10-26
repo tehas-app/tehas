@@ -228,22 +228,35 @@ impl Args {
             .map(|v| v.expect("the flag was given"))
     }
 
-    /// An enumerated value: the word given is named on refusal.
-    pub fn word(&self, flag: &str, set: &[&'static str]) -> Result<Option<&'static str>, String> {
-        match self.value(flag) {
-            None => Ok(None),
-            Some(v) => set
-                .iter()
-                .find(|w| **w == v)
-                .copied()
-                .map(Some)
-                .ok_or_else(|| {
-                    self.usage(
-                        flag,
-                        &format!("is not one of {}: {}", set.join(", "), shown(v)),
-                    )
-                }),
+    /// `words` are the words of today, and the only ones a refusal prints;
+    /// `aliases` are the old spellings of #686 that are taken as well. The
+    /// caller normalises what comes back, so an alias never reaches a row.
+    /// `words` are the words of today, and the only ones a refusal prints;
+    /// `aliases` are the old spellings of #686 that are taken as well and
+    /// answered with the current word that stands beside them, so a row never
+    /// carries the old spelling. Each alias therefore names a pair with the
+    /// word it stands for, in order.
+    pub fn word(
+        &self,
+        flag: &str,
+        words: &[&'static str],
+        aliases: &[&'static str],
+    ) -> Result<Option<&'static str>, String> {
+        let Some(given) = self.value(flag) else {
+            return Ok(None);
+        };
+        let pairs = words
+            .iter()
+            .zip(aliases.iter().map(Some).chain(std::iter::repeat(None)));
+        for (current, alias) in pairs {
+            if *current == given || alias.is_some_and(|a| *a == given) {
+                return Ok(Some(current));
+            }
         }
+        Err(self.usage(
+            flag,
+            &format!("is not one of {}: {}", words.join(", "), shown(given)),
+        ))
     }
 
     /// An absolute path. Cleaning it is the file read's job.
