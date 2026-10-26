@@ -73,8 +73,12 @@ build both by hand in one session.
    `dispatch-rule4`), merged 2026-10-26. 3b (PR #771) and 4a (PR #778, the
    snapshot and the `tehas-dispatch` binary) merged 2026-10-26. The owner
    lets this session merge #253/#254/#256 PRs on green CI (2026-10-26).
-   Next: 4b, the host probes left (model endpoints, image, sweep), the
-   shadow beside each poll, `logs/dispatch-shadow.log`, install, manual.
+   4b (PR #782, the host probes left and the shadow beside each poll)
+   merged 2026-10-26, so #253's code is complete. The shadow is opt-in: it
+   runs only while `~/tehas/state/dispatch-shadow.on` is there, because it
+   costs a poll about 9 s wall, 3 s CPU and 20 GitHub reads (asked for
+   v0.14.0, #730). It ships in v0.14.0; the .on file goes on tehas-tehas
+   after that deploy, and #254's 7 days of shadow count from then.
    D7 measured: a page of 100 issues costs 4 points.
 2. **#254**, part 2: apply through the action journal, then a setting chooses
    bash or rust. It needs 7 days of shadow and then 7 days live on tehas-tehas
