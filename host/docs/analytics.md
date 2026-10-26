@@ -102,7 +102,7 @@ call; one that a caller killed during the call leaves is removed by
 | `kind` | `work` or `plan` | 1 |
 | `issue` | The issue number | 1 |
 | `attempt` | The run's number for this issue: the attempt the state store gave its start, counting from 1, a start refused or by hand included. Work runs only | 1 |
-| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `fixer` or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `fixer` for a later one | 1 |
+| `how` | What started it: `label`, `retry-tick`, `outage-retry`, `millwright` (`fixer` on a run recorded before the rename) or `refresh`, from the approval the start used, else the history line, which says `hand` for a cycle run by hand. A planning turn: `label` for the first turn, `refine` for the first turn of a session `tehas:refine` started, `answer` or `millwright` for a later one | 1 |
 | `started`, `ended`, `seconds` | The run's start, its end and the wall time between: the history line's `started` and `at`. A planning turn ends when the poll collects it | 1 |
 | `queue_wait` | `started` less when `tehas:ready` was accepted (the approval the start used) | 1 |
 | `outcome` | `pr`, `merged`, `handoff`, `parked`, `failed`, `refused` or `stopped`, below | 1 |

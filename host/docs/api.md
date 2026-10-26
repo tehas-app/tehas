@@ -100,7 +100,8 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
+  "millwright": null,
   "fixer": null
 }
 ```
@@ -111,8 +112,9 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
-| `fixer` | `TEHAS_FIXER_LOGIN`, or `null` when the instance has no fixer |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
+| `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
+| `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept until a release removes them; a program reads `millwright` and `millwright-grant` |
 
 It reads the instance settings and `~/tehas/docs/version.txt`, which
 `install.sh` writes. Exit 0; 64 on an argument it does not know; 78 when the
@@ -156,7 +158,7 @@ tehas status --json
 | `limit` | The limit, as [`tehas limit --json`](#tehas-limit) prints it without `api` and `reason`: `{"state": "none"}` when none is set |
 | `running` | The running cycles: `issue`, `since` (when it started) and `step` (left out when not known yet) |
 | `planning` | The planning turns in flight: `issue`, `turn` (the session's turn that runs, from 1) and `since` (when it started; left out for a turn started before this was kept) |
-| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the fixer, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
+| `demand.waiting` | Open issues that would start if there were room: `tehas:ready` applied last by an account in `TEHAS_ALLOWED_LABELERS` or the millwright, with no cycle and no planning session open, and the refresh requests waiting, unless refreshes are held |
 | `demand.oldestWait` | Seconds since the oldest of them was labelled or asked for; left out when none waits |
 | `demand.refreshHold` | Why refresh requests start nothing on this host, for a person: refreshes are off, or the sandbox image cannot continue a pull request. Left out when nothing holds them or there are none |
 | `demand` | `null` when no poll counted it in the last ten minutes, or the last poll could not read the queue |
@@ -172,7 +174,7 @@ tehas status --json
 
 `demand.waiting` is not the exact count of what would start: the poll still
 checks, at a start, that the text is unchanged since the label, that no open
-pull request closes the issue, and the fixer's grant.
+pull request closes the issue, and the millwright's grant.
 
 The source holds a JSON Schema of this object, `api/status.schema.json`, and
 two samples made by the code that prints it, `api/status.busy.json` and
@@ -280,7 +282,7 @@ takes one issue's lines, from its cycle and its planning turns together.
 
 `ended` and `started` are when the unit ran and ended. `status` is its exit
 status, `outcome` what it reported, and the rest are the fields of the line:
-the step and cap it stopped at, why it was parked, the failure the fixer named,
+the step and cap it stopped at, why it was parked, the failure the millwright named,
 whether its provider was asked, the pull request, and who asked for it and how
 (`hand` for a cycle run by hand, which names no account).
 A planning turn has `turn`, its number in the session, `label`, the label that

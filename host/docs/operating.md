@@ -253,11 +253,11 @@ With any other backend the section and the meter are simply not there, and
 nothing else changes. To turn them off on a viiwork mesh, see
 [the energy sampler](/tools).
 
-The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the fixer](#the-fixers-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
+The dispatcher takes issues `tehas:urgent` first, then [refreshes](#refreshes) of its own pull requests, then `tehas:next`, then by the lowest issue number: as many at a time as the host's ceiling and the slice's room allow (see [Limits that hold work back](#limits-that-hold-work-back)). A running cycle is never stopped to make room for an urgent one. The dashboard lists the queue by issue number, not the order the dispatcher will work it in: whether a `tehas:urgent` or `tehas:next` moves the queue is decided by who applied the label, not by its being there. `tehas:urgent` counts from an allowed labeller. `tehas:next` counts from an allowed labeller or [the millwright](#the-millwrights-grant), when the latest event of the label applies it; one taken off since, or applied by anyone else, is ignored and logged.
 
 An issue the poll puts on neither the urgent list nor the `tehas:next` list is the lowest kind, so one whose `tehas:next` came from an account the poll does not count is of that kind too. With `TEHAS_LOW_GATE` on the instance (see [tehas dispatch](/tools#tehas-dispatch)) the poll runs one command of yours before it starts any of them, once a poll at most, and only when such an issue would otherwise start. Only its exit status is read: 0 lets them start, and anything else holds them for that poll, a command that is missing, one that is not executable or one that outlives `TEHAS_LOW_GATE_WAIT` included, while urgent and `tehas:next` issues go ahead. What the command prints is kept in `~/tehas/logs/low-gate.log`, rewritten each time it is asked, so a gate that closes for a reason says that reason there. The log says `low issues wait: TEHAS_LOW_GATE answered S` once when the hold begins and `low issues may start: TEHAS_LOW_GATE answered 0` once when it ends, whatever the command answers while the hold lasts; after that each held issue says it on its own line. No cycle that already runs is stopped by it. A closed gate is not one of the holds [tehas status](/tools#tehas-status) shows, so a factory that starts nothing for it reads healthy elsewhere: look in `~/tehas/logs/dispatch.log`. With no setting there is no gate, and every ready issue is started as before.
 
-An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts on the same terms as `tehas:next`, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the fixer applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the fixer that holds the marker:
+An issue with `tehas:blocked` is not started while an issue it names is open, so its slot goes to work that can move. Once every issue it names is closed, it starts. Apply `tehas:blocked` on its own and leave `tehas:ready` off: the dispatcher starts the issue when its blockers close, on your approval, as if you had applied `tehas:ready` then. The label counts on the same terms as `tehas:next`, with one difference: on its own it starts work, so it counts only from an allowed labeller, and only while the text is the one it approved, as `tehas:ready` does. A `tehas:blocked` the millwright applies holds an issue but does not start one. On an issue tehas is already working on, one with `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:plan` or `tehas:refine`, it starts nothing. The blockers are named in a comment by an allowed labeller or the millwright that holds the marker:
 
 ```
 Blocked by #12 and #34.
@@ -288,13 +288,13 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:question`        | The factory asked something       | Tick a box; in a planning session you may reply instead |
 | `tehas:improvement`     | Filed by the improvement loop     | Read it; apply `tehas:ready` if it should be built |
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
-| `tehas:fixer-escalated` | The fixer left it to a person     | Read the fixer's note; decide, or take the label off to hand it back |
+| `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
 `tehas:ready` from an allowed labeller starts a fresh cycle whatever else the
-issue carries. So does one from [the fixer](#the-fixers-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
+issue carries. So does one from [the millwright](#the-millwrights-grant), within its grant. tehas's labels of the earlier outcome go when the cycle starts.
 `needs-human-attention` stays until the cycle runs: the cycle starts with
 `--restart`, and pi-rukas takes the label off as it begins. The dashboard
 counts an issue with `tehas:running` as running, whatever else it carries. On
@@ -648,8 +648,8 @@ pi-rukas's record of a session is kept on the host, in
 turn. If it is gone, for example after the host was rebuilt, the session cannot
 go on: the bot ends it and says so. Apply `tehas:plan` again to start a new session.
 
-Only answers from allowed labellers count, and the fixer's within its grant
-(see [The fixer's grant](#the-fixers-grant)). A box ticked by anyone else, or
+Only answers from allowed labellers count, and the millwright's within its grant
+(see [The millwright's grant](#the-millwrights-grant)). A box ticked by anyone else, or
 more than one box, is unticked and the bot says so. A reply counts only if its
 author is an allowed account and, when it was edited, its last editor is too.
 Replies from others are ignored. Only the question the session is waiting on
@@ -757,7 +757,7 @@ one the factory holds for a free slot. It does not refine when:
   `tehas:replaced`,
 - the issue has had a planning session before, or a planning session filed it
   (its first line is `Replaces #<n>`),
-- the cycle was run by hand or by the fixer, or the account that started it
+- the cycle was run by hand or by the millwright, or the account that started it
   may no longer label,
 - the text was changed since the cycle began, by anyone: a person at work on
   it decides.
@@ -1277,32 +1277,39 @@ keeps the old file open and goes on writing to it. `store check` must say
 on GitHub against what the copy holds; a cycle that ran after the copy was
 made is not in it.
 
-## The fixer's grant
+## The millwright's grant
 
-Optional. The fixer is an account that decides on parked issues from outside
+Optional. The millwright is an account that decides on parked issues from outside
 the factory: start one again, start it again working differently, or leave it
 to a person. It may also answer some planning questions. What runs as that account is not part of tehas. The factory says
 what the account may do, and this section is that.
 
-- **It is an account of its own**, named by `TEHAS_FIXER_LOGIN`. It is never
+The millwright was called the fixer. Until a release removes them, the old
+names are accepted beside the new ones: the settings `TEHAS_FIXER_LOGIN`,
+`TEHAS_FIXER_MAX_RETRIES` and `TEHAS_FIXER_MAX_PLAN_ANSWERS`, the label
+`tehas:fixer-escalated`, the marker `<!-- tehas:fixer issue=<n> action=... -->`,
+`how: "fixer"` on a record, and `fixer-grant` and `fixer` in
+[`tehas api`](/api#tehas-api).
+
+- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It is never
   the bot, because every agent posts as the bot: a poll stops with 78 when
   the two are one. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the
-  settings stops with 78. Unset, there is no fixer, and the account's labels
+  settings stops with 78. Unset, there is no millwright, and the account's labels
   count as any outsider's.
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,
-  and the fixer has started fewer than `TEHAS_FIXER_MAX_RETRIES` cycles on it
+  and the millwright has started fewer than `TEHAS_MILLWRIGHT_MAX_RETRIES` cycles on it
   since that approval (2 unless the instance says otherwise). Otherwise the
-  label comes off and the issue says why. So the fixer never starts work
+  label comes off and the issue says why. So the millwright never starts work
   nobody asked for: it never readies a `tehas:improvement` proposal.
-- **The approval record says so.** A fixer start has `how: "fixer"`,
-  `rests_on`, the person's approval it rests on, and `fixer_starts`. A
+- **The approval record says so.** A millwright start has `how: "millwright"`,
+  `rests_on`, the person's approval it rests on, and `millwright_starts`. A
   person's start counts again from none. Its other limits are the
   dispatcher's as for any start: the slots, the cap of waiting merges and
   the slice's room.
-- **Its comment reaches the cycle.** The fixer's newest comment on the issue
-  that starts with `<!-- tehas:fixer issue=<n> action=retry -->` or
+- **Its comment reaches the cycle.** The millwright's newest comment on the issue
+  that starts with `<!-- tehas:millwright issue=<n> action=retry -->` or
   `action=change`, written in the ten minutes before its label and edited by
   nobody after, goes into the record as `retry_context`. Where the instance
   gives a cycle images or files, `tehas work` writes it to
@@ -1311,34 +1318,34 @@ what the account may do, and this section is that.
 - **It may answer a planning question**, by a tick or a reply, only when
   no person has answered the same question: a person's tick or reply wins,
   whichever came first. And only in a session an allowed account's
-  `tehas:plan` started, fewer than `TEHAS_FIXER_MAX_PLAN_ANSWERS` times in
+  `tehas:plan` started, fewer than `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` times in
   the session (3 unless the instance says otherwise), and never for two
   turns in a row, so a person sees every second question at most. It may
   not tick `End this planning session`. Its reply starts with the line
-  `<!-- tehas:fixer issue=<n> action=answer -->`, and the agent is told
-  the answer is the fixer's. Any other answer of the fixer's is an
+  `<!-- tehas:millwright issue=<n> action=answer -->`, and the agent is told
+  the answer is the millwright's. Any other answer of the millwright's is an
   outsider's: a tick is unticked and the bot says why, a reply is ignored
   and the bot says why once. GitHub says who last saved a comment, not who
-  ticked a box, so a tick the fixer saved after another account edited the
+  ticked a box, so a tick the millwright saved after another account edited the
   question is held: it is neither used nor unticked, and the bot asks a
   person, once, to tick again or reply. To overrule it, reply or tick before the next
   poll, or reply to the next question. The session on the state store
   (`plan-show`) keeps who started it and who answered each turn, and
-  whether the fixer did.
-- **`tehas:fixer-escalated`** is the fixer's word that a person decides.
+  whether the millwright did.
+- **`tehas:millwright-escalated`** is the millwright's word that a person decides.
   The factory does nothing on it; a start takes it off.
 - **It may order the queue** with `tehas:next` and `tehas:blocked`, and
   name the blockers in a marked comment, as an allowed labeller may (see
   [What happens next](#3-what-happens-next)). Neither starts anything: an
   issue still needs a `tehas:ready` that counts. When to apply them, and how
-  many, is the fixer's to decide, not the factory's.
+  many, is the millwright's to decide, not the factory's.
 - **Each cycle's end leaves a line** of history in the state store
   (`~/tehas/state/tehas.db`), the last 50 of each issue: when, its status,
   last step, cap, park reason, failure, whether a provider outage stopped
   it, whether it parked, its pull request, who started it and how. A
   planning turn leaves one of its own in the store too, with `kind` `plan`.
   `tehas history` lists both, oldest first, and `tehas export` copies what a
-  cycle left behind. A fixer reads GitHub, not these records.
+  cycle left behind. A millwright reads GitHub, not these records.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
@@ -1381,10 +1388,10 @@ counts. Each run writes one line to `~/tehas/logs/refresh.log`:
 **When it starts.** The dispatcher checks each request again at the start,
 and starts it on the word of the person whose approval the pull request's cycle
 rests on (the `by` of the approval of the issue's last start, or the person's
-approval it rests on after the fixer):
+approval it rests on after the millwright):
 
 - the issue is open, carries `tehas:awaiting-merge` or `needs-human-attention`
-  and none of `tehas:running`, `tehas:question`, `tehas:fixer-escalated`,
+  and none of `tehas:running`, `tehas:question`, `tehas:millwright-escalated`,
   `tehas:plan`, and no cycle or planning session is open on it. A handed-off
   issue that carries `tehas:ready` gets the fresh cycle a person asked for,
   not a refresh;
@@ -1454,7 +1461,7 @@ approval), `refresh_of` (`pr`, `head_sha`, `base_sha`, `branch`) and one
 > resolve the conflicts so the change still does what the issue asks, run the
 > gate, and push to the same branch. Do no other work.
 
-No comment text reaches the cycle this way. As with the fixer's note, it
+No comment text reaches the cycle this way. As with the millwright's note, it
 reaches `retry-context.md` only where the instance gives a cycle images or
 files. `tehas work` passes `--continue-pr` for a refresh, and refuses a refresh
 with 78 on an image that does not take it. Nothing else about the container
