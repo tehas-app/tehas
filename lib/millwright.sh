@@ -168,12 +168,12 @@ tehas_cycle_history() { # <issue>
 
 # The free text is in the sig only, so nothing of it reaches the marker.
 tehas_park_marker() { # <issue> <step> <cap> <park reason> <failure kind> <failure cause> <provider>
-  local step kind sig provider=0
+  local LC_ALL=C step kind sig provider=0
   [[ $1 =~ ^[1-9][0-9]*$ ]] || return 1
   step=$2
   [ "$step" != - ] || step=""
-  step=$(printf '%s' "$step" | tr -cd 'a-z0-9-' | head -c 40)
-  kind=$(printf '%s' "$5" | tr -cd 'a-z0-9-' | head -c 40)
+  step=${step//[!a-z0-9-]/} kind=${5//[!a-z0-9-]/}
+  step=${step:0:40} kind=${kind:0:40}
   [ "$7" != 1 ] || provider=1
   sig=$(printf '%s|%s|%s|%s|%s' "$2" "$3" "$4" "$5" "$6" | sha256sum | cut -c1-64) || return 1
   printf '<!-- tehas:park issue=%s step=%s kind=%s provider=%s sig=%s -->\n' "$1" "$step" "$kind" "$provider" "$sig"
