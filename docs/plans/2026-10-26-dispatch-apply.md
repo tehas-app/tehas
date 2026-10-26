@@ -80,8 +80,10 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
      refresh before a start or a turn, and the low gate's run. Systemd's
      answer and the index are actions `decide` puts before the starts
      (`units`, `index_gate`), because they are asked of the host at that
-     moment; the low gate is a fact the poll's snapshot reads when the
-     decision asks (never the shadow's). The bash reads the open sessions
+     moment, the running cycles too; the low gate is a fact the poll's
+     snapshot reads when the decision asks (never the shadow's), so a poll
+     an earlier action ends has run it, where the bash would not have: it
+     writes its log and nothing else. The bash reads the open sessions
      again after its own planning writes and can end the poll if that read
      fails; the Rust decides once on its snapshot and has no such read.
    - 4c, the journal settled first, against fresh reads; the process cases of

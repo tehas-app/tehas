@@ -1990,13 +1990,27 @@ fn a_unit_systemd_cannot_load_ends_the_poll_before_any_mark() {
     // With a start command of its own, systemd is not asked.
     let mut t = world();
     fs::write(t.dir.join("loadstate"), "not-found\n").unwrap();
-    assert_eq!(t.apply(gates(7, json!([3]))).exit, None);
+    let a = t.apply(gates(7, json!([])));
+    assert!(!a.log.iter().any(|l| l.contains("systemd cannot load")));
+    assert!(!t.calls().iter().any(|c| c.contains("LoadState")));
 }
 
 #[test]
 fn a_running_cycle_leaves_the_index_alone_and_the_start_refreshes_the_checkout() {
     let mut t = world();
-    let a = t.apply(gates(7, json!([3, 5])));
+    // The cycles counted are the locks held when the gate runs.
+    let cycles = t.w.home.join("state/cycles");
+    fs::create_dir_all(&cycles).unwrap();
+    let held: Vec<fs::File> = [3, 5]
+        .iter()
+        .map(|n| {
+            let f = fs::File::create(cycles.join(format!("{n}.lock"))).unwrap();
+            f.lock().unwrap();
+            f
+        })
+        .collect();
+    let a = t.apply(gates(7, json!([])));
+    drop(held);
     assert_eq!(a.exit, None);
     assert_eq!(
         a.log[0],
@@ -2128,4 +2142,48 @@ fn a_planning_turn_refreshes_the_checkout_before_its_unit() {
         .position(|l| l.starts_with("start 7 /bin/bash"))
         .unwrap();
     assert!(fetch < unit);
+}
+
+#[test]
+fn an_index_that_failed_at_the_tip_is_not_launched_again() {
+    let mut t = world();
+    t.w.host.systemctl = t.dir.join("systemctl").to_string_lossy().into_owned();
+    // libexec/index writes the commit with its line end.
+    fs::write(t.w.home.join("state/index.failed"), "abc1234\n").unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, None);
+    assert!(!fs::read_to_string(t.dir.join("calls.log"))
+        .unwrap()
+        .contains("--before-cycle"));
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:running")));
+}
+
+#[test]
+fn an_index_that_holds_its_lock_holds_the_starts() {
+    let mut t = world();
+    let lock = fs::File::create(t.w.home.join("state/index.lock")).unwrap();
+    lock.lock().unwrap();
+    let a = t.apply(gates(7, json!([])));
+    assert_eq!(a.exit, Some(0));
+    assert_eq!(
+        a.log.last().unwrap(),
+        "holding: the cycles wait for the code index, which tehas-index.service is refreshing"
+    );
+}
+
+#[test]
+fn a_planning_turns_refresh_does_not_stand_in_for_a_starts() {
+    let mut t = world();
+    t.apply(json!([first_turn(7)]));
+    t.apply(json!([start_of(8, "label")]));
+    assert_eq!(
+        t.calls()
+            .iter()
+            .filter(|c| c.contains(" fetch -q origin"))
+            .count(),
+        2
+    );
 }

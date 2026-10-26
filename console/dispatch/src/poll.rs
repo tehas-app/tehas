@@ -224,7 +224,12 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             git: "git".into(),
             index_cmd: or("TEHAS_INDEX_CMD", "index"),
             index_start_cmd: opt("TEHAS_INDEX_START_CMD"),
-            fetch_wait: secs("TEHAS_FETCH_WAIT", 120),
+            // timeout's 0 is no bound.
+            fetch_wait: match env("TEHAS_FETCH_WAIT").parse::<u64>() {
+                Ok(0) => Duration::from_secs(u64::from(u32::MAX)),
+                Ok(n) => Duration::from_secs(n),
+                Err(_) => Duration::from_secs(120),
+            },
         },
         ended: None,
         spend: None,

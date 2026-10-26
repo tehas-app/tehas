@@ -7,7 +7,7 @@
 
 use super::Writer;
 use crate::read::host::held;
-use crate::read::run::{run, run_quiet};
+use crate::read::run::{run, run_grace, run_quiet};
 use serde_json::Value;
 use std::time::Duration;
 
@@ -71,7 +71,8 @@ impl Writer {
                 "WARN: {checkout} has uncommitted changes, leaving its branch alone"
             ));
         }
-        let fetched = run_quiet(
+        // timeout -k 10, a group's: the fetch's helpers go with it.
+        let fetched = run_grace(
             &self.host.git,
             &[
                 "-C".into(),
@@ -82,6 +83,7 @@ impl Writer {
             ],
             None,
             self.host.fetch_wait,
+            Duration::from_secs(10),
         ) == Some(0);
         if !fetched
             || !self
@@ -90,7 +92,6 @@ impl Writer {
         {
             log.push(format!("WARN: could not fast-forward {checkout}"));
         }
-        self.fetched = true;
     }
 
     /// index_busy: an index run holds its lock, or its unit runs and has not
@@ -100,7 +101,7 @@ impl Writer {
         if held(&state.join("index.lock")) {
             return true;
         }
-        if state.join("index.rc").exists() {
+        if state.join("index.rc").is_file() {
             return false;
         }
         let r = run(
@@ -122,9 +123,11 @@ impl Writer {
     /// run ended since the last report.
     fn index_report(&self, log: &mut Vec<String>) -> bool {
         let rc = self.home.join("state/index.rc");
-        let Ok(b) = std::fs::read(&rc) else {
+        if !rc.is_file() {
             return false;
-        };
+        }
+        // One that cannot be read is said as a failed run, and goes.
+        let b = std::fs::read(&rc).unwrap_or_default();
         let code = String::from_utf8_lossy(&b[..b.len().min(8)]).to_string();
         let _ = std::fs::remove_file(&rc);
         if code.trim_end_matches('\n') != "0" {
@@ -152,14 +155,18 @@ impl Writer {
                 .flatten()
                 .any(|e| {
                     let n = e.file_name().to_string_lossy().into_owned();
-                    n.ends_with(".db") && n != "_config.db" && e.path().is_file()
+                    !n.starts_with('.')
+                        && n.ends_with(".db")
+                        && n != "_config.db"
+                        && e.path().is_file()
                 });
             if db {
                 return "current";
             }
         }
         let failed = std::fs::read(state.join("index.failed")).unwrap_or_default();
-        if String::from_utf8_lossy(&failed[..failed.len().min(64)]) == base {
+        // As $(head -c 64 ...) reads it: without its line ends.
+        if String::from_utf8_lossy(&failed[..failed.len().min(64)]).trim_end_matches('\n') == base {
             "failed"
         } else {
             "due"
@@ -204,7 +211,10 @@ impl Writer {
 
     /// index_gate: true when the cycles may start now; false when they wait
     /// for the index, which ends the poll with 0.
-    pub(super) fn index_gate(&mut self, running: &[u64], log: &mut Vec<String>) -> bool {
+    /// The cycles counted are the locks held now, after this poll's stops,
+    /// as the bash counts them again: a cycle that kept its lock is one.
+    pub(super) fn index_gate(&mut self, log: &mut Vec<String>) -> bool {
+        let running = crate::read::host::running(&self.home);
         if !running.is_empty() {
             let list: Vec<String> = running.iter().map(|n| format!("#{n}")).collect();
             log.push(format!(
@@ -214,6 +224,7 @@ impl Writer {
             return true;
         }
         self.refresh_checkout(log);
+        self.fetched = true;
         if self.index_busy() {
             log.push("holding: the cycles wait for the code index, which tehas-index.service is refreshing".into());
             return false;
