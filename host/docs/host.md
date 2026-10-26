@@ -642,7 +642,7 @@ when it is not installed.
   store at an older version is brought forward one step at a time, each step
   a transaction of its own, and the install keeps the database as it was under
   the name of the version it came with, such as `tehas-1-<time>.db`, beside the
-  copy the answer names, `tehas-7-<time>.db`. A run that stopped between two
+  copy the answer names, `tehas-8-<time>.db`. A run that stopped between two
   steps leaves the store at the last one with its rows; the next install goes
   on from there. The step to 4 lets a cycle's start say `millwright` beside
   `fixer` and a planning note `millwright-refused` beside `fixer-refused`,

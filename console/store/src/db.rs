@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -130,6 +130,13 @@ CREATE TABLE poll_cost (
   writes INTEGER, label INTEGER, comment INTEGER, edit INTEGER, other INTEGER
 );
 CREATE INDEX poll_cost_at ON poll_cost (at);
+";
+
+/// The step from 7 to 8: whether a poll started a cycle, last in `poll_cost` as
+/// in schema.sql. A row of an older store keeps it null, which is unknown and
+/// not 0: `poll-idle` counts only the polls known to have started none.
+pub const STEP_8: &str = "
+ALTER TABLE poll_cost ADD COLUMN starts INTEGER;
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -828,21 +835,28 @@ pub fn migrate(
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7)),
+            .and_then(|()| step(conn, 7, STEP_7))
+            .and_then(|()| step(conn, 8, STEP_8)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7)),
+            .and_then(|()| step(conn, 7, STEP_7))
+            .and_then(|()| step(conn, 8, STEP_8)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7)),
+            .and_then(|()| step(conn, 7, STEP_7))
+            .and_then(|()| step(conn, 8, STEP_8)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
-            .and_then(|()| step(conn, 7, STEP_7)),
-        5 => step(conn, 6, STEP_6).and_then(|()| step(conn, 7, STEP_7)),
-        6 => step(conn, 7, STEP_7),
+            .and_then(|()| step(conn, 7, STEP_7))
+            .and_then(|()| step(conn, 8, STEP_8)),
+        5 => step(conn, 6, STEP_6)
+            .and_then(|()| step(conn, 7, STEP_7))
+            .and_then(|()| step(conn, 8, STEP_8)),
+        6 => step(conn, 7, STEP_7).and_then(|()| step(conn, 8, STEP_8)),
+        7 => step(conn, 8, STEP_8),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
