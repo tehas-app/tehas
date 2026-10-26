@@ -38,7 +38,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-test"
 t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
-t_eq "$(t_calls systemctl)" "--user daemon-reload"
+t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"
 t_eq "$(cd "$th/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./gh ./tehas ./tehasbot "
 t_run "$install"
 t_contains "$t_out" "tehas is up to date"

@@ -41,6 +41,12 @@ empty one above it.
   what the file named twice rather than keeping the value it read last. The old
   spellings are accepted until the shell's own readers move to the new ones, and
   no refusal of a verb names them.
+- `tehas-dispatch.service` removes `state/dispatch.again` before the poll
+  runs, so a poll that stops on bad settings no longer makes
+  `tehas-dispatch.path` start polls until systemd fails it (#737).
+  `tehasbot health` warns when a tehas unit has failed (`checks.units`), and
+  `install.sh` resets the failed tehas units and starts a failed
+  `tehas-dispatch.path` again.
 
 ### Adopter action
 
