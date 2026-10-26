@@ -101,7 +101,7 @@
 //!   store upkeep [--dry-run]
 //!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
 //!                --writes-log <file> [--starts <n>]
-//!   store poll-show
+//!   store poll-show | poll-show --api --now <unix>
 //!   store poll-idle --since <seconds>
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin

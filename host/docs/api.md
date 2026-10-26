@@ -102,7 +102,20 @@ tehas api [--json]
   "repo": "tehas-app/tehas",
   "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
   "millwright": null,
-  "fixer": null
+  "fixer": null,
+  "poll": {
+    "last": {
+      "at": 1761400000,
+      "wallMs": 24000,
+      "cpuMs": 3100,
+      "gh": 12,
+      "writes": 0,
+      "starts": 0,
+      "kinds": {"label": 0, "comment": 0, "edit": 0, "other": 0},
+      "ageMin": 4
+    },
+    "hour": {"polls": 14, "cpuMs": 41000, "writes": 2}
+  }
 }
 ```
 
@@ -115,9 +128,26 @@ tehas api [--json]
 | `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept until a release removes them; a program reads `millwright` and `millwright-grant` |
+| `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
 
-It reads the instance settings and `~/tehas/docs/version.txt`, which
-`install.sh` writes. Exit 0; 64 on an argument it does not know; 78 when the
+`poll` in two objects, in milliseconds and in whole numbers:
+
+| Field | Meaning |
+| --- | --- |
+| `last.at` | The second the poll ended, Unix seconds. Its age is `ageMin`, so a program never subtracts two times |
+| `last.wallMs`, `last.cpuMs` | The wall time of the poll, and its CPU time with that of the commands it waited for, both in milliseconds |
+| `last.gh` | The `gh` calls the poll itself made; those of the commands it runs are not in it |
+| `last.writes` | The writes the host's `gh` shim logged while the poll ran, or `null` on a host with no write log, which is a host with no GitHub App. `null` is not 0 |
+| `last.kinds` | Those writes by kind: `label`, `comment`, `edit`, `other`. `null` with no write log, as `writes` is |
+| `last.starts` | The cycles that poll started, 0 when it started none; `null` when the row keeps no answer, which is a poll of an older tehas and is not 0 |
+| `last.ageMin` | Whole minutes since the poll ended, counted from the second `tehas api` asked the store, and 0 for a poll that has not ended |
+| `hour.polls`, `hour.cpuMs` | How many polls ended in the last hour and their CPU time added up, both 0 when none did |
+| `hour.writes` | Their writes added up, or `null` when none of them had a write log |
+
+It reads the instance settings, `~/tehas/docs/version.txt`, which
+`install.sh` writes, and the state store, which it reads the way `tehas
+status` does: a store that is busy or missing is `"poll": null`, not a
+failure of the command. Exit 0; 64 on an argument it does not know; 78 when the
 settings are missing or malformed.
 
 ## tehas status --json
