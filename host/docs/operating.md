@@ -952,7 +952,11 @@ recording, and both commands then say so and exit 69.
   poll is running then, systemd takes that start as the running poll, which
   may have counted the cycle as still running. So the cycle also leaves
   `~/tehas/state/dispatch.again`, and `tehas-dispatch.path` starts the next
-  poll as soon as that one ends. A poll removes the file as it begins.
+  poll as soon as that one ends. `tehas-dispatch.service` removes the file
+  before the poll runs, so a poll that stops on bad settings does not leave it
+  to start the next one at once. If systemd still fails the path unit, for
+  example at the service's start limit, `tehasbot health` warns
+  (`checks.units`), and the next `install.sh` resets it and starts it again.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
   cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle
