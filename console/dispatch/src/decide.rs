@@ -1776,6 +1776,9 @@ impl<'a> Poll<'a> {
             return Ok(());
         }
         let starts = std::mem::take(&mut self.starts);
+        if !self.dry {
+            self.act_gates(self.d.picked[0]);
+        }
         for (n, st) in starts {
             if self.dry {
                 self.log(format!(
@@ -1787,6 +1790,16 @@ impl<'a> Poll<'a> {
             }
         }
         Ok(())
+    }
+
+    /// What every start passes first, before any label changes: systemd's
+    /// answer for the first issue's unit (units_ok) and the code index
+    /// (index_gate), which names the cycles still running after this poll's
+    /// stops.
+    pub(super) fn act_gates(&mut self, first: u64) {
+        let running: Vec<u64> = self.live().map(|(n, _)| *n).collect();
+        self.act(json!({"units": first}));
+        self.act(json!({"index_gate": running}));
     }
 
     /// The start of a cycle as an action: what start_cycles records and

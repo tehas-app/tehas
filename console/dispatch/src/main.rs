@@ -177,6 +177,7 @@ fn main() {
         now,
         models: tehas_dispatch::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
+        gate: false,
     };
     let snap = match snapshot(&mut src, &settings) {
         Ok(s) => s,

@@ -19,6 +19,11 @@ empty one above it.
   live/dispatch.json, the unused locks swept, the actions in the order of the
   poll's lines, and the end of every poll that held the lock (tidy, its cost
   and the analytics). Nothing chooses it yet: libexec/dispatch still polls.
+- The Rust poll passes the gates of a start as the bash poll does (#254,
+  part 4b): systemd's answer for the cycle's unit, the code index (left alone
+  while a cycle runs, waited for while it is refreshed, refreshed first when
+  it is due), the checkout's refresh before a start or a planning turn, and
+  the low gate's run. Nothing chooses it yet.
 - The dispatcher in Rust can end a planning turn (#254, part 3a): it
   collects the turn's exit status, posts its question as the bash poll writes
   it, replaces the issue a refine filed for, and ends a session that was cut
