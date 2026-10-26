@@ -24,6 +24,14 @@ pub struct Settings {
     pub branch_check: String,
     pub branch: String,
     pub low_gate: String,
+    pub fixer_max_retries: i64,
+    /// TEHAS_SIZE_MAX_FILES, None when unset, and the measure's bounds.
+    pub size_max_files: Option<u64>,
+    pub size_max_bytes: usize,
+    pub size_max_lines: usize,
+    pub work_images: bool,
+    /// PI_ENSEMBLE_SUBAGENT_MODEL.
+    pub model: String,
 }
 
 impl Settings {
@@ -62,6 +70,14 @@ impl Settings {
             branch_check: s("TEHAS_BRANCH_CHECK", ""),
             branch: s("TEHAS_BRANCH", "main"),
             low_gate: s("TEHAS_LOW_GATE", ""),
+            fixer_max_retries: n("TEHAS_FIXER_MAX_RETRIES", 2),
+            size_max_files: v
+                .get("TEHAS_SIZE_MAX_FILES")
+                .and_then(|x| x.as_u64().or_else(|| x.as_str()?.parse().ok())),
+            size_max_bytes: n("TEHAS_SIZE_MAX_BYTES", 131_072) as usize,
+            size_max_lines: n("TEHAS_SIZE_MAX_LINES", 1000) as usize,
+            work_images: s("TEHAS_WORK_IMAGES", "0") == "1",
+            model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
         }
     }
 
