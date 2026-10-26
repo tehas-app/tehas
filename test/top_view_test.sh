@@ -6,6 +6,9 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/top_lib.sh
 . "$(dirname "$0")/top_lib.sh" || exit 1
+# The readings are the same files a second apart or not, so the first frame's
+# wait for a second reading takes no time here (top_snapshot_test.sh covers it).
+t_stub sleep
 
 # The name of the console file is text read out of running.json, and the file it
 # names is opened. A name that is not a plain file name under live/ reads nothing
