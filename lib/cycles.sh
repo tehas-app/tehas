@@ -15,7 +15,9 @@
 #   tehas_cycle_lock_free <issue> 0 only when the poll can tell the lock is
 #                                 free: no lock file, or one it can take. It is
 #                                 not 0 when the probe could not tell.
-#   tehas_cycles_running          the issues with a running cycle, one per line
+#   tehas_cycles_running          the issues with a running cycle, one per line:
+#                                 one call of the store's locks-held where
+#                                 lib/store.sh is sourced, else a probe a file
 #   tehas_rukas_commit            the pi-rukas commit a cycle started now runs
 #   tehas_names_issue             print a jq definition, `mine`: whether a pull
 #                                 request of gh pr list names the issue $n
@@ -30,24 +32,26 @@
 #                                 record names the commit, failed when the
 #                                 indexer last failed at it, due otherwise
 #
-# Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go.
+# Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go,
+# on a descriptor of the shell's, so no probe runs `true`.
 # The two tehas_rukas_ functions ask Docker about PI_ENSEMBLE_IMAGE, once per
 # command.
 
 tehas_cycle_running() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
-  [ -e "$lock" ] && ! flock -n "$lock" true
+  [ -e "$lock" ] && ! flock -n 9 9<"$lock"
 }
 
 tehas_cycle_lock_free() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
   [ -e "$lock" ] || return 0
   [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
-  flock -n "$lock" true
+  flock -n 9 9<"$lock"
 }
 
 tehas_cycles_running() {
   local lock n
+  if declare -F tehas_store >/dev/null && tehas_store locks-held; then tehas_store_get '.held[]'; return 0; fi
   for lock in "$TEHAS_HOME"/state/cycles/*.lock; do
     [ -e "$lock" ] || continue
     n=${lock##*/}

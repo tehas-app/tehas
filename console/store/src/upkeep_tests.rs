@@ -294,3 +294,30 @@ fn upkeep_removes_old_logs_backs_up_and_prunes() {
         ]
     );
 }
+
+#[test]
+fn locks_held_names_the_held_locks_among_a_thousand_old_ones() {
+    // No database: whether a cycle runs is the lock's to say.
+    let home = scratch("locks-held");
+    let locks = home.join("state/cycles");
+    fs::create_dir_all(&locks).unwrap();
+    for n in 1..=1000 {
+        File::create(locks.join(format!("{n}.lock"))).unwrap();
+    }
+    let _a = hold(&home, 17);
+    let _b = hold(&home, 1001);
+    File::create(locks.join("notes.txt")).unwrap();
+    let v = ok(&home, &["locks-held"]);
+    assert_eq!(v["held"], serde_json::json!([17, 1001]));
+    assert_eq!(names(&locks).len(), 1002);
+}
+
+#[test]
+fn locks_held_counts_a_lock_it_cannot_probe_and_reads_no_directory_as_none() {
+    let home = scratch("locks-held-odd");
+    assert_eq!(ok(&home, &["locks-held"])["held"], serde_json::json!([]));
+    let locks = home.join("state/cycles");
+    fs::create_dir_all(locks.join("4.lock")).unwrap();
+    assert_eq!(ok(&home, &["locks-held"])["held"], serde_json::json!([4]));
+    assert!(usage(&["locks-held", "--all"]).contains("locks-held"));
+}
