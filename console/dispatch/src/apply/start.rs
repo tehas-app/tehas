@@ -42,6 +42,12 @@ pub struct Host {
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
     pub analytics: Option<String>,
     pub analytics_wait: Duration,
+    /// TEHAS_WORK_DIR, whose siblings are the issues' workspaces.
+    pub work_dir: String,
+    /// The tehas user's home, where ensemble-runs is.
+    pub user_home: String,
+    /// TEHAS_CYCLE_DONE_WAIT: how long the stop of a finished cycle waits.
+    pub done_wait: Duration,
 }
 
 /// How one start ended.

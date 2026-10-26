@@ -68,7 +68,7 @@ pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Dur
         }
         e
     });
-    let status = wait(&mut child, bound);
+    let status = wait(&mut child, bound, Duration::from_secs(10));
     Ran {
         status,
         out: reader.join().unwrap_or_default(),
@@ -91,20 +91,21 @@ pub fn run_quiet(
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    wait(&mut child, bound)
+    // As the bash runs its host commands: timeout -k 5.
+    wait(&mut child, bound, Duration::from_secs(5))
 }
 
 /// The child's exit status, or None when it outlived its bound and was
 /// stopped.
-fn wait(child: &mut std::process::Child, bound: Duration) -> Option<i32> {
+fn wait(child: &mut std::process::Child, bound: Duration, grace: Duration) -> Option<i32> {
     let began = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(s)) => break s.code(),
             Ok(None) if began.elapsed() < bound => std::thread::sleep(Duration::from_millis(20)),
             _ => {
-                // As timeout -k 10: TERM first, so a docker client stops its
-                // container, and KILL when it is still there 10 s later.
+                // As timeout -k: TERM first, so a docker client stops its
+                // container, and KILL when it is still there after the grace.
                 let _ = Command::new("kill")
                     .args(["-TERM", &child.id().to_string()])
                     .stdin(Stdio::null())
@@ -112,7 +113,7 @@ fn wait(child: &mut std::process::Child, bound: Duration) -> Option<i32> {
                     .stderr(Stdio::null())
                     .status();
                 let gone = Instant::now();
-                while gone.elapsed() < Duration::from_secs(10) {
+                while gone.elapsed() < grace {
                     if let Ok(Some(_)) = child.try_wait() {
                         break;
                     }

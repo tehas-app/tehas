@@ -18,6 +18,10 @@ empty one above it.
   gives it, the issue marked running before its unit starts, the wait for the
   start, and the undo when a start gives up. Nothing calls it yet: the bash
   poll still starts every cycle.
+- The dispatcher in Rust can stop cycles (#254, part 2b): a cycle not heard
+  from, decided from the state store's answer as the bash poll decides it, a
+  cycle whose work is done, and the workspaces of issues unused for 7 days.
+  Nothing calls it yet.
 
 ### Adopter action
 

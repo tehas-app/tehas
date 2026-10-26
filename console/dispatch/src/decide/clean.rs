@@ -9,9 +9,9 @@ use crate::snapshot::Cycle;
 use regex::Regex;
 use serde_json::{json, Value};
 
-const QUIET_BOUND: u64 = 1200;
+pub(crate) const QUIET_BOUND: u64 = 1200;
 const QUIET_RETRY: u64 = 600;
-const QUIET_ASKS: u64 = 6;
+pub(crate) const QUIET_ASKS: u64 = 6;
 
 /// date -u -d @<secs> +%FT%TZ.
 pub(crate) fn iso(secs: u64) -> String {
@@ -37,7 +37,7 @@ pub(crate) fn iso(secs: u64) -> String {
 
 /// What the poll does now about an episode asked about `times` times, last
 /// at `asked`.
-fn quiet_due(times: u64, asked: u64, now: u64) -> &'static str {
+pub(crate) fn quiet_due(times: u64, asked: u64, now: u64) -> &'static str {
     let next = if times <= QUIET_ASKS {
         asked + QUIET_RETRY
     } else {
@@ -141,18 +141,20 @@ impl Poll<'_> {
                 }
                 continue;
             }
+            // The line is the one the store's answer is expected to give:
+            // apply decides from the answer, as the bash does, and logs that.
             let mut a = json!({"quiet": n, "said_for": heard});
             match due {
                 "stop" => {
-                    self.log(format!("WARN: {why}: stopping {unit}"));
+                    a["log"] = json!(format!("WARN: {why}: stopping {unit}"));
                     a["stop"] = json!(true);
                 }
                 "again" => {
-                    self.log(format!("WARN: {why}: the poll asks {unit} to stop again"));
+                    a["log"] = json!(format!("WARN: {why}: the poll asks {unit} to stop again"));
                     a["stop"] = json!(true);
                 }
                 "line" => {
-                    self.log(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
+                    a["log"] = json!(format!("WARN: {why}: the poll asked {QUIET_ASKS} times to stop {unit} and asks no more: it needs a person, who can stop it with systemctl --user stop {unit}"));
                     a["asked"] = json!(true);
                     a["said_only"] = json!(asks != QUIET_ASKS);
                 }
