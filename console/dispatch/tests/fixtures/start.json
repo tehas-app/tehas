@@ -1,132 +1,844 @@
 {
-  "suite": "test/dispatch_start_test.sh",
-  "later": [
-    "a planning session on an epic is allowed: rule 5, PR 3",
-    "a planning session on such an issue is allowed: deciding where the fix lives is its work: rule 5, PR 3"
-  ],
-  "not_ported": [
-    "when its label cannot be changed nothing is said on it, and the poll goes on: the comment follows a label change that worked, which the caller does",
-    "and the ask costs no call to GitHub beyond the issue it already read: a count of calls",
-    "and the hold sits before every ask that a start would have made: a count of calls; the order is the code's"
-  ],
-  "cases": [
-    {
-      "case": "an issue with open sub-issues is not started: its tehas:ready comes off and the issue says why once",
-      "work": {"7": {"labels": [{"name": "tehas:ready"}], "sub_issues_summary": {"total": 13, "completed": 0}}},
-      "expect": {
-        "exit": 0, "picked": [],
-        "log": ["skip #7: it is an epic with 13 sub-issues open, and an epic is never started"],
-        "actions": [{"issue": 7, "remove": ["tehas:ready"], "say": "Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."}]
+ "suite": "test/dispatch_start_test.sh",
+ "later": [
+  "a planning session on an epic is allowed: rule 5, PR 3",
+  "a planning session on such an issue is allowed: deciding where the fix lives is its work: rule 5, PR 3",
+  "the starts, the analytics, the lock and the wait (the rest of the suite): the start itself, #254, and the poll's I/O, PR 4"
+ ],
+ "not_ported": [
+  "when its label cannot be changed nothing is said on it, and the poll goes on: the comment follows a label change that worked, which the caller does",
+  "and the ask costs no call to GitHub beyond the issue it already read: a count of calls",
+  "and the hold sits before every ask that a start would have made: a count of calls; the order is the code's",
+  "with no container left the removal says nothing, and the container of a cycle that holds its lock is not touched: docker rm's answer, which the caller logs",
+  "closed issues are asked for too, and a lock file nobody holds does not make it a running cycle: the snapshot's reads",
+  "when its label cannot be changed nothing is said on it (the marked issue): the comment follows a label change that worked"
+ ],
+ "cases": [
+  {
+   "case": "an issue with open sub-issues is not started: its tehas:ready comes off and the issue says why once",
+   "work": {
+    "7": {
+     "labels": [
+      {
+       "name": "tehas:ready"
       }
-    },
-    {
-      "case": "one open sub-issue is said in the one",
-      "work": {"7": {"sub_issues_summary": {"total": 2, "completed": 1}}},
-      "expect": {
-        "picked": [],
-        "log": ["skip #7: it is an epic with 1 sub-issue open, and an epic is never started"],
-        "actions": [{"issue": 7, "say": "Tehas took `tehas:ready` off this issue and started nothing. It has 1 sub-issue open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."}]
-      }
-    },
-    {
-      "case": "an issue whose sub-issues are all closed starts as any other",
-      "work": {"7": {"sub_issues_summary": {"total": 13, "completed": 13}}},
-      "expect": {"exit": 0, "picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "an issue with no sub-issues at all starts too",
-      "work": {"7": {"sub_issues_summary": {"total": 0, "completed": 0}}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "a GitHub without sub-issues: an answer with no such field starts as any other",
-      "work": {"7": {"title": "Faster search", "body": "Make it fast."}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer that is no object at all ends the poll as any unreadable one does",
-      "snapshot": {"issues": {"7": {"work": []}}},
-      "expect": {"exit": 1, "picked": [], "log": ["ERROR: GitHub's answer for #7 could not be read"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: a string",
-      "work": {"7": {"sub_issues_summary": "abc"}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: null",
-      "work": {"7": {"sub_issues_summary": null}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: a number in a string",
-      "work": {"7": {"sub_issues_summary": "13"}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: a list",
-      "work": {"7": {"sub_issues_summary": []}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: no completed",
-      "work": {"7": {"sub_issues_summary": {"total": 3}}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer whose counts are not numbers starts too: nulls",
-      "work": {"7": {"sub_issues_summary": {"total": null, "completed": null}}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "and an answer where more are completed than there are in all starts too",
-      "work": {"7": {"sub_issues_summary": {"total": 3, "completed": 5}}},
-      "expect": {"picked": [7], "log_lacks": ["it is an epic"]}
-    },
-    {
-      "case": "a dry run says it and changes nothing",
-      "dry": true,
-      "work": {"7": {"sub_issues_summary": {"total": 13, "completed": 0}}},
-      "expect": {
-        "picked": [], "nothing": true,
-        "log": ["skip #7: it is an epic with 13 sub-issues open, and an epic is never started", "would take tehas:ready off #7: it is an epic"]
-      }
-    },
-    {
-      "case": "an issue the loop labelled cross-project starts no cycle, and its labels stay",
-      "snapshot": {"ready": [{"number": 7, "labels": [{"name": "tehas:ready"}, {"name": "tehas:improvement"}, {"name": "cross-project"}]}]},
-      "ready_at": {"7": ["alice", "2026-10-01T00:00:00Z"]},
-      "expect": {
-        "exit": 0, "picked": [], "nothing": true,
-        "log": ["skip #7: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"]
-      }
-    },
-    {
-      "case": "cross-project alone is no hold: the issue of a person starts as any other",
-      "snapshot": {"ready": [{"number": 7, "labels": [{"name": "tehas:ready"}, {"name": "cross-project"}]}]},
-      "expect": {"picked": [7], "log_lacks": ["another repository"]}
-    },
-    {
-      "case": "tehas:improvement alone is no hold either: that is a proposal a person readied",
-      "snapshot": {"ready": [{"number": 7, "labels": [{"name": "tehas:ready"}, {"name": "tehas:improvement"}]}]},
-      "expect": {"picked": [7], "log_lacks": ["another repository"]}
-    },
-    {
-      "case": "the other issue of the queue still starts beside a held one",
-      "settings": {"TEHAS_TICKET_CONCURRENCY": 2},
-      "snapshot": {"ready": [{"number": 7, "labels": [{"name": "tehas:ready"}, {"name": "tehas:improvement"}, {"name": "cross-project"}]}, {"number": 8, "labels": [{"name": "tehas:ready"}]}]},
-      "ready_at": {"7": ["alice", "2026-10-01T00:00:00Z"], "8": ["alice", "2026-10-01T00:00:00Z"]},
-      "expect": {"picked": [8], "log": ["skip #7: it carries cross-project"]}
-    },
-    {
-      "case": "a dry run of a held issue says it and changes nothing",
-      "dry": true,
-      "snapshot": {"ready": [{"number": 7, "labels": [{"name": "tehas:ready"}, {"name": "tehas:improvement"}, {"name": "cross-project"}]}]},
-      "expect": {
-        "picked": [], "nothing": true,
-        "log": ["skip #7: it carries cross-project and tehas:improvement"],
-        "log_lacks": ["would run a cycle"]
-      }
+     ],
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 0
+     }
     }
-  ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: it is an epic with 13 sub-issues open, and an epic is never started"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing. It has 13 sub-issues open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."
+     }
+    ]
+   }
+  },
+  {
+   "case": "one open sub-issue is said in the one",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 2,
+      "completed": 1
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "skip #7: it is an epic with 1 sub-issue open, and an epic is never started"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "say": "Tehas took `tehas:ready` off this issue and started nothing. It has 1 sub-issue open, so it is an epic: a plan, not a change. An epic is never started. Apply `tehas:ready` to one of its sub-issues instead."
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue whose sub-issues are all closed starts as any other",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 13
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "an issue with no sub-issues at all starts too",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 0,
+      "completed": 0
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "a GitHub without sub-issues: an answer with no such field starts as any other",
+   "work": {
+    "7": {
+     "title": "Faster search",
+     "body": "Make it fast."
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer that is no object at all ends the poll as any unreadable one does",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "work": []
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: GitHub's answer for #7 could not be read"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: a string",
+   "work": {
+    "7": {
+     "sub_issues_summary": "abc"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: null",
+   "work": {
+    "7": {
+     "sub_issues_summary": null
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: a number in a string",
+   "work": {
+    "7": {
+     "sub_issues_summary": "13"
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: a list",
+   "work": {
+    "7": {
+     "sub_issues_summary": []
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: no completed",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 3
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer whose counts are not numbers starts too: nulls",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": null,
+      "completed": null
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "and an answer where more are completed than there are in all starts too",
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 3,
+      "completed": 5
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "a dry run says it and changes nothing",
+   "dry": true,
+   "work": {
+    "7": {
+     "sub_issues_summary": {
+      "total": 13,
+      "completed": 0
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it is an epic with 13 sub-issues open, and an epic is never started",
+     "would take tehas:ready off #7: it is an epic"
+    ]
+   }
+  },
+  {
+   "case": "an issue the loop labelled cross-project starts no cycle, and its labels stay",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:improvement"
+       },
+       {
+        "name": "cross-project"
+       }
+      ]
+     }
+    ]
+   },
+   "ready_at": {
+    "7": [
+     "alice",
+     "2026-10-01T00:00:00Z"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it carries cross-project and tehas:improvement, so its fix needs a change in another repository too, and one cycle here cannot make it"
+    ]
+   }
+  },
+  {
+   "case": "cross-project alone is no hold: the issue of a person starts as any other",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "cross-project"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "another repository"
+    ]
+   }
+  },
+  {
+   "case": "tehas:improvement alone is no hold either: that is a proposal a person readied",
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:improvement"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "another repository"
+    ]
+   }
+  },
+  {
+   "case": "the other issue of the queue still starts beside a held one",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:improvement"
+       },
+       {
+        "name": "cross-project"
+       }
+      ]
+     },
+     {
+      "number": 8,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ]
+   },
+   "ready_at": {
+    "7": [
+     "alice",
+     "2026-10-01T00:00:00Z"
+    ],
+    "8": [
+     "alice",
+     "2026-10-01T00:00:00Z"
+    ]
+   },
+   "expect": {
+    "picked": [
+     8
+    ],
+    "log": [
+     "skip #7: it carries cross-project"
+    ]
+   }
+  },
+  {
+   "case": "a dry run of a held issue says it and changes nothing",
+   "dry": true,
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:improvement"
+       },
+       {
+        "name": "cross-project"
+       }
+      ]
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: it carries cross-project and tehas:improvement"
+    ],
+    "log_lacks": [
+     "would run a cycle"
+    ]
+   }
+  },
+  {
+   "case": "while a cycle is running nothing is started",
+   "hold": [
+    9
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": []
+   }
+  },
+  {
+   "case": "while a cycle is running nothing is started: a dry run says the hold",
+   "dry": true,
+   "hold": [
+    9
+   ],
+   "expect": {
+    "log": [
+     "holding: 1 cycles are running (limit 1)"
+    ]
+   }
+  },
+  {
+   "case": "an issue marked as running with no cycle behind it is handed to a human",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "park #9: it is marked tehas:running and no cycle holds its lock"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:running"
+      ],
+      "add": [
+       "needs-human-attention"
+      ],
+      "say": "Tehas found this issue marked `tehas:running` with no cycle behind it on `tehas-test`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-9.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."
+     }
+    ]
+   }
+  },
+  {
+   "case": "and the poll goes on to the queue, and starts nothing for that issue",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "an issue whose cycle ended after the list was read is not parked",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "work": {
+    "9": {
+     "labels": [
+      {
+       "name": "tehas:awaiting-merge"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "skip #9: tehas:running is gone from it since the list was read"
+    ],
+    "no_actions": [
+     {
+      "issue": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "the issue is read again before it is parked, and a failed read ends the poll",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: gh api repos/acme/widget/issues/9 failed"
+    ],
+    "no_actions": [
+     {
+      "issue": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a closed issue marked as running with no cycle loses the mark and is not parked",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9,
+      "state": "CLOSED"
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "clear #9: it is closed, marked tehas:running, and no cycle holds its lock"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:running"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "say": "Tehas found this issue marked `tehas:running` with no cycle behind it on `tehas-test`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is `~/tehas/logs/dispatch-work-9.log` there. To retry, apply `tehas:ready`. If it is on the issue already, nothing more is needed."
+     }
+    ]
+   }
+  },
+  {
+   "case": "a closed issue whose cycle still holds its lock is left alone",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9,
+      "state": "CLOSED"
+     }
+    ]
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "no_actions": [
+     {
+      "issue": 9
+     },
+     {
+      "reap": "tehas-work-9"
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue whose cycle holds its lock is left alone",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "hold": [
+    9
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "no_actions": [
+     {
+      "issue": 9
+     },
+     {
+      "reap": "tehas-work-9"
+     }
+    ]
+   }
+  },
+  {
+   "case": "it is found while the slots are full too",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 8
+     },
+     {
+      "number": 9
+     }
+    ]
+   },
+   "hold": [
+    8
+   ],
+   "expect": {
+    "picked": [],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:running"
+      ],
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ],
+    "no_actions": [
+     {
+      "issue": 8
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says so and changes nothing",
+   "dry": true,
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "would park #9: it is marked tehas:running and no cycle holds its lock"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a container left by a cycle whose lock nobody holds is removed",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "actions": [
+     {
+      "reap": "tehas-work-9"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a closed issue's left container goes too",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9,
+      "state": "CLOSED"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "reap": "tehas-work-9"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a paused factory still clears it",
+   "snapshot": {
+    "marked": [
+     {
+      "number": 9
+     }
+    ],
+    "control": {
+     "labels": [
+      {
+       "name": "tehas:pause"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "park #9: it is marked tehas:running and no cycle holds its lock"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:running"
+      ],
+      "add": [
+       "needs-human-attention"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "when the issues marked as running cannot be read nothing is dispatched",
+   "snapshot": {
+    "marked": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: gh issue list failed"
+    ]
+   }
+  },
+  {
+   "case": "an answer that is no list of issues dispatches nothing",
+   "snapshot": {
+    "marked": {
+     "oops": 1
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "log": [
+     "ERROR: unreadable list of issues marked as running"
+    ]
+   }
+  },
+  {
+   "case": "a running list that cannot be read ends the poll before it acts on any cycle (D2)",
+   "hold": [
+    9
+   ],
+   "snapshot": {
+    "cycles_failed": {
+     "failed": true,
+     "word": "busy",
+     "rc": 1
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "ERROR: the state store could not list the running cycles (busy)"
+    ]
+   }
+  }
+ ]
 }

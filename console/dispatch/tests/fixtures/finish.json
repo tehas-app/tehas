@@ -1,0 +1,654 @@
+{
+ "suite": "test/dispatch_finish_test.sh",
+ "later": [
+  "a cycle a provider outage parked starts again once, and the cases of that retry after it: rule 4a, PR 3"
+ ],
+ "not_ported": [
+  "without the test seams it runs the scripts beside it; a unit systemd cannot load or that gives no answer: the start, #254",
+  "a pi-rukas no cycle has run before starts as many cycles as the slots allow, and with one cycle running and five waiting one poll starts three: the start's I/O, #254; the counts are slots.json's"
+ ],
+ "cases": [
+  {
+   "case": "a running cycle whose issue is closed is stopped, and its slot is filled on the same poll",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "stop #9: its issue is closed"
+    ],
+    "actions": [
+     {
+      "stop_done": 9,
+      "why": "closed"
+     }
+    ],
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a running cycle whose pull request is merged is stopped, and its slot is filled on the same poll",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "stop #9: its pull request https://github.com/acme/widget/pull/90 is merged"
+    ],
+    "actions": [
+     {
+      "stop_done": 9,
+      "why": "merged"
+     }
+    ],
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a pull request closed without a merge stops the cycle too",
+   "snapshot": {
+    "ready": [],
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "CLOSED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "actions": [
+     {
+      "stop_done": 9,
+      "why": "pr-closed"
+     }
+    ],
+    "log": [
+     "stop #9: its pull request https://github.com/acme/widget/pull/90 was closed without a merge"
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: open",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "OPEN",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "would stop"
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: a real poll, open",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "OPEN",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "stop_done": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: earlier",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2000-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "would stop"
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: a real poll, earlier",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2000-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "stop_done": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: another issue",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #8",
+      "headRefName": "feature/issue-8-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "would stop"
+    ]
+   }
+  },
+  {
+   "case": "an open pull request, one of an earlier cycle, or one of another issue stops nothing: a real poll, another issue",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #8",
+      "headRefName": "feature/issue-8-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "picked": [],
+    "no_actions": [
+     {
+      "stop_done": 9
+     }
+    ]
+   }
+  },
+  {
+   "case": "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": {
+     "failed": true
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: gh pr list failed"
+    ],
+    "log_lacks": [
+     "stop #9"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a poll that cannot read the issue stops nothing and leaves the cycle holding its lock",
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "failed": true
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 1,
+    "log": [
+     "ERROR: gh api repos/acme/widget/issues/9 failed"
+    ],
+    "log_lacks": [
+     "stop #9"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a merged pull request of another account, or one with no author, stops nothing: GitHub lists the bot's alone",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": []
+   },
+   "expect": {
+    "log_lacks": [
+     "would stop"
+    ]
+   }
+  },
+  {
+   "case": "a merged pull request of the bot's own stops it",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "bot_prs": [
+     {
+      "url": "https://github.com/acme/widget/pull/90",
+      "state": "MERGED",
+      "body": "Fixes #9",
+      "headRefName": "feature/issue-9-x",
+      "createdAt": "2099-01-01T00:00:00Z"
+     }
+    ]
+   },
+   "expect": {
+    "log": [
+     "would stop tehas-cycle@9.service: its pull request https://github.com/acme/widget/pull/90 is merged"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run says it would stop a finished cycle, and stops nothing",
+   "dry": true,
+   "snapshot": {
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "log": [
+     "would stop tehas-cycle@9.service: its issue is closed"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a paused poll stops a cycle whose issue is closed and starts nothing",
+   "snapshot": {
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": "waiting for the gate"
+    },
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "stop #9: its issue is closed"
+    ],
+    "actions": [
+     {
+      "stop_done": 9,
+      "why": "closed"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a paused dry run says it would stop a finished cycle and stops nothing",
+   "dry": true,
+   "snapshot": {
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": ""
+    },
+    "running": [
+     {
+      "issue": 9,
+      "how": "by-hand",
+      "took": 1793404795,
+      "heard": 1793404795
+     }
+    ],
+    "issues": {
+     "9": {
+      "work": {
+       "number": 9,
+       "state": "closed"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "would stop tehas-cycle@9.service: its issue is closed",
+     "paused: the flag tehas pause wrote"
+    ]
+   }
+  },
+  {
+   "case": "a paused poll still parks an issue marked tehas:running with no cycle behind it",
+   "snapshot": {
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": ""
+    },
+    "marked": [
+     {
+      "number": 9
+     }
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "park #9: it is marked tehas:running and no cycle holds its lock"
+    ]
+   }
+  },
+  {
+   "case": "with no cycle running the bot's pull requests are not asked for",
+   "snapshot": {
+    "bot_prs": null
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
+   "case": "a poll that starts fewer than it could logs exactly one reason, on every such poll",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_AWAITING": 3
+   },
+   "snapshot": {
+    "awaiting": [
+     {
+      "number": 1
+     }
+    ]
+   },
+   "ready_n": [
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+   ],
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "log_count": {
+     "holding": 1
+    },
+    "log": [
+     "holding: 2 of 4 free slots start: 1 issues await merge and 0 cycles are running (limit 3)"
+    ],
+    "report": {
+     "why": "awaiting"
+    }
+   }
+  },
+  {
+   "case": "a poll that starts fewer than it could logs the reason again on the next poll",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_AWAITING": 3
+   },
+   "snapshot": {
+    "awaiting": [
+     {
+      "number": 1
+     }
+    ],
+    "last_why": "awaiting"
+   },
+   "ready_n": [
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+   ],
+   "expect": {
+    "log_count": {
+     "holding": 1
+    }
+   }
+  },
+  {
+   "case": "the slice's room, when it is the limit, is the one reason",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 4
+   },
+   "other": 16106127360,
+   "ready_n": [
+    "7",
+    "8",
+    "9",
+    "10"
+   ],
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "log_count": {
+     "holding": 1
+    },
+    "log": [
+     "holding: 2 of 4 free slots start: tehas.slice has room for 2 more"
+    ],
+    "report": {
+     "why": "room"
+    }
+   }
+  },
+  {
+   "case": "a poll that starts as many as wait says no reason",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 4,
+    "TEHAS_MAX_AWAITING": 3
+   },
+   "snapshot": {
+    "awaiting": [
+     {
+      "number": 1
+     }
+    ]
+   },
+   "ready_n": [
+    "7",
+    "8"
+   ],
+   "expect": {
+    "picked": [
+     7,
+     8
+    ],
+    "log_lacks": [
+     "holding"
+    ],
+    "report": {
+     "why": ""
+    }
+   }
+  }
+ ]
+}

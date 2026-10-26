@@ -9,6 +9,8 @@ use tehas_dispatch::text::body_sha256;
 use tehas_dispatch::{decide, Settings, Snapshot};
 
 const GIB: u64 = 1_073_741_824;
+/// The poll's clock: 2026-10-31T00:00:00Z.
+const NOW: u64 = 1_793_404_800;
 
 /// The world of reset(): one issue, #7, labelled tehas:ready by alice; one
 /// slot; a slice of 20 GiB with nothing in it; 40 GB of disk.
@@ -40,6 +42,9 @@ fn base() -> (Value, Value) {
         "endpoint": {},
         "disk_kb": 40 * 1_048_576,
         "issues": {},
+        "now": NOW,
+        "hostname": "tehas-test",
+        "bot_prs": [],
     });
     (settings, snapshot)
 }
@@ -343,6 +348,29 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
+    // What gh api answers for an issue marked tehas:running: open, and
+    // carrying the mark.
+    let marked: Vec<u64> = snap["marked"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["number"].as_u64())
+        .collect();
+    let mut is = issues(snap);
+    for n in marked {
+        let i = is.entry(n.to_string()).or_insert_with(|| json!({}));
+        if i.get("work").is_none() {
+            i["work"] =
+                json!({"number": n, "state": "open", "labels": [{"name": "tehas:running"}]});
+        }
+    }
+    // A running cycle's issue is open unless a case says more.
+    for r in snap["running"].as_array().cloned().unwrap_or_default() {
+        if let Some(n) = r["issue"].as_u64() {
+            is.entry(n.to_string()).or_insert_with(|| json!({}));
+        }
+    }
+    snap["issues"] = Value::Object(is);
     // The defaults of every issue the queue names: labelled by alice, an open
     // issue, nothing edited, no pull request.
     let numbers: Vec<u64> = ["ready", "blocked"]
@@ -526,6 +554,21 @@ fn run_suite(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn finish() {
+    run_suite("finish");
+}
+
+#[test]
+fn sweep() {
+    run_suite("sweep");
+}
+
+#[test]
+fn refresh() {
+    run_suite("refresh");
 }
 
 #[test]
