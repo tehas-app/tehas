@@ -357,6 +357,19 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set"
 
+t_case "the loop never files in the product repository, whatever the case of its name"
+for v in TEHAS_IMPROVE_REPO=acme/widget TEHAS_IMPROVE_REPO=Acme/Widget \
+  "TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/widget"; do
+  # shellcheck disable=SC2086  # $v is one or two settings
+  printf '%s\n' "${T_MINIMAL[@]}" $v >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "the improvement loop files in acme/widget, the product repository"
+done
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/backlog >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_IMPROVE_REPO]\""
+t_eq "$t_out" "[acme/backlog]"
+
 t_case "the loop's limit of open issues is 10 unless the instance says otherwise"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_IMPROVE_MAX_OPEN]\""
