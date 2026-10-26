@@ -2618,8 +2618,8 @@ done
 sweep_workspaces() {
   local works=${TEHAS_WORK_DIR%/*} base=${TEHAS_WORK_DIR##*/} p n lock e said
   local -A seen=()
-  local -a list=() files=()
-  local count=0 marked=0 young out
+  local -a list=() files=() dated=()
+  local count=0 marked=0 out
   # The workspaces go only where tehas work marked the directory as its own, as
   # they always have. The three a cycle leaves outside them are looked for
   # wherever the issue has them, so an orphan goes with no marker to ask for.
@@ -2651,7 +2651,7 @@ sweep_workspaces() {
     lock=$TEHAS_HOME/state/cycles/$n.lock
     ! tehas_cycle_running "$n" || continue
     # What this issue has on this host. A name that is no file is as untouched
-    # as one that has not been used, so find is not asked about it.
+    # as one that has not been used, so stat is not asked about it.
     files=()
     [ "$marked" = 1 ] && files+=("$works/$base-$n" "$works/$base-$n".{before-retry,images,state})
     files+=("$HOME/.pi/agent/ensemble-runs/issue-$n" "$HOME/.pi/agent/ensemble-runs/plan-$n" \
@@ -2667,17 +2667,13 @@ sweep_workspaces() {
       log "WARN: the lock of #$n is no lock file, so nothing of it was removed"
       continue
     fi
-    # The age rule of tehasbot clean: young means this issue is kept, and so does
-    # a name the poll cannot date, because an issue it cannot date is an issue it
-    # does not touch. One find over all of them is not enough: it prints nothing
-    # for a name it could not read and still ends 0, which would read as aged out.
-    young=""
-    for e in "$lock" "${files[@]}"; do
-      [ -e "$e" ] || [ -L "$e" ] || continue
-      out=$(find "$e" -maxdepth 0 -newermt "-7 days" 2>/dev/null) || { young=$e; break; }
-      [ -n "$out" ] && { young=$e; break; }
-    done
-    [ -z "$young" ] || continue
+    # The age rule of tehasbot clean: a name touched within 7 days keeps the
+    # issue, and so does one the poll cannot date. One stat dates them all, and
+    # fails when it cannot date one.
+    dated=()
+    for e in "$lock" "${files[@]}"; do [ -e "$e" ] || [ -L "$e" ] && dated+=("$e"); done
+    out=$(stat -c %Y -- "${dated[@]}" 2>/dev/null) || continue
+    for e in $out; do [ "$e" -lt $((EPOCHSECONDS - 7 * 86400)) ] || continue 2; done
     count=$((count + 1))
     if [ "$dry" = 1 ]; then
       log "would remove what #$n left on this host: no cycle has run on it for 7 days"
@@ -2686,7 +2682,7 @@ sweep_workspaces() {
     # The lock is taken for the removals and goes with them, as tehas stop does.
     # One a cycle holds cannot be taken: then nothing of the issue is touched
     # and the next poll tries again.
-    if ! flock -n "$lock" true; then
+    if ! flock -n 9 9>>"$lock"; then
       log "WARN: could not take the lock of #$n, so nothing of it was removed"
       continue
     fi

@@ -385,7 +385,11 @@ wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
-other turn. When the turn ends the unit leaves `state/dispatch.again`, which
+other turn. To count the running cycles the poll asks the state store once,
+`store locks-held`, which tries every lock under `state/cycles` in one process
+and names each one held or that it could not try. A held lock counts whether or
+not the store has the cycle on record, and an old lock file costs no process of
+its own. Without the store, the lock files are tried one by one. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
 As the poll takes up a turn that ended, it records it in the factory's
 analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended> --facts
@@ -2035,7 +2039,7 @@ removes. An issue whose workspace is already gone loses those three on their
 own: the sweep looks for them whether or not the issue still has a workspace.
 The two guards of `tehas stop` and `tehasbot clean` hold for all of it: the
 issue's lock has to be a lock file, and every name it goes by has to be one the
-poll can date. Each name is built from the issue number, so the sweep of 5 touches nothing of
+poll can date, with one `stat` for all of them. Each name is built from the issue number, so the sweep of 5 touches nothing of
 51, and the dated directories of `~/.pi/agent/ensemble-runs` are the runner's
 and stay for a person. `tehas export` reads `~/.pi/agent/ensemble-runs/issue-
 <issue>`, so an export made after the sweep has no transcripts of that issue.
