@@ -606,9 +606,8 @@ backed() { # [<the backup's answer>]
   rm -f "$fx/backup.json"
   [ "$#" = 0 ] || echo "$1" >"$fx/backup.json"
 }
-t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
-case "$*" in
-  *"/chat/completions") cat >"$T/calls/curl-body"; [ -e "$T/fx/reads-images" ] ;;
+t_stub curl "$curl_heard"'case "$*" in
+  *"/chat/completions") heard; [ -e "$T/fx/reads-images" ] ;;
   *backup.test*) cat "$T/fx/backup.json" 2>/dev/null ;;
   *) cat "$T/fx/mesh.json" 2>/dev/null ;;
 esac'
