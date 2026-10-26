@@ -77,6 +77,19 @@ t_eq "$(TEHAS_HOME=$home "$home/libexec/store" poll-show | jq -r '.last != null'
 t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" tidied
 t_eq "$(jq -r '.time | type' "$home/live/dispatch.json" 2>/dev/null)" string
 
+t_case "label events GitHub left out of the page are read one issue at a time"
+# GitHub's page can answer an empty timeline for an issue that has labels,
+# without an error. Read as it is, an allowed account's label has nobody
+# behind it, and the poll would take it off.
+reset
+: >"$fx/page-drops-events"
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$t_out" "start #7 (labelled by alice)"
+t_lacks "$t_out" "'unknown'"
+t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
+rm -f "$fx/page-drops-events"
+
 t_case "a poll that starts a cycle logs what the bash poll logs, line for line"
 reset
 t_run "$dispatch"

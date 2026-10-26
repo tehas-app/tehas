@@ -150,10 +150,34 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for o in &q.open {
         issues.insert(o.number.to_string(), Value::Object(github::issue(o)));
     }
+    // Those the page left out are read as the bash reads them, side by side.
+    let dropped: Vec<u64> = q
+        .open
+        .iter()
+        .filter(|o| github::dropped_events(o))
+        .map(|o| o.number)
+        .collect();
+    let reads: Vec<Vec<String>> = dropped
+        .iter()
+        .map(|n| {
+            vec![
+                "api".into(),
+                format!("repos/{}/issues/{n}/events?per_page=100", c.repo),
+                "--paginate".into(),
+            ]
+        })
+        .collect();
+    for (n, r) in dropped.iter().zip(calls.gh_all(&reads)) {
+        issues[&n.to_string()]["events"] = r.unwrap_or_else(|_| json!({"failed": true}));
+    }
     match q.open.iter().find(|o| o.number == c.control) {
         Some(o) => {
+            let events = match issues.get(&o.number.to_string()) {
+                Some(i) if github::dropped_events(o) => i["events"].clone(),
+                _ => github::events(&o.node),
+            };
             s["control"] = json!({"labels": o.labels.iter().map(|l| json!({"name": l})).collect::<Vec<_>>(),
-            "events": github::events(&o.node)})
+            "events": events})
         }
         None => {
             let n = c.control.to_string();
