@@ -23,9 +23,14 @@ impl Ran {
 
 /// Run a program with a bound, its standard input closed.
 pub fn run(program: &str, args: &[String], bound: Duration) -> Ran {
+    run_input(program, args, None, bound)
+}
+
+/// Run a program with a bound, given `input` on its standard input.
+pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Duration) -> Ran {
     let child = Command::new(program)
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -36,6 +41,13 @@ pub fn run(program: &str, args: &[String], bound: Duration) -> Ran {
             err: format!("{program} could not be run"),
         };
     };
+    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = stdin.write_all(text.as_bytes());
+        });
+    }
     let mut out = child.stdout.take();
     let mut err = child.stderr.take();
     let reader = std::thread::spawn(move || {
@@ -135,6 +147,42 @@ pub struct Calls {
 pub struct GhFail(pub String);
 
 impl Calls {
+    /// Several reads of gh side by side, each answer as `gh` gives it.
+    pub fn gh_all(&mut self, calls: &[Vec<String>]) -> Vec<Result<Value, GhFail>> {
+        let bound = self.bound;
+        let gh = self.gh.clone();
+        let mut out: Vec<Result<Value, GhFail>> = Vec::new();
+        for chunk in calls.chunks(8) {
+            let answers: Vec<Result<Value, GhFail>> = std::thread::scope(|s| {
+                let handles: Vec<_> = chunk
+                    .iter()
+                    .map(|args| {
+                        let gh = gh.clone();
+                        s.spawn(move || {
+                            let word = format!("ERROR: gh {} {} failed", args[0], args[1]);
+                            if !gh_reads(args) {
+                                return Err(GhFail(format!("{word}: refused, it is no read")));
+                            }
+                            let r = run(&gh, args, bound);
+                            if r.ok() {
+                                Ok(parse(&r.out))
+                            } else {
+                                Err(GhFail(word))
+                            }
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap_or_else(|_| Err(GhFail("ERROR: gh failed".into()))))
+                    .collect()
+            });
+            self.gh_count += chunk.len() as u32;
+            out.extend(answers);
+        }
+        out
+    }
+
     /// gh's answer as JSON, Err with the line the bash poll logs.
     pub fn gh(&mut self, args: &[&str]) -> Result<Value, GhFail> {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();

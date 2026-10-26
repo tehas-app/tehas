@@ -194,6 +194,26 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     m
 }
 
+/// The comments of several issues, read side by side.
+pub fn comments_of(calls: &mut Calls, repo: &str, numbers: &[u64]) -> Vec<Value> {
+    let (owner, name) = split(repo);
+    let query = format!("query={COMMENTS}");
+    let list: Vec<Vec<String>> = numbers
+        .iter()
+        .map(|n| {
+            ["api", "graphql", "-F", &owner, "-F", &name, "-F", &format!("number={n}"), "-f", &query]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .collect();
+    calls
+        .gh_all(&list)
+        .into_iter()
+        .map(|r| r.unwrap_or_else(|_| json!({"failed": true})))
+        .collect()
+}
+
 /// The comments of one issue, as the bash's question and blocker reads have
 /// them; {"failed": true} when the call failed.
 pub fn comments(calls: &mut Calls, repo: &str, n: u64) -> Value {
