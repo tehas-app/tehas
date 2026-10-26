@@ -1187,8 +1187,11 @@ One review at a time: the run holds `~/tehas/state/review.lock` for as long as
 it goes, and a second one started beside it says so and starts nothing. A
 container left under the run's name by a client that died is removed before the
 run starts; the `docker rm`, `docker stop` and `docker kill` of these are each
-bounded, so a dockerd that stops answering is reported rather than being the
-last thing the run does.
+bounded by `TEHAS_STOP_WAIT`, so a dockerd that stops answering is reported
+rather than being the last thing the run does. So is the wait on the
+`docker run` client: a client that outlives its container and does not answer
+to `TERM` is killed after that grace, and says the docker client of the review
+would not end.
 
 The limit is `TEHAS_PLAN_TIMEOUT`, the bound of one headless turn: past it the
 container is stopped with `docker stop` and the run exits 2. An image whose
