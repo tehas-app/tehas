@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- Each poll records what it cost in the state store: its wall time, its CPU
+  time, its own `gh` calls and the writes the host shim logged while it ran,
+  by kind (#743). `tehas status` shows them on a `poll` line under the
+  `factory` line, with the sums of the last hour, and `store poll-show` gives
+  them as JSON. The state store moves to schema 7, which adds the table
+  `poll_cost`; the install migrates it and keeps a backup.
 - A poll's count of the running cycles no longer grows with the lock files of
   every issue the host ever ran (#732). The new state store verb `locks-held`
   tries every lock under `state/cycles` in one process; a held lock counts

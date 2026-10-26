@@ -485,6 +485,20 @@ t_contains "$t_out" "queue     2 in line, 0 building, 1 in review, 1 stopped"
 t_contains "$t_out" "cycle     none yet"
 t_contains "$t_out" "slice     unknown: no poll has reported in 10 min"
 
+t_case "summary: the poll line under the factory line, from the last poll on record"
+reset
+t_run "$status && $summary"
+t_lacks "$t_out" "poll      "
+printf '0m1.000s 0m0.500s\n0m1.000s 0m0.600s\n' >"$T/poll.times"
+printf '\n\n\n' >"$T/poll.tally"
+t_at "$(date +%s)" poll-record --started "$(($(date +%s) - 30))" --times "$T/poll.times" \
+  --tally "$T/poll.tally" --writes-log "$T/no-such.log" >/dev/null || t_bad "no poll recorded"
+t_run "$summary"
+t_eq "$t_rc" 0
+t_contains "$(sed -n 2p <<<"$t_out")" "poll      last 3"
+t_contains "$t_out" " s wall, 3.1 s CPU, 3 gh; last hour 1 poll, 3.1 s CPU"
+t_contains "$(sed -n 3p <<<"$t_out")" "queue     "
+
 t_case "summary: the last tehas check-product, when one ran"
 reset
 t_run "$status && $summary"

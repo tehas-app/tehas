@@ -36,6 +36,13 @@ fails() {
   fi
   [ ! -e "$T/fx/$1" ] || exit 1
 }
+# The write log of the host shim (host/shim/gh), when a case keeps one: a line for
+# each write, in the format of the shim.
+if [ -e "$T/home/tehas/state/github-writes.log" ]; then
+  case "$1 $2" in
+    "issue edit" | "issue comment" | "api -X") printf "%s\t%s %s\tacme/widget\t-\t0\t-\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >>"$T/home/tehas/state/github-writes.log" ;;
+  esac
+fi
 # not_found: say what GitHub says for a path it does not have, and fail.
 not_found() { echo "message: Not Found" >&2; exit 1; }
 case "$1 $2" in
