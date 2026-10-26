@@ -60,15 +60,31 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
    as `q_clean` and `q_render` make it), 3b the start of a turn (first and
    next, the brief, the unit) and the three `park_retry`. `plan_turn` (first and next), `plan_collect` with its two
    paths, `plan_post`, `plan_end`, `plan_close`, the three `park_retry`.
-4. **The whole poll.** The journal settled first, against fresh reads, before
-   any action (never replayed blindly); a failed read ends the poll before any
-   action (A14); the lock, `live/dispatch.json`, the log, the exit statuses;
-   the setting `TEHAS_DISPATCHER=bash|rust` (bash the default, malformed is
-   78); the process cases of `test/dispatch_test.sh` run against the binary.
-   Two things to settle there: a poll that `apply` ends early (a quiet
-   cycle's store that cannot be used, exit 78) logs only the decision's lines
-   up to the action it reached, as the bash exits there; and no child of the
-   poll inherits the poll's lock, as the bash's `8>&-` sees to.
+4. **The whole poll**, in three pull requests (the survey of 2026-10-26 of
+   what libexec/dispatch does that is neither a rule nor an action):
+   - 4a, `tehas-dispatch poll`, the frame: the dispatcher's lock with its
+     hang warning (`dispatch.taken`, `dispatch.stuck`), `dispatch.again`, the
+     store's readiness and the records of an older tehas, the status run at
+     the start, demand and health, `live/dispatch.json` with its time and the
+     status run when its reason changed, `sweep-locks`, and the end of every
+     poll that held the lock: tidy (once past the bot's checks), its cost
+     (`poll-record`, with the poll's own CPU, gh calls and starts) and the
+     analytics sample. `poll-begin` names the poll the journal's actions
+     belong to, begun with its first write. Nothing chooses it yet. Its end
+     runs when the poll returns: a SIGTERM, which the bash's EXIT trap
+     catches, ends a Rust poll without its cost and tidy (std Rust has no
+     handler without `unsafe`), and the next poll's tidy covers it.
+   - 4b, the gates of a start, as decisions with facts the snapshot reads
+     when asked: systemd's LoadState (`units_ok`), the code index
+     (`index_gate`: busy, its report, its state, its launch), the checkout's
+     refresh before a start or a turn, the low gate's run, and the open
+     sessions read again after this poll's own planning writes.
+   - 4c, the journal settled first, against fresh reads; the process cases of
+     `test/dispatch_test.sh` against the binary; and `TEHAS_DISPATCHER`.
+     Two things to settle there: a poll that `apply` ends early (a quiet
+     cycle's store that cannot be used, exit 78) logs only the decision's
+     lines up to the action it reached, as the bash exits there; and no child
+     of the poll inherits the poll's lock, as the bash's `8>&-` sees to.
 
 The default changes only after 7 days of shadow and 7 days as the dispatcher
 on tehas-tehas, each recorded in `host/docs/features.md`. Removing

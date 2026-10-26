@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- `tehas-dispatch poll [--dry-run]` runs one poll of the queue in Rust
+  (#254, part 4a): the dispatcher's lock and its hang warning, the checks
+  before any call, the snapshot and its decision, live/demand.json, health,
+  live/dispatch.json, the unused locks swept, the actions in the order of the
+  poll's lines, and the end of every poll that held the lock (tidy, its cost
+  and the analytics). Nothing chooses it yet: libexec/dispatch still polls.
 - The dispatcher in Rust can end a planning turn (#254, part 3a): it
   collects the turn's exit status, posts its question as the bash poll writes
   it, replaces the issue a refine filed for, and ends a session that was cut

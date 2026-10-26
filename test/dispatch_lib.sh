@@ -639,3 +639,50 @@ open_read_fails_again() {
     "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
   chmod 755 "$bin"
 }
+
+# The open issues as tehas-dispatch's one GraphQL page asks for them, made from
+# the fixtures the bash poll's REST calls answer from: the lists name the
+# issues and their labels, events-<n>.json their label events, work-<n>.json
+# and edit-<n>.json (or edit.json) their text, and prs-<n>.json (or prs.json)
+# the pull requests that close them. An issue marked running and CLOSED is a
+# closed one.
+cat >"$T/page-stub" <<'STUB'
+#!/usr/bin/env bash
+fx=$T/fx
+read_or() { # <file> <second file or ""> <default>
+  cat "$1" 2>/dev/null && return
+  [ -n "$2" ] && cat "$2" 2>/dev/null && return
+  printf '%s' "$3"
+}
+lists=$(for f in ready blocked asking plans refines awaiting marked; do read_or "$fx/$f.json" "" "[]"; echo; done | jq -cs 'map(. // [])')
+nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumber? // empty] + [1] | unique | .[]' <<<"$lists")
+items=$(for n in $nums; do
+  jq -nc --argjson n "$n" --argjson ev "$(read_or "$fx/events-$n.json" "" "[]")" \
+    --argjson w "$(read_or "$fx/work-$n.json" "" null)" \
+    --argjson e "$(read_or "$fx/edit-$n.json" "$fx/edit.json" "{}")" \
+    --argjson p "$(read_or "$fx/prs-$n.json" "$fx/prs.json" "{}")" \
+    '{n: $n, ev: $ev, w: $w, e: ($e.data.repository.issue // {}), p: $p}'
+done | jq -cs .)
+jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
+  --argjson repo "$(read_or "$fx/repo.json" "" '{}')" '
+  def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
+    + (if $n == 1 then [$control.labels[].name] else [] end)
+    # Being on a list is carrying its label, as gh issue list --label has it.
+    + [range(7) as $i | select(any($lists[$i][]; (.number | tonumber?) == $n))
+       | ["tehas:ready", "tehas:blocked", "tehas:question", "tehas:plan", "tehas:refine",
+          "tehas:awaiting-merge", "tehas:running"][$i]] | unique;
+  def actor: if .actor == null then null else {login: .actor.login} end;
+  {data: {repository: {nameWithOwner: $repo.nameWithOwner,
+    issues: {pageInfo: {hasNextPage: false, endCursor: null},
+      nodes: [$items[] | select((.w.state // "open") | ascii_downcase == "open") | . as $i | {
+        number: .n, title: (.e.title // .w.title // ""), body: (.e.body // .w.body),
+        lastEditedAt: .e.lastEditedAt, editor: .e.editor,
+        labels: {nodes: [labels($i.n)[] | {name: .}]},
+        subIssuesSummary: (.w.sub_issues_summary // null),
+        timelineItems: {nodes: [.ev[] | {__typename: (if .event == "labeled" then "LabeledEvent"
+            elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
+          createdAt: .created_at, actor: actor, label: .label}]},
+        closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
+    closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
+STUB
+chmod +x "$T/page-stub"
