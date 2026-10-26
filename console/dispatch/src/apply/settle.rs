@@ -106,6 +106,9 @@ impl Writer {
             .unwrap_or_default();
         let attempted = a.get("attempted_at").and_then(Value::as_i64).unwrap_or(0);
         let since = crate::decide::iso(attempted.max(0) as u64);
+        // A minute of slack for the clocks of the host and GitHub: a post is
+        // also found by its sum.
+        let posted_since = crate::decide::iso((attempted - 60).max(0) as u64);
         let read = |w: &mut Writer, path: String, page: bool| {
             let mut args = vec!["api".to_string(), path.clone()];
             if page {
@@ -165,7 +168,7 @@ impl Writer {
                     (bot.is_empty() || login.trim_end_matches("[bot]") == bot)
                         && c.get("created_at")
                             .and_then(Value::as_str)
-                            .is_some_and(|t| t >= since.as_str())
+                            .is_some_and(|t| t >= posted_since.as_str())
                         && got == sum
                 });
                 match posted {
@@ -227,7 +230,11 @@ impl Writer {
                     .iter()
                     .find_map(|f| f.strip_prefix("sub_issue_id="))
                     .and_then(|x| x.parse().ok());
-                let v = match read(self, format!("repos/{repo}/issues/{n}/sub_issues"), false) {
+                let v = match read(
+                    self,
+                    format!("repos/{repo}/issues/{n}/sub_issues?per_page=100"),
+                    true,
+                ) {
                     Ok(v) => v,
                     Err(e) => return Found::Unread(e),
                 };
