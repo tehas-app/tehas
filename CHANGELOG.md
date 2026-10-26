@@ -85,8 +85,24 @@ empty one above it.
   "The fixer's grant" in `operating.md` is now "The millwright's grant"
   (`#the-millwrights-grant`).
 
+- The dispatcher's shadow (#253): `tehas-dispatch`, the dispatcher's rules
+  in Rust, decides beside every poll of `tehas-dispatch.service` from its own
+  snapshot (one GraphQL query of the open issues in pages of 100, the state
+  store and the host) and adds one line a poll to `logs/dispatch-shadow.log`:
+  whether it agrees with the bash poll, and the lines only one of them
+  logged. It acts on nothing; the bash poll still does the work. Measured
+  against this repository's queue, it adds about 9 s of wall time before
+  each poll, 3 s of CPU and 20 GitHub calls, all reads, about 10 GraphQL
+  points: it reads GitHub again rather than reusing the poll's reads, one
+  call for each issue that asks a question. `install.sh` and the release
+  build and install `libexec/tehas-dispatch`; a host without it polls as
+  before.
+
 ### Adopter action
 
+- The shadow runs from the first poll after the update.
+  `touch ~/tehas/state/dispatch-shadow.off` stops it, and the poll is then as
+  it was before.
 - A program that reads `tehas history` or `tehas export` and checks the shape
   of a cursor must take the third number. One that only keeps `next` and
   passes it back needs no change.
