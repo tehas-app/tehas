@@ -178,7 +178,11 @@ run without `PI_ENSEMBLE_IMAGE`, so it never touches the tehas sandbox image.
 pi-rukas comes from the repository named in `versions.env`, at the head of the
 branch named there. It is not pinned: each run moves the clone to the head,
 and `check` reports a clone behind it as `DIFFERS`. A clone already on the
-host is pointed at that repository before it is fetched.
+host is pointed at that repository before it is fetched. The clone is only a
+copy of upstream, so its tags follow upstream and the fetch takes them by force:
+a release tag upstream re-points is fetched anyway, rather than stopping the
+run. A fetch or a checkout that fails says which, and gives git's own words,
+before `bootstrap.sh user` exits.
 [The host](/host#pi-rukas-comes-from-upstream) says how the sandbox image
 follows the same branch.
 

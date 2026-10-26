@@ -927,6 +927,19 @@ the new code asks for a setting the instance does not have. The checkout is
 at the new code and nothing was installed. Add the setting to `instance.env`
 and run `tehas update` again.
 
+## `bootstrap.sh user` stopped after the line naming the pi-rukas commit
+
+The clone under `~/tehas/repos/pi-rukas` is a copy of upstream, and a fetch of
+it that fails now says which step failed and gives git's own words. Read that
+line. A host from before this does the same thing without the words: the fetch
+ran quietly, so the run ended after
+`bootstrap: installing pi-rukas <sha> (replacing <sha>)` and
+`install.sh --check` went on saying `Dependencies: NOT OK`. Run
+`./bootstrap.sh user` again; it now takes a release tag upstream re-pointed.
+The one case that still needs a hand is `~/.pi/agent`: pi-rukas's installer
+rewrites the two files it puts there, and `install.sh` is what puts them back.
+Run `./install.sh` after it, then `./install.sh --check`.
+
 ## `install.sh` printed a `later:` line
 
 A `later:` line is for a person. `tehas update` passes it through and does not
