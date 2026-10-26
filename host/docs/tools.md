@@ -1455,7 +1455,8 @@ In order, stopping at the first step that fails:
    `TEHAS_GITHUB_APP_ID`, `TEHAS_GITHUB_APP_INSTALLATION` and
    `TEHAS_BOT_LOGIN=<slug>[bot]`. Another key or other app settings are
    replaced only with `--force`. From here `gh` runs through `~/tehas/shim/gh`,
-   which reads the app from these files.
+   which reads the app from these files and keeps the account of what the
+   factory writes ([GitHub App identity](/github-app)).
 3. It gives git the bot's login and noreply address (`<id>+<login>@users.noreply.github.com`)
    from `gh api user`, unless git already has a name or an email, which it keeps.
    With an app the login is `<slug>[bot]` and the ID the one step 1 read,
@@ -2839,6 +2840,14 @@ hour only.
 
 GitHub names an app `<slug>[bot]` in its REST answers and `<slug>` in GraphQL:
 where tehas compares a GraphQL author with the bot it drops the `[bot]`.
+
+What the shim of `~/tehas/shim/gh` counts as a write is what a call asks GitHub
+to do, and not how it asks it. `gh api graphql` sends POST whatever it asks
+for, a query among them, so the method says nothing there and the shim reads
+the first word of the document instead: a query, a fragment, or a document that
+names no operation reads and is not logged, and only a `mutation` adds a line
+of kind `api POST`. An idle poll of the dispatcher asks nothing but queries, so
+it writes nothing. See [GitHub App identity](/github-app).
 
 Exit 0 a token or a check that passed; 1 no token could be had, or it does not
 reach `TEHAS_REPO`; 64 an argument it does not know; 78 settings that are
