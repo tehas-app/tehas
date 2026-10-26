@@ -137,7 +137,7 @@ t_contains "$t_out" "next: units"
 
 t_case "the machine reads back as one JSON object, with no secret in it"
 fresh
-instance TEHAS_FIXER_LOGIN=bob
+instance TEHAS_MILLWRIGHT_LOGIN=bob
 t_run "$install </dev/null"
 t_eq "$t_rc" 0
 # The token file is what holds them, and a value written into the report would

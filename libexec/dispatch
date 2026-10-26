@@ -125,9 +125,9 @@
 #      tehas cycle passes --restart, which takes needs-human-attention off,
 #      and the refresh's own end labels the issue.
 #   5. A reply or a ticked option on a planning question runs the next turn
-#      of that session. The fixer's reply or tick counts only when no
+#      of that session. The millwright's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
-#      started, fewer than TEHAS_FIXER_MAX_PLAN_ANSWERS times in the session,
+#      started, fewer than TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS times in the session,
 #      never for two turns in a row and never as the way out; its reply
 #      starts with <!-- tehas:fixer issue=<n> action=answer -->. Otherwise
 #      a tick is undone and a reply is said once on the issue. An issue
@@ -172,10 +172,10 @@
 #      tehas:ready or tehas:plan to the number TEHAS_CONTROL_ISSUE names, or
 #      ticks a retry box on it, starts nothing, and the label stays where it
 #      is. The poll says so once, as it says a label of an account that is not
-#      allowed. The one exception is TEHAS_FIXER_LOGIN, which is never the bot:
+#      allowed. The one exception is TEHAS_MILLWRIGHT_LOGIN, which is never the bot:
 #      its tehas:ready starts a cycle on an issue an allowed account approved
 #      before, whose body is still the body that account approved, at most
-#      TEHAS_FIXER_MAX_RETRIES times since (lib/fixer.sh). Otherwise the poll
+#      TEHAS_MILLWRIGHT_MAX_RETRIES times since (lib/millwright.sh). Otherwise the poll
 #      takes its label off and says why. A start takes tehas:fixer-escalated
 #      off, whoever made it.
 #      An issue that carries tehas:blocked waits while any issue it names is
@@ -237,11 +237,11 @@
 #   TEHAS_PLAN_TIMEOUT        seconds before a turn is given up [7200]
 #   TEHAS_WORK_COMMENTS       1 adds the links of comments to the approval
 #                             record [0]
-#   TEHAS_FIXER_LOGIN         the fixer's account, none when unset
-#   TEHAS_FIXER_MAX_RETRIES   the fixer's starts on one issue since a person's
+#   TEHAS_MILLWRIGHT_LOGIN         the millwright's account, none when unset
+#   TEHAS_MILLWRIGHT_MAX_RETRIES   the millwright's starts on one issue since a person's
 #                             approval [2]
-#   TEHAS_FIXER_MAX_PLAN_ANSWERS
-#                             the fixer's answers in one planning session [3]
+#   TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
+#                             the millwright's answers in one planning session [3]
 #   TEHAS_REFRESH_CONFLICTS   1 lets refresh requests start cycles [0]
 #   TEHAS_BRANCH_CHECK        the check whose failure on the branch's head
 #                             commit holds new cycles back, none when unset
@@ -379,8 +379,8 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/disk.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
-# shellcheck source=lib/fixer.sh
-. "$here/../lib/fixer.sh"
+# shellcheck source=lib/millwright.sh
+. "$here/../lib/millwright.sh"
 # shellcheck source=lib/status.sh
 . "$here/../lib/status.sh"
 # shellcheck source=lib/limit.sh
@@ -918,7 +918,7 @@ order_label() {
     log "ignore #$1: $2 was taken off by '${who:-unknown}' since it was applied"
     return 1
   fi
-  tehas_allowed_labeler "$who" || tehas_fixer_is "$who" || { deny_label ignore "$1" "$2"; return 1; }
+  tehas_allowed_labeler "$who" || tehas_millwright_is "$who" || { deny_label ignore "$1" "$2"; return 1; }
 }
 
 # blocked_ok <issue>: 0 unless tehas:blocked holds the issue back. The label
@@ -939,7 +939,7 @@ blocked_ok() {
       repository(owner: $owner, name: $name) { issue(number: $number) {
         comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
   # shellcheck disable=SC2016  # a jq program
-  got=$(jq -r --arg allowed "$TEHAS_ALLOWED_LABELERS" --arg fixer "${TEHAS_FIXER_LOGIN:-}" '
+  got=$(jq -r --arg allowed "$TEHAS_ALLOWED_LABELERS" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" '
     .data.repository.issue.comments.nodes | if type == "array" then . else error("no comments") end
     | ($allowed | split(" ") + [$fixer] | map(select(. != ""))) as $list
     | map(select(type == "object" and (.body | type) == "string" and (.body | contains("<!-- tehas:blocked"))
@@ -1000,7 +1000,7 @@ approval() {
   label_actor "$n" "$name"
   if ! tehas_allowed_labeler "$who"; then
     # The fixer's label is the caller's to weigh, and fixer_ok logs it.
-    if [ "$name" != tehas:ready ] || ! tehas_fixer_is "$who"; then
+    if [ "$name" != tehas:ready ] || ! tehas_millwright_is "$who"; then
       deny_label skip "$n" "$name"
     fi
     refused=${who:-unknown}
@@ -1196,8 +1196,8 @@ clear_pr_open() {
 }
 
 # fixer_ok <issue>: the fixer applied tehas:ready, at $at. 0 when its grant
-# covers the start (lib/fixer.sh): the person's approval it rests on is left in
-# $tehas_fixer_rests_on and the count of fixer starts in $tehas_fixer_count.
+# covers the start (lib/millwright.sh): the person's approval it rests on is left in
+# $tehas_millwright_rests_on and the count of fixer starts in $tehas_millwright_count.
 # Otherwise the label comes off and the issue says why, on the same terms as
 # clear_unauthorised; a text changed since the label waits, as for anyone.
 fixer_ok() {
@@ -1205,28 +1205,28 @@ fixer_ok() {
   unchanged_since "$n" "$at" "the fixer applied tehas:ready" "the fixer or a person applies it again" || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) ||
     { log "ERROR: the text of #$n could not be read for its hash"; exit 1; }
-  tehas_fixer_grant "$n" "$sum"
+  tehas_millwright_grant "$n" "$sum"
   case $? in
     0)
       # The body hash does not cover the title: a rename since the person's
       # approval was not approved either.
-      unchanged_since "$n" "$(jq -r .at <<<"$tehas_fixer_rests_on")" "$(jq -r .by <<<"$tehas_fixer_rests_on") approved it" \
+      unchanged_since "$n" "$(jq -r .at <<<"$tehas_millwright_rests_on")" "$(jq -r .by <<<"$tehas_millwright_rests_on") approved it" \
         "a person applies tehas:ready" && return 0
-      tehas_fixer_why="its title or text was changed since $(jq -r .by <<<"$tehas_fixer_rests_on") approved it"
+      tehas_millwright_why="its title or text was changed since $(jq -r .by <<<"$tehas_millwright_rests_on") approved it"
       ;;
     2)
       # Could not look: the label stays, and the next poll asks again.
-      log "skip #$n: tehas:ready from the fixer waits: $tehas_fixer_why"
+      log "skip #$n: tehas:ready from the fixer waits: $tehas_millwright_why"
       return 1
       ;;
   esac
-  log "skip #$n: tehas:ready from the fixer starts nothing: $tehas_fixer_why"
+  log "skip #$n: tehas:ready from the fixer starts nothing: $tehas_millwright_why"
   if [ "$dry" = 1 ]; then
     log "would take tehas:ready off #$n"
     return 1
   fi
   if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
-    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: $tehas_fixer_why. A person decides now: an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`tehas:ready\` to start a cycle."
+    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: $tehas_millwright_why. A person decides now: an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`tehas:ready\` to start a cycle."
   else
     log "WARN: label change on #$n failed: --remove-label tehas:ready"
   fi
@@ -1235,7 +1235,7 @@ fixer_ok() {
 
 # fixer_answer_ok <issue> <session> <answer> tick|reply: the fixer answered a
 # planning question. <session> is the open session as plan_view writes it. 0
-# when the answer may run the turn (tehas_fixer_answer in lib/fixer.sh, a
+# when the answer may run the turn (tehas_millwright_answer in lib/millwright.sh, a
 # marked reply, never the way out). Otherwise it is an outsider's: a tick is
 # undone with a note, as a stranger's is, and a reply is logged and said on the
 # issue once, its id noted with the session (plan-note --kind fixer-refused).
@@ -1246,8 +1246,8 @@ fixer_answer_ok() {
     why="it ticked End this planning session, which only a person may"
   elif [ "$said" = reply ] && [ "$(jq -r .fixer_reply.marked <<<"$ans")" != true ]; then
     why="its reply does not start with <!-- tehas:fixer issue=$n action=answer -->"
-  elif ! tehas_fixer_answer "$view"; then
-    why=$tehas_fixer_why
+  elif ! tehas_millwright_answer "$view"; then
+    why=$tehas_millwright_why
   else
     return 0
   fi
@@ -1478,7 +1478,7 @@ pr_comments() {
 }
 
 # fixer_note <issue> <label time>: the fixer's comment behind its tehas:ready,
-# as {links: [], context}: the newest comment of TEHAS_FIXER_LOGIN with the
+# as {links: [], context}: the newest comment of TEHAS_MILLWRIGHT_LOGIN with the
 # fixer's marker for this issue, written in the ten minutes before the label
 # and edited by nobody after it. The fixer comments and then labels, so an
 # older one is an earlier decision's. context is [] when there is none. Fails
@@ -1487,7 +1487,7 @@ fixer_note() {
   local list since
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
   since=$(date -u -d "$2 - 10 minutes" +%FT%TZ 2>/dev/null) || return 1
-  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "$TEHAS_FIXER_LOGIN" '
+  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "$TEHAS_MILLWRIGHT_LOGIN" '
     if any(.[]; type != "array") then error("not a list of comments") else . end
     | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
         and (.user.login // "") == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
@@ -1929,7 +1929,7 @@ refresh_ok() {
       return 1
       ;;
   esac
-  rests=$(tehas_fixer_base "$record") || rests=""
+  rests=$(tehas_millwright_base "$record") || rests=""
   count=$(tehas_refresh_count "$record" "${rests:-null}") || count=""
   rm -f "$record"
   [ -n "$rests" ] ||
@@ -2066,7 +2066,7 @@ report_demand() {
     fi
     by=${line%%$'\t'*}
     at=${line#*$'\t'}
-    tehas_allowed_labeler "$by" || tehas_fixer_is "$by" || continue
+    tehas_allowed_labeler "$by" || tehas_millwright_is "$by" || continue
     waiting=$((waiting + 1))
     if [ -n "$at" ] && { [ -z "$oldest" ] || [[ $at < $oldest ]]; }; then oldest=$at; fi
   done
@@ -2151,8 +2151,8 @@ if tehas_allowed_labeler "$bot"; then
   log "ERROR: the bot account $bot is in TEHAS_ALLOWED_LABELERS; the bot never authorises work"
   exit 78
 fi
-if tehas_fixer_is "$bot"; then
-  log "ERROR: the bot account $bot is TEHAS_FIXER_LOGIN; every agent posts as the bot, so the fixer must be an account of its own"
+if tehas_millwright_is "$bot"; then
+  log "ERROR: the bot account $bot is TEHAS_MILLWRIGHT_LOGIN; every agent posts as the bot, so the millwright must be an account of its own"
   exit 78
 fi
 # Closed issues lose tehas's state labels once a poll, after the rest of it,
@@ -3029,7 +3029,7 @@ for n in $asking; do
           userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }'
   # With nothing on record the newest question of the bot is still read, only
   # to be able to tell a person that their answer starts nothing.
-  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" "$TEHAS_FIXER_LOGIN" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
+  ans=$(q_answer "$bot" "$TEHAS_ALLOWED_LABELERS" "$qid" "$TEHAS_MILLWRIGHT_LOGIN" <<<"$json") || { log "ERROR: unreadable comments of #$n"; exit 1; }
   if [ "$(jq -r .asked <<<"$ans")" != true ]; then
     [ -z "$qid" ] || log "skip #$n: its question is not among the last 100 comments"
     continue
@@ -3212,7 +3212,7 @@ for n in $asking; do
         rm -f "$pview"
         [ "$fixer_ok_rc" = 0 ] || continue
         speaker="The fixer"
-        by=$TEHAS_FIXER_LOGIN
+        by=$TEHAS_MILLWRIGHT_LOGIN
         if [ "$fixer_said" = reply ]; then
           reply=$(jq -r '.fixer_reply.text' <<<"$ans")
           reply_id=$(jq -r '.fixer_reply.id // "" | tostring' <<<"$ans")
@@ -3609,7 +3609,7 @@ while read -r kind n; do
   ask=tehas:ready
   [[ $have == *" tehas:ready "* ]] || ask=tehas:blocked
   if ! approval "$n" "$ask"; then
-    if [ "$ask" = tehas:ready ] && [ -n "$refused" ] && tehas_fixer_is "$refused"; then
+    if [ "$ask" = tehas:ready ] && [ -n "$refused" ] && tehas_millwright_is "$refused"; then
       fixer_ok "$n" || continue
       by_fixer=1
     else
@@ -3657,7 +3657,7 @@ while read -r kind n; do
   given_how[$n]=label
   if [ "$by_fixer" = 1 ]; then
     verb[$n]="labelled by the fixer"
-    how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_fixer_rests_on")'s approval of $(jq -r .at <<<"$tehas_fixer_rests_on")"
+    how[$n]="\`tehas:ready\` label as the fixer, on $(jq -r .by <<<"$tehas_millwright_rests_on")'s approval of $(jq -r .at <<<"$tehas_millwright_rests_on")"
     given_how[$n]=fixer
   fi
   drop[$n]="--remove-label $ask"

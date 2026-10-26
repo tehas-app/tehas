@@ -55,9 +55,9 @@
 #     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
 #   - TEHAS_MILLWRIGHT_LOGIN names the millwright: an account whose tehas:ready
 #     the dispatcher takes, and whose answer to a planning question it takes,
-#     within a narrower grant than a person's (lib/fixer.sh). Unset is valid and
+#     within a narrower grant than a person's (lib/millwright.sh). Unset is valid and
 #     means there is none. It is never one of TEHAS_ALLOWED_LABELERS. The old
-#     TEHAS_FIXER_* names of the three are accepted until #689 removes them:
+#     TEHAS_FIXER_* names of the three are accepted for one release:
 #     the load says one, and refuses old and new that differ.
 #   - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 #     lowest issues (libexec/dispatch, rule 7). Unset is valid and means there
@@ -384,8 +384,8 @@ _tehas_role_models() { # <instance.env>
   return 0
 }
 
-# TEHAS_MILLWRIGHT_*: the names of #676, which lib/fixer.sh and its callers
-# still read until #689: a name set alone is taken as the new one and validated
+# TEHAS_MILLWRIGHT_*: the names of #676. An old name set alone is taken as the
+# new one and validated
 # as the new one, and old and new that differ stop the load with 78. The load
 # says a move on stderr. A command whose answer is the bytes it prints sets
 # TEHAS_SILENT_RENAMED first (tehas api --json, install.sh's findings, a test
@@ -529,10 +529,8 @@ tehas_load() {
   export TEHAS_IMPROVE_RUKAS_SKIP=${TEHAS_IMPROVE_RUKAS_SKIP:-0} TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
   # The millwright: the account whose tehas:ready the dispatcher takes on its own
   # grant (unset, there is none), its ceiling of cycles on one issue since a
-  # person last approved it, its ceiling of planning questions per session, and,
-  # until #689, the old TEHAS_FIXER_* names with the values of the new ones.
+  # person last approved it, its ceiling of planning questions per session.
   export TEHAS_MILLWRIGHT_LOGIN=${TEHAS_MILLWRIGHT_LOGIN:-} TEHAS_MILLWRIGHT_MAX_RETRIES=${TEHAS_MILLWRIGHT_MAX_RETRIES:-2} TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=${TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS:-3}
-  export TEHAS_FIXER_LOGIN=$TEHAS_MILLWRIGHT_LOGIN TEHAS_FIXER_MAX_RETRIES=$TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS=$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS
   # The GitHub App the factory acts as, or none (lib/github-app.sh).
   export TEHAS_GITHUB_APP_ID=${TEHAS_GITHUB_APP_ID:-} TEHAS_GITHUB_APP_INSTALLATION=${TEHAS_GITHUB_APP_INSTALLATION:-} TEHAS_BOT_LOGIN=${TEHAS_BOT_LOGIN:-}
   # Refreshes: whether the factory resolves conflicts in its own pull requests

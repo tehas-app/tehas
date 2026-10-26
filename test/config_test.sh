@@ -373,16 +373,6 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRI
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
 
-# Until #689 moves lib/fixer.sh and its callers to the new names: the load
-# exports the old three beside the new ones with the same values.
-t_case "the old fixer names are exported with the values of the new ones"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_MAX_RETRIES=4 TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=6 >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && bash -c 'echo \$TEHAS_FIXER_LOGIN \$TEHAS_FIXER_MAX_RETRIES \$TEHAS_FIXER_MAX_PLAN_ANSWERS'"
-t_eq "$t_out" "tehas-fixer 4 6"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$load && bash -c 'echo \"[\$TEHAS_FIXER_LOGIN][\$TEHAS_FIXER_MAX_RETRIES][\$TEHAS_FIXER_MAX_PLAN_ANSWERS]\"'"
-t_eq "$t_out" "[][2][3]"
-
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
@@ -515,8 +505,8 @@ done
 # The checks above leave TEHAS_FIXER_LOGIN in the instance, so this one asks for
 # the line by name: both names agreeing is the instance's own, and moves nothing.
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_FIXER_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_LOGIN=tehas-fixer >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "TEHAS_SILENT_RENAMED=1; $load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_FIXER_LOGIN]\""
-t_eq "$t_out" "[tehas-fixer][tehas-fixer]"
+t_run "TEHAS_SILENT_RENAMED=1; $load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
+t_eq "$t_out" "[tehas-fixer]"
 t_lacks "$t_out" "is now TEHAS_MILLWRIGHT_LOGIN"
 
 t_case "analytics is off unless the instance names a script and a site"

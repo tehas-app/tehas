@@ -446,7 +446,7 @@ files=(
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
-  "lib/fixer.sh|$TEHAS_HOME/lib/fixer.sh|644"
+  "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"

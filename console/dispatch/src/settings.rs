@@ -12,7 +12,8 @@ pub struct Settings {
     pub allowed: Vec<String>,
     /// TEHAS_BOT_LOGIN: an app's login, which GET /user cannot answer.
     pub bot_login: String,
-    pub fixer: String,
+    /// TEHAS_MILLWRIGHT_LOGIN: the millwright's account.
+    pub millwright: String,
     pub concurrency: i64,
     pub max_awaiting: i64,
     pub reserve: String,
@@ -51,7 +52,7 @@ impl Settings {
                 .map(str::to_string)
                 .collect(),
             bot_login: s("TEHAS_BOT_LOGIN", ""),
-            fixer: s("TEHAS_FIXER_LOGIN", ""),
+            millwright: s("TEHAS_MILLWRIGHT_LOGIN", ""),
             concurrency,
             max_awaiting: n("TEHAS_MAX_AWAITING", concurrency + 2),
             reserve: s("TEHAS_CYCLE_RESERVE", "2g"),
@@ -70,8 +71,8 @@ impl Settings {
         !login.is_empty() && self.allowed.iter().any(|a| a == login)
     }
 
-    /// tehas_fixer_is.
-    pub fn is_fixer(&self, login: &str) -> bool {
-        !self.fixer.is_empty() && login == self.fixer
+    /// tehas_millwright_is.
+    pub fn is_millwright(&self, login: &str) -> bool {
+        !self.millwright.is_empty() && login == self.millwright
     }
 }
