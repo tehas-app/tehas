@@ -44,6 +44,10 @@ pub struct Writer {
     pub spend: Option<u64>,
     /// Set by a turn: the status command runs after it, as after a start.
     pub status_due: bool,
+    /// The gh calls the writes made, for the poll's cost.
+    pub gh_writes: u32,
+    /// The issues marked running this poll, for the poll's cost.
+    pub starts: u32,
 }
 
 /// What applying a decision did: the lines the poll logs, in order, and the
@@ -259,6 +263,7 @@ impl Writer {
         {
             return Wrote::Unrecorded;
         }
+        self.gh_writes += 1;
         let r = run_input(&self.gh, &args, body, self.bound);
         let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
         let result = match r.status {
@@ -294,7 +299,7 @@ impl Writer {
 
     /// tehas_store_try: asked again, a second apart, only when the store
     /// answered 1 busy or timeout.
-    fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
+    pub fn store_try(&mut self, tries: u32, args: &[&str]) -> Result<Value, Value> {
         let mut i = 1;
         loop {
             let r = self.calls.store(args);
