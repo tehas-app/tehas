@@ -2,17 +2,25 @@
 //! that held the lock ends, and poll-show, which `tehas status` reads.
 //!
 //!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
-//!                     --writes-log <file>
+//!                     --writes-log <file> [--starts <n>]
 //!     One row of poll_cost. The wall time is from --started to now. The CPU
 //!     time is the four figures of bash's `times` in <file>, the poll's and
 //!     its children's. The gh calls are the bytes of the tally, one newline
 //!     per call. The writes are the lines of the host shim's write log
 //!     (host/shim/gh) dated from the second of --started to now, by kind. A
 //!     tally that is not there is 0 calls; a write log that is not there
-//!     counts nothing, and the writes are null.
+//!     counts nothing, and the writes are null. --starts is the number of
+//!     cycles the poll started, 0 when it started none; without it the row
+//!     keeps no answer for that.
 //!   store poll-show
 //!     The last poll's row, the sums of the last hour, and the line `tehas
 //!     status` prints, null when no poll is on record.
+//!   store poll-idle --since <seconds>
+//!     The median wall, CPU and write cost of the polls of the last
+//!     <seconds> that started no cycle, as one object: {"polls": n, "cpu_ms":
+//!     m, "wall_ms": m, "writes": m}. The writes are left out when none of
+//!     those polls had a write log; {"polls": 0} is the answer when none is on
+//!     record. A row with no --starts on it is unknown and is left out.
 
 use crate::verbs::{self, j, line, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
@@ -24,6 +32,7 @@ use tehas_core::time::days_from_civil;
 pub enum Call {
     Record(Record),
     Show,
+    Idle(Idle),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +41,15 @@ pub struct Record {
     pub times: PathBuf,
     pub tally: PathBuf,
     pub writes_log: PathBuf,
+    /// The cycles this poll started; None when the caller said nothing.
+    pub starts: Option<i64>,
+}
+
+/// `poll-idle --since <seconds>`: the polls of the last `since` that started
+/// no cycle.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Idle {
+    pub since: i64,
 }
 
 /// The most of the write log read: its end, where a poll's lines are.
@@ -49,6 +67,7 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 ("--times", Kind::Value),
                 ("--tally", Kind::Value),
                 ("--writes-log", Kind::Value),
+                ("--starts", Kind::Value),
             ],
             false,
         )
@@ -59,9 +78,17 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 times: path("--times")?,
                 tally: path("--tally")?,
                 writes_log: path("--writes-log")?,
+                starts: a.strict("--starts", "a number of cycles", verbs::count)?,
             }))
         }),
         "poll-show" => Args::parse("poll-show", rest, &[], false).map(|_| Call::Show),
+        "poll-idle" => {
+            Args::parse("poll-idle", rest, &[("--since", Kind::Value)], false).and_then(|a| {
+                Ok(Call::Idle(Idle {
+                    since: a.strict_need("--since", "a number of seconds", verbs::count)?,
+                }))
+            })
+        }
         _ => return None,
     })
 }
@@ -210,6 +237,8 @@ pub struct Last {
     pub cpu_ms: i64,
     pub gh: i64,
     pub writes: Option<i64>,
+    /// The cycles that poll started; None when the row keeps no answer.
+    pub starts: Option<i64>,
     pub kinds: Option<[i64; 4]>,
 }
 
@@ -217,6 +246,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Record(r) => record(home, r, now, now_ms()),
         Call::Show => show(home, now),
+        Call::Idle(i) => idle(home, i, now),
     }
 }
 
@@ -255,8 +285,8 @@ pub fn record(home: &Path, r: &Record, now: i64, real_ms: i64) -> Result<String,
     let k = |f: fn(&Writes) -> i64| writes.as_ref().map(f);
     verbs::write(home, |c| {
         c.execute(
-            "INSERT INTO poll_cost (at, wall_ms, cpu_ms, gh, writes, label, comment, edit, other)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO poll_cost (at, wall_ms, cpu_ms, gh, writes, label, comment, edit, other, starts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 now,
                 wall,
@@ -266,7 +296,8 @@ pub fn record(home: &Path, r: &Record, now: i64, real_ms: i64) -> Result<String,
                 k(|w| w.label),
                 k(|w| w.comment),
                 k(|w| w.edit),
-                k(|w| w.other)
+                k(|w| w.other),
+                r.starts
             ],
         )
         .q()
@@ -279,15 +310,81 @@ pub fn record(home: &Path, r: &Record, now: i64, real_ms: i64) -> Result<String,
             ("cpu_ms", j(cpu)),
             ("gh", j(gh)),
             ("writes", j(total)),
+            ("starts", j(r.starts)),
         ],
     ))
+}
+
+/// The middle of sorted figures: the one in the middle of an odd count, the
+/// mean of the two of an even one, rounded. None for nothing at all. The
+/// analytics program's own median is private to that crate, so the store's is
+/// written here beside the verb that asks for it.
+pub fn median(sorted: &[i64]) -> Option<i64> {
+    let n = sorted.len();
+    if n == 0 {
+        return None;
+    }
+    if n % 2 == 1 {
+        return Some(sorted[n / 2]);
+    }
+    Some(((sorted[n / 2 - 1] + sorted[n / 2]) as f64 / 2.0).round() as i64)
+}
+
+/// The polls of the last `i.since` seconds that started no cycle. A row with
+/// no `starts` on it is unknown and is not one of them.
+fn idle(home: &Path, i: &Idle, now: i64) -> Result<String, Fail> {
+    verbs::look(home, |c| {
+        let mut q = c
+            .prepare(
+                "SELECT wall_ms, cpu_ms, writes FROM poll_cost
+                 WHERE starts = 0 AND at > ?1 AND at <= ?2",
+            )
+            .q()?;
+        let rows = q
+            .query_map(params![now - i.since, now], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Option<i64>>(2)?,
+                ))
+            })
+            .q()?;
+        let (mut wall, mut cpu, mut writes) = (Vec::new(), Vec::new(), Vec::new());
+        for row in rows {
+            let (w, c_, n) = row.q()?;
+            wall.push(w);
+            cpu.push(c_);
+            if let Some(n) = n {
+                writes.push(n);
+            }
+        }
+        let polls = wall.len() as i64;
+        if polls == 0 {
+            return Ok(line("poll-idle", &[("polls", j(0))]));
+        }
+        for v in [&mut wall, &mut cpu] {
+            v.sort_unstable();
+        }
+        let mut pairs = vec![
+            ("polls", j(polls)),
+            ("cpu_ms", j(median(&cpu))),
+            ("wall_ms", j(median(&wall))),
+        ];
+        // The writes only when one of the polls had a log to count: with no
+        // write log on the host the figure would say nothing.
+        if !writes.is_empty() {
+            writes.sort_unstable();
+            pairs.push(("writes", j(median(&writes))));
+        }
+        Ok(line("poll-idle", &pairs))
+    })
 }
 
 fn show(home: &Path, now: i64) -> Result<String, Fail> {
     verbs::look(home, |c| {
         let last = c
             .query_row(
-                "SELECT at, wall_ms, cpu_ms, gh, writes, label, comment, edit, other
+                "SELECT at, wall_ms, cpu_ms, gh, writes, label, comment, edit, other, starts
                  FROM poll_cost ORDER BY at DESC, id DESC LIMIT 1",
                 [],
                 |r| {
@@ -298,6 +395,7 @@ fn show(home: &Path, now: i64) -> Result<String, Fail> {
                         cpu_ms: r.get(2)?,
                         gh: r.get(3)?,
                         writes: r.get(4)?,
+                        starts: r.get(9)?,
                         kinds: match kinds {
                             [Some(a), Some(b), Some(c), Some(d)] => Some([a, b, c, d]),
                             _ => None,
@@ -346,6 +444,7 @@ fn show(home: &Path, now: i64) -> Result<String, Fail> {
             ("cpu_ms", j(last.cpu_ms)),
             ("gh", j(last.gh)),
             ("writes", j(last.writes)),
+            ("starts", j(last.starts)),
             ("kinds", kinds),
         ]);
         Ok(line(

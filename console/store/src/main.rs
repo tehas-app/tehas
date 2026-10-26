@@ -100,9 +100,10 @@
 //!   store locks-held
 //!   store upkeep [--dry-run]
 //!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
-//!                --writes-log <file>
+//!                --writes-log <file> [--starts <n>]
 //!   store poll-show
-//!                (what each poll cost: src/poll.rs)
+//!   store poll-idle --since <seconds>
+//!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
@@ -211,7 +212,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
