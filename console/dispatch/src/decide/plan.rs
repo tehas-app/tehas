@@ -127,7 +127,7 @@ impl Poll<'_> {
     /// tehas_fixer_answer: why the fixer may not answer this session's
     /// question, empty when it may.
     fn fixer_answer_why(&self, view: &Value) -> String {
-        if self.c.fixer.is_empty() {
+        if self.c.millwright.is_empty() {
             return "there is no fixer".into();
         }
         if !view.is_object() {
@@ -287,7 +287,7 @@ impl Poll<'_> {
                 return Ok(());
             }
             speaker = "The fixer";
-            by = self.c.fixer.clone();
+            by = self.c.millwright.clone();
             if fixer_said == "reply" {
                 reply = ans["fixer_reply"]["text"]
                     .as_str()

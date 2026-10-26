@@ -305,9 +305,9 @@ t_case "approval-record takes the millwright's word, and the shape and the cap r
 # The store writes the row under its own word whichever spelling was sent, and
 # answers the count under both keys: `fixer` above, `millwright` below, both read
 # the same. lib/store.sh gives the record back with the `fixer` its shape has
-# always carried, and tehas_fixer_starts of lib/fixer.sh, which is what the retry
+# always carried, and tehas_millwright_starts of lib/millwright.sh, which is what the retry
 # cap reads, must see that count and not 0: a silent 0 here leaves
-# TEHAS_FIXER_MAX_RETRIES with nothing to count.
+# TEHAS_MILLWRIGHT_MAX_RETRIES with nothing to count.
 t_store_home "$home"
 record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
 record 7 --at 1792584000 --by tehas-fixer --how fixer --label tehas:ready --body-sha "$SUM"
@@ -320,7 +320,7 @@ t_eq "$t_out" "millwright
 1"
 lib 'f=$(tehas_approval_view 7 1) && jq -c "{how, fixer_starts}" "$f"'
 t_eq "$t_out" '{"how":"fixer","fixer_starts":1}'
-lib '. "$T_ROOT/lib/fixer.sh"; f=$(tehas_approval_view 7 1) && tehas_fixer_starts "$f"'
+lib '. "$T_ROOT/lib/millwright.sh"; f=$(tehas_approval_view 7 1) && tehas_millwright_starts "$f"'
 t_eq "$t_out" "1"
 # A second start while one is on record replaces it and keeps only its own
 # approval, which is why this pair reads its own count and not two. It is also
@@ -380,7 +380,7 @@ boolean"
 lib 'f=$(plan_view 8) && jq -c '.answers' "$f"; rm -f "$f"'
 t_eq "$t_out" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
 # A mark that is not a boolean is not renamed into the file's `fixer` slot:
-# the shape of the boundary is the shape lib/fixer.sh checks with a type test,
+# the shape of the boundary is the shape lib/millwright.sh checks with a type test,
 # so a string mark reaches the record file as it came and not as a `fixer`.
 lib 'echo "{\"planning\":{\"answers\":[{\"turn\":1,\"by\":\"alice\",\"millwright\":\"yes\"}]}}" | jq -c "$tehas_plan_shape"'
 t_eq "$t_out" '{"session":"","turns":null,"options":[],"pending":null,"failed":null,"running":null,"answers":[{"turn":1,"by":"alice","millwright":"yes"}]}'

@@ -219,9 +219,9 @@ impl<'a> Poll<'a> {
                 78,
             ));
         }
-        if c.is_fixer(&bot) {
+        if c.is_millwright(&bot) {
             return Err(self.fail(
-                format!("ERROR: the bot account {bot} is TEHAS_FIXER_LOGIN; every agent posts as the bot, so the fixer must be an account of its own"),
+                format!("ERROR: the bot account {bot} is TEHAS_MILLWRIGHT_LOGIN; every agent posts as the bot, so the millwright must be an account of its own"),
                 78,
             ));
         }
@@ -350,7 +350,7 @@ impl<'a> Poll<'a> {
                 _ => return Value::Null,
             };
             let (by, at) = label_actor(ev, "tehas:ready");
-            if !self.c.allowed(&by) && !self.c.is_fixer(&by) {
+            if !self.c.allowed(&by) && !self.c.is_millwright(&by) {
                 continue;
             }
             waiting += 1;
@@ -876,7 +876,7 @@ impl<'a> Poll<'a> {
             ));
             return Ok(false);
         }
-        if self.c.allowed(&who) || self.c.is_fixer(&who) {
+        if self.c.allowed(&who) || self.c.is_millwright(&who) {
             return Ok(true);
         }
         self.deny("ignore", n, label, &who);
@@ -920,7 +920,7 @@ impl<'a> Poll<'a> {
         let ev = self.events(n)?;
         let (who, at) = label_actor(&ev, label);
         if !self.c.allowed(&who) {
-            if label != "tehas:ready" || !self.c.is_fixer(&who) {
+            if label != "tehas:ready" || !self.c.is_millwright(&who) {
                 self.deny("skip", n, label, &who);
             }
             return Ok(Err(or_unknown(&who).to_string()));
@@ -979,7 +979,7 @@ impl<'a> Poll<'a> {
                             .pointer("/author/login")
                             .and_then(Value::as_str)
                             .unwrap_or("");
-                        !a.is_empty() && (c.allowed(a) || c.is_fixer(a))
+                        !a.is_empty() && (c.allowed(a) || c.is_millwright(a))
                     }
             })
             .collect();
@@ -1607,7 +1607,8 @@ impl<'a> Poll<'a> {
             let (who, at) = match self.approval(n, ask)? {
                 Ok(a) => a,
                 Err(refused) => {
-                    if ask == "tehas:ready" && !refused.is_empty() && self.c.is_fixer(&refused) {
+                    if ask == "tehas:ready" && !refused.is_empty() && self.c.is_millwright(&refused)
+                    {
                         let ev = self.events(n)?;
                         let (_, at) = label_actor(&ev, "tehas:ready");
                         match self.fixer_ok(n, &at)? {
