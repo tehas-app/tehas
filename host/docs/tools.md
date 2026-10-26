@@ -790,7 +790,8 @@ runs until its time limit.
 While the container runs, Docker keeps its id in `~/tehas/state/cycles/<issue>.cid`,
 which is how the dispatcher tells a cycle's container from the others in the
 slice; the file goes with the container. When processes in the container were
-killed for memory, the count is printed and left in
+killed for memory, counted from its cgroup while it runs and from the kernel
+log once it has ended, the count is printed and left in
 `~/tehas/state/cycles/<issue>.oom` for `tehasbot cycle`, which says it in the
 issue comment and removes the file. The starts of a process that the pids
 limit refused go the same way, through `~/tehas/state/cycles/<issue>.forks`.
