@@ -233,3 +233,30 @@ fn an_action_never_attempted_has_no_result_and_is_only_abandoned() {
         "abandoned"
     );
 }
+
+#[test]
+fn the_kinds_of_a_planning_sessions_end_are_taken() {
+    let home = home("journal-kinds");
+    ok_at(&home, 7000, &["poll-begin"]);
+    for kind in ["issue-edit", "sub-issue-add", "issue-close"] {
+        let v = ok_at(
+            &home,
+            7000,
+            &[
+                "journal-record",
+                "--poll",
+                "7000",
+                "--kind",
+                kind,
+                "--issue",
+                "7",
+                "--args",
+                "{}",
+                "--before",
+                "6990",
+            ],
+        );
+        assert!(v["action"].as_i64().is_some(), "{kind}");
+    }
+    assert_eq!(count(&home, "actions"), 3);
+}
