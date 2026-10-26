@@ -181,6 +181,44 @@ pub fn no_later_parts(body: &str) -> bool {
     seen && !more
 }
 
+/// tehas_plan_shape, whole: the session as plan_view gives it, which the
+/// analytics program reads. decide's shape is its answers and notes; this
+/// adds the session, its turns and options, its states and its times.
+pub fn plan_view(row: &Value) -> Value {
+    let mut v = shape(row);
+    if v.is_null() {
+        return v;
+    }
+    let k = |x: &str| row.get(x).cloned().unwrap_or(Value::Null);
+    v["session"] = match row.get("session") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => json!(""),
+        Some(x) => x.clone(),
+    };
+    for x in ["turns", "pending", "failed", "running"] {
+        v[x] = k(x);
+    }
+    v["options"] = match row.get("options") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => json!([]),
+        Some(x) => x.clone(),
+    };
+    if let Some(at) = row.get("started_at").and_then(Value::as_u64) {
+        v["startedAt"] = json!(iso(at));
+    }
+    if let Some(c) = row.get("comment_id").filter(|c| !c.is_null()) {
+        v["comment"] = c.clone();
+    }
+    if row.get("lost") == Some(&json!(true)) {
+        v["lost"] = json!(true);
+    }
+    if let Some(f) = row
+        .get("filed")
+        .filter(|f| f.as_array().is_some_and(|a| !a.is_empty()))
+    {
+        v["filed"] = f.clone();
+    }
+    v
+}
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -345,17 +383,29 @@ impl Writer {
         if self.host.analytics.is_none() {
             return;
         }
-        let facts = show.get("planning").map(shape).unwrap_or(Value::Null);
+        let facts = show.get("planning").map(plan_view).unwrap_or(Value::Null);
         let commit = self.image_commit();
-        let Some(path) = self.scratch("analytics-facts") else {
+        // A new file only the tehas user reads, as mktemp makes it.
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let made = self.scratch("analytics-facts").and_then(|path| {
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .ok()?;
+            if f.write_all(format!("{facts}\n").as_bytes()).is_ok() {
+                Some(path)
+            } else {
+                let _ = std::fs::remove_file(&path);
+                None
+            }
+        });
+        let Some(path) = made else {
             log.push("WARN analytics plan: no facts written".into());
             return;
         };
-        if std::fs::write(&path, format!("{facts}\n")).is_err() {
-            let _ = std::fs::remove_file(&path);
-            log.push("WARN analytics plan: no facts written".into());
-            return;
-        }
         let mut args: Vec<String> = vec![
             "plan".into(),
             n.to_string(),
@@ -468,7 +518,7 @@ impl Writer {
                 .unwrap_or_default();
             for o in options.iter().take(MAX_OPTIONS) {
                 let label = match o.get("label").filter(|_| o.is_object()) {
-                    None | Some(Value::Null) => "-".to_string(),
+                    None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                     Some(Value::String(x)) => x.clone(),
                     Some(v) => v.to_string(),
                 };
@@ -614,7 +664,7 @@ impl Writer {
         let p = show.get("planning").cloned().unwrap_or(Value::Null);
         let turns = p.get("turns").and_then(Value::as_u64).unwrap_or(0);
         let comment = match p.get("comment_id") {
-            None | Some(Value::Null) => String::new(),
+            None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
             Some(Value::String(x)) => x.clone(),
             Some(v) => v.to_string(),
         };
@@ -745,7 +795,7 @@ impl Writer {
         let home = format!("https://github.com/{}", repo.to_lowercase());
         for url in what.split(',').map(str::trim).filter(|u| !u.is_empty()) {
             let m = url.rsplit('/').next().unwrap_or("").to_string();
-            let prefix = url.split("/issues/").next().unwrap_or("");
+            let prefix = url.rsplit_once("/issues/").map_or(url, |(p, _)| p);
             if prefix.to_lowercase() != home {
                 said.push(url.to_string());
                 later = true;
@@ -761,6 +811,7 @@ impl Writer {
                     .get("body")
                     .and_then(Value::as_str)
                     .unwrap_or("")
+                    .trim_end_matches('\n')
                     .to_string(),
                 _ => {
                     later = true;
@@ -853,7 +904,7 @@ impl Writer {
                 ));
                 return false;
             }
-            let words = s(out, "/text");
+            let words = s(out, "/text").trim_end_matches('\n');
             let tail = if words.is_empty() {
                 String::new()
             } else {
