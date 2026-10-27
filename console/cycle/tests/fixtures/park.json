@@ -149,7 +149,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Tehas starts it again once on its own, when the model endpoint answers.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Tehas starts it again once on its own, when the model endpoint answers.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -284,7 +284,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: request timed out after 600s; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: request timed out after 600s; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -419,7 +419,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: 502 Bad Gateway; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:develop`: 502 Bad Gateway; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -554,7 +554,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -709,7 +709,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was the retry tehas made on its own after an outage, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was the retry tehas made on its own after an outage, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -847,7 +847,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -983,7 +983,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1117,7 +1117,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1254,7 +1254,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `spawn-backstop`: rate limited; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=729e4da8891fa7568e7a9daa2a3db9110bfa1722f4cc9617c4790e1879ff7ff0 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `spawn-backstop`: rate limited; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig=729e4da8891fa7568e7a9daa2a3db9110bfa1722f4cc9617c4790e1879ff7ff0 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1390,7 +1390,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `process`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=cef78cf5f85217989067b51a18cef4feb6c8495589dd30e0ee4b1efec8cf2a56 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `process`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=cef78cf5f85217989067b51a18cef4feb6c8495589dd30e0ee4b1efec8cf2a56 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1526,7 +1526,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `timeout`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=timeout provider=0 sig=9a5b5265e8a8a9205709dfc9a55b0143c4a28d71e90022616c4c6d7ab3b861be -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `timeout`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=timeout provider=0 sig=9a5b5265e8a8a9205709dfc9a55b0143c4a28d71e90022616c4c6d7ab3b861be -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1662,7 +1662,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=verify provider=0 sig=64f8c757b1150b9e8543728bd42301a6820dba25bab645c23ed07df4b3e080ff -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=verify provider=0 sig=64f8c757b1150b9e8543728bd42301a6820dba25bab645c23ed07df4b3e080ff -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1798,7 +1798,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=cap provider=0 sig=002817cc672f43334fa18b75289ce646486ee3e6a34f06efaf23f6b6bcd04950 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=cap provider=0 sig=002817cc672f43334fa18b75289ce646486ee3e6a34f06efaf23f6b6bcd04950 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -1934,7 +1934,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `something-new`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=something-new provider=0 sig=87b8a8a88090e85392440e897195276cbb1a018705bb14a2172f9593f671ca49 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `something-new`, role `developer`: 502 Bad Gateway, connection timed out. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=something-new provider=0 sig=87b8a8a88090e85392440e897195276cbb1a018705bb14a2172f9593f671ca49 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2090,7 +2090,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `provider-outage`. It failed: kind `process`, role `developer`: it said so. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=21f64e718c0c40caac2be298ae51236eaaa2acc604cbf2d336264cf55e42f99a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `provider-outage`. It failed: kind `process`, role `developer`: it said so. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=21f64e718c0c40caac2be298ae51236eaaa2acc604cbf2d336264cf55e42f99a -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2242,7 +2242,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `provider-outage`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `provider-outage`, last step `develop`, 0 min (runner exit 30). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=f25ff331a7f9960c458526d7b95b14f9fedd00ddfe504a1800921c36c4c7908c -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2378,7 +2378,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `process`, role `developer`: child exited 1. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=cef78cf5f85217989067b51a18cef4feb6c8495589dd30e0ee4b1efec8cf2a56 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `process`, role `developer`: child exited 1. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=process provider=0 sig=cef78cf5f85217989067b51a18cef4feb6c8495589dd30e0ee4b1efec8cf2a56 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2514,7 +2514,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `round-cap`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=cap provider=0 sig=156cf1aa57f0ba8b0ece182c76b6f41c02f62b4b3190d5cf271ca408fa380bd4 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `round-cap`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind=cap provider=0 sig=156cf1aa57f0ba8b0ece182c76b6f41c02f62b4b3190d5cf271ca408fa380bd4 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2648,7 +2648,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2782,7 +2782,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=9f7582d3a9b04c21ef1b55b6f9ad83e219436a74266350b2809392b9ea4faaa2 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -2920,7 +2920,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=48f97f9ba64477f11bcfe0e960c99db12d4c66d3f33a2238e7a3f68c2baf876f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=48f97f9ba64477f11bcfe0e960c99db12d4c66d3f33a2238e7a3f68c2baf876f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3058,7 +3058,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=48f97f9ba64477f11bcfe0e960c99db12d4c66d3f33a2238e7a3f68c2baf876f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `handoff`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=0 sig=48f97f9ba64477f11bcfe0e960c99db12d4c66d3f33a2238e7a3f68c2baf876f -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3193,7 +3193,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=0e6931b26f328cebd716a22f35ad986ddda57fb0fe3a4fb7a1f1dcdb76dd6cc1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarialx`: provider error alice -- 5 next line; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=0e6931b26f328cebd716a22f35ad986ddda57fb0fe3a4fb7a1f1dcdb76dd6cc1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3331,7 +3331,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3468,7 +3468,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "comment",
@@ -3606,7 +3606,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3744,7 +3744,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=1c3dc9704095bff1316ce50480ab77e9634fefa9c5b24e85c8a27c881cd08ae1 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -3882,7 +3882,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=350268f086eecdb9ab30183c08955a1e773c6548412e5067694d3003e3e2fbd8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=350268f086eecdb9ab30183c08955a1e773c6548412e5067694d3003e3e2fbd8 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4017,7 +4017,7 @@
     ],
     [
      "question",
-     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle parked by a provider outage: status `handoff`, last step `handoff`, 0 min (runner exit 10), cap `step-failed:adversarial`: Connection error.; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. It was started by hand, so it waits for a person.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=handoff kind= provider=1 sig=28551b7c13b6fcb1b763d0f0d6da605ce11cbdd7989e0837ade4b1424c217140 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4157,7 +4157,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `dev--x`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop` (`too-large----tehasparkissue---xetry`). It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=dev--x kind=verify-failed provider=0 sig=c24e88b1625fd2388af1a6bef7087fc5d245b1b5daed4f2cdb5b52d029d538c3 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `dev--x`, 0 min (runner exit 10). pi-rukas stopped on the cap `step-failed:develop` (`too-large----tehasparkissue---xetry`). It failed: kind `verify-failed`, role `developer`, cause `exit-1`: 3 tests failed. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=dev--x kind=verify-failed provider=0 sig=c24e88b1625fd2388af1a6bef7087fc5d245b1b5daed4f2cdb5b52d029d538c3 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4440,7 +4440,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -4568,7 +4568,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "comment",
@@ -5095,7 +5095,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5224,7 +5224,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5357,7 +5357,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 0). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5634,7 +5634,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart`, last step `review`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart`, last step `review`, 0 min (runner exit 10). The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=review kind= provider=0 sig=db051e68b1bc0ed32abdd1bc742e0da0ba9073f41868d0c2fa5ab1ada90535bd -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -5779,7 +5779,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`. Its branch has an open pull request: https://github.com/acme/widget/pull/9\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6180,7 +6180,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 10). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 0 | 0 | 0 | 0 | 0 |\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "comment",
@@ -6448,7 +6448,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6581,7 +6581,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `handoff`, last step `commit-pr`, 0 min (runner exit 30). pi-rukas stopped on the cap `awaiting-human-merge`. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n| Role | Dispatches | Turns | Input | Output | Cache read |\n|---|---|---|---|---|---|\n| planner | 2 | 0 | 7 | 0 | 0 |\n| coder | 1 | 2 | 3 | 4 | 5 |\n| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=commit-pr kind= provider=0 sig=bf3851bddbeacad2f648af429d45ad8e3698bbd824537d0efad74ce85d8f59ae -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "comment",
@@ -6731,7 +6731,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -6881,7 +6881,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2023-11-14T22:13:20Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2023-11-14T22:13:20Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7035,7 +7035,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7185,7 +7185,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. @​alice approved this start at 2026-01-01T00:00:00Z; tehas keeps no record of an approval that started nothing, so a fresh `tehas:ready` asks for another start. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7469,7 +7469,7 @@
     ],
     [
      "question",
-     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit 4). Nothing of it ran: no workspace, no container, no step, no usage. No approval of this start is recorded on this host: a fresh `tehas:ready` is needed. The comment before this one names it; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7618,7 +7618,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 30). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 30). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",
@@ -7767,7 +7767,7 @@
     ],
     [
      "question",
-     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 30). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "Tehas cycle stopped without a pull request: status `unknown`, last step `-`, 0 min (runner exit 30). This cycle left no workspace on this host; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step= kind= provider=0 sig=7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

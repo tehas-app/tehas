@@ -97,6 +97,13 @@ fn id(v: Option<&Value>) -> String {
     }
 }
 
+/// `issue_alone`: the tick on `Retry from the issue alone`, whose start names
+/// no comment of the issue or of the pull request. Its absence is a clean
+/// start.
+fn issue_alone(a: &Value) -> bool {
+    a.get("issue_alone") == Some(&json!(true))
+}
+
 /// The comment window of libexec/dispatch: of the comments as the REST API
 /// lists them, those an allowed account wrote at or after `since` and at or
 /// before `at`, and that nobody edited after `at`, in the order written.
@@ -454,7 +461,7 @@ impl Writer {
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();
-        if self.host.comments {
+        if self.host.comments && !issue_alone(a) {
             let Some(list) = self.comments(n) else {
                 log.push(format!("ERROR: the comments of #{n} could not be read"));
                 return Err(none());
@@ -494,7 +501,7 @@ impl Writer {
             retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
                 "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.")}]});
         }
-        if self.host.comments {
+        if self.host.comments && !issue_alone(a) {
             from.extend(
                 retry
                     .get("links")

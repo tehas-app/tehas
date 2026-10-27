@@ -370,21 +370,23 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
-    // park_q: [retry box, leave box, editor, later comments]: the comments of
-    // #7 as comments 7 "$(park_body ...)" writes them.
+    // park_q: [retry box, alone box, leave box, editor, later comments]: the
+    // comments of #7 as comments 7 "$(park_body ...)" writes them. The leave
+    // box may be left out, as a case that predates the third box does.
     // asked: {n: [body, editor, later comments]}: the same for any body.
     let mut asked: Vec<(String, Value)> = Vec::new();
     if let Some(x) = c.get("park_q").and_then(Value::as_array) {
-        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-            x[0].as_str().unwrap(), x[1].as_str().unwrap());
-        asked.push((
-            "7".into(),
-            json!([
-                body,
-                x.get(2).cloned().unwrap_or(json!("")),
-                x.get(3).cloned().unwrap_or(json!([]))
-            ]),
-        ));
+        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Retry from the issue alone\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+            x[0].as_str().unwrap(),
+            x.get(1).and_then(Value::as_str).unwrap_or(" "),
+            x.get(2).and_then(Value::as_str).unwrap_or(" "),
+        );
+        let (ed, after) = if x.len() > 3 {
+            (x.get(3).cloned().unwrap_or(json!("")), x.get(4).cloned().unwrap_or(json!([])))
+        } else {
+            (x.get(2).cloned().unwrap_or(json!("")), x.get(3).cloned().unwrap_or(json!([])))
+        };
+        asked.push(("7".into(), json!([body, ed, after])));
     }
     if let Some(m) = c.get("asked").and_then(Value::as_object) {
         asked.extend(m.iter().map(|(k, v)| (k.clone(), v.clone())));

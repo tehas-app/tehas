@@ -687,6 +687,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "expect": {
@@ -700,6 +701,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -723,7 +725,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    }
@@ -733,6 +735,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -758,7 +761,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
      }
     ]
    },
@@ -790,6 +793,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "expect": {
@@ -804,6 +808,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -822,6 +827,7 @@
    "dry": true,
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -843,6 +849,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "expect": {
@@ -860,6 +867,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "tehas-bot"
    ],
    "expect": {
@@ -868,7 +876,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (tehas-bot). It was unticked."
      }
     ],
@@ -884,6 +892,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "mallory"
    ],
    "expect": {
@@ -892,7 +901,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (mallory). It was unticked."
      }
     ],
@@ -908,6 +917,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     ""
    ],
    "expect": {
@@ -916,7 +926,7 @@
      {
       "untick": 7,
       "comment": 4001,
-      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
       "say": "A box was ticked by an account that may not answer for this factory (unknown). It was unticked."
      }
     ],
@@ -931,6 +941,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     "x",
     "alice"
    ],
@@ -949,6 +960,7 @@
    "case": "leave it parked takes the question away and keeps the issue parked",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     "x",
     "alice"
@@ -983,6 +995,7 @@
    "dry": true,
    "park_q": [
     " ",
+    " ",
     "x",
     "alice"
    ],
@@ -995,6 +1008,7 @@
    "case": "a comment from an allowed account on a parked issue is discussion, not an answer",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     "",
@@ -1021,6 +1035,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice",
     [
      {
@@ -1045,6 +1060,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1074,6 +1090,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "snapshot": {
@@ -1100,6 +1117,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1202,7 +1220,7 @@
              "author": {
               "login": "tehas-bot"
              },
-             "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+             "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
              "createdAt": "t",
              "lastEditedAt": null,
              "editor": null
@@ -1227,6 +1245,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1263,6 +1282,7 @@
    "dry": true,
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1302,6 +1322,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "work": {
@@ -1335,6 +1356,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1375,6 +1397,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1421,6 +1444,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1469,6 +1493,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "snapshot": {
@@ -1497,6 +1522,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "snapshot": {
@@ -1523,6 +1549,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1697,7 +1724,7 @@
    },
    "asked": {
     "9": [
-     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+     "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
      ""
     ]
    },
@@ -1710,6 +1737,7 @@
    "world": "parked",
    "park_q": [
     "x",
+    " ",
     " ",
     "alice"
    ],
@@ -1744,6 +1772,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "mallory"
    ],
    "snapshot": {
@@ -1773,6 +1802,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "mallory"
    ],
    "snapshot": {
@@ -1800,6 +1830,7 @@
    "case": "a tick in another bot comment than the question on record starts nothing",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     "",
@@ -1943,6 +1974,7 @@
    "park_q": [
     "x",
     " ",
+    " ",
     "alice"
    ],
    "body": {
@@ -1973,6 +2005,7 @@
    "case": "a park of a provider outage is retried as today, on its own body",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -2050,6 +2083,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2114,6 +2148,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2171,6 +2206,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2222,6 +2258,7 @@
    "case": "an open planning session holds the retry after an outage, and spends it (A13)",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -2284,6 +2321,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -2341,6 +2379,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2394,6 +2433,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2445,6 +2485,7 @@
    "case": "a tehas:ready of a person's leaves the outage retry to rule 6",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -2503,6 +2544,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "body": {
@@ -2552,6 +2594,7 @@
    "case": "a store that cannot be used for the retry after an outage stops the poll at 78",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
