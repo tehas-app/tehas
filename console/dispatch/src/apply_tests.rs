@@ -20,7 +20,7 @@ if [ -f "$d/fail-$name" ]; then
     p=${line%%|*} w=${line#*|}
     [ "$w" != "$line" ] || w=busy
     case "$* $input" in *"$p"*)
-      case "$p" in slow*) sleep 5 ;; esac
+      case "$p" in slow*) sleep "$(cat "$d/slow" 2>/dev/null || echo 5)" ;; esac
       case "$*" in *DELETE*) echo "gh: Not Found (HTTP 404)" >&2 ;; *) echo "store: $w: stub" >&2 ;; esac
       case $w in absent | unreadable) exit 78 ;; esac
       exit 1 ;;
@@ -138,6 +138,7 @@ fn world() -> World {
         poll_at: 1000,
         before: 990,
         bound: Duration::from_secs(10),
+        store_retry: Duration::from_secs(1),
         host: start::Host {
             name: "tehas-tehas".into(),
             comments: false,
@@ -166,6 +167,8 @@ fn world() -> World {
             index_cmd: "/opt/index".into(),
             index_start_cmd: Some(s("start")),
             fetch_wait: Duration::from_secs(10),
+            lock_poll: Duration::from_millis(500),
+            launch_poll: Duration::from_millis(500),
         },
         ended: None,
         spend: None,
@@ -178,6 +181,14 @@ fn world() -> World {
 }
 
 impl World {
+    /// The stub's answer for a `slow` pattern comes after `secs` instead of
+    /// its own 5 s, so a test that waits out its bound waits for the bound
+    /// and not for the stub. Bash's sleep has no fractional form, so 1 is as
+    /// short as the answer can be.
+    fn slow_after(&self, secs: u64) {
+        fs::write(self.dir.join("slow"), secs.to_string()).unwrap();
+    }
+
     fn fail(&self, name: &str, pattern: &str) {
         let p = self.dir.join(format!("fail-{name}"));
         let mut s = fs::read_to_string(&p).unwrap_or_default();
@@ -284,6 +295,8 @@ fn a_write_the_journal_cannot_record_is_not_made() {
 #[test]
 fn an_answered_question_is_recorded_after_its_label_and_retried_when_busy() {
     let mut t = world();
+    // The wait between the tries is the thing under test, not its length.
+    t.w.store_retry = Duration::from_millis(200);
     let act = json!([{"issue": 8, "remove": ["tehas:question"], "fail": "x",
         "answered": {"id": 41, "by": "alice"}}]);
     assert!(t.apply(act.clone()).log.is_empty());
@@ -344,7 +357,10 @@ fn a_pull_request_without_the_mark_is_unmarked_already() {
 fn a_call_that_does_not_answer_in_its_bound_is_timed_out() {
     let mut t = world();
     t.fail("gh", "slow");
-    t.w.bound = Duration::from_secs(1);
+    // Past it is the timeout the test asks for. The stub answers after the
+    // bound either way, so the bound is what the test scales with.
+    t.w.bound = Duration::from_millis(200);
+    t.slow_after(1);
     let a = t.apply(json!([{"issue": 7, "say": "slow words"}]));
     assert_eq!(a.log, vec!["WARN: comment on #7 failed"]);
     assert!(t.calls().last().unwrap().ends_with("--result timed-out"));
@@ -1000,6 +1016,8 @@ fn a_millwright_start_names_its_note_of_the_ten_minutes_before_the_label() {
 #[test]
 fn a_unit_that_did_not_start_is_stopped_when_its_approval_stays() {
     let mut t = world();
+    // The wait for the start's record is the thing under test, not its length.
+    t.w.host.start_wait = Duration::from_millis(200);
     t.fail("start", "7");
     t.fail("store", "--undo|conflict");
     let a = t.apply(json!([start_of(7, "label")]));
@@ -1011,6 +1029,7 @@ fn a_unit_that_did_not_start_is_stopped_when_its_approval_stays() {
             .to_string()
     ));
     let mut t = world();
+    t.w.host.start_wait = Duration::from_millis(200);
     t.fail("store", "--undo|conflict");
     fs::write(t.dir.join("fail-start"), "x\n").unwrap();
     t.w.host.start_cmd = Some(t.dir.join("gh").to_string_lossy().into_owned());
@@ -1231,6 +1250,8 @@ fn a_quiet_stop_that_fails_is_said_with_its_exit() {
 #[test]
 fn a_finished_cycle_that_keeps_its_lock_is_said() {
     let mut t = world();
+    // The wait for the lock is the thing under test, not its length.
+    t.w.host.lock_poll = Duration::from_millis(200);
     let cycles = t.w.home.join("state/cycles");
     fs::create_dir_all(&cycles).unwrap();
     let lock = fs::File::create(cycles.join("7.lock")).unwrap();
@@ -2021,6 +2042,8 @@ fn a_session_at_its_limit_of_turns_is_ended() {
 #[test]
 fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
     let mut t = world();
+    // The wait for the unit's lock is the thing under test, not its length.
+    t.w.host.launch_poll = Duration::from_millis(200);
     t.w.host.plan_start_cmd = None;
     t.apply(json!([first_turn(7)]));
     assert_eq!(
@@ -2309,6 +2332,11 @@ fn an_index_that_holds_its_lock_holds_the_starts() {
 #[test]
 fn a_planning_turns_refresh_does_not_stand_in_for_a_starts() {
     let mut t = world();
+    // The waits for the start's record, the stopped lock and the launched
+    // unit are the thing under test, not their length.
+    t.w.host.start_wait = Duration::from_millis(200);
+    t.w.host.lock_poll = Duration::from_millis(200);
+    t.w.host.launch_poll = Duration::from_millis(200);
     t.apply(json!([first_turn(7)]));
     t.apply(json!([start_of(8, "label")]));
     assert_eq!(

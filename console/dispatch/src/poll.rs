@@ -184,6 +184,9 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
         poll_at,
         before,
         bound: Duration::from_secs(30),
+        // The fixed retry and poll steps of apply, at the values the bash
+        // dispatcher used: not settings of the instance.
+        store_retry: Duration::from_secs(1),
         host: Host {
             name: hostname(),
             comments: env("TEHAS_WORK_COMMENTS") == "1",
@@ -223,6 +226,8 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             plan_timeout: env("TEHAS_PLAN_TIMEOUT").parse().unwrap_or(3600),
             plan_max_turns: env("TEHAS_PLAN_MAX_TURNS").parse().unwrap_or(20),
             systemd_run: "systemd-run".into(),
+            lock_poll: Duration::from_millis(500),
+            launch_poll: Duration::from_millis(500),
             checkout: env("TEHAS_WORK_REPO"),
             branch: settings.branch.clone(),
             git: "git".into(),

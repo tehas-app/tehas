@@ -38,6 +38,9 @@ pub struct Writer {
     /// The read the actions rest on.
     pub before: i64,
     pub bound: Duration,
+    /// How long `tehas_store_try` waits before it asks a busy store again.
+    /// Production: 1 s, as the bash command sleeps.
+    pub store_retry: Duration,
     pub host: start::Host,
     /// Set by an action that ends the poll.
     pub ended: Option<i32>,
@@ -338,7 +341,7 @@ impl Writer {
                         && matches!(word(f).as_str(), "busy" | "timeout") =>
                 {
                     i += 1;
-                    std::thread::sleep(Duration::from_secs(1));
+                    std::thread::sleep(self.store_retry);
                 }
                 _ => return r,
             }
