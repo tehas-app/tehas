@@ -1374,9 +1374,7 @@ approved_record() {
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
   # The title of the same answer. An answer that names none binds none.
   tsum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_title_sha256 2>/dev/null) || tsum=""
-  # The comments of the issue and its pull request go with the start that asks
-  # for them; the box of the issue alone asks for neither, and then the record
-  # reads as the one of an instance with TEHAS_WORK_COMMENTS off.
+  # The box of the issue alone records as TEHAS_WORK_COMMENTS off would.
   local comments=$TEHAS_WORK_COMMENTS
   [ -z "${given_issue[$n]:-}" ] || comments=0
   if [ "$comments" = 1 ]; then
@@ -3072,12 +3070,8 @@ for n in $asking; do
         fi
         continue
       fi
-      # What was ticked is read from the label of the ticked box, as q_answer
-      # read it: the order of the boxes decides nothing, and the third box is a
-      # retry too, asking for nothing of the earlier cycle.
+      # Which retry is read from the ticked box's label, not its place.
       ticked=$(jq -r '.labels[.tick.index] // ""' <<<"$ans") || ticked=""
-      issue_alone=0
-      [ "$ticked" != "$Q_BOX_ALONE" ] || issue_alone=1
       if [ "$ticked" != "$Q_BOX_ALONE" ] && [ "$ticked" != "$Q_BOX_CLEAN" ]; then
         # The record goes only with the label: while the label stays, the
         # next poll reads the same tick and tries again.
@@ -3142,8 +3136,7 @@ for n in $asking; do
       given_comment[$n]=$(jq -r '.comment // "" | tostring' <<<"$ans")
       # The park: when the question was asked.
       given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
-      # For a tick on the box of the issue alone: the issue's own text alone.
-      [ "$issue_alone" = 0 ] || given_issue[$n]=1
+      [ "$ticked" != "$Q_BOX_ALONE" ] || given_issue[$n]=1
       # needs-human-attention stays: the cycle's --restart is the answer it
       # asked for, and pi-rukas takes it off.
       drop[$n]="--remove-label tehas:question"
