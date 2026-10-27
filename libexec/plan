@@ -400,7 +400,7 @@ if [ -n "$brief" ]; then
   # instead of planning when it is under six words with no code name in it, so
   # the issue's number goes with it.
   what=$(sed -n '1{s/^#[[:space:]]*//;p;q}' "$keep/brief.md")
-  run=(plan "Plan issue #$issue: ${what:-the work in .tehas/brief.md}" --start --context "$(cat "$keep/brief.md")")
+  run=(plan "${what:-the work in .tehas/brief.md} (issue #$issue)" --start --context "$(cat "$keep/brief.md")")
 elif [ "$last" = 12 ] && grep -q -E ' chose: File this plan$' "$answer"; then
   run=(plan --resume "$session" --confirm)
 else
