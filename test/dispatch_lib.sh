@@ -29,7 +29,7 @@ rest_path=$4
 fails() {
   local left
   if [ -s "$T/fx/${2:-none}" ]; then
-    left=$(cat "$T/fx/$2")
+    left=$(<"$T/fx/$2")
     [ "$left" -gt 0 ] || return 0
     echo $((left - 1)) >"$T/fx/$2"
     exit 1
@@ -145,7 +145,7 @@ case "$1 $2" in
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
-      case "$*" in *"$(cat "$T/fx/edit-fails-on")"*) exit 1 ;; esac
+      case "$*" in *"$(<"$T/fx/edit-fails-on")"*) exit 1 ;; esac
     fi ;;
   "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
     # The pull requests marked tehas:refreshing.
@@ -180,8 +180,53 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
-# stand-ins for a cycle among them.
+# stand-ins for a cycle among them: every hang fixture of this suite hangs by
+# exec'ing sleep, so a bound is what keeps a poll from waiting for real. A case
+# that wants a real wait to answer at once stubs sleep over, and names the
+# command it hangs in $T/fx/timeout-hangs so its bound still holds.
 t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
+# The real timeout, named once, for the stub of it below.
+t_real_timeout=$(command -v timeout || true)
+# Stands in for the real timeout, which sits around the calls of lib/store.sh,
+# lib/disk.sh, lib/slice.sh, lib/analytics.sh, lib/attachments.sh and
+# libexec/status, and around the poll's own git fetch, gh call, stop of a unit
+# and run of the low-priority gate. The commands a poll of these tests runs are
+# stubs, and a stub answers from a fixture: it runs no network, no daemon and
+# nothing that waits, so a bound around it guards nothing a test can hang on,
+# and the process that pays for that bound is the test's. Such a call is execed
+# at once.
+#
+# A command that can hang is bounded, and the list below is what may hang: a
+# name it keeps goes through the real timeout, with the seconds it was given,
+# as on a host. Sleep is in it by its bare word because every hang fixture of
+# this suite hangs by exec'ing sleep: the checks of the branch, the slice
+# probe, the store that never answers and the gate that stays up. None of them
+# stubs sleep, so each of those bounds holds. The others are the commands of
+# the host a poll reaches for under timeout - df and docker through lib/disk.sh
+# and lib/slice.sh, systemctl through lib/slice.sh, gh through libexec/tidy and
+# the poll's own branch check, the fetch of the checkout, the gate of rule 7,
+# the analytics program, the attachment checker and the store - which a case
+# would hang by some means other than sleep.
+#
+# $T/fx/timeout-hangs adds a name to that list, one line each, for the case of
+# a command the case stubs to hang which the list does not name: were sleep
+# itself stubbed to answer at once, a bound checked through it would go
+# unbounded. Production keeps every bound: this is a stub of a test.
+t_timeout_kept=(df docker systemctl gh git curl sleep gate-run analytics attach)
+# Built as one string so the list reaches the stub's body when the stub is
+# written, not when a test calls it: the body is one single-quoted argument.
+t_timeout_kept_str=" ${t_timeout_kept[*]} "
+t_stub timeout '
+name=${2##*/}
+[ "$1" = -k ] && name=${4##*/}
+hang=""
+[ ! -s "$T/fx/timeout-hangs" ] || hang=$(<"$T/fx/timeout-hangs")
+case "'"${t_timeout_kept_str}"' $hang " in
+  *" $name "*) exec '"$t_real_timeout"' "$@" ;;
+esac
+[ "$1" != -k ] || shift 2
+shift
+exec "$@"'
 # Writes a recorded outcome where the dispatcher asked for it. A failing turn
 # leaves what the file plan-fails holds, if anything.
 t_stub fake-plan 'TEHAS_HOME=$T/home/tehas "$T/store-bin" plan-show "$1" >"$T/calls/record.at-turn" 2>/dev/null
@@ -215,7 +260,7 @@ systemctl_stub='case "$1 $2" in
     [ ! -e "$T/fx/slice-hangs" ] || exec sleep 20
     cat "$T/fx/slice.show" ;;
   "--user show")
-    if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(cat "$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
+    if [ -e "$T/fx/plan-runs" ] && [ "${6:-}" = "tehas-plan-$(<"$T/fx/plan-runs").service" ]; then echo active; else echo inactive; fi ;;
 esac'
 t_stub systemctl "$systemctl_stub"
 t_stub docker 'case "$1" in
@@ -257,12 +302,12 @@ kb() { # <gibibytes>: the kilobytes of that many GiB
 # One df of the file system named by its second argument.
 t_stub df '
 [ ! -e "$T/fx/df-fails" ] || exit 1
-[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(cat "$T/fx/df-fails-of")" ] || exit 1
+[ ! -e "$T/fx/df-fails-of" ] || [ "${2%/}" = "$(<"$T/fx/df-fails-of")" ] || exit 1
 docker_dir=$(sed -n 2p <"$T/fx/docker.info" 2>/dev/null)
 if [ -e "$T/fx/docker-dir" ]; then docker_dir=""; fi
-answer=$(cat "$T/fx/free" 2>/dev/null || echo 41943040)
+if [ -e "$T/fx/free" ]; then answer=$(<"$T/fx/free"); else answer=41943040; fi
 if [ -n "$docker_dir" ] && [ "${2%/}" = "$docker_dir" ]; then
-  answer=$(cat "$T/fx/free-docker" 2>/dev/null)
+  answer=$(<"$T/fx/free-docker")
 fi
 [[ $answer =~ ^(0|[1-9][0-9]{0,17})$ ]] || exit 1
 echo "Filesystem 1024-blocks Used Available Capacity Mounted on"

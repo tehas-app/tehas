@@ -565,7 +565,7 @@ while IFS='|' read -r answer text; do
   t_lacks "$(t_calls gh)" "issue edit"
   t_eq "$(grep -c "holding: no resources: $text" <<<"$t_out")" 1
   t_eq "$(jq -c '[.why, .hold]' "$dispatch_json")" "[\"resources\",\"holding: no resources: $text\"]"
-  t_lacks "$(cat "$dispatch_json")" "mesh.test"
+  t_lacks "$(<"$dispatch_json")" "mesh.test"
 done <<'CASES'
 none|the model endpoint does not answer
 not json|the model endpoint offers no models
@@ -595,7 +595,7 @@ echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"},"other":{"
 t_run "$dispatch"
 t_contains "$(t_calls curl)" "http://other.test/v1/models"
 t_eq "$(grep -c "holding: no resources: the model endpoint does not offer big-model" <<<"$t_out")" 1
-t_lacks "$(cat "$dispatch_json")" "other.test"
+t_lacks "$(<"$dispatch_json")" "other.test"
 
 # A main endpoint and a backup, each with its own token. The stand-in for curl
 # answers main.test from mesh.json and backup.test from backup.json.
@@ -622,7 +622,7 @@ rm -f "$T/calls/curl-config"
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_lacks "$(t_calls curl)" "backup.test"
-t_eq "$(cat "$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"'
+t_eq "$(<"$T/calls/curl-config")" 'header = "Authorization: Bearer main-secret"'
 t_lacks "$(t_calls curl)" "secret"
 t_lacks "$t_out" "backup"
 
@@ -636,7 +636,7 @@ for main in none '{"data":[{"id":"other"}]}'; do
   t_run "$dispatch"
   t_eq "$(t_calls fake-start)" "7"
   t_contains "$(t_calls curl)" "http://backup.test/v1/models"
-  t_contains "$(cat "$T/calls/curl-config")" "Bearer backup-secret"
+  t_contains "$(<"$T/calls/curl-config")" "Bearer backup-secret"
   t_contains "$t_out" "model endpoint: provider test-provider is on its backup"
   t_eq "$(jq -r .why "$dispatch_json")" ""
 done
@@ -650,7 +650,7 @@ mesh '{"data":[{"id":"test-model"}]}'
 backed '{"data":[{"id":"test-model"}]}'
 t_run "$dispatch"
 t_eq "$(jq -r .endpoint "$dispatch_json")" main
-t_lacks "$(cat "$dispatch_json")" "mesh.test"
+t_lacks "$(<"$dispatch_json")" "mesh.test"
 
 reset
 T_ENV+=("${keys[@]}")
@@ -658,7 +658,7 @@ mesh '{"data":[{"id":"other"}]}'
 backed '{"data":[{"id":"test-model"}]}'
 t_run "$dispatch"
 t_eq "$(jq -r .endpoint "$dispatch_json")" backup
-t_lacks "$(cat "$dispatch_json")" "backup.test"
+t_lacks "$(<"$dispatch_json")" "backup.test"
 
 # The endpoint is settled only when a poll asks of it, so the word is missing
 # whenever the poll asks nothing or gets no answer: the sampler then asks both
@@ -689,7 +689,7 @@ backed '{"data":[{"id":"test-model"}]}'
 echo '{"providers":{"test-provider":{"baseUrl":"http://mesh.test/v1"},"other":{"baseUrl":"http://other.test/v1"}}}' >"$T/home/.pi/agent/models.json"
 t_run "$dispatch"
 t_eq "$(jq -r .endpoint "$dispatch_json")" main
-t_lacks "$(cat "$dispatch_json")" "other.test"
+t_lacks "$(<"$dispatch_json")" "other.test"
 
 t_case "with both endpoints failing the start is held, and both reasons are given"
 reset
@@ -699,7 +699,7 @@ backed '{"data":[]}'
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_eq "$(jq -r .hold "$dispatch_json")" "holding: no resources: the model endpoint does not answer, and its backup offers no models"
-t_lacks "$(cat "$dispatch_json")" "test/v1"
+t_lacks "$(<"$dispatch_json")" "test/v1"
 
 t_case "a token models.json names and the host has not set stops the dispatcher: exit 78"
 reset
