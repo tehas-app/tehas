@@ -1270,12 +1270,13 @@ Another limit for one host goes in
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
-user remapped to the tehas user's id, shellcheck, Playwright's Chromium with
+user remapped to the tehas user's id, shellcheck, tehas's jq (ahead of the
+base image's, the version the host runs), Playwright's Chromium with
 fonts, `file`, and a Python image library. The last two are in the container
 only: `bootstrap.sh` installs neither and its check does not look for them.
 cargo's registry belongs to that user, so a gate that builds Rust can fetch its
 crates; they go with the container. The base is pinned by digest in
-`sandbox/Dockerfile`, shellcheck by checksum, codebase-memory-mcp by the
+`sandbox/Dockerfile`, shellcheck and jq by checksum, codebase-memory-mcp by the
 checksum of its installer plus a version read back from the binary
 (`CBM_INSTALLER_SHA256` and `CBM_VERSION`), and Playwright by the npm tree
 beside it (`sandbox/npm/playwright`, whose `package-lock.json` fixes every

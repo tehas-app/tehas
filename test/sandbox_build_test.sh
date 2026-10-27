@@ -206,6 +206,15 @@ cbm_sha=$(sed -n 's/^CBM_INSTALLER_SHA256=//p' "$home/versions.env")
 t_contains "$(t_calls docker)" "--build-arg CBM_VERSION=$cbm"
 t_contains "$(t_calls docker)" "--build-arg CBM_INSTALLER_SHA256=$cbm_sha"
 
+t_case "the build passes the jq pin from versions.env"
+reset
+t_run "$build"
+t_eq "$t_rc" 0
+jqv=$(sed -n 's/^JQ_VERSION=//p' "$home/versions.env")
+jq_sha=$(sed -n 's/^JQ_SHA256=//p' "$home/versions.env")
+t_contains "$(t_calls docker)" "--build-arg JQ_VERSION=$jqv"
+t_contains "$(t_calls docker)" "--build-arg JQ_SHA256=$jq_sha"
+
 t_case "without a commit to follow nothing is pulled or built"
 reset
 rm -f "$fx/head"

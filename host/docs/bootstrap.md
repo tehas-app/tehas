@@ -44,7 +44,11 @@ openssl, rsync, minisign (`tehas update` checks release signatures with it),
 shellcheck, unzip and the build tools that compiling two of the tools needs. Adds the user to the `docker` group, enables lingering for it (so
 the dispatcher timer runs without a login) and enables the Docker service.
 
-System packages are not pinned. You get what the distribution offers.
+System packages are not pinned. You get what the distribution offers. The
+system's jq is for `bootstrap.sh` itself: `user` installs tehas's own jq, the
+version `versions.env` pins, into `~/tehas/bin`, which `env.sh` puts ahead of
+the system's. The sandbox image and CI run the same version, so a jq program
+in tehas behaves the same on the host, in a cycle and in CI.
 
 When Docker runs on cgroup v2 with the cgroupfs driver, it adds
 `"exec-opts": ["native.cgroupdriver=systemd"]` to `/etc/docker/daemon.json`,
@@ -138,6 +142,7 @@ group. What a member can and cannot do is on [The host](/host).
 | --------------------------------- | -------------------------------------- | ----------------------------- |
 | Node and npm                      | `~/tehas/tools/node`                   | Release archive, checksum     |
 | `gh`                              | `~/tehas/bin/gh`                       | Release archive, checksum     |
+| `jq`                              | `~/tehas/bin/jq`                       | Release binary, checksum      |
 | Bun                               | `~/.bun/bin`                           | Release archive, checksum     |
 | Pi, `ctx7`, `parallel-cli`        | `~/tehas/tools/npm/<name>`, commands linked into `~/.local/bin` | npm tree, pinned by lockfile  |
 | Rust, then `vipune` and `oo`      | `~/.rustup`, `~/.cargo`                | rustup, then `cargo install`  |

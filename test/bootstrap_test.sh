@@ -43,7 +43,7 @@ all_present() {
   t_stub curl 'echo "curl 8.0.0"'
   t_stub uname 'echo x86_64'
   for tool in jq openssl flock minisign shellcheck unzip; do t_stub "$tool" 'echo "1.2.3"'; done
-  t_stub jq "exec $jq_real \"\$@\""
+  t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-$JQ_VERSION; exit 0; }; exec $jq_real \"\$@\""
   mkdir -p "$T/home/.pi/agent/extensions"
   ln -sfn "$T" "$T/home/.pi/agent/extensions/pi-rukas"
   pin_trees_in_place
@@ -540,6 +540,37 @@ t_run "$bootstrap user"
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 t_eq "$(cat "$T/installer-env")" "image=unset"
 rm -rf "$T/home/tehas/repos/pi-rukas"
+
+t_case "check reports a jq at another version than versions.env pins"
+all_present
+t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""
+t_run "$bootstrap check"
+t_eq "$t_rc" 1
+t_contains "$(grep '^jq ' <<<"$t_out")" "1.7.1"
+t_contains "$(grep '^jq ' <<<"$t_out")" "$JQ_VERSION"
+t_contains "$(grep '^jq ' <<<"$t_out")" "DIFFERS"
+
+t_case "user fetches the pinned jq from its release and refuses one that is not it"
+all_present
+t_stub jq "[ \"\${1:-}\" = --version ] && { echo jq-1.7.1; exit 0; }; exec $jq_real \"\$@\""
+t_stub curl 'while [ $# -gt 0 ]; do [ "$1" = -o ] && { echo tampered >"$2"; exit 0; }; shift; done'
+t_run "$bootstrap user"
+t_eq "$t_rc" 1
+t_contains "$t_out" "bootstrap: installing jq $JQ_VERSION (replacing 1.7.1)"
+t_contains "$(t_calls curl)" "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64"
+t_contains "$t_out" "checksum mismatch for jq"
+t_eq "$([ -e "$T/home/tehas/bin/jq" ] && echo installed)" ""
+t_stub curl 'echo "curl 8.0.0"'
+
+t_case "the jq pin in this checkout is a version and a sum, and the image and CI take it"
+t_eq "$(grep -cE '^JQ_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "$T_ROOT/host/versions.env")" 1
+t_eq "$(grep -cE '^JQ_SHA256=[0-9a-f]{64}$' "$T_ROOT/host/versions.env")" 1
+t_contains "$(cat "$T_ROOT/host/sandbox/build.sh")" '--build-arg JQ_VERSION="$JQ_VERSION"'
+t_contains "$(cat "$T_ROOT/host/sandbox/build.sh")" '--build-arg JQ_SHA256="$JQ_SHA256"'
+t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'echo "${JQ_SHA256}  /tmp/jq" | sha256sum -c -'
+t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]'
+t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
+t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"'
 
 t_case "a download that does not match its checksum is refused"
 all_present
