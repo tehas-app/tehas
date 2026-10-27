@@ -54,7 +54,7 @@
 #                   image's own label answers.
 #
 # What a turn runs, by the runner's own flags (docs/headless.md in pi-rukas):
-#   first turn                    plan "<what to plan>" --start --context <brief>
+#   first turn                    plan "<what to plan>" --start --context <brief> [--issue <N>]
 #   after a plan was shown (12),
 #     "File as a new issue"       plan --resume <id> --confirm
 #     "Update this issue"         nothing: the turn runs no container
@@ -417,6 +417,8 @@ if [ -n "$brief" ]; then
   # the issue's number goes with it.
   what=$(sed -n '1{s/^#[[:space:]]*//;p;q}' "$keep/brief.md")
   run=(plan "${what:-the work in .tehas/brief.md} (issue #$issue)" --start --context "$(cat "$keep/brief.md")")
+  # pi-rukas 0.14.28 and later keep the issue itself out of the duplicate check.
+  ! tehas_headless_verb "$caps" plan --issue || run+=(--issue "$issue")
 elif [ "$last" = 12 ] && grep -q -E ' chose: (File as a new issue|File this plan)$' "$answer"; then
   run=(plan --resume "$session" --confirm)
 else
