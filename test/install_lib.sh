@@ -95,6 +95,7 @@ files="./.bashrc
 ./tehas/lib/headless.sh
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
+./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
 ./tehas/lib/limit.sh
 ./tehas/lib/live.sh
