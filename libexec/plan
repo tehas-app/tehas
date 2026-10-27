@@ -24,9 +24,10 @@
 # The first turn makes it anew; the caller removes it when the session ends.
 # It holds:
 #   brief.md        the approved text of the issue, then lib/issue-brief.md.
-#                   Every turn's workspace has it as .tehas/brief.md. The
-#                   first turn gives it to the planner: its first line, less
-#                   the "# ", as what to plan, and the whole as the context.
+#                   Every turn's workspace has it as .tehas/brief.md. The first
+#                   turn gives it to the planner whole as the context, and its
+#                   title, as the console's descriptor verb reads it, as what
+#                   to plan: descriptor in src/plan.rs.
 #   commit          the commit the first turn's workspace was at. Every later
 #                   turn's workspace is at the same one, so the planner plans
 #                   against the code it began with.
@@ -54,7 +55,7 @@
 #                   image's own label answers.
 #
 # What a turn runs, by the runner's own flags (docs/headless.md in pi-rukas):
-#   first turn                    plan "<what to plan>" --start --context <brief>
+#   first turn                    plan "<what to plan>" --start --context <brief> [--issue <N>]
 #   after a plan was shown (12),
 #     "File as a new issue"       plan --resume <id> --confirm
 #     "Update this issue"         nothing: the turn runs no container
@@ -412,11 +413,11 @@ fi
 
 last=$(cat "$keep/exit" 2>/dev/null) || last=""
 if [ -n "$brief" ]; then
-  # What to plan is one line, the issue's title. pi-rukas asks questions
-  # instead of planning when it is under six words with no code name in it, so
-  # the issue's number goes with it.
-  what=$(sed -n '1{s/^#[[:space:]]*//;p;q}' "$keep/brief.md")
-  run=(plan "${what:-the work in .tehas/brief.md} (issue #$issue)" --start --context "$(cat "$keep/brief.md")")
+  what=$("$console" plan descriptor "$keep/brief.md" "$issue") ||
+    { echo "tehas plan: the console gave no descriptor for the brief of #$issue" >&2; exit 78; }
+  run=(plan "$what" --start --context "$(cat "$keep/brief.md")")
+  # pi-rukas 0.14.28 and later keep the issue itself out of the duplicate check.
+  ! tehas_headless_verb "$caps" plan --issue || run+=(--issue "$issue")
 elif [ "$last" = 12 ] && grep -q -E ' chose: (File as a new issue|File this plan)$' "$answer"; then
   run=(plan --resume "$session" --confirm)
 else

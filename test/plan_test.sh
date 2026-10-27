@@ -233,7 +233,64 @@ t_case "a first turn starts a session: the title is what to plan, the approved t
 t_eq "$(after "$runner")" plan
 t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
 
+# The descriptor is the console's (descriptor in console/src/plan.rs): a short
+# title gets the issue's number, a title of six words or more is handed over as
+# it is, and a brief that names itself with Title: is named for its own work.
+# The rules and their bounds are pinned beside the source; here the turn is
+# pinned to them.
+t_case "a first turn asks the console for the descriptor, and a title of six words is handed over with no number"
+long="A planned issue title names the work in full: no cut-off suffix"
+reset
+# The keep directory of the case before this one holds its brief; a first turn
+# remakes it, but only once it has the descriptor of this one in hand.
+rm -rf "$T/keep"
+printf '# %s\n\nMake it fast.\n' "$long" >"$T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan $long --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
+t_lacks "$(tail_of)" "(issue #7)"
+
+t_case "a first turn plans the Title: line of a brief, so a half of a split is named for its own work"
+reset
+rm -rf "$T/keep"
+printf 'Title: A Rust renderer of the review issue\n\n# The parent\n\nBody.\n' >"$T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+# The context is the approved text, which holds the parent's heading; what
+# names the half is the descriptor, before --start.
+t_eq "$(tail_of)" "$image $runner plan A Rust renderer of the review issue --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
+
+t_case "a brief with no title at all is planned as the work in the brief's file"
+reset
+rm -rf "$T/keep"
+printf '\nMake it fast.\n' >"$T/brief.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan the work in .tehas/brief.md (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
+
+t_case "a console that gives no descriptor for the brief starts no turn: 78, named"
+reset
+rm -rf "$T/keep"
+# libexec/plan calls the console as `plan descriptor <brief> <issue>`, as every
+# other verb with the noun first. A console that answers nothing for it stops
+# the turn before the container: the rules themselves are pinned in plan.rs.
+mv "$shim/libexec/console" "$T/console.kept"
+t_stub console '[ "$2" = descriptor ] || exit 0
+exit 1'
+mv "$T/bin/console" "$shim/libexec/console"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the console gave no descriptor for the brief of #7"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+rm -f "$shim/libexec/console"
+mv "$T/console.kept" "$shim/libexec/console"
+rm -f "$T/bin/console"
+
+# The case above leaves no session behind: it stopped before the turn wrote
+# anything. These cases run the turn whose outcome they read.
+
 t_case "the runner's exit status is kept for the next turn"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$(cat "$T/keep/exit")" 11
 
 t_case "the planning container gets the mounts of a work cycle, no more"
@@ -370,6 +427,26 @@ t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded
 t_contains "$(turn_args)" "--cidfile"
 t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
 t_eq "$(tail_of)" "$image /opt/pi-rukas/bin/pi-rukas-headless work 7 --timeout 360 --json "
+
+t_case "a first turn names its issue with --issue when the runner takes it, so the issue is no duplicate of itself"
+caps_issue() {
+  jq -n '{contract: "0.14.0", features: {planTurns: true},
+    verbs: {plan: {flags: ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]}}}' >"$T/caps.json"
+}
+reset
+caps_issue
+runner_keeps '{"turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')--issue 7 "
+
+t_case "a resumed turn never passes --issue: the session keeps it and the runner refuses it there"
+first_turn_ran
+caps_issue
+printf 'yes\n' >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --answer $ws/.tehas/answer.md "
 
 # --- Later turns and what the runner answers --------------------------------------
 

@@ -23,7 +23,7 @@ bare_tree() {
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # The Rust poll finds them beside its own program, as on a host.
-  if [ -n "${T_RUST_POLL:-}" ]; then
+  if [ -z "${T_BASH_POLL:-}" ]; then
     cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"
     T_ENV_ALWAYS=()
   fi
