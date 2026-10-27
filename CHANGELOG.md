@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- `tehas setup` checks the settings, asks GitHub and the endpoint and writes
+  the instance's files in the console (`console setup files`, #882);
+  `libexec/setup` keeps git, the clone and the install steps (452 to 201
+  lines). What those first steps say goes to standard error, and
+  `models.json` is written with its keys sorted. From a checkout with no built
+  console, setup builds it with cargo first.
+
 ### Adopter action
 
 None.
