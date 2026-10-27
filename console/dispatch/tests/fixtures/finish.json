@@ -1136,6 +1136,135 @@
      }
     ]
    }
+  },
+  {
+   "case": "an open issue marked tehas:planning with no planning session is handed to a person",
+   "snapshot": {
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ],
+      "add": [
+       "needs-human-attention"
+      ],
+      "reread": "tehas:planning"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a paused poll still hands over an issue marked tehas:planning with no session",
+   "snapshot": {
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": ""
+    },
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ],
+      "add": [
+       "needs-human-attention"
+      ],
+      "reread": "tehas:planning"
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue marked tehas:planning whose session is open keeps its mark",
+   "snapshot": {
+    "planning": [
+     9
+    ],
+    "plan_open": [
+     9
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "marked tehas:planning"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a planning mark is not judged when the store could not list the sessions",
+   "snapshot": {
+    "planning": [
+     9
+    ],
+    "plan_open": {
+     "word": "busy",
+     "rc": 1
+    }
+   },
+   "expect": {
+    "log_lacks": [
+     "marked tehas:planning"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says it would hand over an issue marked tehas:planning with no session",
+   "dry": true,
+   "snapshot": {
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "log": [
+     "would park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ]
+     }
+    ]
+   }
   }
  ]
 }
