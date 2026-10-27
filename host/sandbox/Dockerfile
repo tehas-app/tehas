@@ -33,6 +33,8 @@ FROM ${PI_RUKAS_IMAGE}
 ARG TEHAS_UID=1000
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
+ARG JQ_VERSION
+ARG JQ_SHA256
 ARG PLAYWRIGHT_VERSION
 ARG PLAYWRIGHT_LOCK_SHA256
 ARG CBM_VERSION
@@ -105,6 +107,14 @@ RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors 
  && install -m 755 "/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck \
  && rm -rf /tmp/shellcheck.tar.xz "/tmp/shellcheck-v${SHELLCHECK_VERSION}" \
  && shellcheck --version
+
+# tehas's jq, ahead of the base image's on the PATH: the gate a cycle runs uses
+# the jq the host and CI use (host/versions.env).
+RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors --retry-connrefused --retry-delay 5 --retry-max-time 300 "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-amd64" -o /tmp/jq \
+ && echo "${JQ_SHA256}  /tmp/jq" | sha256sum -c - \
+ && install -m 755 /tmp/jq /usr/local/bin/jq \
+ && rm -f /tmp/jq \
+ && /usr/local/bin/jq --version
 
 # vipune downloads its embedding model on its first search. A cycle has no
 # route to the publisher, so the download failed and every later search answered
@@ -184,6 +194,7 @@ RUN for tool in bash cargo curl fd file find gh git jq node pi python3 rg shellc
       command -v "$tool" >/dev/null 2>&1 || { echo "sandbox: $tool is not in this image" >&2; exit 1; }; \
     done \
  && python3 -c 'import PIL' \
+ && if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]; then echo "sandbox: a cycle finds $(jq --version), versions.env names jq-${JQ_VERSION}" >&2; exit 1; fi \
  && echo "sandbox: the tools a cycle reaches for are in the image"
 USER root
 
