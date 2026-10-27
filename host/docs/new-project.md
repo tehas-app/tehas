@@ -292,7 +292,8 @@ Everything else has a default. No setting describes the machine: every
 sandbox container runs in `tehas.slice`, which the installer set up and which is
 limited to three quarters of the host's memory. The dispatcher starts a cycle
 only while the slice has room for one more `TEHAS_CYCLE_RESERVE`, 2g by
-default, and holds fewer than four containers. A host with less than about 11 GiB of memory needs a lower reserve.
+default, and holds fewer than `TEHAS_SLICE_CONTAINERS` containers, four by
+default. A host with less than about 11 GiB of memory needs a lower reserve.
 All settings are on the [commands page](/tools).
 
 After a change to the instance, run `~/tehas/current/install.sh --check`, then

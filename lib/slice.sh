@@ -6,15 +6,15 @@
 #
 # Every function here only reads. Nothing is written, started or changed, and
 # both outside calls run under "timeout 10" (TEHAS_SLICE_WAIT, for tests) so a
-# silent one cannot block a poll. A fault is never read as "no limit" or "an empty slice": the answer is
-# then "not ok" or "no room".
+# silent one cannot block a poll. A fault is never read as "no limit" or "an
+# empty slice": the answer is then "not ok" or "no room".
 #
 #   tehas_slice_ok       is the slice on this host usable? One systemctl call,
 #                        one docker call, one file read. Returns 0 and sets
 #                          TEHAS_SLICE_MAX         the slice's MemoryMax, bytes
 #                          TEHAS_SLICE_ACTIVE      "active", or another state
 #                          TEHAS_SLICE_CEILING_MB  what one container may use:
-#                                                  a quarter of the max, MiB
+#                                                  max / TEHAS_SLICE_CONTAINERS, MiB
 #                          TEHAS_SLICE_CPUS        the host's CPUs, from nproc
 #                        or returns 1 and sets TEHAS_SLICE_WHY to one line a
 #                        person can act on. A command starts with
@@ -35,12 +35,11 @@
 #                        CPU, as docker writes it (15.00). <p> is 1024 for
 #                        each CPU of the container's share, rounded up, from
 #                        2048 to 4096. The share is <c> over the cycles that
-#                        may run at once (TEHAS_TICKET_CONCURRENCY, and
-#                        TEHAS_REFRESH_SLOTS more with
-#                        TEHAS_REFRESH_CONFLICTS=1, at most the four the
-#                        slice holds), never below one CPU.
-#                        Returns 1 with nothing printed without a probe or
-#                        with a concurrency that is not a number.
+#                        may run at once (TEHAS_TICKET_CONCURRENCY, plus
+#                        TEHAS_REFRESH_SLOTS with TEHAS_REFRESH_CONFLICTS=1,
+#                        at most TEHAS_SLICE_CONTAINERS), never below one
+#                        CPU. Returns 1 with nothing printed without a probe
+#                        or with a concurrency that is not a number.
 #   tehas_slice_verify   after tehas_slice_limits. No call. Prints how many
 #                        runs of the product's gate one container runs at
 #                        once: one for each two whole CPUs of its share and
@@ -50,9 +49,8 @@
 #                        TEHAS_SLICE_LIMITS has no quota or ceiling.
 #   tehas_slice_room <count> [<cid file>...]
 #                        after tehas_slice_ok. How many more containers of one
-#                        reserve fit, and never more than leave the slice with
-#                        as many containers as their ceilings fit in its max
-#                        (four). <count> is the cycles that hold a lock;
+#                        reserve fit, never more than TEHAS_SLICE_CONTAINERS
+#                        in the slice. <count> is the cycles that hold a lock;
 #                        each cid file is what "docker run --cidfile" wrote for
 #                        one of them. Prints one line:
 #                          <room> <committed> <max> <reserve> [<why>]
@@ -66,15 +64,14 @@
 #                          unreadable  something could not be read; room is 0
 #                        After unreadable, the rest of the line names the file
 #                        and what was missing in it.
-#                        Always returns 0 and always prints the first four as
-#                        numbers.
+#                        Always returns 0 and prints the first four as numbers.
 #   tehas_slice_pressure print "full avg60" of the slice's memory pressure, as
 #                        the kernel writes it (0.00). Returns 1 with nothing
 #                        printed when it cannot be read, and sets
 #                        TEHAS_SLICE_WHY to the file and what was missing.
 #
-# Settings read: TEHAS_CYCLE_RESERVE, TEHAS_TICKET_CONCURRENCY,
-# TEHAS_REFRESH_CONFLICTS and TEHAS_REFRESH_SLOTS
+# Settings read: TEHAS_CYCLE_RESERVE, TEHAS_SLICE_CONTAINERS,
+# TEHAS_TICKET_CONCURRENCY, TEHAS_REFRESH_CONFLICTS and TEHAS_REFRESH_SLOTS
 # (lib/config.sh gives them defaults and checks them) and TEHAS_CGROUP_ROOT,
 # the tests' seam for /sys/fs/cgroup.
 
@@ -103,7 +100,7 @@ _tehas_slice_bytes() {
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_slice_ok() {
   local out line path="" max="" active="" driver="" version="" ctl="" c reserve ceiling need cpus
-  local root=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}
+  local root=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup} n=${TEHAS_SLICE_CONTAINERS:-4}
   TEHAS_SLICE_WHY="" TEHAS_SLICE_MAX="" TEHAS_SLICE_ACTIVE="" TEHAS_SLICE_CEILING_MB="" TEHAS_SLICE_CPUS=""
 
   if ! out=$(timeout "${TEHAS_SLICE_WAIT:-10}" systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax 2>/dev/null </dev/null) ||
@@ -158,17 +155,18 @@ tehas_slice_ok() {
     TEHAS_SLICE_WHY="TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-} is not a size"
     return 1
   fi
-  ceiling=$((max / 4 / 1048576))
+  _tehas_slice_num "$n" && [ "$n" != 0 ] || { TEHAS_SLICE_WHY="TEHAS_SLICE_CONTAINERS=$n is not a count"; return 1; }
+  ceiling=$((max / n / 1048576))
   if [ "$reserve" -gt $((ceiling * 1048576)) ]; then
-    # The slice is three quarters of the host and a container a quarter of the
-    # slice, so the reserve needs a host of 16/3 times its size.
-    need=$((reserve * 16 / 3))
+    # The slice is three quarters of the host and a container 1/n of the
+    # slice, so the reserve needs a host of 4n/3 times its size.
+    need=$((reserve * 4 * n / 3))
     if [ "$need" -ge 1073741824 ]; then
       need="$(((need + 536870912) / 1073741824)) GiB"
     else
       need="$((need / 1048576 + 1)) MiB"
     fi
-    TEHAS_SLICE_WHY="TEHAS_CYCLE_RESERVE=$TEHAS_CYCLE_RESERVE is more than a container may use here (${ceiling}m, a quarter of tehas.slice's MemoryMax); the host needs about $need of memory for this reserve"
+    TEHAS_SLICE_WHY="TEHAS_CYCLE_RESERVE=$TEHAS_CYCLE_RESERVE is more than a container may use here (${ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=$n); the host needs about $need of memory for this reserve"
     return 1
   fi
 
@@ -193,7 +191,7 @@ _tehas_slice_share() {
   _tehas_slice_num "$cycles" && [ "$cycles" -gt 0 ] || return 1
   [ "${TEHAS_REFRESH_CONFLICTS:-}" != 1 ] || ! _tehas_slice_num "${TEHAS_REFRESH_SLOTS:-}" ||
     cycles=$((cycles + TEHAS_REFRESH_SLOTS))
-  [ "$cycles" -le 4 ] || cycles=4
+  [ "$cycles" -le "${TEHAS_SLICE_CONTAINERS:-4}" ] || cycles=${TEHAS_SLICE_CONTAINERS:-4}
   spare=$((cpus > 1 ? cpus - 1 : 1))
   share=$((spare * 100 / cycles))
   [ "$share" -ge 100 ] || share=100
@@ -398,8 +396,7 @@ tehas_slice_room() {
   # last minute. Compared in hundredths, with no call to awk. A slice's
   # pressure counts every stall in it, also one container's at its own
   # ceiling, which another container does not change. So it holds only once
-  # more than half the slice is promised: a container's ceiling is at most a
-  # quarter, so no single one gets there by itself.
+  # more than half the slice is promised, which no ceiling is alone.
   if [ $((committed * 2)) -gt "$max" ] && [[ $pressure =~ ^([0-9]+)(\.([0-9]{1,2}))? ]]; then
     id=${BASH_REMATCH[3]:-0}
     [ "${#id}" = 2 ] || id=${id}0

@@ -1130,17 +1130,19 @@ recording, and both commands then say so and exit 69.
   removed its directory. File cache and other memory the kernel can take back
   do not count.
 - No more containers in the slice than their ceilings fit in its limit: a
-  container may use a quarter of the slice, so four. Every container counts,
-  a dev session, a planning turn and the indexer as well, and a cycle that
-  has no container yet. Room by use alone would let in cycles that are small
-  in their first steps and may each grow to a quarter later; then the whole
-  slice reclaims and the kernel kills in the biggest container. So on any
-  host at most four cycles run at once, whatever `TEHAS_TICKET_CONCURRENCY`
-  says; a host with 4 slots is unchanged, except that a dev session or a
-  planning turn takes the fourth. The ceiling is not sized by
-  `TEHAS_TICKET_CONCURRENCY` instead: containers that are not cycles would
-  still oversubscribe the slice, and on a host with many CPUs the ceiling
-  would fall below the reserve.
+  container may use the slice over `TEHAS_SLICE_CONTAINERS`, a quarter by
+  default, so four. Every container counts, a refresh, a dev session, a
+  planning turn and the indexer as well, and a cycle that has no container
+  yet. Room by use alone would let in cycles that are small in their first
+  steps and may each grow to their ceiling later; then the whole slice
+  reclaims and the kernel kills in the biggest container. So at most
+  `TEHAS_SLICE_CONTAINERS` cycles run at once, whatever
+  `TEHAS_TICKET_CONCURRENCY` says, and a dev session or a planning turn takes
+  one of them. The number is a setting of its own, not
+  `TEHAS_TICKET_CONCURRENCY`: containers that are not cycles would still
+  oversubscribe the slice, and on a host with many CPUs the ceiling would
+  fall below the reserve. To run more cycles side by side, raise it and the
+  host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
@@ -1643,7 +1645,7 @@ resolves the conflict or applies `tehas:ready`. A pull request that carries
 pull request is refreshed while every cycle slot is busy. At most
 `TEHAS_REFRESH_SLOTS` refreshes run at once (1 unless the instance says
 otherwise), and they do not count against `TEHAS_TICKET_CONCURRENCY`. The slice
-holds four containers whatever the slots say, so new cycles leave room in it
+holds `TEHAS_SLICE_CONTAINERS` containers whatever the slots say, so new cycles leave room in it
 for the lane: while the lane has a slot free, a cycle does not take the last
 room of the slice. On a host with `TEHAS_TICKET_CONCURRENCY=4` and one lane
 slot that is three cycles and one refresh. The poll says

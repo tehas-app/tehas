@@ -347,7 +347,7 @@ without
 t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
 t_run "$work 7"
 refused
-t_contains "$t_out" "tehas work: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m, a quarter of tehas.slice's MemoryMax); the host needs about 16 GiB"
+t_contains "$t_out" "tehas work: TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=4); the host needs about 16 GiB"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "the fourteen words are all present or nothing starts"

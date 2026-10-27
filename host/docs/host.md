@@ -923,11 +923,11 @@ seven limits, fourteen words on the `docker run` line:
 | Option | Value | What it does |
 | --- | --- | --- |
 | `--cgroup-parent` | `tehas.slice` | Puts the container in the slice |
-| `--memory` | a quarter of the slice's `MemoryMax` | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while four containers are in the slice, so their ceilings never sum to more than the slice |
+| `--memory` | the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, a quarter unless set | A hard ceiling. At it the kernel kills the largest process in the container. The dispatcher starts no cycle while `TEHAS_SLICE_CONTAINERS` containers are in the slice, so their ceilings never sum to more than the slice |
 | `--memory-swap` | the same value | No swap for the container |
 | `--memory-reservation` | `TEHAS_CYCLE_RESERVE`, `2g` unless set | The container's floor. When the slice is full the kernel frees memory above the floors first |
 | `--cpus` | the host's CPUs less one, never below 1 | A CPU quota. The container may use no more CPU time than that many CPUs |
-| `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_TICKET_CONCURRENCY`, counted at most 4 | The most processes and threads in the container |
+| `--pids-limit` | 1024 for each CPU of the container's share, rounded up, from `2048` to `4096`. The share is the quota divided by `TEHAS_TICKET_CONCURRENCY`, counted at most `TEHAS_SLICE_CONTAINERS` | The most processes and threads in the container |
 | `--cpu-shares` | `1024` | A CPU weight, the same on every container |
 
 On a host with 16 CPUs and `TEHAS_TICKET_CONCURRENCY=4` a container gets
@@ -956,9 +956,9 @@ starts first gets no more than one that starts later.
 The pids limit follows the share, the quota divided by the cycles side by
 side, because a container's processes are mostly what its gate runs side by
 side, and on a busy host a gate gets its share of the CPUs, not the quota. At
-most four containers are in the slice at once (see
+most `TEHAS_SLICE_CONTAINERS` containers are in the slice at once (see
 [Limits that hold work back](/operating#limits-that-hold-work-back)), which is
-why the share counts at most 4. Measured on this repository's shell tests with an init: at most 108
+why the share counts at most that many. Measured on this repository's shell tests with an init: at most 108
 processes at once with 16 test files side by side, 38 with 4. The floor of
 2048 is for the agents, their tools and git around the gate.
 
