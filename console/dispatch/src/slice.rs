@@ -189,6 +189,9 @@ fn charge(dir: &str, s: &Scope, reserve: u64) -> Result<u64, String> {
         kernel = Some("0".into());
         slab = Some("0".into());
     }
+    // A scope the kernel has not filled in yet has no slab line either: it
+    // reads as 0, which counts the slab as used, so it holds.
+    slab.get_or_insert_with(|| "0".into());
     let mut vals = [0u64; 4];
     for (i, (k, v)) in [
         ("anon", &anon),
