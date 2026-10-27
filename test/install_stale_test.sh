@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for install.sh: the Protolab server's files of before the edge
-# router, and the markers a cycle used to leave, are removed.
+# router, the markers a cycle used to leave, and the copy a sandbox build staged
+# beside the installed script, are removed.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -47,6 +48,41 @@ t_contains "$t_out" "removed: $th/state/cycles/5"
 t_contains "$t_out" "removed: $th/state/cycles/26"
 t_eq "$(cd "$th/state/cycles" && find . | LC_ALL=C sort | tr '\n' ' ')" \
   ". ./.hidden ./5.lock ./5.park ./5.result.json ./5.taken ./5x ./77 ./99 ./notanumber "
+
+t_case "the copy a build left in the sandbox directory is named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$T"/calls/*
+# The two names a sandbox build stages beside the script, found here as the
+# leftovers of a run that never reached its cleanup. The recipe of the image and
+# the build script themselves are installed files and stay.
+printf 'FROM nowhere\n' >"$th/sandbox/sandbox-uid.Dockerfile"
+printf 'FROM nowhere\n' >"$th/sandbox/sandbox-uid.Dockerfile.abcdef"
+printf 'toolong\n' >"$th/sandbox/sandbox-uid.Dockerfile.toolong"
+printf 'x\n' >"$th/sandbox/sandbox-uid.Dockerfilex"
+printf 'x\n' >"$T/outside-named"
+ln -s "$T/outside-named" "$th/sandbox/sandbox-uid.Dockerfile.link01"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/sandbox/sandbox-uid.Dockerfile"
+t_contains "$t_out" "stale: $th/sandbox/sandbox-uid.Dockerfile.abcdef"
+t_eq "$([ -e "$th/sandbox/sandbox-uid.Dockerfile" ] && echo there)" "there"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/sandbox/sandbox-uid.Dockerfile"
+t_contains "$t_out" "removed: $th/sandbox/sandbox-uid.Dockerfile.abcdef"
+t_eq "$([ -e "$th/sandbox/sandbox-uid.Dockerfile" ] && echo there)" ""
+t_eq "$([ -e "$th/sandbox/sandbox-uid.Dockerfile.abcdef" ] && echo there)" ""
+# The shapes that are not a build's two names are left for their owner, as the
+# installed files beside them are: an installer that retires a name it did not
+# ship has to name the shape it means.
+t_eq "$([ -e "$th/sandbox/sandbox-uid.Dockerfile.toolong" ] && echo there)" "there"
+t_eq "$([ -e "$th/sandbox/sandbox-uid.Dockerfilex" ] && echo there)" "there"
+t_eq "$([ -L "$th/sandbox/sandbox-uid.Dockerfile.link01" ] && echo there)" "there"
+t_eq "$([ -e "$T/outside-named" ] && echo there)" "there"
+t_eq "$([ -s "$th/sandbox/Dockerfile" ] && echo there)" "there"
+t_eq "$([ -s "$th/sandbox/build.sh" ] && echo there)" "there"
 
 
 t_done

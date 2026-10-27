@@ -2,7 +2,7 @@
 
 use crate::poll::{self, count_writes, cpu_ms, secs, started, Record};
 use crate::verbs_tests::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::fs;
 use std::path::Path;
 use tehas_core::time::iso;
@@ -33,6 +33,16 @@ fn line(at: i64, kind: &str) -> String {
 /// `poll-idle --since <seconds>` as the health check calls it.
 fn idle(home: &Path, at: i64, since: &str) -> Value {
     ok_at(home, at, &["poll-idle", "--since", since])
+}
+
+/// `poll-idle --since <seconds> --budget <spec>`: the same read of the idle
+/// polls, measured against a budget.
+fn idle_at(home: &Path, at: i64, since: &str, budget: &str) -> Value {
+    ok_at(
+        home,
+        at,
+        &["poll-idle", "--since", since, "--budget", budget],
+    )
 }
 
 /// A record of the poll's own files, with the row's `starts` as given: `now`
@@ -445,10 +455,87 @@ fn no_idle_poll_is_no_polls() {
     record(&home, NOW - 30, &r, real - 1000, real, None);
     let v = idle(&home, NOW, "3600");
     assert_eq!(v["polls"], 0);
-    assert_eq!(v.as_object().unwrap().len(), 4, "{v}");
+    assert_eq!(v.as_object().unwrap().len(), 5, "{v}");
+    // Without --budget the answer keeps no `over` at all: it says what the
+    // polls cost and nothing about a budget it was not given.
+    assert_eq!(v["over"], Value::Null);
+    let v = ok_at(
+        &home,
+        NOW,
+        &[
+            "poll-idle",
+            "--since",
+            "3600",
+            "--budget",
+            "cpu=1,wall=1,writes=0",
+        ],
+    );
+    // Nothing was idle, so nothing is over: the names are asked of figures the
+    // answer does not give.
+    assert_eq!(v["over"], json!([]));
     // The same answer with no poll on record at all.
     let empty = crate::verbs_tests::home("poll-idle-empty");
     assert_eq!(idle(&empty, NOW, "3600")["polls"], 0);
+    assert_eq!(idle(&empty, NOW, "3600")["over"], Value::Null);
+}
+
+#[test]
+fn poll_idle_names_only_the_figures_over_their_budget() {
+    let home = home("poll-idle-budget");
+    // No write log on this host: the answer gives no figure of writes, and a
+    // budget of writes can be over nothing. The cost of the poll is the wall
+    // time asked of the record and the CPU of TIMES, 1.5 s.
+    let r = files(&home, 1, None);
+    let real = 1_792_000_010_000;
+    // One idle poll of 20 s of wall, 1.5 s of CPU and one write: over none of
+    // the budget of the instance, and over all three of a tight one. The
+    // seconds of the spec are seconds, so wall=20 bounds the 20000 ms.
+    record(&home, NOW - 60, &r, real - 20_000, real, Some(0));
+    // Any part left out is not asked about: a budget of the two times says
+    // nothing of the writes, whatever they are. The budget of the instance
+    // itself, cpu=5,wall=30,writes=0, is the one a poll of this cost passes.
+    // Any part left out is not asked about: a budget of the two times says
+    // nothing of the writes, and the one the instance ships with is a budget
+    // the writes of this poll pass, because they are none.
+    assert_eq!(
+        idle_at(&home, NOW, "3600", "cpu=5,wall=30")["over"],
+        json!([])
+    );
+    assert_eq!(
+        idle_at(&home, NOW, "3600", "cpu=1,wall=19")["over"],
+        json!(["cpu", "wall"])
+    );
+    assert_eq!(idle_at(&home, NOW, "3600", "cpu=1")["over"], json!(["cpu"]));
+    assert_eq!(idle_at(&home, NOW, "3600", "wall=30")["over"], json!([]));
+    // A figure of no digits at all is not a budget, and neither is a name
+    // twice, a name of none of the three, a figure of ten digits, or a figure
+    // with a leading 0. The loader refuses another order too (lib/config.sh),
+    // but the store reads each name by its own word, so it takes them in any
+    // order. Both refuse the leading 0 on one grammar: health passes the
+    // instance's value here as it stands, so the two may not disagree.
+    for bad in [
+        "",
+        "cpu",
+        "cpu=",
+        "=1",
+        "cpu=1.5",
+        "cpu=-1",
+        "cpu=1e3",
+        "last=1",
+        "cpu=1,cpu=2",
+        "cpu=1000000000",
+        "cpu=1 wall=2",
+        "cpu=05",
+        "wall=030",
+        "writes=00",
+        "cpu=5,wall=030,writes=0",
+    ] {
+        assert!(
+            usage(&["poll-idle", "--since", "3600", "--budget", bad])
+                .contains("cpu=<s>,wall=<s>,writes=<n>"),
+            "{bad}"
+        );
+    }
 }
 
 #[test]

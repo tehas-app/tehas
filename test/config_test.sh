@@ -1094,6 +1094,53 @@ t_run "$load && echo \"[\$TEHAS_CLEAN_AFTER] [\$TEHAS_CLEAN_DIRS]\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "[6] [target dist]"
 
+# The budget of the idle polls goes to `store poll-idle --budget` as it stands,
+# so the store is what reads it; the shape is checked here so an instance that
+# writes a word the store cannot use is told at the load and not in a health
+# file that says nothing. The store reads the three words in this order, so an
+# instance that writes them the other way round would bound the wrong figure.
+t_case "the budget of an idle poll takes the default the health check warns at"
+t_instance "${T_MINIMAL[@]}"
+t_run "$load && set -u && echo \"[\$TEHAS_POLL_BUDGET]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[cpu=5,wall=30,writes=0]"
+
+t_case "the budget of an idle poll can be set in the instance"
+t_instance "${T_MINIMAL[@]}" "TEHAS_POLL_BUDGET=cpu=3,wall=20"
+t_run "$load && echo \"[\$TEHAS_POLL_BUDGET]\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "[cpu=3,wall=20]"
+
+for good in "cpu=5" "wall=30" "writes=0" "cpu=0,wall=0,writes=0" "cpu=999999999" \
+  "cpu=0" "wall=0" "cpu=5,wall=0" "wall=30,writes=0"; do
+  t_case "loading takes a TEHAS_POLL_BUDGET of '$good'"
+  t_instance "${T_MINIMAL[@]}" "TEHAS_POLL_BUDGET=$good"
+  t_run "$load && echo ok"
+  t_eq "$t_out" "ok"
+done
+
+# The store's own grammar for a figure of the budget (verbs::count, and the
+# same one the store's --budget reads), and no order but the store's: a figure
+# with a sign, a fraction, an exponent or ten digits is not one, no name is
+# said twice, and a figure of digits is 0 or begins 1-9 -- the store refuses
+# 05, and health gives the value to it as it stands, so a leading 0 here would
+# take the warning out of the health file in silence. The whole reason the load
+# checks this setting: see lib/config.sh.
+for bad in "cpu=" "cpu" "cpu=1.5" "cpu=-1" "cpu=1e3" "cpu=1000000000" \
+  "cpu=1,cpu=2" "wall=1,cpu=1" "writes=1,cpu=2" "last=1" "cpu=1 wall=2" " cpu=1" "cpu=1 wall=2 writes=0" \
+  "cpu=05" "wall=030" "writes=00" "cpu=5,wall=030,writes=0"; do
+  t_case "loading rejects a TEHAS_POLL_BUDGET of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_POLL_BUDGET='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_POLL_BUDGET is not valid: expected cpu=<s>,wall=<s>,writes=<n>"
+done
+t_instance "${T_MINIMAL[@]}"
+
+# The comment in the example instance copies the default by hand.
+t_case "the example instance documents the budget the health check warns at"
+t_contains "$(grep ^#TEHAS_POLL_BUDGET= "$T_ROOT/instances/example/optional.env")" "=cpu=5,wall=30,writes=0"
+
 # The two bounds of the measure tehas work makes of an approved body. Each is
 # asked of head -c and head -n, so a sign, a fraction or an exponent is no
 # bound; a body of many short lines is held by the bound on lines alone and a

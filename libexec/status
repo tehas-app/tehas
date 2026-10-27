@@ -123,13 +123,11 @@ analytics_report() {
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
   [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
-# The private files of the MCP server, under mcp/: sessions.jsonl, the
-# snapshot of the last thirty days, and outcomes.jsonl, the counts of how the
-# runs ended for a year back. Never under live/, which is public. The program
-# makes the directory, mode 700, and writes both itself: mode 600, from a name
-# of this run, moved into place, so the host reads neither and writes neither.
-# A poll that fails keeps a file while it is younger than analytics_keep and
-# removes an older one.
+# The private files of the MCP server, under mcp/ (never live/, which is
+# public): sessions.jsonl, the last thirty days, and outcomes.jsonl, how the
+# runs ended for a year back. The program makes the directory (700) and writes
+# both itself (600, renamed into place), so the host neither reads nor writes
+# them. A failed poll keeps a file younger than analytics_keep, not an older one.
 # shellcheck disable=SC2329  # the two below and the EXIT trap call it
 analytics_publish() {
   # <subcommand> <file>: the two differ in the command and the name alone.
