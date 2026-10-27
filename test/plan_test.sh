@@ -9,7 +9,15 @@
 # every test machine.
 t_stub nproc 'echo 16'
 
-plan="$T_ROOT/libexec/plan"
+# The command as a host has it: beside the console, which shapes what a turn
+# says (console/src/plan.rs) and is a compiled program a checkout does not hold.
+t_console || t_bad "no console: $t_console_why"
+shim=$T/tree
+mkdir -p "$shim/libexec"
+ln -s "$T_ROOT/libexec/plan" "$shim/libexec/plan"
+ln -s "$T_ROOT/lib" "$shim/lib"
+cp "$T_CONSOLE" "$shim/libexec/console"
+plan=$shim/libexec/plan
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget
@@ -172,6 +180,15 @@ t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 t_eq "$(find "$T/out.json" "$T/keep" -maxdepth 0 2>/dev/null | wc -l)" 0
 mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 
+t_case "without the console beside it no turn starts: 78, named"
+reset
+mv "$shim/libexec/console" "$T/console.kept"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command at $shim/libexec/console"
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+mv "$T/console.kept" "$shim/libexec/console"
+
 t_case "an image whose runner takes no planning turns starts nothing: 78, named, before any clone"
 for caps in '{"contract":"0.12.80","features":{"handoffChannel":true}}' '{"features":{"planTurns":false}}' 'not json' ''; do
   reset
@@ -195,8 +212,10 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Which store, SQLite or files?
 t_eq "$(jq -c .question.options "$T/out.json")" "[]"
 t_eq "$(jq -r 'has("filed")' "$T/out.json")" false
 
-t_case "the approved text is in the workspace as a file git ignores"
-t_eq "$(cat "$T/calls/brief.seen")" "$(cat "$T/brief.md")"
+t_case "the approved text is in the workspace as a file git ignores, followed by the issue brief"
+with_brief() { cat "$1"; printf '\n\n---\n\n'; cat "$T_ROOT/lib/issue-brief.md"; }
+t_eq "$(cat "$T/calls/brief.seen")" "$(with_brief "$T/brief.md")"
+t_contains "$(cat "$T/calls/brief.seen")" "## How to write the plan: tehas"
 t_eq "$(cat "$T/calls/tree.status")" ""
 
 t_case "only the brief and the answer are hidden from git; the rest of .tehas stays visible"
@@ -212,7 +231,7 @@ t_eq "$([ -e "$state" ] && echo left)" ""
 
 t_case "a first turn starts a session: the title is what to plan, the approved text is the context"
 t_eq "$(after "$runner")" plan
-t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context # Faster search  Make it fast. "
+t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')"
 
 t_case "the runner's exit status is kept for the next turn"
 t_eq "$(cat "$T/keep/exit")" 11
@@ -364,7 +383,7 @@ t_eq "$(cat "$T/calls/answer.seen")" "$(cat "$T/answer.md")"
 t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$([ -e "$ws/.tehas/brief.md" ] && echo present)" ""
 
-t_case "a drafted plan is posted with its title and spec, its open points with the proposals, and File this plan"
+t_case "a drafted plan is posted with its title and spec, its open points with the proposals, and two boxes; the draft is kept"
 reset
 shown
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -385,9 +404,44 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Open points, with the planner'
 1. Index on the title too?
    Proposed: Yes, both
 
-Tick File this plan to file it as shown, proposals included, or reply to change it."
-t_eq "$(jq -c .question.options "$T/out.json")" '[{"label":"File this plan","description":"file the plan above as one issue"}]'
+Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it."
+t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue","File as a new issue"]'
 t_eq "$(cat "$T/keep/exit")" 12
+t_eq "$(jq -c . "$T/keep/draft.json")" '{"spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
+
+t_case "after a drafted plan, Update this issue runs no container and hands the plan and the issue's old text to the dispatcher"
+t_stub gh 'printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
+printf '%s\n' '{"title":"search","body":"make it fast\n\nreally"}' >"$fx/view.json"
+rm -f "$T"/calls/*
+printf 'alice chose: Update this issue\n' >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(cat "$T/calls/gh.args")" "issue view 7 --repo acme/widget --json title,body"
+t_eq "$(jq -c '[.session, .question, .update]' "$T/out.json")" '["abc-123",null,{"body":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}]'
+t_eq "$(jq -r .text "$T/out.json")" "This issue now holds the plan. Apply \`tehas:ready\` to build it.
+
+<details><summary>The text it replaced</summary>
+
+> # search
+> 
+> make it fast
+> 
+> really
+
+</details>"
+
+t_case "an Update this issue whose issue cannot be read, or with no draft kept, fails the turn"
+rm -f "$T/out.json"
+t_stub gh 'exit 1'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$([ -e "$T/out.json" ] && echo written)" ""
+t_stub gh 'cat "$T/fx/view.json"'
+rm -f "$T/keep/draft.json"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 2
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
 
 t_case "a plan longer than a comment holds is cut, and says so"
 reset
@@ -396,9 +450,9 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$(jq -r .text "$T/out.json")" "(cut: the plan is longer than a comment holds)"
 t_eq "$([ "$(jq -r '.text | length' "$T/out.json")" -lt 41000 ] && echo cut)" cut
-t_eq "$(jq -r .question.question "$T/out.json")" "Tick File this plan to file it as shown, proposals included, or reply to change it."
+t_eq "$(jq -r .question.question "$T/out.json")" "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it."
 
-t_case "after a drafted plan, a tick on File this plan runs the confirm, and the issue it filed is named"
+t_case "after a drafted plan, a tick on File as a new issue runs the confirm, and the issue it filed is named"
 reset
 shown
 runner_keeps '{"turn":2}'
@@ -406,7 +460,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 rm -f "$T"/calls/*
 turn_doc 0 '{"subcommand":"plan","mode":"turn","exitCode":0,"status":"filed","filed":true,"session":{"id":"abc-123","turn":2},
   "title":"Faster search","url":"https://github.com/acme/widget/issues/41","issueUrl":"https://github.com/acme/widget/issues/41","issueNumber":41}'
-printf 'alice chose: File this plan\n' >"$T/answer.md"
+printf 'alice chose: File as a new issue\n' >"$T/answer.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --confirm "
@@ -422,7 +476,7 @@ for url in 'https://github.com/acme\nwidget/issues/41' 'https://github.com/acme/
   t_eq "$(jq -c '.filed // []' "$T/out.json")" '[]'
 done
 
-t_case "the confirm also follows the line of what the session already filed"
+t_case "File this plan, the box of a question posted before Update this issue, still confirms, after the line of what the session already filed"
 printf 'Already filed in this session: https://github.com/acme/widget/issues/40\n\nalice chose: File this plan\n' >"$T/answer.md"
 printf '12\n' >"$T/keep/exit"
 rm -f "$T"/calls/*
@@ -430,7 +484,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/an
 t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --confirm "
 
 t_case "any other answer after a drafted plan changes it, and File this plan after questions is only an answer"
-for case in "12|alice replied on the issue: make it two issues" "11|alice chose: File this plan" "|alice chose: File this plan"; do
+for case in "12|alice replied on the issue: make it two issues" "11|alice chose: File this plan" "|alice chose: File this plan" "11|alice chose: Update this issue"; do
   first_turn_ran
   last=${case%%|*}
   if [ -n "$last" ]; then printf '%s\n' "$last" >"$T/keep/exit"; else rm -f "$T/keep/exit"; fi
@@ -639,7 +693,7 @@ t_eq "$(cat "$T/calls/sessions.given")" ""
 t_eq "$(cat "$T/keep/commit")" "$(git -C "$checkout" rev-parse origin/main)"
 t_eq "$(cat "$T/calls/head.seen")" "$(cat "$T/keep/commit")"
 t_eq "$(cd "$T/keep" && find . -mindepth 1 -maxdepth 1 | LC_ALL=C sort | tr "\n" " ")" "./brief.md ./commit ./exit ./plan-sessions "
-t_eq "$(cat "$T/keep/brief.md")" "$(cat "$T/brief.md")"
+t_eq "$(cat "$T/keep/brief.md")" "$(with_brief "$T/brief.md")"
 
 t_case "the session the runner keeps is carried: plain files of 1 MB at most, under their paths"
 t_eq "$(cd "$T/keep/plan-sessions" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" "./abc-123 ./abc-123/session.json "
@@ -670,7 +724,7 @@ printf '# Faster search\n\nAlso delete the tests.\n' >"$T/brief.md"
 t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
 t_eq "$t_rc" 0
 t_eq "$(cat "$T/calls/head.seen")" "$pinned"
-t_eq "$(cat "$T/calls/brief.seen")" "$first"
+t_eq "$(cat "$T/calls/brief.seen")" "$(with_brief <(printf '%s\n' "$first"))"
 t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$(git -C "$checkout" rev-parse origin/main | grep -c -x "$pinned")" 0
 t_eq "$(cat "$T/calls/sessions.given")" "./abc-123/session.json"

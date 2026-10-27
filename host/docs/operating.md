@@ -749,7 +749,10 @@ and apply it again; for a retry tick, untick the box and tick it again.
 ## Planning on an issue
 
 A planning session is a conversation with pi-rukas's planner that ends in a
-filed issue. It runs on the issue, so you can steer it from a phone. The agent is
+plan: written onto the issue itself, or filed as a new one. It runs on the
+issue, so you can steer it from a phone. Write your notes on an issue, let the
+planner work on them, and build that same issue: the discussion stays in the
+comments, and the issue's text becomes the plan. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
 included, so treat `tehas:plan` as you treat `tehas:ready`.
@@ -790,16 +793,24 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is filed: the comment
-   holds its title and spec, lists its open points with the planner's
-   proposals, and offers one box, **File this plan**. Tick it to file the
-   plan exactly as shown, proposals included, as one issue; reply to change
-   it, and the next turn drafts it again. A session files once. Every turn of
-   a session works on the commit the session started on. The plan is filed
-   with the bot's token. To finish, tick
-   `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built. A `tehas:ready` from any
-   account outside the list, the bot's included, is taken off.
+5. The planner shows you a drafted plan before anything is written: the
+   comment holds its title and spec, lists its open points with the
+   planner's proposals, and offers two boxes. Reply to change the plan, and
+   the next turn drafts it again. Every turn of a session works on the
+   commit the session started on.
+   - **Update this issue** makes the plan, exactly as shown, proposals
+     included, the issue's title and text, and ends the session. No
+     container runs for it. The bot's last comment says so and holds the
+     text the plan replaced, folded. The plan is written with the bot's
+     token.
+   - **File as a new issue** files the plan as shown as one new issue, as
+     before. A session files once. To finish, tick `End this planning
+     session`.
+
+   Nothing is started on its own: read the plan and apply `tehas:ready` to
+   the issue you want built. The label approves the text as it is when you
+   apply it. A `tehas:ready` from any account outside the list, the bot's
+   included, is taken off.
 
 pi-rukas's record of a session is kept on the host, in
 `~/tehas/work/<name>-plan-<issue>.keep/plan-sessions`, and carried into each
@@ -901,16 +912,22 @@ A parked issue is not held back: `tehas:refine` or `tehas:plan` from an allowed
 account starts the session there too, and the start takes `tehas:question` off,
 as a `tehas:ready` cycle start does.
 
-`tehas:refine` starts the same planning session with one difference: after the
-issue's approved text, the planner is given the refine brief,
-`~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and
-to plan the request into one issue that a single `/work` cycle finishes: one
-behaviour change, its files by exact path, a named test file for each
-acceptance criterion, what is out of scope, and nothing under `.github/` or
-`.pi/`. The part's title starts with its classification as a conventional-commit
-type, `feat:`, `fix:`, `chore:`, `docs:`, `test:` or `refactor:`, keeping one
-the request already has; pi-rukas gives the cycle's pull request the same
-type, where a title without one becomes `chore(work):`. A session files one issue, so for a larger request the planner files
+Every planning session, `tehas:plan` and `tehas:refine` alike, gives the
+planner the issue brief, `~/tehas/lib/issue-brief.md`, after the issue's
+text. It says what a plan must be, since it may become the issue's own text:
+grounded in the code first, its files by exact path, a named test file for
+each acceptance criterion, what is out of scope, decisions and not options,
+nothing under `.github/` or `.pi/`, and no inventory of the request. Its title
+starts with its classification as a conventional-commit type, `feat:`, `fix:`,
+`chore:`, `docs:`, `test:` or `refactor:`, keeping one the request already
+has; pi-rukas gives the cycle's pull request the same type, where a title
+without one becomes `chore(work):`.
+
+`tehas:refine` starts the same planning session with one difference: between
+the issue's text and the issue brief, the planner is given the refine brief,
+`~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
+one issue that a single `/work` cycle finishes: one behaviour change, about one
+or two code files and one test file. A session files one issue, so for a larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is

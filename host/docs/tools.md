@@ -1020,8 +1020,12 @@ operator's answer. Each turn is one run of pi-rukas's headless runner,
 `pi-rukas-headless plan`, as the container's command. It exits when the
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan, an answer that ticked
-**File this plan** runs `plan --resume <id> --confirm`, which files the plan
-as it was shown and nothing else; any other answer runs `--answer`. The first
+**File as a new issue** runs `plan --resume <id> --confirm`, which files the
+plan as it was shown and nothing else. One that ticked **Update this issue**
+runs no container: the turn reads the issue's title and body and hands the
+drafted plan, kept in the `--keep` directory as `draft.json`, to the
+dispatcher, which writes it onto the issue and ends the session. Any other
+answer runs `--answer`. The first
 turn runs `plan "<title> (issue #<n>)" --start --context <brief>`. The
 image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
@@ -1079,7 +1083,9 @@ turn: exit 4, said on the issue, and the directory stays as it was; a reply
 runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
-the planner's proposals and offers one option, **File this plan**. Two or more
+the planner's proposals and offers two options, **Update this issue** and
+**File as a new issue**. The `console` beside the command shapes it, and
+without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the
 dispatcher can run the turn again in the same session, and it is not written
