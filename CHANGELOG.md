@@ -23,6 +23,12 @@ empty one above it.
   lines). What those first steps say goes to standard error, and
   `models.json` is written with its keys sorted. From a checkout with no built
   console, setup builds it with cargo first.
+- With `TEHAS_DISPATCHER=rust`, an open issue marked `tehas:planning` with no
+  planning session on record is handed to a person: it gets
+  `needs-human-attention` in place of the mark and a comment to apply
+  `tehas:plan` again. GitHub can make a label change and still answer it as
+  failed; the poll then took its turn back and the mark stayed, holding the
+  issue and those blocked by it.
 
 ### Adopter action
 
