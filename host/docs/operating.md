@@ -997,6 +997,10 @@ tehas drain --wait 3600      # start nothing new, wait up to an hour for the cyc
 tehas limit clear            # afterwards
 ```
 
+Drained means no poll can still start a cycle: drain waits for the poll that is
+running before it says no cycle is, so a cycle a poll had already decided to start
+is counted rather than left behind.
+
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
