@@ -128,8 +128,8 @@ call; one that a caller killed during the call leaves is removed by
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
 | `runner_ms` | The result's `durationMs`, in milliseconds | 1 |
 | `result_schema` | The pi-rukas result's schema number, 3 or 4 | 1 |
-| `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time | 2 |
-| `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. NULL with no run of it | 2 |
+| `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time; 0 is not stored, so a run whose rows the runner timed of nothing keeps no count either | 2 |
+| `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. A single run of it of more than three runs of `TEHAS_VERIFY_TIMEOUT` is no figure, and NULL with no run of it | 2 |
 
 The outcome of a work run:
 
@@ -189,16 +189,18 @@ for another.
 | `run_id` | The run's `id` | 2 |
 | `seq` | The run of the gate's turn in the cycle, counting from 1 | 2 |
 | `command` | The command the runner ran, reduced to a word: `scripts/verify.sh --fast` is stored as `scriptsverify.sh--fast` | 2 |
-| `tier` | Which gate it was: the `target.kind` the runner named, `fast` and `full` for a product with a fast gate, else the whole command's tier word | 2 |
+| `tier` | Which gate it was: the `target.kind` the runner named, `fast` and `full` for a product with a fast gate, else its `tier` word where a runner answers with that instead. Neither key is in the stable vocabulary the runner publishes for `verify-completed` (`step`, `command`, `ok`, `ms`, `at`, and `status` on a later runner), so a row of neither says no tier rather than naming one | 2 |
 | `step` | The step the gate ran in | 2 |
-| `ok` | 1 when the run of the gate passed, 0 when it did not | 2 |
+| `ok` | 1 when the run of the gate passed, 0 when it did not, NULL when the line named neither | 2 |
 | `ms` | The run of the gate's own milliseconds, from the runner | 2 |
 | `at` | When it ended, Unix seconds | 2 |
 
-The key is `(run_id, seq)`. A line the reader will not take is no row: one the
-runner marks `unstable`, one of another issue, or one that named no
-milliseconds. A database made before schema 2 holds no rows, and the report
-prints no `Gate` line for it.
+The key is `(run_id, seq)`: the order the runner ended them, which is the order
+the rows are read back in, so the table needs no index of its own. A line the
+reader will not take is no row: one the runner marks `unstable`, one of another
+issue, one that named no milliseconds or milliseconds of more than three runs of
+`TEHAS_VERIFY_TIMEOUT`, or the rows past the 500th of one cycle. A database made
+before schema 2 holds no rows, and the report prints no `Gate` line for it.
 
 ### issue_events
 
@@ -266,16 +268,19 @@ say what the runs of the product's gate cost, so the goal of a gate that
 answers in minutes is read from the report and not counted by hand over the
 streams on the host. Of the work runs that recorded the gate it gives `median`
 and `p90` seconds for one run of it, `perRun` -- the mean number of them a run
-made -- and `share`, the mean of those runs' own shares of their time that was
-the gate's. `n` is the runs counted and `seconds` their gate's whole time; a run
-that recorded no gate is in none of the four figures, as a run that reported no
-usage is in no token figure, and with no such run the key holds `n` alone and
-the terminal prints no line. The figures come from `runs.gate_runs` and
-`runs.gate_ms` and the rows of `run_gate_runs` (see
-[the tables](#run_gate_runs)), which `tehasbot cycle` fills from the cycle's
-stream as the run ends. The terminal prints the same four figures in its seconds
-format, the whole of them as a count: `Gate median 4m30s, p90 9m, 1.667 runs per
-run, 46.7% of run time  (n=3, 20m)`.
+made -- and `share`, the mean of the shares of those of them that recorded a
+length of their own (a run that named no time of its own is in `n`, `seconds`,
+`median` and `p90` but in no `share`). `n` is the runs counted and `seconds`
+their gate's whole time; a run
+that recorded no gate is in none of the figures, as a run that reported no
+usage is in no token figure, and with no such run the key is absent altogether
+and the terminal prints no line. The report reads its figures from
+`runs.gate_runs` and `runs.gate_ms`, the two columns `tehasbot cycle` fills from
+the cycle's stream as the run ends; the rows of `run_gate_runs` (see
+[the tables](#run_gate_runs)) are the per-run detail beside them, for a reader
+who fetches a copy of the database and wants one row per run of the gate. The
+terminal prints the same four figures in its seconds format, the whole of them as
+a count: `Gate median 4m30s, p90 9m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)`.
 
 One run of the gate of a run that made several is that run's recorded gate time
 divided across them, because the stream gives no wall time of its own: the

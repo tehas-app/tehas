@@ -3,9 +3,6 @@ user_version 2
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
 
--- index run_gate_runs_run
-CREATE INDEX run_gate_runs_run ON run_gate_runs (run_id, at);
-
 -- index runs_ended
 CREATE INDEX runs_ended ON runs (ended);
 

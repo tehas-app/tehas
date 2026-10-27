@@ -71,7 +71,13 @@ const MAX_FILE: u64 = 16 << 20;
 const MAX_STREAM: u64 = 256 << 20;
 // The most runs of the gate one cycle's rows may hold. A cycle makes a handful
 // of them; the bound is a guard, not a figure the report reads.
-const MAX_GATE_RUNS: usize = 500;
+pub(crate) const MAX_GATE_RUNS: usize = 500;
+// The most milliseconds one run of the gate may claim, with the same headroom
+// as the bound above: three times the longest run the host allows
+// (TEHAS_VERIFY_TIMEOUT, 30 minutes by default, which libexec/work enforces).
+// The report publishes these milliseconds, so the column's name has to be
+// typed somewhere at the read boundary rather than trusted from the stream.
+pub(crate) const MAX_GATE_MS: i64 = 5_400_000;
 const CAUSE_CHARS: usize = 200;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -121,9 +127,21 @@ pub struct Run {
     pub gates: Vec<GateRun>,
 }
 
+impl Run {
+    /// The two gate columns as one fact: how many runs of the gate the stream
+    /// held and their milliseconds in all. A run that held none, or none whose
+    /// runner timed any of them, is no figure at all, which is what the NULLs
+    /// of the two columns mean. Both are kept together, as the report reads
+    /// them together.
+    fn gate(&self) -> Option<(i64, i64)> {
+        let total = self.gates.iter().map(|g| g.ms.unwrap_or(0)).sum::<i64>();
+        (!self.gates.is_empty() && total > 0).then_some((self.gates.len() as i64, total))
+    }
+}
+
 /// One run of the product's gate, as the cycle's stream ended it. `tier` is
-/// the kind the runner named (`target.kind`): the command it asked for, which
-/// for a product with a fast gate is `fast` or `full`. `ms` is that run's own
+/// the kind the runner named: the command it asked for, which for a product
+/// with a fast gate is `fast` or `full`. `ms` is that run's own
 /// time and `at` the moment it ended, in Unix seconds.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct GateRun {
@@ -349,19 +367,15 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         }
         // One pass over the stream for both of its kinds: the steps, where the
         // result has none, and the runs of the gate, which no result holds.
-        let (steps, gates) = stream_lines(log, issue, run.ended, run.steps.is_empty());
+        // The caller decides which of the two it keeps.
+        let (steps, gates) = stream_lines(log, issue, run.ended);
         if run.steps.is_empty() {
             run.steps = steps;
         }
         run.gates = gates;
-        if !run.gates.is_empty() {
-            run.gate_runs = Some(run.gates.len() as i64);
-            run.gate_ms = run
-                .gates
-                .iter()
-                .map(|g| g.ms.unwrap_or(0))
-                .sum::<i64>()
-                .positive();
+        if let Some((count, ms)) = run.gate() {
+            run.gate_runs = Some(count);
+            run.gate_ms = Some(ms);
         }
     }
 
@@ -617,14 +631,10 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
 /// The lines of the progress stream the run is read from, in one pass: the
 /// steps from its stable `step-started` lines (each step ends where the next
 /// begins, the last where the run ended), and its runs of the gate from the
-/// stable `verify-completed` lines. `steps` is asked for only when the result
-/// held none, but the gate rows are always read: no result holds them.
-fn stream_lines(
-    log: &Path,
-    issue: i64,
-    ended: Option<i64>,
-    want_steps: bool,
-) -> (Vec<Step>, Vec<GateRun>) {
+/// stable `verify-completed` lines. The caller keeps the steps only where the
+/// result held none; the gate rows are always read, because no result holds
+/// them.
+fn stream_lines(log: &Path, issue: i64, ended: Option<i64>) -> (Vec<Step>, Vec<GateRun>) {
     let Some(file) = plain_file(log) else {
         return (Vec::new(), Vec::new());
     };
@@ -632,6 +642,11 @@ fn stream_lines(
     let mut gates: Vec<GateRun> = Vec::new();
     for line in BufReader::new(file.take(MAX_STREAM)).lines() {
         let Ok(line) = line else { break };
+        // The two kinds this reader keeps, named once, so a line that holds
+        // neither costs a substring test and no parse.
+        if !(line.contains("step-started") || line.contains("verify-completed")) {
+            continue;
+        }
         let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -650,34 +665,36 @@ fn stream_lines(
         let Some(ev) = o.get("event").and_then(Value::as_object) else {
             continue;
         };
-        if kind == Some("step-started") {
-            if !want_steps {
-                continue;
+        match kind {
+            Some("step-started") => {
+                let (Some(step), Some(at)) = (word(ev, "step", 80), number(ev, "at")) else {
+                    continue;
+                };
+                starts.push((step, at));
             }
-            let (Some(step), Some(at)) =
-                (word(ev, "step", 80), ev.get("at").and_then(Value::as_i64))
-            else {
-                continue;
-            };
-            starts.push((step, at));
-            continue;
+            // A run of the gate that named no time, or no time this program
+            // will publish, is no figure. The runner has never named the kind
+            // of the gate it ended in its stable vocabulary (see the manual's
+            // line for it), so tehas reads both the word it does name for the
+            // command and the `tier` word a runner may answer with.
+            Some("verify-completed") => {
+                if gates.len() >= MAX_GATE_RUNS {
+                    break;
+                }
+                let Some(ms) = bounded(ev, "ms", MAX_GATE_MS) else {
+                    continue;
+                };
+                gates.push(GateRun {
+                    command: word(ev, "command", 200),
+                    tier: word(ev, "target.kind", 40).or_else(|| word(ev, "tier", 40)),
+                    step: word(ev, "step", 80),
+                    ok: ev.get("ok").and_then(Value::as_bool),
+                    ms: Some(ms),
+                    at: number(ev, "at").map(|at_ms| at_ms / 1000),
+                });
+            }
+            _ => {}
         }
-        // A run of the gate that named no time is no figure, and one that gave
-        // no word for what it ran is no tier: neither is kept.
-        let Some(ms) = number(ev, "ms") else {
-            continue;
-        };
-        if gates.len() == MAX_GATE_RUNS {
-            continue;
-        }
-        gates.push(GateRun {
-            command: word(ev, "command", 200),
-            tier: word(ev, "target.kind", 40).or_else(|| word(ev, "tier", 40)),
-            step: word(ev, "step", 80),
-            ok: ev.get("ok").and_then(Value::as_bool),
-            ms: Some(ms),
-            at: ev.get("at").and_then(Value::as_i64).map(|ms| ms / 1000),
-        });
     }
     let mut steps = Vec::new();
     for (i, (step, at)) in starts.iter().enumerate() {
@@ -695,17 +712,6 @@ fn stream_lines(
         });
     }
     (steps, gates)
-}
-
-/// The sum of milliseconds is a figure only when the run made a gate run.
-trait Positive {
-    fn positive(self) -> Option<i64>;
-}
-
-impl Positive for i64 {
-    fn positive(self) -> Option<i64> {
-        (self > 0).then_some(self)
-    }
 }
 
 /// The newest logs/work-<issue>-*.jsonl written since the run started, as
@@ -810,6 +816,13 @@ fn plain_model(s: &str) -> Option<String> {
 
 fn number(o: &Map<String, Value>, key: &str) -> Option<i64> {
     o.get(key).and_then(Value::as_i64).filter(|n| *n >= 0)
+}
+
+/// A whole number of no more than `max`, which is how a figure the report
+/// publishes is read: a value above it is no figure rather than a bound the
+/// published report cannot hold.
+fn bounded(o: &Map<String, Value>, key: &str, max: i64) -> Option<i64> {
+    number(o, key).filter(|n| *n <= max)
 }
 
 fn pattern(p: &str) -> Regex {

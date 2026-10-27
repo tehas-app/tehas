@@ -4,9 +4,10 @@
 -- seconds, unless a name says ms. The test schema_is_pinned compares this
 -- with schema.pinned.
 
--- One row per run, written when the run ends. gate_runs and gate_ms are what
--- the cycle's stream said of its runs of the product's gate: schema 2 holds
--- gate_ms alone, and the number is the count of these rows.
+-- One row per run, written when the run ends. gate_runs is how many runs of
+-- the product's gate the cycle made and gate_ms their milliseconds in all, as
+-- its stream said; both are NULL when it recorded none, which is no gate rather
+-- than a gate of no time, and 0 is not stored.
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('work', 'plan')),
@@ -58,7 +59,10 @@ CREATE INDEX runs_issue ON runs (issue, started);
 -- gate's own time, not the wait for another run of it that held the
 -- container's CPU share. The gate of one cycle is a handful of rows, never a
 -- stream of them, so the bound is a guard against a runner that lost its mind
--- and is not read as a figure.
+-- and is not read as a figure. The report reads its figures from the two gate
+-- columns of runs, not from these rows: they are the per-run detail, for a
+-- reader who fetches a copy. Per-run reads walk the primary key, so there is
+-- no index of their own here.
 CREATE TABLE run_gate_runs (
   run_id TEXT NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
   seq INTEGER NOT NULL,
@@ -70,7 +74,6 @@ CREATE TABLE run_gate_runs (
   at INTEGER,
   PRIMARY KEY (run_id, seq)
 );
-CREATE INDEX run_gate_runs_run ON run_gate_runs (run_id, at);
 
 -- The steps of a run. round is the step's turn in the run: 1 the first
 -- time it ran, 2 the second.
