@@ -84,6 +84,11 @@ when a person pulls and runs `install.sh` there.
   bash to Rust lowers the ceiling to the new count. A raise is a person's
   call: its pull request says why the logic cannot go into Rust now and
   names the issue that takes the lines out again.
+- Keep jq to a minimum too. Do not add a jq program where the logic can live
+  in Rust, and when you touch one that holds logic, consider moving it into
+  Rust. jq is not the same version everywhere: until one jq is pinned on
+  hosts, in the sandbox image and in CI (tehas-app/tehas#860), a jq program
+  must also run on jq 1.7, the sandbox image's.
 - Rust: as `cargo fmt` leaves it, and `cargo clippy` clean with no blanket
   allows. No `unsafe`. Builds and tests use `--locked`.
 - Prose in comments, the manual and commit messages: plain and direct, short
