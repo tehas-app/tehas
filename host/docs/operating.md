@@ -449,18 +449,26 @@ that as its `poll` field, and its plain output prints the line of words below
 the millwright's. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
 
-`~/tehas/libexec/store poll-idle --since <seconds>` answers one object over the
-polls of the last `<seconds>` that started no cycle: `{"polls": n, "cpu_ms": m,
-"wall_ms": m, "writes": m}`, the three `m` being the median of those polls. The
-`writes` figure is left out when none of them had a write log, and `{"polls":
-0}` is the answer when no idle poll is on record. A poll with no `starts` on its
-row is not one of them. The health check uses it for the budget of idle polls.
+`~/tehas/libexec/store poll-idle --since <seconds> [--budget <spec>]` answers
+one object over the polls of the last `<seconds>` that started no cycle:
+`{"polls": n, "cpu_ms": m, "wall_ms": m, "writes": m}`, the three `m` being the
+median of those polls. The `writes` figure is left out when none of them had a
+write log, and `{"polls": 0, "over": []}` is the answer when no idle poll is on
+record. A poll with no `starts` on its row is not one of them.
+
+`--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
+out, each figure a whole number of at most 9 digits: the answer gains `"over":
+[...]`, the names of the figures whose median was over its budget, and without
+`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
+check, and warns when the list is not empty; see [the health
+file](/tools#the-health-file).
 
 ### The dispatcher's shadow
 
 `tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
 each poll of `tehas-dispatch.service` while `~/tehas/state/dispatch-shadow.on`
-is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the bash poll
+is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the poll
 still does the work. It asks what the poll asks to read, the model endpoints'
 `/models` among them, and, only when an issue it would start needs one, the
 model's answer to a one-pixel image and the sandbox image's
@@ -498,6 +506,10 @@ On this repository's queue it costs about 9 s of wall time before each poll,
 proven and not on every host. A host where `libexec/tehas-dispatch` is not
 installed, or the file is not there, polls as before; the shadow failing never
 fails the poll.
+
+The shadow is for a host that runs the bash poll (`TEHAS_DISPATCHER=bash`).
+Beside the Rust poll, which is the default, it only sets the Rust's decision
+beside itself.
 
 ### The cycle's shadow
 
@@ -882,8 +894,7 @@ its own login stops there and does nothing else.
 
 ### The dispatcher in Rust
 
-`TEHAS_DISPATCHER=rust` in `instance.env` hands every poll to
-`~/tehas/libexec/tehas-dispatch poll`, once `libexec/dispatch` has checked
+Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `libexec/dispatch` has checked
 the settings, the model keys and the checkout. It is the same poll, in the
 same order and with the same lines in `logs/dispatch.log`: the lock, the
 snapshot of the queue (one GraphQL query in pages of 100 where the bash poll
@@ -893,8 +904,13 @@ events read on their own, as the bash reads them), the decision, the actions, an
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. `bash`, or leaving the setting out, is
-the bash poll. A value of neither is exit 78.
+or as not done, and never made again. A failed read of GitHub ends the poll
+with a line that names gh's error by words of a fixed list only (`HTTP 502`,
+`rate limit`, `timed out`), as the bash poll's does.
+
+`TEHAS_DISPATCHER=bash` in `instance.env` runs the bash poll,
+`libexec/dispatch`, instead, until it is removed. `rust`, or leaving the
+setting out, is the Rust poll. A value of neither is exit 78.
 
 Where it differs from the bash poll:
 
@@ -906,6 +922,9 @@ Where it differs from the bash poll:
   reads them again after its own planning writes.
 - A closed issue is not in the query, so the poll says nothing of it; the
   bash poll, which reads each issue again, logs `skip #N: it is closed`.
+- A paused poll reads the queue and what its clean-up needs, and no more: not
+  the comments, parks, approvals and blockers of the issues it would decide
+  on. The bash poll reads less, as it reads each list when it gets to it.
 - An open issue marked `tehas:planning` with no planning session on record
   gets `needs-human-attention` in place of the mark and a comment that says
   to apply `tehas:plan` again, as an issue marked `tehas:running` with no
@@ -914,9 +933,9 @@ Where it differs from the bash poll:
   behind it. The issue is read again first. The bash poll leaves such an
   issue as it is.
 
-It is not the default, and not proven on a host yet (see
-[features.md](features.md)). To go back, take the line out of
-`instance.env`: the next poll is the bash poll.
+It ran tehas-tehas's queue for seven days before it became the default (see
+[features.md](features.md)). To go back to the bash poll, set
+`TEHAS_DISPATCHER=bash`: the next poll is the bash poll.
 
 ### Refining a request
 

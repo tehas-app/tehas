@@ -22,12 +22,15 @@
 //!     `last` is null when no poll is on record, and `writes` is null when
 //!     neither the poll nor the hour has a write on it: no write log, so no
 //!     count. An hour with no poll is {polls: 0, cpuMs: 0, writes: null}.
-//!   store poll-idle --since <seconds>
+//!   store poll-idle --since <seconds> [--budget <spec>]
 //!     The median wall, CPU and write cost of the polls of the last
 //!     <seconds> that started no cycle, as one object: {"polls": n, "cpu_ms":
 //!     m, "wall_ms": m, "writes": m}. The writes are left out when none of
 //!     those polls had a write log; {"polls": 0} is the answer when none is on
 //!     record. A row with no --starts on it is unknown and is left out.
+//!     --budget is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any key
+//!     left out, and the answer gains `"over": [...]`, the names whose median
+//!     is over its budget; with no --budget there is no `over`.
 
 use crate::verbs::{self, j, line, obj, Args, Fail, Kind, Q};
 use rusqlite::{params, OptionalExtension};
@@ -61,11 +64,66 @@ pub struct Record {
     pub starts: Option<i64>,
 }
 
-/// `poll-idle --since <seconds>`: the polls of the last `since` that started
-/// no cycle.
+/// `poll-idle --since <seconds> [--budget <spec>]`: the polls of the last
+/// `since` that started no cycle. A median over its budget names itself in
+/// `over`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Idle {
     pub since: i64,
+    /// The most each figure may be, from --budget, in the figure's own unit:
+    /// milliseconds for the two times. A key the spec left out is None.
+    pub budget: Option<Budget>,
+}
+
+/// The ceiling of one figure of an idle poll.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Budget {
+    pub cpu_ms: Option<i64>,
+    pub wall_ms: Option<i64>,
+    pub writes: Option<i64>,
+}
+
+/// The names --budget takes: its word, the figure it bounds, and the name of
+/// that figure in the answer. The figures of one poll are read in this order.
+type Figure = (&'static str, fn(&Budget) -> Option<i64>, &'static str);
+const BUDGETS: [Figure; 3] = [
+    ("cpu", |b| b.cpu_ms, "cpu_ms"),
+    ("wall", |b| b.wall_ms, "wall_ms"),
+    ("writes", |b| b.writes, "writes"),
+];
+
+/// The seconds of --budget, in milliseconds. A whole number of at most nine
+/// digits whose thousand still stands: the same grammar as every other count
+/// of the store, so `1.5` and `1e3` are no seconds.
+fn secs_budget(s: &str) -> Option<i64> {
+    verbs::count(s)?.checked_mul(1000)
+}
+
+/// --budget: `cpu=<seconds>,wall=<seconds>,writes=<count>`. Any key may be
+/// left out; nothing else is, and no key is given twice.
+fn budget(s: &str) -> Option<Budget> {
+    if s.is_empty() {
+        return None;
+    }
+    let mut b = Budget::default();
+    for part in s.split(',') {
+        let (key, v) = part.split_once('=')?;
+        let slot = match key {
+            "cpu" => &mut b.cpu_ms,
+            "wall" => &mut b.wall_ms,
+            "writes" => &mut b.writes,
+            _ => return None,
+        };
+        if slot.is_some() {
+            return None;
+        }
+        *slot = Some(if key == "writes" {
+            verbs::count(v)?
+        } else {
+            secs_budget(v)?
+        });
+    }
+    Some(b)
 }
 
 /// The most of the write log read: its end, where a poll's lines are.
@@ -109,13 +167,18 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 now: a.strict("--now", "a Unix time", verbs::unix)?,
             }))
         }),
-        "poll-idle" => {
-            Args::parse("poll-idle", rest, &[("--since", Kind::Value)], false).and_then(|a| {
-                Ok(Call::Idle(Idle {
-                    since: a.strict_need("--since", "a number of seconds", verbs::count)?,
-                }))
-            })
-        }
+        "poll-idle" => Args::parse(
+            "poll-idle",
+            rest,
+            &[("--since", Kind::Value), ("--budget", Kind::Value)],
+            false,
+        )
+        .and_then(|a| {
+            Ok(Call::Idle(Idle {
+                since: a.strict_need("--since", "a number of seconds", verbs::count)?,
+                budget: a.strict("--budget", "cpu=<s>,wall=<s>,writes=<n>", budget)?,
+            }))
+        }),
         _ => return None,
     })
 }
@@ -387,7 +450,13 @@ fn idle(home: &Path, i: &Idle, now: i64) -> Result<String, Fail> {
         }
         let polls = wall.len() as i64;
         if polls == 0 {
-            return Ok(line("poll-idle", &[("polls", j(0))]));
+            return Ok(line(
+                "poll-idle",
+                &[
+                    ("polls", j(0)),
+                    ("over", j(over_of(i.budget.as_ref(), &[]))),
+                ],
+            ));
         }
         for v in [&mut wall, &mut cpu] {
             v.sort_unstable();
@@ -399,12 +468,34 @@ fn idle(home: &Path, i: &Idle, now: i64) -> Result<String, Fail> {
         ];
         // The writes only when one of the polls had a log to count: with no
         // write log on the host the figure would say nothing.
-        if !writes.is_empty() {
+        let kinds = if writes.is_empty() {
+            &[][..]
+        } else {
             writes.sort_unstable();
             pairs.push(("writes", j(median(&writes))));
-        }
+            &writes[..]
+        };
+        pairs.push(("over", j(over_of(i.budget.as_ref(), &[&cpu, &wall, kinds]))));
         Ok(line("poll-idle", &pairs))
     })
+}
+
+/// The name of each figure over its budget. `figures` holds the figures of
+/// the idle polls in the order of [`BUDGETS`], an empty one for a figure the
+/// answer gives no median of; None for a verb given no --budget.
+fn over_of(b: Option<&Budget>, figures: &[&[i64]]) -> Option<Vec<&'static str>> {
+    let b = b?;
+    Some(
+        BUDGETS
+            .iter()
+            .zip(figures)
+            .filter(|((_, get, _), sorted)| match ((get)(b), median(sorted)) {
+                (Some(limit), Some(m)) => m > limit,
+                _ => false,
+            })
+            .map(|((name, _, _), _)| *name)
+            .collect(),
+    )
 }
 
 /// `ageMin` of the API's poll object: whole minutes since the poll ended,

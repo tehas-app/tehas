@@ -31,12 +31,37 @@ None.
   lines). What those first steps say goes to standard error, and
   `models.json` is written with its keys sorted. From a checkout with no built
   console, setup builds it with cargo first.
+- A planned issue's title is the work in full. The first turn asks the console
+  for its descriptor (`console plan descriptor`, `console/plan.rs`) instead of
+  cutting the brief's first line and adding `(issue #<n>)` to it: the number
+  goes on only when the title has fewer than six words and the whole still
+  fits what pi-rukas keeps of a title, so a long title is never cut at a word
+  boundary. A brief whose first line is `Title: <text>` is named by `<text>`,
+  so a half of a split is named for its own work and not the whole issue it
+  came from (#899).
 - With `TEHAS_DISPATCHER=rust`, an open issue marked `tehas:planning` with no
   planning session on record is handed to a person: it gets
   `needs-human-attention` in place of the mark and a comment to apply
   `tehas:plan` again. GitHub can make a label change and still answer it as
   failed; the poll then took its turn back and the mark stayed, holding the
   issue and those blocked by it.
+- With `TEHAS_DISPATCHER=rust`, a paused poll no longer reads the comments,
+  parks, approvals and blockers of the issues it would decide on: only the
+  queue and what its clean-up needs (#254).
+- The dispatcher in Rust is the default: every poll is `tehas-dispatch poll`.
+  It ran beside the bash poll as a shadow on tehas-tehas from 2026-10-26, and
+  has run its queue since 2026-10-27. A failed read of GitHub names gh's
+  error by the same fixed words as the bash poll's line (#254).
+- `tehasbot health` warns when an idle poll costs more than its budget
+  (`checks.poll_cost`): the medians of the last hour's polls that started no
+  cycle, against `TEHAS_POLL_BUDGET`, by default `cpu=5,wall=30,writes=0`
+  (#744).
+- Gates side by side do not oversubscribe the host: the test runner holds
+  back a new test file while the load average is at least the host's CPUs,
+  where it was 1.5 times (#869).
+- The MCP server has an eleventh tool, `factory_outcomes`: counts of how the
+  runs ended for a year back, per version pair or per UTC week, from the
+  analytics (#838).
 - A park's comment offers a third box, **Retry from the issue alone**: a
   retry whose start names no comment of the issue or of its pull request, for
   when the discussion is what keeps a cycle stopping (#717).
@@ -55,7 +80,9 @@ None.
 ### Adopter action
 
 None. A host that wants more cycles side by side sets
-`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it.
+`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it. To keep the
+bash poll for now, set `TEHAS_DISPATCHER=bash` in `instance.env`; it is
+removed in a later release.
 
 ## v0.14.5 (2026-10-27)
 
@@ -87,6 +114,16 @@ None. A host that wants more cycles side by side sets
   is seen to be likely to stop the same way (#716).
 - AGENTS.md: the rule that jq programs must also run on jq 1.7 goes, now
   that hosts, the sandbox image and CI all run jq 1.8.1 (#867).
+- The health check says when a poll that started nothing costs too much.
+  `tehasbot health` asks the state store for the medians of the polls of the
+  last hour that started no cycle and writes them as `checks.poll_cost`, and
+  the file is `warn` with the figures over their budget named in `output`. The
+  budget is the instance's `TEHAS_POLL_BUDGET`
+  (`cpu=<s>,wall=<s>,writes=<n>`, any part left out, default
+  `cpu=5,wall=30,writes=0`). `store poll-idle` takes it as `--budget` and
+  answers the names over it as `over`; without the flag its answer has none.
+  A store that answers nothing leaves the check out rather than say it passed
+  (#744).
 
 ### Adopter action
 

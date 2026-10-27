@@ -512,7 +512,7 @@ t_store_home() {
     return 1
   fi
   mkdir -p "$1/libexec"
-  rm -f "$1/libexec/store" "$T/store-answers.n"
+  rm -f "$1/libexec/store" "$T/store-answers.n" "$T/calls/store"
   ln "$T_STORE" "$1/libexec/store" 2>/dev/null || cp "$T_STORE" "$1/libexec/store"
   t_store_db "$1" || t_bad "the store's init failed in $1"
   # A command that runs the store reads an issue's attachments in the same home.

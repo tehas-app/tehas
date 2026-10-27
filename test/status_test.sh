@@ -1675,4 +1675,106 @@ t_run "$health"
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -r .output "$live/health.json")" "The newest backup of the state store is 72 h old."
 
+# The cost of the polls that started nothing, read from the state store beside
+# the backup. A poll of the factory the plan of #730 describes costs about 3 s
+# of CPU and 20 s of wall, so the default budget of cpu=5,wall=30,writes=0
+# leaves it alone and warns at one that costs more than that.
+poll_record() { # <cpu_seconds> <wall_seconds> [WRITES] [STARTS]: one poll of
+# the hour on record, whose CPU time is the four figures bash's `times` writes
+# (so a quarter of the figure each, which the store adds back) and whose wall
+# time is the second it names, asked of the store's own clock. WRITES left out
+# is no write log at all, which leaves the figure off the answer; 0 is a log of
+# none, which the store says as none and no budget of writes can be over.
+  local cpu=$1 wall=$2 writes=${3-} starts=${4:-0} q ms n now
+  now=$(date +%s)
+  q=$((cpu * 250))
+  printf '0m%s.%03ds 0m%s.%03ds\n0m%s.%03ds 0m%s.%03ds\n' \
+    "$((q / 1000))" "$((q % 1000))" "$((q / 1000))" "$((q % 1000))" \
+    "$((q / 1000))" "$((q % 1000))" "$((q / 1000))" "$((q % 1000))" >"$T/poll.times"
+  : >"$T/poll.tally"
+  rm -f "$T/poll.writes"
+  if [ -n "$writes" ]; then
+    : >"$T/poll.writes"
+    ms=$(date -u -d "@$now" +%Y-%m-%dT%H:%M:%SZ)
+    for ((n = 0; n < writes; n++)); do
+      printf '%s\tissue edit\t\n' "$ms" >>"$T/poll.writes"
+    done
+  fi
+  # The wall time is the difference of the two times the store reads from its
+  # own clock, so both name the same second and the figure is the one asked for.
+  t_at "$now" poll-record --started "$((now - wall))" --times "$T/poll.times" \
+    --tally "$T/poll.tally" --writes-log "$([ -n "$writes" ] && printf %s "$T/poll.writes" || printf %s "$T/no-such.log")" \
+    --starts "$starts" >/dev/null || t_bad "no poll recorded"
+}
+
+t_case "an idle poll within the budget is no warning, and the check is on record"
+reset
+poll_record 3 20
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -rc .checks.poll_cost "$live/health.json")" '{"over":[],"budget":"cpu=5,wall=30,writes=0"}'
+
+t_case "an idle poll over its CPU budget warns and names only that figure"
+reset
+poll_record 6 20
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '["cpu"]'
+t_eq "$(jq -r .output "$live/health.json")" \
+  "An idle poll is over its budget on cpu (TEHAS_POLL_BUDGET=cpu=5,wall=30,writes=0)."
+
+t_case "an idle poll over all three budgets names them in the order of the spec"
+reset
+poll_record 6 40 2
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '["cpu","wall","writes"]'
+
+t_case "a poll of a write log that holds none passes the writes of the default budget"
+reset
+poll_record 3 20 0
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '[]'
+
+t_case "one write is over the writes the default budget allows, which are none"
+reset
+poll_record 3 20 1
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '["writes"]'
+
+# The budget the instance set is the one the store is asked to measure against,
+# and the health file carries it so a reader sees the figures beside their
+# ceiling. The stub of the verb gives an over figure so the case does not lean
+# on the store's arithmetic, which the store's own tests cover.
+t_case "the budget of the instance is what the store is asked for, and the health file says it"
+reset
+t_store_answers poll-idle 0 '{"api":1,"ok":true,"verb":"poll-idle","polls":1,"cpu_ms":6000,"wall_ms":20000,"writes":0,"over":["cpu"]}'
+T_ENV=(TEHAS_INSTANCE_DIR="$T/budget-instance")
+mkdir -p "$T/budget-instance"
+printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_POLL_BUDGET=cpu=10,wall=10" >"$T/budget-instance/instance.env"
+poll_record 3 20
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" warn
+t_eq "$(jq -rc .checks.poll_cost "$live/health.json")" '{"over":["cpu"],"budget":"cpu=10,wall=10"}'
+t_contains "$(t_calls store)" "poll-idle --since 3600 --budget cpu=10,wall=10"
+T_ENV=()
+
+t_case "a poll that started a cycle is not an idle poll and costs no warning"
+reset
+poll_record 60 60 3 1
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -rc '.checks.poll_cost.over' "$live/health.json")" '[]'
+t_eq "$(jq -rc .checks.poll_cost.budget "$live/health.json")" cpu=5,wall=30,writes=0
+
+t_case "the store's refusal is no warning, and the health file says there was no check"
+reset
+poll_record 6 60
+t_store_answers poll-idle 1 'store: busy: the store is held'
+t_run "$status"
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_eq "$(jq -c .checks.poll_cost "$live/health.json")" null
+
 t_done

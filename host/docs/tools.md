@@ -114,6 +114,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_SIZE_MAX_FILES`          | unset                                    | Optional. The count of files an issue may name before the dispatcher holds it instead of starting it: see [Limits that hold work back](/operating#limits-that-hold-work-back). Unset, no issue is held for its size. A whole number of at least 1. The `sizes` figures of [tehas analytics](/analytics#size) say where to set it |
 | `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
 | `TEHAS_SIZE_MAX_LINES`          | `1000`                                   | Lines of an issue body the same measure reads. The pass costs more the more lines it holds, whatever their bytes, so the bound on bytes alone leaves a body of many short lines unbounded and this one leaves a body of one huge line unbounded: a start needs both. A whole number of at least 1 |
+| `TEHAS_POLL_BUDGET`             | `cpu=5,wall=30,writes=0`                 | The cost of one poll that started nothing: the medians of the idle polls of the last hour over it make `tehasbot health` warn (`checks.poll_cost`). `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part left out, each figure a whole number of at most 9 digits with no leading 0, else every command stops with 78. `tehasbot health` gives the value to `store poll-idle --budget` as it stands, so the rule is the store's own: what it would refuse stops the load instead of leaving the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -1027,10 +1028,24 @@ runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
 dispatcher, which writes it onto the issue and ends the session. Any other
 answer runs `--answer`. The first
-turn runs `plan "<title> (issue #<n>)" --start --context <brief>`, with
+turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
-turn never passes it: the session keeps it. The image must say `features.planTurns` in its `--capabilities`, or no turn
+turn never passes it: the session keeps it. The descriptor is the issue's title,
+and the `console` beside the command makes it (`console plan descriptor <brief>
+<issue>`, `console/plan.rs`): the text after the `# ` of the brief's first line,
+trimmed. A brief whose first line is `Title: <text>`, as a drafted plan writes
+one, is named by `<text>` instead, so a half of a split is named for its own
+work and not for the whole issue it was split from; a `Title:` lower in the body
+is the plan's text and names nothing. With no title to read at all the
+descriptor is `the work in .tehas/brief.md`. The issue's number is added, as
+` (issue #<n>)`, only when the title has fewer than six words - pi-rukas asks
+questions instead of planning below that, unless the descriptor carries a code
+name - and only while the whole still fits 62 characters, the 72 pi-rukas keeps
+of a title less the 10 of its longest prefix, `research: `. A long title is
+therefore never cut, and never given the number. The descriptor is also the
+title an **Update this issue** answer gives the issue, so a body that opens with
+`Title:` names the issue it is the text of. The image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
 
 `--keep` names a directory the session carries from one turn to the next. The
@@ -2433,7 +2448,7 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or systemd gave up on a tehas unit (`checks.units`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -2459,6 +2474,13 @@ checkout of a host that has one. It is `null` on a host with neither.
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
+
+`checks.poll_cost` is the cost of the polls of the last hour that started no
+cycle, measured against `TEHAS_POLL_BUDGET` by
+[`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
+where `over` names the figures whose median was over its budget (`cpu`, `wall`
+or `writes`) and `budget` is the value the instance runs with. It is `null`
+when the store gave no answer, which means the check did not run.
 
 `checks.units` names the tehas units systemd has failed
 (`systemctl --user --failed 'tehas-*'`), and is empty when there are none. A
@@ -3991,7 +4013,7 @@ default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
 it runs in, rounded up. The slowest files start first, from a short fixed list
 in the script, so none of them starts last and holds the run; the rest follow
 in name order and the lint of each file after them. While the host's load
-average is half again its CPUs, as when other runners share the machine, the
+average is at least its CPUs, as when other runners share the machine, the
 next task waits for one to end, and one task always runs. The timeouts below
 then measure a file's own time, not a queue.
 

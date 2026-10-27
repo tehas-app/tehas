@@ -145,10 +145,12 @@ snapped=$T/snapped-home
 rm -rf "$snapped"
 mkdir -p "$snapped/logs" "$snapped/mcp"
 echo '{"api":1}' >"$snapped/mcp/sessions.jsonl"
+echo '{"api":1,"by":"week"}' >"$snapped/mcp/outcomes.jsonl"
 t_run "TEHAS_HOME='$snapped' '$install'"
 t_eq "$t_rc" 0
 t_eq "$([ -f "$snapped/$install_marker" ] && echo there)" "there"
 t_eq "$(cat "$snapped/mcp/sessions.jsonl")" '{"api":1}'
+t_eq "$(cat "$snapped/mcp/outcomes.jsonl")" '{"api":1,"by":"week"}'
 
 t_case "the manual beside the front page is known as tehas's own, and gets the marker"
 fresh

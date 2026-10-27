@@ -20,7 +20,8 @@
 #       WARN line. Returns 0 when the program ended with 0, 1 when it failed
 #       (<file> then holds what it printed, if anything), and 2, writing
 #       nothing, where tehas_analytics would not call it: TEHAS_ANALYTICS is
-#       not on or the program is not installed.
+#       not on or the program is not installed. A caller of sessions or
+#       outcomes passes --out and a directory, and /dev/null for <file>.
 #
 #   tehas_analytics_run <issue> <attempt> <line> [<option>...]
 #       tehas_analytics run <issue> --facts <file> [<option>...], the facts of
