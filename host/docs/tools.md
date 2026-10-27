@@ -1022,7 +1022,7 @@ planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan, an answer that ticked
 **File this plan** runs `plan --resume <id> --confirm`, which files the plan
 as it was shown and nothing else; any other answer runs `--answer`. The first
-turn runs `plan "Plan issue #<n>: <title>" --start --context <brief>`. The
+turn runs `plan "<title> (issue #<n>)" --start --context <brief>`. The
 image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
 
