@@ -53,12 +53,6 @@
 #                                 tehas_improve_settings writes them:
 #                                 {container, host, concurrentCycles}; null when
 #                                 the cycle has none
-#   tehas_history_shape           a jq filter: of history-show's answer, each
-#                                 cycle row as the line of history it was before
-#                                 the store, one object per line: at and started
-#                                 as times, pr as the pull request's address.
-#                                 Needs $repo. tehas_history_line defines
-#                                 history_line, the same of one row
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -252,12 +246,3 @@ tehas_settings_shape='if (.settings | type) != "object" or (.settings | length) 
   | {container: ($s | with_entries(select(.key | startswith("PI_ENSEMBLE_")))),
      host: ($s | with_entries(select(.key | startswith("TEHAS_")))),
      concurrentCycles: ($s.concurrentCycles | if . == null then null else (tonumber? // null) end)} end'
-
-# shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
-tehas_history_line='def history_line:
-  {at: (.at | todate), started: .started_at, rc, status, step, cap, park_reason, failure_kind,
-   failure_cause, provider, parked,
-   pr: (if .pr == null then null else "https://github.com/\($repo)/pull/\(.pr)" end), by, how}
-  | with_entries(select(.value != null and .value != ""));'
-# shellcheck disable=SC2034  # read by the caller
-tehas_history_shape="$tehas_history_line"' .rows[] | select(.kind == "cycle") | history_line'

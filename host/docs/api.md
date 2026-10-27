@@ -281,7 +281,7 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
     "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
-    "provider": false, "parked": true, "by": "alice", "how": "label"},
+    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
    {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
     "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
@@ -292,8 +292,11 @@ tehas history [--json] [--after CURSOR] [--issue N]
 What has ended, oldest first: one line for each cycle and each planning turn,
 in the order the state store wrote them.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. It reads the history of both from the state store, and
-nothing else: no network, no lock a running cycle holds, and it writes
+the two the same way. `repeat` is on the park of a run of parks only: the parks
+in a row that stopped exactly as this one did, this one not counted, so 1 on the
+first repeat. A line of a listing that begins partway through a run counts only
+the parks the listing holds. It reads the history of both from the state store,
+and nothing else: no network, no lock a running cycle holds, and it writes
 nothing. A line it cannot read is left out, not an error. A store that does
 not answer prints nothing: never a listing without the cycles.
 
