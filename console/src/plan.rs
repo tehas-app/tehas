@@ -8,9 +8,14 @@
 //!   console plan update <session> <keep>
 //!       the issue's {title, body} on standard input, as gh issue view gives
 //!       them, and the draft in <keep>/draft.json.
+//!   console plan descriptor <brief> <issue>
+//!       the one line the first turn of libexec/plan plans, read from <brief>
+//!       (what plan_brief writes: `# <title>`, a blank line, then the body)
+//!       and the issue's number. See descriptor for how the line is made.
 //!
-//! Each prints the --out document of libexec/plan. Exit 0 printed, 1 nothing
-//! to print (why on standard error), 2 a usage error.
+//! Each prints the --out document of libexec/plan, except descriptor, which
+//! prints its one line. Exit 0 printed, 1 nothing to print (why on standard
+//! error), 2 a usage error.
 
 use serde_json::{json, Value};
 use std::io::Read;
@@ -18,6 +23,16 @@ use std::path::Path;
 
 /// A GitHub comment holds 65,536 characters; the plan is cut well before.
 const CLIP: usize = 40_000;
+/// pi-rukas keeps a plan's title to 72 characters in all, its prefix included,
+/// and its longest prefix, `research: `, is 10 of them.
+const TITLE_BUDGET: usize = 62;
+/// Below this many words pi-rukas asks questions instead of planning, unless
+/// the descriptor carries a code name, which tehas cannot know it has.
+const MIN_WORDS: usize = 6;
+/// The longest suffix tehas adds: ` (issue #n)` with a five-digit number.
+const MAX_SUFFIX: usize = 13;
+/// What a turn is asked to plan when the brief holds no title at all.
+const NO_TITLE: &str = "the work in .tehas/brief.md";
 const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
 const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
@@ -35,6 +50,15 @@ pub fn main(given: &[String]) -> u8 {
             let _ = std::io::stdin().read_to_string(&mut input);
             update(session, Path::new(keep), &input)
         }
+        [verb, brief, issue] if verb == "descriptor" => {
+            if issue.is_empty() || !issue.bytes().all(|b| b.is_ascii_digit()) {
+                return usage();
+            }
+            match std::fs::read_to_string(brief) {
+                Ok(text) => Ok(descriptor(&text, issue)),
+                Err(_) => return usage(),
+            }
+        }
         _ => return usage(),
     };
     match done {
@@ -51,7 +75,7 @@ pub fn main(given: &[String]) -> u8 {
 
 fn usage() -> u8 {
     eprintln!(
-        "console plan: usage: outcome <runner exit> <session> <keep> | update <session> <keep>"
+        "console plan: usage: outcome <runner exit> <session> <keep> | update <session> <keep> | descriptor <brief> <issue>"
     );
     2
 }
@@ -189,6 +213,61 @@ pub fn outcome(rc: i64, session: &str, keep: &Path, doc: &str) -> Result<String,
         return Err("the turn said and asked nothing".into());
     }
     Ok(document(session, &text, &question, &filed, ""))
+}
+
+/// The first line of the brief, which is its `# ` heading, without the marker.
+fn heading(brief: &str) -> Option<&str> {
+    let line = brief.lines().next()?.trim_start_matches('\u{feff}');
+    let rest = line.strip_prefix('#')?;
+    Some(if rest.starts_with([' ', '\t']) {
+        rest.trim_start_matches([' ', '\t'])
+    } else {
+        rest
+    })
+}
+
+/// The text of the first line when it names the issue outright, as a drafted
+/// plan does: `Title: <text>`. A `Title:` later in the body is the plan's own
+/// text and names nothing.
+fn named(brief: &str) -> Option<&str> {
+    let line = brief.lines().next()?.trim_start_matches('\u{feff}').trim();
+    let rest = line.strip_prefix("Title:")?;
+    Some(if rest.starts_with([' ', '\t']) {
+        rest.trim_start_matches([' ', '\t'])
+    } else {
+        rest
+    })
+}
+
+/// Words as a shell counts them: runs of characters between spaces.
+fn words(s: &str) -> usize {
+    s.split_whitespace().count()
+}
+
+/// What the first turn of libexec/plan plans, on one line: the issue's title,
+/// or the drafted plan's own `Title:` line when the brief opens with one, so a
+/// half of a split is named for its own work and not its parent's. The issue's
+/// number goes on only when the name is too short for pi-rukas to plan from
+/// (MIN_WORDS) and still fits what pi-rukas keeps of a title (TITLE_BUDGET).
+pub fn descriptor(brief: &str, issue: &str) -> String {
+    let named = named(brief).unwrap_or("").trim();
+    let heading = heading(brief).unwrap_or("").trim();
+    let said = if !named.is_empty() {
+        named
+    } else if !heading.is_empty() {
+        heading
+    } else {
+        NO_TITLE
+    };
+    let suffix = format!(" (issue #{issue})");
+    // Sized off the longest suffix and not this one: a short number here must
+    // not let a long one through when the same brief names a later issue.
+    let room = said.chars().count() + MAX_SUFFIX <= TITLE_BUDGET;
+    if words(said) < MIN_WORDS && room {
+        format!("{said}{suffix}")
+    } else {
+        said.to_string()
+    }
 }
 
 /// The drafted plan as the issue's new text, and the comment that ends the
@@ -345,6 +424,103 @@ mod tests {
         let t = v["text"].as_str().unwrap();
         assert!(t.ends_with("(cut: the plan is longer than a comment holds)"));
         assert!(t.chars().count() < 41_000);
+    }
+
+    #[test]
+    fn a_descriptor_is_the_title_itself_when_it_is_long_enough() {
+        // 58 characters, 10 words: the title, with nothing added to it.
+        let title = "Implement a Rust renderer for the review issue comment bod";
+        assert_eq!(title.chars().count(), 58);
+        assert_eq!(words(title), 10);
+        assert_eq!(descriptor(&format!("# {title}\n\nBody.\n"), "883"), title);
+    }
+
+    #[test]
+    fn a_short_descriptor_names_the_issue_and_a_title_later_says_nothing() {
+        assert_eq!(
+            descriptor("# Faster search\n\nMake it fast.\n", "7"),
+            "Faster search (issue #7)"
+        );
+        // A Title: line that is not the first line is the plan's own text.
+        assert_eq!(
+            descriptor("# Faster search\n\nTitle: Something else\n", "7"),
+            "Faster search (issue #7)"
+        );
+        // Five words still asks for the number, and the room is measured off
+        // the longest suffix, so a small number here is not a licence for a
+        // large one: 21 + 13 is 34, well inside the budget.
+        assert_eq!(
+            descriptor("# Make it fast now then\n", "12345"),
+            "Make it fast now then (issue #12345)"
+        );
+    }
+
+    #[test]
+    fn a_title_line_of_a_draft_names_the_issue_it_is_filed_for() {
+        assert_eq!(
+            descriptor(
+                "Title: A Rust renderer of the review issue\n\n# The parent\n\nBody.\n",
+                "883"
+            ),
+            "A Rust renderer of the review issue"
+        );
+        // Named, yet short: the number still goes with it.
+        assert_eq!(
+            descriptor("Title: Faster search\n", "7"),
+            "Faster search (issue #7)"
+        );
+    }
+
+    #[test]
+    fn a_descriptor_with_no_title_at_all_says_where_the_work_is() {
+        // The fallback has 4 words, so the number goes with it: 27 + the
+        // longest suffix, 13, is 40, inside the budget of 62.
+        assert_eq!(NO_TITLE.chars().count() + MAX_SUFFIX, 40);
+        assert_eq!(words(NO_TITLE), 4);
+        let named = "the work in .tehas/brief.md (issue #7)";
+        assert_eq!(descriptor("\nMake it fast.\n", "7"), named);
+        assert_eq!(descriptor("#\n\nBody.\n", "7"), named);
+        assert_eq!(descriptor("# \t\n\nBody.\n", "7"), named);
+        assert_eq!(descriptor("", "7"), named);
+        assert_eq!(
+            descriptor("#\n", "12345"),
+            "the work in .tehas/brief.md (issue #12345)"
+        );
+    }
+
+    #[test]
+    fn a_short_title_with_no_room_for_the_suffix_is_left_as_it_is() {
+        // Ten words, 54 characters: the longest suffix would make 67, and
+        // this number's own 65, both over what pi-rukas keeps. The rule reads
+        // the longest, so the number is left off although the title is too
+        // short to plan from.
+        let wide = "the renderer for the review issue comment body no more";
+        assert_eq!(words(wide), 10);
+        assert_eq!(wide.chars().count(), 54);
+        assert_eq!(descriptor(&format!("# {wide}\n"), "7"), wide);
+        assert_eq!(descriptor(&format!("# {wide}\n"), "12345"), wide);
+        // The suffix is never invented for a title of its own right: a Title:
+        // line too short to plan from and too long for the number keeps its
+        // text, and the heading under it names nothing.
+        let named = "Title: the renderer for the review issue comment body no more";
+        assert_eq!(words(named) - 1, 10);
+        assert_eq!(descriptor(&format!("{named}\n\n# The parent\n"), "7"), wide);
+        // Five words with room for the longest suffix: 28 + 13 is 41, so the
+        // number goes with them.
+        let few = "the renderer for this review";
+        assert_eq!(words(few), 5);
+        // pi-rukas asks below six words, and five is below six.
+        assert!(words(few) < MIN_WORDS);
+        assert_eq!(few.chars().count(), 28);
+        assert_eq!(
+            descriptor(&format!("# {few}\n"), "7"),
+            "the renderer for this review (issue #7)"
+        );
+        // Seven words is enough to plan from on its own: the same title, with
+        // two words more, is handed over as it is.
+        let said = "the renderer for this review today now and then";
+        assert_eq!(words(said), 9);
+        assert_eq!(descriptor(&format!("# {said}\n"), "7"), said);
     }
 
     #[test]

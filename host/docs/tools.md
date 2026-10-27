@@ -1028,10 +1028,24 @@ runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
 dispatcher, which writes it onto the issue and ends the session. Any other
 answer runs `--answer`. The first
-turn runs `plan "<title> (issue #<n>)" --start --context <brief>`, with
+turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
-turn never passes it: the session keeps it. The image must say `features.planTurns` in its `--capabilities`, or no turn
+turn never passes it: the session keeps it. The descriptor is the issue's title,
+and the `console` beside the command makes it (`console plan descriptor <brief>
+<issue>`, `console/plan.rs`): the text after the `# ` of the brief's first line,
+trimmed. A brief whose first line is `Title: <text>`, as a drafted plan writes
+one, is named by `<text>` instead, so a half of a split is named for its own
+work and not for the whole issue it was split from; a `Title:` lower in the body
+is the plan's text and names nothing. With no title to read at all the
+descriptor is `the work in .tehas/brief.md`. The issue's number is added, as
+` (issue #<n>)`, only when the title has fewer than six words - pi-rukas asks
+questions instead of planning below that, unless the descriptor carries a code
+name - and only while the whole still fits 62 characters, the 72 pi-rukas keeps
+of a title less the 10 of its longest prefix, `research: `. A long title is
+therefore never cut, and never given the number. The descriptor is also the
+title an **Update this issue** answer gives the issue, so a body that opens with
+`Title:` names the issue it is the text of. The image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
 
 `--keep` names a directory the session carries from one turn to the next. The
