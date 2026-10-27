@@ -901,6 +901,13 @@ Where it differs from the bash poll:
   reads them again after its own planning writes.
 - A closed issue is not in the query, so the poll says nothing of it; the
   bash poll, which reads each issue again, logs `skip #N: it is closed`.
+- An open issue marked `tehas:planning` with no planning session on record
+  gets `needs-human-attention` in place of the mark and a comment that says
+  to apply `tehas:plan` again, as an issue marked `tehas:running` with no
+  cycle does. GitHub can make a label change and still answer it as failed:
+  the poll then takes its turn back, and the mark would stay with nothing
+  behind it. The issue is read again first. The bash poll leaves such an
+  issue as it is.
 
 It is not the default, and not proven on a host yet (see
 [features.md](features.md)). To go back, take the line out of
