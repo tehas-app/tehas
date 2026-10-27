@@ -212,7 +212,7 @@ t_eq "$([ -e "$state" ] && echo left)" ""
 
 t_case "a first turn starts a session: the title is what to plan, the approved text is the context"
 t_eq "$(after "$runner")" plan
-t_eq "$(tail_of)" "$image $runner plan Plan issue #7: Faster search --start --context # Faster search  Make it fast. "
+t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context # Faster search  Make it fast. "
 
 t_case "the runner's exit status is kept for the next turn"
 t_eq "$(cat "$T/keep/exit")" 11
