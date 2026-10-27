@@ -114,6 +114,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_SIZE_MAX_FILES`          | unset                                    | Optional. The count of files an issue may name before the dispatcher holds it instead of starting it: see [Limits that hold work back](/operating#limits-that-hold-work-back). Unset, no issue is held for its size. A whole number of at least 1. The `sizes` figures of [tehas analytics](/analytics#size) say where to set it |
 | `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
 | `TEHAS_SIZE_MAX_LINES`          | `1000`                                   | Lines of an issue body the same measure reads. The pass costs more the more lines it holds, whatever their bytes, so the bound on bytes alone leaves a body of many short lines unbounded and this one leaves a body of one huge line unbounded: a start needs both. A whole number of at least 1 |
+| `TEHAS_POLL_BUDGET`             | `cpu=5,wall=30,writes=0`                 | The cost of one poll that started nothing: the medians of the idle polls of the last hour over it make `tehasbot health` warn (`checks.poll_cost`). `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part left out, each figure a whole number of at most 9 digits with no leading 0, else every command stops with 78. `tehasbot health` gives the value to `store poll-idle --budget` as it stands, so the rule is the store's own: what it would refuse stops the load instead of leaving the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -2433,7 +2434,7 @@ file is served.
 | `status` | Meaning                                                                                  | HTTP |
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
-| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or systemd gave up on a tehas unit (`checks.units`) | 200  |
+| `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`) | 200  |
 | `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
@@ -2459,6 +2460,13 @@ checkout of a host that has one. It is `null` on a host with neither.
 `checks.backup` is the newest daily copy of the state store, `{time,
 ageSeconds}`, or `null` when there is none (see [Backups and
 restore](/operating#backups-and-restore)).
+
+`checks.poll_cost` is the cost of the polls of the last hour that started no
+cycle, measured against `TEHAS_POLL_BUDGET` by
+[`store poll-idle --budget`](/operating#what-a-poll-costed): `{over, budget}`,
+where `over` names the figures whose median was over its budget (`cpu`, `wall`
+or `writes`) and `budget` is the value the instance runs with. It is `null`
+when the store gave no answer, which means the check did not run.
 
 `checks.units` names the tehas units systemd has failed
 (`systemctl --user --failed 'tehas-*'`), and is empty when there are none. A

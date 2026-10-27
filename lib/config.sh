@@ -103,9 +103,10 @@ _tehas_mem_mb() {
   esac
 }
 
-# At most 9 digits: a longer number makes [ -gt ] fail, and a failed
-# comparison would read as one that passed.
-_tehas_is_count() { case "$1" in '' | *[!0-9]* | 0* | ??????????*) return 1 ;; esac; }
+# A count of the store's own grammar (verbs::count): at most nine digits, and
+# the only one beginning with 0 is 0 itself. A longer number makes [ -gt ] fail,
+# and a failed test reads as a passed one.
+_tehas_is_count() { case "$1" in '' | *[!0-9]* | 0?* | ??????????*) return 1 ;; esac; }
 
 # The directory names tehasbot clean removes when the instance names none: the
 # build output of the toolchains tehas hosts, none of which a product keeps in
@@ -115,7 +116,7 @@ _tehas_clean_dirs_default='target node_modules __pycache__ .venv .pytest_cache .
 
 # Print why a value is not acceptable for a setting; return 1 if it is not.
 _tehas_valid() {
-  local name=$1 v=$2 mb base clean_dir
+  local name=$1 v=$2 mb base clean_dir part
   local -a clean_dirs
   case "$name" in
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO)
@@ -236,6 +237,19 @@ _tehas_valid() {
       ;;
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
+      ;;
+    # An idle poll's budget for `store poll-idle --budget`: the three figures in
+    # this order, any left out; another order would bound the wrong figure.
+    TEHAS_POLL_BUDGET)
+      [[ $v =~ ^(cpu=[0-9]{1,9}(,wall=[0-9]{1,9}(,writes=[0-9]{1,9})?)?|wall=[0-9]{1,9}(,writes=[0-9]{1,9})?|writes=[0-9]{1,9})$ ]] ||
+        { echo "expected cpu=<s>,wall=<s>,writes=<n>, any part left out"; return 1; }
+      # Each figure as the store's count reads it (no leading 0), so the load
+      # stops with 78; the local IFS keeps the instance file's own away.
+      local IFS=$' \t\n,'
+      for part in ${v//,/ }; do
+        _tehas_is_count "${part#*=}" ||
+          { echo "expected cpu=<s>,wall=<s>,writes=<n>, and no leading 0"; return 1; }
+      done
       ;;
     # What tehas work measures of an approved body, and no further: the two
     # bounds of lib/sizing.sh. Each holds what the other leaves unbounded, a
@@ -501,16 +515,18 @@ tehas_load() {
   # names a script and a site. The look of every page and the front page.
   export TEHAS_ANALYTICS_SRC=${TEHAS_ANALYTICS_SRC:-} TEHAS_ANALYTICS_SITE=${TEHAS_ANALYTICS_SITE:-}
   export TEHAS_ANALYTICS_COOKIE=${TEHAS_ANALYTICS_COOKIE:-0} TEHAS_THEME=${TEHAS_THEME:-pixel} TEHAS_LAYOUT=${TEHAS_LAYOUT:-floor}
-  # What tehasbot clean removes and when. The build output of common toolchains
-  # that no product keeps in source; an instance that builds something else adds
-  # its name to this list, it does not replace it.
+  # What tehasbot clean removes and when: the build output of the toolchains
+  # tehas hosts; an instance that builds something else adds its name to the
+  # list, it does not replace it.
   export TEHAS_CLEAN_AFTER=${TEHAS_CLEAN_AFTER:-24} TEHAS_CLEAN_DIRS=${TEHAS_CLEAN_DIRS:-$_tehas_clean_dirs_default}
-  # The two bounds of the measure tehas work makes of an approved body, in bytes
-  # and in lines (lib/sizing.sh).
+  # Over the medians of the idle polls of the last hour, health warns.
+  export TEHAS_POLL_BUDGET=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
+  # The two bounds of the measure tehas work makes of an approved body, in
+  # bytes and in lines (lib/sizing.sh).
   export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072} TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
   # The factory's own 365 days of runs, events and samples in
-  # state/analytics.db (lib/analytics.sh), not the visitor analytics above.
-  # On unless the instance says off, which stops every write.
+  # state/analytics.db (lib/analytics.sh), not the visitor analytics above. On
+  # unless the instance says off, which stops every write.
   export TEHAS_ANALYTICS=${TEHAS_ANALYTICS:-on}
   # The improvement loop: the repository it files its findings in (unset, there
   # is no loop, nothing is recorded of a cycle and tehasbot improve does
@@ -610,12 +626,11 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  # The bound install.sh puts on one cargo build. Its default belongs to
-  # install.sh, so an instance that leaves it out is checked only when it wrote
-  # one.
+  # Its default belongs to install.sh, so an instance that left it out is
+  # checked only when it wrote one.
   if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
     _tehas_why TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT" ||
       { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
@@ -693,9 +708,8 @@ tehas_load() {
     tehas_err "TEHAS_WORK_STALL ($TEHAS_WORK_STALL) is not longer than TEHAS_VERIFY_TIMEOUT ($TEHAS_VERIFY_TIMEOUT): a gate that prints nothing would be stopped as stalled (see $file)"
     return 78
   fi
-  # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec), and a
-  # unit cannot read this file. A longer limit would have systemd stop every
-  # long cycle; the hour between is for the stop and the report.
+  # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec) and a unit
+  # cannot read this file; the hour between is for the stop and the report.
   if [ "$TEHAS_WORK_TIMEOUT" -gt 25200 ]; then
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
