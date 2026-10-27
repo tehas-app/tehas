@@ -104,6 +104,9 @@
 //!   store poll-idle --since <seconds> [--budget <spec>]
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
+//!   store review-issue <path> <branch> <commit>
+//!                (the review issue's title and body, from the document of one
+//!                review run: tehas_core::review, src/review_issue.rs)
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
 //!                --before <at>
 //!   store journal-attempt --action N
@@ -156,6 +159,7 @@ mod lock;
 mod park;
 mod plan;
 mod poll;
+mod review_issue;
 mod slow;
 mod upkeep;
 mod verbs;
@@ -211,7 +215,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | review-issue <path> <branch> <commit> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -255,6 +259,17 @@ fn main() -> ExitCode {
     }
 }
 
+/// What the review verb was given: the document of one run, and the two names
+/// the title of the issue is built from. `<branch>` and `<commit>` are refused
+/// by `parse` when they are outside their grammar, so a call that stops at its
+/// arguments never reads the file.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReviewIssue {
+    pub path: PathBuf,
+    pub branch: String,
+    pub commit: String,
+}
+
 /// What a call to the command asked for. `--json` is accepted on every verb
 /// and is what the verbs print anyway: one object on stdout, `"api": 1` first,
 /// as every JSON answer of tehas is written (host/docs/api.md).
@@ -278,6 +293,7 @@ pub enum Verb {
         file: PathBuf,
         out: PathBuf,
     },
+    ReviewIssue(ReviewIssue),
     Record(verbs::Call),
 }
 
@@ -305,6 +321,31 @@ fn parse(args: &[String]) -> Option<Verb> {
             file: PathBuf::from(file),
             out: PathBuf::from(out),
         }),
+        // The review issue of one run's document. The two names are checked
+        // here and not in the verb, so a call that stops at its arguments is
+        // the usage error it is: nothing was read and nothing was written.
+        // A review's branch is the branch of the default checkout, not of an
+        // issue, so the name is held to the generic arm of the grammar of a
+        // branch: word characters and `/`, at most 80 of them, and the first
+        // one alphanumeric. `feature/issue-<n>` is a name of that shape, and
+        // belongs to no issue here.
+        [verb, path, branch, commit] if verb == "review-issue" => {
+            let generic = |b: &str| {
+                let bytes = b.as_bytes();
+                !bytes.is_empty()
+                    && bytes.len() <= 80
+                    && bytes[0].is_ascii_alphanumeric()
+                    && bytes.iter().all(|&c| verbs::word_char(c) || c == b'/')
+            };
+            if !generic(branch) {
+                return None;
+            }
+            Some(Verb::ReviewIssue(ReviewIssue {
+                path: PathBuf::from(path),
+                branch: branch.to_string(),
+                commit: verbs::commit(commit)?,
+            }))
+        }
         [verb, rest @ ..] if verb == "import" => {
             flags(rest, &["--json", "--dry-run"])?;
             Some(Verb::Import {
@@ -500,6 +541,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         #[cfg(debug_assertions)]
         Verb::TestWrite(w) => exercise::write(&file, w, now),
         Verb::Slow { file, out } => slow::run(file, out),
+        Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
         Verb::Record(call) => verbs::run(home, call, now),
     }
 }
