@@ -22,6 +22,8 @@
 *.key
 
 # What a sandbox build stages beside the recipe of the image: the copy of it it
-# hands docker, written by the run and taken back when it ends. Never written by
-# hand, never installed.
+# hands docker, written by the run and taken back when it ends, and the temporary
+# it renames from, which outlives a run only when a signal took the build off
+# before its cleanup ran. Never written by hand, never installed.
 /host/sandbox/sandbox-uid.Dockerfile
+/host/sandbox/sandbox-uid.Dockerfile.??????

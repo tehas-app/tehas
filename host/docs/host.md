@@ -158,7 +158,7 @@ commands a person does.
 | Its own `TEHAS_DOMAIN`                         | The edge makes `uat-<pr>.` and `lab-<issue>.` names under it. Two factories under one domain answer each other's previews |
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
-| Disk for the sandbox image                     | About 10 GB once built, plus the product's own needs. A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share). [Bootstrap](/bootstrap#what-the-machine-needs) has the rest |
+| Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share). [Bootstrap](/bootstrap#what-the-machine-needs) has the rest |
 
 ## Installing a factory
 
@@ -1429,47 +1429,56 @@ remapping above them would leave what they wrote owned by the id that has just
 moved. The step that remaps fixes the ownership afterwards, over the image's own
 filesystem, so the image ends the same either way.
 
-One file of the image is tracked, and the copy the build is made from is written
-from it at the moment it builds and taken away when it ends: the two cannot drift,
-there is nothing to keep in step by hand, and nothing is installed. That copy is
-taken from the tracked file alone, and the name it ends at is one the build owns:
-if anything is already standing there - a file an earlier build left because it
-was killed before it could clean up, a link, a directory - the build refuses and
-asks Docker nothing, rather than opening a name it did not make. The name is
-`~/tehas/sandbox/sandbox-uid.Dockerfile`, and the repository gitignores it, so
-`tehas update` sees no local change in it and the build is the only thing that
-decides what stands there. A step added above the boundary is a step every
-instance user shares; one added below is built for each of them, and
-`test/build_test.sh` says which is which.
+One file of the image is tracked, and the copy the build hands docker is written
+from it at the moment it builds and taken back when the run ends, so the two cannot
+drift and nothing is installed. Two names of the recipe are the contract between the
+two stages: the build cuts at a line that reads exactly `FROM shared`, and the one
+argument below it reads exactly `ARG TEHAS_UID=`. Both are read out of the tracked
+file, and a recipe that holds either as anything else than a whole line is refused
+before docker is asked. A link under the copy's name is written through and a
+directory stops the build, so both are refused; a plain file is taken to be the
+leftover of a build killed before its cleanup ran, and the build names the time it
+was written and replaces it. `tehasbot clean` takes a copy of the age with the rest
+of the host scratch. The name is `~/tehas/sandbox/sandbox-uid.Dockerfile`, and the
+repository gitignores it, so `tehas update` sees no local change in it and the build
+is the only thing that decides what stands there. `test/build_test.sh` reads the
+recipe docker was handed and says which step is shared and which belongs to one
+uid.
 
-So a second instance user's build on a host that already has the first reuses
-the base and every layer above the remap, and builds only the steps after it.
-On the tehas-tehas host the base is about 6.7 GB and the whole image about 10
-GB, which is where the figure of 10 GB above comes from: a host with two
-instance users pays that once for the shared part and again only for the few
-steps at the end. `test/build_test.sh` reads the image as the build sees it and
-fails when one of those shared steps reads the uid, or when the boundary between
-the two stages has gone.
+So a second instance user's build on a host that already has the first reuses the
+base and every layer above the remap, and builds only the steps after it: where much
+of the image is shared, the cost of the second user is the last steps and not the
+whole image. The sharing has not been measured on a host yet, and
+[features](/features) records the two measurements that would prove it - the layer
+ids of `docker history` of the two images, and the time of the second uid's build.
+A step added above the boundary is a step every instance user shares, so a step
+that reads the uid, or holds it in its words, would silently give each uid its own
+copy of every layer after it; the test named at the end of the last section fails
+when one appears.
 
 A second instance user needs what the first was given: its own instance
 directory and its own settings, a checkout of the platform to build from, and a
 place on the Docker daemon - `bootstrap.sh root <user>` is what puts an account
 in the `docker` group, so a user that was never given it builds nothing. Its
-`tehas/pi-rukas:uid<uid>` tag is its own, and so is the image it points at; the
-layers above the boundary are the same content, which is why the second build is
-quick where the first was not.
+`tehas/pi-rukas:uid<uid>` tag is its own, and so is the image it points at.
 
 Two things are worth knowing about the sharing. The cache belongs to the daemon:
 on the usual host, where the instance users are all on one rootful daemon, the
-second build hits the layers the first built and `docker history` of the two
-images shows the same ids down to the remap. On a host that gives each instance
-its own rootless daemon there is no cache to share, and each user builds and
-keeps its own copy of everything; the same is true when the first user's build
-has since been pruned, since `tehasbot clean` takes the dated tags past
-`TEHAS_CLEAN_AFTER` hours and the layers go with the last image that needed them.
-Nothing here has been seen to share a layer on a host yet: the comparison of two
-`docker history` listings and the time of a second uid's build are recorded on
-the issue by whoever runs the two builds.
+second build hits the layers the first built. To see it, build both images and
+compare the layer ids down to the remap:
+
+```
+docker history -q tehas/pi-rukas:uid<a> | head -n 30
+docker history -q tehas/pi-rukas:uid<b> | head -n 30
+```
+
+The ids match from the base down to the remap, and differ for the steps below it;
+the same ids are what docker shares, so the second build is quick where the first
+was not. On a host that gives each instance its own rootless daemon there is no
+cache to share, and each user builds and keeps its own copy of everything; the
+same is true when the first user's build has since been pruned, since `tehasbot
+clean` takes the dated tags past `TEHAS_CLEAN_AFTER` hours and the layers go with
+the last image that needed them. See [the cleaner](/operating#the-cleaner).
 
 ## pi-rukas comes from upstream
 

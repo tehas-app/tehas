@@ -841,6 +841,27 @@ went away is not stopped: it stalls and times out.
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.
 
+## A sandbox build stopped partway
+
+A build writes one file: the copy of the recipe docker is handed,
+`~/tehas/sandbox/sandbox-uid.Dockerfile`, beside the build script. It takes that
+copy back when the run ends, and a run that was killed by a signal bash cannot catch
+leaves it standing; the next build names the time it was written, says it replaces
+it, and builds from the tracked recipe. A link or a directory under the name is
+refused instead, because the build would be written through it: take it away by
+hand, as its owner.
+
+```
+rm ~/tehas/sandbox/sandbox-uid.Dockerfile   # the copy a killed build left
+```
+
+`tehasbot clean` takes a copy of `TEHAS_CLEAN_AFTER` hours and older with the rest
+of the host scratch, and `sandbox/build.sh` itself takes back the temporaries of
+earlier runs before it starts. The copy the build hands docker is printed as the
+name it was built from, and it is gitignored, so `tehas update` sees no local
+change in it: what the image was built of is what the tracked
+`~/tehas/sandbox/Dockerfile` holds.
+
 ## The state file says `running` but nothing is running
 
 A cycle that died leaves `status: running` behind. Confirm with

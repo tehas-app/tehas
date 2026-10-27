@@ -19,12 +19,16 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 - An OpenAI-compatible model endpoint it can reach.
   [viiwork](https://github.com/janit/viiwork) is one, and the one the example
   instance uses.
-- Disk for the sandbox image, about 10 GB once built, plus the product's own
-  needs. A second tehas user on the same host and the same Docker daemon builds
-  its own image for its own uid and pays for it again: [the
-  host](/host#what-two-instance-users-of-one-host-share) says what the two
-  images keep in common and what each keeps to itself. The example host has 8
-  CPUs, 15 GB of memory and 58 GB of disk.
+- Disk for the sandbox image, plus the product's own needs. What the image costs
+  is what a host reports: `docker image inspect --format '{{.Size}}'
+  tehas/pi-rukas:uid$(id -u)` answers the bytes of the one you have, and a build
+  needs room above that for the base it pulls and the layers it writes; allow for
+  a second image of the same size, the one a rollback tags back. A second tehas
+  user on the same host and the same Docker daemon shares the layers up to the uid
+  remap and pays again only for the last steps: [the
+  host](/host#what-two-instance-users-of-one-host-share) says what the two images
+  keep in common and what each keeps to itself. The example host of this manual is
+  tehas-tehas, the machine `host.md` describes: 8 CPUs and 15 GB of memory.
 
 ## Run it
 
