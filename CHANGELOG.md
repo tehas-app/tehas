@@ -24,6 +24,16 @@ empty one above it.
   days oldest first, with each run's id, so one call answers "what happened to
   issue N" instead of three. It reads only the files the server already reads
   and calls nothing.
+- The health check says when a poll that started nothing costs too much.
+  `tehasbot health` asks the state store for the medians of the polls of the
+  last hour that started no cycle and writes them as `checks.poll_cost`, and
+  the file is `warn` with the figures over their budget named in `output`. The
+  budget is the instance's `TEHAS_POLL_BUDGET`
+  (`cpu=<s>,wall=<s>,writes=<n>`, any part left out, default
+  `cpu=5,wall=30,writes=0`). `store poll-idle` takes it as `--budget` and
+  answers the names over it as `over`; without the flag its answer has none.
+  A store that answers nothing leaves the check out rather than say it passed
+  (#744).
 
 ### Adopter action
 
