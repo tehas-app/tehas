@@ -26,6 +26,10 @@
 //! The notice tehasbot preview keeps in a pull request's description, see
 //! src/notice.rs.
 //!
+//!   console plan outcome|update ...
+//!
+//! What a planning turn of libexec/plan says, see src/plan.rs.
+//!
 //!   console top reading|host|snapshot ...
 //!
 //! The snapshot behind tehas top and its host section, see src/top.rs and
@@ -50,6 +54,7 @@
 mod clean;
 mod export;
 mod notice;
+mod plan;
 mod render;
 mod review;
 mod snapshot;
@@ -233,6 +238,7 @@ fn main() -> ExitCode {
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(notice::main(&given[1..])),
+            Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}
         }

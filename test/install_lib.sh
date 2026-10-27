@@ -98,6 +98,7 @@ files="./.bashrc
 ./tehas/lib/history-repeats.jq
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
+./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
 ./tehas/lib/park-fields.jq
 ./tehas/lib/limit.sh
