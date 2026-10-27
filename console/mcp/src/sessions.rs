@@ -49,7 +49,9 @@ const CAUSE_ISSUES: usize = 10;
 
 pub(crate) static ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(work|plan)-[1-9][0-9]{0,8}-[0-9]{9,11}$").unwrap());
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());
+// The word of a version, a failure kind or a park reason: the one rule of the
+// crate, from tools, which the schemas below name as their pattern.
+pub use tools::WORD;
 static REPO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 
@@ -677,12 +679,12 @@ pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
         }
     }
     let mut ordered: Vec<_> = pairs.into_iter().collect();
-    ordered.sort_by(|a, b| b.1.runs.cmp(&a.1.runs));
+    ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.runs));
     let versions: Vec<Value> = ordered
         .into_iter()
         .map(|((tehas, rukas), p)| {
             let mut causes: Vec<_> = p.causes.into_iter().collect();
-            causes.sort_by(|a, b| b.1.n.cmp(&a.1.n));
+            causes.sort_by_key(|a| std::cmp::Reverse(a.1.n));
             let causes: Vec<Value> = causes
                 .into_iter()
                 .take(TOP_CAUSES)
