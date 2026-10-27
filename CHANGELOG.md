@@ -23,6 +23,12 @@ empty one above it.
 - What a planning turn says is shaped in the console (`console plan`), not
   in jq. A host with no console beside `libexec/plan` runs no turn and stops
   with 78.
+- The MCP server has a tenth tool, `factory_issue` (#837): `{"issue": N}`
+  answers the stage the dashboard lists the issue under, its title, the step
+  and status of a cycle that owns it now, and every run of it of the last 30
+  days oldest first, with each run's id, so one call answers "what happened to
+  issue N" instead of three. It reads only the files the server already reads
+  and calls nothing.
 
 ### Adopter action
 
