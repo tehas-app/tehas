@@ -138,7 +138,19 @@ t_case "a reserve above a quarter is refused and names both numbers and the smal
 good
 systemd /etc/systemd/system/tehas.slice active $((6 * GIB))
 t_run "$ok"
-t_eq "$t_out" "rc=1 max= active= ceiling= why=[TEHAS_CYCLE_RESERVE=2g is more than a container may use here (1536m, a quarter of tehas.slice's MemoryMax); the host needs about 11 GiB of memory for this reserve]"
+t_eq "$t_out" "rc=1 max= active= ceiling= why=[TEHAS_CYCLE_RESERVE=2g is more than a container may use here (1536m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=4); the host needs about 11 GiB of memory for this reserve]"
+
+t_case "with six containers a reserve above a sixth is refused and the host it needs is larger"
+good
+t_instance "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=6
+systemd /etc/systemd/system/tehas.slice active $((6 * GIB))
+t_run "$ok"
+t_eq "$t_out" "rc=1 max= active= ceiling= why=[TEHAS_CYCLE_RESERVE=2g is more than a container may use here (1024m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=6); the host needs about 16 GiB of memory for this reserve]"
+
+t_case "a count of containers that is not a number is refused"
+good
+t_run "$pre"'TEHAS_SLICE_CONTAINERS=x; tehas_slice_ok; echo "rc=$? ceiling=[$TEHAS_SLICE_CEILING_MB] why=[$TEHAS_SLICE_WHY]"'
+t_eq "$t_out" "rc=1 ceiling=[] why=[TEHAS_SLICE_CONTAINERS=x is not a count]"
 
 t_case "a reserve of exactly a quarter is accepted"
 good
@@ -189,11 +201,13 @@ done
 # The pids limit follows each cycle's share of the CPUs, 1024 a CPU, as it did
 # when the share was the quota: a gate's processes do not grow with the quota.
 t_case "the pids limit follows the share, with the refresh lane among the cycles side by side"
-for row in "8 2 1 1 7.00 3072" "8 2 0 1 7.00 4096" "8 2 1 0 7.00 4096" "8 4 1 1 7.00 2048" "8 3 2 1 7.00 2048"; do
-  read -r cpus cycles lane on want <<<"$row"
+# The cycles side by side are counted at most TEHAS_SLICE_CONTAINERS.
+for row in "8 2 1 1 4 7.00 3072" "8 2 0 1 4 7.00 4096" "8 2 1 0 4 7.00 4096" "8 4 1 1 4 7.00 2048" "8 3 2 1 4 7.00 2048" \
+  "16 5 1 1 4 15.00 4096" "16 5 1 1 6 15.00 3072"; do
+  read -r cpus cycles lane on n want <<<"$row"
   good
   t_stub nproc "echo $cpus"
-  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles" TEHAS_REFRESH_SLOTS="$lane" TEHAS_REFRESH_CONFLICTS="$on"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY="$cycles" TEHAS_REFRESH_SLOTS="$lane" TEHAS_REFRESH_CONFLICTS="$on" TEHAS_SLICE_CONTAINERS="$n"
   t_run "$pre"'tehas_slice_ok && tehas_slice_cpus'
   t_eq "$row: $t_out" "$row: $want"
 done
@@ -377,6 +391,17 @@ room 3
 t_eq "$t_out" "1 $((6 * GIB)) $((24 * GIB)) $((2 * GIB))"
 room 4
 t_eq "$t_out" "0 $((8 * GIB)) $((24 * GIB)) $((2 * GIB)) full"
+
+t_case "with TEHAS_SLICE_CONTAINERS=6 a 48 GiB slice fits six, each with a sixth"
+good
+t_instance "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=6
+systemd /etc/systemd/system/tehas.slice active $((48 * GIB))
+t_run "$ok"
+t_contains "$t_out" "ceiling=8192 "
+room 5
+t_eq "$t_out" "1 $((10 * GIB)) $((48 * GIB)) $((2 * GIB))"
+room 6
+t_eq "$t_out" "0 $((12 * GIB)) $((48 * GIB)) $((2 * GIB)) full"
 
 t_case "an inactive slice with no directory is capped the same"
 good

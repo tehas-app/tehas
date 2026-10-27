@@ -111,7 +111,8 @@ Run `tehas dispatch --dry-run` and read what it prints.
   `systemd-cgtop /tehas.slice` shows them. A lower `TEHAS_CYCLE_RESERVE` fits
   more cycles and promises each one less.
 - `holding: tehas.slice holds as many containers as their ceilings fit (4 of
-  Nm)`: four containers are in the slice, each may grow to a quarter of it.
+  Nm)`: `TEHAS_SLICE_CONTAINERS` containers are in the slice, each may grow
+  to that share of it.
   Every container counts: cycles, dev sessions, planning turns, the indexer.
   Wait for one to end.
 - `holding: tehas.slice is under memory pressure (full avg60 N)`: every
@@ -218,6 +219,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   (`park #N` in the log of a real poll): the cycle of that issue ended without
   a report, or never started. The next real poll gives the issue
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
+- `park #N: it is marked tehas:planning and no planning session is open on
+  it` (`TEHAS_DISPATCHER=rust`): the issue carries `tehas:planning` but no
+  session is on record, because the poll that marked it took its turn back.
+  The issue gets `needs-human-attention`. Apply `tehas:plan` to plan it.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
   file has not been written for 20 minutes, so the poll asked its unit to
@@ -395,7 +400,7 @@ issue. The queue is kept and is taken up when the hold ends. The line is in
 | `Docker runs containers with the ... cgroup driver on cgroup v..., tehas needs systemd on v2` | Set `"exec-opts": ["native.cgroupdriver=systemd"]` in `/etc/docker/daemon.json` and restart Docker. A host on cgroup v1 cannot run tehas. |
 | `systemctl gave no answer`, `docker gave no answer` | The command failed or was silent for ten seconds. Run `systemctl show tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` and `docker info` by hand. |
 | `... cgroup.controllers does not list cpu, memory and pids` | The host's cgroup tree lacks a controller. Read `/sys/fs/cgroup/cgroup.controllers`. |
-| `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above a quarter of the slice's limit. Set a lower `TEHAS_CYCLE_RESERVE` in `instance.env`. The line names the host size the reserve needs. |
+| `TEHAS_CYCLE_RESERVE=... is more than a container may use here` | The reserve is above the slice's limit over `TEHAS_SLICE_CONTAINERS`. Set a lower `TEHAS_CYCLE_RESERVE` or `TEHAS_SLICE_CONTAINERS` in `instance.env`. The line names the host size the reserve needs. |
 | `the slice's use could not be read: ...` | The rest of the line names the file and what was missing: `.../memory.pressure cannot be read` or `has no full avg60`, `.../memory.stat has no number for anon` (or `shmem`, `kernel`, `slab_reclaimable`), `.../memory.low cannot be read` or `is not a number`. Read that file as the tehas user. A kernel booted with `psi=0` has no `memory.pressure`: remove that option from the kernel command line. A kernel too old for the `kernel` line in `memory.stat` is read without it: kernel memory is then not counted. A `slab_reclaimable` line that is missing, as it is for a container that has just started, counts as 0: the slab counts as used, so that one container holds. If the directory is missing while systemd says the slice is active, look at `systemctl status tehas.slice`. A slice that is not active has no directory, and its cycles that have no container yet count at one reserve each. |
 
 The `slice` line reads `unknown: no poll has reported in 10 min` when no poll
@@ -840,6 +845,28 @@ went away is not stopped: it stalls and times out.
 
 If the call works on the host but agents cannot reach the endpoint, its host
 name does not resolve inside the sandbox: add it to `PI_ENSEMBLE_HOST_ALIASES`.
+
+## A sandbox build stopped partway
+
+A build writes one file: the copy of the recipe docker is handed,
+`~/tehas/sandbox/sandbox-uid.Dockerfile`, beside the build script. It takes that
+copy back when the run ends, and a run that was killed by a signal bash cannot catch
+leaves it standing; the next build names the time it was written, says it replaces
+it, and builds from the tracked recipe. A link or a directory under the name is
+refused instead, because the build would be written through it: take it away by
+hand, as its owner.
+
+```
+rm ~/tehas/sandbox/sandbox-uid.Dockerfile   # the copy a killed build left
+```
+
+`tehasbot clean` takes a copy of `TEHAS_CLEAN_AFTER` hours and older with the rest
+of the host scratch, and `sandbox/build.sh` itself takes back the temporaries of
+earlier runs before it starts. The copy is staged at
+`~/tehas/sandbox/sandbox-uid.Dockerfile`, the name the build says when a stale
+copy or a bad name stops it, and it is gitignored, so `tehas update` sees no local
+change in it: what the image was built of is what the tracked
+`~/tehas/sandbox/Dockerfile` holds.
 
 ## The state file says `running` but nothing is running
 

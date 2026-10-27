@@ -219,8 +219,15 @@ impl Writer {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .replace('\r', "");
+                let title = v.get("title").and_then(Value::as_str);
                 if body.starts_with("Replaces #") {
                     Found::Done(json!({"replaces": true}))
+                } else if after(&gh, "--title")
+                    .first()
+                    .is_some_and(|t| title == Some(*t))
+                {
+                    // A plan written onto its issue names its title.
+                    Found::Done(json!({"title": title}))
                 } else {
                     Found::Abandoned("its body does not say what it replaces")
                 }

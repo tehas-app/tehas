@@ -8,7 +8,8 @@
 # operator: questions, or a drafted plan to confirm. This command writes what
 # the turn said and asked to a file and stops. The dispatcher posts it on the
 # issue and, when an answer has come, runs the next turn in the same session.
-# A tick on "File this plan" after a drafted plan files it.
+# After a drafted plan, a tick on "Update this issue" makes it the issue's
+# text, and one on "File as a new issue" files it.
 #
 # Usage:
 #   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
@@ -22,10 +23,10 @@
 # of the state directory, and writes a later turn's answer there as answer.md.
 # The first turn makes it anew; the caller removes it when the session ends.
 # It holds:
-#   brief.md        the approved text of the issue. Every turn's workspace has
-#                   it as .tehas/brief.md. The first turn gives it to the
-#                   planner: its first line, less the "# ", as what to plan,
-#                   and the whole text as the context.
+#   brief.md        the approved text of the issue, then lib/issue-brief.md.
+#                   Every turn's workspace has it as .tehas/brief.md. The
+#                   first turn gives it to the planner: its first line, less
+#                   the "# ", as what to plan, and the whole as the context.
 #   commit          the commit the first turn's workspace was at. Every later
 #                   turn's workspace is at the same one, so the planner plans
 #                   against the code it began with.
@@ -34,9 +35,8 @@
 #                   here when a turn ends and back before the next one starts.
 #                   Only plain files are carried, at most 1 MB each. Nothing
 #                   new is mounted and the container is given nothing new.
-#   exit            the runner's exit status of the last turn. After 12, a
-#                   drafted plan, an answer that chose "File this plan" runs
-#                   the confirm.
+#   exit            the runner's exit status of the last turn.
+#   draft.json      the title and spec of the last drafted plan (exit 12).
 #   images/         the issue's images, with TEHAS_WORK_IMAGES=1, and its text
 #                   files, with TEHAS_WORK_FILES=1: fetched on the first turn
 #                   as tehas work fetches a cycle's. Each turn
@@ -54,26 +54,31 @@
 #                   image's own label answers.
 #
 # What a turn runs, by the runner's own flags (docs/headless.md in pi-rukas):
-#   first turn                    plan "<what to plan>" --start --context <brief>
+#   first turn                    plan "<what to plan>" --start --context <brief> [--issue <N>]
 #   after a plan was shown (12),
-#     an answer "File this plan"  plan --resume <id> --confirm
+#     "File as a new issue"       plan --resume <id> --confirm
+#     "Update this issue"         nothing: the turn runs no container
 #   any other answer              plan --resume <id> --answer <file>
 # The runner writes one JSON document to stdout and NDJSON progress to stderr.
 #
-# On exit 0 the --out file holds
+# On exit 0 the --out file holds, as `console plan` writes it (src/plan.rs),
 #   {"session": "<id>", "text": "<what the turn says>",
 #    "question": null | {"question": "...", "options": [{"label", "description"}]},
-#    "filed": ["<issue address>", ...]}
+#    "filed": ["<issue address>", ...], "update": {"title", "body"}}
 # for each runner exit as follows:
 #   11 questions      the planner's questions; one is asked as it is, two or
 #                     more as one numbered text. Answered by a reply.
 #   12 shown          the drafted plan, its title and spec, after the turn's
 #                     text; its open points with the planner's proposed
-#                     resolutions; one option, "File this plan".
+#                     resolutions; the options "Update this issue" and
+#                     "File as a new issue".
 #   10 duplicate-risk the turn's text; answered by a reply.
 #    0 filed          the issue the confirm filed, under "filed".
 # "filed" holds the issues this session filed; with none there is no such key.
 # The dispatcher posts them on the issue and names them to the next turn.
+# "update" is the drafted plan an answer chose to make the issue's text; the
+# dispatcher writes it there and ends the session with "text", which holds
+# the issue's text before it.
 # On exit 2 it holds only {"session": "<id>"} when the session is known, and
 # {"session": "<id>", "lost": true} when the runner says the session is gone
 # (exit 41): the session cannot go on. When no session is known, nothing is
@@ -87,9 +92,9 @@
 #                fetched, for a first turn or from a reply; said on the issue,
 #                nothing ran,
 #             64 a usage error, no bot token or no git identity; nothing ran,
-#             78 the instance settings are invalid, tehas.slice is not usable
-#                on this host, or the image runs no planning turns (its
-#                --capabilities has no features.planTurns); nothing ran.
+#             78 the settings are invalid, the console is missing, tehas.slice
+#                is not usable on this host, or the image runs no planning
+#                turns (--capabilities has no features.planTurns); nothing ran.
 #
 # Instance settings (lib/config.sh; defaults in brackets):
 #   TEHAS_PLAN_TIMEOUT  seconds before a turn is given up [7200, the ceiling
@@ -210,6 +215,16 @@ tehas_github_env || { echo "tehas plan: no GitHub token for the app" >&2; exit 1
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas plan: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
 mkdir -p "$TEHAS_HOME/logs"
 
+# "Update this issue" after a drafted plan runs no container.
+console=$here/console
+[ -x "$console" ] || { echo "tehas plan: no console beside this command at $console, run install.sh" >&2; exit 78; }
+if [ -z "$brief" ] && [ "$(cat "$keep/exit" 2>/dev/null)" = 12 ] && grep -q -E ' chose: Update this issue$' "$answer"; then
+  gh issue view "$issue" --repo "$TEHAS_REPO" --json title,body 2>/dev/null | "$console" plan update "$session" "$keep" >"$out.new" &&
+    mv "$out.new" "$out" && { echo "tehas plan: issue=$issue session=$session update=yes"; exit 0; }
+  echo "tehas plan: the drafted plan or the text of #$issue could not be read" >&2
+  exit 2
+fi
+
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled in lib/sandbox.sh, by the calls tehas work makes.
 bot_name=$(git config --global user.name || true)
@@ -271,7 +286,8 @@ if ! mkdir -p "$keep"; then
   echo "tehas plan: could not make $keep, not starting a turn" >&2
   exit 78
 fi
-if [ -n "$brief" ] && ! cp "$brief" "$keep/brief.md"; then
+# Every session is told what a good issue is, after the text it plans.
+if [ -n "$brief" ] && ! { cat "$brief" && printf '\n\n---\n\n' && cat "$here/../lib/issue-brief.md"; } >"$keep/brief.md"; then
   echo "tehas plan: could not keep the brief in $keep, not starting a turn" >&2
   exit 78
 fi
@@ -401,7 +417,9 @@ if [ -n "$brief" ]; then
   # the issue's number goes with it.
   what=$(sed -n '1{s/^#[[:space:]]*//;p;q}' "$keep/brief.md")
   run=(plan "${what:-the work in .tehas/brief.md} (issue #$issue)" --start --context "$(cat "$keep/brief.md")")
-elif [ "$last" = 12 ] && grep -q -E ' chose: File this plan$' "$answer"; then
+  # pi-rukas 0.14.28 and later keep the issue itself out of the duplicate check.
+  ! tehas_headless_verb "$caps" plan --issue || run+=(--issue "$issue")
+elif [ "$last" = 12 ] && grep -q -E ' chose: (File as a new issue|File this plan)$' "$answer"; then
   run=(plan --resume "$session" --confirm)
 else
   message=$(cat "$answer")
@@ -492,37 +510,9 @@ case "$rc" in
 esac
 [ -n "$sid" ] || give_up "the session id is unknown"
 
-# The comment holds the plan, so a spec too long for one GitHub comment is cut.
-outcome=$(jq -c --argjson rc "$rc" '
-  def clip: if length > 40000 then .[0:40000] + "\n\n(cut: the plan is longer than a comment holds)" else . end;
-  (.questions // [] | map(select(type == "object"))) as $qs
-  | ($qs | map("\(.question // "")" + (if (.resolution // "") == "" then "" else "\n   Proposed: \(.resolution)" end))) as $asked
-  | ($asked | to_entries | map("\(.key + 1). \(.value)") | join("\n\n")) as $numbered
-  | if $rc == 0 then
-      {text: ("Filed " + ((.url // .issueUrl // "") | tostring) + (if (.title // "") == "" then "" else ": \(.title)" end) + "."),
-       question: null,
-       filed: [(.url // .issueUrl) | strings | select(test("^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[0-9]+\\z"))]}
-    elif $rc == 12 then
-      {text: ((.text // "") + "\n\n### \(.title // "The plan")\n\n" + ((.spec // "") | tostring | clip)),
-       question: {question: ((if ($qs | length) == 0 then "" else "Open points, with the planner'"'"'s proposals:\n\n\($numbered)\n\n" end)
-                    + "Tick File this plan to file it as shown, proposals included, or reply to change it."),
-                  options: [{label: "File this plan", description: "file the plan above as one issue"}]}}
-    elif $rc == 11 and ($qs | length) == 1 then
-      {text: (.text // ""), question: {question: $asked[0], options: []}}
-    elif $rc == 11 and ($qs | length) > 1 then
-      {text: (.text // ""), question: {question: ("The planner asked \($qs | length) questions. Answer each by its number in a reply.\n\n" + $numbered), options: []}}
-    elif $rc == 10 then
-      {text: (.text // ""), question: {question: "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.", options: []}}
-    else {text: (.text // ""), question: null} end
-  | .filed = ((.filed // []) | unique)' <<<"$answer_doc" 2>/dev/null)
-[ -n "$outcome" ] || give_up "the runner's answer could not be read"
-if [ "$(jq -r '(.text | length > 0) or .question != null or (.filed | length > 0)' <<<"$outcome")" != true ]; then
-  give_up "the turn said and asked nothing"
+if ! why=$("$console" plan outcome "$rc" "$sid" "$keep" <<<"$answer_doc" 2>&1 >"$out.new") || ! mv "$out.new" "$out"; then
+  rm -f "$out.new"
+  why=${why#console plan: }
+  give_up "${why:-could not write $out}"
 fi
-
-if ! jq --arg session "$sid" '{session: $session, text, question} + (if .filed == [] then {} else {filed} end)' <<<"$outcome" >"$out.new" ||
-  ! mv "$out.new" "$out"; then
-  echo "tehas plan: could not write $out" >&2
-  exit 2
-fi
-echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' <<<"$outcome") seconds=$((EPOCHSECONDS - started))"
+echo "tehas plan: issue=$issue session=$sid runner_exit=$rc asked=$(jq -r 'if .question == null then "no" else "yes" end' "$out") seconds=$((EPOCHSECONDS - started))"

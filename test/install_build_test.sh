@@ -121,7 +121,7 @@ t_contains "$t_out" "version: v9.8.7+"
 t_run "$tagged/install.sh --check"
 t_contains "$t_out" "Installed:    OK"
 t_lacks "$t_out" "version.txt"
-for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html"; do
+for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
   t_contains "$(cat "$page")" 'readFile "/version.txt"'
 done
 

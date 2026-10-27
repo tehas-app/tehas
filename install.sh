@@ -452,6 +452,7 @@ files=(
   "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
+  "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
   "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
@@ -1156,6 +1157,19 @@ if [ "$check" != 1 ]; then
     fi
   done
 fi
+
+# A build stages two names of the image's recipe beside the installed build
+# script, in the directory this script owns: the copy it hands docker and the
+# `mktemp` temporary it renames from. A run that ended takes both back and a run
+# a signal took off leaves at most one, which `tehasbot clean` takes past
+# TEHAS_CLEAN_AFTER hours. Either found here of an earlier install's is this
+# directory's to retire: nothing installs them, and nothing else writes them.
+for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
+  "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile.[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]; do
+  [ -f "$f" ] && [ ! -L "$f" ] || continue
+  changed+=("sandbox/${f##*/}")
+  if [ "$check" = 1 ]; then note "stale: $f"; else rm -f "$f" && echo "removed: $f"; fi
+done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
 # before it was a compiled program. And the Protolab's server files of before the

@@ -88,6 +88,7 @@ impl Poll<'_> {
         self.quiet(&running);
         self.finished(&running)?;
         self.marked()?;
+        self.planning();
         self.refreshing(bot)?;
         self.sweep();
         Ok(())
@@ -333,6 +334,38 @@ impl Poll<'_> {
             }));
         }
         Ok(())
+    }
+
+    /// An open issue marked tehas:planning with no session on record: a mark
+    /// GitHub made and answered as failed, so the turn was taken back, or a
+    /// session that ended without taking the mark off. Handed to a person.
+    fn planning(&mut self) {
+        let (Some(marked), Ok(open)) = (self.s.planning.clone(), &self.s.plan_open) else {
+            return;
+        };
+        let open = open.clone();
+        for n in marked {
+            if open.contains(&n) || self.running(n) {
+                continue;
+            }
+            let line = format!(
+                "park #{n}: it is marked tehas:planning and no planning session is open on it"
+            );
+            if self.dry {
+                self.log(format!("would {line}"));
+                continue;
+            }
+            let Some(host) = self.s.hostname.clone() else {
+                self.need("hostname");
+                continue;
+            };
+            self.act(json!({
+                "issue": n, "remove": ["tehas:planning"], "add": ["needs-human-attention"],
+                "reread": "tehas:planning", "first": line,
+                "fail": format!("WARN: label change on #{n} failed"),
+                "say": format!("Tehas found this issue marked `tehas:planning` with no planning session behind it on `{host}`: the session never started, or it ended without taking the label off. The log is `~/tehas/logs/dispatch.log` there. To plan it, apply `tehas:plan`."),
+            }));
+        }
     }
 
     /// A pull request marked tehas:refreshing whose refresh is not running,

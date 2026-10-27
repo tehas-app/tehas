@@ -12,6 +12,8 @@
 plat=$T/plat
 mkdir -p "$plat/libexec" "$plat/host"
 cp "$T_ROOT/libexec/setup" "$plat/libexec/setup"
+t_console || t_bad "no console: $t_console_why"
+cp "$T_CONSOLE" "$plat/libexec/console"
 cp -R "$T_ROOT/lib" "$plat/lib"
 setup="$plat/libexec/setup"
 cfg=$T/home/.config/tehas
@@ -112,7 +114,7 @@ TEHAS_CONTROL_ISSUE=7
 TEHAS_ALLOWED_LABELERS="alice bob"
 PI_ENSEMBLE_SUBAGENT_PROVIDER=main
 PI_ENSEMBLE_SUBAGENT_MODEL=m1'
-t_eq "$(jq -c . "$cfg/models.json")" '{"providers":{"main":{"api":"openai-completions","baseUrl":"http://gb1:8086/v1","apiKey":"unused","models":[{"id":"m1"}]}}}'
+t_eq "$(jq -cS . "$cfg/models.json")" '{"providers":{"main":{"api":"openai-completions","apiKey":"unused","baseUrl":"http://gb1:8086/v1","models":[{"id":"m1"}]}}}'
 t_eq "$(cat "$cfg/env")" "GH_TOKEN=ghp_secret_token"
 t_eq "$(stat -c %a "$cfg/env")" 600
 t_eq "$(stat -c %a "$cfg")" 700
@@ -419,5 +421,15 @@ t_eq "$(t_calls systemctl)" ""
 t_case "an unknown option is 64"
 run_setup --bogus
 t_eq "$t_rc" 64
+
+t_case "no console beside the command and no checkout to build it is 78, before any call"
+fresh
+mv "$plat/libexec/console" "$T/console-aside"
+run_setup "${args[@]}"
+mv "$T/console-aside" "$plat/libexec/console"
+t_eq "$t_rc" 78
+t_contains "$t_out" "run install.sh"
+t_eq "$(t_calls gh)$(t_calls curl)" ""
+t_eq "$([ -e "$cfg" ] && echo written)" ""
 
 t_done

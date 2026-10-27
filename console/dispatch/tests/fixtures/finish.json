@@ -657,6 +657,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -720,6 +721,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -753,6 +755,7 @@
    "case": "the retry waits while the endpoint does not answer, and its park stays",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -794,6 +797,7 @@
    "case": "the retry waits while the slots are full, and its park stays",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -840,6 +844,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -882,6 +887,7 @@
    "case": "no retry when its starter is no longer allowed",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -930,6 +936,7 @@
    "case": "no retry when the text was changed by another",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -986,6 +993,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -1031,6 +1039,7 @@
    "park_q": [
     " ",
     " ",
+    " ",
     ""
    ],
    "snapshot": {
@@ -1070,6 +1079,7 @@
    "case": "an issue a person labelled tehas:ready is left to that label",
    "world": "parked",
    "park_q": [
+    " ",
     " ",
     " ",
     ""
@@ -1132,6 +1142,135 @@
        {
         "name": "needs-human-attention"
        }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "an open issue marked tehas:planning with no planning session is handed to a person",
+   "snapshot": {
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "log": [
+     "park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ],
+      "add": [
+       "needs-human-attention"
+      ],
+      "reread": "tehas:planning"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a paused poll still hands over an issue marked tehas:planning with no session",
+   "snapshot": {
+    "pause_flag": {
+     "by": "boss",
+     "at": "2026-10-15T10:00:00Z",
+     "reason": ""
+    },
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ],
+      "add": [
+       "needs-human-attention"
+      ],
+      "reread": "tehas:planning"
+     }
+    ]
+   }
+  },
+  {
+   "case": "an issue marked tehas:planning whose session is open keeps its mark",
+   "snapshot": {
+    "planning": [
+     9
+    ],
+    "plan_open": [
+     9
+    ]
+   },
+   "expect": {
+    "log_lacks": [
+     "marked tehas:planning"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a planning mark is not judged when the store could not list the sessions",
+   "snapshot": {
+    "planning": [
+     9
+    ],
+    "plan_open": {
+     "word": "busy",
+     "rc": 1
+    }
+   },
+   "expect": {
+    "log_lacks": [
+     "marked tehas:planning"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "a dry run says it would hand over an issue marked tehas:planning with no session",
+   "dry": true,
+   "snapshot": {
+    "planning": [
+     9
+    ]
+   },
+   "expect": {
+    "log": [
+     "would park #9: it is marked tehas:planning and no planning session is open on it"
+    ],
+    "no_actions": [
+     {
+      "issue": 9,
+      "remove": [
+       "tehas:planning"
       ]
      }
     ]

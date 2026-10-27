@@ -60,6 +60,14 @@ pub fn answer(
         .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
         .map(|l| matches!(l.get(3..4), Some("x" | "X")))
         .collect();
+    // The label of each box, the text after its box: jq's `.[6:]` of the same
+    // lines. A poll reads what was ticked from these, so the comment and its
+    // readers parse a line one way, in either language.
+    let labels: Vec<Value> = body
+        .split('\n')
+        .filter(|l| l.starts_with("- [") && matches!(l.get(3..6), Some(" ] " | "x] " | "X] ")))
+        .map(|l| json!(l.get(6..).unwrap_or("")))
+        .collect();
     let ticks: Vec<usize> = boxes
         .iter()
         .enumerate()
@@ -114,7 +122,7 @@ pub fn answer(
         "asked_at": qv.get("createdAt").and_then(Value::as_str).unwrap_or(""),
         "body": body, "kind": &m["kind"], "issue": num(issue),
         "turn": num(&m["turn"]),
-        "boxes": boxes.len(), "tick": tick,
+        "boxes": boxes.len(), "labels": labels, "tick": tick,
         "reply": reply.map(|r| json!({"by": login(r, "/author/login"), "text": r.get("body"),
             "at": r.get("createdAt"), "id": r.get("databaseId")})),
     });

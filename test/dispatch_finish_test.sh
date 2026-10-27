@@ -138,7 +138,7 @@ hold_proc() { # <issue>
     t_bad "the store did not start the record of #$1"
 }
 stop_by_kill() {
-  t_stub fake-stop 'kill "$(cat "$T/fx/holder-$1")"'
+  t_stub fake-stop 'kill "$(<"$T/fx/holder-$1")"'
   T_ENV+=(TEHAS_CYCLE_STOP_CMD=fake-stop)
 }
 # The bot's own pull request unless an author is named; - for one GitHub
@@ -165,7 +165,7 @@ echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
 t_contains "$t_out" "stop #9: its issue is closed"
-t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" closed
+t_eq "$(<"$T/home/tehas/state/cycles/9.done")" closed
 t_eq "$(t_calls fake-start)" "7"
 
 t_case "a running cycle whose pull request is merged is stopped, and its slot is filled on the same poll"
@@ -177,7 +177,7 @@ bot_pr 9 MERGED 2099-01-01T00:00:00Z
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
 t_contains "$t_out" "stop #9: its pull request https://github.com/acme/widget/pull/90 is merged"
-t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" merged
+t_eq "$(<"$T/home/tehas/state/cycles/9.done")" merged
 t_eq "$(t_calls fake-start)" "7"
 
 t_case "a pull request closed without a merge stops the cycle too"
@@ -188,7 +188,7 @@ hold_proc 9
 bot_pr 9 CLOSED 2099-01-01T00:00:00Z
 t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" "9"
-t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" pr-closed
+t_eq "$(<"$T/home/tehas/state/cycles/9.done")" pr-closed
 
 t_case "an open pull request, one of an earlier cycle, or one of another issue stops nothing"
 reset
@@ -205,7 +205,7 @@ t_run "$dispatch"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
-kill "$(cat "$fx/holder-9")"
+kill "$(<"$fx/holder-9")"
 
 # A poll that cannot ask stops nothing: a cycle is never given up on a guess.
 t_case "a poll that cannot read the bot's pull requests stops nothing and leaves the cycle holding its lock"
@@ -222,7 +222,7 @@ t_lacks "$t_out" "stop #9"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 still_holding 9
-kill "$(cat "$fx/holder-9")"
+kill "$(<"$fx/holder-9")"
 
 t_case "a poll that cannot read the issue stops nothing and leaves the cycle holding its lock"
 # The Rust poll reads #9 in its one page and makes no read of the issue alone.
@@ -240,7 +240,7 @@ if bash_reads; then
   t_eq "$(t_calls fake-stop)" ""
   t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
   still_holding 9
-  kill "$(cat "$fx/holder-9")"
+  kill "$(<"$fx/holder-9")"
 fi
 
 t_case "a merged pull request of another account, or one with no author, stops nothing; the bot's own stops it"
@@ -258,7 +258,7 @@ bot_pr 9 MERGED 2099-01-01T00:00:00Z tehas-bot
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service: its pull request https://github.com/acme/widget/pull/90 is merged"
 t_eq "$(t_calls fake-stop)" ""
-kill "$(cat "$fx/holder-9")"
+kill "$(<"$fx/holder-9")"
 
 t_case "a dry run says it would stop a finished cycle, and stops nothing"
 reset
@@ -269,7 +269,7 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
-kill "$(cat "$fx/holder-9")"
+kill "$(<"$fx/holder-9")"
 
 # The pause switches say what a poll may start, not what it may clean up: a
 # paused factory still gives up the work it has finished and still clears a mark
@@ -284,7 +284,7 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-stop)" "9"
 t_contains "$t_out" "stop #9: its issue is closed"
-t_eq "$(cat "$T/home/tehas/state/cycles/9.done")" closed
+t_eq "$(<"$T/home/tehas/state/cycles/9.done")" closed
 t_eq "$(t_calls fake-start)" ""
 
 t_case "a paused dry run says it would stop a finished cycle and stops nothing"
@@ -298,7 +298,7 @@ t_contains "$t_out" "would stop tehas-cycle@9.service: its issue is closed"
 t_contains "$t_out" "paused: the flag tehas pause wrote"
 t_eq "$(t_calls fake-stop)" ""
 t_eq "$(t_calls fake-start)" ""
-kill "$(cat "$fx/holder-9")"
+kill "$(<"$fx/holder-9")"
 
 t_case "a paused poll still parks an issue marked tehas:running with no cycle behind it"
 reset
@@ -308,6 +308,19 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
 t_eq "$(t_calls fake-start)" ""
+
+# The bash poll leaves such a mark as it is.
+if [ -n "${T_RUST_POLL:-}" ]; then
+  t_case "an open issue marked tehas:planning with no session goes to a person"
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '{"number":9,"state":"open","labels":[{"name":"tehas:planning"}]}' >"$fx/work-9.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "park #9: it is marked tehas:planning and no planning session is open on it"
+  t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention"
+  t_contains "$(t_calls gh)" "issue comment 9"
+fi
 
 t_case "with no cycle running the bot's pull requests are not asked for"
 reset

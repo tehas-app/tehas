@@ -451,7 +451,7 @@ t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "tehas:awaiting-merge"
 t_contains "$(t_calls gh)" "status \`handoff--tehasquestionkindparkissue7turn1---xRetryfromacleanstart\`"
 t_eq "$(markers)" 1
-t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c '^- \[')" 3
 rm -rf "$workdir" "$fx/pr.txt"
 
 t_case "a handoff that the runner did not exit as one does not reach the pull request path"
@@ -497,7 +497,7 @@ rm -f "$T"/calls/* "$fx/pr.txt"
 : >"$fx/post-fails"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "To retry, apply"
-t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c '^- \[')" 3
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
@@ -520,7 +520,7 @@ sly_usage
 echo 30 >"$fx/rc"
 t_run "$cycle 7"
 t_contains "$(t_calls gh)" "| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |"
-t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c '^- \[')" 3
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
@@ -534,7 +534,7 @@ t_contains "$(t_calls gh)" "To retry, apply"
 t_eq "$(t_calls gh | grep -c -F '| **total, all dispatches** | 3 | 7 | 10 | 4 | 5 |')" 2
 # The question that could not be posted is in the record of calls too: its
 # two boxes and its marker are the factory's own.
-t_eq "$(t_calls gh | grep -c '^- \[')" 2
+t_eq "$(t_calls gh | grep -c '^- \[')" 3
 t_eq "$(markers)" 1
 rm -rf "$workdir"
 
