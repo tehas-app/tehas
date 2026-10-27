@@ -93,9 +93,13 @@ files="./.bashrc
 ./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
 ./tehas/lib/headless.sh
+./tehas/lib/history-lines.jq
+./tehas/lib/history-listing.jq
+./tehas/lib/history-repeats.jq
 ./tehas/lib/improve-prompt.md
 ./tehas/lib/improve.sh
 ./tehas/lib/labels.sh
+./tehas/lib/park-fields.jq
 ./tehas/lib/limit.sh
 ./tehas/lib/live.sh
 ./tehas/lib/models.sh

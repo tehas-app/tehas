@@ -185,6 +185,80 @@ run_json
 t_eq "$(jq -c '.cycles' <<<"$t_out")" "[]"
 t_eq "$(jq -r .next <<<"$t_out")" null
 
+t_case "a park of a run of parks shows its count, as JSON and as text"
+reset
+parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
+# Two parks of #12 that stopped exactly alike: the second is number 1 of the run,
+# because the end before it is the park that started it. #11 stopped the same way
+# but on an issue of its own, which no run of #12 counts.
+work 12 "$T0" "$parked"
+work 12 "$((T0 + 60))" "$parked"
+work 11 "$((T0 + 120))" "$parked"
+run_json
+t_eq "$(jq -c '[.cycles[] | [.issue, .parked, .repeat]]' <<<"$t_out")" '[[12,true,null],[12,true,1],[11,true,null]]'
+t_run "$history"
+t_contains "$t_out" "  work  #12  failed  rc 10  step develop  parked  repeat 1"
+t_lacks "$t_out" "#11  failed  rc 10  step develop  parked  repeat"
+t_lacks "$t_out" "1760700000-12-1  work  #12  failed  rc 10  step develop  parked  repeat"
+
+t_case "what breaks a run of parks, and what does not"
+reset
+parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
+# A merge between two parks alike breaks the run: the park after it is a first
+# park, whatever came before the merge.
+work 12 "$T0" "$parked"
+work 12 "$((T0 + 60))" '{"kind":"work","rc":0,"status":"merged"}'
+work 12 "$((T0 + 120))" "$parked"
+run_json
+t_eq "$(jq -c '[.cycles[] | .repeat]' <<<"$t_out")" '[null,null,null]'
+# A park of a provider outage is neither a repeat nor the end a run is counted
+# from: it has its own rule of retries. A park that is not one is not either.
+reset
+work 12 "$T0" "$parked"
+work 12 "$((T0 + 60))" '{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true,"provider":true}'
+work 12 "$((T0 + 120))" "$parked"
+run_json
+t_eq "$(jq -c '[.cycles[] | .repeat]' <<<"$t_out")" '[null,null,1]'
+reset
+work 12 "$T0" '{"kind":"work","rc":10,"status":"handoff"}'
+work 12 "$((T0 + 60))" "$parked"
+run_json
+t_eq "$(jq -c '[.cycles[] | .repeat]' <<<"$t_out")" '[null,null]'
+
+t_case "a park of another issue is no part of the run"
+reset
+parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
+work 12 "$T0" "$parked"
+work 11 "$((T0 + 60))" "$parked"
+work 12 "$((T0 + 120))" "$parked"
+run_json
+t_eq "$(jq -c '[.cycles[] | [.issue, .repeat]]' <<<"$t_out")" '[[12,null],[11,null],[12,1]]'
+
+t_case "a line of before the count was kept says nothing of a repeat"
+reset
+work 12 "$T0" '{"kind":"work","rc":10,"status":"failed","step":"develop","parked":true}'
+run_json
+t_eq "$(jq -r '.cycles[0] | has("repeat")' <<<"$t_out")" false
+t_run "$history"
+t_eq "$t_out" "1760700000-12-1  work  #12  failed  rc 10  step develop  parked"
+
+t_case "the count counts the parks the listing holds, and none besides"
+reset
+# The run begins with a park the listing does not hold: the two it holds are 0
+# and 1, the first of them a park the reader cannot know repeats anything.
+parked='{"kind":"work","rc":10,"status":"failed","step":"develop","cap":"step-failed:develop","park_reason":"","failure_kind":"verify-failed","failure_cause":"exit-1","parked":true}'
+work 12 "$T0" "$parked"
+work 12 "$((T0 + 60))" "$parked"
+work 12 "$((T0 + 120))" "$parked"
+run_json --after 1760700000-12-1
+t_eq "$(jq -c '[.cycles[] | .repeat]' <<<"$t_out")" '[null,1]'
+
+t_case "a repeat is a whole number of a cycle line only"
+reset
+work 12 "$T0" '{"kind":"work","rc":10,"status":"failed","parked":true,"repeat":false}'
+work 11 "$((T0 + 60))" '{"kind":"plan","rc":0,"status":"finished","turn":1,"repeat":2}'
+run_json
+t_eq "$(jq -r '[.cycles[] | has("repeat")] | @tsv' <<<"$t_out")" "false	false"
 t_case "nothing to list: an empty list and no cursor"
 reset
 run_json

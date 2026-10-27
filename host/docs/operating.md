@@ -1541,6 +1541,19 @@ the new names.
   planning turn leaves one of its own in the store too, with `kind` `plan`.
   `tehas history` lists both, oldest first, and `tehas export` copies what a
   cycle left behind. A millwright reads GitHub, not these records.
+- **A park that repeats the park before it says so.** A cycle that parks the
+  way the issue's previous end parked, on the same step, cap, park reason,
+  failure kind and failure cause, is one of a run of parks. Its comment carries
+  the host's line above the boxes, which names the place in the run, the step
+  and the cap, and says that a retry on the same text will likely stop the same
+  way. `tehas history` says the same of a line: `repeat` in `--json` and
+  `repeat <n>` in the plain listing, on the park of a run only, and counted
+  from what the store keeps of each end rather than from anything the comment
+  left behind. Only the end just before a park puts it in a run: a merge, a
+  handoff or any end that was not a park breaks the run, and a park of a
+  provider outage is neither a repeat nor the park a run is counted from,
+  because an outage has its own rule of retries. Nothing about a run changes
+  what the cycle does: it parks, asks and waits as it would have.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
