@@ -18,6 +18,12 @@ empty one above it.
   are now copied byte for byte; before, the mask read them as text and
   replaced their bytes. A file that cannot be read fails its cycle (exit 1)
   instead of being left out without a word.
+- The MCP server has a tenth tool, `factory_issue` (#837): `{"issue": N}`
+  answers the stage the dashboard lists the issue under, its title, the step
+  and status of a cycle that owns it now, and every run of it of the last 30
+  days oldest first, with each run's id, so one call answers "what happened to
+  issue N" instead of three. It reads only the files the server already reads
+  and calls nothing.
 
 ### Adopter action
 
