@@ -442,7 +442,7 @@ impl Writer {
             if rc.exists() || held(&lock) {
                 return true;
             }
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(self.host.launch_poll);
         }
         true
     }
