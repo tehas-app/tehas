@@ -69,7 +69,6 @@ impl Env {
             dirs: Dirs {
                 live,
                 sessions: snap.clone(),
-                outcomes: snap,
                 logs: dir,
             },
         }
@@ -404,7 +403,6 @@ fn the_id_is_checked_before_a_place_and_the_snapshot() {
     let dirs = Dirs {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
-        outcomes: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
     };
     let a = acquire().unwrap();

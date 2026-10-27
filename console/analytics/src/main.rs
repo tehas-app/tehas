@@ -42,11 +42,14 @@
 //!     (report.rs says what is in it): as plain text for a person, or with
 //!     --json as one JSON object, which libexec/status writes to
 //!     live/analytics.json.
-//!   analytics sessions
+//!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
 //!     (sessions.rs lists the keys): a header line, then one session per
 //!     line, newest first, each with its steps, roles and log file names.
 //!     It writes nothing; a failure cause is as the run stored it, masked.
+//!     With --out the lines go to <directory>/sessions.jsonl instead, mode
+//!     600 and moved in from a name of this run, which is how libexec/status
+//!     asks for the file the MCP server reads.
 //!   analytics outcomes [--tehas <version>] [--rukas <version>]
 //!                 [--since <day or time>] [--until <day or time>]
 //!                 [--by version|week] [--out <directory>]
@@ -54,7 +57,8 @@
 //!     (outcomes.rs lists the keys and what stays out of them): a header
 //!     line, then one entry per line, for as far back as the database holds.
 //!     A run is counted on its end, a run that never ended on its start.
-//!     --tehas and --rukas name a version exactly, --since and --until a day
+//!     --tehas and --rukas name a version exactly and group with it, so under
+//!     --by week they answer to nothing. --since and --until name a day
 //!     (YYYY-MM-DD, its start) or a full UTC time, --by version or week
 //!     (the default). One of another shape is a usage error. With --out the
 //!     lines go to <directory>/outcomes.jsonl instead, mode 600 and moved in
@@ -86,6 +90,7 @@
 mod db;
 mod outcomes;
 mod plan;
+mod publish;
 mod report;
 mod run;
 mod sample;
@@ -108,7 +113,7 @@ use tehas_core::time::now;
 pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions | outcomes [--tehas <version>] [--rukas <version>] [--since <day>] [--until <day>] [--by version|week] [--out <directory>] | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -168,8 +173,6 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
         [c] if c == "report" => Some(Cmd::ReportText),
         [c, rest @ ..] if c == "sessions" => sessions_command(rest),
-        // outcomes with nothing after it is the same command as outcomes
-        // with no option given, so the one arm takes both.
         [c, rest @ ..] if c == "outcomes" => outcome_command(rest),
         [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
             let json = match rest {
@@ -199,61 +202,53 @@ fn sessions_command(args: &[String]) -> Option<Cmd> {
 // holds a bound the caller did not mean. `--out <directory>` writes the file
 // there instead of printing it, which is how the host asks for it.
 fn outcome_command(args: &[String]) -> Option<Cmd> {
+    // The options, named once: the shape of each is read from the pair that
+    // carries it, so an option added here needs no second list to keep.
+    const OPTIONS: [&str; 6] = ["--tehas", "--rukas", "--since", "--until", "--by", "--out"];
     let mut given: Vec<(&str, &str)> = Vec::new();
     let mut rest = args.iter();
     while let Some(flag) = rest.next() {
         // An unknown option is no command, and a known one needs its value
         // next to it: `--tehas` with nothing after it says nothing of a
         // version, which is not what an option of this command may mean.
-        let known = matches!(
-            flag.as_str(),
-            "--tehas" | "--rukas" | "--since" | "--until" | "--by" | "--out"
-        );
+        let known = OPTIONS.contains(&flag.as_str());
         known.then_some(())?;
         let value = rest.next()?;
         // A value of another option's shape is no value: `--tehas --rukas`
         // would silently ask for a version called --rukas. The path of --out
         // is read as `--facts` is, and refused the same way.
         (!value.is_empty() && !value.starts_with("--")).then_some(())?;
+        // Which of its two values was meant cannot be told, so an option
+        // given twice is no command at all.
+        if given.iter().any(|(f, _)| *f == flag) {
+            return None;
+        }
         given.push((flag.as_str(), value.as_str()));
     }
-    // Which of the four the caller gave, and what it gave with each: an
-    // option given twice has no meaning, so it is passed on as one that
-    // reads as neither a word nor a time and is refused below.
-    let times_asked = |name: &str| given.iter().filter(|(f, _)| *f == name).count();
-    let asked = |name: &str| times_asked(name) != 0;
-    let value = |name: &str| match times_asked(name) {
-        0 => None,
-        // Once: its value. Twice: nothing that reads as a word or a time, so
-        // the filter below refuses it.
-        1 => given.iter().find(|(f, _)| *f == name).map(|(_, v)| *v),
-        _ => Some(""),
+    // None when the option was not given, `Some(None)` when it was given and
+    // has no value, `Some(Some(v))` once with its value. The shape of a value
+    // is the filter's to decide, and one it cannot read means the caller asked
+    // for something the file cannot hold: no command, rather than a file of no
+    // counts.
+    let value = |name: &str| {
+        let asked = given.iter().filter(|(f, _)| *f == name).count();
+        match asked {
+            0 => None,
+            1 => given
+                .iter()
+                .find(|(f, _)| *f == name)
+                .map(|(_, v)| Some(*v)),
+            _ => Some(None),
+        }
     };
-    // An option given twice is no command at all: which of its two values
-    // was meant cannot be told.
-    ["--tehas", "--rukas", "--since", "--until", "--by", "--out"]
-        .iter()
-        .all(|f| times_asked(f) <= 1)
-        .then_some(())?;
-    // The shape of a value is the filter's to decide, and a value it cannot
-    // read means the caller asked for something the file cannot hold: no
-    // command, rather than a file of no counts.
     let f = outcomes::filter(
-        [
-            asked("--tehas"),
-            asked("--rukas"),
-            asked("--since"),
-            asked("--until"),
-        ],
-        [
-            value("--tehas"),
-            value("--rukas"),
-            value("--since"),
-            value("--until"),
-        ],
-        value("--by").unwrap_or("version"),
+        value("--tehas"),
+        value("--rukas"),
+        value("--since"),
+        value("--until"),
+        value("--by").flatten().unwrap_or("version"),
     )?;
-    Some(match value("--out").and_then(facts) {
+    Some(match value("--out").flatten().and_then(facts) {
         None => Cmd::Outcomes(f, None),
         Some(dir) => Cmd::Outcomes(f, Some(dir)),
     })
@@ -408,12 +403,10 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             Ok(())
         }
         Cmd::Outcomes(f, to) => {
+            let lines = outcomes::lines(&conn, now, f)
+                .map_err(|e| (70, format!("the outcomes could not be read: {e}")))?;
             match to {
-                None => {
-                    let lines = outcomes::lines(&conn, now, f)
-                        .map_err(|e| (70, format!("the outcomes could not be read: {e}")))?;
-                    println!("{}", lines.join("\n"));
-                }
+                None => println!("{}", lines.join("\n")),
                 // The host's file: written here, so what the reader checks is
                 // what this wrote, and the host runs no second reader of it.
                 Some(dir) => outcomes::write(dir, &conn, now, f).map_err(|e| (73, e))?,

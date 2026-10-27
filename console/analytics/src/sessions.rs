@@ -132,16 +132,16 @@ fn object(
     Ok(o)
 }
 
-/// The lines to print: the header, then the sessions of the last
-/// SESSIONS_DAYS days.
 /// The private file of the MCP server under `<dir>`, written from `lines`:
-/// written through a name of this run, mode 600, and moved into place so a
-/// reader never sees half a file. The host asks for the snapshot this way,
-/// rather than catching what the command prints and moving it itself.
+/// through a name of this run, mode 600, and moved into place so a reader
+/// never sees half a file. The host asks for the snapshot this way, rather
+/// than catching what the command prints and moving it itself.
 pub fn write(dir: &Path, lines: &[String]) -> Result<(), String> {
-    crate::outcomes::put(dir, FILE, lines)
+    crate::publish::put(dir, FILE, lines)
 }
 
+/// The lines to print: the header, then the sessions of the last
+/// SESSIONS_DAYS days.
 pub fn lines(conn: &Connection, home: &Path, now: i64) -> rusqlite::Result<Vec<String>> {
     let run_cols = columns(&[&RUN, &RUN_LAST]);
     let step_cols = STEP.to_vec();

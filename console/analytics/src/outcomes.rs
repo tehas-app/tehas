@@ -1,42 +1,37 @@
 //! `analytics outcomes`: the counts behind the MCP tool `factory_outcomes`,
 //! as far back as the database holds. Line 1 is the header, then one entry
-//! per line.
+//! per line: `runs` and the three count maps of one group, and nothing else.
 //!
 //! Counts only. No issue number, title, failure cause or log content: those
 //! stay in the 30-day tools, which read the sessions snapshot. A group is
 //! named by a word of the database's own vocabularies, so no free text
 //! reaches the file.
 //!
-//! `tehasbot status` asks for the file with `outcomes --out <file>`, which
-//! writes it here rather than printing it: what is checked before the file is
-//! put in place is what this module wrote, so the host needs no second reader
-//! of it. Without `--out` the same lines go to standard output, for a person.
-//! The directory the host names is `~/tehas/mcp`, the one the MCP container
-//! is given read only.
+//! `tehasbot status` asks for the file with `outcomes --out <directory>`,
+//! which writes `<directory>/outcomes.jsonl` here rather than printing it:
+//! what is checked before the file is put in place is what this module wrote,
+//! so the host needs no second reader of it. Without `--out` the same lines
+//! go to standard output, for a person. The directory the host names is
+//! `~/tehas/mcp`, the one the MCP container is given read only.
 
+use crate::db;
 use crate::run::iso_ms;
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
-use tehas_core::time::{civil_from_days, days_from_civil, iso};
+use tehas_core::time::{civil_from_days, days_from_civil, iso, week_start_of_day};
 
-/// The file's `api`.
-pub const API: i64 = 1;
 /// The shape of the entries.
 pub const OUTCOMES: i64 = 1;
 /// Where `tehasbot status` asks for the file, under `~/tehas/mcp`. The name
 /// the reader opens. It is JSON Lines; the name says what the file is, not
 /// how it is cut into lines, as `sessions.jsonl` is named for its sessions.
 pub const FILE: &str = "outcomes.jsonl";
-/// How far back the counts go when the caller names no bound. The whole
-/// retention is what makes this tool more than the 30-day ones.
-pub const MAX_DAYS: i64 = 365;
 /// The most one word of the database may be to name a group or a count. A
-/// longer value counts as unknown.
+/// longer value counts as unknown. The reader of the MCP server accepts the
+/// same alphabet, less the `:` a word of the database may hold: see the pair
+/// of them kept together in the analytics tests.
 const WORD_MAX: usize = 64;
 const DAY: i64 = 86_400;
 /// Outcomes with no word in `runs.outcome`.
@@ -50,6 +45,10 @@ pub enum By {
 }
 
 /// What the caller asked for: the rows served and how they are grouped.
+/// Only [`filter`] builds one, and what it built is already valid: the words
+/// are words and the bounds are moments, so a hand-made Filter can serve
+/// nothing and say nothing. The version words ask for one release each and
+/// group with them, so under a week grouping they answer to nothing.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Filter {
     pub tehas: Option<String>,
@@ -63,7 +62,9 @@ pub struct Filter {
 
 /// A group's name or a count's name: a word of the database's own
 /// vocabularies, at most `WORD_MAX` of letters, digits and `. _ - :`, and at
-/// least one letter or digit. Anything else is no word.
+/// least one letter or digit. Anything else is no word. `filter` is its only
+/// caller of production; the tests name the shape it accepts, and the reader
+/// of the MCP server keeps its own alphabet beside it.
 pub fn word(w: &str) -> Option<String> {
     (!w.is_empty()
         && w.len() <= WORD_MAX
@@ -88,20 +89,21 @@ struct Row {
     parks: BTreeMap<String, u64>,
 }
 
+/// What an entry stands for: a pair of releases (None for one the run
+/// recorded not at all), or the Monday that opens a UTC week.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Group {
+    Versions(Option<String>, Option<String>),
+    Week(String),
+}
+
 fn bump(counts: &mut BTreeMap<String, u64>, key: &str) {
     *counts.entry(key.to_string()).or_default() += 1;
 }
 
-/// Days since 1970-01-01 of the Monday of the week `day` is in. Weeks are UTC
-/// and begin on Monday, and 1970-01-01 was a Thursday, so a day's Monday is
-/// that many days back.
-fn monday(day: i64) -> i64 {
-    day - (day - 4).rem_euclid(7)
-}
-
 /// The week a moment belongs to: `YYYY-MM-DD` of its Monday.
 pub fn week_of(t: i64) -> String {
-    let (y, m, d) = civil_from_days(monday(t.div_euclid(DAY)));
+    let (y, m, d) = civil_from_days(week_start_of_day(t.div_euclid(DAY)));
     format!("{y:04}-{m:02}-{d:02}")
 }
 
@@ -141,44 +143,42 @@ pub fn bound(s: &str) -> Option<i64> {
 }
 
 /// The words and bounds a caller gave, or None for a word that is not a word
-/// or a bound that is not a time. `asked` says which of the four were given
-/// at all: one that was not is no bound and no word, which is its own answer,
-/// while one that was given and reads as neither is no filter at all.
-pub fn filter(given: [bool; 4], values: [Option<&str>; 4], by: &str) -> Option<Filter> {
+/// or a bound that is not a time. Each of the four is None when the caller did
+/// not give it, `Some(None)` when they gave it and it reads as neither a word
+/// nor a moment - which is no filter at all, because an answer of nothing
+/// would read as an empty week rather than a bad argument - and `Some(Some(v))`
+/// for a value this module accepts.
+pub fn filter(
+    tehas: Option<Option<&str>>,
+    rukas: Option<Option<&str>>,
+    since: Option<Option<&str>>,
+    until: Option<Option<&str>>,
+    by: &str,
+) -> Option<Filter> {
     let by = match by {
         "version" => By::Version,
         "week" => By::Week,
         _ => return None,
     };
-    let [tehas_on, rukas_on, since_on, until_on] = given;
-    let [tehas, rukas, since, until] = values;
-    // An option the caller did not give is no word and no bound, which is its
-    // own answer. One it gave and this cannot read is no filter at all: the
-    // caller asked for something the file cannot hold, and an answer of
-    // nothing would read as an empty week rather than a bad argument.
-    let word_of = |on: bool, v: Option<&str>| -> Option<Option<String>> {
-        match (on, v) {
-            (false, _) => Some(None),
-            (true, Some(v)) => word(v).map(Some),
-            (true, None) => None,
+    let words = |asked: Option<Option<&str>>| -> Option<Option<String>> {
+        match asked {
+            None => Some(None),
+            Some(None) => None,
+            Some(Some(v)) => word(v).map(Some),
         }
     };
-    let bound_of = |on: bool, v: Option<&str>| -> Option<Option<i64>> {
-        match (on, v) {
-            (false, _) => Some(None),
-            (true, Some(v)) => bound(v).map(Some),
-            (true, None) => None,
+    let bounds = |asked: Option<Option<&str>>| -> Option<Option<i64>> {
+        match asked {
+            None => Some(None),
+            Some(None) => None,
+            Some(Some(v)) => bound(v).map(Some),
         }
     };
-    let tehas = word_of(tehas_on, tehas)?;
-    let rukas = word_of(rukas_on, rukas)?;
-    let since = bound_of(since_on, since)?;
-    let until = bound_of(until_on, until)?;
     Some(Filter {
-        tehas,
-        rukas,
-        since,
-        until,
+        tehas: words(tehas)?,
+        rukas: words(rukas)?,
+        since: bounds(since)?,
+        until: bounds(until)?,
         by,
     })
 }
@@ -188,44 +188,40 @@ pub fn filter(given: [bool; 4], values: [Option<&str>; 4], by: &str) -> Option<F
 pub fn lines(conn: &Connection, now: i64, f: &Filter) -> rusqlite::Result<Vec<String>> {
     // Whole days, as the weeks are: a run of the day a bound names belongs to
     // that bound, whichever of the two shapes it was given in, so neither end
-    // of the window cuts a day in half. The default lower bound is the same
-    // span the sessions of a snapshot reach.
-    let from = f.since.unwrap_or(now - MAX_DAYS * DAY);
+    // of the window cuts a day in half. The default lower bound is the whole
+    // retention, which is what makes this tool more than the 30-day ones.
+    let from = f.since.unwrap_or(now - db::RETENTION_DAYS * DAY);
     let to = f.until.unwrap_or(now);
     let rows = rows(conn, from, to)?;
-    let mut grouped: Vec<(Vec<String>, Row)> = Vec::new();
+    // One row per group leaves SQLite, not one per run: the window is the
+    // whole retention, and the poll asks for these lines on every pass. Rust
+    // then puts the words of the database's vocabularies through `word` - a
+    // value the database holds that is no word counts as none of one - and
+    // re-buckets what SQLite answered. An ordered map, so the lookup of a
+    // group is no scan of those seen so far.
+    let mut grouped: BTreeMap<Group, Row> = BTreeMap::new();
     for r in rows {
-        let at = r.at;
+        // The words of the database's own vocabularies, read as the module
+        // reads them: a value that is no word counts as none of one, so no
+        // free text reaches the file. A run of no version belongs to no
+        // release, so it answers to no version filter and joins no entry of a
+        // filtered call.
         let tehas = column(&r.tehas);
         let rukas = column(&r.rukas_version).or_else(|| column(&r.rukas_commit));
-        // A run of no version belongs to no release, so it answers to no
-        // version filter and joins no entry of a filtered call.
         let wanted =
             |asked: &Option<String>, value: &Option<String>| asked.is_none() || asked == value;
         if f.by == By::Version && !(wanted(&f.tehas, &tehas) && wanted(&f.rukas, &rukas)) {
             continue;
         }
-        let week = (f.by == By::Week).then(|| week_of(at));
-        let key: Vec<String> = match f.by {
-            By::Version => vec![
-                tehas.clone().unwrap_or_default(),
-                rukas.clone().unwrap_or_default(),
-            ],
-            By::Week => vec![week.clone().unwrap_or_default()],
+        let group = match f.by {
+            By::Version => Group::Versions(tehas, rukas),
+            By::Week => Group::Week(week_of(r.at)),
         };
-        let row = match grouped.iter_mut().position(|(k, _)| *k == key) {
-            Some(i) => &mut grouped[i].1,
-            None => {
-                grouped.push((key, Row::default()));
-                &mut grouped.last_mut().expect("just pushed").1
-            }
-        };
-        row.runs += 1;
-        if let Some(k) = column(&r.outcome) {
-            bump(&mut row.outcomes, &k);
-        } else {
-            bump(&mut row.outcomes, UNKNOWN);
-        }
+        let row = grouped.entry(group).or_default();
+        // One group of the window's rows, which is how many runs it holds.
+        row.runs += r.runs.max(0) as u64;
+        let outcome = column(&r.outcome).unwrap_or_else(|| UNKNOWN.to_string());
+        bump(&mut row.outcomes, &outcome);
         if let Some(k) = column(&r.kind) {
             bump(&mut row.kinds, &k);
         }
@@ -233,36 +229,40 @@ pub fn lines(conn: &Connection, now: i64, f: &Filter) -> rusqlite::Result<Vec<St
             bump(&mut row.parks, &p);
         }
     }
+    // The most runs first, and the name of the group the other way for a tie;
+    // a week's newest week first.
+    let mut grouped: Vec<(Group, Row)> = grouped.into_iter().collect();
     match f.by {
-        By::Version => grouped.sort_by(|a, b| match b.1.runs.cmp(&a.1.runs) {
-            std::cmp::Ordering::Equal => b.0.cmp(&a.0),
-            other => other,
+        By::Version => grouped.sort_by_key(|(group, row)| {
+            (
+                std::cmp::Reverse(row.runs),
+                std::cmp::Reverse(group.clone()),
+            )
         }),
-        By::Week => grouped.sort_by(|a, b| b.0.cmp(&a.0)),
+        By::Week => grouped.sort_by_key(|(group, _)| std::cmp::Reverse(group.clone())),
     }
     let mut out = vec![json!({
-        "api": API,
+        "api": 1,
         "outcomes": OUTCOMES,
         "file": FILE,
+        "days": db::RETENTION_DAYS,
         "by": match f.by { By::Version => "version", By::Week => "week" },
         "generatedAt": iso(now),
     })
     .to_string()];
-    for (key, row) in grouped {
+    for (group, row) in grouped {
         let mut o = Map::new();
-        match f.by {
-            By::Version => {
-                if !key[0].is_empty() {
-                    o.insert("tehasVersion".into(), json!(&key[0]));
+        match group {
+            Group::Versions(tehas, rukas) => {
+                if let Some(v) = tehas {
+                    o.insert("tehasVersion".into(), json!(v));
                 }
-                if !key[1].is_empty() {
-                    o.insert("rukasVersion".into(), json!(&key[1]));
+                if let Some(v) = rukas {
+                    o.insert("rukasVersion".into(), json!(v));
                 }
             }
-            By::Week => {
-                if !key[0].is_empty() {
-                    o.insert("week".into(), json!(&key[0]));
-                }
+            Group::Week(week) => {
+                o.insert("week".into(), json!(week));
             }
         }
         o.insert("runs".into(), json!(row.runs));
@@ -274,58 +274,15 @@ pub fn lines(conn: &Connection, now: i64, f: &Filter) -> rusqlite::Result<Vec<St
     Ok(out)
 }
 
-/// The private file `<dir>/<name>`, written from `lines`: through a name of
-/// this run, mode 600, and moved into place so a reader never sees half a
-/// file. What is written is what the caller was given, so the host that asks
-/// for the file needs no reader of its own. The directory is made mode 700 if
-/// it is not there.
-pub fn put(dir: &Path, name: &str, lines: &[String]) -> Result<(), String> {
-    let why = |what: &str, e: std::io::Error| format!("{what}: {e}");
-    // The directory is the private one of the MCP server, mode 700. Make it
-    // with that mode rather than 755 and a later chmod, which would leave it
-    // readable in between.
-    fs::create_dir_all(dir).map_err(|e| why("the directory could not be made", e))?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))
-        .map_err(|e| why("the directory could not be given its mode", e))?;
-    let to = dir.join(name);
-    // A name of this run, so two writers of the same file cannot meet in it:
-    // a cycle's end and a poll may both ask for the snapshot at once.
-    let temp = to.with_extension(format!("{}.new", std::process::id()));
-    let made = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&temp)
-        .map_err(|e| why("could not be written", e))?;
-    let mut out = std::io::BufWriter::new(made);
-    let body = format!("{}\n", lines.join("\n"));
-    out.write_all(body.as_bytes())
-        .and_then(|()| out.flush())
-        .and_then(|()| out.get_mut().sync_all())
-        .map_err(|e| {
-            let _ = fs::remove_file(&temp);
-            why("could not be written", e)
-        })?;
-    // The mode of a file made by create_new is the one asked for, masked by
-    // the umask, which a service may widen. Set it again.
-    fs::set_permissions(&temp, fs::Permissions::from_mode(0o600)).map_err(|e| {
-        let _ = fs::remove_file(&temp);
-        why("could not be given its mode", e)
-    })?;
-    fs::rename(&temp, &to).map_err(|e| {
-        let _ = fs::remove_file(&temp);
-        why("could not be put in place", e)
-    })
-}
-
 /// The counts of the window, written to `<dir>/outcomes.jsonl` for the MCP
-/// server. See `put` for how the file is made.
+/// server. See `crate::publish::put` for how the file is made.
 pub fn write(dir: &Path, conn: &Connection, now: i64, f: &Filter) -> Result<(), String> {
     let lines = lines(conn, now, f).map_err(|e| format!("the counts could not be read: {e}"))?;
-    put(dir, FILE, &lines)
+    crate::publish::put(dir, FILE, &lines)
 }
 
-/// One row of `runs` as the counts read it.
+/// One group of `runs` as the counts read it: the key it is grouped under,
+/// the count it brings, and the words of the two maps that name a reason.
 struct Record {
     tehas: Option<String>,
     rukas_version: Option<String>,
@@ -334,15 +291,21 @@ struct Record {
     kind: Option<String>,
     park: Option<String>,
     at: i64,
+    runs: i64,
 }
 
-// The rows whose day is served. A run is counted on its end, and a run that
-// never ended on its start, as the prune counts it.
+// The groups of the window, counted by SQLite: a run is counted on its end,
+// and a run that never ended on its start, as the prune counts it. The
+// grouping is the database's so the row volume leaving it is one row per
+// group of the window, not one per run of it.
 fn rows(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Record>> {
+    // SQLite groups nulls together, which is what a version no run recorded
+    // needs: it is one group of runs that name no release.
     let mut stmt = conn.prepare(
         "SELECT tehas_version, rukas_version, rukas_commit, outcome, failure_kind, \
-         park_reason, coalesce(ended, started) FROM runs \
-         WHERE coalesce(ended, started) >= ?1 AND coalesce(ended, started) <= ?2",
+         park_reason, coalesce(ended, started), count(*) FROM runs \
+         WHERE coalesce(ended, started) >= ?1 AND coalesce(ended, started) <= ?2 \
+         GROUP BY 1, 2, 3, 4, 5, 6, 7",
     )?;
     let found = stmt
         .query_map(params![from, to], |r| {
@@ -354,6 +317,7 @@ fn rows(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Record>> 
                 kind: r.get(4)?,
                 park: r.get(5)?,
                 at: r.get(6)?,
+                runs: r.get(7)?,
             })
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;

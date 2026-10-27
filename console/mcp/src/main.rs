@@ -74,7 +74,6 @@ fn main() {
     let sessions_dir = dir(sessions, "--sessions");
     let dirs = Dirs {
         live: dir(live, "--live"),
-        outcomes: sessions_dir.clone(),
         sessions: sessions_dir,
         logs: dir(logs, "--logs"),
     };

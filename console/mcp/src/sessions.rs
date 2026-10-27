@@ -49,7 +49,9 @@ const CAUSE_ISSUES: usize = 10;
 
 pub(crate) static ID: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(work|plan)-[1-9][0-9]{0,8}-[0-9]{9,11}$").unwrap());
-static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());
+// The word of a version, a failure kind or a park reason: the one rule of the
+// crate, from tools, which the schemas below name as their pattern.
+pub use tools::WORD;
 static REPO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 

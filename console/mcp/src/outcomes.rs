@@ -5,20 +5,20 @@
 //! file holds no issue number, title, failure cause or log content, and this
 //! tool would not serve one if it did.
 
-use crate::tools::{self, Dirs, ToolError};
+use crate::tools::{self, bad, word, Dirs, ToolError};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use tehas_core::time::{civil_from_days, days_from_civil};
+use tehas_core::time::{civil_from_days, days_from_civil, week_start_of_day};
 
-/// The shape of the file, which is the shape of the tool's answer. The
-/// analytics program writes it and checks it against the same numbers.
-const API: i64 = 1;
-/// How far back the counts reach: the retention of the factory's analytics.
-const DAYS: i64 = 365;
+/// The shape of the entries, which the analytics program writes and this
+/// reader checks: the one number it holds is `outcomes::shape` on both sides.
+const OUTCOMES: i64 = 1;
+/// How far back the counts reach is the file's own `days`, which the reader
+/// answers with. The writer holds the figure: it is the retention it applies.
 const DAY: i64 = 86_400;
 /// The name of the file, which the header of the file itself repeats.
 const FILE: &str = "outcomes.jsonl";
@@ -62,38 +62,19 @@ fn seconds(s: &str) -> Option<i64> {
 }
 
 /// The seconds of the Monday that opens the week named by a `YYYY-MM-DD`, or
-/// None for a week that is no date. The weeks are the analytics program's own:
-/// UTC, and beginning on Monday.
+/// None for a week that is no date. The weeks are the analytics program's own
+/// and core's: UTC, and beginning on Monday.
 fn week_start(week: &str) -> Option<i64> {
     let days = seconds(week)? / DAY;
-    // 1970-01-01 was a Thursday, so four days on from a Thursday is a Monday.
-    let monday = days - (days + 4).rem_euclid(7);
-    Some(monday * DAY)
+    Some(week_start_of_day(days) * DAY)
 }
 
 /// The groupings, in the order the tool names them.
 pub const BYS: [&str; 2] = ["version", "week"];
-
-/// A version is matched exactly, as the session tools match theirs, so the
-/// same shape of word is accepted here.
-pub static WORD: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());
 /// A bound: a day, `YYYY-MM-DD`, or a full UTC time as the live files give it.
 pub static BOUND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$").unwrap()
 });
-
-fn bad(why: &str) -> ToolError {
-    ToolError::BadArgs(why.to_string())
-}
-
-fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
-    match &args[key] {
-        Value::Null => Ok(None),
-        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
-        _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
-    }
-}
 
 fn bound(args: &Value, key: &str) -> Result<Option<i64>, ToolError> {
     let why = || bad(&format!("{key} is YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ"));
@@ -114,6 +95,8 @@ fn file_stale(generated_at: &str, now: i64) -> bool {
 /// line, then one entry per line. Never published.
 pub struct File_ {
     pub by: String,
+    /// How far back the counts reach, as the file says.
+    pub days: i64,
     pub generated_at: String,
     /// The host has not written it for a day.
     pub stale: bool,
@@ -143,8 +126,19 @@ impl File_ {
             .read_line(&mut first)
             .map_err(|_| bad_file("could not be read"))?;
         let head: Value = serde_json::from_str(&first).map_err(|_| bad_file("has no header"))?;
-        if head["api"] != API {
+        if head["api"] != 1 {
             return Err(bad_file("has a header of another api"));
+        }
+        // The header says what the file holds, as the snapshot's does: the
+        // reach of its counts, and the shape of its entries. A reader that
+        // named either of them itself could answer with a reach the file does
+        // not hold.
+        let days = head["days"]
+            .as_i64()
+            .filter(|d| *d >= 1)
+            .ok_or_else(|| bad_file("has a header without days"))?;
+        if head["outcomes"] != OUTCOMES {
+            return Err(bad_file("has a header of another shape"));
         }
         // The header names the file it was written for. A reader that does not
         // check it would serve an old or foreign file as if it were the counts.
@@ -156,10 +150,17 @@ impl File_ {
             .filter(|b| BYS.contains(b))
             .ok_or_else(|| bad_file("has a header without a grouping"))?
             .to_string();
-        let generated_at = head["generatedAt"].as_str().unwrap_or("").to_string();
+        // A header of another type for the time is no header: the stale flag
+        // is the tool's answer to "did the host stop writing", and a time it
+        // cannot read would make that answer default to yes.
+        let generated_at = head["generatedAt"]
+            .as_str()
+            .ok_or_else(|| bad_file("has a header without a time"))?
+            .to_string();
         let stale = file_stale(&generated_at, now);
         Ok(File_ {
             by,
+            days,
             generated_at,
             stale,
             path,
@@ -192,7 +193,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let since = bound(args, "since")?;
     let until = bound(args, "until")?;
 
-    let file = File_::open(&dirs.outcomes, tools::now())?;
+    let file = File_::open(&dirs.sessions, tools::now())?;
     // The host writes the file grouped one way and the header says which. An
     // argument that asks for the other cannot be answered from it, so it says
     // so rather than answering with nothing.
@@ -215,14 +216,25 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
                 && in_window(e, since, until)
         })
         .map(|e| match tools::pick(&e, &spec) {
-            Some(Value::Object(m)) => Value::Object(m),
+            Some(Value::Object(mut m)) => {
+                // `runs` is the one key the entry must hold: a group of runs of
+                // no known size answers nothing, so it is left out rather than
+                // served, and a count that is no whole number is no count.
+                match m.remove("runs").and_then(|r| r.as_u64()) {
+                    None => Value::Null,
+                    Some(runs) => {
+                        m.insert("runs".into(), json!(runs));
+                        Value::Object(m)
+                    }
+                }
+            }
             _ => Value::Null,
         })
         .filter(Value::is_object)
         .collect();
     let mut out = Map::new();
     out.insert("by".into(), json!(file.by));
-    out.insert("days".into(), json!(DAYS));
+    out.insert("days".into(), json!(file.days));
     out.insert("generatedAt".into(), json!(file.generated_at));
     out.insert("stale".into(), json!(file.stale));
     out.insert("entries".into(), Value::Array(entries));
