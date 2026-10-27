@@ -13,6 +13,20 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.14.4 (2026-10-27)
+
+### Changes
+
+- The poll tests' page stub parses in jq 1.7, the sandbox image's (#859): an
+  object value built with `+` unparenthesised failed every cycle's gate
+  inside its container while CI, on a newer jq, was green.
+- A store migration in a second already taken writes its backup under the
+  next free name (#863).
+- AGENTS.md: keep jq to a minimum, and to what jq 1.7 runs (#861).
 - `tehasbot clean` runs its steps in the console (`console clean run`), not in
   bash. What it removes and keeps is unchanged. A host with no console beside
   the command stops with 78 and says to run `install.sh` (#862).
