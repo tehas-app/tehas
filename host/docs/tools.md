@@ -319,10 +319,18 @@ as `WARN: tidy: the search for closed issues with state labels failed`, a
 label change that fails as `WARN: tidy #N: could not remove <labels>`, and
 neither stops the poll.
 
-Every real poll that holds the dispatcher's lock, a paused, held or failed one
-too, ends with one sample in the factory's analytics,
-`~/tehas/state/analytics.db`: `~/tehas/libexec/analytics sample` reads the
-issues in line, running, awaiting a merge, stopped and in planning from
+Every real poll that holds the dispatcher's lock ends with one sample in the
+factory's analytics, `~/tehas/state/analytics.db`, when its work could have
+changed the queue: a write to GitHub, a start, a stop or a planning turn. A
+paused, held or failed poll that changed nothing takes none, so an idle factory
+writes no row rather than the same reading again; `analytics prune` keeps its
+schedule whatever the poll did. One consequence: the report counts each sample
+for the time to the next, at most ten minutes (see
+[`availability`](#tehasbot-status-and-the-console)), so a stretch with no
+sample - a long pause or an idle week - counts as not available rather than as
+one reading held. The same rule bounds `energy`.
+`~/tehas/libexec/analytics sample` reads the issues in line, running, awaiting
+a merge, stopped and in planning from
 `~/tehas/live/status.json`, the hold and the cycles allowed from
 `~/tehas/live/dispatch.json`, and the mesh's draw from
 `~/tehas/live/energy.json`. A file older than ten minutes gives no value, and a
@@ -2264,7 +2272,8 @@ call.
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
-`~/tehas/live/status.json`; the dispatcher runs it at every poll, and a cycle when it ends.
+`~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
+changed the queue, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with: the query and the acceptance rule are `lib/shipped.sh`'s, the ones
 `tehas tidy` reads too, so the two commands cannot disagree on what a merge

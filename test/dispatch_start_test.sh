@@ -24,8 +24,8 @@ t_case "the status is refreshed before the poll and after the start"
 # queue - and a start is one.
 t_eq "$(t_calls fake-status | wc -l)" 3
 
-# The poll's end runs the status once more, and that is the last of the
-# three: a poll that wrote nothing runs none of them (#871).
+# #871: the poll's end runs the status only after a poll that could change
+# the queue, so a poll that writes nothing runs none of them.
 t_case "a poll that starts nothing runs no status: the queue did not change"
 reset
 echo '[]' >"$fx/ready.json"
@@ -669,8 +669,9 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
 t_eq "$(t_calls analytics)" "prune"
 reset
-# A poll whose read of GitHub failed changed nothing either: the sample of
-# the queue would say what the poll never read, so it is the next poll's.
+# The poll's read of GitHub fails before any write, so nothing marks the queue
+# changed: the sample of it would say what the poll never read, so it is the
+# next poll's.
 analytics_stub
 rm -f "$fx/repo.json"
 t_run "$dispatch"
