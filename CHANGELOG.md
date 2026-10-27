@@ -13,6 +13,33 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.14.3 (2026-10-27)
+
+### Changes
+
+- `tehas drain` says drained only when no poll can still start a cycle
+  (#795): after it writes the limit it takes the dispatcher's lock, bounded
+  by `--wait`, so a poll that read the old limit has ended and its cycles
+  are counted.
+- A failed GitHub call in the poll names gh's error by words of a fixed list
+  (#853), such as `ERROR: gh api graphql failed: HTTP 502`. Nothing else of
+  gh's error is logged, since an agent can write it.
+- A container that is starting does not hold the poll (#848): a
+  `memory.stat` without `slab_reclaimable` yet reads it as 0, in the bash and
+  the Rust dispatcher alike.
+- A planned issue's title is the work, not "Plan issue #N" (#818): the first
+  planning turn names the issue's title and then its number.
+- A develop timeout leaves a note in the issue's body, and a second one on
+  unchanged text offers no retry and points to `tehas:plan` (#832, #833).
+- The install-list check names a new file under `bin/`, `lib/` or `libexec/`
+  and says what to do with it, and the manual says a deliverable that
+  creates one names `install.sh` and `test/install_lib.sh` (#784).
+- The manual says how an issue's `Out of scope` section fences a cycle's
+  work (#719).
 - The snapshot behind `tehas top` is put together by the console (#846,
   `console top snapshot`, console/src/snapshot.rs): the factory, queue,
   cycle, units, energy and console sections, with the same JSON. `lib/top.sh`
@@ -56,7 +83,10 @@ empty one above it.
 
 ### Adopter action
 
-None.
+- `tehasbot review`, the preview notice and `tehas top` now run from the
+  console: without it they stop and say to run `install.sh` (#829, #841,
+  #846). A host installed with `install.sh` has the console; one that copies
+  files by hand must install it.
 
 ## v0.14.2 (2026-10-26)
 
