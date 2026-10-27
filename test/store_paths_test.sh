@@ -28,7 +28,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 
 code() { # every tracked file that is installed or run and could name a record
-  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src
+  git -C "$T_ROOT" ls-files -- bin libexec lib install.sh console/analytics/src console/src/export.rs
 }
 
 # The old files of the records that moved, as extended regular expressions,
@@ -129,10 +129,10 @@ carrier '\.nostart\b' 'nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart' \
   'lib/cycles.sh libexec/cycle libexec/stop libexec/work' \
   "work tells the cycle the runner never started"
 carrier '\.result\.json\b' 'result=$TEHAS_HOME/state/cycles/$issue.result.json' \
-  "libexec/cycle libexec/export libexec/stop libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
+  "libexec/cycle libexec/export console/src/export.rs libexec/stop libexec/work $an/run.rs $an/sessions.rs $an/tests.rs" \
   "the container's result, kept to the next start for tehas export"
 carrier '\.progress\.json\b' 'progress=$TEHAS_HOME/state/cycles/$issue.progress.json' \
-  "lib/cycles.sh libexec/cycle libexec/export libexec/stop libexec/work $an/run.rs $an/tests.rs" \
+  "lib/cycles.sh libexec/cycle libexec/export console/src/export.rs libexec/stop libexec/work $an/run.rs $an/tests.rs" \
   "the summary of the container's output, kept to the next start for tehas export"
 carrier "$n"'\.done\b' 'echo "$done_why" >"$TEHAS_HOME/state/cycles/$n.done"' \
   'libexec/cycle libexec/dispatch' \
@@ -144,7 +144,7 @@ carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
   'libexec/dev libexec/dispatch libexec/stop libexec/work' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
-  'lib/attachments.sh libexec/export libexec/stop libexec/work' \
+  'lib/attachments.sh console/src/export.rs libexec/stop libexec/work' \
   "the images a container is given, mounted into it"
 carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"' \
   'libexec/work' \

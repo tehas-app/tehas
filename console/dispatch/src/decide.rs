@@ -557,7 +557,7 @@ impl<'a> Poll<'a> {
         let mut mem_note = String::new();
         let mut pressure = None;
         let mut ceiling_mb = 0;
-        match slice::usable(&s.slice, &c.reserve) {
+        match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
                 let r = slice::room(&s.slice, &u, &c.reserve, count as u64);

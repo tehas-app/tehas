@@ -281,7 +281,7 @@ tehas history [--json] [--after CURSOR] [--issue N]
     "status": 10, "outcome": "handoff", "pr": "https://github.com/acme/widget/pull/9",
     "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
     "failureKind": "review", "failureCause": "findings open",
-    "provider": false, "parked": true, "by": "alice", "how": "label"},
+    "provider": false, "parked": true, "repeat": 1, "by": "alice", "how": "label"},
    {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
     "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
     "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
@@ -292,8 +292,11 @@ tehas history [--json] [--after CURSOR] [--issue N]
 What has ended, oldest first: one line for each cycle and each planning turn,
 in the order the state store wrote them.
 `kind` is `work` for a cycle and `plan` for a planning turn, so a program reads
-the two the same way. It reads the history of both from the state store, and
-nothing else: no network, no lock a running cycle holds, and it writes
+the two the same way. `repeat` is on the park of a run of parks only: the parks
+in a row that stopped exactly as this one did, this one not counted, so 1 on the
+first repeat. A line of a listing that begins partway through a run counts only
+the parks the listing holds. It reads the history of both from the state store,
+and nothing else: no network, no lock a running cycle holds, and it writes
 nothing. A line it cannot read is left out, not an error. A store that does
 not answer prints nothing: never a listing without the cycles.
 
@@ -354,15 +357,16 @@ seconds), `answers`, `filed`, `answer` and `notes`. A session that ended stays
 on the store until the next `tehas:plan` of the issue replaces it, so a turn
 that never made a session still brings the one it ended; a turn whose session
 was replaced since, by one opened after the turn ended, brings no `plan.json`. A planning session the store did not
-give is a cycle not written: the others are copied, and the command exits 1.
-A cycle whose logs the improvement loop has already removed is not an
+give is a cycle not written, and so is one with a file that cannot be read:
+the others are copied, and the command exits 1. A cycle whose logs the improvement loop has already removed is not an
 error: those files are simply not there.
 
-Every text file goes through the console's mask, the one masker tehas has, with
-the same names of the host a cycle is given (the host aliases, the model hosts
-and the bot's email), so a token or a private address that reached a log does not
-reach the copy. Only a file the mask itself will not read is copied as it is, and
-one over 32 MiB is left out: an export is for reading. The mask catches accidents;
+The console does the copying, and every file goes through its mask, the one
+masker tehas has, with the same names of the host a cycle is given (the host
+aliases, the model hosts and the bot's email), so a token or a private address
+that reached a log does not reach the copy. Only a file of a Protolab page that
+is not UTF-8, such as an image, is copied as it is; a log is masked whatever
+bytes it holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
 it cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 

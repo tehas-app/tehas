@@ -65,7 +65,7 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
 }
 
 /// Seconds since the epoch of YYYY-MM-DDTHH:MM:SSZ, as fromdateiso8601 reads it.
-fn epoch(s: &str) -> Option<i64> {
+pub fn epoch(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     if b.len() != 20
         || b[4] != b'-'

@@ -35,15 +35,15 @@
 //! One line per removal and a closing line with the bytes freed go to the log
 //! and to standard output; a warning goes to the log and standard error.
 
-use serde_json::{json, Value};
+use crate::store::{self, bounded, merged};
+use serde_json::json;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 use tehas_core::time;
 
@@ -122,40 +122,6 @@ fn first_line(said: &str, default: &str) -> String {
         return default.to_string();
     }
     said.split('\n').next().unwrap_or("").to_string()
-}
-
-fn code(status: ExitStatus) -> i32 {
-    status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
-}
-
-/// Standard output and standard error as one text, and the exit status: 127
-/// for a command that could not be started.
-fn merged(cmd: &mut Command) -> (i32, String) {
-    let Ok((mut reader, writer)) = io::pipe() else {
-        return (127, String::new());
-    };
-    let Ok(other) = writer.try_clone() else {
-        return (127, String::new());
-    };
-    cmd.stdout(writer).stderr(other);
-    let child = cmd.spawn();
-    // The command holds the writers; the read ends only once they are closed.
-    cmd.stdout(Stdio::null()).stderr(Stdio::null());
-    let Ok(mut child) = child else {
-        return (127, String::new());
-    };
-    let mut said = Vec::new();
-    let _ = reader.read_to_end(&mut said);
-    let rc = child.wait().map(code).unwrap_or(127);
-    (rc, String::from_utf8_lossy(&said).into_owned())
-}
-
-fn bounded(kill: &str, limit: &str, program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut cmd = Command::new("timeout");
-    cmd.args(["-k", kill, limit]).arg(program);
-    cmd
 }
 
 /// What docker printed on standard output, its trailing newlines cut, when it
@@ -1144,64 +1110,6 @@ impl Run {
         ok
     }
 
-    /// One call of the store, as lib/store.sh makes it: the answer, or the
-    /// word and line of what went wrong.
-    fn store(&self, args: &[&str]) -> Result<Value, (String, String)> {
-        let bin = self.home.join("libexec").join("store");
-        let verb = args[0];
-        let (rc, said) = merged(
-            bounded("2", "20", &bin)
-                .args(args)
-                .env("TEHAS_HOME", &self.home)
-                .stdin(Stdio::null()),
-        );
-        let garbled = |line: String| Err(("garbled".to_string(), line));
-        let said = said.trim_end_matches('\n');
-        match rc {
-            0 => {
-                let v: Value = serde_json::from_str(said).unwrap_or(Value::Null);
-                if !said.contains('\n')
-                    && v["api"] == json!(1)
-                    && v["ok"] == json!(true)
-                    && v["verb"] == json!(verb)
-                {
-                    Ok(v)
-                } else {
-                    garbled(format!(
-                        "store: garbled: {verb} answered 0 without its answer"
-                    ))
-                }
-            }
-            124 | 137 => Err((
-                "timeout".to_string(),
-                format!("store: timeout: {verb} did not answer in 20 s"),
-            )),
-            126 | 127 => Err((
-                "absent".to_string(),
-                format!("store: absent: {} could not be run", bin.display()),
-            )),
-            1 | 64 | 78 => {
-                let first = said.split('\n').next().unwrap_or("");
-                let word = first
-                    .strip_prefix("store: ")
-                    .map(|r| r.split([':', ' ']).next().unwrap_or("").to_string())
-                    .filter(|w| {
-                        w.bytes().next().is_some_and(|c| c.is_ascii_lowercase())
-                            && w.bytes()
-                                .all(|c| c.is_ascii_lowercase() || c == b'_' || c == b'-')
-                    })
-                    .unwrap_or_default();
-                if rc == 1 && word.is_empty() {
-                    return garbled(format!(
-                        "store: garbled: {verb} refused without a word: {first}"
-                    ));
-                }
-                Err((word, first.to_string()))
-            }
-            _ => garbled(format!("store: garbled: {verb} exited {rc}")),
-        }
-    }
-
     // --- 6. old logs and the state store's upkeep.
     fn upkeep(&mut self) -> bool {
         let bin = self.home.join("libexec").join("store");
@@ -1217,10 +1125,10 @@ impl Run {
         } else {
             &["upkeep"]
         };
-        let v = match self.store(args) {
+        let v = match store::call(&self.home, args) {
             Ok(v) => v,
-            Err((word, line)) => {
-                self.warn(&format!("store upkeep failed ({word}): {line}"));
+            Err(no) => {
+                self.warn(&format!("store upkeep failed ({}): {}", no.word, no.line));
                 return false;
             }
         };

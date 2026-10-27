@@ -26,6 +26,10 @@
 //! The notice tehasbot preview keeps in a pull request's description, see
 //! src/notice.rs.
 //!
+//!   console plan outcome|update ...
+//!
+//! What a planning turn of libexec/plan says, see src/plan.rs.
+//!
 //!   console top reading|host|snapshot ...
 //!
 //! The snapshot behind tehas top and its host section, see src/top.rs and
@@ -40,14 +44,26 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console export run ...
+//!
+//! What tehas export copies, see src/export.rs.
+//!
+//!   console setup files ...
+//!
+//! The settings, the checks and the files of tehas setup, see src/setup.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
 mod clean;
+mod export;
 mod notice;
+mod plan;
 mod render;
 mod review;
+mod setup;
 mod snapshot;
+mod store;
 mod tail;
 mod top;
 
@@ -224,8 +240,11 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
+            Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(notice::main(&given[1..])),
+            Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}
         }

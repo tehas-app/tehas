@@ -1,6 +1,7 @@
 //! The end of a planning turn, as lib/planning.sh does it: the turn's exit
 //! status collected (plan_collect, plan_finish), its question posted
-//! (plan_post), a refine that filed replacing its issue (plan_replace), a
+//! (plan_post), a plan written onto its issue (plan_update), a refine that
+//! filed replacing its issue (plan_replace), a
 //! turn cut off (plan_recover) or a session Pi lost (plan_lost), and a
 //! session ended (plan_end, plan_close). The start of a turn is the next
 //! part of #254.
@@ -585,6 +586,12 @@ impl Writer {
         filed.sort_unstable();
         filed.dedup();
         let what = filed.join(", ");
+        if let (Some(title), Some(body)) = (
+            out.pointer("/update/title").and_then(Value::as_str),
+            out.pointer("/update/body").and_then(Value::as_str),
+        ) {
+            return self.plan_update(n, title, body, s(&out, "/text"), log);
+        }
         if !what.is_empty() && label == "tehas:refine" {
             return self.plan_replace(n, &what, &out, log);
         }
@@ -638,6 +645,40 @@ impl Writer {
         }
         let _ = std::fs::remove_file(self.st(n, ".out"));
         true
+    }
+
+    /// plan_update: a drafted plan the operator chose becomes the issue's
+    /// text, and the session is over. Writing it again is harmless, so a
+    /// poll that fails halfway is repeated whole.
+    fn plan_update(
+        &mut self,
+        n: u64,
+        title: &str,
+        body: &str,
+        said: &str,
+        log: &mut Vec<String>,
+    ) -> bool {
+        let args = vec![
+            "issue".into(),
+            "edit".into(),
+            n.to_string(),
+            "--repo".into(),
+            self.repo.clone(),
+            "--title".into(),
+            title.into(),
+            "--body-file".into(),
+            "-".into(),
+        ];
+        if !matches!(
+            self.write(n, "issue-edit", args, Some(body), None),
+            Wrote::Done(_)
+        ) {
+            log.push(format!(
+                "WARN: the plan could not be written onto #{n}; the next poll tries again"
+            ));
+            return false;
+        }
+        self.plan_end(n, said, false, false, log)
     }
 
     /// post_question: the turn's question comment, and its id.

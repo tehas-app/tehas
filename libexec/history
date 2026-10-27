@@ -25,8 +25,11 @@
 #
 # Without --json, one line each, oldest first:
 #
-#   1760700000-12-41  work  #12  handoff  rc 10  step review  parked  pr https://github.com/...
+#   1760700000-12-41  work  #12  handoff  rc 10  step review  parked  repeat 1  pr https://github.com/...
 #   1760700300-7-42   plan  #7   finished  turn 3
+#
+# `repeat <n>` names the n parks in a row that stopped exactly as this one did,
+# it not counted, and is on the park of a run only: see the manual.
 #
 # With --json, one object on standard output and nothing else:
 #
@@ -36,7 +39,7 @@
 #       "status": 0, "outcome": "handoff", "pr": "https://github.com/...",
 #       "step": "review", "cap": "awaiting-human-merge", "parkReason": "merge",
 #       "failureKind": "review", "failureCause": "...", "provider": false,
-#       "parked": true, "by": "alice", "how": "label"},
+#       "parked": true, "repeat": 1, "by": "alice", "how": "label"},
 #      {"cursor": "1760700300-7-42", "kind": "plan", "issue": 7,
 #       "started": "2026-10-17T13:20:00Z", "ended": "2026-10-17T13:25:00Z",
 #       "status": 0, "outcome": "finished", "turn": 3, "by": "alice",
@@ -107,7 +110,7 @@ if ! tehas_store_ready; then
 fi
 
 # The lines from the store, each with its issue and the kind of line it is, in
-# the shape the lines had before the store: a cycle's as tehas_history_shape
+# the shape the lines had before the store: a cycle's as lib/history-lines.jq
 # has it, a planning turn's with its outcome as status and its exit status, or
 # the outcome when the unit left none, as rc.
 store_args=(history-show)
@@ -117,14 +120,7 @@ if ! tehas_store "${store_args[@]}"; then
   [ "$tehas_store_rc" = 1 ] && exit 1
   exit 78
 fi
-# shellcheck disable=SC2154  # lib/store.sh sets the shape and the answer
-lines=$(jq -c --arg repo "${TEHAS_REPO:-}" "$tehas_history_line"' .rows[]
-  | if .kind == "cycle" then {issue, kind: "work", seq} + history_line
-    elif .kind == "plan" then
-      {issue, kind: "plan", seq, at: (.at | todate), started: .started_at, rc: (.rc // .outcome), status: .outcome,
-       turn, by, label, filed, auto: (if .auto == true then true else null end)}
-      | with_entries(select(.value != null and .value != "" and .value != []))
-    else empty end' <<<"$tehas_store_out" 2>/dev/null) || lines=""
+lines=$(jq -c --arg repo "${TEHAS_REPO:-}" --argjson kinds '["cycle","plan"]' -f "$here/../lib/history-lines.jq" <<<"$tehas_store_out" 2>/dev/null) || lines=""
 
 # An empty cursor is JSON null: a program reads the absence of one, so no
 # special case for it is needed inside the program.
@@ -136,57 +132,7 @@ after_json=null
 {
   [ -n "$lines" ] || printf '\n'
   printf '%s\n' "$lines"
-} | jq -cs --argjson after "$after_json" '
-    # jq turns a whole number over 2^53 into a decimal, where |floor is an
-    # error and comparison is unreliable. `whole` is the test that holds for
-    # every number this command writes and reads back, and the number is then
-    # taken as the text it was read as, which compares as a number does.
-    def whole($v): (($v | type) == "number") and ((("\($v)") | test("^[0-9]+$")) == true);
-    def iso_of($e): (if whole($e) then ($e | tostring | tonumber | todate) else null end);
-    def word($v): (if ($v | type) == "string" and $v != "" then $v else null end);
-    def bool($v): (if ($v | type) == "boolean" then $v else null end);
-    def num($v): (if whole($v) then ($v | tostring | tonumber) else null end);
-    def is_line: (type) == "object" and ((.kind | type) == "string")
-      and ((.kind | test("^(work|plan)$")) == true)
-      and whole(.issue) and ((.issue | tostring | tonumber) >= 1)
-      and whole(.seq) and ((.seq | tostring | tonumber) >= 1)
-      and ((.at | type) == "string")
-      and ((.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) == true)
-      and ((.rc | type) == "number" or (.rc | type) == "string")
-      and ((.status | type) == "string");
-    # A line is listed when it was written after the line of the cursor. An old
-    # cursor has no place, and is compared as before on the pair (the seconds
-    # of the end, the issue).
-    def after_cursor($c; $s): ($c | split("-")) as $p
-      | if ($p | length) == 3 then (.seq | tostring | tonumber) > ($p[2] | tonumber)
-        else ($s > ($p[0] | tonumber)) or
-          (($s == ($p[0] | tonumber)) and ((.issue | tostring | tonumber) > ($p[1] | tonumber)))
-        end;
-    # What a caller reads. A release that adds a field to a line adds it here
-    # too; nothing here renames or removes one. A line this release cannot read
-    # is left out, so an older or a newer file breaks no listing.
-    def publish($s): {cursor: "\($s)-\(.issue)-\(.seq)", kind, issue, ended: .at,
-       started: iso_of(.started), status: num(.rc), outcome: .status, turn: num(.turn),
-       step: word(.step), cap: word(.cap), parkReason: word(.park_reason),
-       failureKind: word(.failure_kind), failureCause: word(.failure_cause),
-       provider: bool(.provider), parked: bool(.parked), pr: word(.pr),
-       by: word(.by), how: word(.how), label: word(.label),
-       auto: (if .auto == true then true else null end),
-       filed: (if (.filed | type) == "array" then
-           [.filed[] | strings | select(test("^https://github\\.com/[^/]+/[^/]+/issues/[0-9]+$"))]
-           | if length == 0 then null else . end
-         else null end)}
-      | with_entries(select(.value != null));
-    [ .[] | select(is_line) | (.at | try fromdateiso8601 catch null) as $s
-      | select($s != null)
-      | select(if $after == null then true else after_cursor($after; $s) end)
-      | {seq: (.seq | tostring | tonumber), line: publish($s)} ]
-    # Oldest first, in the order the store wrote the ends: the order --after
-    # reads, so a program that keeps "next" and asks again is given each line
-    # once.
-    | sort_by(.seq) | map(.line) as $c
-    | {api: 1, cycles: $c,
-       next: (if ($c | length) == 0 then $after else $c[-1].cursor end)}' |
+} | jq -cs --argjson after "$after_json" --library-path "$here/../lib" -f "$here/../lib/history-listing.jq" |
   if [ "$json" = 1 ]; then
     cat
   else
@@ -200,6 +146,7 @@ after_json=null
          "rc \(.status // "?")" +
          (if .step then "  step \(.step)" else "" end) +
          (if .parked == true then "  parked" else "" end) +
+         (if .repeat then "  repeat \(.repeat)" else "" end) +
          (if .pr then "  pr \(.pr)" else "" end)
        end)'
   fi

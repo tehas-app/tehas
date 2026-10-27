@@ -754,7 +754,10 @@ and apply it again; for a retry tick, untick the box and tick it again.
 ## Planning on an issue
 
 A planning session is a conversation with pi-rukas's planner that ends in a
-filed issue. It runs on the issue, so you can steer it from a phone. The agent is
+plan: written onto the issue itself, or filed as a new one. It runs on the
+issue, so you can steer it from a phone. Write your notes on an issue, let the
+planner work on them, and build that same issue: the discussion stays in the
+comments, and the issue's text becomes the plan. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
 included, so treat `tehas:plan` as you treat `tehas:ready`.
@@ -795,16 +798,24 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is filed: the comment
-   holds its title and spec, lists its open points with the planner's
-   proposals, and offers one box, **File this plan**. Tick it to file the
-   plan exactly as shown, proposals included, as one issue; reply to change
-   it, and the next turn drafts it again. A session files once. Every turn of
-   a session works on the commit the session started on. The plan is filed
-   with the bot's token. To finish, tick
-   `End this planning session`. Filed issues are never started on their own:
-   apply `tehas:ready` to the ones you want built. A `tehas:ready` from any
-   account outside the list, the bot's included, is taken off.
+5. The planner shows you a drafted plan before anything is written: the
+   comment holds its title and spec, lists its open points with the
+   planner's proposals, and offers two boxes. Reply to change the plan, and
+   the next turn drafts it again. Every turn of a session works on the
+   commit the session started on.
+   - **Update this issue** makes the plan, exactly as shown, proposals
+     included, the issue's title and text, and ends the session. No
+     container runs for it. The bot's last comment says so and holds the
+     text the plan replaced, folded. The plan is written with the bot's
+     token.
+   - **File as a new issue** files the plan as shown as one new issue, as
+     before. A session files once. To finish, tick `End this planning
+     session`.
+
+   Nothing is started on its own: read the plan and apply `tehas:ready` to
+   the issue you want built. The label approves the text as it is when you
+   apply it. A `tehas:ready` from any account outside the list, the bot's
+   included, is taken off.
 
 pi-rukas's record of a session is kept on the host, in
 `~/tehas/work/<name>-plan-<issue>.keep/plan-sessions`, and carried into each
@@ -906,16 +917,22 @@ A parked issue is not held back: `tehas:refine` or `tehas:plan` from an allowed
 account starts the session there too, and the start takes `tehas:question` off,
 as a `tehas:ready` cycle start does.
 
-`tehas:refine` starts the same planning session with one difference: after the
-issue's approved text, the planner is given the refine brief,
-`~/tehas/lib/refine-brief.md`. It tells the planner to read the code first and
-to plan the request into one issue that a single `/work` cycle finishes: one
-behaviour change, its files by exact path, a named test file for each
-acceptance criterion, what is out of scope, and nothing under `.github/` or
-`.pi/`. The part's title starts with its classification as a conventional-commit
-type, `feat:`, `fix:`, `chore:`, `docs:`, `test:` or `refactor:`, keeping one
-the request already has; pi-rukas gives the cycle's pull request the same
-type, where a title without one becomes `chore(work):`. A session files one issue, so for a larger request the planner files
+Every planning session, `tehas:plan` and `tehas:refine` alike, gives the
+planner the issue brief, `~/tehas/lib/issue-brief.md`, after the issue's
+text. It says what a plan must be, since it may become the issue's own text:
+grounded in the code first, its files by exact path, a named test file for
+each acceptance criterion, what is out of scope, decisions and not options,
+nothing under `.github/` or `.pi/`, and no inventory of the request. Its title
+starts with its classification as a conventional-commit type, `feat:`, `fix:`,
+`chore:`, `docs:`, `test:` or `refactor:`, keeping one the request already
+has; pi-rukas gives the cycle's pull request the same type, where a title
+without one becomes `chore(work):`.
+
+`tehas:refine` starts the same planning session with one difference: between
+the issue's text and the issue brief, the planner is given the refine brief,
+`~/tehas/lib/refine-brief.md`. It tells the planner to plan the request into
+one issue that a single `/work` cycle finishes: one behaviour change, about one
+or two code files and one test file. A session files one issue, so for a larger request the planner files
 the first part and lists the rest under "Later parts". Apply `tehas:refine`
 again to the original issue to plan the next part. The label is checked like
 `tehas:plan`: only an allowed account's counts. An issue with both labels is
@@ -1118,17 +1135,19 @@ recording, and both commands then say so and exit 69.
   removed its directory. File cache and other memory the kernel can take back
   do not count.
 - No more containers in the slice than their ceilings fit in its limit: a
-  container may use a quarter of the slice, so four. Every container counts,
-  a dev session, a planning turn and the indexer as well, and a cycle that
-  has no container yet. Room by use alone would let in cycles that are small
-  in their first steps and may each grow to a quarter later; then the whole
-  slice reclaims and the kernel kills in the biggest container. So on any
-  host at most four cycles run at once, whatever `TEHAS_TICKET_CONCURRENCY`
-  says; a host with 4 slots is unchanged, except that a dev session or a
-  planning turn takes the fourth. The ceiling is not sized by
-  `TEHAS_TICKET_CONCURRENCY` instead: containers that are not cycles would
-  still oversubscribe the slice, and on a host with many CPUs the ceiling
-  would fall below the reserve.
+  container may use the slice over `TEHAS_SLICE_CONTAINERS`, a quarter by
+  default, so four. Every container counts, a refresh, a dev session, a
+  planning turn and the indexer as well, and a cycle that has no container
+  yet. Room by use alone would let in cycles that are small in their first
+  steps and may each grow to their ceiling later; then the whole slice
+  reclaims and the kernel kills in the biggest container. So at most
+  `TEHAS_SLICE_CONTAINERS` cycles run at once, whatever
+  `TEHAS_TICKET_CONCURRENCY` says, and a dev session or a planning turn takes
+  one of them. The number is a setting of its own, not
+  `TEHAS_TICKET_CONCURRENCY`: containers that are not cycles would still
+  oversubscribe the slice, and on a host with many CPUs the ceiling would
+  fall below the reserve. To run more cycles side by side, raise it and the
+  host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
@@ -1546,6 +1565,19 @@ the new names.
   planning turn leaves one of its own in the store too, with `kind` `plan`.
   `tehas history` lists both, oldest first, and `tehas export` copies what a
   cycle left behind. A millwright reads GitHub, not these records.
+- **A park that repeats the park before it says so.** A cycle that parks the
+  way the issue's previous end parked, on the same step, cap, park reason,
+  failure kind and failure cause, is one of a run of parks. Its comment carries
+  the host's line above the boxes, which names the place in the run, the step
+  and the cap, and says that a retry on the same text will likely stop the same
+  way. `tehas history` says the same of a line: `repeat` in `--json` and
+  `repeat <n>` in the plain listing, on the park of a run only, and counted
+  from what the store keeps of each end rather than from anything the comment
+  left behind. Only the end just before a park puts it in a run: a merge, a
+  handoff or any end that was not a park breaks the run, and a park of a
+  provider outage is neither a repeat nor the park a run is counted from,
+  because an outage has its own rule of retries. Nothing about a run changes
+  what the cycle does: it parks, asks and waits as it would have.
 - **The park comment carries the park's facts.** The bot's park comment,
   with boxes or without, has the line
   `<!-- tehas:park issue=<n> step=<step> kind=<failure kind> provider=<0|1> sig=<sha256> -->`.
@@ -1618,7 +1650,7 @@ resolves the conflict or applies `tehas:ready`. A pull request that carries
 pull request is refreshed while every cycle slot is busy. At most
 `TEHAS_REFRESH_SLOTS` refreshes run at once (1 unless the instance says
 otherwise), and they do not count against `TEHAS_TICKET_CONCURRENCY`. The slice
-holds four containers whatever the slots say, so new cycles leave room in it
+holds `TEHAS_SLICE_CONTAINERS` containers whatever the slots say, so new cycles leave room in it
 for the lane: while the lane has a slot free, a cycle does not take the last
 room of the slice. On a host with `TEHAS_TICKET_CONCURRENCY=4` and one lane
 slot that is three cycles and one refresh. The poll says

@@ -216,6 +216,71 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | sed -n '/^issue comment 7 /,$p' | grep -E '^<!-- tehas:park ')" \
   "<!-- tehas:park issue=7 step=develop kind=verify-failed provider=0 sig=$sig -->"
 
+# A park of the issue's previous end, of the same sig: the run of parks the
+# comment says so about. t_parked_end leaves one on the store's history, as an
+# earlier cycle of this issue left it.
+t_parked_end() { # <step> <cap> <kind> <cause>
+  t_ended "$T/home/tehas" 7 alice label --status failed --rc 10 --step "$1" --cap "$2" \
+    --failure-kind "$3" --failure-cause "$4" --parked
+}
+
+t_case "a park that repeats the issue's previous end says so, with the step and the cap"
+reset
+park_failed step-failed:develop
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 0
+# The park before this one, left on the same store by the cycle above: this park
+# is of its sig, so it repeats it and says so. The park is asked of the store,
+# which is where the history lives, so the read is one the cycle makes itself.
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 1
+t_contains "$(t_calls gh)" "number 1 of the parks in a row that stopped at step \`develop\` on the cap \`step-failed:develop\`"
+t_contains "$(t_calls gh)" "change the issue first"
+
+t_case "a park that does not repeat the end before it says nothing of a run"
+reset
+park_failed verify-failed:develop
+t_run "$cycle 7"
+park_failed step-failed:develop
+t_run "$cycle 7"
+# The end before this park was a park, but of another cap: no run, and the count
+# starts again with the next park of this cap.
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 0
+park_failed step-failed:develop
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 1
+reset
+# A merge between two parks alike breaks the run: the park after it is a first
+# park, whatever came before the merge.
+park_failed step-failed:develop
+t_run "$cycle 7"
+ended merged review feature/x
+merged_pr
+echo 0 >"$fx/rc"
+t_run "$cycle 7"
+park_failed step-failed:develop
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 0
+
+t_case "a park of a provider outage never says it repeats a run"
+reset
+# The end before the outage park is a park of the same step, cap and failure, so
+# the count would be said but for the outage: an outage has its own retry rule.
+capped step-failed:adversarial "$outage"
+t_parked_end handoff step-failed:adversarial '' ''
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 0
+
+t_case "a history that cannot be read says nothing of a run, and the park goes on"
+reset
+park_failed step-failed:develop
+t_parked_end develop step-failed:develop verify-failed exit-1
+# The store answers no read of the history: the park is still made and posted.
+t_store_answers history-show 1 refused "no history" 999
+t_run "$cycle 7"
+t_eq "$(t_calls gh | grep -c 'repeats the one before it')" 0
+t_eq "$(park_of .reason)" step-failed:develop
+
 t_case "two parks with the same facts have the same sig, a different cap a different one"
 reset
 park_failed step-failed:develop

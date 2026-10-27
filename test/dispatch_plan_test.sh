@@ -25,6 +25,38 @@ t_eq "$([ -e "$record.out" ] && echo left)" ""
 t_eq "$(find "$T/home/tehas/tmp" -name 'plan-7.brief.*' | wc -l)" 0
 t_eq "$(t_calls fake-start)" ""
 
+t_case "a turn that hands back a plan for its issue writes it there and ends the session, said once"
+to_plan
+jq -n '{session: "abc-123", text: "This issue now holds the plan.\n\n> # Faster search", question: null,
+  update: {title: "feat: faster search", body: "## Outcome\n\nFast."}}' >"$fx/plan-result.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --title feat: faster search --body ## Outcome
+
+Fast."
+t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention"
+t_eq "$(t_calls gh | grep -c 'This issue now holds the plan.')" 1
+t_lacks "$(t_calls gh)" "tehas:question kind=plan"
+t_eq "$(rec_open)" none
+t_eq "$([ -e "$record.out" ] && echo left)" ""
+
+t_case "a plan that cannot be written onto its issue is written by the next poll, and the session ends then"
+to_plan
+jq -n '{session: "abc-123", text: "This issue now holds the plan.", question: null,
+  update: {title: "feat: faster search", body: "Fast."}}' >"$fx/plan-result.json"
+echo "--title feat: faster search" >"$fx/edit-fails-on"
+t_run "$dispatch"
+t_contains "$t_out" "WARN: the plan could not be written onto #7; the next poll tries again"
+t_lacks "$(t_calls gh)" "This issue now holds the plan."
+t_eq "$(rec_open)" open
+# The label came off when the turn started.
+echo '[]' >"$fx/plans.json"
+rm -f "$fx/edit-fails-on" "$T/calls/gh"
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --title feat: faster search --body Fast."
+t_eq "$(t_calls gh | grep -c 'This issue now holds the plan.')" 1
+t_eq "$(rec_open)" none
+
 t_case "an issue with no body is planned from its title"
 to_plan
 echo '{"title":"Faster search","body":null}' >"$fx/issue-7.json"
@@ -170,15 +202,21 @@ t_eq "$(jq -sc '[.[].filed] | [first, last]' "$ledger")" "[2,41]"
 rm -f "$ledger"
 
 t_case "the refine brief asks for one part sized for one cycle, grounded in the code, with exact paths"
-brief=$(cat "$T_ROOT/lib/refine-brief.md")
+brief=$(tr '\n' ' ' <"$T_ROOT/lib/refine-brief.md")
+t_contains "$brief" "a single unattended \`/work\` cycle finishes"
+t_contains "$brief" "plan the first part only, the one the others build on"
+t_contains "$brief" "under \"Later parts\""
+t_eq "$([ "$(wc -c <"$T_ROOT/lib/refine-brief.md")" -lt 4000 ] && echo short)" short
+
+t_case "the issue brief, which every session is given, asks for a plan grounded in the code, with exact paths"
+brief=$(tr '\n' ' ' <"$T_ROOT/lib/issue-brief.md")
 t_contains "$brief" "Ground it in the code first"
-t_contains "$brief" "part only, the one the others build on"
 t_contains "$brief" "[paths: \`a\`, \`b\`]"
 t_contains "$brief" "\`.github/\` or \`.pi/\`"
-t_contains "$brief" "Classify the part in its title, as a conventional-commit type"
-t_contains "$brief" "Keep a type the
-   request's title already has."
-t_eq "$([ "$(wc -c <"$T_ROOT/lib/refine-brief.md")" -lt 4000 ] && echo short)" short
+t_contains "$brief" "Classify the plan in its title, as a conventional-commit type"
+t_contains "$brief" "Keep a type the    request's title already has."
+t_contains "$brief" "no inventory of the request"
+t_eq "$([ "$(wc -c <"$T_ROOT/lib/issue-brief.md")" -lt 4000 ] && echo short)" short
 
 t_case "a refine label from a stranger starts nothing and is taken off the issue"
 to_refine

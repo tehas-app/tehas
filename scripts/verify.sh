@@ -44,6 +44,41 @@ esac
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
+# A tree that passed is not checked again: the same files, tracked or not, in
+# the same mode, from the same merge base for --changed, with the same tools.
+# The pass is kept in the repository's git directory, so its worktrees share
+# it and hosts do not. A failure is never kept, nor a pass of a tree that
+# changed during the run. TEHAS_VERIFY_FRESH=1 runs every step.
+tree_key() {
+  local idx=$tmp/index t
+  cp "$(git rev-parse --git-path index 2>/dev/null)" "$idx" 2>/dev/null || return 1
+  GIT_INDEX_FILE=$idx git add -A 2>/dev/null || return 1
+  {
+    echo "${1:-plain}"
+    GIT_INDEX_FILE=$idx git write-tree
+    [ "$changed" = 0 ] || git merge-base HEAD origin/main 2>/dev/null
+    for t in bash jq shellcheck cargo rustc node; do
+      ! command -v "$t" >/dev/null || "$t" --version 2>&1 | head -n 1
+    done
+  } | git hash-object --stdin
+}
+if [ -z "${TEHAS_VERIFY_FRESH:-}" ] && key=$(tree_key "${1:-}") && [ -n "$key" ] &&
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+  kept=$common/tehas-verify
+  if [ -f "$kept/$key" ]; then
+    echo "note  this tree passed already; the lines of that run:"
+    cat "$kept/$key"
+    exit 0
+  fi
+  TEHAS_VERIFY_FRESH=1 "$root/scripts/verify.sh" "$@" | tee "$tmp/lines"
+  rc=${PIPESTATUS[0]}
+  if [ "$rc" = 0 ] && [ "$(tree_key "${1:-}")" = "$key" ] && mkdir -p "$kept"; then
+    find "$kept" -type f -mtime +7 -delete 2>/dev/null
+    cp "$tmp/lines" "$kept/.$key" && mv "$kept/.$key" "$kept/$key"
+  fi
+  exit "$rc"
+fi
+
 report() { # name rc output-file
   if [ "$2" = 0 ]; then
     echo "ok    $1"
