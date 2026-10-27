@@ -19,6 +19,16 @@ empty one above it.
   lines). What those first steps say goes to standard error, and
   `models.json` is written with its keys sorted. From a checkout with no built
   console, setup builds it with cargo first.
+- A drafted plan offers **Update this issue** beside **File as a new
+  issue**. The first makes the plan the issue's own title and text and ends
+  the session: the discussion stays in the comments, and the last one holds
+  the text the plan replaced. Apply `tehas:ready` to build it (#874).
+- Every planning session gives the planner the issue brief,
+  `lib/issue-brief.md`: what a good issue body is. The refine brief keeps
+  only what is refine's own (#875).
+- What a planning turn says is shaped in the console (`console plan`), not
+  in jq. A host with no console beside `libexec/plan` runs no turn and stops
+  with 78.
 - `tehas export` copies in the console (`console export run`), one process
   for the whole export rather than one mask per file (#876). Protolab images
   are now copied byte for byte; before, the mask read them as text and
