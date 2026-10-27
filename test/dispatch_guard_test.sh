@@ -91,6 +91,31 @@ echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "paused: issue #1 carries tehas:pause"
 
+# A question waiting on #8 and #9 blocked: what the rules after the pause read
+# of them, their comments and their blockers' states.
+asking_and_blocked() {
+  echo '[{"number":8,"labels":[{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/asking.json"
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"}]},{"number":9,"labels":[{"name":"tehas:blocked"}]}]' >"$fx/ready.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:question"},"actor":{"login":"alice"}}]' >"$fx/events-8.json"
+  echo '[{"event":"labeled","label":{"name":"tehas:blocked"},"actor":{"login":"alice"}}]' >"$fx/events-9.json"
+}
+
+t_case "a paused poll reads no comments or blockers of the issues it would decide on"
+reset
+asking_and_blocked
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "comments"
+t_lacks "$(t_calls gh)" "issueOrPullRequest"
+
+t_case "the same poll unpaused reads them"
+reset
+asking_and_blocked
+t_run "$dispatch"
+t_contains "$(t_calls gh)" "comments"
+
 t_case "the pause flag stops dispatch, and deciding it asks GitHub nothing"
 reset
 pause_flag '{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}'
