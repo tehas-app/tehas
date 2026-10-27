@@ -15,17 +15,17 @@
 #
 #   1. build output in kept workspaces   directories named in TEHAS_CLEAN_DIRS
 #                                        anywhere in an issue's workspace, the
-#                                        tree a retry moved aside and a
-#                                        cycle's worktrees, and the cycle's
-#                                        copy of the code index, under the
-#                                        issue's lock. No dot-name is entered
-#                                        and no symlink followed. Nothing
-#                                        under $TEHAS_HOME/dev.
+#                                        tree a retry moved aside, a cycle's
+#                                        worktrees, and the cycle's copy of the
+#                                        code index, under the issue's lock. No
+#                                        dot-name is entered and no symlink
+#                                        followed. Nothing under $TEHAS_HOME/dev.
 #   2. Docker's build cache              `docker builder prune` of that age,
 #                                        the whole host daemon's
 #   3. host scratch                      under $TEHAS_HOME/tmp: dl,
-#                                        node-compile-cache, analytics-facts.*
-#                                        and tehas-test.* directories
+#                                        node-compile-cache, analytics-facts.*,
+#                                        tehas-test.*, and the staged recipe a
+#                                        killed sandbox build left in sandbox/
 #   4. old sandbox images                dated tags of that age, except the
 #                                        newest and any a container or a uid
 #                                        tag holds

@@ -59,7 +59,8 @@
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
 #       support what tehas work needs; 64 usage; 78 the instance's settings
-#       do not load, or PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
+#       do not load, PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex, or the uid of
+#       this account is not a number
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -67,15 +68,20 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/../versions.env"
 image=tehas/pi-rukas
 keep=3
-current=$image:uid$(id -u)
-# The tracked recipe of the image, and the copy of it the build is made from: the
-# steps as they are written here, with the uid's own argument moved to the stage
-# that reads it. The copy is made by the build below, from the tracked file, in
-# the moment before docker is asked, and taken away when the build ends: never
-# made by hand, so it is installed nowhere and tracked nowhere. Its name is
-# gitignored, so no gate of the repository sees a file someone else left under it,
-# and the build the image is made from is exactly what that name holds; the check
-# below is what keeps it the file this script made.
+uid=$(id -u)
+# The uid decides whether the image's user is remapped at all, so a value that
+# is not a number is refused here rather than deep in the build's usermod.
+if [[ ! $uid =~ ^[0-9]+$ ]]; then
+  echo "build: the uid of this account is '$uid', not a number" >&2
+  exit 78
+fi
+current=$image:uid$uid
+# The tracked recipe of the image, and the copy of it the build is handed: the
+# steps as they are written here, with the uid's own argument moved below the
+# boundary. The copy is made beside this script just before docker is asked and
+# taken back when the run ends; the manual says what the two sets of layers mean
+# for a host with more than one instance user, in What two instance users of one
+# host share (host/docs/host.md).
 dockerfile=$here/Dockerfile
 uid_recipe=$here/sandbox-uid.Dockerfile
 # The instance's own addition to the image, beside the settings this host loads.
@@ -103,6 +109,24 @@ for d in "$here/../lib" "$here/../../lib"; do
 done
 if [ -z "$lib" ]; then
   echo "sandbox: no lib/headless.sh, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+  exit 1
+fi
+# The recipe the image is made from goes with lib/: a toolchain that lacks it
+# says so here, as it does for the libraries, and not as a sed error later.
+if [ ! -f "$dockerfile" ]; then
+  echo "sandbox: no Dockerfile beside $here, so the image cannot be built" >&2
+  exit 1
+fi
+# The boundary the staging cuts the recipe at, and the one argument that belongs
+# below it, each read out of the tracked file itself: a second reader of the
+# recipe cuts it the same way, and a stage renamed, a step indented or a stray
+# space is refused rather than read as a boundary by one reader and not another.
+boundary=$(sed -n 's/^\(FROM shared\)$/\1/p' "$dockerfile")
+uid_arg=$(sed -n 's/^\(ARG TEHAS_UID=\).*/\1/p' "$dockerfile")
+# Either name that is not one whole line of the tracked file leaves the shared
+# layers uncut, which is the state the two stages are here to avoid.
+if [ "$boundary" != 'FROM shared' ] || [ "$uid_arg" != 'ARG TEHAS_UID=' ]; then
+  echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
 # shellcheck source=lib/rukas.sh
@@ -140,27 +164,24 @@ if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
   exit 78
 fi
 
-# The staged recipe below is the only file this script writes, and the cleanup
-# there takes it back off the disk whatever the build did after it, so its name is
-# settled before anything is asked of git or docker: a run that would stage into
-# the tracked recipe says so and asks nothing, rather than pulling a base and then
-# removing the file the image is built from.
-if [ "$uid_recipe" != "$here/sandbox-uid.Dockerfile" ]; then
-  echo "sandbox: refusing to build, the staged recipe is not beside $here" >&2
+# The staged recipe below is the only file this script writes, so its name is
+# settled before anything is asked of git or docker. A link under the name is
+# written through and a directory stops the build on its redirect, so both are
+# refused. A plain file is the copy a build that never reached its cleanup left -
+# a run killed by a signal bash cannot catch, for one - and the name is the build's
+# own to take back, so the line names the time it was written and the run renames
+# over it. A copy of the age is also what tehasbot clean takes with the rest of the
+# host scratch.
+if [ -L "$uid_recipe" ] || { [ -e "$uid_recipe" ] && [ ! -f "$uid_recipe" ]; }; then
+  echo "sandbox: refusing to build, $uid_recipe is already there and is not a plain file" >&2
   exit 1
 fi
-# What the name holds now is not what the build would make of it. The test above
-# compares strings, so it cannot tell a file this build makes from one someone put
-# under that name, and a name someone chose is not a place to write: a link there
-# is written through, and a directory stops the build on its redirect. The name is
-# gitignored, so the only dirt test of the repository, the git status tehas update
-# refuses on, sees nothing of it. So whatever stands there now is refused rather
-# than opened, and the file this build does make is made elsewhere and renamed
-# into place.
-if [ -e "$uid_recipe" ] || [ -L "$uid_recipe" ]; then
-  echo "sandbox: refusing to build, $uid_recipe is already there; remove it and build again" >&2
-  exit 1
+if [ -f "$uid_recipe" ]; then
+  echo "sandbox: $uid_recipe is the copy an earlier build left, written $(stat -c %y "$uid_recipe" 2>/dev/null || echo 'at an unknown time'); this build replaces it" >&2
 fi
+# The temporary of a run killed between mktemp and the rename has this run's
+# name and no owner but the trap; none of them stands between builds.
+rm -f "$here"/sandbox-uid.Dockerfile.?????? 2>/dev/null || true
 
 if ! target=$(tehas_rukas_target); then
   echo "build: no pi-rukas commit for PI_RUKAS_FOLLOW=${PI_RUKAS_FOLLOW:-} in $PI_RUKAS_REPO" >&2
@@ -225,45 +246,57 @@ fi
 reads=$(tehas_headless_reads_images "$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
-# The recipe the build is made of, written from the tracked file just before the
-# build so the two cannot drift and no step below the boundary is ever served from
-# a copy an older run left on disk. It is the whole image: everything the tracked
-# file holds up to the boundary, and the stage below it, whose arguments go where
-# the build passes them rather than where the file declares them - the build
-# passes every argument whatever stage reads it, and an argument is read from the
-# line that declares it, so a uid declared above the remap would leave the remap
-# reading the empty value of its own stage.
-#
-# It is staged beside the name it ends at and renamed onto it, never opened by
-# that name: the name is what a previous build, or anything that can write in this
-# directory, left there, and a redirect follows whatever it holds. mktemp makes
-# the temporary with a name no one else chose and owner-only permissions, and a
-# failed staging takes its own file back and asks docker nothing.
-# A recipe the build never made it out of is no one's recipe: the trap below takes
-# it off the disk, so a file only this script makes is not left standing between
-# runs, where a person would read it as the tracked one.
-trap 'rm -f "$uid_recipe"' EXIT
+# The recipe the build is handed, written from the tracked file just before the
+# build so the two cannot drift. Everything above the boundary is repeated as the
+# file writes it, and the stage below it keeps the arguments where their steps
+# read them: an argument is read from the line that declares it, so a uid declared
+# above the remap would leave the remap reading the empty value of its own stage.
+# The copy is cut by the two names read from the tracked file above; a boundary
+# that is not one whole line of the file is no boundary, and the build stops
+# rather than hand docker one stage with no remap.
 stage=$(mktemp "$here/sandbox-uid.Dockerfile.XXXXXX") || {
   echo "sandbox: could not stage a recipe beside $here" >&2
   exit 1
 }
+# The temporary is beside the name it ends at and owns nothing else's: a mktemp
+# that read TMPDIR elsewhere, or made a name of another shape, is this run's
+# mistake and not a file to keep.
+case $stage in
+  "$here"/sandbox-uid.Dockerfile.??????) ;;
+  *)
+    rm -f "$stage"
+    echo "sandbox: $stage is not the temporary this build made beside $here" >&2
+    exit 1
+    ;;
+esac
+trap 'rm -f "${stage:-}" "${staged:-}"' EXIT HUP INT TERM
 {
-  sed -n '1,/^FROM shared$/p' "$dockerfile" | sed '/^FROM shared$/d;/^ARG TEHAS_UID=/d'
-  sed -n '/^FROM shared$/,$p' "$dockerfile"
+  sed -n "1,/^${boundary}\$/p" "$dockerfile" |
+    sed "/^${boundary}\$/d;/^${uid_arg}/d"
+  sed -n "/^${boundary}\$/,\$p" "$dockerfile"
 } >"$stage" || {
-  rm -f "$stage"
   echo "sandbox: could not write the staged recipe beside $here" >&2
   exit 1
 }
+# The boundary and the uid argument are read from the copy this run made, at the
+# exactness the cut itself uses, before docker is asked anything of it.
+if [ "$(grep -cxF -- "$boundary" "$stage")" != 1 ] ||
+  [ "$(grep -c "^${uid_arg}" "$stage")" != 1 ]; then
+  echo "sandbox: the staged recipe does not hold one '$boundary' line and one uid argument" >&2
+  exit 1
+fi
 mv -f "$stage" "$uid_recipe" || {
-  rm -f "$stage"
   echo "sandbox: could not put the staged recipe at $uid_recipe" >&2
   exit 1
 }
+# Only from here does the name belong to this run: the trap takes back what this
+# run put there and nothing that stood there before it.
+staged=$uid_recipe
+stage=
 docker build \
   --build-arg PI_RUKAS_IMAGE="$base" \
   --build-arg PI_RUKAS_COMMIT="$head" \
-  --build-arg TEHAS_UID="$(id -u)" \
+  --build-arg TEHAS_UID="$uid" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg JQ_VERSION="$JQ_VERSION" \

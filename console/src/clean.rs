@@ -23,8 +23,9 @@
 //!    and no config, since a container can write the tree it reads.
 //! 2. Docker's build cache: `docker builder prune` of that age.
 //! 3. Host scratch: files of that age directly under tmp/dl and
-//!    tmp/node-compile-cache, tmp/analytics-facts.* files of that age, and
-//!    tmp/tehas-test.* directories.
+//!    tmp/node-compile-cache, tmp/analytics-facts.* files of that age, the
+//!    copy of the sandbox recipe (and its temporary) a killed build left beside
+//!    the build script, and tmp/tehas-test.* directories.
 //! 4. Dated tags of the sandbox image of that age, except the newest and any
 //!    a container or a uid tag holds.
 //! 5. `sha-` tags of the base image's repository of that age, which no
@@ -853,6 +854,18 @@ impl Run {
         if real_dir(&tmp) {
             files.extend(self.old_files(&tmp, |n| n.starts_with("analytics-facts.")));
         }
+        // The copy of the recipe a sandbox build hands docker, and the temporary
+        // it renames from, live beside the installed build script. A build takes
+        // its own copy back when it ends and replaces a stale one when it starts,
+        // so what stands here of an age belongs to a run a signal took off before
+        // its trap ran: no other name of that directory is a build's to leave.
+        let staged = |n: &str| {
+            n.starts_with("sandbox-uid.Dockerfile")
+                && (n == "sandbox-uid.Dockerfile"
+                    || n.strip_prefix("sandbox-uid.Dockerfile.")
+                        .is_some_and(|s| s.len() == 6))
+        };
+        files.extend(self.old_files(&self.home.join("sandbox"), staged));
         for f in files {
             ok &= self.remove_scratch(&f, &would, "host scratch");
         }

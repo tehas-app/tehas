@@ -3,12 +3,10 @@
 # Adds what the upstream image lacks:
 #   - the in-container user remapped to the tehas user's id, in the steps after
 #     the uid enters (upstream hardcodes vscode = UID 1000; with another id on
-#     the host, bind-mounted host directories are not writable). This file ends
-#     at a stage that takes the layers above it as its base and reads the uid
-#     nowhere in them, so the instance users of one host share those layers: see
-#     host/docs/host.md. sandbox/build.sh builds from these lines as they stand,
-#     with the uid's own argument moved below the boundary, so this is the only
-#     file of the image a person edits.
+#     the host, bind-mounted host directories are not writable). This file ends at
+#     a stage that reads the uid nowhere above it, so the instance users of one
+#     host share those layers: the manual says why the split is where it is, in
+#     What two instance users of one host share (host/docs/host.md).
 #   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
 #   - cargo's registry given to that user (the upstream image has Rust, and
 #     a registry only root can write, so a gate could not fetch a crate),
@@ -28,13 +26,12 @@
 # Build with sandbox/build.sh, which passes the user id, the versions from
 # versions.env and the base: upstream's image for the pi-rukas commit
 # versions.env follows. It hands docker a copy of these lines with the uid's
-# argument moved below the boundary, written just before the build and taken away
-# when it ends, so the file a person edits is this one and the order the build
-# runs is the order written here. shellcheck is pinned by checksum, Playwright by
-# a lockfile beside this file, and codebase-memory-mcp by its installer's
-# checksum plus a version read back from the binary. A step near the end checks
-# that every command a cycle reaches for, and every command tehas gives a
-# container, answers in the image.
+# argument moved below the boundary, so the file a person edits is this one and
+# the order the build runs is the order written here. shellcheck is pinned by
+# checksum, Playwright by a lockfile beside this file, and codebase-memory-mcp by
+# its installer's checksum plus a version read back from the binary. A step near
+# the end checks that every command a cycle reaches for, and every command tehas
+# gives a container, answers in the image.
 ARG PI_RUKAS_IMAGE
 # The layers every instance user of one host shares: everything this file does
 # that the uid does not decide. A second stage below takes them with a FROM of
@@ -43,10 +40,10 @@ FROM ${PI_RUKAS_IMAGE} AS shared
 
 # The version arguments, declared here rather than beside the steps that read
 # them: sandbox/build.sh passes one --build-arg for each ARG line of this file,
-# and test/build_test.sh counts the two. A build that says nothing about one of
-# them gets the empty value of the stage that reads it, which its own check
-# refuses. TEHAS_UID is the exception: it is declared below, where the remap reads
-# it, and the build's copy of this file carries that one line and no other twice.
+# and test/build_test.sh compares the two lists in both directions. A build that
+# says nothing about one of them gets the empty value of the stage that reads it,
+# which its own check refuses. TEHAS_UID is the exception: the remap below declares
+# it, and the copy the build hands docker declares that one argument once.
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG JQ_VERSION
@@ -153,33 +150,28 @@ RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL
 # the revision. Every call names the scratch store: any vipune call, version
 # included, otherwise creates one in ~/.vipune, where a cycle mounts its own.
 #
-# The remap, and the step the two stages are drawn around: the file ends at the
-# stage that takes what came before it, and sandbox/build.sh builds the image
-# from these lines with the uid's argument carried to the stage that reads it, so
-# it is named once, below the boundary. The steps of `shared` declare no argument,
-# so they hold no uid to be read, and a step of them that asked for one would be
-# built and stored again for every instance user, which is what the two stages are
-# here to avoid. test/build_test.sh reads the image as the build sees it and
-# refuses either.
+# The remap, and the step the two stages are drawn around: it is the only step of
+# the image that reads the uid, it is the first one below the boundary, and it goes
+# before any other step of this stage, since what they write is owned by whoever
+# wrote it and the find below takes only what was there when the id moved.
 #
-# The remap cannot go higher. Each step above writes files, as root or as vscode
-# at the id the base gave it, and a remap above them would leave what they wrote
-# owned by the id that has since moved. The same find (-xdev, the image's own
-# filesystem only) takes those files by the user's name once the id has moved, so
-# the image ends as it did before the move.
+# The remap cannot go higher. Each step above writes files, as root or as vscode at
+# the id the base gave it, and a remap above them would leave what they wrote owned
+# by the id that has since moved. The same find (-xdev, the image's own filesystem
+# only) takes those files by the user's name once the id has moved, so the image
+# ends as it did before the move. test/build_test.sh reads the image as the build
+# sees it and refuses a step above the boundary that reads the id or holds it.
 FROM shared
 USER root
 
-# The id the steps below are given, and the remap that gives it: the only step of
-# the image that reads the uid, and the first one below the boundary. An argument
-# is scoped to the stage that declares it, so the steps of `shared` hold no value
-# for it whatever the build passes. sandbox/build.sh passes it with the uid of the
-# person who ran the build; the default is the id the base gave the user, so a
-# build made without that argument holds the image as it came. The remap goes
-# before any step of this stage, since what they write is owned by whoever wrote
-# it and the find below takes only what was there when the id moved.
+# An argument is scoped to the stage that declares it, so the steps of `shared`
+# hold no value for it whatever the build passes. sandbox/build.sh passes the uid
+# of the person who ran the build and refuses one that is not a number; the default
+# is the id the base gave the user, so a build made without that argument holds the
+# image as it came. The compare is numeric, so a value that is not a number stops
+# the build here rather than trying to move the user to it.
 ARG TEHAS_UID=1000
-RUN if [ "$TEHAS_UID" != 1000 ]; then \
+RUN if [ "${TEHAS_UID:-1000}" -ne 1000 ]; then \
       usermod -u "$TEHAS_UID" vscode && groupmod -g "$TEHAS_UID" vscode \
       && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
     fi
