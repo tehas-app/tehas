@@ -46,8 +46,8 @@ read -ra ssh_cmd <<<"${TEHAS_SSH:-ssh}"
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
-if ! git fetch --quiet --tags "$remote"; then
-  echo "tag-deploy: git fetch from $remote failed" >&2
+if ! git fetch --quiet --tags --force "$remote"; then
+  echo "tag-deploy: git fetch --tags --force from $remote failed" >&2
   exit 1
 fi
 remote_head=$(git ls-remote --symref "$remote" HEAD) || {

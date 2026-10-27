@@ -9,6 +9,13 @@ origin=$T/origin.git
 work=$T/work
 g() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@"; }
 commit() { g -C "$T/up" commit --quiet --allow-empty -m "$1" && g -C "$T/up" push --quiet origin main; }
+# The tag of the remote moved to another commit, as a person re-making a
+# release does: the tag is rewritten and pushed over the one that is there.
+# shellcheck disable=SC2329  # the case at the end of this group calls it
+moved_tag() {
+  g -C "$T/up" tag --force "$1" "$2" &&
+    g -C "$T/up" push --quiet --force --atomic origin main "$1"
+}
 head_of() { git -C "$origin" rev-parse "${1:-main}^{commit}"; }
 
 # The annotated tags the script makes need a name.
@@ -37,6 +44,7 @@ tags() { git -C "$origin" tag --list | sort -V | tr '\n' ' '; }
 
 t_case "a head that carries the newest tag is left as it is"
 fresh
+g -C "$work" fetch --quiet --tags --force origin
 t_run "$work/scripts/tag-release.sh"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 <<<"$t_out")" v0.1.0
@@ -171,6 +179,34 @@ t_eq "$(tags)" "v0.1.0 v0.1.1 "
 t_case "an unknown argument is refused before git runs"
 t_run "$work/scripts/tag-release.sh --bogus"
 t_eq "$t_rc" 64
+
+# The tags of the clone that runs the script follow the remote: a tag the
+# remote moved is one the script has to see in its own clone, since it reads the
+# newest release from there. A fetch that is not forced refuses such a tag and
+# exits 1, which used to be the whole of the report.
+t_case "the fetch takes a tag the remote moved, and a refusal of it is named"
+fresh
+# The tag names a commit the clone has never had: an unforced fetch will not
+# write it over the tag the clone holds.
+printf 'new\n' >"$T/up/new"
+g -C "$T/up" add new
+g -C "$T/up" commit --quiet -m new
+moved=$(g -C "$T/up" rev-parse HEAD)
+g -C "$T/up" tag --force v0.1.0 "$moved"
+g -C "$T/up" push --quiet --force origin v0.1.0
+# Without --force git refuses the moved tag and says why: git exits 1, and what
+# the scripts used to have to go on was their own line about the remote.
+g -C "$work" fetch --tags origin 2>"$T/fetch.err"
+t_eq "$?" 1
+t_contains "$(cat "$T/fetch.err")" "would clobber existing tag"
+t_eq "$(git -C "$work" rev-parse "v0.1.0^{commit}")" "$(git -C "$T/up" rev-parse HEAD~1)"
+# With --force, which is what the scripts ask for now, the clone reads the
+# release the remote has: the tag names the commit upstream moved it to, and
+# the newest tag the script can see is the remote's, not the stale one.
+g -C "$work" fetch --tags --force origin
+t_eq "$?" 0
+t_eq "$(git -C "$work" rev-parse "v0.1.0^{commit}")" "$moved"
+t_eq "$(git -C "$work" tag --list 'v*' --sort=-v:refname | head -n 1)" v0.1.0
 
 # A head that carries a polyfill of someFeature, with what scripts/polyfills.sh
 # and the lookup of pi-rukas read. The stub gh says the upstream issue's state

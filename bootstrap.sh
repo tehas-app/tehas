@@ -532,16 +532,23 @@ install_cbm() {
     bash "$dl/cbm-install.sh" --skip-config >/dev/null
 }
 install_rukas() {
-  local dir=$TEHAS_HOME/repos/pi-rukas
+  local dir=$TEHAS_HOME/repos/pi-rukas why
   if [ -d "$dir/.git" ]; then
     # A clone made before the repository changed still points at the old one.
-    git -C "$dir" remote set-url origin "$PI_RUKAS_REPO"
-    git -C "$dir" fetch -q --tags origin
+    why=$(git -C "$dir" remote set-url origin "$PI_RUKAS_REPO" 2>&1) ||
+      die "cannot point the pi-rukas clone in $dir at $PI_RUKAS_REPO: ${why:-git gave no reason}"
+    # --force: upstream re-points a release tag now and then, and git refuses
+    # one that would move a tag the clone already has. The clone is only a copy
+    # of upstream, so its tags follow upstream. Git's own words are the report.
+    why=$(git -C "$dir" fetch --tags --force origin 2>&1) ||
+      die "git fetch --tags --force failed for the pi-rukas clone in $dir: ${why:-git gave no reason}"
   else
     mkdir -p "$TEHAS_HOME/repos"
-    git clone -q "$PI_RUKAS_REPO" "$dir"
+    why=$(git clone --tags "$PI_RUKAS_REPO" "$dir" 2>&1) ||
+      die "git clone failed for $PI_RUKAS_REPO in $dir: ${why:-git gave no reason}"
   fi
-  git -C "$dir" checkout -q "$rukas_want"
+  why=$(git -C "$dir" checkout -q "$rukas_want" 2>&1) ||
+    die "git checkout of $rukas_want failed in the pi-rukas clone in $dir: ${why:-git gave no reason}"
   # A login shell exports PI_ENSEMBLE_IMAGE as the tehas sandbox image. The
   # installer would pull that name, fail, and build upstream's image over it.
   (cd "$dir" && env -u PI_ENSEMBLE_IMAGE ./install.sh >"$TEHAS_HOME/tmp/pi-rukas-install.log" 2>&1) ||
