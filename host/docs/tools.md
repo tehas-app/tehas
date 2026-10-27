@@ -3999,7 +3999,7 @@ default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
 it runs in, rounded up. The slowest files start first, from a short fixed list
 in the script, so none of them starts last and holds the run; the rest follow
 in name order and the lint of each file after them. While the host's load
-average is half again its CPUs, as when other runners share the machine, the
+average is at least its CPUs, as when other runners share the machine, the
 next task waits for one to end, and one task always runs. The timeouts below
 then measure a file's own time, not a queue.
 
