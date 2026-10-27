@@ -3542,7 +3542,11 @@ line says so. `tehas update --check` does not run the shell tests; run
 
 `--check` contacts the remote with `git fetch --prune`, so the remote-tracking
 refs under `origin/` match what the remote has, including branches the remote
-deleted; no file of the checkout or of the host changes. It runs `install.sh
+deleted; no file of the checkout or of the host changes. It asks the sandbox
+build whether the pi-rukas commit it follows has moved - which builds nothing, as
+`build.sh --check` builds nothing, but reports what stops a build from starting at
+all: a recipe it cannot cut, or something that is not a plain file at the name of
+the copy it stages - and runs `install.sh
 --check`, which reports the checkout, the slice, the installed files, any
 follow-up an earlier run left undone, and the tests; it merges nothing, installs
 nothing, builds nothing and starts nothing, and exits 1 when there is something

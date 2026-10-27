@@ -11,6 +11,11 @@
 home=$T/home/tehas
 mkdir -p "$home/sandbox" "$home/lib"
 cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
+# The build reads the image's recipe beside itself and writes the uid recipe
+# from it. The tests copy the toolchain to the scratch home, so the recipe goes
+# too: without it the build stops at the file it cannot read and asks docker
+# nothing.
+cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
 cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
   "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
