@@ -677,12 +677,12 @@ pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
         }
     }
     let mut ordered: Vec<_> = pairs.into_iter().collect();
-    ordered.sort_by(|a, b| b.1.runs.cmp(&a.1.runs));
+    ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.runs));
     let versions: Vec<Value> = ordered
         .into_iter()
         .map(|((tehas, rukas), p)| {
             let mut causes: Vec<_> = p.causes.into_iter().collect();
-            causes.sort_by(|a, b| b.1.n.cmp(&a.1.n));
+            causes.sort_by_key(|a| std::cmp::Reverse(a.1.n));
             let causes: Vec<Value> = causes
                 .into_iter()
                 .take(TOP_CAUSES)

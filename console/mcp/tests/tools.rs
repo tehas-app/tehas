@@ -23,6 +23,7 @@ fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
     let dirs = Dirs {
         live: live.to_path_buf(),
         sessions: empty_snapshot(),
+        outcomes: empty_snapshot(),
         logs: live.join("no-logs"),
     };
     match mcp::tools::call(&dirs, name, args)? {
@@ -174,6 +175,7 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         "factory_session",
         "factory_log",
         "factory_failures",
+        "factory_outcomes",
     ]);
     assert_eq!(names, want);
     for t in tools.as_array().unwrap() {

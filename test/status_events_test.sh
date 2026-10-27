@@ -43,11 +43,14 @@ reset() {
   issues "$(issue 3 tehas:ready)" "$(issue 5 tehas:awaiting-merge)"
   shipped
   t_stub_analytics '[ "$1" != report ] || echo "{\"report\":1}"
-    [ "$1" != sessions ] || echo "{\"api\":1,\"days\":30}"'
+    [ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && echo "{\"api\":1,\"days\":30}" >"$3/sessions.jsonl"; }
+    [ "$1" != outcomes ] || { mkdir -p "$3" && chmod 700 "$3" && echo "{\"api\":1,\"by\":\"version\"}" >"$3/outcomes.jsonl"; }'
 }
-# The calls that record events: every run also asks for the report and sessions
-# (status_analytics_test.sh).
-events() { t_calls analytics | grep -Ev '^(report --json|sessions)$' || true; }
+# The calls that record events: every run also asks for the report, the
+# sessions and the outcomes (status_analytics_test.sh).
+# The two mcp/ files are asked for with --out and its directory, whose name
+# holds this run's scratch directory: cut the line, not the whole call.
+events() { t_calls analytics | grep -Ev '^(report --json|(sessions|outcomes) --out )' || true; }
 # The snapshot of the run before, written by status itself, then the calls
 # of the next run only.
 again() { rm -f "$T/calls/analytics"; t_run "$status"; }
