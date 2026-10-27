@@ -222,7 +222,10 @@ impl Writer {
                 let title = v.get("title").and_then(Value::as_str);
                 if body.starts_with("Replaces #") {
                     Found::Done(json!({"replaces": true}))
-                } else if after(&gh, "--title").first().is_some_and(|t| title == Some(*t)) {
+                } else if after(&gh, "--title")
+                    .first()
+                    .is_some_and(|t| title == Some(*t))
+                {
                     // A plan written onto its issue names its title.
                     Found::Done(json!({"title": title}))
                 } else {
