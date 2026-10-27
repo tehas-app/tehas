@@ -17,6 +17,16 @@ struct Env {
 
 impl Env {
     fn new(name: &str, repo: Option<&str>, sessions: &[Value]) -> Env {
+        Self::built(name, repo, sessions, None, None)
+    }
+
+    fn built(
+        name: &str,
+        repo: Option<&str>,
+        sessions: &[Value],
+        stages: Option<&[(&str, Value)]>,
+        running: Option<&[Value]>,
+    ) -> Env {
         let root = std::env::temp_dir().join(format!("mcp-sess-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (live, snap) = (root.join("live"), root.join("mcp"));
@@ -24,6 +34,18 @@ impl Env {
         std::fs::create_dir_all(&snap).unwrap();
         if let Some(r) = repo {
             std::fs::write(live.join("status.json"), json!({"repo": r}).to_string()).unwrap();
+        }
+        // A factory that lists issues and runs a cycle: `factory_issue` reads
+        // these two files too, and a test that does not care has neither.
+        if let Some(rows) = stages {
+            std::fs::write(live.join("status.json"), stages_text(rows, repo)).unwrap();
+        }
+        if let Some(cycles) = running {
+            std::fs::write(
+                live.join("running.json"),
+                json!({"cycles": cycles}).to_string(),
+            )
+            .unwrap();
         }
         let mut text =
             json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1}).to_string();
@@ -54,12 +76,47 @@ impl Drop for Env {
     }
 }
 
-// A session started `ago` seconds ago. Fields in `extra` replace the defaults.
-fn sess(kind: &str, issue: i64, ago: i64, extra: Value) -> Value {
-    let t = now() - ago;
+// The dashboard's stage lists, with the keys a cycle's row can carry. A row
+// always has its number, title and link, and the planted keys a stage row of
+// the host's own file has and this tool must never copy.
+fn stages_text(rows: &[(&str, Value)], repo: Option<&str>) -> String {
+    let mut m = Map::new();
+    if let Some(r) = repo {
+        m.insert("repo".into(), json!(r));
+    }
+    m.insert("generatedAt".into(), json!(iso(now())));
+    m.insert("paused".into(), json!(false));
+    m.insert("planning".into(), json!(0));
+    // Keys the tool is not given: an answer that holds one of them is caught
+    // by the tests that read the whole answer as text.
+    m.insert(
+        "buzzwords".into(),
+        json!([{"word": "SECRET-WORD", "count": 3}]),
+    );
+    m.insert("secretKey".into(), json!("SECRET"));
+    for (stage, rows_of_stage) in rows {
+        let rows = rows_of_stage.as_array().expect("a list of rows");
+        let rows: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "number": r["number"], "title": r["title"],
+                    "url": r["url"], "updatedAt": "2026-10-20T08:00:00Z",
+                    "closedAt": r["closedAt"], "labels": ["SECRET-LABEL"],
+                    "body": "SECRET-BODY",
+                })
+            })
+            .collect();
+        m.insert(stage.to_string(), Value::Array(rows));
+    }
+    Value::Object(m).to_string()
+}
+
+fn sess_at(kind: &str, issue: i64, started: i64, extra: Value) -> Value {
     let mut s = json!({
-        "id": format!("{kind}-{issue}-{t}"), "kind": kind, "issue": issue, "attempt": 1,
-        "started": iso(t), "ended": iso(t + 60), "seconds": 60, "outcome": "merged",
+        "id": format!("{kind}-{issue}-{started}"), "kind": kind, "issue": issue, "attempt": 1,
+        "started": iso(started), "ended": iso(started + 60), "seconds": 60,
+        "outcome": "merged",
         "tehasVersion": "v0.7.31", "rukasVersion": "v0.14.0",
         "steps": [], "roles": [], "logs": [],
     });
@@ -67,6 +124,11 @@ fn sess(kind: &str, issue: i64, ago: i64, extra: Value) -> Value {
         s[k] = v.clone();
     }
     s
+}
+
+// A session started `ago` seconds ago. Fields in `extra` replace the defaults.
+fn sess(kind: &str, issue: i64, ago: i64, extra: Value) -> Value {
+    sess_at(kind, issue, now() - ago, extra)
 }
 
 fn ids(out: &Value) -> Vec<String> {
@@ -737,4 +799,491 @@ fn failures_without_repo() {
         assert_eq!(v["causes"][0]["issues"], json!([]));
         assert_eq!(v["causes"][0]["n"], 1);
     }
+}
+
+// factory_issue: one issue's story, joined here from the live files and the
+// snapshot. The rows of a stage are built with the keys the host's own file
+// gives them, so a leak of a label or an issue body is caught here.
+
+fn row(number: i64, closed: bool) -> Value {
+    json!({
+        "number": number, "title": format!("Issue {number}"),
+        "url": format!("https://github.com/a/b/issues/{number}"),
+        "closedAt": if closed { json!("2026-10-19T18:00:00Z") } else { json!(null) },
+    })
+}
+
+fn cycle(issue: i64, step: &str, status: &str) -> Value {
+    json!({
+        "issue": issue, "running": true, "status": status, "step": step,
+        "statusText": "SECRET-TEXT", "startedAt": 1792483801, "updatedAt": 1792486058,
+        "console": "console-7.txt", "secretKey": "SECRET",
+    })
+}
+
+// An issue of several attempts: the runs come oldest first, the counts name
+// the oldest and the newest, and nothing of the row or the cycle leaks out.
+#[test]
+fn an_issue_with_several_attempts() {
+    // A snapshot holds its sessions newest first, so the host would write
+    // these three in this order. Attempts rise with them, and the id carries
+    // the second it started: the answer must be the other way round.
+    let t = now();
+    let rows = [
+        sess_at(
+            "plan",
+            7,
+            t - 100,
+            json!({"attempt": 3, "how": "refine", "outcome": "handoff", "parkReason": "loop"}),
+        ),
+        sess_at(
+            "work",
+            7,
+            t - 200,
+            json!({"attempt": 2, "how": "retry-tick", "outcome": "pr", "pr": 21}),
+        ),
+        sess_at(
+            "work",
+            7,
+            t - 300,
+            json!({"attempt": 1, "how": "label", "outcome": "failed",
+                   "failedStep": "develop", "failureKind": "model",
+                   "failureCause": "the cause of a failure", "seconds": 300}),
+        ),
+        // Another issue's run, and one outside the window: neither is here.
+        sess("work", 8, 150, json!({})),
+        sess("work", 7, 31 * 86400, json!({"attempt": 4})),
+    ];
+    let env = Env::built(
+        "story",
+        Some("a/b"),
+        &rows,
+        Some(&[("awaiting", json!([row(7, false)]))]),
+        None,
+    );
+    let out = env.call("factory_issue", json!({"issue": 7})).unwrap();
+    assert_eq!(out["api"], 1);
+    assert_eq!(out["issue"], 7);
+    assert_eq!(
+        out["issueUrl"], "https://github.com/a/b/issues/7",
+        "{:?}",
+        out["issueUrl"]
+    );
+    assert_eq!(out["stage"], "awaiting");
+    assert_eq!(out["title"], "Issue 7");
+    assert!(out.get("running").is_none());
+    let attempts = out["attempts"].as_array().unwrap();
+    assert_eq!(attempts.len(), 3);
+    // Oldest first, so the attempts read 1, 2, 3.
+    assert_eq!(
+        attempts
+            .iter()
+            .map(|a| a["attempt"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(attempts[0]["id"], rows[2]["id"]);
+    assert_eq!(attempts[0]["kind"], "work");
+    // The seconds the run took are its own, not the gap to the next one.
+    assert_eq!(attempts[0]["seconds"], 300);
+    assert_eq!(attempts[0]["kind"], "work");
+    assert_eq!(attempts[0]["how"], "label");
+    assert_eq!(attempts[0]["outcome"], "failed");
+    assert_eq!(attempts[0]["seconds"], 300);
+    assert_eq!(attempts[0]["failedStep"], "develop");
+    assert_eq!(attempts[0]["failureKind"], "model");
+    assert_eq!(attempts[0]["failureCause"], "the cause of a failure");
+    assert_eq!(attempts[2]["attempt"], 3);
+    assert_eq!(attempts[2]["kind"], "plan");
+    assert_eq!(attempts[2]["parkReason"], "loop");
+    // The id is served, so one answer reaches factory_session and factory_log.
+    assert_eq!(attempts[2]["id"], rows[0]["id"]);
+    // The attempt's own fields and no other, whatever else the record holds.
+    // The snapshot's lines carry versions, steps, roles and logs among the
+    // fields this tool is not given, so the keys of an answer are named here in
+    // full. A field without a value is left out, and the three runs differ
+    // only in it: the failing first one has the failure's three words, the
+    // second has a pull request's link, the third was parked.
+    let keys = |a: &Value| {
+        a.as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+    };
+    let named = |extra: &[&str]| -> BTreeSet<String> {
+        [
+            "id", "kind", "attempt", "how", "started", "ended", "seconds", "outcome",
+        ]
+        .into_iter()
+        .chain(extra.iter().copied())
+        .map(String::from)
+        .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(
+        keys(&attempts[0]),
+        named(&["failedStep", "failureKind", "failureCause"])
+    );
+    assert_eq!(keys(&attempts[1]), named(&["prUrl"]));
+    assert_eq!(keys(&attempts[2]), named(&["parkReason"]));
+    assert_eq!(attempts[1]["prUrl"], "https://github.com/a/b/pull/21");
+    assert_eq!(out["firstSeen"], attempts[0]["started"]);
+    assert_eq!(out["lastSeen"], attempts[2]["started"]);
+    assert_eq!(out["outcome"], "handoff");
+    let text = out.to_string();
+    for bad in [
+        "SECRET",
+        "labels",
+        "body",
+        "buzzwords",
+        "/home/x",
+        "statusText",
+        "tehasVersion",
+    ] {
+        assert!(!text.contains(bad), "{bad}: {text}");
+    }
+}
+
+// A cycle that owns the issue gives its step and status, and counts as the
+// `running` stage when the dashboard's lists do not hold the issue.
+#[test]
+fn an_issue_with_a_running_cycle() {
+    let env = Env::built(
+        "running",
+        Some("a/b"),
+        &[],
+        Some(&[("queued", json!([row(9, false)]))]),
+        Some(&[cycle(7, "develop", "running")]),
+    );
+    let out = env.call("factory_issue", json!({"issue": 7})).unwrap();
+    assert_eq!(out["stage"], "running");
+    assert_eq!(out["running"]["step"], "develop");
+    assert_eq!(out["running"]["status"], "running");
+    assert!(out["running"].get("statusText").is_none());
+    assert!(out["running"].get("console").is_none());
+    // No runs yet: the list is there and empty, and it says nothing else.
+    assert_eq!(out["attempts"], json!([]));
+    assert!(out.get("firstSeen").is_none());
+    assert!(out.get("lastSeen").is_none());
+    assert!(out.get("outcome").is_none());
+    assert!(out.get("title").is_none(), "{out}");
+
+    // The dashboard's own list wins over the running file.
+    let both = Env::built(
+        "running-stage",
+        Some("a/b"),
+        &[],
+        Some(&[("running", json!([row(7, false)]))]),
+        Some(&[cycle(7, "review", "stalled")]),
+    );
+    let out = both.call("factory_issue", json!({"issue": 7})).unwrap();
+    assert_eq!(out["stage"], "running");
+    assert_eq!(out["title"], "Issue 7");
+    assert_eq!(out["running"]["step"], "review");
+    assert_eq!(out["running"]["status"], "stalled");
+}
+
+// A run whose issue the dashboard lists nowhere is still an answer.
+#[test]
+fn an_issue_with_only_runs() {
+    let s = sess("work", 42, 60, json!({"outcome": "merged"}));
+    let env = Env::built("runs-only", Some("a/b"), &[s], None, None);
+    let out = env.call("factory_issue", json!({"issue": 42})).unwrap();
+    assert!(out.get("stage").is_none(), "{out}");
+    assert!(out.get("title").is_none(), "{out}");
+    assert!(out.get("running").is_none(), "{out}");
+    assert_eq!(out["attempts"].as_array().unwrap().len(), 1);
+    assert_eq!(out["outcome"], "merged");
+}
+
+// The numbers of the poll's plans, since status.json gives only a count.
+#[test]
+fn an_issue_being_planned() {
+    let root = std::env::temp_dir().join(format!("mcp-plan-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (live, snap) = (root.join("live"), root.join("mcp"));
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::create_dir_all(&snap).unwrap();
+    std::fs::write(
+        live.join("status.json"),
+        json!({"repo": "a/b", "planning": 1}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        live.join("health.json"),
+        json!({"checks": {"plans": [{"issue": 6, "secretKey": "SECRET"}]}}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        snap.join("sessions.jsonl"),
+        format!(
+            "{}\n",
+            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 0})
+        ),
+    )
+    .unwrap();
+    let dirs = Dirs {
+        live,
+        sessions: snap,
+        logs: root.join("no-logs"),
+    };
+    let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6})) {
+        Ok(Output::Json(v)) => v,
+        other => panic!("not JSON: {other:?}"),
+    };
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(out["stage"], "planning");
+    assert_eq!(out["attempts"], json!([]));
+    assert!(out.get("title").is_none(), "{out}");
+    assert!(!out.to_string().contains("SECRET"));
+}
+
+#[test]
+fn an_unknown_issue_is_a_tool_error_that_names_it() {
+    let env = Env::built(
+        "unknown",
+        Some("a/b"),
+        &[sess("work", 7, 60, json!({}))],
+        Some(&[("queued", json!([row(9, false)]))]),
+        Some(&[cycle(7, "develop", "running")]),
+    );
+    for issue in [1, 8, 100] {
+        match env.call("factory_issue", json!({"issue": issue})) {
+            Err(ToolError::BadArgs(why)) => {
+                assert!(why.contains(&issue.to_string()), "{issue}: {why}");
+                assert!(why.contains("30 days"), "{why}");
+            }
+            other => panic!("{issue}: {other:?}"),
+        }
+    }
+    // A cycle the host has stopped does not make its issue known to the tool.
+    let stopped = Env::built(
+        "not-running",
+        Some("a/b"),
+        &[],
+        None,
+        Some(&[json!({"issue": 3, "running": false, "status": "merged",
+                      "step": "merged", "secretKey": "SECRET"})]),
+    );
+    assert!(matches!(
+        stopped.call("factory_issue", json!({"issue": 3})),
+        Err(ToolError::BadArgs(_))
+    ));
+}
+
+#[test]
+fn the_issue_argument_is_checked() {
+    let env = Env::new("badissue", Some("a/b"), &[]);
+    for a in [
+        json!({}),
+        json!({"issue": "7"}),
+        json!({"issue": 0}),
+        json!({"issue": -1}),
+        json!({"issue": 1.5}),
+        json!({"issue": 7, "extra": 1}),
+        json!({"issue": 7, "stage": "queued"}),
+    ] {
+        assert!(
+            matches!(
+                env.call("factory_issue", a.clone()),
+                Err(ToolError::BadArgs(_))
+            ),
+            "{a}"
+        );
+    }
+    // A missing tool is unknown, not a bad argument.
+    let dirs = Dirs {
+        live: "/nonexistent/live".into(),
+        sessions: "/nonexistent/mcp".into(),
+        logs: "/nonexistent/logs".into(),
+    };
+    assert!(matches!(
+        mcp::tools::call(&dirs, "factory_delete", &json!({})),
+        Err(ToolError::Unknown(_))
+    ));
+}
+
+// Without the snapshot there is nothing to answer with, whatever the files
+// under live say.
+#[test]
+fn no_snapshot_is_a_tool_error_for_the_story() {
+    let env = Env::built(
+        "nosnap-issue",
+        Some("a/b"),
+        &[sess("work", 7, 60, json!({}))],
+        None,
+        None,
+    );
+    std::fs::remove_file(env.dirs.sessions.join("sessions.jsonl")).unwrap();
+    match env.call("factory_issue", json!({"issue": 7})) {
+        Err(ToolError::File { file, .. }) => assert_eq!(file, "sessions.jsonl"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// A repository the dashboard does not publish well leaves the answer with no
+// links, and a run of an issue whose pull request is none has no prUrl.
+#[test]
+fn without_a_valid_repo_the_story_has_no_links() {
+    let rows = [sess("work", 7, 60, json!({"pr": 21}))];
+    for repo in [None, Some("a/b/c")] {
+        let env = Env::built(
+            "nolinks",
+            repo,
+            &rows,
+            Some(&[("stopped", json!([row(7, false)]))]),
+            None,
+        );
+        let out = env.call("factory_issue", json!({"issue": 7})).unwrap();
+        assert_eq!(out["stage"], "stopped");
+        assert!(out.get("issueUrl").is_none(), "{repo:?}: {out}");
+        assert!(out["attempts"][0].get("prUrl").is_none(), "{repo:?}: {out}");
+    }
+}
+
+#[test]
+fn the_stage_is_the_first_list_that_holds_the_issue() {
+    // Every stage answers with its own word, in the order factory_issues gives
+    // them, and an issue in two of them is listed under the earlier one.
+    for stage in ["queued", "running", "awaiting", "stopped", "completed"] {
+        let env = Env::built(
+            "order",
+            Some("a/b"),
+            &[],
+            Some(&[(stage, json!([row(11, false)]))]),
+            None,
+        );
+        let out = env.call("factory_issue", json!({"issue": 11})).unwrap();
+        assert_eq!(out["stage"], stage);
+        assert_eq!(out["title"], "Issue 11");
+    }
+    let two = Env::built(
+        "two-stages",
+        Some("a/b"),
+        &[],
+        Some(&[
+            ("completed", json!([row(11, true)])),
+            ("stopped", json!([row(11, false)])),
+        ]),
+        None,
+    );
+    let out = two.call("factory_issue", json!({"issue": 11})).unwrap();
+    assert_eq!(out["stage"], "stopped");
+}
+
+// A snapshot is a file on disk, so a malformed or hand-edited line is one the
+// tool must survive: a named key that holds an object or an array is left out
+// rather than served, and no subtree of the record comes out with it.
+#[test]
+fn a_composite_value_in_a_run_is_left_out_of_the_answer() {
+    let good = sess("work", 7, 60, json!({"outcome": "merged"}));
+    let bad = sess(
+        "work",
+        7,
+        120,
+        json!({
+            "id": {"nested": "SECRET-ID"},
+            "kind": ["work"],
+            "attempt": {"n": 1},
+            "how": ["label"],
+            "outcome": {"word": "failed"},
+            "failedStep": ["develop"],
+            "failureKind": {"k": "model"},
+            "failureCause": ["c"],
+            "parkReason": {"r": "loop"},
+            "seconds": [1],
+        }),
+    );
+    let env = Env::built(
+        "composite",
+        Some("a/b"),
+        &[good.clone(), bad.clone()],
+        Some(&[("stopped", json!([row(7, false)]))]),
+        None,
+    );
+    let out = env.call("factory_issue", json!({"issue": 7})).unwrap();
+    let attempts = out["attempts"].as_array().unwrap();
+    assert_eq!(attempts.len(), 2);
+    // The composite values are gone and the scalars of the same line are not,
+    // except the times, which the defaults keep. An object is not an id, so
+    // the line has none.
+    assert_eq!(
+        attempts[0],
+        json!({"started": bad["started"], "ended": bad["ended"]})
+    );
+    for key in [
+        "kind",
+        "attempt",
+        "how",
+        "outcome",
+        "failedStep",
+        "failureKind",
+        "failureCause",
+        "parkReason",
+        "seconds",
+        "id",
+    ] {
+        assert!(attempts[0].get(key).is_none(), "{key}: {}", attempts[0]);
+    }
+    assert_eq!(attempts[1]["id"], good["id"]);
+    assert_eq!(attempts[1]["outcome"], "merged");
+    // The times and the outcome name the newest run that has them.
+    assert_eq!(out["lastSeen"], good["started"]);
+    assert_eq!(out["outcome"], "merged");
+    assert!(!out.to_string().contains("SECRET"), "{out}");
+}
+
+// The paths the tool's outputSchema names are the paths its answer can have,
+// and every one of them comes out of some case.
+#[test]
+fn the_storys_schema_names_every_field_of_an_answer() {
+    let ended = sess(
+        "plan",
+        7,
+        120,
+        json!({
+            "attempt": 1, "how": "fixer", "outcome": "failed", "failedStep": "plan",
+            "failureKind": "model", "failureCause": "c", "parkReason": "loop", "pr": 8,
+        }),
+    );
+    let running = sess("work", 7, 60, json!({"attempt": 2, "how": "millwright"}));
+    let env = Env::built(
+        "story-schema",
+        Some("a/b"),
+        &[ended, running],
+        Some(&[("running", json!([row(7, false)]))]),
+        Some(&[cycle(7, "plan", "running")]),
+    );
+    let name = "factory_issue";
+    // A cycle row that holds its status and not its step: `pick` drops the
+    // missing key, and `running.step` stays only in the schema. The tool's
+    // fixtures have a snapshot of no runs, so this is the case that answers
+    // the path beside the stage.
+    let thin = Env::built(
+        "story-thin-running",
+        Some("a/b"),
+        &[],
+        Some(&[("running", json!([row(7, false)]))]),
+        Some(&[json!({"issue": 7, "running": true, "status": "running"})]),
+    );
+    let mut thin_got = BTreeSet::new();
+    paths(
+        &thin.call(name, json!({"issue": 7})).unwrap(),
+        "",
+        &mut thin_got,
+    );
+    assert!(thin_got.contains("running.status"), "{thin_got:?}");
+    assert!(!thin_got.contains("running.step"), "{thin_got:?}");
+    let out = env.call(name, json!({"issue": 7})).unwrap();
+    let mut want = BTreeSet::new();
+    schema_paths(&schema_of(name), "", &mut want);
+    let mut got = BTreeSet::new();
+    paths(&out, "", &mut got);
+    for p in &got {
+        assert!(want.contains(p) || p == "api", "{p} is not in its schema");
+    }
+    if let Some(p) = want.difference(&got).next() {
+        panic!("{name}: {p} is in its schema and never comes out");
+    }
+    assert!(out["attempts"].is_array());
 }
