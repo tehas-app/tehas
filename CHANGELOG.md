@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- `tehas export` copies in the console (`console export run`), one process
+  for the whole export rather than one mask per file (#876). Protolab images
+  are now copied byte for byte; before, the mask read them as text and
+  replaced their bytes. A file that cannot be read fails its cycle (exit 1)
+  instead of being left out without a word.
+
 ### Adopter action
 
 None.
