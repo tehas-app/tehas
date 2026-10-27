@@ -46,9 +46,11 @@ pub struct Writer {
     pub spend: Option<u64>,
     /// Set by a turn: the status command runs after it, as after a start.
     pub status_due: bool,
-    /// The poll's work could change the queue, so its end refreshes the
-    /// status: the poll wrote to GitHub, started or stopped something, or ran
-    /// a planning turn. An idle poll changes nothing, so it skips that run.
+    /// The poll changed the queue, so its end refreshes the status and takes
+    /// a sample: the poll wrote to GitHub, started or stopped something, or
+    /// ended on an action that could not be read. Marked where the change is
+    /// made - write(), the two stops here - or where the poll ends inside a
+    /// step. An idle poll marks nothing, so it runs neither.
     pub changed: bool,
     /// The gh calls the writes made, for the poll's cost.
     pub gh_writes: u32,
@@ -129,8 +131,10 @@ impl Writer {
                 self.status_due = false;
                 self.status(&mut out.printed);
             }
-            // A step that ended the poll changed something too: it stopped or
-            // started a unit, or ran a turn. One that only logged did not.
+            // A step that ended the poll changed the queue: the units it
+            // would have started, or the poll that could not read GitHub
+            // again. A step that changed something and lives on says so
+            // itself where it does it: write(), quiet()'s stop, stop_done().
             if self.ended.is_some() {
                 self.changed = true;
             }
@@ -265,8 +269,6 @@ impl Writer {
             json!({"sha256": sum, "bytes": b.len()})
         });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
-        // From here the poll's end owes a status: the queue is about to change.
-        self.changed = true;
         // The poll's row, begun with its first write: a store that cannot
         // begin it records, and so makes, no write this poll.
         if self.poll_at == 0 {
@@ -302,6 +304,8 @@ impl Writer {
         {
             return Wrote::Unrecorded;
         }
+        // The queue changes here: the poll's end owes a status and a sample.
+        self.changed = true;
         self.gh_writes += 1;
         let r = run_input(&self.gh, &args, body, self.bound);
         let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));

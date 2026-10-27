@@ -37,9 +37,14 @@
 # steps it takes out of a poll that starts nothing - the journal read of a
 # write no poll left open, the status after a queue that did not change, and
 # the analytics' sample of a queue no poll refreshed - are worth 169 processes
-# and 5 gh calls of the fixture, measured by running the same poll with each
-# step's own program named as a stub that answers at once: 152 and 5 for
-# libexec/status, 19 and 1 for libexec/tidy, and the sample's one store call
+# and 5 gh calls of the fixture, measured by running the same poll in this
+# harness with each step's own program named on the case's environment as a
+# stub that answers at once (T_ENV with TEHAS_STATUS_CMD or TEHAS_HEALTH_CMD,
+# as the case below and test/dispatch_lib.sh do): never by setting those two
+# in an instance's env, where the poll would run whatever program they name,
+# since they are seams for the tests alone, as lib/config.sh says. Measured
+# that way: 152 and 5 for libexec/status, 19 and 1 for libexec/tidy, and the
+# sample's one store call
 # and one run of the analytics. But the fixture of this test does not reach
 # those steps: it is the fixture of #736, which was written when the poll's
 # host commands were named on the case's own environment, before
