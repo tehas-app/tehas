@@ -460,7 +460,7 @@ row is not one of them. The health check uses it for the budget of idle polls.
 
 `tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
 each poll of `tehas-dispatch.service` while `~/tehas/state/dispatch-shadow.on`
-is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the bash poll
+is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the poll
 still does the work. It asks what the poll asks to read, the model endpoints'
 `/models` among them, and, only when an issue it would start needs one, the
 model's answer to a one-pixel image and the sandbox image's
@@ -498,6 +498,10 @@ On this repository's queue it costs about 9 s of wall time before each poll,
 proven and not on every host. A host where `libexec/tehas-dispatch` is not
 installed, or the file is not there, polls as before; the shadow failing never
 fails the poll.
+
+The shadow is for a host that runs the bash poll (`TEHAS_DISPATCHER=bash`).
+Beside the Rust poll, which is the default, it only sets the Rust's decision
+beside itself.
 
 ### The cycle's shadow
 
@@ -882,8 +886,7 @@ its own login stops there and does nothing else.
 
 ### The dispatcher in Rust
 
-`TEHAS_DISPATCHER=rust` in `instance.env` hands every poll to
-`~/tehas/libexec/tehas-dispatch poll`, once `libexec/dispatch` has checked
+Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `libexec/dispatch` has checked
 the settings, the model keys and the checkout. It is the same poll, in the
 same order and with the same lines in `logs/dispatch.log`: the lock, the
 snapshot of the queue (one GraphQL query in pages of 100 where the bash poll
@@ -893,8 +896,13 @@ events read on their own, as the bash reads them), the decision, the actions, an
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
-or as not done, and never made again. `bash`, or leaving the setting out, is
-the bash poll. A value of neither is exit 78.
+or as not done, and never made again. A failed read of GitHub ends the poll
+with a line that names gh's error by words of a fixed list only (`HTTP 502`,
+`rate limit`, `timed out`), as the bash poll's does.
+
+`TEHAS_DISPATCHER=bash` in `instance.env` runs the bash poll,
+`libexec/dispatch`, instead, until it is removed. `rust`, or leaving the
+setting out, is the Rust poll. A value of neither is exit 78.
 
 Where it differs from the bash poll:
 
@@ -917,9 +925,9 @@ Where it differs from the bash poll:
   behind it. The issue is read again first. The bash poll leaves such an
   issue as it is.
 
-It is not the default, and not proven on a host yet (see
-[features.md](features.md)). To go back, take the line out of
-`instance.env`: the next poll is the bash poll.
+It ran tehas-tehas's queue for seven days before it became the default (see
+[features.md](features.md)). To go back to the bash poll, set
+`TEHAS_DISPATCHER=bash`: the next poll is the bash poll.
 
 ### Refining a request
 

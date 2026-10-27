@@ -32,6 +32,48 @@ t_run "$dispatch --dry-run"
 t_eq "$t_rc" 78
 git -C "$checkout" remote set-url origin "$upstream"
 
+# The settings without TEHAS_DISPATCHER, and a Rust poll that says it ran.
+dispatcher_unset() {
+  local v
+  unset_settings=()
+  for v in "${T_MINIMAL[@]}"; do [[ $v == TEHAS_DISPATCHER=* ]] || unset_settings+=("$v"); done
+  printf '#!/bin/sh\necho "rust poll: $*"\n' >"$T/bin/rust-poll"
+  chmod +x "$T/bin/rust-poll"
+  keep_env=("${T_ENV_ALWAYS[@]}")
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/rust-poll")
+}
+
+t_case "with no TEHAS_DISPATCHER the poll is the Rust one, with its arguments"
+reset
+dispatcher_unset
+t_instance "${unset_settings[@]}"
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$t_out" "rust poll: poll --dry-run"
+t_eq "$(t_calls gh)" ""
+T_ENV_ALWAYS=("${keep_env[@]}")
+
+t_case "TEHAS_DISPATCHER=bash is the bash poll"
+reset
+dispatcher_unset
+t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=bash
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "rust poll"
+t_contains "$t_out" "would run a cycle for #7"
+T_ENV_ALWAYS=("${keep_env[@]}")
+
+t_case "a TEHAS_DISPATCHER of neither stops the poll with 78"
+reset
+dispatcher_unset
+t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=perl
+t_run "$dispatch --dry-run"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_DISPATCHER is not valid: expected bash or rust"
+t_lacks "$t_out" "rust poll"
+t_eq "$(t_calls gh)" ""
+T_ENV_ALWAYS=("${keep_env[@]}")
+
 t_case "a missing checkout stops before any label changes, even with TEHAS_BRANCH set"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=main TEHAS_WORK_REPO="$T/nowhere"
@@ -58,13 +100,18 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: gh repo view failed"
 t_lacks "$t_out" "nothing to do"
 
+# The first read of the poll: the bash's look-up of the repository, the
+# Rust's page of the queue.
+first_read="repo view"
+bash_reads || first_read="api graphql"
+
 t_case "a failed call names gh's error by words of a fixed list"
 reset
 echo 'HTTP 502: Bad Gateway for query with a sk-secret-looking body' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh repo view failed: HTTP 502"
+t_contains "$t_out" "ERROR: gh $first_read failed: HTTP 502"
 t_lacks "$t_out" "sk-secret"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 
@@ -74,7 +121,7 @@ echo 'something an agent wrote' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh repo view failed"
+t_contains "$t_out" "ERROR: gh $first_read failed"
 t_lacks "$t_out" "an agent wrote"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 

@@ -2,9 +2,11 @@
 //! tools, each under a time bound. Only reads leave here: a gh call that could
 //! change anything is refused before it runs.
 
+use regex::Regex;
 use serde_json::Value;
 use std::io::Read;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 /// What a call gave: its exit status and what it printed, or None when it
@@ -195,6 +197,21 @@ pub fn gh_reads(args: &[String]) -> bool {
     }
 }
 
+/// What a failed gh call's line says of its error: ": " and the first words
+/// of a fixed list in what gh printed, or nothing. Only these words, as an
+/// agent can write the rest; the bash's gh_json uses the same list.
+pub fn gh_why(err: &str) -> String {
+    static WORDS: OnceLock<Regex> = OnceLock::new();
+    let words = WORDS.get_or_init(|| {
+        Regex::new(r"(?i)HTTP [0-9]{3}|secondary rate limit|rate limit|timed? ?out|connection (reset|refused)|no such host|unexpected EOF")
+            .expect("the list is a regex")
+    });
+    err.lines()
+        .find_map(|l| words.find(l))
+        .map(|m| format!(": {}", m.as_str()))
+        .unwrap_or_default()
+}
+
 /// gh's output as JSON. --paginate prints one array a page, one after
 /// another: they are one list, as `jq -s add` makes them.
 fn parse(out: &str) -> Value {
@@ -251,7 +268,7 @@ impl Calls {
                             if r.ok() {
                                 Ok(parse(&r.out))
                             } else {
-                                Err(GhFail(word))
+                                Err(GhFail(format!("{word}{}", gh_why(&r.err))))
                             }
                         })
                     })
@@ -280,7 +297,7 @@ impl Calls {
         self.gh_count += 1;
         let r = run(&self.gh, &args, self.bound);
         if !r.ok() {
-            return Err(GhFail(word));
+            return Err(GhFail(format!("{word}{}", gh_why(&r.err))));
         }
         Ok(parse(&r.out))
     }
@@ -385,6 +402,29 @@ mod tests {
 
     fn a(x: &[&str]) -> Vec<String> {
         x.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_failure_is_named_by_the_words_of_the_list_only() {
+        assert_eq!(
+            gh_why("HTTP 502: Bad Gateway for query with a sk-secret-looking body"),
+            ": HTTP 502"
+        );
+        assert_eq!(
+            gh_why("first line\nerror: API Secondary Rate Limit exceeded"),
+            ": Secondary Rate Limit"
+        );
+        assert_eq!(
+            gh_why("dial tcp: lookup api.github.com: no such host"),
+            ": no such host"
+        );
+        assert_eq!(
+            gh_why("read: connection reset by peer"),
+            ": connection reset"
+        );
+        assert_eq!(gh_why("request timed out"), ": timed out");
+        assert_eq!(gh_why("something an agent wrote"), "");
+        assert_eq!(gh_why(""), "");
     }
 
     #[test]
