@@ -923,10 +923,24 @@ fn step_4(conn: &mut Connection) -> Result<(), DbError> {
     conn.execute_batch("VACUUM").map_err(classify)
 }
 
+/// How many names a backup tries before it is refused: `tehas-<v>-<now>.db`,
+/// then `-1` to `-99` before the `.db`.
+pub const BACKUP_NAMES: u32 = 100;
+
 /// The name of a backup this verb writes, given the version it came from and
 /// the instant it was asked for.
 pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
-    dir.join(format!("tehas-{from}-{now}.db"))
+    backup_name_at(dir, from, now, 0)
+}
+
+/// The `n`th name of that backup: two verbs of one update can land in the same
+/// second, and the second takes the next name rather than fail.
+pub fn backup_name_at(dir: &Path, from: i64, now: i64, n: u32) -> PathBuf {
+    if n == 0 {
+        dir.join(format!("tehas-{from}-{now}.db"))
+    } else {
+        dir.join(format!("tehas-{from}-{now}-{n}.db"))
+    }
 }
 
 /// A consistent copy of the database, mode 0600, written by SQLite itself.
@@ -949,7 +963,17 @@ pub fn backup_name(dir: &Path, from: i64, now: i64) -> PathBuf {
 /// that changes rows takes the same lock in its own transaction and the busy
 /// timeout is what another waits.
 pub fn backup(conn: &Connection, state: &Path, from: i64, now: i64) -> Result<PathBuf, DbError> {
-    let copy = backup_name(state, from, now);
+    // A name held by anything, a dangling link included, is skipped; the lock
+    // the caller holds keeps another verb from taking the one chosen.
+    let copy = (0..BACKUP_NAMES)
+        .map(|n| backup_name_at(state, from, now, n))
+        .find(|c| c.symlink_metadata().is_err())
+        .ok_or_else(|| {
+            DbError::Unreadable(format!(
+                "cannot make the backup {}: its {BACKUP_NAMES} names are taken",
+                backup_name(state, from, now).display()
+            ))
+        })?;
     backup_to(conn, &copy)?;
     Ok(copy)
 }
