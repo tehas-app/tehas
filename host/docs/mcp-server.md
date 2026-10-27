@@ -27,9 +27,9 @@ each given to it read only:
 
 - `~/tehas/live/`, the files the docs server publishes under `/live/` and at
   `/health`;
-- `~/tehas/mcp/`, the sessions snapshot `sessions.jsonl` that `tehasbot
-  status` writes on each poll. It is private to the tehas user and never
-  published;
+- `~/tehas/mcp/`, the two files `tehasbot status` writes on each poll: the
+  sessions snapshot `sessions.jsonl` and the outcomes counts
+  `outcomes.jsonl`. Both are private to the tehas user and never published;
 - `~/tehas/logs/`, where each cycle and planning turn leaves its logs.
 
 It reads nothing else on the host and calls nothing: not GitHub, not Docker,
@@ -173,12 +173,28 @@ the same JSON as text.
 | `factory_log` | `id`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. Plain: `id`, `file`, `size`, `offset`, `text`, and `next`, the offset of the rest, when more remains. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
 | `factory_issue` | `issue`, a positive integer | One issue's story in one call: `issue`, `issueUrl`, `stage` (the first of `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` that lists it, left out when it is listed nowhere), `title` when the dashboard has it, `running` (`step`, `status`) while a cycle owns it — only a cycle that is running owns one, so a cycle the store has marked `lost`, or one that ended between publishes, puts nothing there and does not make the stage `running` — and `attempts`: every run of it of the last 30 days, oldest first, each with its `id` (the one to give `factory_session` or `factory_log`), `kind`, `attempt`, `how`, `started`, `ended`, `seconds`, `outcome`, `failedStep`, `failureKind`, `failureCause`, `parkReason` and `prUrl`. `firstSeen` and `lastSeen` are the started of the oldest and newest run, and `outcome` is the newest run's. An issue with no run in the window and no stage is a tool error that names it |
 | `factory_failures` | none | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. Planning sessions are not counted |
+| `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
 
 The links are built from the `repo` the dashboard publishes, and only when it
 is `owner/name`. Without a valid repo a session has no links and a cause has no
 issues. The session tools read `sessions.jsonl`, which `tehasbot status`
 rewrites on each poll; `stale` is true when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
+
+`factory_outcomes` reads `outcomes.jsonl` from the same directory, which
+`tehasbot status` rewrites on each poll from `analytics outcomes`; `stale` is
+true when it is more than a day old, the writer being a daily one. The file is
+the whole of the analytics retention, and `days` is what the file itself says
+that reach is, so the tool answers where the 30-day tools
+cannot: whether a release changed the park or failure rates, and how often a
+failure kind comes back. It holds counts only, and the tool serves only the keys
+it names: of a group, `runs` and the three count maps, and the words that name
+its grouping. A count that is not a whole number, or a map of them that is not,
+is left out rather than served. The file is written grouped one way, and `by` says which: an argument
+that asks for the other is a tool error that names the one it holds, rather than
+an answer of nothing. A week's entry stands for seven days and is kept when any
+of them falls in the window, because a count of a week cannot be split between
+its days.
 
 `factory_issue` reads the same snapshot for its attempts and the dashboard's own
 files for the rest: `status.json` for the stage and the title, `running.json`

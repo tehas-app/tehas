@@ -63,12 +63,12 @@ impl Env {
             "{}\n{s}\n",
             json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1})
         );
-        std::fs::write(snap.join("sessions.jsonl"), text).unwrap();
+        std::fs::write(snap.join("sessions.jsonl"), &text).unwrap();
         Env {
             root,
             dirs: Dirs {
                 live,
-                sessions: snap,
+                sessions: snap.clone(),
                 logs: dir,
             },
         }

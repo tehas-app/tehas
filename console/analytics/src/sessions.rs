@@ -12,6 +12,8 @@ use std::path::Path;
 use tehas_core::time::iso;
 
 pub const SESSIONS_DAYS: i64 = 30;
+/// The name of the private file, which the reader of the MCP server opens.
+pub const FILE: &str = "sessions.jsonl";
 const DAY: i64 = 86_400;
 /// Bytes of a jsonl ledger the sessions read, and the width one line may
 /// have: the same bounds the report's ledger reader works within, from the
@@ -128,6 +130,14 @@ fn object(
         o.insert((*key).to_string(), v);
     }
     Ok(o)
+}
+
+/// The private file of the MCP server under `<dir>`, written from `lines`:
+/// through a name of this run, mode 600, and moved into place so a reader
+/// never sees half a file. The host asks for the snapshot this way, rather
+/// than catching what the command prints and moving it itself.
+pub fn write(dir: &Path, lines: &[String]) -> Result<(), String> {
+    crate::publish::put(dir, FILE, lines)
 }
 
 /// The lines to print: the header, then the sessions of the last
