@@ -533,10 +533,11 @@ two forms:
   note, the severity the lint runs at and the one suppression it accepts are
   under `scripts/test.sh` in [Tools](/tools).
 - The fix pass after the adversarial review did not clear: it changed
-  nothing, or it removed lines it should not have. When it names a test file
-  and the reason reads `it sits behind this workstream's outOfScope fence,
-  which the spec does not lift`, the refusal is the fence: the plan read the
-  issue's `Out of scope` section as part of that fence (step 1 of
+  nothing, or it removed lines it should not have. When the cap is
+  `fix-pass-park`, it names a test file, and the reason reads `it sits behind
+  this workstream's outOfScope fence, which the spec does not lift`, the
+  refusal is the fence: the plan read the issue's `Out of scope` section as
+  part of that fence (step 1 of
   [Operating](/operating) says why), so the fix pass was refused the file its
   own deliverable told it to write. It is the same refusal as the first entry
   above, met later. The reason names the refused file but not the `Out of
