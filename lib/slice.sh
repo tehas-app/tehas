@@ -271,14 +271,14 @@ tehas_slice_pressure() {
 
 # What one child of the slice is charged with, in bytes: what it holds that
 # cannot be reclaimed, or its floor, whichever is more. File cache and
-# reclaimable slab can be reclaimed, so they are left out. A floor of "max"
-# reads as one reserve. Fails when a file or a number is missing, and then
-# prints the file and the key instead.
-#
-# A kernel older than the "kernel" line (Ubuntu 22.04's 5.15 has none) would
-# otherwise hold every poll for ever. Without it kernel memory is left out:
-# anon and shmem are counted and slab is not subtracted, so the child counts
-# a little low, and its floor still counts in full.
+# reclaimable slab can be reclaimed, so they are left out. A floor of "max" reads
+# as one reserve. Fails when a file or a number is missing, and then prints the
+# file and the key instead. A scope the kernel has not filled in yet, a container
+# that is starting, has no slab line: that reads as 0, so the slab counts as used
+# and it holds rather than starting. A kernel older than the "kernel" line
+# (Ubuntu 22.04's 5.15 has none) would otherwise hold every poll for ever. Without
+# it kernel memory is left out: anon and shmem are counted and slab is not
+# subtracted, so the child counts a little low, and its floor counts in full.
 _tehas_slice_charge() { # <scope directory> <reserve in bytes>
   local dir=$1 reserve=$2 key value anon="" shmem="" kernel="" slab="" low="" used
   for key in memory.stat memory.low; do
@@ -294,7 +294,7 @@ _tehas_slice_charge() { # <scope directory> <reserve in bytes>
   done <"$dir/memory.stat" 2>/dev/null
   read -r low <"$dir/memory.low" 2>/dev/null || true
   [ "$low" != max ] || low=$reserve
-  if [ -z "$kernel" ]; then kernel=0 slab=0; fi
+  [ -n "$kernel" ] || { kernel=0 slab=0; }; [ -n "$slab" ] || slab=0
   for key in anon shmem kernel slab_reclaimable; do
     case "$key" in
       anon) value=$anon ;;
