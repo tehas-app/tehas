@@ -32,11 +32,16 @@ empty one above it.
 - With `TEHAS_DISPATCHER=rust`, a paused poll no longer reads the comments,
   parks, approvals and blockers of the issues it would decide on: only the
   queue and what its clean-up needs (#254).
+- The dispatcher in Rust is the default: every poll is `tehas-dispatch poll`.
+  It ran tehas-tehas's queue for a week first. A failed read of GitHub names
+  gh's error by the same fixed words as the bash poll's line (#254).
 
 ### Adopter action
 
 None. A host that wants more cycles side by side sets
-`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it.
+`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it. To keep the
+bash poll for now, set `TEHAS_DISPATCHER=bash` in `instance.env`; it is
+removed in a later release.
 
 ## v0.14.5 (2026-10-27)
 

@@ -245,7 +245,7 @@ mkdir -p "$short/libexec" "$short/lib"
 cp "$T_ROOT"/lib/*.sh "$short/lib/"
 cp "$T_ROOT"/libexec/* "$short/libexec/"
 # The Rust poll finds the brief beside its own program, as on a host.
-if [ -n "${T_RUST_POLL:-}" ]; then
+if [ -z "${T_BASH_POLL:-}" ]; then
   cp "$T_DISPATCH" "$short/libexec/tehas-dispatch"
   T_ENV_ALWAYS=()
 fi
