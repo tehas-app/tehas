@@ -637,7 +637,9 @@ when it is not installed.
 - When there is no `state/tehas.db`, it runs `store init`.
 - Otherwise it runs `store migrate --backup ~/tehas/state/backup`. The store
   first copies the database into `state/backup/tehas-<version>-<time>.db`, mode
-  600, with SQLite's `VACUUM INTO`, and then brings the schema forward. A copy
+  600, with SQLite's `VACUUM INTO`, and then brings the schema forward. It
+  never replaces a file: when that name is taken, as by an install in the same
+  second, the copy is `tehas-<version>-<time>-1.db`, and so on to `-99`. A copy
   that cannot be made changes nothing. A database already at the version the
   store writes is still copied, so every install leaves one copy. Nothing
   removes old copies yet; remove them by hand when there are too many. A

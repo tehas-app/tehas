@@ -6,7 +6,17 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-clean="$T_ROOT/libexec/clean"
+# The command as a host has it: beside the console, which runs the steps
+# (console/src/clean.rs) and is this checkout's own build. The tests of its
+# parts are beside its source.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+shim=$T/tree
+mkdir -p "$shim/libexec"
+ln -s "$T_ROOT/libexec/clean" "$shim/libexec/clean"
+ln -s "$T_ROOT/lib" "$shim/lib"
+cp "$T_CONSOLE" "$shim/libexec/console"
+clean=$shim/libexec/clean
 # Where the command's own environment is: the same $T/home/tehas the run gets
 # from the harness, named here so a case can put versions.env where the cleaner
 # reads it.
@@ -1810,6 +1820,18 @@ t_eq "$t_rc" 3
 t_contains "$t_out" "another run holds the lock"
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 exec 6>&-
+
+t_case "a host with no console beside the command removes nothing: 78, and says to install"
+reset
+workspace
+rm -f "$shim/libexec/console"
+t_run "$clean"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+t_contains "$t_out" "run install.sh"
+t_eq "$(t_calls docker)" ""
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+cp "$T_CONSOLE" "$shim/libexec/console"
 
 t_case "an instance with no settings at all is refused before anything runs"
 t_no_instance
