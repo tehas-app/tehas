@@ -33,6 +33,13 @@ pub fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
+/// Days since 1970-01-01 of the Monday of the week `day` is in. Weeks are UTC
+/// and begin on Monday, and 1970-01-01 was a Thursday, so four days on from a
+/// Thursday is a Monday.
+pub fn week_start_of_day(day: i64) -> i64 {
+    day - (day - 4).rem_euclid(7)
+}
+
 /// Unix seconds as 2026-10-15T18:38:44Z.
 pub fn iso(t: i64) -> String {
     let (y, m, d) = civil_from_days(t.div_euclid(86_400));
@@ -76,6 +83,22 @@ mod tests {
         assert_eq!(iso(1_792_485_967), "2026-10-20T08:46:07Z");
         assert_eq!(iso(-1), "1969-12-31T23:59:59Z");
         assert_eq!(iso(951_782_400), "2000-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn weeks_begin_on_monday() {
+        // 1970-01-01 was a Thursday, so its Monday is four days before it.
+        assert_eq!(week_start_of_day(0), -3);
+        // 2026 makes a Monday of the 19th and a Tuesday of the 20th.
+        let monday = days_from_civil(2026, 10, 19);
+        for (day, week) in [
+            (days_from_civil(2026, 10, 19), monday),
+            (days_from_civil(2026, 10, 20), monday),
+            (days_from_civil(2026, 10, 25), monday),
+            (days_from_civil(2026, 10, 26), days_from_civil(2026, 10, 26)),
+        ] {
+            assert_eq!(week_start_of_day(day), week, "{day}");
+        }
     }
 
     #[test]
