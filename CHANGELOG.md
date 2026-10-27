@@ -13,6 +13,9 @@ empty one above it.
 
 ### Changes
 
+- `tehasbot clean` runs its steps in the console (`console clean run`), not in
+  bash. What it removes and keeps is unchanged. A host with no console beside
+  the command stops with 78 and says to run `install.sh` (#862).
 - One jq everywhere (#860): `host/versions.env` pins jq 1.8.1 by its
   checksum, and the host (`bootstrap.sh user`, into `~/tehas/bin`), the
   sandbox image (ahead of the base image's jq 1.7) and CI all run it. A jq

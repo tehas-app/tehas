@@ -54,13 +54,6 @@ unhold() {
   kill "$holder" 2>/dev/null
   wait "$holder" 2>/dev/null
 }
-# The install again, as a later second would see it. A second install in the
-# same second finds its backup's name taken, and the store refuses a name that
-# is there (its own tests hold that); these cases are about the import.
-install_again() {
-  rm -rf "$th/state/backup"
-  t_run "$install"
-}
 
 t_case "a fresh host installs with nothing to import"
 fresh
@@ -97,7 +90,7 @@ if real_store "old records are imported, moved to state/imported-<day>/ and coun
   t_eq "$(cat "$th/work/widget-plan-8.keep/plan-sessions/one" 2>/dev/null)" "kept"
   t_eq "$([ -e "$th/state/plan-8.json.keep" ] || echo gone)" "gone"
   # Again: nothing is left to import, and nothing is said about it.
-  install_again
+  t_run "$install"
   t_eq "$t_rc" 0
   t_lacks "$t_out" "store: imported"
 fi
@@ -228,7 +221,7 @@ EOF
   t_contains "$t_out" "tehas: the store could not import the old records under $th/state; the files are installed, the database holds what was imported, and install.sh can run again"
   t_eq "$([ -f "$th/state/cycles/7.taken" ] && echo there)" "there"
   rm -f "$T/import-fails"
-  install_again
+  t_run "$install"
   t_eq "$t_rc" 0
   t_contains "$t_out" "store: imported cycles 1"
 fi
