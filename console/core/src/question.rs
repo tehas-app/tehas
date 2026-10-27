@@ -127,7 +127,7 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             "plan"
         }
         Kind::Park => {
-            b += "- [ ] Retry from a clean start\n- [ ] Leave it parked\n\n";
+            b += "- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\n";
             b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
             "park"
         }
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(
             q_render(Kind::Park, 7, 1, &out, ""),
             format!(
-                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+                "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
     }

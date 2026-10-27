@@ -36,7 +36,7 @@ t_eq "$(t_calls fake-start)" "7"
 t_contains "$(t_calls gh)" "--remove-label tehas:question --remove-label tehas:ready --remove-label tehas:millwright-escalated"
 
 t_case "a retry tick writes the approval record with the tick's time, before the label changes"
-t_eq "$(at_mark '[.by, .how, .at, .comment_id]')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'
+t_eq "$(at_mark '[.by, .how, .at, .comment_id] | tostring')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'
 
 t_case "the question that was answered is used up by the start"
 t_eq "$(park_q)" none
@@ -116,15 +116,97 @@ t_contains "$t_out" "could not untick the question on #7"
 
 t_case "both boxes ticked is no choice: nothing starts, the boxes are emptied, one note"
 parked
+comments 7 "$(park_body x ' ' x)" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$(t_calls gh)" "api -X PATCH"
+t_contains "$(t_calls gh)" "Tick one"
+
+# The third box is a retry as the first one is: the same rules, and only the
+# record is smaller.
+t_case "the issue-alone tick by an allowed account starts a cycle with how retry-tick"
+parked
+comments 7 "$(park_body ' ' x ' ')" alice
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(at_mark '[.by, .how, .at, .comment_id] | tostring')" '["alice","retry-tick","2026-01-01T01:00:00Z",4001]'
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --add-label tehas:running --remove-label tehas:question"
+t_contains "$(t_calls gh)" "authorized by @alice's retry tick"
+t_contains "$t_out" "start #7 (retry ticked by alice)"
+t_eq "$(park_q)" none
+
+t_case "the issue-alone tick by the bot or a stranger starts nothing and is undone"
+for other in tehas-bot mallory ""; do
+  parked
+  comments 7 "$(park_body ' ' x ' ')" "$other"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$(t_calls gh)" "api -X PATCH repos/acme/widget/issues/comments/4001"
+  t_contains "$(t_calls gh)" "- [ ] Retry from the issue alone"
+  t_contains "$(t_calls gh)" "may not answer for this factory"
+done
+
+t_case "both retry boxes ticked is no choice: nothing starts and the boxes are emptied"
+parked
 comments 7 "$(park_body x x)" alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "api -X PATCH"
 t_contains "$(t_calls gh)" "Tick one"
 
-t_case "leave it parked takes the question away and keeps the issue parked"
+t_case "a retry tick of the issue alone waits while every slot is taken, and the tick stays"
+parked
+comments 7 "$(park_body ' ' x ' ')" alice
+hold 9
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(park_q)" 4001
+release
+
+t_case "a dry run says what the issue-alone tick would do and changes nothing"
+parked
+comments 7 "$(park_body ' ' x ' ')" alice
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7 (retry ticked by alice)"
+t_eq "$(t_calls fake-start)" ""
+t_lacks "$(t_calls gh)" "issue edit"
+t_eq "$(park_q)" 4001
+
+t_case "the issue-alone tick does not approve text changed after it"
+parked
+comments 7 "$(park_body ' ' x ' ')" alice
+echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-01T03:00:00Z","editor":{"login":"mallory"}}}}}' >"$fx/edit-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "its text was changed by 'mallory' after alice ticked retry; untick the box and tick it again to approve it"
+
+t_case "the pause label stops an issue-alone tick too"
+parked
+comments 7 "$(park_body ' ' x ' ')" alice
+echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+
+t_case "a park comment of the old two boxes still starts a clean start when it is ticked"
+parked
+comments 7 "$(park_body x ' ')" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(at_mark .how)" 'retry-tick'
+
+t_case "and its leave box still takes the question away"
 parked
 comments 7 "$(park_body ' ' x)" alice
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
+t_eq "$(park_q)" none
+
+t_case "leave it parked takes the question away and keeps the issue parked"
+parked
+comments 7 "$(park_body ' ' ' ' x)" alice
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" ""
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
@@ -135,7 +217,7 @@ t_eq "$(t_row question-known 7 --id 4001 -- '[.known, .recorded, .answered] | to
 
 t_case "leave it parked keeps the question on record while its label cannot be removed"
 parked
-comments 7 "$(park_body ' ' x)" alice
+comments 7 "$(park_body ' ' ' ' x)" alice
 : >"$fx/edit-fails"
 t_run "$dispatch"
 t_eq "$(park_q)" 4001
@@ -144,7 +226,7 @@ rm -f "$fx/edit-fails"
 
 t_case "a leave it parked whose answer the store would not take is said in the log"
 parked
-comments 7 "$(park_body ' ' x)" alice
+comments 7 "$(park_body ' ' ' ' x)" alice
 store_refuses "question-answered 7" 1 'store: busy #7: the database is locked'
 t_run "$dispatch"
 t_contains "$(t_calls gh)" "issue edit 7 --repo acme/widget --remove-label tehas:question"
@@ -152,7 +234,7 @@ t_contains "$t_out" "WARN: could not record the answer to the question of #7 (bu
 
 t_case "a dry run of leave it parked changes nothing"
 parked
-comments 7 "$(park_body ' ' x)" alice
+comments 7 "$(park_body ' ' ' ' x)" alice
 t_run "$dispatch --dry-run"
 t_lacks "$(t_calls gh)" "issue edit"
 t_eq "$(park_q)" 4001

@@ -402,8 +402,24 @@ comments_of() {
   jq --argjson id "$2" '.data.repository.issue.comments.nodes[0].databaseId = $id' "$fx/comments-$1.json" >"$fx/comments-$1.new" &&
     mv "$fx/comments-$1.new" "$fx/comments-$1.json"
 }
-park_body() { # <retry box> <leave box>
-  printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
+# The body of a park comment: three boxes, the two retries between the boxes
+# for a clean start and for the issue alone, and the one to leave it.
+# park_body <clean-start box> <alone box> <leave box>: each is x or a space.
+# With no third argument nothing was ticked to leave it, which is the shape a
+# comment had before the box for the issue alone existed: it holds no such
+# line at all, so a poll that reads the old comments still finds its boxes.
+park_body() {
+  local three=1
+  if [ "$#" = 2 ]; then
+    three=0
+  elif [ "$#" = 3 ] && [ -z "$3" ]; then
+    three=0
+  fi
+  if [ "$three" = 0 ]; then
+    printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
+  else
+    printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Retry from the issue alone\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2" "$3"
+  fi
 }
 # park_q [<issue>]: the question of the issue's current park on record [#7],
 # none without one.
@@ -481,7 +497,7 @@ parked_plan() { # <plan|refine> [<login, alice by default>]
     *) echo '[{"number":7,"labels":[{"name":"tehas:refine"},{"name":"needs-human-attention"},{"name":"tehas:question"}]}]' >"$fx/refines.json" ;;
   esac
   echo '{"title":"Faster search","body":"Make it fast."}' >"$fx/issue-7.json"
-  comments 7 "$(park_body ' ' ' ')" ""
+  comments 7 "$(park_body ' ' ' ' ' ')" ""
 }
 # Issue 7 has a planning question open after one turn.
 planning() {

@@ -12,8 +12,9 @@ result=$T/result.json
 jq -n '{text: "Two ways.", question: {question: "Adopt?", options: [
   {label: "Adopt all", description: "Apply all\nfive"}, {label: "Change some"}]}}' >"$result"
 
-t_case "a planning question lists the options, then the way out, then the marker"
+t_case "a planning question lists the options, then the way out, then the marker, and no retry box"
 body=$(q_render plan 7 2 "$result")
+t_lacks "$body" "Retry from"
 t_eq "$body" 'Two ways.
 
 Adopt?
@@ -32,9 +33,10 @@ jq -n '{text: "Which branch should this target?", question: null}' >"$T/prose.js
 t_eq "$(q_render plan 7 1 "$T/prose.json" | grep -c '^- \[ \] ')" 1
 t_contains "$(q_render plan 7 1 "$T/prose.json")" "Which branch should this target?"
 
-t_case "a parked cycle offers retry and leave, in that order"
+t_case "a parked cycle offers the two retries and leave, in that order"
 jq -n '{text: "Tehas cycle stopped.", question: null}' >"$T/park.json"
 t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Retry from a clean start
+- [ ] Retry from the issue alone
 - [ ] Leave it parked'
 t_contains "$(q_render park 7 1 "$T/park.json")" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
@@ -43,6 +45,7 @@ jq -n '{text: "Tehas cycle stopped.", question: null, retry: false}' >"$T/park.j
 t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Leave it parked'
 jq -n '{text: "Tehas cycle stopped.", question: null, retry: true}' >"$T/park.json"
 t_contains "$(q_render park 7 1 "$T/park.json")" "- [ ] Retry from a clean start"
+t_contains "$(q_render park 7 1 "$T/park.json")" "- [ ] Retry from the issue alone"
 
 t_case "a park's handoff marker goes first, and only pi-rukas's marker of this issue"
 jq -n '{text: "Tehas cycle stopped.", question: null, marker: "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->"}' >"$T/park.json"

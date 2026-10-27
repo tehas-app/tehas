@@ -2021,7 +2021,7 @@ the step it stopped in, cap, branch, token usage), finds the pull request the
 bot opened, and relabels and
 comments: merged, `tehas:awaiting-merge`, or `needs-human-attention`. A cycle
 that stopped is parked on the state store first (`store park`: why it parked,
-its step and its pull request), then gets its comment with two boxes and the
+its step and its pull request), then gets its comment with three boxes and the
 label `tehas:question`. The comment's id goes on the store as the park's
 question, with the sha256 of the body posted, which is what lets the
 dispatcher take a tick there. A park the store does not take asks no

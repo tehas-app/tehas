@@ -89,7 +89,10 @@ q_render() {
       printf 'Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n'
       ;;
     park)
-      [ "$(jq '.retry != false' "$file")" = false ] || printf -- '- [ ] Retry from a clean start\n'
+      # The two retries and the way out. The retry box is left out when the
+      # park says there is no retry to ask for.
+      [ "$(jq '.retry != false' "$file")" = false ] ||
+        printf -- '- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n'
       printf -- '- [ ] Leave it parked\n\n'
       printf 'Tick one box. Only a tick from an account that may authorise work counts.\n'
       ;;

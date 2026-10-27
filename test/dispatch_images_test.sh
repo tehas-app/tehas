@@ -31,10 +31,14 @@ imaging() { # <input list as JSON>
   declares "$1"
   rm -f "$fx/reads-images"
 }
-# An issue whose text links an attachment in GitHub's storage.
+# An issue whose text links an attachment in GitHub's storage: both the answer
+# of the list the poll reads and the one of the text it approves, from which
+# the start's links come.
 pictured() { # <issue>
   jq -nc --argjson n "$1" '{number: $n, state: "open",
     body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}' >"$fx/work-$1.json"
+  jq -nc '{data: {repository: {issue: {lastEditedAt: null, editor: null,
+    body: "It looks like this:\n\n![shot](https://github.com/user-attachments/assets/0f3e-41)"}}}}' >"$fx/edit-$1.json"
 }
 # An issue whose text says a file goes there and links no attachment: the words
 # an issue is left with when the file was never attached.
@@ -241,6 +245,148 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" "8"
 t_contains "$t_out" "hold #7: its text links an attachment"
 
+# --- What each retry box carries -------------------------------------------
+#
+# A clean start carries what people wrote on the pull request after the park;
+# the issue alone carries the issue and nothing else. The links a start names
+# are what tehas work fetches, so an image linked only from a comment reaches
+# the cycle by the clean start alone, and one the body links reaches both.
+
+# An instance that reads comments, with a model that reads the images it is
+# given. It is the first helper a case calls: it resets the fixtures, so the
+# ones that name the pull request and the park are written after it.
+commented() {
+  imaging '["text","image"]'
+  : >"$fx/reads-images"
+}
+# What a parked issue with a pull request of its own leaves for the poll: the
+# bot's pull request of the cycle, one comment an allowed account wrote on it
+# after the park, no other comment of the issue, an issue whose body links an
+# image, and the instance that reads comments and takes images. Every helper
+# of these files ends in t_instance, so the settings are written last.
+reviewed() { # [<ticked box: clean | alone | old> [<login of the reviewer, alice by default>]]
+  echo '[{"number":30,"headRefName":"feature/issue-7-search","body":""}]' >"$fx/prlist.json"
+  icomment 71 "${2:-alice}" 2026-01-01T00:20:00Z 2026-01-01T00:20:00Z \
+    "The button goes here: ![shot]($A/7171)" | jq -s . >"$fx/icomments-30.json"
+  echo '[]' >"$fx/icomments-7.json"
+  case "$1" in
+    clean) comments 7 "$(park_body x ' ' ' ')" alice ;;
+    alone) comments 7 "$(park_body ' ' x ' ')" alice ;;
+    *) comments 7 "$(park_body x ' ')" alice ;;
+  esac
+  pictured 7
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+}
+
+# A=https://github.com/user-attachments/assets is the storage the images of
+# these cases link.
+A=https://github.com/user-attachments/assets
+
+# The park comment these cases tick is the one a cycle posts now, with all
+# three boxes: a tick on either retry box starts the cycle under the same
+# rules, and only the record says which of the two it was. The two starts are
+# authorized alike and differ only in what that record names, which is what
+# tehas work fetches for the cycle. A comment with only the two boxes a cycle
+# posted before is decided here too.
+
+# The comments of the issue itself are the park's question, so the REST list
+# the poll reads for a clean start is named and empty: only the pull request's
+# comments go into the record.
+t_case "a start by the clean-start box carries the comment an allowed account wrote after the park"
+commented
+parked
+reviewed clean
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
+t_eq "$(at_mark '.retry_context | length')" 1
+t_contains "$(at_mark '.retry_context[0].text')" "The button goes here"
+
+t_case "a start by the issue-alone box names no comment link and no retry context"
+commented
+parked
+reviewed alone
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(at_mark .how)" 'retry-tick'
+t_lacks "$(t_calls gh)" "pr list"
+t_eq "$(at_mark '[has("comment_links"), has("retry_context")]')" '[false,false]'
+
+t_case "both retries give the cycle the image the issue's own body links"
+for ticked in clean alone; do
+  commented
+  parked
+  reviewed "$ticked"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" "7"
+  t_eq "$(at_mark '.links')" "$(sorted "[\"$A/0f3e-41\"]")"
+done
+
+t_case "an issue-alone tick whose pull request cannot be listed still starts: nothing of it is read"
+commented
+parked
+reviewed alone
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$t_out" "ERROR"
+
+t_case "a clean-start tick whose pull request cannot be listed starts nothing, as it did"
+commented
+parked
+reviewed clean
+: >"$fx/pr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_eq "$(t_calls fake-start)" ""
+t_contains "$t_out" "ERROR: the comments on the pull request of #7 could not be read"
+
+t_case "a park of the old two boxes still gives the clean start its pull request's comments"
+commented
+parked
+reviewed old
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_contains "$(t_calls gh)" "pr list --repo acme/widget --author tehas-bot --state all"
+t_eq "$(at_mark '.comment_links')" "$(sorted "[{\"link\":\"$A/7171\",\"source\":\"pr-comment:71\",\"by\":\"alice\"}]")"
+t_eq "$(at_mark '.retry_context | length')" 1
+
+t_case "under the issue-alone box a start reads neither the issue's comments nor the pull request"
+commented
+parked
+reviewed alone
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=0
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_lacks "$(t_calls gh)" "pr list"
+t_eq "$(at_mark '[has("comment_links"), has("retry_context")]')" '[false,false]'
+
+t_case "an issue that links an attachment waits for a model that reads one, under either retry box"
+for ticked in clean alone; do
+  # The shape of the case that holds a tick of an issue that links a file, for
+  # both boxes: the hold comes before either start, so it asks for no pull
+  # request and changes no label.
+  parked
+  t_instance "${T_MINIMAL[@]}" TEHAS_WORK_IMAGES=1
+  mesh '{"data":[{"id":"test-model"}]}'
+  declares '["text"]'
+  case "$ticked" in
+    clean) comments 7 "$(park_body x ' ' ' ')" alice ;;
+    *) comments 7 "$(park_body ' ' x ' ')" alice ;;
+  esac
+  pictured 7
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_lacks "$(t_calls gh)" "issue edit"
+  t_lacks "$(t_calls gh)" "api -X PATCH"
+  t_contains "$t_out" "hold #7: its text links an attachment"
+done
 t_case "an issue that links an attachment says nothing of a file it promises"
 imaging '["text","image"]'
 worded_pictured 7

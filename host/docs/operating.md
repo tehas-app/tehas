@@ -628,8 +628,13 @@ take the question away and keep the issue as it is. With
 `TEHAS_WORK_COMMENTS=1`, what an allowed account wrote on the cycle's pull
 request between the park and the tick goes with the retry: its text as
 `retry-context.md` beside the images, and its images and files by the usual
-rules. A label works as well: apply `tehas:ready`. `needs-human-attention` does not
-have to be removed first. A cycle started
+rules. The box between the two, `Retry from the issue alone`, starts the same
+cycle from the same rules and asks for none of that: its approval names no
+comment of the issue or of the pull request, so the cycle is given the approved
+body and the links of that body alone, with no `retry-context.md` and no image
+linked only from a comment. Neither poll reads the issue's comments or its pull
+request for such a start. A label works as well: apply `tehas:ready`.
+`needs-human-attention` does not have to be removed first. A cycle started
 that way takes `tehas:question` off the issue, and the old boxes no longer do
 anything.
 
@@ -648,7 +653,7 @@ warning in the log, and the park is posted as before.
 
 When the note is there and the rest of the body has not changed since it was
 written, a second develop timeout does not write it again, and its park
-comment has no `Retry from a clean start` box, only `Leave it parked`: the
+comment has no retry box at all, only `Leave it parked`: the
 same text would run into the same bound. The comment says to split the issue
 with `tehas:plan`, or make the body smaller and apply `tehas:ready`. A
 `tehas:ready` on the unchanged text is held as below, the millwright's too.

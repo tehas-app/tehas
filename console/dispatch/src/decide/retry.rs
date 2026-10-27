@@ -278,9 +278,16 @@ impl Poll<'_> {
                 continue;
             }
             let body = ans["body"].as_str().unwrap_or("").replace('\r', "");
+            // The third box is a retry as the first is, and its place in the
+            // list decides nothing; what differs is that its record names no
+            // comment of the issue or of the pull request.
+            let issue_alone = body
+                .split('\n')
+                .any(|l| l.eq_ignore_ascii_case("- [x] Retry from the issue alone"));
             if !body
                 .split('\n')
                 .any(|l| l.eq_ignore_ascii_case("- [x] Retry from a clean start"))
+                && !issue_alone
             {
                 if !self.dry {
                     self.act(json!({"issue": n, "remove": ["tehas:question"],
@@ -344,6 +351,9 @@ impl Poll<'_> {
             let mut extra = Map::new();
             extra.insert("comment".into(), ans["comment"].clone());
             extra.insert("since".into(), ans["asked_at"].clone());
+            if issue_alone {
+                extra.insert("issue_alone".into(), json!(true));
+            }
             self.d.picked.push(n);
             self.act_gates(n);
             self.act_start(
