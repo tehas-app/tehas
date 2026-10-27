@@ -162,7 +162,7 @@ impl Writer {
             if !held(&lock) {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(self.host.lock_poll);
         }
         if held(&lock) {
             log.push(format!(

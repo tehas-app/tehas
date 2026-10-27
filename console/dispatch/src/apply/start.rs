@@ -68,6 +68,12 @@ pub struct Host {
     /// TEHAS_PLAN_MAX_TURNS.
     pub plan_max_turns: u64,
     pub systemd_run: String,
+    /// How often the wait for a stopped cycle looks at its lock. Production:
+    /// 500 ms, as the bash stop polls.
+    pub lock_poll: Duration,
+    /// How often the wait for a launched turn's unit looks for its lock or
+    /// its rc. Production: 500 ms, as the bash plan polls.
+    pub launch_poll: Duration,
 }
 
 /// How one start ended.
