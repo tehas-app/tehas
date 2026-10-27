@@ -13,9 +13,15 @@ empty one above it.
 
 ### Changes
 
+- `TEHAS_SLICE_CONTAINERS`, 4 by default, sets how many containers
+  `tehas.slice` holds. Each container's memory ceiling is the slice over this
+  number, and admission, the CPU share and the pids limit follow it. Before,
+  four was fixed.
+
 ### Adopter action
 
-None.
+None. A host that wants more cycles side by side sets
+`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it.
 
 ## v0.14.5 (2026-10-27)
 
