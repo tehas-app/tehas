@@ -162,6 +162,22 @@ pub fn events(node: &Value) -> Value {
     Value::Array(list)
 }
 
+/// Whether the page left out label events the issue has: a label on it that
+/// no event of its timeline applied. GitHub can answer a large page with
+/// empty timelines and no error.
+pub fn dropped_events(o: &Open) -> bool {
+    let applied: Vec<&str> = o
+        .node
+        .pointer("/timelineItems/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|e| e.get("__typename").and_then(Value::as_str) == Some("LabeledEvent"))
+        .filter_map(|e| e.pointer("/label/name").and_then(Value::as_str))
+        .collect();
+    o.labels.iter().any(|l| !applied.contains(&l.as_str()))
+}
+
 /// What an open issue answers to each read of the bash's: the REST issue
 /// (work), the edit record (edit), gh issue view (view) and the pull
 /// requests that close it (prs).
@@ -289,4 +305,29 @@ pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
 /// A list gh answers, or {"failed": true}.
 pub fn list(calls: &mut Calls, args: &[&str]) -> Value {
     calls.gh(args).unwrap_or_else(|_| json!({"failed": true}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open(labels: &[&str], applied: &[&str]) -> Open {
+        let nodes: Vec<Value> = applied
+            .iter()
+            .map(|l| json!({"__typename": "LabeledEvent", "label": {"name": l}}))
+            .collect();
+        Open {
+            number: 7,
+            labels: labels.iter().map(|l| l.to_string()).collect(),
+            node: json!({"timelineItems": {"nodes": nodes}}),
+        }
+    }
+
+    #[test]
+    fn a_label_no_event_applied_was_left_out() {
+        assert!(dropped_events(&open(&["tehas:ready"], &[])));
+        assert!(dropped_events(&open(&["tehas:ready", "bug"], &["bug"])));
+        assert!(!dropped_events(&open(&["tehas:ready"], &["tehas:ready"])));
+        assert!(!dropped_events(&open(&[], &[])));
+    }
 }

@@ -835,7 +835,9 @@ its own login stops there and does nothing else.
 the settings, the model keys and the checkout. It is the same poll, in the
 same order and with the same lines in `logs/dispatch.log`: the lock, the
 snapshot of the queue (one GraphQL query in pages of 100 where the bash poll
-makes a call for each list), the decision, the actions, and the end every
+makes a call for each list; GitHub can answer a large page with an issue's
+label events left out, so an issue with a label no event applied has its
+events read on their own, as the bash reads them), the decision, the actions, and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done

@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- The snapshot behind `tehas top` is put together by the console (#846,
+  `console top snapshot`, console/src/snapshot.rs): the factory, queue,
+  cycle, units, energy and console sections, with the same JSON. `lib/top.sh`
+  keeps the wait between two readings of the host and the frame, and loses
+  156 lines. Without the console `tehas top` and `tehasbot top-publish` say to
+  run `install.sh` instead of drawing a frame without a host.
+
 - `bootstrap.sh user` no longer stops in silence when pi-rukas re-points a tag
   (#793). The clone of pi-rukas is a copy of upstream, so its fetch takes the
   tags by force; a fetch or a checkout that fails names the step and gives
@@ -36,6 +43,11 @@ empty one above it.
   `bash`. A Rust poll first settles the writes a poll before it left open in
   the action journal, from what GitHub says now, and never repeats one. See
   "The dispatcher in Rust" in the operating page for how it differs.
+- The Rust dispatcher reads an issue's label events on their own when
+  GitHub's page of the queue left them out (#254). GitHub answers a large page
+  with empty timelines and no error; read as given, an allowed account's
+  label had nobody behind it, and the poll took it off. Found by the shadow
+  on tehas-tehas before any host ran the Rust poll.
 - `tehasbot review` runs its container from Rust (#829): the console reads
   the range, checks the image's inputs, bounds the run and writes the record.
   `libexec/review` keeps the sandbox and loses 155 lines. The wait on the
