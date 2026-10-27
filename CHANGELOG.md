@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- `TEHAS_SLICE_CONTAINERS`, 4 by default, sets how many containers
+  `tehas.slice` holds. Each container's memory ceiling is the slice over this
+  number, and admission, the CPU share and the pids limit follow it. Before,
+  four was fixed.
 - `tehas setup` checks the settings, asks GitHub and the endpoint and writes
   the instance's files in the console (`console setup files`, #882);
   `libexec/setup` keeps git, the clone and the install steps (452 to 201
@@ -22,7 +26,8 @@ empty one above it.
 
 ### Adopter action
 
-None.
+None. A host that wants more cycles side by side sets
+`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it.
 
 ## v0.14.5 (2026-10-27)
 

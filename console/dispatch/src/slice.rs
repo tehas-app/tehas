@@ -95,7 +95,7 @@ pub fn bytes(s: &str) -> Option<u64> {
 }
 
 /// tehas_slice_ok: the slice, or the line a person can act on.
-pub fn usable(r: &Reading, reserve: &str) -> Result<Usable, String> {
+pub fn usable(r: &Reading, reserve: &str, containers: &str) -> Result<Usable, String> {
     let Some(show) = r.show.as_ref().filter(|m| !m.is_empty()) else {
         return Err("systemctl gave no answer".into());
     };
@@ -135,16 +135,25 @@ pub fn usable(r: &Reading, reserve: &str) -> Result<Usable, String> {
     let Some(reserve_b) = bytes(reserve) else {
         return Err(format!("TEHAS_CYCLE_RESERVE={reserve} is not a size"));
     };
-    let ceiling = max / 4 / MIB;
+    let n = match num(containers) {
+        Some(n) if n > 0 => n,
+        _ => {
+            return Err(format!(
+                "TEHAS_SLICE_CONTAINERS={containers} is not a count"
+            ))
+        }
+    };
+    let ceiling = max / n / MIB;
     if reserve_b > ceiling * MIB {
-        let need = reserve_b * 16 / 3;
+        // The slice is three quarters of the host.
+        let need = reserve_b * 4 * n / 3;
         let need = if need >= GIB {
             format!("{} GiB", (need + 536_870_912) / GIB)
         } else {
             format!("{} MiB", need / MIB + 1)
         };
         return Err(format!(
-            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, a quarter of tehas.slice's MemoryMax); the host needs about {need} of memory for this reserve"
+            "TEHAS_CYCLE_RESERVE={reserve} is more than a container may use here ({ceiling}m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS={n}); the host needs about {need} of memory for this reserve"
         ));
     }
     match r.cpus.as_deref().and_then(num) {
