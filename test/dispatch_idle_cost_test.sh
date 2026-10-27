@@ -61,7 +61,8 @@ world() { # <locks> <shipped> <blocked>
   # Each label came from an event, as on GitHub.
   echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
   for ((n = 100; n < 100 + blocked; n++)); do
-    echo '[{"event":"labeled","label":{"name":"tehas:blocked"},"actor":{"login":"alice"}}]' >"$fx/events-$n.json"
+    echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}},
+      {"event":"labeled","label":{"name":"tehas:blocked"},"actor":{"login":"alice"}}]' >"$fx/events-$n.json"
   done
 }
 
