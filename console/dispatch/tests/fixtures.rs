@@ -5,6 +5,7 @@
 
 use serde_json::{json, Map, Value};
 use std::fs;
+use tehas_core::question::box_line;
 use tehas_dispatch::text::body_sha256;
 use tehas_dispatch::{decide, Settings, Snapshot};
 
@@ -46,6 +47,7 @@ fn base() -> (Value, Value) {
         "hostname": "tehas-test",
         "bot_prs": [],
         "marked": [],
+        "planning": [],
         "refresh_history": [],
         "leftovers": [],
         "asking": [],
@@ -94,8 +96,10 @@ fn ready_event(by: &str, at: Option<&str>) -> Value {
     e
 }
 
-/// The shorthands of a case, written into its snapshot.
+/// The shorthands of a case, written into its snapshot. `case` names it in
+/// the message of a fixture that asks for something it does not hold.
 fn expand(c: &Value, snap: &mut Value) {
+    let name = c["case"].as_str().unwrap_or("?");
     let issues = |snap: &mut Value| -> Map<String, Value> {
         snap["issues"].as_object().cloned().unwrap_or_default()
     };
@@ -370,21 +374,28 @@ fn expand(c: &Value, snap: &mut Value) {
         }
         snap["issues"] = Value::Object(is);
     }
-    // park_q: [retry box, leave box, editor, later comments]: the comments of
-    // #7 as comments 7 "$(park_body ...)" writes them.
+    // park_q: [retry box, alone box, leave box, editor, later comments]: the
+    // comments of #7 as comments 7 "$(park_body ...)" writes them. Every box
+    // is named: the reader is given no way to guess which of the five a case
+    // meant, and a case that leaves one out is a fixture error, not a body
+    // with a different shape.
     // asked: {n: [body, editor, later comments]}: the same for any body.
     let mut asked: Vec<(String, Value)> = Vec::new();
     if let Some(x) = c.get("park_q").and_then(Value::as_array) {
-        let body = format!("Tehas cycle stopped.\n\n- [{}] Retry from a clean start\n- [{}] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
-            x[0].as_str().unwrap(), x[1].as_str().unwrap());
-        asked.push((
-            "7".into(),
-            json!([
-                body,
-                x.get(2).cloned().unwrap_or(json!("")),
-                x.get(3).cloned().unwrap_or(json!([]))
-            ]),
-        ));
+        let box_of = |k: usize| {
+            x.get(k)
+                .and_then(Value::as_str)
+                .unwrap_or_else(|| panic!("park_q of {name}: slot {k} is not a box"))
+        };
+        let body = format!(
+            "Tehas cycle stopped.\n\n{}\n{}\n{}\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->",
+            box_line(tehas_core::question::BOX_CLEAN, box_of(0) == "x"),
+            box_line(tehas_core::question::BOX_ALONE, box_of(1) == "x"),
+            box_line("Leave it parked", box_of(2) == "x"),
+        );
+        let ed = x.get(3).cloned().unwrap_or(json!(""));
+        let after = x.get(4).cloned().unwrap_or(json!([]));
+        asked.push(("7".into(), json!([body, ed, after])));
     }
     if let Some(m) = c.get("asked").and_then(Value::as_object) {
         asked.extend(m.iter().map(|(k, v)| (k.clone(), v.clone())));

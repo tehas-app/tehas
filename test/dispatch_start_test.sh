@@ -44,9 +44,9 @@ echo $! >"$T/live.pid"'
 T_ENV=(TEHAS_CYCLE_START_CMD=fake-live TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
 alive=no
-kill -0 "$(cat "$T/live.pid")" 2>/dev/null && alive=yes
+kill -0 "$(<"$T/live.pid")" 2>/dev/null && alive=yes
 free=$(flock -n "$T/home/tehas/state/dispatch.lock" echo free)
-kill "$(cat "$T/live.pid")" 2>/dev/null
+kill "$(<"$T/live.pid")" 2>/dev/null
 t_eq "$t_rc" 0
 t_eq "$alive" yes
 t_eq "$free" free
@@ -58,7 +58,7 @@ t_eq "$(t_calls fake-index)" "--before-cycle"
 t_eq "$(find "$T/calls/index.fd8" 2>/dev/null | wc -l)" 0
 
 t_case "a real poll records when it took the lock"
-t_eq "$(($(date +%s) - $(cat "$T/home/tehas/state/dispatch.taken") < 60))" 1
+t_eq "$(($(date +%s) - $(<"$T/home/tehas/state/dispatch.taken") < 60))" 1
 
 t_case "a poll that finds the lock held for longer than a turn may take says so once, and exits 0"
 reset
@@ -87,7 +87,7 @@ t_contains "$t_out" "another poll holds the dispatcher's lock"
 t_lacks "$t_out" "WARN"
 
 t_case "a poll that finds the lock held does not change when it was taken"
-t_eq "$(cat "$taken_file")" "$stamp"
+t_eq "$(<"$taken_file")" "$stamp"
 
 t_case "a poll that finds the lock held still takes the ended cycle's request, so the path unit does not start poll after poll"
 again=$T/home/tehas/state/dispatch.again
@@ -504,7 +504,7 @@ t_stub fake-late '( exec 9>"$TEHAS_HOME/state/cycles/$1.lock"; flock -n 9; exec 
 echo $! >"$T/late.pid"'
 T_ENV=(TEHAS_CYCLE_START_CMD=fake-late TEHAS_CYCLE_START_WAIT=1 TEHAS_STATUS_CMD=fake-status TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start "$slice_env")
 t_run "$dispatch"
-kill "$(cat "$T/late.pid")" 2>/dev/null
+kill "$(<"$T/late.pid")" 2>/dev/null
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: the cycle for #7 holds its lock but did not say so in 1s; taking it as started"
 t_lacks "$(t_calls gh)" "needs-human-attention"
@@ -599,7 +599,7 @@ t_eq "$(t_calls analytics)" "event 7 ready
 event 7 started
 sample
 prune"
-t_eq "$(cat "$T/calls/analytics.moment")" "event 7 ready: approved status=1
+t_eq "$(<"$T/calls/analytics.moment")" "event 7 ready: approved status=1
 event 7 started: approved started status=1
 sample: approved started tidied status=2
 prune: approved started tidied status=2"
@@ -792,7 +792,7 @@ default_start
 t_eq "$t_rc" 0
 t_lacks "$t_out" "did not start"
 t_lacks "$t_out" "taking it as started"
-t_eq "$(cat "$T/busy-left")" 0
+t_eq "$(<"$T/busy-left")" 0
 
 t_case "the wait is bounded by the clock, however long each look takes"
 reset

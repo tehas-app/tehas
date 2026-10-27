@@ -296,6 +296,27 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(at_mark '[.how, (.comment_links | map(.source))]')" '["retry-tick",["comment:61"]]'
 
+# The box of the issue alone, on an instance that reads comments: the start
+# names neither the issue's comments nor its pull request's, so the record
+# reads as the one of an instance with TEHAS_WORK_COMMENTS off and neither
+# read is asked for. The case above shows the same world reading both under
+# the clean-start box.
+t_case "a retry tick of the issue alone reads no comment with the comments setting on"
+parked
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1
+comments 7 "$(park_body ' ' x ' ')" alice
+echo '[]' >"$fx/icomments-7.json"
+echo '[{"number":30,"headRefName":"feature/issue-7-search","body":""}]' >"$fx/prlist.json"
+icomment 71 alice 2026-01-01T00:20:00Z 2026-01-01T00:20:00Z "The button goes here: ![shot]($A/7171)" |
+  jq -s . >"$fx/icomments-30.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(at_mark '[.by, .how, .comment_id] | tostring')" '["alice","retry-tick",4001]'
+t_eq "$(at_mark '[has("comment_links"), has("retry_context")]')" '[false,false]'
+t_lacks "$(t_calls gh)" "pr list"
+t_lacks "$(t_calls gh)" "issues/7/comments?per_page"
+
 t_case "a retry tick takes what allowed accounts wrote on the cycle's pull request between the park and the tick"
 parked
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_WORK_IMAGES=1 TEHAS_WORK_COMMENTS=1

@@ -228,6 +228,9 @@ _tehas_valid() {
     TEHAS_REFRESH_SLOTS)
       [[ $v =~ ^[0-8]$ ]] || { echo "expected a whole number from 0 to 8"; return 1; }
       ;;
+    TEHAS_SLICE_CONTAINERS)
+      [[ $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected a whole number from 2 to 16"; return 1; }
+      ;;
     TEHAS_REFRESH_EVERY)
       [[ $v =~ ^[1-9][0-9]{0,3}$ ]] && [ "$v" -le 1440 ] ||
         { echo "expected a whole number of minutes from 1 to 1440"; return 1; }
@@ -235,18 +238,13 @@ _tehas_valid() {
     TEHAS_CLEAN_AFTER)
       [[ $v =~ ^[1-9][0-9]{0,4}$ ]] || { echo "expected a whole number of hours of at least 1"; return 1; }
       ;;
-    # The cost one poll that started nothing may have, as `store poll-idle
-    # --budget` reads it: the three figures in this order, any left out. The
-    # store takes them in any order, which this does not: another order would
-    # bound the wrong figure.
+    # An idle poll's budget for `store poll-idle --budget`: the three figures in
+    # this order, any left out; another order would bound the wrong figure.
     TEHAS_POLL_BUDGET)
       [[ $v =~ ^(cpu=[0-9]{1,9}(,wall=[0-9]{1,9}(,writes=[0-9]{1,9})?)?|wall=[0-9]{1,9}(,writes=[0-9]{1,9})?|writes=[0-9]{1,9})$ ]] ||
         { echo "expected cpu=<s>,wall=<s>,writes=<n>, any part left out"; return 1; }
-      # Each figure again as the store's own count reads it, which alone
-      # refuses a leading 0 the shape above passes: the store's refusal would
-      # only leave the poll_cost check out of the health file, so the load has
-      # to be what stops, with 78 and the name said. The local IFS keeps the
-      # instance file's own away from the split, and is dropped on return.
+      # Each figure as the store's count reads it (no leading 0), so the load
+      # stops with 78; the local IFS keeps the instance file's own away.
       local IFS=$' \t\n,'
       for part in ${v//,/ }; do
         _tehas_is_count "${part#*=}" ||
@@ -504,10 +502,10 @@ tehas_load() {
   # host here.
   v=$(_tehas_host_cpus)
   export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-$((v > 1 ? v - 1 : 1))}
-  # The memory one container is given as its floor, and what the dispatcher
-  # counts for a container when it asks whether another fits. Whether it fits
-  # this host is lib/slice.sh's question, asked when a container is started.
-  export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g}
+  # The memory one container is given as its floor, what the dispatcher counts
+  # it at, and how many containers tehas.slice holds: each may use 1/n of it.
+  # Whether they fit this host is lib/slice.sh's question.
+  export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g} TEHAS_SLICE_CONTAINERS=${TEHAS_SLICE_CONTAINERS:-4}
   # Whether search engines may index the dashboard and the manual, and whether
   # the host's load and processes are published for the dashboard by `tehasbot
   # top`: off unless the instance says so, because the dashboard can be on the
@@ -628,7 +626,7 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # Its default belongs to install.sh, so an instance that left it out is

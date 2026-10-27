@@ -406,6 +406,22 @@ for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFR
   t_contains "$t_out" "rc=78"
 done
 
+t_case "the slice holds four containers unless the instance says another number from 2 to 16"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
+t_eq "$t_out" "[4]"
+for good_n in 2 6 16; do
+  printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=$good_n >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
+  t_eq "$t_out" "[$good_n]"
+done
+for bad in "TEHAS_SLICE_CONTAINERS=1" "TEHAS_SLICE_CONTAINERS=0" "TEHAS_SLICE_CONTAINERS=17" "TEHAS_SLICE_CONTAINERS=06" "TEHAS_SLICE_CONTAINERS=six"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+done
+
 # The hold of rule 6: unset, the dispatcher never asks the measure, so nothing
 # changes. Set, it is a whole number of at least 1.
 t_case "the size hold is off unless the instance names a number of files"

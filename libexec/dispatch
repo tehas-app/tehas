@@ -75,12 +75,13 @@
 #      be read holds nothing, and the log says so when that changes.
 #      Running cycles go on, and planning turns are not held.
 #   4. A box ticked by an allowed account in the bot's question comment is an
-#      answer: on a parked cycle, "Retry from a clean start" starts a fresh
-#      cycle. Rules 2 and 3 hold that back too. The tick counts only on a
-#      parked issue that GitHub still says is open, and it is unticked when it
-#      is used. A tick on an issue closed since its cycle stopped starts
-#      nothing. A comment is a
-#      question only if this host has its id on record on the state store:
+#      answer: on a parked cycle, either retry box starts a fresh cycle; that
+#      of "Retry from the issue alone" records no comment of the issue or its
+#      pull request. Rules 2 and 3 hold both back too. The tick counts only on
+#      a parked issue that GitHub still says is open, and it is unticked when
+#      it is used. A tick on an issue closed since its cycle stopped starts
+#      nothing. A comment is a question only if this host has its id on record
+#      on the state store:
 #      the question of the issue's open planning session, or of its current
 #      park (question-known). A record that could not be read skips the issue
 #      for this poll: no tick counts and none is undone.
@@ -116,14 +117,14 @@
 #      why; one held by its cap or a park says so on the issue once. A pull
 #      request that carries tehas:refreshing waits. The start puts
 #      tehas:refreshing on the pull request before it writes the approval
-#      record or marks the issue, so a start whose label change fails leaves
-#      no refresh in the count; rule 2 takes it off a pull request whose issue
-#      has no cycle, and one that the bot did not apply. Rules 1 and 2, the
-#      limit and the slice's room hold a refresh; the cap of rule 3 does not:
-#      its pull request is open already, and the start takes
-#      tehas:awaiting-merge off, and tehas:question off too. A refresh of a
-#      handed-off issue is a restart: tehas cycle passes --restart, which takes
-#      needs-human-attention off, and the refresh's own end labels the issue.
+#      record or marks the issue, so a start whose label change fails leaves no
+#      refresh in the count; rule 2 takes it off a pull request whose issue has
+#      no cycle, and one the bot did not apply. Rules 1 and 2, the limit and the
+#      slice's room hold a refresh; the cap of rule 3 does not: its pull request
+#      is open already, and the start takes tehas:awaiting-merge off, and
+#      tehas:question off too. A refresh of a handed-off issue is a restart:
+#      tehas cycle passes --restart, which takes needs-human-attention off, and
+#      the refresh's own end labels the issue.
 #   5. A reply or a ticked option on a planning question runs the next turn
 #      of that session. The millwright's reply or tick counts only when no
 #      person answered, in a session an allowed account's tehas:plan
@@ -179,7 +180,7 @@
 #      takes its label off and says why. A start takes tehas:millwright-escalated
 #      off, whoever made it.
 #      An issue that carries tehas:blocked waits while any issue it names is
-#      open. The names are in the newest comment with the marker
+#      open, named by the newest comment with the marker
 #      <!-- tehas:blocked by=12,34 --> by an allowed account or the fixer, one
 #      nobody else edited. A label with no such comment, a malformed marker or
 #      a state GitHub does not give holds it too, and the log says why.
@@ -191,11 +192,11 @@
 #      setting and the way out once. Unset, nothing here changes, and a refresh
 #      is never held by it.
 #   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
-#      issue number. An issue the poll puts on neither the urgent list nor the
-#      tehas:next list is of the lowest kind, so one whose tehas:next came from
-#      an account it does not count is of that kind too. The
-#      urgent label counts only when its most recent labelling is by an allowed
-#      account, as tehas:ready does: one applied by the bot or anyone else is
+#      issue number. An issue on neither the urgent list nor the tehas:next one
+#      is of the lowest kind, so one whose tehas:next came from an account it
+#      does not count is of that kind too. The urgent label counts only when
+#      its most recent labelling is by an allowed account, as tehas:ready does:
+#      one applied by the bot or anyone else is
 #      ignored and logged, and the issue keeps its place by number. tehas:next,
 #      and tehas:blocked in rule 6, count when their latest event applies them
 #      and is by an allowed account or the fixer. A running cycle is never
@@ -257,12 +258,12 @@
 #   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
 #                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_TIDY_CMD (in place of libexec/tidy),
-# TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD (in place of systemd-run, called with
-# the issue and the turn's command line), TEHAS_INDEX_START_CMD (in place of
-# systemd-run, called with the index run's command line), TEHAS_CYCLE_START_CMD and
-# TEHAS_CYCLE_STOP_CMD (in place of systemctl, called with the issue), TEHAS_CYCLE_START_WAIT (seconds to wait for a started cycle
-# [30]), TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
+# TEHAS_TIDY_CMD (in place of libexec/tidy), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+# and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
+# issue and the turn's command line, the second with the index run's),
+# TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
+# issue), TEHAS_CYCLE_START_WAIT (seconds for a started cycle [30]),
+# TEHAS_CYCLE_DONE_WAIT (seconds the stop of a finished cycle may take
 # [330]), TEHAS_CGROUP_ROOT (in place of /sys/fs/cgroup), TEHAS_FETCH_WAIT
 # (seconds the fetch of the checkout may take [120]) and TEHAS_CHECK_WAIT
 # (seconds the read of TEHAS_BRANCH_CHECK may take [30]).
@@ -285,8 +286,9 @@
 # "comment:<id>". On a retry tick it adds the links of the comments allowed
 # accounts wrote on the parked cycle's pull request between the park and the
 # tick, source "pr-comment:<id>", and their text as retry_context, [{source,
-# by, at, text}]. tehas work fetches those links and no others, and only while
-# the body still has that hash. A start of the fixer's has how "fixer", the
+# by, at, text}] - both only for a tick on `Retry from a clean start`: the box
+# of the issue alone names neither. tehas work fetches no links but those, only
+# while the body still has that hash. A start of the fixer's has how "fixer", the
 # person's approval it rests on as rests_on {at, by, how, body_sha256}, the
 # fixer's starts since that approval as fixer_starts, and, whatever
 # TEHAS_WORK_COMMENTS says, the fixer's marked comment on the issue written in
@@ -629,10 +631,10 @@ image_ok() {
 # GitHub and nothing of the instance's settings: the text is the one work_ok
 # already read, and a promised file holds whether or not this instance gives a
 # cycle images. It is asked where a cycle would otherwise start and before
-# units_ok, so a held issue has no label changed and no comment of the bot's
-# posted: the hold is one line of the dispatch log. A planning turn is not held
-# by it, as it is not held by image_ok. Returns 1, with the reason logged, when
-# the issue waits for its owner.
+# units_ok, so a held issue has no label changed and none of the bot's comment
+# posted; the hold is one line of the log. A planning turn is not held by it,
+# as it is not held by image_ok. Returns 1, with the reason logged, when the
+# issue waits for its owner.
 image_missing_ok() {
   local n=$1
   [ -n "${work_answer[$n]:-}" ] || return 0
@@ -1045,15 +1047,12 @@ clear_unauthorised() {
 # An epic that carries tehas:ready loses that label and says why on the issue
 # once, as clear_unauthorised does, the comment following the label change. A
 # retry tick is no label of tehas's to take off, and an epic need not carry
-# tehas:ready at all, so on that path nothing of the issue is changed and
-# nothing is said on it: its tick stays, as a tick a hold leaves, and a poll
-# that finds it again says the one line in the log rather than comment on the
-# issue every two minutes.
-#
-# Call it where a cycle is about to start, after work_ok, on the `tehas:ready`
-# path and on the retry tick of a park question. A planning session on an epic
-# is allowed: planning an epic is what planning is for.
-# Returns 1 when the issue is an epic.
+# tehas:ready at all, so on that path nothing of the issue changes and nothing
+# is said on it: its tick stays, as a tick a hold leaves, and a poll that finds
+# it again logs its one line rather than comment every two minutes. Call it
+# where a cycle is about to start, after work_ok, on the `tehas:ready` path and
+# on the retry tick of a park question. Planning an epic is what planning is
+# for, so a session on one is allowed. Returns 1 for an epic.
 epic_ok() {
   local n=$1 open word
   open=$(jq -r 'if ((.sub_issues_summary // null) | type) == "object" and
@@ -1087,8 +1086,8 @@ epic_ok() {
 # both sides of the factory and pi-rukas. libexec/improve puts the second beside
 # the first, on the two halves of a boundary finding and on any finding whose
 # text names a repository the loop knows of besides the one the issue is filed
-# in, and says in each body which repository has which half. The three names are
-# shared with libexec/improve; test/improve_repos_test.sh names them too.
+# in, and says in each body which repository has which half. The three names
+# are shared with libexec/improve and named by test/improve_repos_test.sh.
 loop_label=tehas:improvement
 cross_label=cross-project
 
@@ -1099,9 +1098,9 @@ cross_label=cross-project
 # the change belongs in a repository this factory has no checkout of, and parks:
 # hours of a slot to rediscover what the label already said, with a comment
 # asking for a person on an issue no cycle here can fix. So the poll starts
-# nothing while both labels stand, and asks GitHub nothing: the labels are read
-# from the ready list this poll already has. As for an epic the issue and its
-# labels stay as they are, so the log line is the whole tell; a comment every two
+# nothing while both labels stand, and asks GitHub nothing: the labels come from
+# the ready list this poll already has. As for an epic the issue and its labels
+# stay as they are, so the log line is the whole tell; a comment every two
 # minutes would be its own noise.
 #
 # Only an issue that also carries the loop's own label is held. That label says
@@ -1109,11 +1108,10 @@ cross_label=cross-project
 # cross-project anyone may apply is no reason to hold a person's issue back.
 # A planning session is not held by it: deciding which repository a finding
 # belongs in is what a planning turn is for, and a turn opens no pull request.
-# A refresh takes no path through here, as no refresh carries either label.
-#
-# Call it where a cycle is about to start, after work_ok, on the `tehas:ready`
-# path and on the retry tick of a park question, where the labels are the ones
-# read for the issue. Returns 1 when the issue is held.
+# A refresh takes no path through here, as no refresh carries either label. Call
+# it where a cycle is about to start, after work_ok, on the `tehas:ready` path
+# and on the retry tick of a park question, where the labels are the ones read
+# for the issue. Returns 1 when the issue is held.
 cross_repo_holds() {
   local n=$1 have=$2
   [[ $have == *" $cross_label "* ]] || return 0
@@ -1137,9 +1135,8 @@ cross_repo_holds() {
 # GitHub's here does: the four zeros the measure gives an empty body are not a
 # guess about a body it was never given. Unset, this asks nothing and nothing
 # changes. The labels are the caller's second argument, as work_ok's answer
-# holds the body and not the labels, and a refresh takes no path through here: a
-# refresh is never held (rule 4b), and the label this path would take off is not
-# one a refresh carries. Returns 1 when the issue is held.
+# holds the body and not the labels, and a refresh takes no path through here:
+# a refresh is never held (rule 4b). Returns 1 when the issue is held.
 size_ok() {
   local n=$1 have=$2 files
   [ -n "$TEHAS_SIZE_MAX_FILES" ] || return 0
@@ -1293,13 +1290,13 @@ fixer_held() {
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
 # Needs the label events of $n in $events; they are read when they are not
-# already at hand. An approval covers the text that was there when it was given.
-# A title or body changed afterwards by anyone else has not been approved by
-# anybody: the issue waits until an allowed account approves it again. A change
-# whose account GitHub no longer names, a deleted one, is by 'unknown'. Returns
-# 1, with the reason logged, if that happened.
-# The body comes in the same answer as the edit record, so the text kept in
-# $text_of for the approval record is the text this check passed.
+# already at hand. An approval covers the text that was there when it was given:
+# a title or body changed afterwards by anyone else has not been approved by
+# anybody, and the issue waits until an allowed account approves it again. A
+# change whose account GitHub no longer names, a deleted one, is by 'unknown'.
+# Returns 1, with the reason logged, if that happened. The body comes in the
+# same answer as the edit record, so the text kept in $text_of for the approval
+# record is the text this check passed.
 declare -A text_of=()
 unchanged_since() {
   local n=$1 since=$2 what=$3 again=${4:-apply the label again} renamed edited editors edited_at stale e
@@ -1354,6 +1351,9 @@ refresh_checkout() {
 # the approval record: when it was given and how, in one word.
 picked=()
 declare -A starter=() verb=() how=() drop=() given_at=() given_how=() given_since=() given_comment=()
+# A start on the tick of `Retry from the issue alone`: the record names no
+# comment of an issue or a pull request, so nothing of either is read.
+declare -A given_issue=()
 # The time of the approval each start recorded, epoch seconds, by which a
 # start that gives up takes it off the record again.
 declare -A recorded_at=()
@@ -1367,38 +1367,40 @@ declare -A refresh_pr=() refresh_url=() refresh_of=()
 # "used" is an approval that started a cycle already.
 record_word=""
 approved_record() {
-  local n=$1 sum tsum from='[]' retry=null at input dir rc
+  local n=$1 sum tsum from='[]' retry=null rc
   local -a args
   record_word=""
   [ -n "${text_of[$n]:-}" ] || return 1
   sum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256) || return 1
   # The title of the same answer. An answer that names none binds none.
   tsum=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_title_sha256 2>/dev/null) || tsum=""
-  if [ "$TEHAS_WORK_COMMENTS" = 1 ]; then
+  # The box of the issue alone records as TEHAS_WORK_COMMENTS off would.
+  local comments=$TEHAS_WORK_COMMENTS
+  [ -z "${given_issue[$n]:-}" ] || comments=0
+  if [ "$comments" = 1 ]; then
     from=$(comment_links "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read"; return 1; }
-    if [ "${given_how[$n]}" = retry-tick ]; then
+    [ "${given_how[$n]}" != retry-tick ] ||
       retry=$(pr_comments "$n" "${given_since[$n]:-}" "${given_at[$n]}") ||
         { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
-    fi
   fi
-  if [ "${given_how[$n]}" = millwright ]; then
-    retry=$(fixer_note "$n" "${given_at[$n]}") || { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
-  fi
+  [ "${given_how[$n]}" != millwright ] ||
+    retry=$(fixer_note "$n" "${given_at[$n]}") ||
+      { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   # When the approval was given, as GitHub said. A refresh and the retry after
   # an outage rest on an approval that is on record already: they are on record
   # at the time the poll decided them, and so is an approval whose time GitHub
   # did not say.
-  at=""
+  local at=''
   case ${given_how[$n]} in
     refresh | outage-retry) ;;
     *) [ -z "${given_at[$n]}" ] || at=$(date -u -d "${given_at[$n]}" +%s 2>/dev/null) || at="" ;;
   esac
   [[ $at =~ ^[1-9][0-9]{0,10}$ ]] || at=$EPOCHSECONDS
-  dir=$TEHAS_HOME/tmp
+  local dir=$TEHAS_HOME/tmp input=''
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] && input=$(mktemp "$dir/approval-input.XXXXXX" 2>/dev/null) || return 1
-  if ! jq --argjson comments "$TEHAS_WORK_COMMENTS" --argjson from "$from" --argjson retry "$retry" \
+  if ! jq --argjson comments "$comments" --argjson from "$from" --argjson retry "$retry" \
     --arg how "${given_how[$n]}" --argjson of "${refresh_of[$n]:-null}" \
     "$(tehas_attachment_links)"'{links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
@@ -1426,10 +1428,9 @@ approved_record() {
 }
 
 # A jq definition, `window`: of the comments as the REST API lists them, one
-# JSON list per page, those an allowed account wrote at or after $since and at
-# or before $at, and that nobody edited after $at, in the order written. A
-# comment later than the approval was not there to be approved. An $at that is
-# empty takes none.
+# JSON list per page, those an allowed account wrote at or after $since, at or
+# before $at, and that nobody edited after $at, in the order written. A comment
+# later than the approval was not there to be approved; an empty $at takes none.
 # shellcheck disable=SC2016  # a jq program
 comment_window='def window: if any(.[]; type != "array") then error("not a list of comments") else . end
   | ($allowed | split(" ")) as $list
@@ -1480,10 +1481,10 @@ pr_comments() {
 
 # fixer_note <issue> <label time>: the fixer's comment behind its tehas:ready,
 # as {links: [], context}: the newest comment of TEHAS_MILLWRIGHT_LOGIN with the
-# fixer's marker for this issue, written in the ten minutes before the label
-# and edited by nobody after it. The fixer comments and then labels, so an
-# older one is an earlier decision's. context is [] when there is none. Fails
-# when the comments cannot be read.
+# fixer's marker for this issue, written in the ten minutes before the label and
+# edited by nobody after it. The fixer comments and then labels, so an older one
+# is an earlier decision's. context is [] when there is none; fails when the
+# comments cannot be read.
 fixer_note() {
   local list since
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
@@ -1499,8 +1500,8 @@ fixer_note() {
         text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
 }
 
-# refresh_note <issue>: the one retry_context entry of a refresh, as {links:
-# [], context}. tehas writes it, so no comment reaches a cycle this way.
+# refresh_note <issue>: the one retry_context entry of a refresh, as
+# {links: [], context}. tehas writes it, so no comment reaches a cycle this way.
 refresh_note() {
   local b
   b=$(jq -r .branch <<<"${refresh_of[$1]}") || return 1
@@ -1534,7 +1535,7 @@ refresh_unmark() {
 # again. A start that gives up after recording it must leave what was there
 # before: the approval of the issue's last start is still the one its readers
 # count on, and no refresh is counted that never ran. The undo is safe to
-# repeat, so a busy store is asked again. Returns 1 when the approval stays.
+# repeat, so a busy store is asked again. 1 means the approval stays.
 restore_record() {
   [ -n "${recorded_at[$1]:-}" ] || return 0
   tehas_store_try 3 approval-record "$1" --undo --at "${recorded_at[$1]}" && return 0
@@ -1543,20 +1544,21 @@ restore_record() {
 }
 
 # park_unask <issue>: take the question of the issue's current park off the
-# record, so its boxes answer for nothing that starts now. An issue with no
-# park, or no question, has nothing to take. The id taken is left in
-# park_unasked[<issue>] for park_reask. Returns 1 when the store could not do
-# it, with its word.
+# record, so its boxes answer for nothing that starts now. An issue with no park
+# or no question has nothing to take. The id taken goes in park_unasked[<issue>]
+# for park_reask. 1 means the store could not do it, with its word.
 declare -A park_unasked=()
 park_unask() {
   local q
   park_unasked[$1]=""
   park_now=false
   tehas_store park-show "$1" || return 1
-  [ "$(tehas_store_get '.park != null')" = true ] || return 0
-  park_now=true
-  q=$(tehas_store_get '.park.question // empty') || return 1
+  # read answers 1 for a look that failed as for one that answered nothing, so
+  # the store's own status decides: an answer it could not read is a failure,
+  # not an issue with no question.
+  { read -r q || [ "$tehas_store_rc" = 0 ]; } < <(tehas_store_get '[.park.question // ""] | map(tostring) | join(" ")') || return 1
   [ -n "$q" ] || return 0
+  park_now=true
   if tehas_store question-answered "$1" --id "$q" --withdraw; then
     park_unasked[$1]=$q
     return 0
@@ -1575,9 +1577,9 @@ park_unask() {
 
 # park_spend <issue>: once a start is marked, and before its unit is started,
 # the one retry of the issue's current park is spent, so a unit that never
-# comes up leaves no retry behind. A mark that fails spends nothing: the next
-# poll still owes the retry. A store that does not spend it is a warning: the
-# cycle's start makes a new attempt, and the old park is no longer current.
+# comes up leaves no retry behind. A mark that fails spends nothing, so the
+# next poll still owes the retry; a store that does not spend it is a warning,
+# since the cycle's start makes a new attempt and the old park is not current.
 park_spend() {
   [ "$park_now" = true ] || return 0
   tehas_store_try 3 park-retry "$1" && return 0
@@ -1736,9 +1738,9 @@ index_launch() {
 }
 
 # start_cycles: start a cycle for every issue in $picked. Returns 1 when a
-# start gave up. A start that gave up is cleaned up as it goes, and the issues
-# after it in the queue are for the next poll: each caller ends the poll on
-# this call, so a later step of a caller cannot act as the start had worked.
+# start gave up, having cleaned itself up: each caller ends the poll on this
+# call, so a later step of a caller cannot act as the start had worked, and the
+# issues after it in the queue are for the next poll.
 start_cycles() {
   local n failed=0 accepted before done_any=0
   local -a out
@@ -2225,10 +2227,8 @@ fi
 # its slot and its reserve until a person stopped it, so its unit is stopped.
 # tehas work records a heartbeat every 10 seconds from the host, also through
 # a long gate in the container (cycle-heartbeat; cycle-show answers the newest
-# as heard_at). A cycle that took its lock lately counts as heard from.
-#
-# The state store keeps such an episode said once. Its whole rule is here, and
-# nowhere else:
+# as heard_at). A cycle that took its lock lately counts as heard from. The
+# state store keeps such an episode said once; its whole rule is here:
 #   the episode  is the time the cycle was last heard from: cycle-note keeps one
 #                per cycle, a later time is a new episode, and the cycle's next
 #                start removes it. It says how many times the poll has asked in
@@ -2283,11 +2283,10 @@ quiet_store_usable() {
 # poll, the first time a loop below needs it, into took_at. A lock held with
 # no open row on record is 0. When it was last heard from goes in heard_at,
 # also for a record that has ended: a refused or stopped end records no
-# heartbeat. A list that cannot be read ends the poll before
-# it acts on any cycle.
-# How each started is kept beside it in took_how, for the refresh scan, and
-# its quiet episode in quiet_for, quiet_at, quiet_asked and quiet_times, for a
-# dry run to say what the poll would do.
+# heartbeat. A list that cannot be read ends the poll before it acts on any
+# cycle. How each started is kept beside it in took_how, for the refresh scan,
+# and its quiet episode in quiet_for, quiet_at, quiet_asked and quiet_times, for
+# a dry run to say what the poll would do.
 declare -A took_at=() took_how=() quiet_for=() quiet_at=() quiet_asked=() quiet_times=() heard_at=()
 took_read=0
 running_starts() {
@@ -2355,8 +2354,7 @@ for n in $quiet_running; do
     esac
     continue
   fi
-  asks=$(tehas_store_get '.times') || asks=""
-  asked=$(tehas_store_get '.stop_asked_at // 0') || asked=""
+  read -r asks asked < <(tehas_store_get '[(.times // ""), (.stop_asked_at // 0)] | map(tostring) | join(" ")') || { asks=""; asked=""; }
   if ! [[ $asks =~ ^[0-9]{1,6}$ ]] || ! [[ $asked =~ ^[0-9]{1,12}$ ]]; then
     log "WARN: $why, but the state store's record of it does not read as one, so the poll asks nothing this time"
     continue
@@ -2501,7 +2499,7 @@ reap() {
 }
 
 # A cycle that was killed, or whose last label change GitHub refused, leaves
-# its issue marked as running. No rule below would look at it again. The
+# its issue marked as running, and no rule below would look at it again. The
 # comment follows the label change only: while the change fails, the next poll
 # finds the issue again and must not say the same once more. A container of
 # that issue is left only by a cycle whose client died, and goes.
@@ -2661,10 +2659,10 @@ sweep_workspaces() {
     files+=("$HOME/.pi/agent/ensemble-runs/issue-$n" "$HOME/.pi/agent/ensemble-runs/plan-$n" \
       "$TEHAS_HOME/live/console-$n.txt")
     # The lock is asked about before anything is removed, as tehasbot clean asks
-    # it: a lock that is no lock file is no proof of anything about the issue, and
-    # taking it would write through it. It is asked of too, because a cycle can
-    # take a lock between the two probes and the removals hold it. The whole set
-    # is kept and the next poll tries again, so a name kept by one rule costs no
+    # it: a lock that is no lock file is no proof of anything, and taking it
+    # would write through it. It is asked of too, because a cycle can take a
+    # lock between the two probes and the removals hold it. The whole set is
+    # kept and the next poll tries again, so a name kept by one rule costs no
     # candidate of another: the refusal is said, as the lock that could not be
     # taken below is.
     if ! tehas_cycle_lock_free "$n"; then
@@ -2777,11 +2775,10 @@ disk_check() {
 # $why is the one word for it: slice, unreadable, disk, resources, limit, red,
 # count, awaiting, pressure, room, full or lane, the first that applies.
 # resources is a model endpoint that does not answer or does not offer the
-# model: it holds planning turns and retries as well.
-#
-# The slice is read here, after the sweep above, which needs no slice. The
-# room is read whenever the slice is usable, also when the slots are full, so
-# that tehas status has the numbers.
+# model: it holds planning turns and retries as well. The slice is read here,
+# after the sweep above, which needs no slice, and the room is read whenever the
+# slice is usable, also when the slots are full, so that tehas status has the
+# numbers.
 room_mem=0
 committed=0
 slice_max=0
@@ -2805,9 +2802,9 @@ mesh_check
 hold=""
 why=""
 want=0
-# A refresh takes a pull request out of awaiting-merge as it starts, so the
-# cap of rule 3 does not hold it: $want_all is the room without that cap. With
-# a lane, $want_all is the room of both, and $want_refresh of the lane alone.
+# A refresh takes a pull request out of awaiting-merge as it starts, so the cap
+# of rule 3 does not hold it: $want_all is the room without that cap, and with a
+# lane it is the room of both, with $want_refresh that of the lane alone.
 want_all=0
 want_refresh=""
 cut=""
@@ -2824,13 +2821,12 @@ elif [ -n "$mesh_hold" ]; then
   hold=$mesh_hold
 elif disk_check && [ -n "$disk_free" ] &&
   [ "$disk_free" -lt $((TEHAS_CYCLE_MIN_FREE_MB * 1024)) ]; then
-  # Before the count: on a host whose slots are all taken a full disk is
-  # still what stops the next cycle, and tehas status says so. Running
-  # cycles are left alone; only new ones wait.
+  # Before the count: on a host whose slots are all taken a full disk is still
+  # what stops the next cycle, and tehas status says so. Only new cycles wait.
   why=disk
   hold="holding: $(gib $((disk_free * 1024))) free on the disk, under TEHAS_CYCLE_MIN_FREE=$TEHAS_CYCLE_MIN_FREE: no cycle starts"
 elif disk_check && [ -z "$disk_free" ]; then
-  # Read and answered nothing. The same word as a low figure, because both hold
+  # Read and answered nothing: the same word as a low figure, because both hold
   # every start and neither names a number a person can fix.
   why=disk
   hold="holding: the free disk space could not be read: no cycle starts"
@@ -2930,9 +2926,8 @@ fi
 # A planning turn runs as its own unit, tehas-plan-<issue>.service, and the
 # poll does not wait for it. A session running on record is a turn still in
 # flight (its unit holds state/plan-<issue>.json.lock), one that ended and
-# left its exit status, which is posted now, or one that was cut off, for
-# example by a restart of the host, which is reported as a failed turn. While
-# one turn is in flight no other starts.
+# left its exit status, which is posted now, or one cut off by a restart of the
+# host, reported as a failed turn. While one turn is in flight no other starts.
 fresh=" "
 plan_busy=""
 # Parked issues with a box ticked, held or not: rule 5a leaves them.
@@ -3006,11 +3001,8 @@ for n in $asking; do
       [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
     fi
     if tehas_store_looked && [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
-      if [ "$(tehas_store_get '.known')" = true ]; then
-        qkind=$(tehas_store_get '.kind // ""')
-      else
-        qid=""
-      fi
+      read -r known qkind < <(tehas_store_get '[.known, (.kind // "")] | map(tostring) | join(" ")') || { known=""; qkind=""; }
+      [ "$known" = true ] || qid=""
     fi
   fi
   if ! tehas_store_looked; then
@@ -3076,10 +3068,9 @@ for n in $asking; do
         fi
         continue
       fi
-      # What was ticked is read from its text, not its place in the list.
-      qbody=$(jq -r .body <<<"$ans") || qbody=""
-      qbody=${qbody//$'\r'/}
-      if ! grep -qix -e '- \[x\] Retry from a clean start' <<<"$qbody"; then
+      # Which retry is read from the ticked box's label, not its place.
+      ticked=$(jq -r '.labels[.tick.index] // ""' <<<"$ans") || ticked=""
+      if [ "$ticked" != "$Q_BOX_ALONE" ] && [ "$ticked" != "$Q_BOX_CLEAN" ]; then
         # The record goes only with the label: while the label stays, the
         # next poll reads the same tick and tries again.
         if [ "$dry" = 0 ]; then
@@ -3143,6 +3134,7 @@ for n in $asking; do
       given_comment[$n]=$(jq -r '.comment // "" | tostring' <<<"$ans")
       # The park: when the question was asked.
       given_since[$n]=$(jq -r '.asked_at // ""' <<<"$ans")
+      [ "$ticked" != "$Q_BOX_ALONE" ] || given_issue[$n]=1
       # needs-human-attention stays: the cycle's --restart is the answer it
       # asked for, and pi-rukas takes it off.
       drop[$n]="--remove-label tehas:question"
@@ -3295,11 +3287,11 @@ done
 # label to a parked issue asks for a session, as tehas:ready starts a cycle on
 # one. plan_turn takes the question's label off with the label that asked.
 # tehas:planning and tehas:running do exclude it: there the session or the
-# cycle is already under way.
-# A retry tick is answered by rule 4, which runs first and ends the poll, so a
-# ticked Retry from a clean start still gets its cycle. What reaches this rule
-# is a park whose tick was taken back or never given: it asks for nothing, and
-# the start takes the question off under it, the record of its comment with it.
+# cycle is already under way. A retry tick is answered by rule 4, which runs
+# first and ends the poll, so a ticked retry box still gets its cycle. What
+# reaches this rule is a park whose tick was taken back or never given: it asks
+# for nothing, and the start takes the question off under it, the record of its
+# comment with it.
 gh_json issue list --repo "$repo" --state open --label tehas:plan --limit 1000 --json number,labels
 plan_list=$json
 gh_json issue list --repo "$repo" --state open --label tehas:refine --limit 1000 --json number,labels
@@ -3504,15 +3496,14 @@ for owed_line in "${owed[@]}"; do
 done
 
 # 6. and 7. Candidates: urgent first, then the tehas:next issues the poll
-# counts, then the rest of them, each by number. The order is needed
-# before the candidates are cut to the free slots, so whose urgent label counts
-# is settled for every issue that carries one and could still be picked. An
-# issue with an open planning session or a live cycle is out of contention for
-# a reason this poll knows without asking GitHub; it keeps its place by number
-# either way, and the candidate loop says why it starts nothing. A failed
-# events read of any issue asked about here ends the poll. Who applied
-# tehas:ready is read again when the issue is picked, so no start rests on this
-# ordering read.
+# counts, then the rest, each by number. The order is needed before the
+# candidates are cut to the free slots, so whose urgent label counts is settled
+# for every issue that carries one and could still be picked. An issue with an
+# open planning session or a live cycle is out of contention for a reason this
+# poll knows without asking GitHub; it keeps its place by number either way,
+# and the candidate loop says why it starts nothing. A failed events read of
+# any issue asked about here ends the poll. Who applied tehas:ready is read
+# again when the issue is picked, so no start rests on this ordering read.
 read_ready
 carrying=$(jq -r '.[] | select((.labels // []) | any(.name == "tehas:urgent")) | .number | tonumber? // empty' <<<"$ready_json") ||
   { log "ERROR: unreadable list of ready issues"; exit 1; }
@@ -3584,10 +3575,9 @@ while read -r kind n; do
   fi
   [ "$ready_picked" -lt "$want" ] || continue
   have=" $(jq -r --argjson n "$n" '[.[] | select((.number | tonumber?) == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
-  # One issue is in one flow at a time. A cycle's park question would hide the
-  # session's question, and the session would then end with nobody told. The
-  # record counts as well as the label: between turns only the record shows
-  # that a session is open.
+  # One issue is in one flow at a time: a cycle's park question would hide the
+  # session's, and the session would end with nobody told. The record counts as
+  # well as the label, since between turns only the record shows a session is open.
   if ! plan_sessions; then
     log "skip #$n: the open planning sessions could not be read ($plan_open_word)"
     continue
@@ -3597,10 +3587,10 @@ while read -r kind n; do
     continue
   fi
   # The pause switch, whatever its label and whoever applied one: said before
-  # the issue's events are read, so it costs no GitHub call and no label change.
+  # the issue's events are read, so it costs no GitHub call or label change.
   control_ask "$n" "\`tehas:ready\`" && continue
-  # The label asks for a fresh cycle. It gets one when this one has ended, and
-  # stays on the issue until then. A running cycle is never stopped for it.
+  # The label asks for a fresh cycle, and stays on the issue until this one has
+  # ended. A running cycle is never stopped for it.
   if tehas_cycle_running "$n"; then
     log "wait #$n: its cycle is still running"
     continue

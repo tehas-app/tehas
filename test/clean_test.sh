@@ -589,6 +589,53 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$tmp/dl/tool.tar.gz" ] && echo there)" "there"
 t_eq "$([ -e "$tmp/dl/old.tar.gz" ] && echo there)" ""
 
+t_case "a staged sandbox recipe of that age goes, a young one and other names of the directory stay"
+# A sandbox build takes its own copy of the recipe back when it ends and replaces
+# a stale one when it starts, so one that stands of an age is the leftover of a run
+# a signal took off before its trap ran. Only the two names the build writes are
+# taken from the directory: the recipe of the image and the build script stay, and
+# so does a name that only looks like a build's temporary.
+reset
+sandbox=$th/sandbox
+mkdir -p "$sandbox"
+echo old >"$sandbox/sandbox-uid.Dockerfile"
+echo old >"$sandbox/sandbox-uid.Dockerfile.abcdef"
+echo old >"$sandbox/sandbox-uid.Dockerfile.toolong"
+echo old >"$sandbox/sandbox-uid.Dockerfilex"
+mkdir -p "$sandbox/sandbox-uid.Dockerfile.DIR"
+ln -s "$T/outside-recipe" "$sandbox/sandbox-uid.Dockerfile.link0"
+echo stay >"$T/outside-recipe"
+echo keep >"$sandbox/Dockerfile"
+echo keep >"$sandbox/build.sh"
+age "$sandbox/sandbox-uid.Dockerfile" "$sandbox/sandbox-uid.Dockerfile.abcdef" \
+  "$sandbox/sandbox-uid.Dockerfile.toolong" "$sandbox/sandbox-uid.Dockerfilex" \
+  "$sandbox/sandbox-uid.Dockerfile.DIR" "$sandbox/Dockerfile" "$sandbox/build.sh" \
+  "$T/outside-recipe"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile" ] && echo there)" ""
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile.abcdef" ] && echo there)" ""
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile.toolong" ] && echo there)" "there"
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfilex" ] && echo there)" "there"
+t_eq "$([ -d "$sandbox/sandbox-uid.Dockerfile.DIR" ] && echo there)" "there"
+t_eq "$([ -L "$sandbox/sandbox-uid.Dockerfile.link0" ] && echo there)" "there"
+t_eq "$([ -e "$T/outside-recipe" ] && echo there)" "there"
+t_eq "$([ -s "$sandbox/Dockerfile" ] && echo there)" "there"
+t_eq "$([ -s "$sandbox/build.sh" ] && echo there)" "there"
+t_contains "$t_out" "removed $sandbox/sandbox-uid.Dockerfile: host scratch"
+
+t_case "a young staged sandbox recipe stays, as a young file of tmp does"
+reset
+sandbox=$th/sandbox
+mkdir -p "$sandbox"
+echo new >"$sandbox/sandbox-uid.Dockerfile"
+echo old >"$sandbox/sandbox-uid.Dockerfile.abcdef"
+age "$sandbox/sandbox-uid.Dockerfile.abcdef"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile" ] && echo there)" "there"
+t_eq "$([ -e "$sandbox/sandbox-uid.Dockerfile.abcdef" ] && echo there)" ""
+
 t_case "a session's kept build output is not walked for build-output names"
 # The claim the manual makes of the cleaner, pinned the way is_cache_dir pins
 # the cycle's cache: a directory named target under a manual session's

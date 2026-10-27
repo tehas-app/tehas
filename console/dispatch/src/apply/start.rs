@@ -97,6 +97,25 @@ fn id(v: Option<&Value>) -> String {
     }
 }
 
+/// `issue_alone`: the tick on `Retry from the issue alone`, whose start names
+/// no comment of the issue or of the pull request. Its absence is a clean
+/// start, which is what a record written before the box existed holds. A
+/// value that is not a bool is no answer: the reader says so rather than
+/// taking it for the clean start that reads the issue's comments.
+fn issue_alone(a: &Value, log: &mut Vec<String>, n: u64) -> bool {
+    match a.get("issue_alone") {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(Value::Bool(true)) => true,
+        Some(v) => {
+            log.push(format!(
+                "WARN: #{}: its start names issue_alone {v}, which is neither true nor false: the record is written as a clean start's, and its comments are read",
+                n
+            ));
+            false
+        }
+    }
+}
+
 /// The comment window of libexec/dispatch: of the comments as the REST API
 /// lists them, those an allowed account wrote at or after `since` and at or
 /// before `at`, and that nobody edited after `at`, in the order written.
@@ -454,7 +473,12 @@ impl Writer {
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();
-        if self.host.comments {
+        // The comment policy of this start, derived once: the host reads
+        // comments, and the tick of the issue alone asks for none of them,
+        // so its record reads as the one of an instance with comments off.
+        // The bash derives the same single value in approved_record.
+        let comments = self.host.comments && !issue_alone(a, log, n);
+        if comments {
             let Some(list) = self.comments(n) else {
                 log.push(format!("ERROR: the comments of #{n} could not be read"));
                 return Err(none());
@@ -477,24 +501,29 @@ impl Writer {
                 retry = r;
             }
         }
-        if given == "millwright" {
-            let Some(r) = self.fixer_note(n, &given_at) else {
-                log.push(format!(
-                    "ERROR: the comments of #{n} could not be read for the fixer's"
-                ));
-                return Err(none());
-            };
-            retry = r;
+        // A start of the issue alone names no comment of an issue or a pull
+        // request, so nothing of the earlier cycle goes with it: the note of
+        // the fixer or of a refresh stays out of its record whatever asks.
+        if !issue_alone(a, log, n) {
+            if given == "millwright" {
+                let Some(r) = self.fixer_note(n, &given_at) else {
+                    log.push(format!(
+                        "ERROR: the comments of #{n} could not be read for the fixer's"
+                    ));
+                    return Err(none());
+                };
+                retry = r;
+            }
+            if given == "refresh" {
+                let b = a
+                    .pointer("/refresh_of/branch")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
+                    "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.")}]});
+            }
         }
-        if given == "refresh" {
-            let b = a
-                .pointer("/refresh_of/branch")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            retry = json!({"links": [], "context": [{"source": "refresh", "by": "tehas", "at": iso(now() as u64),
-                "text": format!("This pull request conflicts with `{b}`. Merge `{b}` into its branch, resolve the conflicts so the change still does what the issue asks, run the gate, and push to the same branch. Do no other work.")}]});
-        }
-        if self.host.comments {
+        if comments {
             from.extend(
                 retry
                     .get("links")

@@ -79,7 +79,8 @@
 #                                  session found lost that could not be ended
 #   plan_brief <issue> <JSON> [<refine brief>]
 #                                  write a first turn's brief to brief_file
-#   plan_post <issue>              post the outcome that waits
+#   plan_post <issue>              post the outcome that waits, or write the
+#                                  plan it holds onto the issue and end
 #   plan_replace <issue> <filed>   end a refine that filed: the filed issues
 #                                  say Replaces and are sub-issues; the issue
 #                                  says Replaced by and is closed tehas:replaced,
@@ -241,6 +242,17 @@ plan_post() {
   # keeps it with the session, so the next turn's answer can name it: an issue
   # the agent never saw the result of would otherwise be filed again.
   what=$(plan_filed "$st.out") || what=""
+  # A drafted plan the operator chose becomes the issue's text, and the
+  # session is over. Writing it again is harmless, so a poll that fails
+  # halfway is repeated whole.
+  if jq -e '(.update.title | strings) and (.update.body | strings)' "$st.out" >/dev/null 2>&1; then
+    if ! jq -j '.update.body' "$st.out" | gh issue edit "$n" --repo "${repo:?}" --title "$(jq -r .update.title "$st.out")" --body-file - >/dev/null 2>&1; then
+      log "WARN: the plan could not be written onto #$n; the next poll tries again"
+      return 1
+    fi
+    plan_end "$n" "$(jq -r '.text // ""' "$st.out")"
+    return
+  fi
   if [ -n "$what" ] && [ "$label" = tehas:refine ]; then
     plan_replace "$n" "$what"
     return

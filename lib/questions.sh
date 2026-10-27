@@ -60,6 +60,10 @@ q_clean() {
 # a ticked box and its option keep the same place.
 Q_MAX_OPTIONS=20
 
+# A park's retry boxes; test/questions_test.sh holds them to console/core.
+Q_BOX_CLEAN='Retry from a clean start'
+Q_BOX_ALONE='Retry from the issue alone'
+
 q_render() {
   local kind=$1 issue=$2 turn=$3 file=$4 line=${5:-} n i label desc marker
   # A park may carry pi-rukas's handoff marker, put back as its first line.
@@ -97,7 +101,7 @@ q_render() {
       printf 'Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n'
       ;;
     park)
-      [ "$(jq '.retry != false' "$file")" = false ] || printf -- '- [ ] Retry from a clean start\n'
+      [ "$(jq '.retry != false' "$file")" = false ] || printf -- '- [ ] %s\n- [ ] %s\n' "$Q_BOX_CLEAN" "$Q_BOX_ALONE"
       printf -- '- [ ] Leave it parked\n\n'
       printf 'Tick one box. Only a tick from an account that may authorise work counts.\n'
       ;;
@@ -141,13 +145,15 @@ q_answer() {
                                     and ($id == "" or (.value.databaseId | tostring) == $id))) | last) as $q
     | if $q == null then {asked: false} else
         ($q.value.body | capture($re)) as $m
-        | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")) | test("^- \\[[xX]\\]"))) as $boxes
+        | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")))) as $l
+        | ($l | map(test("^- \\[[xX]\\]"))) as $boxes
         | ($boxes | to_entries | map(select(.value) | .key)) as $ticks
         | ($q.value.editor.login // "") as $ed
         | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
                   and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
         | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
            issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
+           labels: ($l | map(.[6:])),
            tick: (if ($ticks | length) == 0 then {status: "none"}
                   elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1 then
                     ($q.value.userContentEdits // {}) as $h
