@@ -218,6 +218,12 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .map(|n| json!({"number": n, "state": "CLOSED"})),
     );
     s["marked"] = Value::Array(marked);
+    s["planning"] = q
+        .open
+        .iter()
+        .filter(|o| has(&o.labels, "tehas:planning"))
+        .map(|o| json!(o.number))
+        .collect();
 
     // The store and the locks.
     let sessions = store::sessions(calls);

@@ -309,6 +309,19 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
 t_eq "$(t_calls fake-start)" ""
 
+# The bash poll leaves such a mark as it is.
+if [ -n "${T_RUST_POLL:-}" ]; then
+  t_case "an open issue marked tehas:planning with no session goes to a person"
+  reset
+  echo '[]' >"$fx/ready.json"
+  echo '{"number":9,"state":"open","labels":[{"name":"tehas:planning"}]}' >"$fx/work-9.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "park #9: it is marked tehas:planning and no planning session is open on it"
+  t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention"
+  t_contains "$(t_calls gh)" "issue comment 9"
+fi
+
 t_case "with no cycle running the bot's pull requests are not asked for"
 reset
 t_run "$dispatch"

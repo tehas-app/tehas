@@ -219,6 +219,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
   (`park #N` in the log of a real poll): the cycle of that issue ended without
   a report, or never started. The next real poll gives the issue
   `needs-human-attention`. Read `~/tehas/logs/dispatch-work-N.log`.
+- `park #N: it is marked tehas:planning and no planning session is open on
+  it` (`TEHAS_DISPATCHER=rust`): the issue carries `tehas:planning` but no
+  session is on record, because the poll that marked it took its turn back.
+  The issue gets `needs-human-attention`. Apply `tehas:plan` to plan it.
 - `WARN: the cycle for #N holds its lock but has not been heard from since
   <time>, more than 1200s: stopping tehas-cycle@N.service`: the cycle's live
   file has not been written for 20 minutes, so the poll asked its unit to

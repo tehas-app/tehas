@@ -46,6 +46,7 @@ fn base() -> (Value, Value) {
         "hostname": "tehas-test",
         "bot_prs": [],
         "marked": [],
+        "planning": [],
         "refresh_history": [],
         "leftovers": [],
         "asking": [],

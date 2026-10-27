@@ -216,6 +216,8 @@ pub struct Snapshot {
     pub bot_prs: Option<Value>,
     /// gh issue list --label tehas:running, as it answered.
     pub marked: Option<Value>,
+    /// The open issues labelled tehas:planning.
+    pub planning: Option<Vec<u64>>,
     /// The issues with a refresh in their history.
     pub refresh_history: Option<Result<Vec<u64>, StoreErr>>,
     /// gh pr list --label tehas:refreshing, as it answered.
@@ -553,6 +555,10 @@ impl Snapshot {
             },
             bot_prs: v.get("bot_prs").cloned(),
             marked: v.get("marked").cloned(),
+            planning: v
+                .get("planning")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(number).collect()),
             refresh_history: v.get("refresh_history").map(|h| match h {
                 e if failed(e) => Err(StoreErr::parse(e)),
                 h => Ok(h
