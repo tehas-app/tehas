@@ -20,3 +20,8 @@
 # Secret keys, such as the minisign key that signs releases. The public key
 # lives in host/release/minisign.pub, which this pattern does not match.
 *.key
+
+# What a sandbox build stages beside the recipe of the image: the copy of it it
+# hands docker, written by the run and taken back when it ends. Never written by
+# hand, never installed.
+/host/sandbox/sandbox-uid.Dockerfile

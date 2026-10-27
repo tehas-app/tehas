@@ -35,6 +35,14 @@
 # use. Whether its pi-rukas reads the images a cycle is given is recorded in the
 # image. See the header of host/sandbox/Dockerfile.
 #
+# The uid comes from the machine and is handed to the build as an argument, so
+# no file of the repository names one. The image is built from the tracked recipe
+# and a copy of it staged here, which carries the uid's own argument below the
+# boundary between the layers the uid does not decide and the steps that read it:
+# the file a person edits stays the tracked one. The manual says what the two sets
+# of layers mean for a host with more than one instance user, in What two instance
+# users of one host share (host/docs/host.md).
+#
 # Each image is several gigabytes. After a build only the newest 3 dated
 # tags are kept, the instance's own layer among them: a build makes
 # <date>-product beside <date> when the instance has a sandbox.Dockerfile, and
@@ -60,6 +68,16 @@ here=$(cd "$(dirname "$0")" && pwd)
 image=tehas/pi-rukas
 keep=3
 current=$image:uid$(id -u)
+# The tracked recipe of the image, and the copy of it the build is made from: the
+# steps as they are written here, with the uid's own argument moved to the stage
+# that reads it. The copy is made by the build below, from the tracked file, in
+# the moment before docker is asked, and taken away when the build ends: never
+# made by hand, so it is installed nowhere and tracked nowhere. Its name is
+# gitignored, so no gate of the repository sees a file someone else left under it,
+# and the build the image is made from is exactly what that name holds; the check
+# below is what keeps it the file this script made.
+dockerfile=$here/Dockerfile
+uid_recipe=$here/sandbox-uid.Dockerfile
 # The instance's own addition to the image, beside the settings this host loads.
 # Written by a person, built by no one else: absent is normal. Resolved the way
 # every command resolves the instance directory (tehas_instance_dir in
@@ -120,6 +138,28 @@ digest=${PI_RUKAS_IMAGE_DIGEST:-}
 if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
   exit 78
+fi
+
+# The staged recipe below is the only file this script writes, and the cleanup
+# there takes it back off the disk whatever the build did after it, so its name is
+# settled before anything is asked of git or docker: a run that would stage into
+# the tracked recipe says so and asks nothing, rather than pulling a base and then
+# removing the file the image is built from.
+if [ "$uid_recipe" != "$here/sandbox-uid.Dockerfile" ]; then
+  echo "sandbox: refusing to build, the staged recipe is not beside $here" >&2
+  exit 1
+fi
+# What the name holds now is not what the build would make of it. The test above
+# compares strings, so it cannot tell a file this build makes from one someone put
+# under that name, and a name someone chose is not a place to write: a link there
+# is written through, and a directory stops the build on its redirect. The name is
+# gitignored, so the only dirt test of the repository, the git status tehas update
+# refuses on, sees nothing of it. So whatever stands there now is refused rather
+# than opened, and the file this build does make is made elsewhere and renamed
+# into place.
+if [ -e "$uid_recipe" ] || [ -L "$uid_recipe" ]; then
+  echo "sandbox: refusing to build, $uid_recipe is already there; remove it and build again" >&2
+  exit 1
 fi
 
 if ! target=$(tehas_rukas_target); then
@@ -185,6 +225,41 @@ fi
 reads=$(tehas_headless_reads_images "$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
+# The recipe the build is made of, written from the tracked file just before the
+# build so the two cannot drift and no step below the boundary is ever served from
+# a copy an older run left on disk. It is the whole image: everything the tracked
+# file holds up to the boundary, and the stage below it, whose arguments go where
+# the build passes them rather than where the file declares them - the build
+# passes every argument whatever stage reads it, and an argument is read from the
+# line that declares it, so a uid declared above the remap would leave the remap
+# reading the empty value of its own stage.
+#
+# It is staged beside the name it ends at and renamed onto it, never opened by
+# that name: the name is what a previous build, or anything that can write in this
+# directory, left there, and a redirect follows whatever it holds. mktemp makes
+# the temporary with a name no one else chose and owner-only permissions, and a
+# failed staging takes its own file back and asks docker nothing.
+# A recipe the build never made it out of is no one's recipe: the trap below takes
+# it off the disk, so a file only this script makes is not left standing between
+# runs, where a person would read it as the tracked one.
+trap 'rm -f "$uid_recipe"' EXIT
+stage=$(mktemp "$here/sandbox-uid.Dockerfile.XXXXXX") || {
+  echo "sandbox: could not stage a recipe beside $here" >&2
+  exit 1
+}
+{
+  sed -n '1,/^FROM shared$/p' "$dockerfile" | sed '/^FROM shared$/d;/^ARG TEHAS_UID=/d'
+  sed -n '/^FROM shared$/,$p' "$dockerfile"
+} >"$stage" || {
+  rm -f "$stage"
+  echo "sandbox: could not write the staged recipe beside $here" >&2
+  exit 1
+}
+mv -f "$stage" "$uid_recipe" || {
+  rm -f "$stage"
+  echo "sandbox: could not put the staged recipe at $uid_recipe" >&2
+  exit 1
+}
 docker build \
   --build-arg PI_RUKAS_IMAGE="$base" \
   --build-arg PI_RUKAS_COMMIT="$head" \
@@ -203,7 +278,8 @@ docker build \
   --build-arg VIPUNE_MODEL_SHA256_ONNX="$VIPUNE_MODEL_SHA256_ONNX" \
   --build-arg VIPUNE_MODEL_SHA256_TOKENIZER="$VIPUNE_MODEL_SHA256_TOKENIZER" \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
-  -t "$image:$stamp" "$here"
+  -t "$image:$stamp" \
+  -f "$uid_recipe" "$here"
 docker tag "$image:$stamp" "$current"
 # The uid tag names the image cycles run, so the instance's own layer above
 # moves it onto itself when there is one, and a layer that does not build or does
@@ -227,8 +303,9 @@ echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, als
 if [ -f "$instance_file" ]; then
   # The argument is written with its value in front of it, its name not spelled
   # out on a line of its own: test/build_test.sh counts the argument lines of the
-  # build above against the ARG lines of the tracked Dockerfile, and this one
-  # belongs to a file that checkout does not own, so it joins neither count.
+  # build above against the ARG lines of the two tracked-by-us files it reads,
+  # and this one belongs to a file that checkout does not own, so it joins
+  # neither count.
   if ! docker build -t "$image:$stamp-product" \
     "--build-arg=TEHAS_BASE=$image:$stamp" \
     -f "$instance_file" "$(dirname "$instance_file")"; then

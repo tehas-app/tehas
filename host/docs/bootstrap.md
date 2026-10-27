@@ -20,7 +20,11 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
   [viiwork](https://github.com/janit/viiwork) is one, and the one the example
   instance uses.
 - Disk for the sandbox image, about 10 GB once built, plus the product's own
-  needs. The example host has 8 CPUs, 15 GB of memory and 58 GB of disk.
+  needs. A second tehas user on the same host and the same Docker daemon builds
+  its own image for its own uid and pays for it again: [the
+  host](/host#what-two-instance-users-of-one-host-share) says what the two
+  images keep in common and what each keeps to itself. The example host has 8
+  CPUs, 15 GB of memory and 58 GB of disk.
 
 ## Run it
 
