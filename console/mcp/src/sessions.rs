@@ -10,10 +10,13 @@ use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
-const OUTCOMES: [&str; 7] = [
+// The words an answer may give for an outcome or a kind, and the words the
+// filters of `factory_sessions` accept. `factory_issue` describes the same
+// fields of an attempt, so it reads these rather than a list written twice.
+pub const OUTCOMES: [&str; 7] = [
     "pr", "merged", "handoff", "parked", "failed", "refused", "stopped",
 ];
-const KINDS: [&str; 2] = ["work", "plan"];
+pub const KINDS: [&str; 2] = ["work", "plan"];
 // Every word a record's `how` can hold, work and plan words alike: the words
 // the store's verbs take and the plan words analytics' `plan::how` writes, with
 // the old `fixer` the store still matches. The tool's schema enum and its
@@ -569,6 +572,21 @@ fn insert_opt(o: &mut Map<String, Value>, key: &str, v: Option<String>) {
     }
 }
 
+/// As `insert_opt`, for a value copied from another JSON value as it is.
+fn put(o: &mut Map<String, Value>, key: &str, v: Option<Value>) {
+    if let Some(v) = v {
+        o.insert(key.into(), v);
+    }
+}
+
+/// A value `pick` names a scalar: a word, a count or a yes. `pick` refuses an
+/// object or an array at the key it is given, so these are the only values a
+/// named key can hold; the check is repeated on the answer so one key of a
+/// hand-edited or malformed snapshot cannot serve a whole subtree.
+fn scalar(v: &Value) -> bool {
+    v.is_string() || v.is_i64() || v.is_u64() || v.is_f64() || v.is_boolean()
+}
+
 fn pick_object(src: &Value, spec: &Value) -> Map<String, Value> {
     match tools::pick(src, spec) {
         Some(Value::Object(m)) => m,
@@ -700,5 +718,186 @@ pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
     out.insert("days".into(), json!(snap.days));
     out.insert("stale".into(), json!(snap.stale));
     out.insert("versions".into(), Value::Array(versions));
+    Ok(out)
+}
+
+/// The stage lists of the dashboard, in the order `factory_issues` gives them.
+const ISSUE_STAGES: [&str; 5] = ["queued", "running", "awaiting", "stopped", "completed"];
+
+/// The named keys of one value, copied as they are: a time, a word or a count.
+fn copied(src: &Value, key: &str) -> Option<Value> {
+    tools::pick(&src[key], &json!(true))
+}
+
+// The attempt's fields this tool copies as the snapshot gives them. Two more
+// are named by `issue_spec` and put in by hand: `prUrl`, whose link the
+// snapshot does not hold, and the session's own `id`, which `factory_sessions`
+// gives and this answer leaves out to keep an attempt to its story.
+const ATTEMPT_KEYS: [&str; 11] = [
+    "kind",
+    "attempt",
+    "how",
+    "started",
+    "ended",
+    "seconds",
+    "outcome",
+    "failedStep",
+    "failureKind",
+    "failureCause",
+    "parkReason",
+];
+
+pub(crate) fn issue_spec() -> Value {
+    let mut s = Map::new();
+    for k in [
+        "issue",
+        "issueUrl",
+        "stage",
+        "title",
+        "firstSeen",
+        "lastSeen",
+        "outcome",
+    ] {
+        s.insert(k.into(), json!(true));
+    }
+    s.insert("running".into(), json!({"step": true, "status": true}));
+    let mut attempt = spec(&ATTEMPT_KEYS);
+    // Named by the schema and written here, so they are named in the allowlist
+    // too: `pick` never sees either, as both come from outside the record.
+    attempt["id"] = json!(true);
+    attempt["prUrl"] = json!(true);
+    s.insert("attempts".into(), json!([attempt]));
+    Value::Object(s)
+}
+
+/// One issue's story: the stage the dashboard lists it under, the cycle that
+/// owns it now, and its runs of the snapshot's window. The caller does not
+/// join `factory_issues`, `factory_sessions` and `factory_session`.
+pub(crate) fn issue(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
+    let issue = args["issue"]
+        .as_u64()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| bad("issue is a positive integer"))? as i64;
+    // The snapshot first: its header is the one file this tool must read, and
+    // a host without it has nothing to answer with.
+    let snap = open(dirs)?;
+    let st = std::fs::read(dirs.live.join("status.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .unwrap_or(Value::Null);
+    let repo = st["repo"].as_str().map(str::to_string);
+
+    // The first list that holds the number, as the dashboard shows it. The
+    // planning list is not in status.json: it gives a count, so the numbers
+    // come from the poll's plans, as `factory_issues` takes them.
+    let mut stage: Option<&'static str> = None;
+    let mut row = Value::Null;
+    for name in ISSUE_STAGES {
+        if st[name]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|r| r["number"].as_i64() == Some(issue))
+        {
+            stage = Some(name);
+            row = st[name]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|r| r["number"].as_i64() == Some(issue))
+                .cloned()
+                .unwrap_or(Value::Null);
+            break;
+        }
+    }
+    let running_cycle = std::fs::read(dirs.live.join("running.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|r| {
+            r["cycles"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|c| c["issue"].as_i64() == Some(issue))
+                .cloned()
+        });
+    if stage.is_none() && running_cycle.is_none() {
+        let planning = std::fs::read(dirs.live.join("health.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some_and(|h| {
+                h["checks"]["plans"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|p| p["issue"].as_i64() == Some(issue))
+            });
+        if planning {
+            stage = Some("planning");
+        }
+    }
+    // A row of the running file is the dashboard's own word for the issue:
+    // its step and status are served whatever the stage, but only a cycle
+    // that is running counts as the `running` stage.
+    if stage.is_none()
+        && running_cycle
+            .as_ref()
+            .is_some_and(|c| c["running"].as_bool() == Some(true))
+    {
+        stage = Some("running");
+    }
+
+    let attempt_spec = issue_spec();
+    let keys = attempt_spec["attempts"]
+        .as_array()
+        .expect("a list of attempts")[0]
+        .clone();
+    let mut attempts: Vec<Value> = snap
+        .sessions()
+        .filter(|s| s["issue"].as_i64() == Some(issue))
+        .map(|s| {
+            let mut o = pick_object(&s, &keys);
+            o.retain(|_, v| scalar(v));
+            insert_opt(
+                &mut o,
+                "prUrl",
+                links(repo.as_deref(), issue, s["pr"].as_i64()).1,
+            );
+            Value::Object(o)
+        })
+        .collect();
+    // The snapshot is newest first; the story reads oldest first.
+    attempts.reverse();
+
+    let mut out = Map::new();
+    out.insert("issue".into(), json!(issue));
+    insert_opt(&mut out, "issueUrl", links(repo.as_deref(), issue, None).0);
+    if let Some(s) = stage {
+        out.insert("stage".into(), json!(s));
+    }
+    put(&mut out, "title", copied(&row, "title"));
+    if let Some(c) = &running_cycle {
+        let mut r = Map::new();
+        put(&mut r, "step", copied(c, "step"));
+        put(&mut r, "status", copied(c, "status"));
+        if !r.is_empty() {
+            out.insert("running".into(), Value::Object(r));
+        }
+    }
+    out.insert("attempts".into(), Value::Array(attempts.clone()));
+    if stage.is_none() && attempts.is_empty() {
+        // The dashboard lists it nowhere and it has not run in the window.
+        return Err(bad(&format!(
+            "no cycle of the last {} days and no stage for issue {issue}",
+            snap.days
+        )));
+    }
+    if let Some(first) = attempts.first() {
+        put(&mut out, "firstSeen", copied(first, "started"));
+        if let Some(last) = attempts.last() {
+            put(&mut out, "lastSeen", copied(last, "started"));
+            put(&mut out, "outcome", copied(last, "outcome"));
+        }
+    }
     Ok(out)
 }
