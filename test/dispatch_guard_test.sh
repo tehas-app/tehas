@@ -58,6 +58,26 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: gh repo view failed"
 t_lacks "$t_out" "nothing to do"
 
+t_case "a failed call names gh's error by words of a fixed list"
+reset
+echo 'HTTP 502: Bad Gateway for query with a sk-secret-looking body' >"$fx/gh-stderr"
+: >"$fx/gh-stderr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh repo view failed: HTTP 502"
+t_lacks "$t_out" "sk-secret"
+rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
+
+t_case "an error with no word of the list keeps the words the poll has always had"
+reset
+echo 'something an agent wrote' >"$fx/gh-stderr"
+: >"$fx/gh-stderr-fails"
+t_run "$dispatch"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh repo view failed"
+t_lacks "$t_out" "an agent wrote"
+rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
+
 t_case "the repository's name is compared without regard to case"
 reset
 echo '{"nameWithOwner":"Acme/Widget"}' >"$fx/repo.json"
