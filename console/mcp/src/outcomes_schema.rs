@@ -5,7 +5,9 @@
 //! writes the file against the same names, so `spec` and that writer are the
 //! two ends of one contract.
 
-use crate::outcomes::{BOUND, BYS, WORD};
+use crate::outcomes::BOUND;
+use crate::outcomes::BYS;
+use crate::tools::WORD;
 use serde_json::{json, Map, Value};
 
 fn count(desc: &str) -> Value {
@@ -21,6 +23,32 @@ fn counts(desc: &str) -> Value {
            "additionalProperties": {"type": "integer"}})
 }
 
+/// What every entry holds, whatever its grouping: the count of its runs, and
+/// the three maps that name a reason. One list, so the schema a client reads
+/// and the keys a call copies cannot part.
+const ENTRY: [(&str, &str); 4] = [
+    ("runs", "Runs in this group."),
+    ("outcomes", "Runs per outcome: pr, merged, handoff, parked, failed, refused and stopped, and unknown for a run that recorded none."),
+    ("failureKinds", "Runs per failure kind. A run that failed with no kind recorded is counted in runs and outcomes, not here."),
+    ("parkReasons", "Runs per park reason. A run parked with no reason recorded is counted in runs and outcomes, not here."),
+];
+
+/// The schema's description of one entry's keys, from `ENTRY`.
+fn count_entry_key(key: &str, desc: &str) -> Value {
+    if key == "runs" {
+        count(desc)
+    } else {
+        counts(desc)
+    }
+}
+
+/// A count of the file's own words: a map of keys no spec can name in advance,
+/// served only when every value of it is a whole count, as a map holding a
+/// value of another shape is no count of anything.
+fn count_map() -> Value {
+    json!({})
+}
+
 fn output(props: Vec<(&str, Value)>) -> Value {
     let props: Map<String, Value> = props.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
     json!({"type": "object", "properties": props, "required": ["api"]})
@@ -28,13 +56,8 @@ fn output(props: Vec<(&str, Value)>) -> Value {
 
 fn entry_schema(named: Vec<(&str, Value)>) -> Value {
     let mut props: Map<String, Value> = named.into_iter().map(|(k, v)| (k.into(), v)).collect();
-    props.insert("runs".into(), count("Runs in this group."));
-    for (key, desc) in [
-        ("outcomes", "Runs per outcome: pr, merged, handoff, parked, failed, refused and stopped, and unknown for a run that recorded none."),
-        ("failureKinds", "Runs per failure kind. A run that failed with no kind recorded is counted in runs and outcomes, not here."),
-        ("parkReasons", "Runs per park reason. A run parked with no reason recorded is counted in runs and outcomes, not here."),
-    ] {
-        props.insert(key.into(), counts(desc));
+    for (key, desc) in ENTRY {
+        props.insert(key.into(), count_entry_key(key, desc));
     }
     json!({"type": "object", "properties": props})
 }
@@ -114,9 +137,10 @@ pub fn tool() -> Value {
     })
 }
 
-/// The keys of one entry the tool serves, by the grouping the file gives. The
-/// answer is copied with these, so the schema test compares the schema with
-/// what a call is actually built from.
+/// The keys of one entry the tool serves, by the grouping the file gives: the
+/// keys of `ENTRY`, and those of the grouping that names it. The answer is
+/// copied with these, so the schema test compares the schema with what a call
+/// is actually built from.
 pub fn spec(by: &str) -> Value {
     let mut s = Map::new();
     match by {
@@ -128,13 +152,19 @@ pub fn spec(by: &str) -> Value {
             s.insert("rukasVersion".into(), json!(true));
         }
     }
-    s.insert("runs".into(), json!(true));
-    // A map of counts holds the file's own words, so its spec names no keys of
-    // its own: `tools::pick` copies any value that is not an object or an
-    // array, which is what a count is, and drops anything else the file were
-    // to hold.
-    for k in ["outcomes", "failureKinds", "parkReasons"] {
-        s.insert(k.into(), json!({}));
+    for (key, _) in ENTRY {
+        // `runs` is a scalar the spec names; a map of counts holds the file's
+        // own words, so its spec names no keys of its own: `tools::pick`
+        // copies it whole when every value of it is a count, and drops it
+        // when the file were to hold a value of another shape there.
+        s.insert(
+            key.into(),
+            if key == "runs" {
+                json!(true)
+            } else {
+                count_map()
+            },
+        );
     }
     Value::Object(s)
 }

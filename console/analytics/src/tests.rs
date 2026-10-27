@@ -3567,6 +3567,48 @@ fn outcomes_words_of_another_shape_count_as_none() {
             "{good:?}"
         );
     }
+    // The two ends of one contract, kept together here: a group the writer may
+    // name must be a word the reader of the MCP server can be asked for, or a
+    // filter for it answers nothing. The reader's pattern is A-Za-z0-9._+- of
+    // 1 to 64; a word of the database may also hold a `:`, which is why a
+    // version may not, and the reader's extra `+` is a shape the writer never
+    // names, so every word this module accepts is one a filter can be given.
+    let reader = regex::Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap();
+    for good in ["v0.14.2", "abc1234", "0", "a-b_c.d", &"v".repeat(64)] {
+        assert_eq!(
+            crate::outcomes::word(good),
+            Some(good.to_string()),
+            "{good:?}"
+        );
+        assert!(reader.is_match(good), "{good:?} is not a reader's word");
+    }
+    for bad in [
+        "",
+        "a b",
+        "../x",
+        "x/y",
+        "v1\n",
+        "v1\tx",
+        "v1+build",
+        &"v".repeat(65),
+    ] {
+        assert_eq!(crate::outcomes::word(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_day_bound_is_stricter_than_a_time_bound() {
+    // The two shapes of a bound and the two rules they follow, said plainly:
+    // a day is read by this module, which refuses a date the calendar does not
+    // hold, and a full time by iso_ms of run.rs, which reads the parts it is
+    // given and so counts 2026-02-30 on into March. The manual says a bound is
+    // a day or a full UTC time; a date that is no date belongs to neither.
+    assert_eq!(crate::outcomes::bound("2026-02-30"), None);
+    assert_eq!(crate::outcomes::bound("2026-02-28"), Some(1772236800));
+    assert!(
+        crate::outcomes::bound("2026-02-30T00:00:00Z").is_some(),
+        "a full time is read as its parts, as the snapshot's lines are"
+    );
 }
 
 #[test]
@@ -3615,6 +3657,9 @@ fn outcomes_header_names_the_file_and_the_grouping() {
     assert_eq!(head["file"], "outcomes.jsonl");
     assert_eq!(head["by"], "version");
     assert_eq!(head["outcomes"], 1, "the shape of the counts");
+    // The reach the reader answers with, named by the file that holds it, so
+    // the two programs cannot each state a retention of their own.
+    assert_eq!(head["days"], db::RETENTION_DAYS, "the reach of the counts");
     assert_eq!(head["generatedAt"], iso(now));
     let weeks = outcomes_output(&conn, now, &ofilter(None, None, None, None, "week"))[0].clone();
     assert_eq!(weeks["by"], "week");

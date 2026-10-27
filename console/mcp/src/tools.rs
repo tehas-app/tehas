@@ -8,8 +8,10 @@ use crate::logs::{self, LogGuard};
 use crate::outcomes;
 use crate::outcomes_schema;
 use crate::sessions;
+use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use tehas_core::time::days_from_civil;
 
 /// The most of a console a call returns, and the default.
@@ -17,16 +19,15 @@ pub const CONSOLE_MAX: u64 = 65536;
 /// A poll older than this is stale, as on the dashboard.
 pub(crate) const STALE_SECS: i64 = 600;
 
-/// The directories the server reads, each mounted read only.
+/// The directories the server reads, each mounted read only. The container is
+/// given one directory for the two private files of `~/tehas/mcp` - the
+/// sessions snapshot and the outcomes counts - so the two reads name the same
+/// path; `snapshot::FILE` and `outcomes::FILE` tell them apart.
 pub struct Dirs {
     /// What the dashboard publishes.
     pub live: PathBuf,
-    /// The sessions snapshot, never published.
+    /// The sessions snapshot and the outcomes counts, never published.
     pub sessions: PathBuf,
-    /// The outcomes counts, never published. The host keeps them beside the
-    /// snapshot and gives the container that one directory, so on the host
-    /// these two are the same path.
-    pub outcomes: PathBuf,
     pub logs: PathBuf,
 }
 
@@ -889,8 +890,12 @@ pub fn spec_of(name: &str) -> Option<Value> {
         // spec with the outputSchema, which is the point of naming it here.
         "factory_issue" => sessions::issue_spec(),
         // The entries are copied with the spec of the grouping the file's own
-        // header gives, which a call reads; the schema test names version,
-        // which is what the host writes and what the tool asks for without it.
+        // header gives, which is the grouping of the answer this spec
+        // describes: the entries of a version file name the two versions, and
+        // those of a week file name its week. The schema of the tool's output
+        // holds both keys, because a file of either grouping is possible on a
+        // host, and the test of each grouping compares this spec with the
+        // entries a call of that file serves.
         "factory_outcomes" => outcomes_schema::spec("version"),
         "factory_stats" => {
             let counts = [
@@ -971,16 +976,22 @@ pub(crate) fn pick(src: &Value, spec: &Value) -> Option<Value> {
     match (spec, src) {
         (_, Value::Null) => None,
         (Value::Bool(true), Value::Object(_) | Value::Array(_)) => None,
+        (Value::Bool(true), v) if v.is_object() || v.is_array() || v.is_null() => None,
         (Value::Bool(true), v) => Some(v.clone()),
-        // A spec of no keys of its own: copy what the source holds, keeping
-        // only the scalars. A map of counts is written this way, its keys
-        // being the file's own words that no spec can name in advance.
-        (Value::Object(s), Value::Object(m)) if s.is_empty() => Some(Value::Object(
-            m.iter()
-                .filter(|(_, v)| !v.is_object() && !v.is_array() && !v.is_null())
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-        )),
+        // A map of counts holds the file's own words, so its spec names no keys
+        // of its own: it keeps the whole map only when every value in it is a
+        // non-negative whole number, which is what a count is, and leaves the
+        // key out rather than serve a value its schema does not promise. A
+        // malformed file is therefore answered as a group that recorded
+        // nothing of the kind, never as one that holds a word or a fraction.
+        (Value::Object(s), Value::Object(m)) if s.is_empty() => m
+            .iter()
+            .map(|(k, v)| {
+                let whole = v.as_u64().is_some();
+                whole.then(|| (k.clone(), v.clone()))
+            })
+            .collect::<Option<Map<String, Value>>>()
+            .map(Value::Object),
         (Value::Object(s), Value::Object(m)) => {
             let mut out = Map::new();
             for (k, sub) in s {
@@ -1182,6 +1193,30 @@ fn stats(live: &Path) -> Result<Map<String, Value>, ToolError> {
 }
 
 pub(crate) use tehas_core::time::now;
+
+/// An argument of another shape: the tool says which, and what it should have
+/// been. The one way the private tools refuse an argument.
+pub(crate) fn bad(why: &str) -> ToolError {
+    ToolError::BadArgs(why.to_string())
+}
+
+/// The shape a version, a failure kind or a park reason may be: one word of
+/// the published vocabularies, matched exactly. The tools that filter by one
+/// ask for it, and their schemas name it as their pattern, so the alphabet is
+/// stated once — the pattern of the readers of the two private files, named by
+/// their schemas.
+pub static WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap());
+
+/// One word argument of a call: None when it was not given, and an error that
+/// names the key and the shape when it is not a word.
+pub(crate) fn word(args: &Value, key: &str) -> Result<Option<String>, ToolError> {
+    match &args[key] {
+        Value::Null => Ok(None),
+        Value::String(s) if WORD.is_match(s) => Ok(Some(s.clone())),
+        _ => Err(bad(&format!("{key} is 1 to 64 of A-Za-z0-9._+-"))),
+    }
+}
 
 /// Seconds since 1970 for "YYYY-MM-DDTHH:MM:SSZ", the form the live files use.
 pub(crate) fn epoch(t: &str) -> Option<i64> {

@@ -15,7 +15,6 @@ fn dirs() -> Dirs {
     Dirs {
         live: f.join("live"),
         sessions: f.join("sessions"),
-        outcomes: f.join("sessions"),
         logs: f.join("logs"),
     }
 }

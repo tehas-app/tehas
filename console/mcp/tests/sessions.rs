@@ -57,7 +57,6 @@ impl Env {
         let dirs = Dirs {
             live,
             sessions: snap.clone(),
-            outcomes: snap,
             logs: root.join("no-logs"),
         };
         Env { root, dirs }
@@ -400,7 +399,6 @@ fn bad_ids() {
     let dirs = Dirs {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
-        outcomes: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
     };
     for id in ["work-1-1/../x", "work-01-123456789", "plan-1-12", ""] {
@@ -1026,8 +1024,7 @@ fn an_issue_being_planned() {
     .unwrap();
     let dirs = Dirs {
         live,
-        sessions: snap.clone(),
-        outcomes: snap,
+        sessions: snap,
         logs: root.join("no-logs"),
     };
     let out = match mcp::tools::call(&dirs, "factory_issue", &json!({"issue": 6})) {
@@ -1098,7 +1095,6 @@ fn the_issue_argument_is_checked() {
     let dirs = Dirs {
         live: "/nonexistent/live".into(),
         sessions: "/nonexistent/mcp".into(),
-        outcomes: "/nonexistent/mcp".into(),
         logs: "/nonexistent/logs".into(),
     };
     assert!(matches!(

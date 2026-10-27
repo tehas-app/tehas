@@ -2,8 +2,8 @@
 // counts file the host writes for it. The file is written here as the analytics
 // program writes it: a header, then one entry per line, counts only.
 
+use mcp::outcomes_schema;
 use mcp::tools::{list, Dirs, Output, ToolError};
-use mcp::{outcomes, outcomes_schema};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -11,12 +11,15 @@ use tehas_core::time::{iso, now};
 
 const DAY: i64 = 86_400;
 
+/// The days the writer of the file names, which is the retention it applies.
+const DAYS: i64 = 365;
+
 /// The counts file of a factory that ran a few releases over a few weeks.
 fn write(dir: &Path, by: &str, generated: i64, entries: &[Value]) {
     std::fs::create_dir_all(dir).unwrap();
     let mut text = json!({
         "api": 1, "outcomes": 1, "file": "outcomes.jsonl",
-        "by": by, "generatedAt": iso(generated),
+        "days": DAYS, "by": by, "generatedAt": iso(generated),
     })
     .to_string();
     for e in entries {
@@ -35,7 +38,6 @@ fn dirs(name: &str) -> (PathBuf, Dirs) {
     let dir = Dirs {
         live,
         sessions: mcp.clone(),
-        outcomes: mcp,
         logs: root.join("no-logs"),
     };
     (root, dir)
@@ -98,11 +100,11 @@ fn weeks_entries() -> Vec<Value> {
 #[test]
 fn the_counts_of_a_version_pair_come_the_most_runs_first() {
     let (root, dir) = dirs("versions");
-    write(&dir.outcomes, "version", now(), &version_entries());
+    write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({}));
     assert_eq!(out["api"], 1);
     assert_eq!(out["by"], "version");
-    assert_eq!(out["days"], 365, "the whole retention is named");
+    assert_eq!(out["days"], DAYS, "the whole retention is named");
     assert_eq!(out["stale"], false);
     assert_eq!(
         versions(&out["entries"].as_array().unwrap().clone()),
@@ -117,7 +119,7 @@ fn the_counts_of_a_version_pair_come_the_most_runs_first() {
 #[test]
 fn a_version_argument_keeps_one_pair() {
     let (root, dir) = dirs("one-version");
-    write(&dir.outcomes, "version", now(), &version_entries());
+    write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({"tehasVersion": "v0.14.1"}));
     assert_eq!(out["entries"].as_array().unwrap().len(), 1);
     assert_eq!(out["entries"][0]["tehasVersion"], "v0.14.1");
@@ -136,7 +138,7 @@ fn a_version_argument_keeps_one_pair() {
 #[test]
 fn the_weeks_are_filtered_by_their_whole_week() {
     let (root, dir) = dirs("weeks");
-    write(&dir.outcomes, "week", now(), &weeks_entries());
+    write(&dir.sessions, "week", now(), &weeks_entries());
     // A day inside the older week keeps that week whole: it stands for seven
     // days, and a count cannot be split between them.
     let out = ok(
@@ -169,7 +171,7 @@ fn the_weeks_are_filtered_by_their_whole_week() {
 #[test]
 fn a_grouping_the_file_does_not_give_is_refused() {
     let (root, dir) = dirs("wrong-by");
-    write(&dir.outcomes, "version", now(), &version_entries());
+    write(&dir.sessions, "version", now(), &version_entries());
     let why = bad(&dir, json!({"by": "week"}));
     assert!(why.contains("version"), "{why}");
     // A day bound is read as its own day, and a full time as its instant.
@@ -181,7 +183,7 @@ fn a_grouping_the_file_does_not_give_is_refused() {
 #[test]
 fn bad_arguments_are_refused_and_named() {
     let (root, dir) = dirs("bad");
-    write(&dir.outcomes, "version", now(), &version_entries());
+    write(&dir.sessions, "version", now(), &version_entries());
     for (args, part) in [
         (json!({"tehasVersion": "v1 v2"}), "tehasVersion"),
         (json!({"rukasVersion": ""}), "rukasVersion"),
@@ -202,11 +204,11 @@ fn bad_arguments_are_refused_and_named() {
 #[test]
 fn a_file_of_another_api_or_no_header_is_an_error() {
     let (root, dir) = dirs("bad-header");
-    std::fs::create_dir_all(&dir.outcomes).unwrap();
-    std::fs::write(dir.outcomes.join("outcomes.jsonl"), "not json\n").unwrap();
+    std::fs::create_dir_all(&dir.sessions).unwrap();
+    std::fs::write(dir.sessions.join("outcomes.jsonl"), "not json\n").unwrap();
     assert!(matches!(call(&dir, json!({})), Err(ToolError::File { .. })));
     std::fs::write(
-        dir.outcomes.join("outcomes.jsonl"),
+        dir.sessions.join("outcomes.jsonl"),
         format!(
             "{}\n",
             json!({"api": 2, "by": "version", "generatedAt": iso(now())})
@@ -214,14 +216,33 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
     )
     .unwrap();
     assert!(matches!(call(&dir, json!({})), Err(ToolError::File { .. })));
+    // A header that names no reach, or no shape, or a time of another type,
+    // is no header of a counts file: the tool would answer with a reach it
+    // cannot name, or a shape it did not agree to, or a stale flag that
+    // defaulted to true rather than one the file earned.
+    for head in [
+        json!({"api": 1, "outcomes": 1, "file": "outcomes.jsonl",
+               "by": "version", "generatedAt": iso(now())}),
+        json!({"api": 1, "outcomes": 2, "file": "outcomes.jsonl",
+               "days": DAYS, "by": "version", "generatedAt": iso(now())}),
+        json!({"api": 1, "outcomes": 1, "file": "outcomes.jsonl",
+               "days": DAYS, "by": "version", "generatedAt": 1792000000}),
+    ] {
+        std::fs::write(dir.sessions.join("outcomes.jsonl"), format!("{}\n", head)).unwrap();
+        let why = match call(&dir, json!({})) {
+            Err(ToolError::File { why, .. }) => why,
+            other => panic!("{head:?} gave {other:?}"),
+        };
+        assert!(!why.contains("not written"), "{head:?} gave {why}");
+    }
     // A header written for another file is no counts file, even of the right
     // api: the writer names the file it writes.
     std::fs::write(
-        dir.outcomes.join("outcomes.jsonl"),
+        dir.sessions.join("outcomes.jsonl"),
         format!(
             "{}\n",
             json!({"api": 1, "outcomes": 1, "file": "sessions.jsonl",
-                   "by": "version", "generatedAt": iso(now())})
+                   "days": DAYS, "by": "version", "generatedAt": iso(now())})
         ),
     )
     .unwrap();
@@ -231,7 +252,7 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
     };
     assert!(why.contains("another file"), "{why}");
     // Nothing written at all: the tool says so, rather than answering nothing.
-    std::fs::remove_file(dir.outcomes.join("outcomes.jsonl")).unwrap();
+    std::fs::remove_file(dir.sessions.join("outcomes.jsonl")).unwrap();
     let why = match call(&dir, json!({})) {
         Err(ToolError::File { why, .. }) => why,
         other => panic!("not a file error: {other:?}"),
@@ -244,7 +265,7 @@ fn a_file_of_another_api_or_no_header_is_an_error() {
 fn a_file_the_host_has_not_written_lately_is_marked_stale() {
     let (root, dir) = dirs("stale");
     write(
-        &dir.outcomes,
+        &dir.sessions,
         "version",
         now() - 3 * DAY,
         &version_entries(),
@@ -252,7 +273,7 @@ fn a_file_the_host_has_not_written_lately_is_marked_stale() {
     let out = ok(&dir, json!({}));
     assert_eq!(out["stale"], true);
     assert_eq!(out["entries"].as_array().unwrap().len(), 2, "still counted");
-    write(&dir.outcomes, "version", now() - 3600, &version_entries());
+    write(&dir.sessions, "version", now() - 3600, &version_entries());
     assert_eq!(ok(&dir, json!({}))["stale"], false);
     drop(root);
 }
@@ -260,11 +281,12 @@ fn a_file_the_host_has_not_written_lately_is_marked_stale() {
 #[test]
 fn a_line_that_is_not_an_entry_is_skipped() {
     let (root, dir) = dirs("bad-lines");
-    std::fs::create_dir_all(&dir.outcomes).unwrap();
+    std::fs::create_dir_all(&dir.sessions).unwrap();
     let head = json!({
         "api": 1,
         "outcomes": 1,
         "file": "outcomes.jsonl",
+        "days": DAYS,
         "by": "version",
         "generatedAt": iso(now()),
     })
@@ -275,7 +297,7 @@ fn a_line_that_is_not_an_entry_is_skipped() {
         .collect::<Vec<_>>()
         .join("\n");
     std::fs::write(
-        dir.outcomes.join("outcomes.jsonl"),
+        dir.sessions.join("outcomes.jsonl"),
         format!("{head}\nnonsense\n{body}\n[]\n\n"),
     )
     .unwrap();
@@ -290,7 +312,7 @@ fn the_counts_hold_no_issue_number_or_cause() {
     // What the writer would never put in the file, planted here to show the
     // tool could not serve it if it did: it copies only the keys it names.
     write(
-        &dir.outcomes,
+        &dir.sessions,
         "version",
         now(),
         &[json!({
@@ -337,10 +359,12 @@ fn the_tool_is_listed_with_a_schema_that_matches_the_answer() {
     );
 
     let (root, dir) = dirs("schema");
-    write(&dir.outcomes, "version", now(), &version_entries());
+    write(&dir.sessions, "version", now(), &version_entries());
     let out = ok(&dir, json!({}));
     let entry = &out["entries"][0];
-    // Every key the schema promises, and only those.
+    // Every key the schema promises, and only those: the spec is built from
+    // the same list as the schema, so one statement of the entry's keys
+    // answers both.
     let want: BTreeSet<String> = outcomes_schema::spec("version")
         .as_object()
         .unwrap()
@@ -349,8 +373,109 @@ fn the_tool_is_listed_with_a_schema_that_matches_the_answer() {
         .collect();
     let got: BTreeSet<String> = entry.as_object().unwrap().keys().cloned().collect();
     assert_eq!(got, want);
+    // The keys of the grouping the file does not hold are not served, and the
+    // keys it does are: a spec of one grouping cannot describe the other.
+    let week: BTreeSet<String> = outcomes_schema::spec("week")
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert!(!week.contains("tehasVersion") && !week.contains("rukasVersion"));
+    assert!(week.contains("week"));
     for k in ["runs", "outcomes", "failureKinds", "parkReasons"] {
         assert!(entry.get(k).is_some(), "{k}");
     }
+    // The types the outputSchema promises: the header's four fields, and a
+    // count that is a whole number and never negative.
+    assert_eq!(out["by"], "version");
+    assert_eq!(out["days"].as_u64(), Some(DAYS as u64));
+    assert!(out["generatedAt"].is_string());
+    assert!(out["stale"].is_boolean());
+    assert!(entry["runs"].as_u64().is_some());
+    for map in ["outcomes", "failureKinds", "parkReasons"] {
+        for (k, v) in entry[map].as_object().unwrap() {
+            assert!(v.as_u64().is_some(), "{map}.{k} is {v}, not a count");
+        }
+    }
     drop(root);
+}
+
+#[test]
+fn a_count_of_another_shape_is_left_out_rather_than_served() {
+    let (root, dir) = dirs("bad-counts");
+    // A map of counts whose values are not counts is no map of counts: the
+    // schema of the tool promises integers, so pick serves none of it rather
+    // than a string, a boolean or a fraction.
+    write(
+        &dir.sessions,
+        "version",
+        now(),
+        &[
+            json!({
+                "tehasVersion": "v1", "runs": 3,
+                "outcomes": {"cause": "a whole failure cause of 200 characters", "ok": true},
+                "failureKinds": {"tests": 1}, "parkReasons": {},
+            }),
+            // A run count of another type is no count: the same rule, on the
+            // scalar the spec names rather than the map it leaves open.
+            json!({
+                "tehasVersion": "v2", "runs": 3.7,
+                "outcomes": {"merged": 1}, "failureKinds": {}, "parkReasons": {},
+            }),
+        ],
+    );
+    let out = ok(&dir, json!({}));
+    let entry = &out["entries"][0];
+    let keys: BTreeSet<String> = entry.as_object().unwrap().keys().cloned().collect();
+    assert_eq!(
+        keys,
+        ["tehasVersion", "runs", "failureKinds", "parkReasons"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<String>>(),
+        "the map of non-counts is left out, as any key the file invents"
+    );
+    assert!(entry.get("outcomes").is_none());
+    assert_eq!(entry["runs"], 3, "a run count stays whole");
+    // A run count of another type is no count, and the entry served without it
+    // is not served at all: a group of runs of no known size answers nothing.
+    assert_eq!(
+        out["entries"].as_array().unwrap().len(),
+        1,
+        "{}",
+        out["entries"]
+    );
+    assert_eq!(
+        entry["failureKinds"]["tests"], 1,
+        "a map of counts is served"
+    );
+    let text = out.to_string();
+    for forbidden in ["200 characters", "3.7"] {
+        assert!(
+            !text.contains(forbidden),
+            "{forbidden:?} was served: {text}"
+        );
+    }
+    drop(root);
+}
+
+#[test]
+fn a_version_the_writer_accepts_is_a_version_the_reader_accepts() {
+    // The two ends of one contract: a group key the writer may name must be
+    // matchable by the reader's filter, or a call for it answers nothing.
+    for v in [
+        "v0.14.2",
+        "abc1234",
+        "0",
+        "a-b_c.d",
+        "v".repeat(64).as_str(),
+    ] {
+        assert!(mcp::tools::WORD.is_match(v), "{v}");
+    }
+    // A word the writer refuses is refused here too, so neither end accepts
+    // what the other cannot name.
+    for v in ["", "a b", "../x", "x/y", "v\n", &"v".repeat(65)] {
+        assert!(!mcp::tools::WORD.is_match(v), "{v}");
+    }
 }

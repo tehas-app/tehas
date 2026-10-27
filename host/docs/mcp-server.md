@@ -184,10 +184,13 @@ session older than 30 days, or an id that is not in it, is a tool error.
 `factory_outcomes` reads `outcomes.jsonl` from the same directory, which
 `tehasbot status` rewrites on each poll from `analytics outcomes`; `stale` is
 true when it is more than a day old, the writer being a daily one. The file is
-the whole of the analytics retention, so the tool answers where the 30-day tools
+the whole of the analytics retention, and `days` is what the file itself says
+that reach is, so the tool answers where the 30-day tools
 cannot: whether a release changed the park or failure rates, and how often a
 failure kind comes back. It holds counts only, and the tool serves only the keys
-it names. The file is written grouped one way, and `by` says which: an argument
+it names: of a group, `runs` and the three count maps, and the words that name
+its grouping. A count that is not a whole number, or a map of them that is not,
+is left out rather than served. The file is written grouped one way, and `by` says which: an argument
 that asks for the other is a tool error that names the one it holds, rather than
 an answer of nothing. A week's entry stands for seven days and is kept when any
 of them falls in the window, because a count of a week cannot be split between

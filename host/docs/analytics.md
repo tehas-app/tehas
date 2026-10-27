@@ -282,7 +282,7 @@ report](/tools#tehasbot-status-and-the-console)).
 ## Sessions
 
 ```
-analytics sessions
+analytics sessions [--out <directory>]
 ```
 
 The program `~/tehas/libexec/analytics` prints the runs of the last 30 days as
@@ -302,18 +302,25 @@ is the session's issue and whose `at` falls from its start to two minutes after
 its end. It is left out when there are none. The command exits 70 when the
 database cannot be read.
 
+With `--out` the lines go to `<directory>/sessions.jsonl` instead of standard
+output, mode 600 in a directory of mode 700, made from a name of this run and
+moved into place: the modes are the program's, not the caller's umask. This is
+how `tehasbot status` asks for the snapshot (see [The
+host](/host#what-is-in-the-home)).
+
 ## Outcomes
 
 ```
 analytics outcomes [--tehas <version>] [--rukas <version>]
-                   [--since <day>] [--until <day>] [--by version|week]
+                   [--since <day or time>] [--until <day or time>]
+                   [--by version|week] [--out <directory>]
 ```
 
 The same program prints the counts behind the MCP tool `factory_outcomes`
 as JSON Lines, as far back as the database reaches: 365 days, where the
 sessions above reach 30. It is not a `tehas` command. Line 1 is
-`{"api":1,"outcomes":1,"file":"outcomes.jsonl","by":"version|week",
-"generatedAt":"..."}`. Each line after it is one group, and a group holds
+`{"api":1,"outcomes":1,"file":"outcomes.jsonl","days":365,
+"by":"version|week","generatedAt":"..."}`. Each line after it is one group, and a group holds
 only counts: `runs`, and the maps `outcomes`, `failureKinds` and
 `parkReasons` from each word to how many runs of the group carry it. Grouped
 by version (the default) a group is a pair of `tehasVersion` and
@@ -321,16 +328,27 @@ by version (the default) a group is a pair of `tehasVersion` and
 group with neither key. Grouped by `week` a group is `week`, the Monday that
 opens the UTC week, `YYYY-MM-DD`, newest first. A run is counted on its end,
 and a run that never ended on its start. An outcome the schema does not allow,
-or none at all, counts under `unknown`.
+or none at all, counts under `unknown`. The counting is the database's: one
+row per group of the window leaves SQLite, not one per run of it, which is what
+keeps the whole-year scan short enough for the poll that asks for it.
 
 Nothing else is in the file: no issue number, no title, no failure cause and
 no log content. `--tehas` and `--rukas` ask for one release each, matched
-exactly, and a run that recorded no version belongs to no release, so it
+exactly, and group with them, so under `--by week` they answer to nothing: a
+week is no release, and a week's counts are not cut between the releases that
+made them. A run that recorded no version belongs to no release, so it
 answers to neither and joins no entry of a filtered call. `--since` and
 `--until` bound the days counted, each as `YYYY-MM-DD` (its own start) or a
-full UTC time `YYYY-MM-DDTHH:MM:SSZ`, and read as far as themselves. `--by`
+full UTC time `YYYY-MM-DDTHH:MM:SSZ`, and read as far as themselves. A day is
+the stricter of the two shapes: a date the calendar does not hold, such as
+2026-02-30, is an error as a day, and is read as its parts as a full time, as
+the snapshot's lines read theirs. `--by`
 is `version` or `week`. An option given twice, or a value that is no word or
 no time, is an error. The command exits 70 when the database cannot be read.
+
+With `--out` the lines go to `<directory>/outcomes.jsonl` instead of standard
+output, mode 600 in a directory of mode 700, made from a name of this run and
+moved into place, as the sessions' `--out` does.
 
 `tehasbot status` writes what the unfiltered command prints to
 `~/tehas/mcp/outcomes.jsonl`, mode 600 in a 700 directory, beside the

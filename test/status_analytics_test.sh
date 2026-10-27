@@ -62,7 +62,7 @@ printf '%s\n%s\n' '{"api":1,"days":30,"generatedAt":"2026-10-21T00:00:00Z","sess
   '{"id":"a"}' >"$T/sessions.jsonl"
 # The counts file as the analytics program writes it: a header, then one entry
 # a line, counts only.
-printf '%s\n%s\n' '{"api":1,"outcomes":1,"file":"outcomes.jsonl","by":"version","generatedAt":"2026-10-21T00:00:00Z"}' \
+printf '%s\n%s\n' '{"api":1,"outcomes":1,"file":"outcomes.jsonl","days":365,"by":"version","generatedAt":"2026-10-21T00:00:00Z"}' \
   '{"tehasVersion":"v1","runs":3,"outcomes":{"merged":3},"failureKinds":{},"parkReasons":{}}' \
   >"$T/outcomes.jsonl"
 counts=$T/home/tehas/mcp/outcomes.jsonl
@@ -281,6 +281,23 @@ t_eq "$t_out" ""
 t_eq "$(cat "$counts")" "$(cat "$T/outcomes.jsonl")"
 # The program leaves no name of its run behind.
 t_eq "$(find "${counts%/*}" -name '*.new' | wc -l)" 0
+
+# The whole-year scan is asked for on every poll, so the poll binds it: a
+# publish that runs past the limit is a WARN and an old file kept a while, not
+# a poll that never ends. The limit is tehas_analytics_limit of lib/analytics.sh,
+# and the call of the poll passes it to timeout -k 1.
+t_case "the outcomes publish is asked for under the analytics time limit"
+reset
+t_run "$status"
+t_eq "$(grep -c '^outcomes --out ' "$T/calls/analytics")" 1
+t_stub_analytics '[ "$1" != outcomes ] || { echo "$*" >"$T/outcomes-argv"; exit 124; }
+  [ "$1" != report ] || cat "$T/report.json"
+  [ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && cat "$T/sessions.jsonl" >"$3/sessions.jsonl"; }'
+counts_aged 540
+t_run "$status"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN analytics outcomes: exit 124"
+t_eq "$(counts_there)" there
 
 t_case "TEHAS_ANALYTICS=off removes the counts"
 reset
