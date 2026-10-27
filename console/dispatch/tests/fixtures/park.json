@@ -731,6 +731,41 @@
    }
   },
   {
+   "case": "the tick of the issue alone starts a cycle whose record names no comment",
+   "world": "parked",
+   "park_q": [
+    " ",
+    "x",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "alice",
+      "how": "retry tick",
+      "at": "2026-01-01T01:00:00Z",
+      "given": "retry-tick",
+      "comment": 4001,
+      "issue_alone": true,
+      "remove": [
+       "tehas:question"
+      ]
+     },
+     {
+      "untick": 7,
+      "comment": 4001,
+      "body": "Tehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     }
+    ]
+   }
+  },
+  {
    "case": "a retry tick takes tehas:ready and the escalation label off",
    "world": "parked",
    "park_q": [

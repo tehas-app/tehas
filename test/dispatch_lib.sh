@@ -402,25 +402,48 @@ comments_of() {
   jq --argjson id "$2" '.data.repository.issue.comments.nodes[0].databaseId = $id' "$fx/comments-$1.json" >"$fx/comments-$1.new" &&
     mv "$fx/comments-$1.new" "$fx/comments-$1.json"
 }
-# The body of a park comment: three boxes, the two retries between the boxes
-# for a clean start and for the issue alone, and the one to leave it.
-# park_body <clean-start box> <alone box> <leave box>: each is x or a space.
-# With no third argument nothing was ticked to leave it, which is the shape a
-# comment had before the box for the issue alone existed: it holds no such
-# line at all, so a poll that reads the old comments still finds its boxes.
+# The body of a park comment, as q_render of lib/questions.sh writes it: the
+# three boxes of a park of this factory, the two retries between them and the
+# one to leave it, their text the pair of names in that file, which the polls
+# of both dispatchers read. It is sourced for those two names alone: nothing
+# here calls GitHub, as nothing of that file does.
+# shellcheck source=lib/questions.sh
+. "$T_ROOT/lib/questions.sh"
+# park_body <clean-start box> <alone box> [<leave box>]: each is x or a space.
+# With no alone box the body is the shape a comment had before that box
+# existed: it holds no such line at all, so a poll that reads the old comments
+# still finds its boxes. A comment of that shape has no box to leave it,
+# either, so the second argument is the leave box there, as it was before the
+# third box was added. A box of a three-box body that no argument names is
+# unticked, never guessed from the number of arguments.
 park_body() {
-  local three=1
-  if [ "$#" = 2 ]; then
-    three=0
-  elif [ "$#" = 3 ] && [ -z "$3" ]; then
-    three=0
+  local clean=${1:-' '} alone=${2:-} leave=${3:-} b
+  # The shape of a comment written before the third box is named by the number
+  # of arguments, and its second one is the leave box. Nothing decides the
+  # shape from an empty argument, which would give one argument two meanings.
+  if [ "$#" -le 2 ]; then
+    leave=$alone
+    alone=
   fi
-  if [ "$three" = 0 ]; then
-    printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2"
-  else
-    printf 'Tehas cycle stopped.\n\n- [%s] Retry from a clean start\n- [%s] Retry from the issue alone\n- [%s] Leave it parked\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n' "$1" "$2" "$3"
-  fi
+  b='Tehas cycle stopped.'
+  # One box line: the text lib/questions.sh names, ticked when its box is x.
+  b+=$'\n\n'$(park_box "$clean" "$Q_BOX_CLEAN")
+  # A comment written before the box for the issue alone existed holds no such
+  # line at all, which is what an empty second argument stands for.
+  [ -z "$alone" ] || b+=$'\n'$(park_box "$alone" "$Q_BOX_ALONE")
+  b+=$'\n'$(park_box "$leave" 'Leave it parked')
+  b+=$'\n\nTick one box.\n\n<!-- tehas:question kind=park issue=7 turn=1 -->\n'
+  printf '%s' "$b"
 }
+
+# park_box <x or anything else> <text>: one line of a park's body, its box
+# ticked for x alone.
+park_box() {
+  local mark=' '
+  [ "$1" = x ] && mark=x
+  printf -- '- [%s] %s\n' "$mark" "$2"
+}
+
 # park_q [<issue>]: the question of the issue's current park on record [#7],
 # none without one.
 park_q() { t_row park-show "${1:-7}" -- '.park.question // "none"'; }

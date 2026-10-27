@@ -40,6 +40,36 @@ t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Retry from 
 - [ ] Leave it parked'
 t_contains "$(q_render park 7 1 "$T/park.json")" "<!-- tehas:question kind=park issue=7 turn=1 -->"
 
+t_case "the box the polls read is the box the renderer prints, in both languages"
+# The retry boxes are the contract between the comment and the two polls, so
+# the names of lib/questions.sh, the consts of console/core/src/question.rs
+# and what q_render posts are one text. A wording change that misses one of
+# them turns a tick into an untickable box, silently: this says it here.
+for name in BOX_CLEAN BOX_ALONE; do
+  rust=$(sed -n "s/^pub const $name: &str = \"\(.*\)\";\$/\1/p" "$T_ROOT/console/core/src/question.rs")
+  case $name in
+    BOX_CLEAN) want=$Q_BOX_CLEAN ;;
+    *) want=$Q_BOX_ALONE ;;
+  esac
+  t_eq "$rust" "$want"
+done
+jq -n '{text: "Tehas cycle stopped.", question: null}' >"$T/park.json"
+for box in "$Q_BOX_CLEAN" "$Q_BOX_ALONE"; do
+  t_contains "$(q_render park 7 1 "$T/park.json")" "- [ ] $box"
+done
+# The answer parser is the one reader of both polls: the label of the box it
+# names as ticked is what a poll compares with its own name for the box, and
+# only the box actually ticked is named. A wording change on one side says so.
+alone_body=$(q_render park 7 1 "$T/park.json" | sed "s/^- \[ \] $Q_BOX_ALONE$/- [x] $Q_BOX_ALONE/")
+answered=$(jq -n --arg body "$alone_body" '{data: {repository: {issue: {comments: {nodes: [
+  {databaseId: 5, author: {login: "tehas-bot"}, body: $body,
+   createdAt: "2026-01-01T01:00:00Z", lastEditedAt: "2026-01-01T02:00:00Z",
+   editor: {login: "alice"}}]}}}}}' |
+  q_answer tehas-bot alice |
+  jq -c --arg alone "$Q_BOX_ALONE" --arg clean "$Q_BOX_CLEAN" \
+    '{tick: .tick.status, what: .labels[.tick.index], alone: (.labels[.tick.index] == $alone), not_clean: (.labels[.tick.index] != $clean)}')
+t_eq "$answered" '{"tick":"one","what":"'"$Q_BOX_ALONE"'","alone":true,"not_clean":true}'
+
 t_case "a park that offers no retry has only the box to leave it"
 jq -n '{text: "Tehas cycle stopped.", question: null, retry: false}' >"$T/park.json"
 t_eq "$(q_render park 7 1 "$T/park.json" | grep '^- \[ \] ')" '- [ ] Leave it parked'
@@ -168,7 +198,7 @@ got() { jq -c "$1"; }
 
 t_case "an untouched question has no answer"
 t_eq "$(ask "$body" "" | q_answer tehas-bot "alice bob" | got 'del(.body)')" \
-  '{"asked":true,"comment":5,"asked_at":"2026-01-01T01:00:00Z","kind":"plan","issue":7,"turn":2,"boxes":3,"tick":{"status":"none"},"reply":null}'
+  '{"asked":true,"comment":5,"asked_at":"2026-01-01T01:00:00Z","kind":"plan","issue":7,"turn":2,"boxes":3,"labels":["Adopt all","Change some","End this planning session"],"tick":{"status":"none"},"reply":null}'
 
 t_case "a box ticked by an allowed account is that option, counted from the top"
 t_eq "$(ask "$(tick 'Change some')" alice | q_answer tehas-bot "alice bob" | got .tick)" \
