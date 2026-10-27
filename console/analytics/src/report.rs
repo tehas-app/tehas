@@ -23,6 +23,11 @@
 //! three buckets of the file count, how many of them shipped and the median
 //! lead time of those. Counts only, no issue number: the sizes are coarse and
 //! say nothing of what the issue asked for.
+//!
+//! `gate` says what the runs of the product's gate cost: their median and p90,
+//! how many a run made and their share of the runs' time, over the runs that
+//! recorded them. They come from `runs.gate_runs` and `runs.gate_ms`, which
+//! `run.rs` fills from the cycle's stream. Counts and durations only.
 
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -174,11 +179,24 @@ struct WorkRun {
     failed_step: Option<String>,
     tehas: String,
     rukas: String,
+    // The run's own gate figures, in seconds: `gate_ms` is milliseconds on the
+    // row, and the report speaks seconds the way every other duration here does.
+    gate_runs: Option<i64>,
+    gate_seconds: Option<i64>,
 }
 
 impl WorkRun {
     fn tokens(&self) -> i64 {
         self.tokens.map_or(0, |(i, o, c)| i + o + c)
+    }
+
+    /// The gate's time as a share of this run's own time, which is the figure
+    /// the report's `share` is the sum of. A run of no recorded length tells
+    /// nothing of a share, and a gate that outlasted the run it was in is no
+    /// share above 1.
+    fn gate_share(&self) -> Option<f64> {
+        let (gate, secs) = (self.gate_seconds?, self.seconds.filter(|s| *s > 0)?);
+        (gate >= 0).then(|| round3((gate as f64 / secs as f64).min(1.0)))
     }
     // Why a run that did not reach a pull request stopped: the failure kind,
     // the cap for a failure that is a cap, else the park reason, else how it
@@ -296,6 +314,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     );
 
     report.insert("availability".into(), availability(&samples, to));
+    report.insert("gate".into(), gate(&runs));
     if let Some(e) = energy(&samples, to, n_shipped) {
         report.insert(ENERGY.into(), e);
     }
@@ -308,29 +327,36 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
 
 /// Each entry is one section whose whole row `text` prints only when the key
 /// is there: its name in the report and the label of its row. `text` names its
-/// four rows from this list and a test holds the list against the keys the
-/// report actually publishes, so a section that gains a key without a row, or a
-/// row without a producer, fails a test rather than going unprinted. The rows
-/// that stand whatever the report holds -- `Shipped`, `Runs`, the times -- come
-/// from `build`, which always publishes them, and are not listed here.
-pub const SECTIONS: [(&str, &str); 4] = [
+/// rows from this list and a test holds the list against the keys the report
+/// actually publishes, so a section that gains a key without a row, or a row
+/// without a producer, fails a test rather than going unprinted. The rows that
+/// stand whatever the report holds -- `Shipped`, `Runs`, the times -- come from
+/// `build`, which always publishes them, and are not listed here. Of the five,
+/// three always hold a section of their own (`planned`, `energy` and `gate`, of
+/// which the last prints no row on a count of nothing) and two come with the
+/// ledgers beside the database, in `complete`.
+pub const SECTIONS: [(&str, &str); 5] = [
     (PLANNED, "Planned"),
     (ENERGY, "Energy"),
     (REFINE, "Refine"),
     (SIZES, "Size"),
+    (GATE, "Gate"),
 ];
 
-/// The keys of the four sections of `SECTIONS`, named once so `text` and the
+/// The keys of the five sections of `SECTIONS`, named once so `text` and the
 /// report's own writers cannot spell them apart.
 const PLANNED: &str = "planned";
 const ENERGY: &str = "energy";
 pub(crate) const REFINE: &str = "refine";
 pub(crate) const SIZES: &str = "sizes";
+/// `gate` is always a key of the report, as `planned` and `energy` are, and
+/// prints no row when it holds nothing but its count of nothing.
+const GATE: &str = "gate";
 
-/// The label of one section's row, the word `text` prints it by. The four
+/// The label of one section's row, the word `text` prints it by. The five
 /// labels live in `SECTIONS` alone, so the renderer and the test of the
 /// contract read one list. A key of no section has no row, and prints none:
-/// this is called only for the four, and the empty word renders a row of a
+/// this is called only for the five, and the empty word renders a row of a
 /// screen the test then finds has no label, which is the failure it is.
 pub(crate) fn label(key: &str) -> &'static str {
     SECTIONS
@@ -645,6 +671,54 @@ pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Value, (u8, 
     Ok(Value::Object(o))
 }
 
+/// The gate figures of the window: of the `n` work runs that recorded a run of
+/// the product's gate, the median and p90 seconds one run of it took, the mean
+/// number of them per run, and the mean of the runs' own shares of the time
+/// that was the gate's. A run that recorded no gate run is in none of the four
+/// figures, as a run without usage is in no token figure: the `n` is the
+/// denominator of all of them. `seconds` is their gate's whole time, the figure
+/// #868's goal is read against. With no such run the section holds its count of
+/// nothing alone, and `text` prints no row for it.
+///
+/// One run of the gate of a run that made several is the run's time divided
+/// across them, because the stream gives no wall time of its own: what the
+/// runner reports is the gate's own milliseconds, and a run of it that waited
+/// for another to free the container's CPU share does not count that wait.
+fn gate(runs: &[WorkRun]) -> Value {
+    let with: Vec<&WorkRun> = runs
+        .iter()
+        .filter(|r| r.gate_runs.is_some() && r.gate_seconds.is_some())
+        .collect();
+    let n = with.len();
+    if n == 0 {
+        return json!({"n": 0});
+    }
+    // A run's gate time shared across its runs of it, the way `duration` reads
+    // a figure of a run's whole time: a whole second, and never none.
+    let mut each: Vec<i64> = with
+        .iter()
+        .map(|r| {
+            let runs = r.gate_runs.unwrap_or(1).max(1);
+            ((r.gate_seconds.unwrap_or(0) as f64) / runs as f64).round() as i64
+        })
+        .collect();
+    each.sort_unstable();
+    let gate_seconds: i64 = with.iter().map(|r| r.gate_seconds.unwrap_or(0)).sum();
+    let per_run =
+        round3(with.iter().map(|r| r.gate_runs.unwrap_or(0)).sum::<i64>() as f64 / n as f64);
+    let shares: Vec<f64> = with.iter().filter_map(|r| r.gate_share()).collect();
+    let share =
+        (!shares.is_empty()).then(|| round3(shares.iter().sum::<f64>() / shares.len() as f64));
+    obj(vec![
+        ("n", Some(json!(n))),
+        ("seconds", Some(json!(gate_seconds))),
+        ("median", median(&each).map(Value::from)),
+        ("p90", p90(&each).map(Value::from)),
+        ("perRun", Some(json!(per_run))),
+        ("share", share.map(Value::from)),
+    ])
+}
+
 fn spread(sorted: &[i64]) -> Value {
     obj(vec![
         ("n", Some(json!(sorted.len()))),
@@ -657,13 +731,15 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
     let mut q = conn.prepare(
         "SELECT id, started, ended, seconds, coalesce(outcome, 'failed'), input, output, cache_read,
                 failure_kind, cap, park_reason, last_step, failed_step,
-                coalesce(tehas_version, ''), coalesce(rukas_version, rukas_commit, '')
+                coalesce(tehas_version, ''), coalesce(rukas_version, rukas_commit, ''),
+                gate_runs, gate_ms
          FROM runs WHERE kind = 'work' AND ended >= ?1 AND ended <= ?2 ORDER BY ended",
     )?;
     let rows = q.query_map(params![from, to], |r| {
         let (i, o, c): (Option<i64>, Option<i64>, Option<i64>) = (r.get(5)?, r.get(6)?, r.get(7)?);
         let tokens = (i.is_some() || o.is_some() || c.is_some())
             .then(|| (i.unwrap_or(0), o.unwrap_or(0), c.unwrap_or(0)));
+        let gate_ms: Option<i64> = r.get(16)?;
         Ok(WorkRun {
             id: r.get(0)?,
             started: r.get(1)?,
@@ -678,6 +754,8 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
             failed_step: r.get(12)?,
             tehas: r.get(13)?,
             rukas: r.get(14)?,
+            gate_runs: r.get::<_, Option<i64>>(15)?.filter(|n| *n > 0),
+            gate_seconds: gate_ms.filter(|m| *m > 0).map(|m| (m / 1000).max(1)),
         })
     })?;
     rows.collect()
@@ -1019,7 +1097,7 @@ pub fn text(report: &Value) -> String {
         format!("{} issues", num(&at(&["shipped", "n"]))),
         String::new(),
     );
-    // The four conditional rows take their labels from `SECTIONS`, so the
+    // The five conditional rows take their labels from `SECTIONS`, so the
     // renderer and the test of the contract read one list: a section that gains
     // a key without a row, or a row without a section, fails a test.
     let planned = &report[PLANNED];
@@ -1145,6 +1223,28 @@ pub fn text(report: &Value) -> String {
         ),
         n("tokens"),
     );
+    let gate = &report[GATE];
+    if gate.is_object() {
+        // The row of the four figures `gate` works out. Its whole time is not
+        // one of them: it is read from the same object for the count.
+        row(
+            label(GATE),
+            format!(
+                "median {}, p90 {}, {} runs per run, {} of run time",
+                dur(&gate["median"]),
+                dur(&gate["p90"]),
+                gate["perRun"]
+                    .as_f64()
+                    .map_or("-".to_string(), |r| format!("{r}")),
+                pct(&gate["share"]),
+            ),
+            format!(
+                "(n={}, {})",
+                int(&gate["n"]).unwrap_or(0),
+                dur(&gate["seconds"])
+            ),
+        );
+    }
     let avail = &report["availability"];
     row(
         "Availability",

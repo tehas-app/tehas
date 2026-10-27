@@ -540,6 +540,123 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
 }
 
 #[test]
+fn the_runs_of_the_gate_come_from_the_stream_and_are_stored_one_row_each() {
+    let home = scratch("gate-runs");
+    let started = secs("2026-10-15T18:38:34Z");
+    let ended = secs("2026-10-15T18:39:50Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(ended), "started": started, "rc": 0, "status": "merged",
+               "pr": "https://github.com/o/r/pull/3"}),
+    );
+    // Two runs of the gate, of different tiers, one passed and one not, and
+    // four lines that are no run of it: a line of another kind, one the runner
+    // marks unstable, one of another issue, and one that named no time.
+    let at = ended * 1000;
+    let gate = |tier: &str, ms: i64, ok: bool, at: i64| {
+        json!({"v": 1, "kind": "verify-completed", "issue": 7,
+               "event": {"kind": "verify-completed", "step": "develop",
+                          "command": format!("scripts/verify.sh --{tier}"),
+                          "target.kind": tier, "tier": tier, "ok": ok, "ms": ms, "at": at}})
+    };
+    let stream = [
+        gate("fast", 120_000, true, at - 60_000).to_string(),
+        // The runner marks the line unstable: tehas reads only the kinds the
+        // runner declares stable, as the manual of the cycle says.
+        "{\"v\":1,\"kind\":\"verify-completed\",\"unstable\":true,\"event\":{\"ms\":999999999}}"
+            .to_string(),
+        // Of another kind, whatever its milliseconds say.
+        "{\"v\":1,\"kind\":\"dispatch-completed\",\"event\":{\"kind\":\"dispatch-completed\",\"ms\":1}}"
+            .to_string(),
+        // Another issue's gate is not this run's, and a run of it that named
+        // no time is no figure at all.
+        "{\"v\":1,\"kind\":\"verify-completed\",\"issue\":8,\"event\":{\"ms\":7}}".to_string(),
+        "{\"v\":1,\"kind\":\"verify-completed\",\"issue\":7,\"event\":{\"tier\":\"full\"}}".to_string(),
+        gate("full", 300_000, false, at - 20_000).to_string(),
+    ]
+    .join("\n");
+    put(
+        &home,
+        "logs/work-7-261015-183834.jsonl",
+        &format!("{stream}\n"),
+    );
+    let conn = record(&home, 7, ended);
+    assert_eq!(
+        one::<String>(&conn, "SELECT gate_runs || ' ' || gate_ms FROM runs"),
+        "2 420000"
+    );
+    let rows: Vec<(i64, String, String, String, i64, i64, i64)> = conn
+        .prepare("SELECT seq, command, tier, step, ok, ms, at FROM run_gate_runs ORDER BY seq")
+        .unwrap()
+        .query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (
+                1,
+                "scriptsverify.sh--fast".into(),
+                "fast".into(),
+                "develop".into(),
+                1,
+                120_000,
+                ended - 60
+            ),
+            (
+                2,
+                "scriptsverify.sh--full".into(),
+                "full".into(),
+                "develop".into(),
+                0,
+                300_000,
+                ended - 20
+            ),
+        ]
+    );
+    // The steps still come from the stream's own lines, and a run recorded
+    // again replaces its gate rows rather than doubling them.
+    assert_eq!(steps(&conn).len(), 2);
+    record(&home, 7, ended);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_gate_runs"), 2);
+}
+
+#[test]
+fn a_run_whose_stream_held_no_gate_run_records_no_gate() {
+    let home = scratch("gate-none");
+    let started = secs("2026-10-15T18:38:34Z");
+    let ended = secs("2026-10-15T18:39:50Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(ended), "started": started, "rc": 10, "status": "handoff",
+               "parked": true}),
+    );
+    // The fixture's stream holds no verify-completed line at all.
+    let conn = record(&home, 7, ended);
+    assert_eq!(
+        one::<Option<i64>>(&conn, "SELECT gate_runs FROM runs"),
+        None
+    );
+    assert_eq!(one::<Option<i64>>(&conn, "SELECT gate_ms FROM runs"), None);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_gate_runs"), 0);
+}
+
+#[test]
 fn attempt_counts_earlier_runs_and_how_is_kept() {
     let home = scratch("attempt");
     let t = 1_792_000_000;
@@ -1099,7 +1216,10 @@ fn a_new_database_is_0600_in_wal_mode_with_its_schema_version() {
             &conn,
             "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
         ),
-        "created=1792000000 retention_days=365 schema=1"
+        format!(
+            "created=1792000000 retention_days=365 schema={}",
+            db::SCHEMA_VERSION
+        )
     );
 }
 
@@ -2422,7 +2542,7 @@ fn the_text_report_prints_one_row_for_every_section_of_the_report() {
             .cloned()
             .collect::<Vec<String>>()
     };
-    // The four sections of the contract: each holds an object of its own and
+    // The five sections of the contract: each holds an object of its own and
     // prints the row `SECTIONS` names, so a section without a row and a row
     // without a section both fail here. The two of the ledgers come with
     // `complete`, the two of the database with `build`.
@@ -2572,8 +2692,52 @@ fn plan_s_arguments_are_checked() {
 }
 
 // The known data set of the report's tests: six work runs in the window on
-// three version pairs, one before it, a planning turn, three shipped issues
-// and six samples, one of them before the window.
+// three version pairs, one before it, a planning turn, three shipped issues,
+// six samples (one before the window) and the gate of three of the runs.
+//
+// `gate` is each run of the product's gate the runs made: its id, a text
+// command, the tier word, the step word it ran in, whether it passed, and its
+// own milliseconds. d and the run before the window hold none, so they are in
+// no gate figure.
+#[allow(clippy::type_complexity)]
+const REPORT_GATES: [(&str, &str, &str, &str, i64, i64); 5] = [
+    (
+        "c",
+        "scripts/verify.sh --fast",
+        "fast",
+        "develop",
+        1,
+        300_000,
+    ),
+    (
+        "c",
+        "scripts/verify.sh --fast",
+        "fast",
+        "review",
+        1,
+        300_000,
+    ),
+    ("e", "scripts/verify.sh", "full", "develop", 0, 540_000),
+    (
+        "f",
+        "scripts/verify.sh --fast",
+        "fast",
+        "develop",
+        1,
+        60_000,
+    ),
+    // Outside the window, and the run it belongs to has no end for its `at`:
+    // neither is a figure the report reads.
+    (
+        "old",
+        "scripts/verify.sh --fast",
+        "fast",
+        "develop",
+        1,
+        45_000,
+    ),
+];
+
 fn report_data(conn: &Connection, day0: i64, to: i64) {
     #[allow(clippy::type_complexity)]
     let runs: [(
@@ -2754,6 +2918,33 @@ fn report_data(conn: &Connection, day0: i64, to: i64) {
         [day0 + 100, day0 + 500],
     )
     .unwrap();
+    // Three of the runs recorded the gate, in four of its runs of the window:
+    // two 5-minute fast tiers in c, one 9-minute full tier in e and one
+    // minute of fast in f. `gate_ms` is what the runner's lines said, summed,
+    // in milliseconds, and the columns of run_gate_runs are the text, the tier
+    // and the step of each of them, the words of the published vocabularies.
+    for (id, command, tier, step, ok, ms) in REPORT_GATES {
+        conn.execute(
+            "INSERT INTO run_gate_runs (run_id, seq, command, tier, step, ok, ms, at)
+             SELECT id, (SELECT count(*) + 1 FROM run_gate_runs g WHERE g.run_id = r.id),
+                    ?2, ?3, ?4, ?5, ?6, coalesce(ended, started)
+             FROM runs r WHERE id = ?1",
+            rusqlite::params![id, command, tier, step, ok, ms],
+        )
+        .unwrap();
+    }
+    for (id, runs, ms) in [
+        ("c", 2, 600_000),
+        ("e", 1, 540_000),
+        ("f", 1, 60_000),
+        ("old", 1, 45_000),
+    ] {
+        conn.execute(
+            "UPDATE runs SET gate_runs = ?2, gate_ms = ?3 WHERE id = ?1",
+            rusqlite::params![id, runs, ms],
+        )
+        .unwrap();
+    }
     let steps = [
         ("a", "explore", 0),
         ("a", "handoff", 300),
@@ -2833,6 +3024,12 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         "firstPassYield": {"n": 2, "share": 0.5},
         "leadTime": {"n": 2, "median": 43_400, "p90": 83_600},
         "cycleTime": {"n": 6, "median": 750, "p90": 1800},
+        // c, e and f recorded the gate: 300 s and 300 s in c, 540 s in e and
+        // 60 s in f. The median of the four runs of the gate is 300 s and
+        // their p90 540 s; 1.333 of them per run; 1200 s of gate in the 2700 s
+        // of the three runs, so a mean share of 0.467.
+        "gate": {"n": 3, "seconds": 1200, "median": 300, "p90": 540, "perRun": 1.333,
+                 "share": 0.467},
         "machineTime": {"n": 6, "seconds": 4800, "perShipped": 1600},
         "tokens": {"n": 4, "total": 6650, "input": 6100, "output": 500, "cacheRead": 50,
                    "perShipped": 2217},
@@ -2876,6 +3073,62 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
     let text = got.to_string();
     assert!(!text.contains("cause no page"));
     assert!(!text.contains("Weird"));
+}
+
+#[test]
+fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
+    let home = scratch("report-gate");
+    let day0 = 1_792_022_400; // 2026-10-15T00:00:00Z
+    let to = day0 + 9 * DAY + 43_200;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    report_data(&conn, day0, to);
+    let report = crate::report::build(&conn, to).unwrap();
+    // The four gate rows of the window, read back as the report worked them
+    // out: 300 s and 300 s in c, 540 s in e and 60 s in f.
+    assert_eq!(
+        report["gate"],
+        json!({"n": 3, "seconds": 1200, "median": 300, "p90": 540, "perRun": 1.333,
+               "share": 0.467})
+    );
+    // The text line holds the same four figures, with the seconds of the two
+    // other durations of the report as minutes.
+    let text = crate::report::text(&report);
+    assert!(
+        text.contains(
+            "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n"
+        ),
+        "{text}"
+    );
+    // The JSON the report command prints holds the same key as `build`'s.
+    let json = crate::report::complete(&conn, &home, to).unwrap();
+    assert_eq!(json["gate"], report["gate"]);
+    // A second row of e's that carries no milliseconds of its own, and no
+    // tier: the count of the gate's runs of it rises to two, and its 540 s are
+    // read as two of 270 s each, which is what the run's stream said of them
+    // together. The report's figures follow the rows it was given.
+    conn.execute(
+        "INSERT INTO run_gate_runs (run_id, seq, command, tier, ok, ms, at)
+         VALUES ('e', 2, 'curl https://models.example/verify', NULL, NULL, NULL, ?1)",
+        [to],
+    )
+    .unwrap();
+    conn.execute("UPDATE runs SET gate_runs = 2 WHERE id = 'e'", [])
+        .unwrap();
+    let again = crate::report::build(&conn, to).unwrap();
+    assert_eq!(again["gate"]["n"], json!(3));
+    assert_eq!(again["gate"]["median"], json!(270));
+    assert_eq!(again["gate"]["p90"], json!(300));
+    assert_eq!(again["gate"]["seconds"], json!(1200));
+    // Two runs of the gate in e now: the mean rises, and the row says so. The
+    // run's own share of its time is its recorded milliseconds over its own
+    // seconds, whatever the count of them is.
+    assert_eq!(again["gate"]["perRun"], json!(1.667));
+    assert_eq!(again["gate"]["share"], json!(0.467));
+    let text = crate::report::text(&again);
+    assert!(
+        text.contains("median 4m30s, p90 5m, 1.667 runs per run, 46.7% of run time  (n=3, 20m)"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -2928,6 +3181,7 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
             "daily",
             "firstPassYield",
             "from",
+            "gate",
             "handoffRate",
             "leadTime",
             "machineTime",
@@ -2954,6 +3208,9 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     assert_eq!(got["availability"], json!({"n": 0}));
     assert_eq!(got["firstPassYield"], json!({"n": 0}));
     assert_eq!(got["leadTime"], json!({"n": 0}));
+    // No run recorded the gate, so its section holds its count alone and the
+    // terminal prints no row for it.
+    assert_eq!(got["gate"], json!({"n": 0}));
     assert_eq!(got["machineTime"], json!({"n": 0, "seconds": 0}));
     assert_eq!(got["daily"].as_array().unwrap().len(), 10);
     assert_eq!(got["from"], json!(to - 3600 - 9 * DAY));
@@ -3077,6 +3334,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "\nTokens             6650: 6100 input, 500 output, 50 cache read, 2217 per shipped issue  (n=4)\n",
         "\nAvailability       0.2% of 8d12h  (n=5)\n",
         "\nEnergy             0.075 kWh, 0.025 kWh per shipped issue  (n=4)\n",
+        "\nGate               median 5m, p90 9m, 1.333 runs per run, 46.7% of run time  (n=3, 20m)\n",
         "\n2026-10-16         1     2       2       20\n",
         "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
         "\n  implement                         2 of 3     66.7%\n",

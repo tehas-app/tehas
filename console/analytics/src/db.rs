@@ -7,8 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tehas_core::file::side_file;
 
-/// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 1;
+/// PRAGMA user_version of the schema in schema.sql. Schema 2 added
+/// run_gate_runs and the gate columns of runs; there is no migration, so a
+/// database of schema 1 is moved aside whole under its version.
+pub const SCHEMA_VERSION: i64 = 2;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 const DAY: i64 = 86_400;

@@ -4,7 +4,9 @@
 -- seconds, unless a name says ms. The test schema_is_pinned compares this
 -- with schema.pinned.
 
--- One row per run, written when the run ends.
+-- One row per run, written when the run ends. gate_runs and gate_ms are what
+-- the cycle's stream said of its runs of the product's gate: schema 2 holds
+-- gate_ms alone, and the number is the count of these rows.
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('work', 'plan')),
@@ -44,10 +46,31 @@ CREATE TABLE runs (
   forks_refused INTEGER,
   concurrent INTEGER,
   runner_ms INTEGER,
-  result_schema INTEGER
+  result_schema INTEGER,
+  gate_runs INTEGER,
+  gate_ms INTEGER
 );
 CREATE INDEX runs_ended ON runs (ended);
 CREATE INDEX runs_issue ON runs (issue, started);
+
+-- The runs of the product's gate that the cycle made, from its stream: one
+-- row each, in the order they finished. The milliseconds are the run of the
+-- gate's own time, not the wait for another run of it that held the
+-- container's CPU share. The gate of one cycle is a handful of rows, never a
+-- stream of them, so the bound is a guard against a runner that lost its mind
+-- and is not read as a figure.
+CREATE TABLE run_gate_runs (
+  run_id TEXT NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  command TEXT,
+  tier TEXT,
+  step TEXT,
+  ok INTEGER,
+  ms INTEGER,
+  at INTEGER,
+  PRIMARY KEY (run_id, seq)
+);
+CREATE INDEX run_gate_runs_run ON run_gate_runs (run_id, at);
 
 -- The steps of a run. round is the step's turn in the run: 1 the first
 -- time it ran, 2 the second.
@@ -100,6 +123,11 @@ CREATE TABLE samples (
   held TEXT,
   watts REAL
 );
+
+-- schema 2: run_gate_runs, and gate_runs and gate_ms on runs. A database of
+-- schema 1 is moved aside whole under its version, as the manual says, and a
+-- host that had no gate on the record before loses nothing of it: the column
+-- is NULL, which is no gate, and no number the report prints.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (
