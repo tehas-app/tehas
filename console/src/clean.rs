@@ -24,8 +24,8 @@
 //! 2. Docker's build cache: `docker builder prune` of that age.
 //! 3. Host scratch: files of that age directly under tmp/dl and
 //!    tmp/node-compile-cache, tmp/analytics-facts.* files of that age, the
-//!    copy of the sandbox recipe (and its temporary) a killed build left beside
-//!    the build script, and tmp/tehas-test.* directories.
+//!    copy of the sandbox recipe (and its temporary) of that age a killed build
+//!    left beside the build script, and tmp/tehas-test.* directories.
 //! 4. Dated tags of the sandbox image of that age, except the newest and any
 //!    a container or a uid tag holds.
 //! 5. `sha-` tags of the base image's repository of that age, which no
@@ -283,6 +283,17 @@ fn real_dir(p: &Path) -> bool {
 
 fn plain_file(p: &Path) -> bool {
     fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
+}
+
+/// Whether <t> is the name of a sandbox build's staged recipe: the name docker
+/// is given, or the `mktemp` temporary it renames from. The temporary's suffix is
+/// the six characters `mktemp XXXXXX` makes, each one of its alphabet, so a name
+/// of six bytes that is no mktemp name is not taken for one. The same shape
+/// `host/sandbox/build.sh` sweeps and `.gitignore` ignores.
+fn staged_recipe_shaped(n: &str) -> bool {
+    n == "sandbox-uid.Dockerfile"
+        || n.strip_prefix("sandbox-uid.Dockerfile.")
+            .is_some_and(|s| s.len() == 6 && s.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
 /// Written within <hours>, as `find -newermt "-<hours> hours"` finds it; None
@@ -859,12 +870,9 @@ impl Run {
         // its own copy back when it ends and replaces a stale one when it starts,
         // so what stands here of an age belongs to a run a signal took off before
         // its trap ran: no other name of that directory is a build's to leave.
-        let staged = |n: &str| {
-            n.starts_with("sandbox-uid.Dockerfile")
-                && (n == "sandbox-uid.Dockerfile"
-                    || n.strip_prefix("sandbox-uid.Dockerfile.")
-                        .is_some_and(|s| s.len() == 6))
-        };
+        // The shape is the one host/sandbox/build.sh stages with - mktemp's suffix
+        // is six characters - and the same one .gitignore carries.
+        let staged = |n: &str| staged_recipe_shaped(n);
         files.extend(self.old_files(&self.home.join("sandbox"), staged));
         for f in files {
             ok &= self.remove_scratch(&f, &would, "host scratch");
@@ -1223,6 +1231,34 @@ mod tests {
         assert_eq!(issue_of("widget-", "widget"), None);
         assert_eq!(issue_of("widget-12345678901", "widget"), None);
         assert_eq!(issue_of("other-7", "widget"), None);
+    }
+
+    #[test]
+    fn the_two_names_of_a_sandbox_build_and_nothing_else() {
+        // The names host/sandbox/build.sh stages, and the shape of its temporary:
+        // six characters of mktemp's alphabet, as the build's sweep and .gitignore
+        // both read it. A longer suffix, a shorter one, a name that only looks
+        // like one, and a suffix of six bytes that is no mktemp name all stay.
+        for n in [
+            "sandbox-uid.Dockerfile",
+            "sandbox-uid.Dockerfile.abcdef",
+            "sandbox-uid.Dockerfile.A1b2C3",
+        ] {
+            assert!(staged_recipe_shaped(n), "{n}");
+        }
+        for n in [
+            "sandbox-uid.Dockerfile.toolong",
+            "sandbox-uid.Dockerfile.abcde",
+            "sandbox-uid.Dockerfile.DIR",
+            "sandbox-uid.Dockerfilex",
+            "Dockerfile",
+            "build.sh",
+            "sandbox-uid.Dockerfile.",
+            "sandbox-uid.Dockerfile.a-b_c",
+            "sandbox-uid.Dockerfile.\u{e9}\u{e9}\u{e9}",
+        ] {
+            assert!(!staged_recipe_shaped(n), "{n}");
+        }
     }
 
     #[test]

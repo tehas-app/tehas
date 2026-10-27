@@ -166,11 +166,13 @@ USER root
 
 # An argument is scoped to the stage that declares it, so the steps of `shared`
 # hold no value for it whatever the build passes. sandbox/build.sh passes the uid
-# of the person who ran the build and refuses one that is not a number; the default
-# is the id the base gave the user, so a build made without that argument holds the
-# image as it came. The compare is numeric, so a value that is not a number stops
-# the build here rather than trying to move the user to it.
-ARG TEHAS_UID=1000
+# of the person who ran the build and refuses one that is not a number. It holds
+# no default: the argument is read from the line that declares it, and a default
+# here would be a uid the image bakes for itself, one the build's own argument
+# shadows today and a recipe that dropped the flag would not. The compare is
+# numeric, so a value that is not a number stops the build here rather than
+# trying to move the user to it.
+ARG TEHAS_UID=
 RUN if [ "${TEHAS_UID:-1000}" -ne 1000 ]; then \
       usermod -u "$TEHAS_UID" vscode && groupmod -g "$TEHAS_UID" vscode \
       && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
