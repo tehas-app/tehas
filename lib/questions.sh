@@ -52,6 +52,12 @@ q_clean() {
 # a ticked box and its option keep the same place.
 Q_MAX_OPTIONS=20
 
+# The two retry boxes of a park's question, named once for the renderer, both
+# polls (through the labels of q_answer) and test/: test/questions_test.sh
+# checks them against the consts of console/core/src/question.rs.
+Q_BOX_CLEAN='Retry from a clean start'
+Q_BOX_ALONE='Retry from the issue alone'
+
 q_render() {
   local kind=$1 issue=$2 turn=$3 file=$4 line=${5:-} n i label desc marker
   # A park may carry pi-rukas's handoff marker, put back as its first line.
@@ -89,10 +95,10 @@ q_render() {
       printf 'Tick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n'
       ;;
     park)
-      # The two retries and the way out. The retry box is left out when the
+      # The two retries and the way out. The retry boxes are left out when the
       # park says there is no retry to ask for.
       [ "$(jq '.retry != false' "$file")" = false ] ||
-        printf -- '- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n'
+        printf -- '- [ ] %s\n- [ ] %s\n' "$Q_BOX_CLEAN" "$Q_BOX_ALONE"
       printf -- '- [ ] Leave it parked\n\n'
       printf 'Tick one box. Only a tick from an account that may authorise work counts.\n'
       ;;
@@ -136,13 +142,18 @@ q_answer() {
                                     and ($id == "" or (.value.databaseId | tostring) == $id))) | last) as $q
     | if $q == null then {asked: false} else
         ($q.value.body | capture($re)) as $m
-        | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")) | test("^- \\[[xX]\\]"))) as $boxes
+        # $boxes: whether each box is ticked. $labels: the text after its box,
+        # which is what a poll reads to tell the two retries apart.
+        | ($q.value.body | split("\n") | map(select(test("^- \\[[ xX]\\] ")))) as $l
+        | ($l | map(test("^- \\[[xX]\\]"))) as $boxes
         | ($boxes | to_entries | map(select(.value) | .key)) as $ticks
+        | ($l | map(.[6:])) as $labels
         | ($q.value.editor.login // "") as $ed
         | ($c[($q.key + 1):] | map(select((.author.login // "") as $a | ($list | index($a))
                   and ((.editor.login // "") as $e | $e == "" or ($list | index($e))))) | last) as $r
         | {asked: true, comment: $q.value.databaseId, asked_at: ($q.value.createdAt // ""), body: $q.value.body, kind: $m.kind,
            issue: ($m.issue | tonumber), turn: ($m.turn | tonumber), boxes: ($boxes | length),
+           labels: $labels,
            tick: (if ($ticks | length) == 0 then {status: "none"}
                   elif $fixer != "" and $ed == $fixer and ($ticks | length) == 1 then
                     ($q.value.userContentEdits // {}) as $h

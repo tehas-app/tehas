@@ -10,6 +10,21 @@ use std::sync::OnceLock;
 /// The options a question lists and its record keeps (Q_MAX_OPTIONS).
 pub const MAX_OPTIONS: usize = 20;
 
+/// The two retry boxes of a park's question, without their box. The comment
+/// and both polls read them through the labels the answer parser returns, so
+/// the wording of `q_render` below, of lib/questions.sh and of the readers in
+/// libexec/dispatch, console/dispatch and the test helpers is one string that
+/// cannot drift: test/questions_test.sh compares the two languages.
+pub const BOX_CLEAN: &str = "Retry from a clean start";
+pub const BOX_ALONE: &str = "Retry from the issue alone";
+
+/// The line `q_render` prints for a box, and the line a fixture writes for a
+/// ticked one. Both polls take the text after the box as it stands, so the
+/// label of the answer parser and this line are the same text.
+pub fn box_line(label: &str, ticked: bool) -> String {
+    format!("- [{}] {}", if ticked { "x" } else { " " }, label)
+}
+
 /// q_clean: an agent's words, safe to post on a public issue, cut at `max`
 /// characters. Line by line, as sed reads them.
 pub fn q_clean(text: &str, max: usize) -> String {
@@ -127,7 +142,11 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
             "plan"
         }
         Kind::Park => {
-            b += "- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\n";
+            b += &format!(
+                "{}\n{}\n- [ ] Leave it parked\n\n",
+                box_line(BOX_CLEAN, false),
+                box_line(BOX_ALONE, false)
+            );
             b += "Tick one box. Only a tick from an account that may authorise work counts.\n";
             "park"
         }
@@ -163,6 +182,31 @@ mod tests {
                 "<!-- pi-rukas:handoff issue=7 cap=x -->\nTehas cycle stopped.\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n{park}\n<!-- tehas:question kind=park issue=7 turn=1 -->"
             )
         );
+    }
+
+    #[test]
+    fn the_retry_boxes_are_the_lines_the_polls_read() {
+        // The renderer and the readers are one string: a ticked box of a
+        // rendered body is what each poll reads, and the other stays unticked.
+        for label in [BOX_CLEAN, BOX_ALONE] {
+            assert_eq!(box_line(label, false), format!("- [ ] {label}"));
+            assert_eq!(box_line(label, true), format!("- [x] {label}"));
+            let body = q_render(
+                Kind::Park,
+                7,
+                1,
+                &json!({"text": "Tehas cycle stopped.", "question": null}),
+                "",
+            );
+            // The label of the box as the answer parser reads it is the label
+            // the polls compare these consts with, in order, one per box.
+            let labels: Vec<String> = body
+                .split('\n')
+                .filter(|l| l.starts_with("- [ "))
+                .map(|l| l[6..].to_string())
+                .collect();
+            assert_eq!(labels, vec![BOX_CLEAN, BOX_ALONE, "Leave it parked"]);
+        }
     }
 
     #[test]

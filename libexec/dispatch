@@ -78,10 +78,10 @@
 #      answer: on a parked cycle, either retry box starts a fresh cycle; that
 #      of "Retry from the issue alone" records no comment of the issue or its
 #      pull request. Rules 2 and 3 hold both back too. The tick counts only on
-#      a parked issue that GitHub still says is
-#      open, and it is unticked when it is used. A tick on an issue closed
-#      since its cycle stopped starts nothing. A comment is a
-#      question only if this host has its id on record on the state store:
+#      a parked issue that GitHub still says is open, and it is unticked when
+#      it is used. A tick on an issue closed since its cycle stopped starts
+#      nothing. A comment is a question only if this host has its id on record
+#      on the state store:
 #      the question of the issue's open planning session, or of its current
 #      park (question-known). A record that could not be read skips the issue
 #      for this poll: no tick counts and none is undone.
@@ -194,9 +194,9 @@
 #   7. tehas:urgent first, then refreshes, then tehas:next, then the lowest
 #      issue number. An issue on neither the urgent list nor the tehas:next one
 #      is of the lowest kind, so one whose tehas:next came from an account it
-#      does not count is of that kind too. The
-#      urgent label counts only when its most recent labelling is by an allowed
-#      account, as tehas:ready does: one applied by the bot or anyone else is
+#      does not count is of that kind too. The urgent label counts only when
+#      its most recent labelling is by an allowed account, as tehas:ready does:
+#      one applied by the bot or anyone else is
 #      ignored and logged, and the issue keeps its place by number. tehas:next,
 #      and tehas:blocked in rule 6, count when their latest event applies them
 #      and is by an allowed account or the fixer. A running cycle is never
@@ -1070,7 +1070,10 @@ epic_ok() {
   # Only the label that asked for the cycle comes off. A retry tick's issue
   # may carry none.
   [[ $have == *" $ask "* ]] || return 1
-  [ "$dry" = 1 ] && { log "would take $ask off #$n: it is an epic"; return 1; }
+  if [ "$dry" = 1 ]; then
+    log "would take $ask off #$n: it is an epic"
+    return 1
+  fi
   if gh issue edit "$n" --repo "$repo" --remove-label $ask >/dev/null 2>&1; then
     say "$n" "Tehas took \`$ask\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
   else
@@ -3069,14 +3072,13 @@ for n in $asking; do
         fi
         continue
       fi
-      # What was ticked is read from its text, not its place in the list. The
-      # third box is a retry too, asking for nothing of the earlier cycle.
-      qbody=$(jq -r .body <<<"$ans") || qbody=""
-      qbody=${qbody//$'\r'/}
+      # What was ticked is read from the label of the ticked box, as q_answer
+      # read it: the order of the boxes decides nothing, and the third box is a
+      # retry too, asking for nothing of the earlier cycle.
+      ticked=$(jq -r '.labels[.tick.index] // ""' <<<"$ans") || ticked=""
       issue_alone=0
-      grep -qix -e '- \[x\] Retry from the issue alone' <<<"$qbody" && issue_alone=1
-      grep -qix -e '- \[x\] Retry from a clean start' <<<"$qbody" ||
-        [ "$issue_alone" = 1 ] || {
+      [ "$ticked" != "$Q_BOX_ALONE" ] || issue_alone=1
+      if [ "$ticked" != "$Q_BOX_ALONE" ] && [ "$ticked" != "$Q_BOX_CLEAN" ]; then
         # The record goes only with the label: while the label stays, the
         # next poll reads the same tick and tries again.
         if [ "$dry" = 0 ]; then
@@ -3088,7 +3090,7 @@ for n in $asking; do
           fi
         fi
         continue
-      }
+      fi
       # A retry counts only on an issue that is parked now. The tick is undone:
       # left in place it would start a cycle later, when the labels change.
       case "$have" in
