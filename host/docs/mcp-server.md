@@ -8,7 +8,8 @@ description: "A read-only MCP server for agents outside the host: what it shows,
 Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
 a running cycle's console and the last ten days, as the dashboard shows them,
-plus the sessions of the last 30 days and their logs, masked. See
+one issue's story, and the sessions of the last 30 days and their logs, masked.
+See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
 host, through [the factory API](/api).
@@ -170,6 +171,7 @@ the same JSON as text.
 | `factory_sessions` | all optional: `outcome` (`pr`, `merged`, `handoff`, `parked`, `failed`, `refused`, `stopped`), `failureKind`, `tehasVersion`, `rukasVersion` (also matches the commit), `kind` (`work`, `plan`), `how` (`label`, `retry-tick`, `outage-retry`, `millwright`, `answer`, `refine`; the old `fixer` is accepted and matches the same runs), `issue`, `limit` from 1 to 200 (50 without it), `before` | The runs of the last 30 days, newest first, filters combined: id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, and links to the issue and pull request (`issueUrl`, `prUrl`). `next` is the last id when more remain: pass it as `before`. A version or failure kind is matched exactly |
 | `factory_session` | `id`, like `work-12-1792485967` | One run of the last 30 days: every figure of the session, its `steps`, its `roles` (model, provider, tokens), its `logs` as a word and a size in bytes (never a file name), `filed` for a planning session, and `issueUrl` and `prUrl` |
 | `factory_log` | `id`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. Plain: `id`, `file`, `size`, `offset`, `text`, and `next`, the offset of the rest, when more remains. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
+| `factory_issue` | `issue`, a positive integer | One issue's story in one call: `issue`, `issueUrl`, `stage` (the first of `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` that lists it, left out when it is listed nowhere), `title` when the dashboard has it, `running` (`step`, `status`) while a cycle owns it — only a cycle that is running owns one, so a cycle the store has marked `lost`, or one that ended between publishes, puts nothing there and does not make the stage `running` — and `attempts`: every run of it of the last 30 days, oldest first, each with its `id` (the one to give `factory_session` or `factory_log`), `kind`, `attempt`, `how`, `started`, `ended`, `seconds`, `outcome`, `failedStep`, `failureKind`, `failureCause`, `parkReason` and `prUrl`. `firstSeen` and `lastSeen` are the started of the oldest and newest run, and `outcome` is the newest run's. An issue with no run in the window and no stage is a tool error that names it |
 | `factory_failures` | none | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. Planning sessions are not counted |
 
 The links are built from the `repo` the dashboard publishes, and only when it
@@ -177,6 +179,12 @@ is `owner/name`. Without a valid repo a session has no links and a cause has no
 issues. The session tools read `sessions.jsonl`, which `tehasbot status`
 rewrites on each poll; `stale` is true when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
+
+`factory_issue` reads the same snapshot for its attempts and the dashboard's own
+files for the rest: `status.json` for the stage and the title, `running.json`
+for the cycle that owns the issue, and `health.json` for the issues being
+planned, whose list `status.json` gives only as a count. It reads nothing else,
+and it never gives an issue's body or its labels.
 
 ### Logs
 
