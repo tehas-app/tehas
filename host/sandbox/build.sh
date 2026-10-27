@@ -35,6 +35,12 @@
 # use. Whether its pi-rukas reads the images a cycle is given is recorded in the
 # image. See the header of host/sandbox/Dockerfile.
 #
+# The uid comes from the machine and is handed to the build as an argument, so no
+# file of the repository names one, and the build hands docker a copy of the
+# tracked recipe staged here rather than that file. What the two stages of the
+# recipe are for, what the staged copy is and who takes it back, is told once in
+# What two instance users of one host share (host/docs/host.md).
+#
 # Each image is several gigabytes. After a build only the newest 3 dated
 # tags are kept, the instance's own layer among them: a build makes
 # <date>-product beside <date> when the instance has a sandbox.Dockerfile, and
@@ -51,7 +57,8 @@
 # Exit: 0 built, or nothing to do; 1 the commit moved (--check), or the commit,
 #       the base image or the build could not be had, or the base does not
 #       support what tehas work needs; 64 usage; 78 the instance's settings
-#       do not load, or PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>
+#       do not load, PI_RUKAS_IMAGE_DIGEST is not sha256:<64 hex>, or the uid of
+#       this account is not a number
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -59,7 +66,26 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/../versions.env"
 image=tehas/pi-rukas
 keep=3
-current=$image:uid$(id -u)
+uid=$(id -u)
+# The uid decides whether the image's user is remapped at all, so a value that
+# is not a number is refused here rather than deep in the build's usermod.
+if [[ ! $uid =~ ^[0-9]+$ ]]; then
+  echo "build: the uid of this account is '$uid', not a number" >&2
+  exit 78
+fi
+current=$image:uid$uid
+# The tracked recipe of the image, and the copy of it the build is handed, which
+# is named here before anything is asked of git or docker. What it holds and who
+# takes it back: host/docs/host.md, What two instance users of one host share.
+dockerfile=$here/Dockerfile
+uid_recipe=$here/sandbox-uid.Dockerfile
+# One shape for a staged temporary, named once: mktemp makes the suffix six
+# characters, and the sweep, the check below, .gitignore and the cleaner's pick
+# in console/src/clean.rs all read it as six. Bracket classes, not bare ?: under
+# failglob a bare ? matches a dot and would name a hidden file of the directory.
+# A pattern held in a variable is not globbed, so the sweep and the case below
+# expand $temp_glob unquoted and say what they match with it.
+temp_glob='sandbox-uid.Dockerfile.[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]'
 # The instance's own addition to the image, beside the settings this host loads.
 # Written by a person, built by no one else: absent is normal. Resolved the way
 # every command resolves the instance directory (tehas_instance_dir in
@@ -85,6 +111,25 @@ for d in "$here/../lib" "$here/../../lib"; do
 done
 if [ -z "$lib" ]; then
   echo "sandbox: no lib/headless.sh, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+  exit 1
+fi
+# The recipe the image is made from goes with lib/: a toolchain that lacks it
+# says so here, as it does for the libraries, and not as a sed error later.
+if [ ! -f "$dockerfile" ]; then
+  echo "sandbox: no Dockerfile beside $here, so the image cannot be built" >&2
+  exit 1
+fi
+# The two lines the two stages are cut at, each counted as one whole line of the
+# tracked file: the boundary, and the uid's own argument with nothing after the
+# `=`. A stage renamed, a step indented, a second declaration, or a default
+# written after the argument leaves the shared layers uncut, or gives the stage a
+# uid of its own to fall back on, and is refused here rather than read as a
+# boundary by one reader and not another. The same counts are asked of the staged
+# copy below, so the cut and its check read the recipe by one rule.
+if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
+  [ "$(grep -cxF -- 'ARG TEHAS_UID=' "$dockerfile")" != 1 ] ||
+  [ "$(grep -c '^ARG TEHAS_UID' "$dockerfile")" != 1 ]; then
+  echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
 # shellcheck source=lib/rukas.sh
@@ -120,6 +165,48 @@ digest=${PI_RUKAS_IMAGE_DIGEST:-}
 if [ -n "$digest" ] && ! [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "build: PI_RUKAS_IMAGE_DIGEST=$digest is not sha256: and 64 hex digits" >&2
   exit 78
+fi
+
+# The staged recipe below is the only file this script writes, so its name is
+# settled before anything is asked of git or docker. A link under the name is
+# written through and a directory stops the build on its redirect, so both are
+# refused. A plain file is the copy a build that never reached its cleanup left -
+# a run killed by a signal bash cannot catch, for one - and the name is the build's
+# own to take back, so the line names the time it was written. A copy of the age is
+# also what tehasbot clean takes with the rest of the host scratch.
+if [ -L "$uid_recipe" ] || { [ -e "$uid_recipe" ] && [ ! -f "$uid_recipe" ]; }; then
+  echo "sandbox: refusing to build, $uid_recipe is already there and is not a plain file" >&2
+  exit 1
+fi
+if [ -f "$uid_recipe" ]; then
+  said=$(stat -c %y "$uid_recipe" 2>/dev/null) || said='unknown (stat failed)'
+  if [ "$mode" = build ]; then
+    echo "sandbox: $uid_recipe is the copy an earlier build left, written $said; this build replaces it" >&2
+  else
+    echo "sandbox: $uid_recipe is the copy an earlier build left, written $said; the next build replaces it" >&2
+  fi
+fi
+# The temporaries of earlier runs - none of them this run's, which is made below -
+# have no owner but the run that made them, and none should stand between builds.
+# They are taken back quietly, as the trap takes this run's copy back quietly:
+# what carries the name of one and is not a plain file is refused with it rather
+# than removed, since a sweep names a file, it does not prove who wrote it.
+left=()
+# shellcheck disable=SC2086  # the six classes of $temp_glob are the pattern here
+for f in "$here"/$temp_glob; do
+  [ -e "$f" ] || [ -L "$f" ] || continue
+  if [ -f "$f" ] && [ ! -L "$f" ]; then
+    left+=("$f")
+  else
+    echo "sandbox: refusing to build, $f is named like a build's temporary and is not a plain file" >&2
+    exit 1
+  fi
+done
+if [ "${#left[@]}" != 0 ] && ! rm -f -- "${left[@]}" 2>/dev/null; then
+  # A temporary the run cannot take back is not a file to build beside: the sweep
+  # names it, it does not prove the directory lets the build own it.
+  echo "sandbox: could not take back ${left[*]}, the temporary an earlier build left" >&2
+  exit 1
 fi
 
 if ! target=$(tehas_rukas_target); then
@@ -185,10 +272,64 @@ fi
 reads=$(tehas_headless_reads_images "$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
+# The recipe the build is handed, written from the tracked file just before the
+# build so the two cannot drift: everything up to the line that reads exactly
+# `FROM shared`, that line opening the second stage, and the steps below it with
+# the uid's argument taken out of them - an argument is read from the line that
+# declares it, so it has to stand below the boundary and not above it. The cut
+# matches whole lines by hand, the way the checks below count them, so no value
+# read out of the recipe is ever used as a pattern.
+stage=
+staged=
+mktemp_failed=0
+stage=$(mktemp "$here/sandbox-uid.Dockerfile.XXXXXX") || mktemp_failed=1
+# From the first moment the run owns a file, the handler that takes it back
+# stands: the name this run renames onto goes into the same variable, so there is
+# nothing to disarm and nothing a later exit can leave standing.
+trap 'rm -f -- "${stage:-}" "${staged:-}"' EXIT HUP INT TERM
+if [ "$mktemp_failed" = 1 ]; then
+  echo "sandbox: could not stage a recipe beside $here" >&2
+  exit 1
+fi
+# The temporary is beside the name it ends at and owns nothing else's: a mktemp
+# that read TMPDIR elsewhere, or made a name of another shape, is this run's
+# mistake and not a file to keep. Same pattern the sweep above matches with.
+# shellcheck disable=SC2254  # $temp_glob is the pattern of the case item here
+case $stage in
+  "$here"/$temp_glob) ;;
+  *)
+    echo "sandbox: $stage is not the temporary this build made beside $here" >&2
+    exit 1
+    ;;
+esac
+{
+  awk 'index($0, "FROM shared") == 1 { exit } { print }' "$dockerfile"
+  echo 'FROM shared'
+  awk 'index($0, "FROM shared") == 1 { f = 1; next } f { print }' "$dockerfile"
+} >"$stage" || {
+  echo "sandbox: could not write the staged recipe beside $here" >&2
+  exit 1
+}
+# The same counts the pre-check asks of the tracked file, asked of the copy this
+# run made, before docker is asked anything of it.
+if [ "$(grep -cxF -- 'FROM shared' "$stage")" != 1 ] ||
+  [ "$(grep -cxF -- 'ARG TEHAS_UID=' "$stage")" != 1 ] ||
+  [ "$(grep -c '^ARG TEHAS_UID' "$stage")" != 1 ]; then
+  echo "sandbox: the staged recipe does not hold one 'FROM shared' line and one 'ARG TEHAS_UID=' line" >&2
+  exit 1
+fi
+mv -f "$stage" "$uid_recipe" || {
+  echo "sandbox: could not put the staged recipe at $uid_recipe" >&2
+  exit 1
+}
+# Only from here does the name belong to this run: the trap takes back what this
+# run put there and nothing that stood there before it.
+staged=$uid_recipe
+stage=
 docker build \
   --build-arg PI_RUKAS_IMAGE="$base" \
   --build-arg PI_RUKAS_COMMIT="$head" \
-  --build-arg TEHAS_UID="$(id -u)" \
+  --build-arg TEHAS_UID="$uid" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
   --build-arg JQ_VERSION="$JQ_VERSION" \
@@ -203,7 +344,8 @@ docker build \
   --build-arg VIPUNE_MODEL_SHA256_ONNX="$VIPUNE_MODEL_SHA256_ONNX" \
   --build-arg VIPUNE_MODEL_SHA256_TOKENIZER="$VIPUNE_MODEL_SHA256_TOKENIZER" \
   --build-arg TEHAS_RUKAS_IMAGES="$reads" \
-  -t "$image:$stamp" "$here"
+  -t "$image:$stamp" \
+  -f "$uid_recipe" "$here"
 docker tag "$image:$stamp" "$current"
 # The uid tag names the image cycles run, so the instance's own layer above
 # moves it onto itself when there is one, and a layer that does not build or does
@@ -227,8 +369,9 @@ echo "built $image:$stamp with pi-rukas $head ($what), issue images: $reads, als
 if [ -f "$instance_file" ]; then
   # The argument is written with its value in front of it, its name not spelled
   # out on a line of its own: test/build_test.sh counts the argument lines of the
-  # build above against the ARG lines of the tracked Dockerfile, and this one
-  # belongs to a file that checkout does not own, so it joins neither count.
+  # build above against the ARG lines of the two tracked-by-us files it reads,
+  # and this one belongs to a file that checkout does not own, so it joins
+  # neither count.
   if ! docker build -t "$image:$stamp-product" \
     "--build-arg=TEHAS_BASE=$image:$stamp" \
     -f "$instance_file" "$(dirname "$instance_file")"; then

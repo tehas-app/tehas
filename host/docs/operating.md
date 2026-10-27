@@ -1400,8 +1400,12 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   volume is removed by this step.
 - the host's scratch: old files under `~/tehas/tmp/dl` and
   `~/tehas/tmp/node-compile-cache`, old `~/tehas/tmp/analytics-facts.*` files
-  an analytics call left when its caller was killed, and old
-  `~/tehas/tmp/tehas-test.*` directories. Nothing elsewhere under `~/tehas`, and nothing outside it: not
+  an analytics call left when its caller was killed, old
+  `~/tehas/tmp/tehas-test.*` directories, and the copy of the sandbox recipe -
+  `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its `sandbox-uid.Dockerfile.XXXXXX`
+  temporary - that a build killed before its cleanup ran left beside the build
+  script. Nothing outside those four directories under `~/tehas`, and nothing
+  outside it: not
   `~/tehas/dev`, so the build output a manual session keeps in
   `<name>.state/target` is walked for no build-output name. It is the one build
   output on the host with no automated reclaim, and a person's call: `du -sh

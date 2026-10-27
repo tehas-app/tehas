@@ -23,9 +23,9 @@
 #                                        under $TEHAS_HOME/dev.
 #   2. Docker's build cache              `docker builder prune` of that age,
 #                                        the whole host daemon's
-#   3. host scratch                      under $TEHAS_HOME/tmp: dl,
-#                                        node-compile-cache, analytics-facts.*
-#                                        and tehas-test.* directories
+#   3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
+#                                        compile-cache, analytics-facts.*,
+#                                        tehas-test.* dirs, a staged recipe
 #   4. old sandbox images                dated tags of that age, except the
 #                                        newest and any a container or a uid
 #                                        tag holds
