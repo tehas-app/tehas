@@ -54,6 +54,7 @@ one. A request without a key gets 401.
 - `factory_endings`: the cycles that ended last, and the failed ones among them
 - `factory_console`: the tail of one running cycle's console
 - `factory_stats`: the ten-day report the dashboard shows
+- `factory_issue`: one issue's story: its stage, its title, the running cycle and every run of the last 30 days
 - `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
 - `factory_session`: one run in full: steps, roles, logs and links
 - `factory_log`: one log of a run, masked, plain in pieces or whole as gzip
