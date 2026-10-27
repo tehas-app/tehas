@@ -633,10 +633,10 @@ bashrc_ok() {
 first_owed=$TEHAS_HOME/state/first-install
 
 # Do the lines the sandbox image reads differ between this checkout and the copy
-# the host holds? The build reads only the lines named SHELLCHECK_, PLAYWRIGHT_,
-# CBM_, PI_RUKAS_ or VIPUNE_ (host/sandbox/build.sh, host/sandbox/Dockerfile);
-# the rest of versions.env is bootstrap.sh's, so a change to one of those asks
-# for nothing but the copy. 0 when equal, 1 otherwise.
+# the host holds? The build reads only the lines named SHELLCHECK_, JQ_,
+# PLAYWRIGHT_, CBM_, PI_RUKAS_ or VIPUNE_ (host/sandbox/build.sh,
+# host/sandbox/Dockerfile); the rest of versions.env is bootstrap.sh's, so a
+# change to one of those asks for nothing but the copy. 0 when equal, 1 otherwise.
 #
 # The host's copy is read before the copies begin and the answer kept, so the
 # record and the next: lines are made from one reading of the file the host held:
@@ -651,11 +651,11 @@ versions_build_changed() {
   local host_file current kept line
   host_file=$TEHAS_HOME/versions.env
   [ -f "$host_file" ] || { echo 1; return 0; }
-  current=$(grep -E '^(SHELLCHECK|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host/versions.env") || current=""
+  current=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host/versions.env") || current=""
   # A file that names none of them cannot be compared with: the build reads what
   # it reads, so the build is owed rather than assumed already done.
   [ -n "$current" ] || { echo 1; return 0; }
-  kept=$(grep -E '^(SHELLCHECK|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host_file") || kept=""
+  kept=$(grep -E '^(SHELLCHECK|JQ|PLAYWRIGHT|CBM|PI_RUKAS|VIPUNE)_' "$host_file") || kept=""
   # A copy that holds none of them is a difference and not an agreement, for the
   # same reason.
   [ -n "$kept" ] || { echo 1; return 0; }

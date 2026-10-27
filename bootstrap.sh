@@ -257,6 +257,7 @@ version_of() { "$@" 2>/dev/null | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 
 
 found_node() { version_of node --version; }
 found_gh() { version_of gh --version; }
+found_jq() { version_of jq --version; }
 found_bun() { version_of bun --version; }
 found_pi() { version_of pi --version; }
 found_ctx7() { version_of ctx7 --version; }
@@ -308,6 +309,7 @@ do_check() {
   done <<EOF
 node found_node $NODE_VERSION
 gh found_gh $GH_VERSION
+jq found_jq $JQ_VERSION
 bun found_bun $BUN_VERSION
 pi found_pi_tree $PI_VERSION
 ctx7 found_ctx7_tree $CTX7_VERSION
@@ -319,7 +321,7 @@ codebase-memory-mcp found_cbm $CBM_VERSION
 pi-rukas found_rukas $(rukas_head || echo "no commit for PI_RUKAS_FOLLOW=$PI_RUKAS_FOLLOW")
 EOF
   # System tools: present is enough, the version is shown for the record.
-  for tool in docker git jq curl openssl flock minisign shellcheck unzip; do
+  for tool in docker git curl openssl flock minisign shellcheck unzip; do
     if command -v "$tool" >/dev/null 2>&1; then
       printf '%-22s %-42s %-42s %s\n' "$tool" "$(version_of "$tool" --version)" "(any)" ok
     else
@@ -387,6 +389,12 @@ install_gh() {
   fetch "https://github.com/cli/cli/releases/download/v$GH_VERSION/gh_${GH_VERSION}_linux_amd64.tar.gz" "$GH_SHA256" "$dl/gh.tar.gz"
   tar -xzf "$dl/gh.tar.gz" -C "$dl"
   install -m 755 "$dl/gh_${GH_VERSION}_linux_amd64/bin/gh" "$TEHAS_HOME/bin/gh"
+}
+# The system's jq stays for bootstrap.sh itself; tehas's commands find this one
+# first, as lib/paths.sh puts $TEHAS_HOME/bin ahead of the system's.
+install_jq() {
+  fetch "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-linux-amd64" "$JQ_SHA256" "$dl/jq"
+  install -m 755 "$dl/jq" "$TEHAS_HOME/bin/jq"
 }
 install_bun() {
   fetch "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" "$BUN_SHA256" "$dl/bun.zip"
@@ -589,6 +597,7 @@ do_user() {
   mkdir -p "$TEHAS_HOME/bin" "$TEHAS_HOME/tools" "$TEHAS_HOME/repos" "$dl" "$HOME/.local/bin"
   step node found_node "$NODE_VERSION" install_node
   step gh found_gh "$GH_VERSION" install_gh
+  step jq found_jq "$JQ_VERSION" install_jq
   step bun found_bun "$BUN_VERSION" install_bun
   step_npm pi found_pi "$PI_VERSION" "$PI_LOCK_SHA256" install_pi
   step_npm ctx7 found_ctx7 "$CTX7_VERSION" "$CTX7_LOCK_SHA256" install_ctx7
