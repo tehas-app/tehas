@@ -712,6 +712,58 @@ fn the_gate_rows_past_the_bound_are_not_kept_and_a_time_past_it_is_no_figure() {
 }
 
 #[test]
+fn the_steps_after_the_gate_bound_are_still_read() {
+    let home = scratch("gate-bound-steps");
+    let started = secs("2026-10-15T18:38:34Z");
+    let ended = secs("2026-10-15T18:39:50Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(ended), "started": started, "rc": 0, "status": "merged",
+               "pr": "https://github.com/o/r/pull/3"}),
+    );
+    // The result names no steps, so the run's steps come from the stream.
+    let path = home.join("state/cycles/7.result.json");
+    let mut r: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    r["issues"][0].as_object_mut().unwrap().remove("steps");
+    fs::write(&path, r.to_string()).unwrap();
+    let at = ended * 1000;
+    let gate = json!({"v": 1, "kind": "verify-completed", "issue": 7,
+                      "event": {"kind": "verify-completed", "step": "develop",
+                                 "command": "scripts/verify.sh", "ok": true,
+                                 "ms": 60_000, "at": at}})
+    .to_string();
+    let step = |name: &str, at: i64| {
+        json!({"v": 1, "kind": "step-started", "issue": 7,
+               "event": {"kind": "step-started", "step": name, "at": at}})
+        .to_string()
+    };
+    // The rows of the gate stop at their bound; a step that starts after it
+    // is still a step of the run.
+    let mut stream = vec![step("develop", started * 1000)];
+    stream.extend((0..=run::MAX_GATE_RUNS).map(|_| gate.clone()));
+    stream.push(step("lens-review", (started + 30) * 1000));
+    put(
+        &home,
+        "logs/work-7-261015-183834.jsonl",
+        &format!("{}\n", stream.join("\n")),
+    );
+    let conn = record(&home, 7, ended);
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM run_gate_runs"),
+        run::MAX_GATE_RUNS as i64
+    );
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM run_steps WHERE step = 'lens-review'"
+        ),
+        1
+    );
+}
+
+#[test]
 fn a_run_whose_gate_named_no_time_records_no_gate() {
     let home = scratch("gate-zero");
     let started = secs("2026-10-15T18:38:34Z");

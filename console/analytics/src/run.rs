@@ -678,8 +678,9 @@ fn stream_lines(log: &Path, issue: i64, ended: Option<i64>) -> (Vec<Step>, Vec<G
             // line for it), so tehas reads both the word it does name for the
             // command and the `tier` word a runner may answer with.
             Some("verify-completed") => {
+                // Past the bound the gate's rows stop, the steps do not.
                 if gates.len() >= MAX_GATE_RUNS {
-                    break;
+                    continue;
                 }
                 let Some(ms) = bounded(ev, "ms", MAX_GATE_MS) else {
                     continue;
