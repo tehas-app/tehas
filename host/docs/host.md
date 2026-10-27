@@ -1442,13 +1442,13 @@ before docker is asked. A link under the copy's name is written through and a
 directory stops the build, so both are refused; a plain file is taken to be the
 leftover of a build killed before its cleanup ran, and the build names the time it
 was written and replaces it. `tehasbot clean` takes a copy of the age with the rest
-of the host scratch, and `install.sh` retires one it finds in the directory it
-owns. The name is `~/tehas/sandbox/sandbox-uid.Dockerfile`, and the
+of the host scratch, and `install.sh` reports one it finds in the directory it
+owns as stale and takes it back when it installs. The name is `~/tehas/sandbox/sandbox-uid.Dockerfile`, and the
 repository gitignores it, so `tehas update` sees no local change in it and the build
 is the only thing that decides what stands there. `test/build_test.sh` reads the
 recipe docker was handed and says which step is shared and which belongs to one
-uid. The copy is written owner-only, and a link or a directory under the name of
-one of the two is refused rather than removed: the cleaner takes a copy of that
+uid. `mktemp` writes the copy owner-only, and a link or a directory under the name
+of one of the two is refused rather than removed: the cleaner takes a copy of that
 name and shape and no other.
 
 So a second instance user's build on a host that already has the first reuses the
@@ -1460,7 +1460,9 @@ ids of `docker history` of the two images, and the time of the second uid's buil
 A step added above the boundary is a step every instance user shares, so a step
 that reads the uid, or holds it in its words, would silently give each uid its own
 copy of every layer after it; the `test/build_test.sh` case that reads the recipe
-docker was handed fails when one appears.
+docker was handed fails when one appears. That case also compares the two halves of
+the copy with the two halves of the tracked file, in the order the build runs them,
+so a staged copy that moved a step across the cut is caught too.
 
 A second instance user needs what the first was given: its own instance
 directory and its own settings, a checkout of the platform to build from, and a

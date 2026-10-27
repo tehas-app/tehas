@@ -872,8 +872,7 @@ impl Run {
         // its trap ran: no other name of that directory is a build's to leave.
         // The shape is the one host/sandbox/build.sh stages with - mktemp's suffix
         // is six characters - and the same one .gitignore carries.
-        let staged = |n: &str| staged_recipe_shaped(n);
-        files.extend(self.old_files(&self.home.join("sandbox"), staged));
+        files.extend(self.old_files(&self.home.join("sandbox"), staged_recipe_shaped));
         for f in files {
             ok &= self.remove_scratch(&f, &would, "host scratch");
         }

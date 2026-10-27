@@ -686,4 +686,18 @@ build_base_id=$(awk -F '\t' -v b="$build_boundary" '$1 < b && $2 ~ /(^|[^0-9])10
 [ -z "$build_base_id" ] ||
   t_bad "in the copy docker was handed a step above the boundary holds the id the remap moves: $build_base_id"
 
+# The cut build.sh makes is the other half of the order: docker is handed one
+# file whose shared half is the tracked file's steps up to the boundary and
+# whose uid half is the steps below it, so a staged copy that moved a step from
+# one side of the cut to the other would give one instance user another's
+# layer. The steps of each half are asked for in the order they run, by one read
+# of the tracked file and one of the copy, so a step slipped across the cut or
+# reordered within a half is named rather than folded away by a sort.
+tracked_shared=$(image_steps "$dockerfile" | awk -F '\t' '$1 == "comment" { next } $1 == "boundary" { exit } { print $2 }')
+build_shared=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment" { next } $1 == "boundary" { exit } { print $2 }')
+t_eq "$build_shared" "$tracked_shared"
+tracked_rest=$(image_steps "$dockerfile" | awk -F '\t' '$1 == "comment" || $1 == "boundary" { next } { print $2 }')
+build_rest=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment" || $1 == "boundary" { next } { print $2 }')
+t_eq "$build_rest" "$tracked_rest"
+
 t_done
