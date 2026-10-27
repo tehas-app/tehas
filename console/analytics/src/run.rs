@@ -43,7 +43,10 @@
 //! read here.
 //! - logs/work-<n>-<stamp>.jsonl (libexec/work): the runner's NDJSON progress,
 //!   the newest one written since the run started. Its stable step-started
-//!   lines give the steps where the result has none.
+//!   lines give the steps where the result has none, and its stable
+//!   verify-completed lines each run of the product's gate: the command, its
+//!   tier (`target.kind`), whether it passed, its own milliseconds and when it
+//!   ended.
 //! - logs/work-<n>-<stamp>.jsonl.preflight (libexec/work): the push check's
 //!   log, with a line "model endpoint: provider <p> is on its backup" for
 //!   each provider that was on its backup endpoint.
@@ -64,8 +67,11 @@ use tehas_core::time::days_from_civil;
 
 // A file bigger than this is not read: none that tehas writes comes near it.
 const MAX_FILE: u64 = 16 << 20;
-// The progress stream can be long; only its step lines are read.
+// The progress stream can be long; only the lines the run is read from are.
 const MAX_STREAM: u64 = 256 << 20;
+// The most runs of the gate one cycle's rows may hold. A cycle makes a handful
+// of them; the bound is a guard, not a figure the report reads.
+const MAX_GATE_RUNS: usize = 500;
 const CAUSE_CHARS: usize = 200;
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -108,8 +114,25 @@ pub struct Run {
     pub concurrent: Option<i64>,
     pub runner_ms: Option<i64>,
     pub result_schema: Option<i64>,
+    pub gate_runs: Option<i64>,
+    pub gate_ms: Option<i64>,
     pub steps: Vec<Step>,
     pub roles: Vec<Role>,
+    pub gates: Vec<GateRun>,
+}
+
+/// One run of the product's gate, as the cycle's stream ended it. `tier` is
+/// the kind the runner named (`target.kind`): the command it asked for, which
+/// for a product with a fast gate is `fast` or `full`. `ms` is that run's own
+/// time and `at` the moment it ended, in Unix seconds.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct GateRun {
+    pub command: Option<String>,
+    pub tier: Option<String>,
+    pub step: Option<String>,
+    pub ok: Option<bool>,
+    pub ms: Option<i64>,
+    pub at: Option<i64>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -324,8 +347,21 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             });
             run.endpoint = Some(if backup { "backup" } else { "main" }.to_string());
         }
+        // One pass over the stream for both of its kinds: the steps, where the
+        // result has none, and the runs of the gate, which no result holds.
+        let (steps, gates) = stream_lines(log, issue, run.ended, run.steps.is_empty());
         if run.steps.is_empty() {
-            run.steps = stream_steps(log, issue, run.ended);
+            run.steps = steps;
+        }
+        run.gates = gates;
+        if !run.gates.is_empty() {
+            run.gate_runs = Some(run.gates.len() as i64);
+            run.gate_ms = run
+                .gates
+                .iter()
+                .map(|g| g.ms.unwrap_or(0))
+                .sum::<i64>()
+                .positive();
         }
     }
 
@@ -484,10 +520,10 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            failure_kind, failure_cause, provider_outage, endpoint, pr, tehas_version,
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
            cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
-           runner_ms, result_schema)
+           runner_ms, result_schema, gate_runs, gate_ms)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
         params![
             run.id,
             run.issue,
@@ -527,6 +563,8 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.concurrent,
             run.runner_ms,
             run.result_schema,
+            run.gate_runs,
+            run.gate_ms,
         ],
     )?;
     for s in &run.steps {
@@ -557,16 +595,41 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             ],
         )?;
     }
+    for (i, g) in run.gates.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO run_gate_runs (run_id, seq, command, tier, step, ok, ms, at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                run.id,
+                i as i64 + 1,
+                g.command,
+                g.tier,
+                g.step,
+                g.ok,
+                g.ms,
+                g.at
+            ],
+        )?;
+    }
     tx.commit()
 }
 
-/// The steps from the stable step-started lines of the progress stream: each
-/// step ends where the next begins, the last where the run ended.
-fn stream_steps(log: &Path, issue: i64, ended: Option<i64>) -> Vec<Step> {
+/// The lines of the progress stream the run is read from, in one pass: the
+/// steps from its stable `step-started` lines (each step ends where the next
+/// begins, the last where the run ended), and its runs of the gate from the
+/// stable `verify-completed` lines. `steps` is asked for only when the result
+/// held none, but the gate rows are always read: no result holds them.
+fn stream_lines(
+    log: &Path,
+    issue: i64,
+    ended: Option<i64>,
+    want_steps: bool,
+) -> (Vec<Step>, Vec<GateRun>) {
     let Some(file) = plain_file(log) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
     let mut starts: Vec<(String, i64)> = Vec::new();
+    let mut gates: Vec<GateRun> = Vec::new();
     for line in BufReader::new(file.take(MAX_STREAM)).lines() {
         let Ok(line) = line else { break };
         let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&line) else {
@@ -574,7 +637,8 @@ fn stream_steps(log: &Path, issue: i64, ended: Option<i64>) -> Vec<Step> {
         };
         let stable = o.get("v").and_then(Value::as_i64) == Some(1)
             && !o.get("unstable").and_then(Value::as_bool).unwrap_or(false);
-        if !stable || o.get("kind").and_then(Value::as_str) != Some("step-started") {
+        let kind = o.get("kind").and_then(Value::as_str);
+        if !stable || (kind != Some("step-started") && kind != Some("verify-completed")) {
             continue;
         }
         if o.get("issue")
@@ -586,11 +650,34 @@ fn stream_steps(log: &Path, issue: i64, ended: Option<i64>) -> Vec<Step> {
         let Some(ev) = o.get("event").and_then(Value::as_object) else {
             continue;
         };
-        let (Some(step), Some(at)) = (word(ev, "step", 80), ev.get("at").and_then(Value::as_i64))
-        else {
+        if kind == Some("step-started") {
+            if !want_steps {
+                continue;
+            }
+            let (Some(step), Some(at)) =
+                (word(ev, "step", 80), ev.get("at").and_then(Value::as_i64))
+            else {
+                continue;
+            };
+            starts.push((step, at));
+            continue;
+        }
+        // A run of the gate that named no time is no figure, and one that gave
+        // no word for what it ran is no tier: neither is kept.
+        let Some(ms) = number(ev, "ms") else {
             continue;
         };
-        starts.push((step, at));
+        if gates.len() == MAX_GATE_RUNS {
+            continue;
+        }
+        gates.push(GateRun {
+            command: word(ev, "command", 200),
+            tier: word(ev, "target.kind", 40).or_else(|| word(ev, "tier", 40)),
+            step: word(ev, "step", 80),
+            ok: ev.get("ok").and_then(Value::as_bool),
+            ms: Some(ms),
+            at: ev.get("at").and_then(Value::as_i64).map(|ms| ms / 1000),
+        });
     }
     let mut steps = Vec::new();
     for (i, (step, at)) in starts.iter().enumerate() {
@@ -607,7 +694,18 @@ fn stream_steps(log: &Path, issue: i64, ended: Option<i64>) -> Vec<Step> {
             seconds: to.map(|t| ((t - at) / 1000).max(0)),
         });
     }
-    steps
+    (steps, gates)
+}
+
+/// The sum of milliseconds is a figure only when the run made a gate run.
+trait Positive {
+    fn positive(self) -> Option<i64>;
+}
+
+impl Positive for i64 {
+    fn positive(self) -> Option<i64> {
+        (self > 0).then_some(self)
+    }
 }
 
 /// The newest logs/work-<issue>-*.jsonl written since the run started, as
