@@ -743,7 +743,8 @@ t_case "docker is given what tehas plan gives a planning turn: only the name, th
 # The two runs go through the same stubbed docker with the same settings, and
 # their options are compared after only the names the two cannot share are
 # rewritten. A run given a cid file would keep one here and fail the compare.
-plan=$T_ROOT/libexec/plan
+ln -sf "$T_ROOT/libexec/plan" "$shim/libexec/plan"
+plan=$shim/libexec/plan
 reset
 t_run "$review"
 t_eq "$t_rc" 0

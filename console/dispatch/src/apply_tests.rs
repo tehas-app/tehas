@@ -1403,6 +1403,33 @@ fn a_refine_that_filed_replaces_its_issue() {
 }
 
 #[test]
+fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 2, "session": "s-1", "label": "tehas:plan"}),
+    );
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "This issue now holds the plan.", "question": null,
+               "update": {"title": "feat: faster search", "body": "## Outcome\n\nFast."}}),
+    );
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert_eq!(a.log, vec!["planning #7 ended", "done planning #7 turn=3 rc=0"]);
+    let w = t.writes();
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --title feat: faster search --body-file - <<< ## Outcome".to_string()));
+    assert!(w.contains(&"Fast.".to_string()));
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()));
+    assert!(w
+        .iter()
+        .any(|c| c.starts_with("gh issue comment 7") && c.contains("This issue now holds the plan.")));
+    assert!(!w.iter().any(|c| c.contains("issues/7/comments")));
+    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+}
+
+#[test]
 fn a_refine_with_later_parts_is_refined_and_stays_open() {
     let mut t = world();
     plan_row(
@@ -2344,4 +2371,25 @@ fn an_action_a_read_cannot_settle_stays_open() {
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec!["WARN: the journal's action 3 (issue-close on #7, 10s old) could not be settled: gh api repos/example-owner/example-product/issues/7 failed; the next poll tries again"]);
     assert!(settled(&t).is_empty());
+}
+
+#[test]
+fn a_plans_issue_edit_is_settled_by_its_title() {
+    let mut t = world();
+    let edit = |id: u64, title: &str| {
+        json!({"id": id, "kind": "issue-edit", "issue": 7, "state": "attempted", "intended_at": 990, "attempted_at": 991,
+        "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--title", title, "--body-file", "-"]}})
+    };
+    left_open(&t, json!([edit(3, "feat: faster search"), edit(4, "feat: other")]));
+    fs::write(
+        t.dir.join("issue-7"),
+        r#"{"title":"feat: faster search","body":"Outcome","labels":[]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (issue-edit on #7, 10s old) was done",
+        "journal: action 4 (issue-edit on #7, 10s old) did not happen (its body does not say what it replaces); this poll decides it again",
+    ]);
 }
