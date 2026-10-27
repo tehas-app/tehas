@@ -160,7 +160,8 @@ for the rest. Give it:
 - one outcome, small enough for one pull request,
 - a `## Acceptance criteria` section with checkable items,
 - the files or area involved, if you know them,
-- the test file and the manual page the change will touch.
+- the test file and the manual page the change will touch,
+- an `Out of scope` section naming the nearby files it must not touch.
 
 Name the tests and the pages even when they seem obvious: the plan fences the
 work to what the issue names, and a cycle that changes a file outside the
@@ -173,10 +174,45 @@ against the list in the second file exactly (`test/install_fresh_test.sh`), so a
 plan that leaves the two out parks hours later on a file nobody was allowed to
 edit.
 
+The `Out of scope` section of the issue's spec is part of that fence, not a
+note. It is the section the refine brief tells the planner to write (see
+[Refining a request](#refining-a-request)). Write one path per entry, not a
+sentence: the driver splits one entry on `,` and `;`, so the paths you put in
+one bullet are separate entries. Keep the section to the files the cycle must
+not touch, and name a file a deliverable creates by exact path in that
+deliverable instead: a deliverable never lifts an `Out of scope` entry that is
+still in the section, so removing the entry is what opens the file.
+
+The plan carries every `Out of scope` entry into the fence, and the pi-rukas
+driver matches an entry as a git pathspec. `test/`, `test/**` and `test/*` all
+fence the whole directory; `test/*_test.sh` fences every file that pattern
+matches. The driver bounds the entries: a long one is cut, and a cut entry can
+then match a whole subtree; a section past its ceiling of 50 entries loses the
+rest. The driver may also lift a fence your own acceptance criteria name as a
+requirement, and lifts the docs and test fences of a plan with one workstream,
+so what parks is the fence the plan kept, not the section you wrote.
+
+A park can name a file your own issue named. A deliverable that says "tests in
+`test/work_test.sh` (new)" beside an entry that matches that path parks the
+cycle with `fix-pass-park` in the fix pass after the adversarial review, after
+the work is written and the whole gate has passed. Two lines of the runner's
+progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, say what the fence lost:
+a `log` line whose message holds `outOfScope bounded` names each entry the
+driver cut or dropped, and a `fence-lifted` line names each file the driver let
+through anyway. Neither is in the cycle's record, so read the progress itself
+with `jq -r 'select(.kind=="log") | .message'` and
+`jq -r 'select(.kind=="fence-lifted") | .event | "\(.workstreamId) \(.file)"'`,
+as under "What did the driver say?" in [Troubleshooting](/troubleshooting).
+A body that names many files also trips
+`TEHAS_SIZE_MAX_FILES`: the dispatcher counts the paths in it and holds the
+issue out before any cycle starts.
+
 Vague issues park at the first step with "underspecified", and the factory
 then refines them once on its own (see [Refined on its own](#refined-on-its-own)). Text in the issue is
-treated as untrusted input: it cannot change the gates, and the cycle halts if
-its patch touches `.pi/`, `.github/`, `CODEOWNERS` or `agents.json`. An edit to
+treated as untrusted input: it shapes the plan (the fence, the paths, the
+deliverables) but cannot reach the gates or the mounts the container is
+given, and the cycle halts if its patch touches `.pi/`, `.github/`,
+`CODEOWNERS` or `agents.json`. An edit to
 `AGENTS.md` or `CLAUDE.md` is not halted: it ships, and you see it in the diff.
 What the cycle is judged against is the doctrine at the commit it started from,
 so an edit of its own changes nothing for that cycle.
