@@ -598,7 +598,7 @@ t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 t_eq "$(gate_there)" "there"
 # The marker says only that low issues are held. Each poll's answer is in the
 # log line, so the file carries nothing that could go stale.
-t_eq "$(cat "$gate_held")" ""
+t_eq "$(<"$gate_held")" ""
 t_run "$dispatch"
 t_lacks "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 1)"
@@ -645,7 +645,7 @@ t_run "$dispatch"
 t_lacks "$t_out" "low issues wait"
 t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 127)"
 t_eq "$(gate_there)" "there"
-t_eq "$(cat "$gate_held")" ""
+t_eq "$(<"$gate_held")" ""
 
 # With the bound of a minute the same gate would have answered 0 and issue 7
 # would have started, so this case is also the one that says the seconds come
@@ -688,7 +688,7 @@ queue 7
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(started)" "7 "
-gate_env=$(cat "$T/calls/gate.env")
+gate_env=$(<"$T/calls/gate.env")
 t_contains "$gate_env" "PATH="
 t_lacks "$gate_env" "gh-secret-token"
 t_lacks "$gate_env" "key-for-the-model"
@@ -708,10 +708,10 @@ t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 3)"
 t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 3"
 t_lacks "$t_out" "the price feed would not answer"
-t_eq "$(cat "$gate_log")" "the price feed would not answer"
+t_eq "$(<"$gate_log")" "the price feed would not answer"
 # Every ask rewrites it: the file holds the last ask's words, not a day of them.
 t_run "$dispatch"
-t_eq "$(cat "$gate_log")" "the price feed would not answer"
+t_eq "$(<"$gate_log")" "the price feed would not answer"
 t_eq "$(wc -l <"$gate_log")" 1
 
 t_case "a closed gate holds the rest of the lowest issues with no call about them"
@@ -744,6 +744,6 @@ t_eq "$t_rc" 0
 t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: the low-priority gate is closed (exit 1)"
 t_contains "$t_out" "low-gate.held is not a regular file"
-t_eq "$(cat "$T/home/keep")" "kept"
+t_eq "$(<"$T/home/keep")" "kept"
 
 t_done

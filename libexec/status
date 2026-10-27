@@ -361,7 +361,7 @@ elif [[ $control_labels == *" tehas:all-hands "* ]]; then
   elif tehas_allowed_labeler "${line%%$'\t'*}"; then
     all_hands=true
     rm -f "$ignored"
-  elif [ "$(cat "$ignored" 2>/dev/null)" != "$line" ]; then
+  elif [ ! -e "$ignored" ] || [ "$(<"$ignored")" != "$line" ]; then
     echo "tehasbot status: tehas:all-hands on #$control was applied by '${line%%$'\t'*}', not an allowed account: ignored" >&2
     mkdir -p "${ignored%/*}"
     printf '%s\n' "$line" >"$ignored"
