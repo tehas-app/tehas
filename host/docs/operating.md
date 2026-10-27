@@ -449,12 +449,20 @@ that as its `poll` field, and its plain output prints the line of words below
 the millwright's. `store prune` drops the records with the
 other old rows of the store. With no poll on record there is no `poll` line.
 
-`~/tehas/libexec/store poll-idle --since <seconds>` answers one object over the
-polls of the last `<seconds>` that started no cycle: `{"polls": n, "cpu_ms": m,
-"wall_ms": m, "writes": m}`, the three `m` being the median of those polls. The
-`writes` figure is left out when none of them had a write log, and `{"polls":
-0}` is the answer when no idle poll is on record. A poll with no `starts` on its
-row is not one of them. The health check uses it for the budget of idle polls.
+`~/tehas/libexec/store poll-idle --since <seconds> [--budget <spec>]` answers
+one object over the polls of the last `<seconds>` that started no cycle:
+`{"polls": n, "cpu_ms": m, "wall_ms": m, "writes": m}`, the three `m` being the
+median of those polls. The `writes` figure is left out when none of them had a
+write log, and `{"polls": 0, "over": []}` is the answer when no idle poll is on
+record. A poll with no `starts` on its row is not one of them.
+
+`--budget` is `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part of it left
+out, each figure a whole number of at most 9 digits: the answer gains `"over":
+[...]`, the names of the figures whose median was over its budget, and without
+`--budget` the answer has no `over`. `tehasbot health` calls the verb with
+`TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
+check, and warns when the list is not empty; see [the health
+file](/tools#the-health-file).
 
 ### The dispatcher's shadow
 

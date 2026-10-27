@@ -101,7 +101,7 @@
 //!   store poll-record --started <unix[.frac]> --times <file> --tally <file>
 //!                --writes-log <file> [--starts <n>]
 //!   store poll-show | poll-show --api --now <unix>
-//!   store poll-idle --since <seconds>
+//!   store poll-idle --since <seconds> [--budget <spec>]
 //!                (what each poll cost, and the cost of the idle ones: src/poll.rs)
 //!   store poll-begin
 //!   store journal-record --poll <at> --kind <kind> --issue <n> --args <json>
