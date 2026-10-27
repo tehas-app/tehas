@@ -906,6 +906,9 @@ Where it differs from the bash poll:
   reads them again after its own planning writes.
 - A closed issue is not in the query, so the poll says nothing of it; the
   bash poll, which reads each issue again, logs `skip #N: it is closed`.
+- A paused poll reads the queue and what its clean-up needs, and no more: not
+  the comments, parks, approvals and blockers of the issues it would decide
+  on. The bash poll reads less, as it reads each list when it gets to it.
 - An open issue marked `tehas:planning` with no planning session on record
   gets `needs-human-attention` in place of the mark and a comment that says
   to apply `tehas:plan` again, as an issue marked `tehas:running` with no

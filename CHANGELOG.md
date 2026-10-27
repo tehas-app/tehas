@@ -29,6 +29,9 @@ empty one above it.
   `tehas:plan` again. GitHub can make a label change and still answer it as
   failed; the poll then took its turn back and the mark stayed, holding the
   issue and those blocked by it.
+- With `TEHAS_DISPATCHER=rust`, a paused poll no longer reads the comments,
+  parks, approvals and blockers of the issues it would decide on: only the
+  queue and what its clean-up needs (#254).
 
 ### Adopter action
 
