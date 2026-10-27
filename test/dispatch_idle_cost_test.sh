@@ -14,17 +14,25 @@
 . "$(dirname "$0")/dispatch_procs_lib.sh" || exit 1
 
 # The most processes one idle poll may start. Measured on the runner of
-# 2026-10-26 over the fixture below, three runs of it, each the same figure:
-# 405 calls. Of those, 11 are the poll's reads of GitHub through the stub gh,
-# 36 its 12 calls of the state store (the store, the timeout that bounds it and
-# the jq that reads its answer, three each), and the other 358 the small
-# commands of the poll, of libexec/status and of libexec/tidy: the jq that
-# shapes each answer, the date of each log line, the mkdir of each live file
-# and the df of the disk hold. A fifth of room, so a poll that starts one
-# command more per issue still fits - and one that pays a gh call or a process
-# per lock file, of which this fixture has 500, does not. That is the shape of
-# cost this ceiling keeps out: nothing here grows with what the host holds.
-PROCS_MAX=480
+# 2026-10-27 over the fixture below, three runs of it, each the same figure:
+# 339 calls. Of those, 11 are the poll's reads of GitHub through the stub gh,
+# and the other 328 the small commands of the poll, of libexec/status and of
+# libexec/tidy: the jq that shapes each answer, the date of each log line, the
+# mkdir of each live file and the df of the disk hold. The 12 calls of the state
+# store now count as one program each: the timeout that bounds a call is a stub
+# that execs the store at once, because a stub answers from a fixture and has
+# nothing to wait for, and the store's answer is read with no jq of its own -
+# a store that cannot answer is the store's own contract, tested by name in
+# test/store_lib_test.sh, not by a bound here. A command that can wait for
+# something outside the test keeps the real bound: test/dispatch_lib.sh names
+# the programs whose bound a case checks. #736.
+# The ceiling sits a fifth above the figure, so a poll that starts one command
+# more per issue still fits - and one that pays a gh call or a process per lock
+# file, of which this fixture has 500, does not. That is the shape of cost this
+# ceiling keeps out: nothing here grows with what the host holds. The same
+# figure before #736 was 405, and the ceiling then was 480: a raise of the
+# ceiling is the signal that a poll has grown, which is the point of it.
+PROCS_MAX=405
 log=$T/home/tehas/state/github-writes.log
 
 # The world of a host that has been running: <locks> lock files of issues this

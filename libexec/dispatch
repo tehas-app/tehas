@@ -1553,10 +1553,12 @@ park_unask() {
   park_unasked[$1]=""
   park_now=false
   tehas_store park-show "$1" || return 1
-  [ "$(tehas_store_get '.park != null')" = true ] || return 0
-  park_now=true
-  q=$(tehas_store_get '.park.question // empty') || return 1
+  # read answers 1 for a look that failed as for one that answered nothing, so
+  # the store's own status decides: an answer it could not read is a failure,
+  # not an issue with no question.
+  { read -r q || [ "$tehas_store_rc" = 0 ]; } < <(tehas_store_get '[.park.question // ""] | map(tostring) | join(" ")') || return 1
   [ -n "$q" ] || return 0
+  park_now=true
   if tehas_store question-answered "$1" --id "$q" --withdraw; then
     park_unasked[$1]=$q
     return 0
@@ -2352,8 +2354,7 @@ for n in $quiet_running; do
     esac
     continue
   fi
-  asks=$(tehas_store_get '.times') || asks=""
-  asked=$(tehas_store_get '.stop_asked_at // 0') || asked=""
+  read -r asks asked < <(tehas_store_get '[(.times // ""), (.stop_asked_at // 0)] | map(tostring) | join(" ")') || { asks=""; asked=""; }
   if ! [[ $asks =~ ^[0-9]{1,6}$ ]] || ! [[ $asked =~ ^[0-9]{1,12}$ ]]; then
     log "WARN: $why, but the state store's record of it does not read as one, so the poll asks nothing this time"
     continue
@@ -3000,11 +3001,8 @@ for n in $asking; do
       [[ $qid =~ ^[1-9][0-9]{0,15}$ ]] || qid=""
     fi
     if tehas_store_looked && [ -n "$qid" ] && tehas_store question-known "$n" --id "$qid"; then
-      if [ "$(tehas_store_get '.known')" = true ]; then
-        qkind=$(tehas_store_get '.kind // ""')
-      else
-        qid=""
-      fi
+      read -r known qkind < <(tehas_store_get '[.known, (.kind // "")] | map(tostring) | join(" ")') || { known=""; qkind=""; }
+      [ "$known" = true ] || qid=""
     fi
   fi
   if ! tehas_store_looked; then
