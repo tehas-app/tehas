@@ -17,6 +17,9 @@ pub struct Settings {
     pub concurrency: i64,
     pub max_awaiting: i64,
     pub reserve: String,
+    /// TEHAS_SLICE_CONTAINERS as written: slice::usable refuses one that is
+    /// not a count.
+    pub slice_containers: String,
     pub refresh_conflicts: bool,
     pub refresh_slots: i64,
     /// TEHAS_CYCLE_MIN_FREE as written, and in MiB.
@@ -69,6 +72,9 @@ impl Settings {
             concurrency,
             max_awaiting: n("TEHAS_MAX_AWAITING", concurrency + 2),
             reserve: s("TEHAS_CYCLE_RESERVE", "2g"),
+            slice_containers: v.get("TEHAS_SLICE_CONTAINERS").map_or("4".into(), |x| {
+                x.as_str().map_or(x.to_string(), str::to_string)
+            }),
             refresh_conflicts: s("TEHAS_REFRESH_CONFLICTS", "0") == "1",
             refresh_slots: n("TEHAS_REFRESH_SLOTS", 1),
             min_free,

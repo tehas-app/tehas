@@ -242,8 +242,8 @@
 # stops nothing.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
-# limits lib/slice.sh makes: a memory ceiling of a quarter of the slice, no
-# swap, the reserve as its floor, a CPU quota of the host less one CPU, a pids
+# limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of
+# the slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU, a pids
 # limit that follows its share of that and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
 # that outlives its parent would count against the pids limit until the
