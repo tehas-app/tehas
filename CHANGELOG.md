@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.15.0 (2026-10-27)
+
+### Changes
+
 - `TEHAS_SLICE_CONTAINERS`, 4 by default, sets how many containers
   `tehas.slice` holds. Each container's memory ceiling is the slice over this
   number, and admission, the CPU share and the pids limit follow it. Before,
@@ -29,6 +37,20 @@ empty one above it.
   `tehas:plan` again. GitHub can make a label change and still answer it as
   failed; the poll then took its turn back and the mark stayed, holding the
   issue and those blocked by it.
+- A park's comment offers a third box, **Retry from the issue alone**: a
+  retry whose start names no comment of the issue or of its pull request, for
+  when the discussion is what keeps a cycle stopping (#717).
+- An idle poll, `tehas health` and `tehas status` run fewer processes: the
+  store and the queue snapshot are read once per question rather than once per
+  field (#736).
+- A first planning turn passes `--issue <n>` when the image lists that flag
+  for `plan`, so the planner does not take the issue for a duplicate of itself
+  (pi-rukas v0.14.28 and later).
+- `install.sh` reports a leftover staged sandbox recipe as stale and takes it
+  back when it installs; the build test also checks that no step crossed the
+  cut between the layers every instance user shares and those of one uid
+  (#735).
+- The business page shows the version in its footer.
 
 ### Adopter action
 
