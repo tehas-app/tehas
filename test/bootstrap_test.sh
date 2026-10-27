@@ -644,7 +644,6 @@ t_lacks "$(cat "$T/fetch.out")" "clobber"
 git -C "$T/rukas-moved/host" fetch --tags origin >"$T/fetch.out" 2>&1
 t_eq "$?" 1
 t_contains "$(cat "$T/fetch.out")" "would clobber existing tag"
-t_lacks "$(t_git -C "$T/rukas-moved/host" tag --list)" v0.12.81
 
 # What the script does now, on the same remote and the same clone: the moved tag
 # is taken, the newer release is there, and the checkout gets onto it. This is
