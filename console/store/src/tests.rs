@@ -684,18 +684,33 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
         "a verb with nothing to run wrote"
     );
 
-    // The same name, asked for again: the copy that is there is not opened for
-    // writing, and the verb says so. This is the failure that would otherwise
-    // leave a person with one copy where they counted on two -- a copy of a
-    // later database under the name of an earlier one -- and a host reaches it
-    // on its own, with two verbs of one update in the same second. Chosen over a
-    // directory that cannot be written because no mode of a directory says it: a
-    // caller that may read one may write it too, whatever its bits say, and root
-    // is not stopped by 0500.
+    // The same second again, as two verbs of one update reach it on a fast
+    // host: the copy that is there is not opened for writing, and the verb
+    // writes the next free name instead of failing a migration that is fine.
+    let same = migrate_at(&home, &state, 1_792_000_000).unwrap();
+    let next = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&same).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(next, db::backup_name_at(&state, 8, 1_792_000_000, 1));
+    assert!(db::is_database(&next));
+    assert_eq!(mode(&next), 0o600);
+    assert_eq!(fs::read(&file).unwrap(), before);
+
+    // Every name of that second taken: the copy cannot be made, and the verb
+    // says so. Chosen over a directory that cannot be written because no mode
+    // of a directory says it: a caller that may read one may write it too,
+    // whatever its bits say, and root is not stopped by 0500.
+    let first_copy = fs::read(&copy).unwrap();
+    for n in 2..db::BACKUP_NAMES {
+        fs::write(db::backup_name_at(&state, 8, 1_792_000_000, n), b"taken").unwrap();
+    }
     let err = migrate_at(&home, &state, 1_792_000_000)
-        .expect_err("a backup whose name is taken is refused, not overwritten");
+        .expect_err("a backup with no free name is refused, not overwritten");
     assert_eq!(err.0, 78, "{}", err.1);
     assert!(err.1.starts_with("unreadable "), "{}", err.1);
+    assert!(err.1.contains("cannot make the backup"), "{}", err.1);
     // The whole point: no schema was touched, so a reader still sees the version
     // the file came with, and the copy the verb could not make left nothing
     // behind to be mistaken for one.
@@ -707,26 +722,25 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     );
     drop(conn);
     assert_eq!(fs::read(&file).unwrap(), before, "a failed backup migrated");
-    let mut left = fs::read_dir(&state)
-        .unwrap()
-        .map(|e| e.unwrap().file_name())
-        .collect::<Vec<_>>();
-    left.sort();
-    let allowed: Vec<std::ffi::OsString> = [
-        "tehas.db",
-        "tehas.db-shm",
-        "tehas.db-wal",
-        &format!("tehas-8-{}.db", 1_792_000_000),
-    ]
-    .iter()
-    .map(std::ffi::OsString::from)
-    .collect();
-    for name in &left {
-        assert!(allowed.contains(name), "state/ holds {name:?}");
+    let mut allowed: Vec<std::ffi::OsString> = ["tehas.db", "tehas.db-shm", "tehas.db-wal"]
+        .iter()
+        .map(std::ffi::OsString::from)
+        .collect();
+    for n in 0..db::BACKUP_NAMES {
+        allowed.push(
+            db::backup_name_at(&state, 8, 1_792_000_000, n)
+                .file_name()
+                .unwrap()
+                .to_os_string(),
+        );
+    }
+    for e in fs::read_dir(&state).unwrap() {
+        let name = e.unwrap().file_name();
+        assert!(allowed.contains(&name), "state/ holds {name:?}");
     }
     assert_eq!(
-        fs::read(&copy).unwrap().len(),
-        fs::metadata(&copy).unwrap().len() as usize,
+        fs::read(&copy).unwrap(),
+        first_copy,
         "the refused verb left the first copy as it wrote it"
     );
 
@@ -982,15 +996,19 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
 fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // The name the answer carries is the name the caller opens, so it is the
     // name that must be written before the step can commit -- not after it.
-    // Two verbs of one update land in the same second, so `tehas-8-<now>.db`
-    // can be held by a file the verb did not make, and the verb must then
-    // change nothing at all.
+    // Every name of `tehas-8-<now>` held by a file the verb did not make is the
+    // copy it cannot write, and the verb must then change nothing at all.
     let home = scratch("migrate-after");
     fs::create_dir_all(home.join("state")).unwrap();
     fs::write(db::path(&home), b"").unwrap();
     let state = home.join("state");
-    let foreign = db::backup_name(&state, 8, 1_792_000_000);
-    fs::write(&foreign, b"not a backup").unwrap();
+    for n in 0..db::BACKUP_NAMES {
+        fs::write(
+            db::backup_name_at(&state, 8, 1_792_000_000, n),
+            b"not a backup",
+        )
+        .unwrap();
+    }
 
     let (code, err) = migrate(&home, &state).unwrap_err();
     assert_eq!(code, 78, "{err}");
@@ -1013,9 +1031,12 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
         "a copy the verb could not make still laid the schema"
     );
     drop(conn);
-    // The foreign file is untouched: the verb neither opened it for writing nor
-    // replaced it with a copy of its own.
-    assert_eq!(fs::read(&foreign).unwrap(), b"not a backup");
+    // The foreign files are untouched: the verb neither opened one for writing
+    // nor replaced it with a copy of its own.
+    for n in 0..db::BACKUP_NAMES {
+        let foreign = db::backup_name_at(&state, 8, 1_792_000_000, n);
+        assert_eq!(fs::read(&foreign).unwrap(), b"not a backup");
+    }
 }
 
 #[test]
@@ -1055,15 +1076,19 @@ fn migrate_reports_the_three_fields_and_a_database_at_8_stays_at_8() {
     let before = fs::read(&file).unwrap();
     // The same instant again: the copy of the first call is on the disk under
     // that name, and a verb that read it back and called it done would report a
-    // backup it did not make. The name is made afresh from the instant and the
-    // name that is taken is asked for by name, so a run of the verb twice in one
-    // second says so rather than quietly answering with the older file.
-    let (code, err) = migrate(&home, &state).unwrap_err();
-    assert_eq!(
-        code, 78,
-        "a second call in the same second overwrote a copy: {code} {err}"
+    // backup it did not make. It makes a new copy under the next name instead.
+    let first = PathBuf::from(value["backup"].as_str().unwrap());
+    let same = migrate(&home, &state).unwrap();
+    let next = PathBuf::from(
+        serde_json::from_str::<serde_json::Value>(&same).unwrap()["backup"]
+            .as_str()
+            .unwrap(),
     );
-    assert!(err.starts_with("unreadable "), "{err}");
+    assert_ne!(
+        next, first,
+        "a second call in the same second reused a copy"
+    );
+    assert!(first.exists() && db::is_database(&next), "{same}");
     // A minute later it is a different instant and a different file, and the
     // store itself is the file it was: the verb had nothing to run.
     let again = migrate_at(&home, &state, 1_792_000_060).unwrap();
@@ -1082,7 +1107,7 @@ fn migrate_reports_the_three_fields_and_a_database_at_8_stays_at_8() {
         .map(|e| e.unwrap().file_name())
         .filter(|n| n.to_string_lossy().starts_with("tehas-"))
         .collect();
-    assert_eq!(copies.len(), 2, "two calls, two copies: {copies:?}");
+    assert_eq!(copies.len(), 3, "three calls, three copies: {copies:?}");
 }
 
 #[test]
