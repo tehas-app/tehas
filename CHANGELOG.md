@@ -73,6 +73,16 @@ removed in a later release.
   is seen to be likely to stop the same way (#716).
 - AGENTS.md: the rule that jq programs must also run on jq 1.7 goes, now
   that hosts, the sandbox image and CI all run jq 1.8.1 (#867).
+- The health check says when a poll that started nothing costs too much.
+  `tehasbot health` asks the state store for the medians of the polls of the
+  last hour that started no cycle and writes them as `checks.poll_cost`, and
+  the file is `warn` with the figures over their budget named in `output`. The
+  budget is the instance's `TEHAS_POLL_BUDGET`
+  (`cpu=<s>,wall=<s>,writes=<n>`, any part left out, default
+  `cpu=5,wall=30,writes=0`). `store poll-idle` takes it as `--budget` and
+  answers the names over it as `over`; without the flag its answer has none.
+  A store that answers nothing leaves the check out rather than say it passed
+  (#744).
 
 ### Adopter action
 
