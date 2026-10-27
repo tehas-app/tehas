@@ -195,11 +195,15 @@ so what parks is the fence the plan kept, not the section you wrote.
 A park can name a file your own issue named. A deliverable that says "tests in
 `test/work_test.sh` (new)" beside an entry that matches that path parks the
 cycle with `fix-pass-park` in the fix pass after the adversarial review, after
-the work is written and the whole gate has passed. The driver's notices in the
-cycle's progress log name each entry it cut or dropped, and the cycle's record
-(`~/tehas/state/cycles/<issue>.result.json`) says which fences it lifted: read
-both with the filter under "What did the driver say?" in
-[Troubleshooting](/troubleshooting). A body that names many files also trips
+the work is written and the whole gate has passed. Two lines of the runner's
+progress, `~/tehas/logs/work-<issue>-<time>.jsonl`, say what the fence lost:
+a `log` line whose message holds `outOfScope bounded` names each entry the
+driver cut or dropped, and a `fence-lifted` line names each file the driver let
+through anyway. Neither is in the cycle's record, so read the progress itself
+with `jq -r 'select(.kind=="log") | .message'` and
+`jq -r 'select(.kind=="fence-lifted") | .event | "\(.workstreamId) \(.file)"'`,
+as under "What did the driver say?" in [Troubleshooting](/troubleshooting).
+A body that names many files also trips
 `TEHAS_SIZE_MAX_FILES`: the dispatcher counts the paths in it and holds the
 issue out before any cycle starts.
 
