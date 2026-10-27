@@ -340,7 +340,7 @@ t_contains "$pin" "a cycle that changes a file outside the fence parks"
 # page above is.
 fence_section="Out of scope"
 t_contains "$pin" "The \`$fence_section\` section of the issue's spec is part of that fence"
-brief=$(tr '\n' ' ' <"$th/lib/refine-brief.md")
+brief=$(tr '\n' ' ' <"$th/lib/issue-brief.md")
 t_contains "$brief" 'the nearby files the cycle must not touch, by path'
 # The page is one of the installed manual's own: nothing planted beside it.
 t_eq "$(cd "$th/docs" && find . -type f ! -name version.txt | LC_ALL=C sort)" \
