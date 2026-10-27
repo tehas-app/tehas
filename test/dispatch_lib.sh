@@ -117,7 +117,9 @@ case "$1 $2" in
     n=$(printf "%s\n" "$@" | sed -n "s/^number=//p")
     case "$*" in
       # The open issues in one page, as tehas-dispatch asks for them.
-      *"issues(states: OPEN"*) "$T/page-stub" || exit 1 ;;
+      *"issues(states: OPEN"*) if [ -e "$T/fx/gh-stderr-fails" ]; then
+          cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1; fi
+        "$T/page-stub" || exit 1 ;;
       # Or the REST answer a case wrote, as GraphQL gives it.
       *"comments(last"*) cat "$T/fx/comments-$n.json" 2>/dev/null ||
         jq "{data: {repository: {issue: {comments: {nodes: [.[] | {databaseId: .id, author: {login: .user.login},
@@ -379,13 +381,15 @@ reset() {
   # The control issue has never been paused: no tehas:pause event to read.
   echo '[]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2 TEHAS_STATUS_CMD=fake-status TEHAS_TIDY_CMD=fake-tidy TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
-  # T_RUST_POLL=1 runs every poll of the case in Rust, as TEHAS_DISPATCHER=rust
-  # does on a host: libexec/dispatch hands the poll to tehas-dispatch.
-  if [ -n "${T_RUST_POLL:-}" ]; then
+  # Every poll of the case runs in Rust, as on a host: libexec/dispatch hands
+  # it to tehas-dispatch. T_BASH_POLL=1 runs the bash poll instead, as
+  # TEHAS_DISPATCHER=bash does.
+  if [ -n "${T_BASH_POLL:-}" ]; then
+    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=bash "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=bash) ;; esac
+  else
     # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
     t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
     T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD="$T_ROOT/libexec/health")
-    case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=rust "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=rust) ;; esac
   fi
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
@@ -779,13 +783,13 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # the queue whether or not a list names it. With $fx/page-drops-events the
 # page answers every timeline empty, as GitHub can for a large page. A cycle
 # that holds its lock was marked running by the bot ($running).
-# Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
-# a case may count.
-inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
-# One ls for all of them: a host has hundreds.
-locked=$(ls -i "$T"/home/tehas/state/cycles/ 2>/dev/null | while read -r ino f; do
-  case "$f" in [0-9]*.lock) ;; *) continue ;; esac
-  case "$inodes" in *" $ino "*) echo "${f%.lock}" ;; esac
+# Held, as flock -n finds it. The system's flock, on an open file and with no
+# command: a case may count the flock and true it stubs. /proc/locks does not
+# do, as in a container its inodes are not the ones ls -i gives.
+fl=$(command -pv flock)
+locked=$(for f in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
+  [ -e "$f" ] || continue
+  { "$fl" -n 3 || { f=${f##*/}; echo "${f%.lock}"; }; } 3<"$f"
 done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
 for n in $(jq -r '.[]' <<<"$locked"); do
   [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
@@ -840,7 +844,7 @@ STUB
 chmod +x "$T/page-stub"
 
 # bash_reads: whether the poll under test makes the bash poll's own reads,
-# its REST calls and their words. The Rust poll (T_RUST_POLL) reads the queue
+# its REST calls and their words (T_BASH_POLL). The Rust poll reads the queue
 # in one GraphQL page instead, and ends the poll on its failure with its own
 # words, so a case that checks those calls checks them for the bash alone.
-bash_reads() { [ -z "${T_RUST_POLL:-}" ]; }
+bash_reads() { [ -n "${T_BASH_POLL:-}" ]; }

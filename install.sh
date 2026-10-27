@@ -21,7 +21,7 @@
 #
 # It copies files, and compiles seven: the console of a running cycle, the
 # analytics program, the MCP server, the state store, the attachment checker,
-# the dispatcher's shadow and the cycle's shadow, Rust programs in the Cargo
+# the dispatcher and the cycle's shadow, Rust programs in the Cargo
 # workspace console/ (the other six in console/analytics, console/mcp,
 # console/store, console/attach, console/dispatch and console/cycle). A real
 # run builds each with cargo in this checkout (console/target, which git
@@ -815,7 +815,7 @@ else
       tehas-mcp) echo "the MCP server" ;;
       store) echo "the store" ;;
       attach) echo "the attachment checker" ;;
-      tehas-dispatch) echo "the dispatcher's shadow" ;;
+      tehas-dispatch) echo "the dispatcher" ;;
       tehas-cycle) echo "the cycle's shadow" ;;
       *) echo "the $1 program" ;;
     esac
