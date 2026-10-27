@@ -53,6 +53,8 @@ fn main() {
         }
         let slot = match a.as_str() {
             "--live" => &mut live,
+            // The sessions directory holds both files the private reads are
+            // made from: the snapshot and the outcomes counts.
             "--sessions" => &mut sessions,
             "--logs" => &mut logs,
             "--listen" => &mut listen,
@@ -67,9 +69,13 @@ fn main() {
     let dir = |v: Option<String>, name: &str| {
         PathBuf::from(v.unwrap_or_else(|| usage(&format!("{name} is missing"))))
     };
+    // The host keeps the outcomes counts beside the snapshot and gives the
+    // container that one directory, so it is asked for no second one.
+    let sessions_dir = dir(sessions, "--sessions");
     let dirs = Dirs {
         live: dir(live, "--live"),
-        sessions: dir(sessions, "--sessions"),
+        outcomes: sessions_dir.clone(),
+        sessions: sessions_dir,
         logs: dir(logs, "--logs"),
     };
     let listen = listen.unwrap_or_else(|| usage("--listen is missing"));

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for live/analytics.json, the ten-day report libexec/status writes from
-# `analytics report --json` for the dashboard: its keys, and what happens when
-# analytics is off, missing or failing.
+# `analytics report --json` for the dashboard, and for the two private files it
+# asks the program to write under mcp/ for the MCP server: their keys and their
+# modes, and what happens when analytics is off, missing or failing.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -45,8 +46,13 @@ reset() {
   rm -rf "$T"/calls/* "$live" "$T/home/tehas/mcp" "$T/home/tehas/libexec" "$T/github-down"
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
+  # The stub stands for the program: given --out it writes the file named by
+  # the option after it, as sessions.rs and outcomes.rs do on a real host.
+  # The name is the third word of its own call, the call being the subcommand,
+  # the flag and the directory.
   t_stub_analytics '[ "$1" != report ] || cat "$T/report.json"
-    [ "$1" != sessions ] || cat "$T/sessions.jsonl"'
+    [ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && cat "$T/sessions.jsonl" >"$3/sessions.jsonl"; }
+    [ "$1" != outcomes ] || { mkdir -p "$3" && chmod 700 "$3" && cat "$T/outcomes.jsonl" >"$3/outcomes.jsonl"; }'
 }
 there() { [ -e "$file" ] && echo there || echo gone; }
 snap=$T/home/tehas/mcp/sessions.jsonl
@@ -54,6 +60,18 @@ snap_there() { [ -e "$snap" ] && echo there || echo gone; }
 snap_aged() { touch -d "@$(($(date +%s) - $1))" "$snap"; } # <seconds>
 printf '%s\n%s\n' '{"api":1,"days":30,"generatedAt":"2026-10-21T00:00:00Z","sessions":1}' \
   '{"id":"a"}' >"$T/sessions.jsonl"
+# The counts file as the analytics program writes it: a header, then one entry
+# a line, counts only.
+printf '%s\n%s\n' '{"api":1,"outcomes":1,"file":"outcomes.jsonl","by":"version","generatedAt":"2026-10-21T00:00:00Z"}' \
+  '{"tehasVersion":"v1","runs":3,"outcomes":{"merged":3},"failureKinds":{},"parkReasons":{}}' \
+  >"$T/outcomes.jsonl"
+counts=$T/home/tehas/mcp/outcomes.jsonl
+counts_there() { [ -e "$counts" ] && echo there || echo gone; }
+counts_aged() { touch -d "@$(($(date +%s) - $1))" "$counts"; } # <seconds>
+# A stub that was called the wrong way says so on its own standard error,
+# which is what status prints: the case that expects a clean run then fails.
+# shellcheck disable=SC2329  # the stub bodies below call it
+badstub() { printf 'STUB %s\n' "$*" >&2; }
 aged() { touch -d "@$(($(date +%s) - $1))" "$file"; } # <seconds>
 
 t_case "the report is written with the keys that may be published and no other"
@@ -62,7 +80,8 @@ t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_eq "$(t_calls analytics)" "report --json
-sessions"
+sessions --out $T/home/tehas/mcp
+outcomes --out $T/home/tehas/mcp"
 t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
 # The size figures belong to the terminal, not the page: the report has the
 # key, and the publisher's allowlist drops it. The manual says so; this holds
@@ -105,7 +124,8 @@ rm -f "$T/calls/analytics"
 t_run "$status"
 t_eq "$(t_calls analytics)" "event 5 awaiting
 report --json
-sessions"
+sessions --out $T/home/tehas/mcp
+outcomes --out $T/home/tehas/mcp"
 
 t_case "a run that ends early because GitHub does not answer still writes the report"
 reset
@@ -189,12 +209,17 @@ t_eq "$(stat -c %a "${snap%/*}")" 700
 t_eq "$(find "${snap%/*}" -name '*.new' | wc -l)" 0
 t_eq "$(find "$live" -iname '*session*' | wc -l)" 0
 
-t_case "the snapshot goes through names of this run"
+t_case "the snapshot is written by the program, to the directory status names"
 reset
-t_stub_analytics '[ "$1" != sessions ] || { readlink /proc/$$/fd/1 >"$T/sessions-to"; cat "$T/sessions.jsonl"; }'
+# The stub is the program: it writes the file it was asked for, by the name it
+# makes from the directory it was given, and nothing else.
+t_stub_analytics '[ "$1" != report ] || cat "$T/report.json"
+  [ "$1" != sessions ] || { [ "$2" = --out ] || badstub "sessions without --out"; mkdir -p "$3" && chmod 700 "$3" && cat "$T/sessions.jsonl" >"$3/sessions.jsonl."$$".new"; chmod 600 "$3/sessions.jsonl."$$".new"; mv -f "$3/sessions.jsonl."$$".new" "$3/sessions.jsonl"; }'
 t_run "$status"
-to=$(cat "$T/sessions-to")
-[[ $to =~ ^${snap%/*}/sessions\.jsonl\.[0-9]+\.raw\.new$ ]] || t_bad "the snapshot went to $to"
+t_eq "$t_out" ""
+t_eq "$(cat "$snap")" "$(cat "$T/sessions.jsonl")"
+# The program leaves no name of its run behind.
+t_eq "$(find "${snap%/*}" -name '*.new' | wc -l)" 0
 
 t_case "TEHAS_ANALYTICS=off removes the snapshot"
 reset
@@ -204,11 +229,13 @@ t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
 t_run "$status"
 t_eq "$(snap_there)" gone
 
-t_case "a failed sessions run keeps a snapshot younger than ten minutes and removes an older one"
+t_case "a snapshot the program cannot write keeps a snapshot younger than ten minutes and removes an older one"
 reset
 t_run "$status"
 keep=$(cat "$snap")
-t_stub_analytics '[ "$1" != sessions ] || { echo "{\"api\":1,\"half"; exit 70; }
+# A program that cannot read its database ends without the file it was asked
+# to write: the print of the last run stands, until it is too old.
+t_stub_analytics '[ "$1" != sessions ] || exit 70
   [ "$1" != report ] || cat "$T/report.json"'
 snap_aged 540
 t_run "$status"
@@ -221,24 +248,72 @@ t_run "$status"
 t_eq "$(snap_there)" gone
 t_eq "$(there)" there
 
-t_case "a snapshot without the header is a warning and is not published"
-reset
-t_run "$status"
-for printed in 'not json' '{"api":2,"days":30}' '{"api":1,"days":"x"}' '[1]' ''; do
-  printf '%s\n{"id":"b"}\n' "$printed" >"$T/sessions.jsonl"
-  snap_aged 60
-  t_run "$status"
-  t_contains "$t_out" "WARN analytics sessions: not a snapshot"
-  t_eq "$(head -n 1 "$snap" | jq -r .api)" 1
-  t_eq "$(grep -c '"id":"b"' "$snap" || true)" 0
-done
-
-t_case "a failing sessions run does not stop analytics.json"
+t_case "a failing sessions run does not stop analytics.json or the counts"
 reset
 t_stub_analytics '[ "$1" != sessions ] || exit 70
-  [ "$1" != report ] || cat "$T/report.json"'
+  [ "$1" != report ] || cat "$T/report.json"
+  [ "$1" != outcomes ] || { mkdir -p "$3" && chmod 700 "$3" && cat "$T/outcomes.jsonl" >"$3/outcomes.jsonl"; }'
 t_run "$status"
 t_eq "$(jq -r .report "$file")" 1
 t_eq "$(snap_there)" gone
+t_eq "$(counts_there)" there
+
+# The counts of how the runs ended, further back than the snapshot reaches:
+# the same private file, the same keeping, and a file the tool cannot read is
+# never published.
+
+t_case "the outcomes counts are private: mode 600 in a 700 directory, never under live/"
+reset
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(cat "$counts")" "$(cat "$T/outcomes.jsonl")"
+t_eq "$(stat -c %a "$counts")" 600
+t_eq "$(stat -c %a "${counts%/*}")" 700
+t_eq "$(find "${counts%/*}" -name '*.new' | wc -l)" 0
+t_eq "$(find "$live" -iname '*outcome*' | wc -l)" 0
+
+t_case "the counts go through the program's own name"
+reset
+t_stub_analytics '[ "$1" != report ] || cat "$T/report.json"
+  [ "$1" != outcomes ] || { [ "$2" = --out ] || badstub "outcomes without --out"; mkdir -p "$3" && chmod 700 "$3" && cat "$T/outcomes.jsonl" >"$3/outcomes.jsonl."$$".new"; chmod 600 "$3/outcomes.jsonl."$$".new"; mv -f "$3/outcomes.jsonl."$$".new" "$3/outcomes.jsonl"; }'
+t_run "$status"
+t_eq "$t_out" ""
+t_eq "$(cat "$counts")" "$(cat "$T/outcomes.jsonl")"
+# The program leaves no name of its run behind.
+t_eq "$(find "${counts%/*}" -name '*.new' | wc -l)" 0
+
+t_case "TEHAS_ANALYTICS=off removes the counts"
+reset
+t_run "$status"
+t_eq "$(counts_there)" there
+t_instance "${T_MINIMAL[@]}" TEHAS_ANALYTICS=off
+t_run "$status"
+t_eq "$(counts_there)" gone
+
+t_case "a failed outcomes run keeps counts younger than ten minutes and removes older ones"
+reset
+t_run "$status"
+keep=$(cat "$counts")
+t_stub_analytics '[ "$1" != outcomes ] || exit 70
+  [ "$1" != report ] || cat "$T/report.json"'
+counts_aged 540
+t_run "$status"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN analytics outcomes: exit 70"
+t_eq "$(cat "$counts")" "$keep"
+t_eq "$(find "${counts%/*}" -name '*.new' | wc -l)" 0
+counts_aged 600
+t_run "$status"
+t_eq "$(counts_there)" gone
+
+t_case "a failing outcomes run does not stop the snapshot or analytics.json"
+reset
+t_stub_analytics '[ "$1" != outcomes ] || exit 70
+  [ "$1" != report ] || cat "$T/report.json"
+  [ "$1" != sessions ] || { mkdir -p "$3" && chmod 700 "$3" && cat "$T/sessions.jsonl" >"$3/sessions.jsonl"; }'
+t_run "$status"
+t_eq "$(jq -r .report "$file")" 1
+t_eq "$(snap_there)" there
+t_eq "$(counts_there)" gone
 
 t_done

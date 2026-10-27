@@ -302,6 +302,41 @@ is the session's issue and whose `at` falls from its start to two minutes after
 its end. It is left out when there are none. The command exits 70 when the
 database cannot be read.
 
+## Outcomes
+
+```
+analytics outcomes [--tehas <version>] [--rukas <version>]
+                   [--since <day>] [--until <day>] [--by version|week]
+```
+
+The same program prints the counts behind the MCP tool `factory_outcomes`
+as JSON Lines, as far back as the database reaches: 365 days, where the
+sessions above reach 30. It is not a `tehas` command. Line 1 is
+`{"api":1,"outcomes":1,"file":"outcomes.jsonl","by":"version|week",
+"generatedAt":"..."}`. Each line after it is one group, and a group holds
+only counts: `runs`, and the maps `outcomes`, `failureKinds` and
+`parkReasons` from each word to how many runs of the group carry it. Grouped
+by version (the default) a group is a pair of `tehasVersion` and
+`rukasVersion`, the most runs first, and a run that recorded neither is one
+group with neither key. Grouped by `week` a group is `week`, the Monday that
+opens the UTC week, `YYYY-MM-DD`, newest first. A run is counted on its end,
+and a run that never ended on its start. An outcome the schema does not allow,
+or none at all, counts under `unknown`.
+
+Nothing else is in the file: no issue number, no title, no failure cause and
+no log content. `--tehas` and `--rukas` ask for one release each, matched
+exactly, and a run that recorded no version belongs to no release, so it
+answers to neither and joins no entry of a filtered call. `--since` and
+`--until` bound the days counted, each as `YYYY-MM-DD` (its own start) or a
+full UTC time `YYYY-MM-DDTHH:MM:SSZ`, and read as far as themselves. `--by`
+is `version` or `week`. An option given twice, or a value that is no word or
+no time, is an error. The command exits 70 when the database cannot be read.
+
+`tehasbot status` writes what the unfiltered command prints to
+`~/tehas/mcp/outcomes.jsonl`, mode 600 in a 700 directory, beside the
+snapshot and never under `live/`, which is public. Only `factory_outcomes`
+reads it (see [the MCP server](/mcp-server)).
+
 ## Fetching it
 
 ```

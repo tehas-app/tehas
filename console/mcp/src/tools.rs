@@ -5,6 +5,8 @@
 //! until it is named here. Null values are left out.
 
 use crate::logs::{self, LogGuard};
+use crate::outcomes;
+use crate::outcomes_schema;
 use crate::sessions;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
@@ -21,6 +23,10 @@ pub struct Dirs {
     pub live: PathBuf,
     /// The sessions snapshot, never published.
     pub sessions: PathBuf,
+    /// The outcomes counts, never published. The host keeps them beside the
+    /// snapshot and gives the container that one directory, so on the host
+    /// these two are the same path.
+    pub outcomes: PathBuf,
     pub logs: PathBuf,
 }
 
@@ -772,8 +778,11 @@ pub fn list() -> Value {
     ]);
     if let Value::Array(a) = &mut tools {
         a.extend(sessions::tools());
-        // factory_log goes before factory_failures.
+        // factory_log goes before factory_failures, and factory_outcomes
+        // after it: the counts of the last 30 days first, then the longer
+        // view beside it.
         a.insert(a.len() - 1, logs::tool());
+        a.push(outcomes_schema::tool());
     }
     tools
 }
@@ -804,6 +813,7 @@ pub fn call_held(
         "factory_sessions" => sessions::list(dirs, args)?,
         "factory_session" => sessions::one(dirs, args)?,
         "factory_failures" => sessions::failures(dirs)?,
+        "factory_outcomes" => outcomes::call(dirs, args)?,
         _ => return Err(ToolError::Unknown(name.to_string())),
     };
     out.insert("api".into(), json!(1));
@@ -878,6 +888,10 @@ pub fn spec_of(name: &str) -> Option<Value> {
         // allowlist lives beside the join. The schema test still compares this
         // spec with the outputSchema, which is the point of naming it here.
         "factory_issue" => sessions::issue_spec(),
+        // The entries are copied with the spec of the grouping the file's own
+        // header gives, which a call reads; the schema test names version,
+        // which is what the host writes and what the tool asks for without it.
+        "factory_outcomes" => outcomes_schema::spec("version"),
         "factory_stats" => {
             let counts = [
                 (
@@ -958,6 +972,15 @@ pub(crate) fn pick(src: &Value, spec: &Value) -> Option<Value> {
         (_, Value::Null) => None,
         (Value::Bool(true), Value::Object(_) | Value::Array(_)) => None,
         (Value::Bool(true), v) => Some(v.clone()),
+        // A spec of no keys of its own: copy what the source holds, keeping
+        // only the scalars. A map of counts is written this way, its keys
+        // being the file's own words that no spec can name in advance.
+        (Value::Object(s), Value::Object(m)) if s.is_empty() => Some(Value::Object(
+            m.iter()
+                .filter(|(_, v)| !v.is_object() && !v.is_array() && !v.is_null())
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )),
         (Value::Object(s), Value::Object(m)) => {
             let mut out = Map::new();
             for (k, sub) in s {

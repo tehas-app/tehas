@@ -15,6 +15,7 @@ fn dirs() -> Dirs {
     Dirs {
         live: f.join("live"),
         sessions: f.join("sessions"),
+        outcomes: f.join("sessions"),
         logs: f.join("logs"),
     }
 }
@@ -156,7 +157,7 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    assert_eq!(res["tools"].as_array().unwrap().len(), 10);
+    assert_eq!(res["tools"].as_array().unwrap().len(), 11);
 }
 
 #[test]
@@ -300,7 +301,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 10);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 11);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",

@@ -123,34 +123,35 @@ analytics_report() {
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
   [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
-# The private snapshot of the last thirty days of runs, mcp/sessions.jsonl,
-# for the MCP server. Never under live/, which is public. Kept, replaced and
-# removed as the report is. Only the header line is checked: the file can be
-# several megabytes.
-mcp=$TEHAS_HOME/mcp
-# shellcheck disable=SC2329  # the EXIT trap below calls it
-analytics_sessions() {
-  local file=$mcp/sessions.jsonl rc written
-  local raw=$file.$$.raw.new
-  mkdir -p "$mcp" && chmod 700 "$mcp" || return 0
-  (umask 077; tehas_analytics_to "$raw" sessions)
+# The private files of the MCP server, under mcp/: sessions.jsonl, the
+# snapshot of the last thirty days, and outcomes.jsonl, the counts of how the
+# runs ended for a year back. Never under live/, which is public. The program
+# makes the directory, mode 700, and writes both itself: mode 600, from a name
+# of this run, moved into place, so the host reads neither and writes neither.
+# A poll that fails keeps a file while it is younger than analytics_keep and
+# removes an older one.
+# shellcheck disable=SC2329  # the two below and the EXIT trap call it
+analytics_publish() {
+  # <subcommand> <file>: the two differ in the command and the name alone.
+  local subcommand=$1 file=$2 rc written
+  (umask 077; tehas_analytics_to /dev/null "$subcommand" --out "$TEHAS_HOME/mcp")
   rc=$?
-  if [ "$rc" = 0 ] && head -n 1 "$raw" | jq -e 'type == "object" and .api == 1 and (.days | type == "number")' \
-      >/dev/null 2>&1 && chmod 600 "$raw" && mv -f "$raw" "$file"; then
-    return 0
-  fi
-  rm -f "$raw"
+  [ "$rc" = 0 ] && return 0
   if [ "$rc" = 2 ]; then
     rm -f "$file"
     return 0
   fi
-  [ "$rc" = 1 ] || log "WARN analytics sessions: not a snapshot"
+  [ "$rc" = 1 ] || log "WARN analytics $subcommand: not written"
   written=$(stat -c %Y "$file" 2>/dev/null) || return 0
   [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
 }
+# shellcheck disable=SC2329  # the EXIT trap below calls it
+analytics_sessions() { analytics_publish sessions "$TEHAS_HOME/mcp/sessions.jsonl"; }
+# shellcheck disable=SC2329  # the EXIT trap below calls it
+analytics_outcomes() { analytics_publish outcomes "$TEHAS_HOME/mcp/outcomes.jsonl"; }
 # Whatever happens below, write the report, and refresh the health file
 # from what is on disk.
-trap 'analytics_report; analytics_sessions; "$here/health" 2>/dev/null || true' EXIT
+trap 'analytics_report; analytics_sessions; analytics_outcomes; "$here/health" 2>/dev/null || true' EXIT
 
 fetch_every=3600
 fetch_limit=60
