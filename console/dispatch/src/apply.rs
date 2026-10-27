@@ -46,6 +46,10 @@ pub struct Writer {
     pub spend: Option<u64>,
     /// Set by a turn: the status command runs after it, as after a start.
     pub status_due: bool,
+    /// The poll's work could change the queue, so its end refreshes the
+    /// status: the poll wrote to GitHub, started or stopped something, or ran
+    /// a planning turn. An idle poll changes nothing, so it skips that run.
+    pub changed: bool,
     /// The gh calls the writes made, for the poll's cost.
     pub gh_writes: u32,
     /// The issues marked running this poll, for the poll's cost.
@@ -124,6 +128,11 @@ impl Writer {
             if self.status_due {
                 self.status_due = false;
                 self.status(&mut out.printed);
+            }
+            // A step that ended the poll changed something too: it stopped or
+            // started a unit, or ran a turn. One that only logged did not.
+            if self.ended.is_some() {
+                self.changed = true;
             }
             if let Some(rc) = self.ended.take() {
                 out.exit = Some(rc);
@@ -256,6 +265,8 @@ impl Writer {
             json!({"sha256": sum, "bytes": b.len()})
         });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
+        // From here the poll's end owes a status: the queue is about to change.
+        self.changed = true;
         // The poll's row, begun with its first write: a store that cannot
         // begin it records, and so makes, no write this poll.
         if self.poll_at == 0 {

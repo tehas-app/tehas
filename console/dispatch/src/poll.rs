@@ -238,10 +238,26 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
         ended: None,
         spend: None,
         status_due: false,
+        changed: false,
         gh_writes: 0,
         starts: 0,
         fetched: false,
     }
+}
+
+/// What a poll's actions could change on the host or on GitHub: the reason
+/// its end runs the status again and takes a sample. A poll that starts,
+/// stops or refreshes nothing leaves both to the next poll that does, and
+/// idle polls are the common ones.
+#[derive(Debug, Default, PartialEq)]
+pub struct Changed {
+    /// A write to GitHub, a start, a stop or a planning turn: the queue
+    /// itself changed, so the status's files are out of date.
+    pub queue: bool,
+    /// The poll's demand or report would have been written: the health file
+    /// that reads them is out of date, so the poll runs health again. A dry
+    /// run writes neither, so it never sets this.
+    pub live: bool,
 }
 
 /// The poll's end, run however it ended once it held the lock: tidy once
@@ -253,6 +269,7 @@ struct End<'a> {
     started: f64,
     gh: u32,
     starts: u32,
+    changed: Changed,
 }
 
 impl End<'_> {
@@ -272,6 +289,16 @@ impl End<'_> {
         }
         if self.dry {
             return;
+        }
+        // The status and the sample follow work, not the clock. A poll that
+        // started, stopped or refreshed nothing leaves both to the next poll
+        // that does: the poll's cost is still recorded, as health and status
+        // read it whatever the last poll did. The prune keeps its schedule,
+        // being the one step of the end that bounds what the others read.
+        if self.changed.queue {
+            let mut printed = Vec::new();
+            w.status(&mut printed);
+            pass(&printed);
         }
         let state = self.home.join("state");
         let tally = state.join("poll-gh.tally");
@@ -307,7 +334,14 @@ impl End<'_> {
             ));
         }
         let mut log = Vec::new();
-        w.analytics(&["sample".into()], &mut log);
+        // The sample is the queue as the last status wrote it, so the poll
+        // that changed the queue takes it and one that changed nothing
+        // leaves it: over a day of idle polls the rows of an idle hour are
+        // the same reading, of the work that went before. The prune keeps
+        // its schedule, being the one step that bounds what the others read.
+        if self.changed.queue {
+            w.analytics(&["sample".into()], &mut log);
+        }
         w.analytics(&["prune".into()], &mut log);
         for l in &log {
             say(l);
@@ -387,10 +421,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         started,
         gh: 0,
         starts: 0,
+        changed: Changed::default(),
     };
     let rc = body(home, settings, dry, &mut w, &mut end);
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
+    end.changed.queue = w.changed;
     end.run(&mut w);
     drop(lock);
     rc
@@ -398,12 +434,25 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
 
 fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut End) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
-    // that died between two writes left is settled from fresh reads.
+    // that died between two writes left is settled from fresh reads. A store
+    // that answers nothing open has nothing to settle, which is the case of
+    // every poll that did not die: the read is the poll's first call, and an
+    // idle poll pays it for no reason.
     if !dry {
-        let mut lines = Vec::new();
-        w.settle(w.before, &mut lines);
-        for l in &lines {
-            say(l);
+        let (open, read) = {
+            let mut lines = Vec::new();
+            let (open, read) = w.journal_open(&mut lines);
+            for l in &lines {
+                say(l);
+            }
+            (open, read)
+        };
+        if read && !open.is_empty() {
+            let mut lines = Vec::new();
+            w.settle_actions(w.before, open, &mut lines);
+            for l in &lines {
+                say(l);
+            }
         }
     }
     if !dry {
@@ -442,6 +491,37 @@ fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut E
     }
     end.gh = src.calls.gh_count;
     end.tidy = d.tidy;
+    // The demand and the report are the poll's own writings, so health is
+    // out of date after them whatever else the poll did. A dry run writes
+    // neither.
+    if !dry && (d.demand.is_some() || d.report.is_some()) {
+        // What the poll would have written for health, compared with the last
+        // poll's: a poll that changed none of it runs health for nothing.
+        let same = |file: &Path, v: &Value| -> bool {
+            std::fs::read_to_string(file)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .is_some_and(|old| {
+                    let drop_time = |x: Value| {
+                        let mut x = x;
+                        if let Some(o) = x.as_object_mut() {
+                            o.remove("time");
+                        }
+                        x
+                    };
+                    drop_time(old) == drop_time(v.clone())
+                })
+        };
+        let demand_changed = d.demand.as_ref().is_none_or(|demand| {
+            let file = home.join("live/demand.json");
+            demand.is_null() != !file.exists() || !same(&file, demand)
+        });
+        let report_changed = d
+            .report
+            .as_ref()
+            .is_some_and(|r| !same(&home.join("live/dispatch.json"), r));
+        end.changed.live = demand_changed || report_changed;
+    }
     w.host.bot = d.bot.clone();
     demand_health(home, w, &d);
     // The decision's lines, the actions between them, and the two steps the
