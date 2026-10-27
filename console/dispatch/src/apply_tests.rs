@@ -1417,14 +1417,17 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
                "update": {"title": "feat: faster search", "body": "## Outcome\n\nFast."}}),
     );
     let a = t.apply(json!([{"plan_collect": 7}]));
-    assert_eq!(a.log, vec!["planning #7 ended", "done planning #7 turn=3 rc=0"]);
+    assert_eq!(
+        a.log,
+        vec!["planning #7 ended", "done planning #7 turn=3 rc=0"]
+    );
     let w = t.writes();
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --title feat: faster search --body-file - <<< ## Outcome".to_string()));
     assert!(w.contains(&"Fast.".to_string()));
     assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention".to_string()));
-    assert!(w
-        .iter()
-        .any(|c| c.starts_with("gh issue comment 7") && c.contains("This issue now holds the plan.")));
+    assert!(w.iter().any(
+        |c| c.starts_with("gh issue comment 7") && c.contains("This issue now holds the plan.")
+    ));
     assert!(!w.iter().any(|c| c.contains("issues/7/comments")));
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
 }
@@ -2380,7 +2383,10 @@ fn a_plans_issue_edit_is_settled_by_its_title() {
         json!({"id": id, "kind": "issue-edit", "issue": 7, "state": "attempted", "intended_at": 990, "attempted_at": 991,
         "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--title", title, "--body-file", "-"]}})
     };
-    left_open(&t, json!([edit(3, "feat: faster search"), edit(4, "feat: other")]));
+    left_open(
+        &t,
+        json!([edit(3, "feat: faster search"), edit(4, "feat: other")]),
+    );
     fs::write(
         t.dir.join("issue-7"),
         r#"{"title":"feat: faster search","body":"Outcome","labels":[]}"#,
