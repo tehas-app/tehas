@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- `tehasbot clean` runs its steps in the console (`console clean run`), not in
+  bash. What it removes and keeps is unchanged. A host with no console beside
+  the command stops with 78 and says to run `install.sh` (#862).
+
 ### Adopter action
 
 None.
