@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.15.0 (2026-10-27)
+
+### Changes
+
 - `TEHAS_SLICE_CONTAINERS`, 4 by default, sets how many containers
   `tehas.slice` holds. Each container's memory ceiling is the slice over this
   number, and admission, the CPU share and the pids limit follow it. Before,
@@ -41,8 +49,33 @@ empty one above it.
   parks, approvals and blockers of the issues it would decide on: only the
   queue and what its clean-up needs (#254).
 - The dispatcher in Rust is the default: every poll is `tehas-dispatch poll`.
-  It ran tehas-tehas's queue for a week first. A failed read of GitHub names
-  gh's error by the same fixed words as the bash poll's line (#254).
+  It ran beside the bash poll as a shadow on tehas-tehas from 2026-10-26, and
+  has run its queue since 2026-10-27. A failed read of GitHub names gh's
+  error by the same fixed words as the bash poll's line (#254).
+- `tehasbot health` warns when an idle poll costs more than its budget
+  (`checks.poll_cost`): the medians of the last hour's polls that started no
+  cycle, against `TEHAS_POLL_BUDGET`, by default `cpu=5,wall=30,writes=0`
+  (#744).
+- Gates side by side do not oversubscribe the host: the test runner holds
+  back a new test file while the load average is at least the host's CPUs,
+  where it was 1.5 times (#869).
+- The MCP server has an eleventh tool, `factory_outcomes`: counts of how the
+  runs ended for a year back, per version pair or per UTC week, from the
+  analytics (#838).
+- A park's comment offers a third box, **Retry from the issue alone**: a
+  retry whose start names no comment of the issue or of its pull request, for
+  when the discussion is what keeps a cycle stopping (#717).
+- An idle poll, `tehas health` and `tehas status` run fewer processes: the
+  store and the queue snapshot are read once per question rather than once per
+  field (#736).
+- A first planning turn passes `--issue <n>` when the image lists that flag
+  for `plan`, so the planner does not take the issue for a duplicate of itself
+  (pi-rukas v0.14.28 and later).
+- `install.sh` reports a leftover staged sandbox recipe as stale and takes it
+  back when it installs; the build test also checks that no step crossed the
+  cut between the layers every instance user shares and those of one uid
+  (#735).
+- The business page shows the version in its footer.
 
 ### Adopter action
 
