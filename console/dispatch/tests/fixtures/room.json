@@ -4,7 +4,8 @@
  "not_ported": [
   "which endpoint is asked, with which token, how often: the endpoint is asked by the snapshot (#253 part 4), which gives decide its hold, its word and its log",
   "a token models.json names and the host has not set stops the dispatcher: lib/config.sh",
-  "the lesser of the two file systems decides: the snapshot reads both and gives the lesser"
+  "the lesser of the two file systems decides: the snapshot reads both and gives the lesser",
+  "a memory.stat that cannot be read at all holds the whole poll: the snapshot reads the file as text, so the case here is the missing key, not the unreadable file"
  ],
  "cases": [
   {
@@ -263,6 +264,43 @@
     "report": {
      "why": "unreadable",
      "hold": "holding: the slice's use could not be read: /sys/fs/cgroup/tehas.slice/memory.pressure cannot be read"
+    }
+   }
+  },
+  {
+   "case": "a memory.stat with no slab_reclaimable line counts its kernel whole",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "hold": [
+    9
+   ],
+   "max": 8589934592,
+   "after": {
+    "slice": {
+     "scopes": {
+      "docker-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.scope": {
+       "stat": "anon 1073741824\nfile 0\nkernel 1073741824\nkernel_stack 0\nshmem 0\nslab_unreclaimable 0\n",
+       "low": "4294967296\n"
+      }
+     }
+    }
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "holding:"
+    ],
+    "report": {
+     "committed": 6442450944,
+     "room": 1,
+     "why": ""
     }
    }
   },
