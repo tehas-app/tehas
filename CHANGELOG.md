@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.14.5 (2026-10-27)
+
+### Changes
+
 - A drafted plan offers **Update this issue** beside **File as a new
   issue**. The first makes the plan the issue's own title and text and ends
   the session: the discussion stays in the comments, and the last one holds
@@ -34,6 +42,11 @@ empty one above it.
   days oldest first, with each run's id, so one call answers "what happened to
   issue N" instead of three. It reads only the files the server already reads
   and calls nothing.
+- A park that repeats the last park of the same issue says so in its comment,
+  and its history line carries a `repeat` count, so a retry on the same text
+  is seen to be likely to stop the same way (#716).
+- AGENTS.md: the rule that jq programs must also run on jq 1.7 goes, now
+  that hosts, the sandbox image and CI all run jq 1.8.1 (#867).
 
 ### Adopter action
 
