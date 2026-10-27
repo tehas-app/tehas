@@ -23,6 +23,11 @@ empty one above it.
 - What a planning turn says is shaped in the console (`console plan`), not
   in jq. A host with no console beside `libexec/plan` runs no turn and stops
   with 78.
+- `tehas export` copies in the console (`console export run`), one process
+  for the whole export rather than one mask per file (#876). Protolab images
+  are now copied byte for byte; before, the mask read them as text and
+  replaced their bytes. A file that cannot be read fails its cycle (exit 1)
+  instead of being left out without a word.
 - The MCP server has a tenth tool, `factory_issue` (#837): `{"issue": N}`
   answers the stage the dashboard lists the issue under, its title, the step
   and status of a cycle that owns it now, and every run of it of the last 30

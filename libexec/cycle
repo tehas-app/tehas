@@ -1130,11 +1130,17 @@ fi
 park() {
   parked_now=true
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
-  local parked="$1" park_marker question="" on_record=0 why last retry
+  local parked="$1" park_marker question="" on_record=0 why last repeat
   local -a park_args
   # The fields of the history line written below, for a fixer that reads GitHub.
   park_marker=$(tehas_park_marker "$issue" "$step" "$cap" "$park_reason" "$failure_kind" "$failure_cause" "$provider") ||
     park_marker=""
+  # The park repeats the issue's previous end when that line is a park of this
+  # one's sig and of no provider outage: 1 for the first such repeat, and tehas
+  # history counts the run on its own read. Unreadable history says nothing.
+  repeat=""
+  [ -n "$park_marker" ] && [ "$provider" != 1 ] &&
+    repeat=$(tehas_park_repeat "$issue" "$park_marker")
   # provider-outage is tehas's word alone: the store owes a retry for it. A
   # cap or status is the container's, so it never takes that word.
   why=${park_why:-${cap:-${status:-unknown}}}
@@ -1171,6 +1177,8 @@ park() {
     fi
   fi
   parked+=$stuck
+  # The host's line above the boxes, when this park repeats the park before it.
+  [ -n "$repeat" ] && parked+=$(q_park_repeat "$repeat" "$step" "$cap")
   # The body q_render posts, in a file of its own that goes when it is posted.
   if [ "$on_record" = 1 ]; then
     [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
