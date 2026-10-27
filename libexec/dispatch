@@ -486,11 +486,10 @@ trap 'if [ "$tidy_on" = 1 ]; then
     --writes-log "$TEHAS_HOME/state/github-writes.log" --starts "$poll_starts" || log "WARN: the cost of the poll was not recorded ($tehas_store_word)"
     tehas_analytics sample; tehas_analytics prune; }' EXIT
 
-# gh_json <gh arguments>: the answer in $json. A failed call ends the poll:
-# no rule below may be decided on an answer that never came. Always call it as
-# a plain command, never in a pipe or $( ), where its exit would be lost.
+# gh_json <gh arguments>: the answer in $json. A failed call ends the poll; its line names gh's error
+# by words of a fixed list only, as an agent can write the rest. Call it as a plain command, never in $( ).
 json=""
-gh_json() { json=$(gh "$@" 2>/dev/null) || { log "ERROR: gh $1 $2 failed"; exit 1; }; }
+gh_json() { json=$(gh "$@" 2>"$TEHAS_HOME/state/gh-err") && return; log "ERROR: gh $1 $2 failed$(grep -oiE -m1 'HTTP [0-9]{3}|secondary rate limit|rate limit|timed? ?out|connection (reset|refused)|no such host|unexpected EOF' "$TEHAS_HOME/state/gh-err" | sed -n '1s/^/: /p')"; exit 1; }
 
 # say <issue> <text>: comment on an issue. A failure is a warning in the log,
 # not the end of the poll.
