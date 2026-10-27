@@ -1885,7 +1885,8 @@ It reads what the factory already writes under `~/tehas/live/` - the [health
 file](#tehasbot-health), the queue snapshot, the cycles, the energy sample and
 the console of a cycle - asks `systemctl --user` about its units, and reads the
 host's own numbers from `/proc`, through the console beside the commands
-(`~/tehas/libexec/console top`; without it the host section is `null`). No
+(`~/tehas/libexec/console top`, which also puts the snapshot together;
+without it there is no snapshot and the command says to run `install.sh`). No
 GitHub call, no model call, no Docker call,
 no instance settings, and nothing is written. What it shows is as old as those
 files, and every section that has an age prints it. A file older than ten
