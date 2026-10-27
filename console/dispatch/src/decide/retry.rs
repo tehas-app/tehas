@@ -277,11 +277,20 @@ impl Poll<'_> {
                 }
                 continue;
             }
-            let body = ans["body"].as_str().unwrap_or("").replace('\r', "");
-            if !body
-                .split('\n')
-                .any(|l| l.eq_ignore_ascii_case("- [x] Retry from a clean start"))
-            {
+            // What was ticked is read from the label of the ticked box, which
+            // questions::answer read from the comment's own line: the order of
+            // the boxes decides nothing, and the two polls read the same list.
+            // The third box is a retry as the first is; what differs is that
+            // its record names no comment of the issue or of the pull request.
+            let ticked = |label: &str| {
+                ans["tick"]["index"]
+                    .as_u64()
+                    .and_then(|i| ans["labels"].get(usize::try_from(i).unwrap_or(usize::MAX)))
+                    .is_some_and(|l| l.as_str().is_some_and(|s| s == label))
+            };
+            let clean = ticked(tehas_core::question::BOX_CLEAN);
+            let issue_alone = ticked(tehas_core::question::BOX_ALONE);
+            if !clean && !issue_alone {
                 if !self.dry {
                     self.act(json!({"issue": n, "remove": ["tehas:question"],
                         "fail": Self::label_fail(n, &["tehas:question"], &[]),
@@ -344,6 +353,9 @@ impl Poll<'_> {
             let mut extra = Map::new();
             extra.insert("comment".into(), ans["comment"].clone());
             extra.insert("since".into(), ans["asked_at"].clone());
+            if issue_alone {
+                extra.insert("issue_alone".into(), json!(true));
+            }
             self.d.picked.push(n);
             self.act_gates(n);
             self.act_start(

@@ -849,6 +849,103 @@ fn a_retry_names_what_an_allowed_account_said_on_its_pull_requests_since_the_par
     );
 }
 
+/// The tick of `Retry from the issue alone`: the start names no comment of the
+/// issue or of its pull request, so with the host reading comments it asks for
+/// neither and its record holds neither. Were the guard dropped, this start
+/// would read both, and these are the two calls that say it did.
+#[test]
+fn a_start_of_the_issue_alone_reads_no_comment_of_the_issue_or_its_pull_request() {
+    let mut t = world();
+    t.w.host.comments = true;
+    // Both reads would answer if they were asked for: the issue's comments
+    // link one file, the pull request's would go into retry_context.
+    fs::write(
+        t.dir.join("comments"),
+        r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
+            "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("prs"),
+        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
+    )
+    .unwrap();
+    let mut a = start_of(7, "retry-tick");
+    a["issue_alone"] = json!(true);
+    a["since"] = json!("2026-10-26T09:00:00Z");
+    let r = t.apply(json!([a]));
+    assert_eq!(r.exit, None);
+    let w = t.calls();
+    assert!(
+        !w.iter().any(|c| c.starts_with("gh pr list")),
+        "an alone start asked for the pull requests: {w:?}"
+    );
+    assert!(
+        !w.iter().any(|c| c.contains("issues/7/comments")),
+        "an alone start read the comments of the issue: {w:?}"
+    );
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(
+        input,
+        json!({"links": ["https://github.com/user-attachments/assets/1"]})
+    );
+    // A tick of the clean start under the same host asks for both, so the two
+    // cases above really are the guard and not a world that reads nothing.
+    let mut t = world();
+    t.w.host.comments = true;
+    fs::write(
+        t.dir.join("comments"),
+        r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
+            "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("prs"),
+        r#"[{"number": 30, "headRefName": "feature/issue-7-x", "body": ""}]"#,
+    )
+    .unwrap();
+    let mut a = start_of(7, "retry-tick");
+    a["since"] = json!("2026-10-26T09:00:00Z");
+    t.apply(json!([a]));
+    let w = t.calls();
+    assert!(w.iter().any(|c| c.starts_with("gh pr list")));
+    assert!(w.iter().any(|c| c.contains("issues/7/comments")));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert!(input.get("comment_links").is_some());
+    assert!(input.get("retry_context").is_some());
+}
+
+/// The flag is a bool or nothing: a value that is neither is said in the log
+/// and read as the clean start it is not silently made to look like.
+#[test]
+fn a_start_whose_issue_alone_is_not_a_bool_is_said_and_reads_its_comments() {
+    for v in [json!("true"), json!(1), json!("yes")] {
+        let mut t = world();
+        t.w.host.comments = true;
+        fs::write(
+            t.dir.join("comments"),
+            r#"[{"id": 1, "body": "see https://github.com/user-attachments/assets/2", "user": {"login": "alice"},
+                "created_at": "2026-10-26T09:00:00Z", "updated_at": "2026-10-26T09:00:00Z"}]"#,
+        )
+        .unwrap();
+        let mut a = start_of(7, "retry-tick");
+        a["issue_alone"] = v.clone();
+        a["since"] = json!("2026-10-26T09:00:00Z");
+        let r = t.apply(json!([a]));
+        assert_eq!(r.exit, None);
+        assert!(
+            r.log
+                .iter()
+                .any(|l| l.starts_with("WARN: #7: its start names issue_alone ")),
+            "nothing was said of {v}: {:?}",
+            r.log
+        );
+        assert!(t.calls().iter().any(|c| c.contains("issues/7/comments")));
+    }
+}
+
 #[test]
 fn a_millwright_start_names_its_note_of_the_ten_minutes_before_the_label() {
     let mut t = world();
