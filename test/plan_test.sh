@@ -371,6 +371,26 @@ t_contains "$(turn_args)" "--cidfile"
 t_eq "$(cat "$T/plan.options")" "$(cat "$T/work.options")"
 t_eq "$(tail_of)" "$image /opt/pi-rukas/bin/pi-rukas-headless work 7 --timeout 360 --json "
 
+t_case "a first turn names its issue with --issue when the runner takes it, so the issue is no duplicate of itself"
+caps_issue() {
+  jq -n '{contract: "0.14.0", features: {planTurns: true},
+    verbs: {plan: {flags: ["--start", "--context", "--resume", "--answer", "--confirm", "--issue"]}}}' >"$T/caps.json"
+}
+reset
+caps_issue
+runner_keeps '{"turn":1}'
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan Faster search (issue #7) --start --context $(with_brief "$T/brief.md" | tr '\n' ' ')--issue 7 "
+
+t_case "a resumed turn never passes --issue: the session keeps it and the runner refuses it there"
+first_turn_ran
+caps_issue
+printf 'yes\n' >"$T/answer.md"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner plan --resume abc-123 --answer $ws/.tehas/answer.md "
+
 # --- Later turns and what the runner answers --------------------------------------
 
 t_case "a later turn resumes the session and gives the answer as it was written, as a file in the workspace"

@@ -1027,8 +1027,10 @@ runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
 dispatcher, which writes it onto the issue and ends the session. Any other
 answer runs `--answer`. The first
-turn runs `plan "<title> (issue #<n>)" --start --context <brief>`. The
-image must say `features.planTurns` in its `--capabilities`, or no turn
+turn runs `plan "<title> (issue #<n>)" --start --context <brief>`, with
+`--issue <n>` when the image lists that flag for `plan`, so the planner does not
+take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
+turn never passes it: the session keeps it. The image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
 
 `--keep` names a directory the session carries from one turn to the next. The
