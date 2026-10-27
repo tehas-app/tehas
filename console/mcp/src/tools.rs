@@ -335,6 +335,108 @@ fn console_schema() -> Value {
     ])
 }
 
+/// One attempt on an issue: the session's own words, and a link built from the
+/// repository the dashboard publishes. Its id is served so that one answer is
+/// enough to reach `factory_session` or `factory_log` for the run.
+fn attempt_row() -> Value {
+    obj(
+        vec![
+            (
+                "id",
+                prop(
+                    "string",
+                    "The session id, like work-12-1792485967: the `id` to give factory_session or factory_log for this run.",
+                ),
+            ),
+            ("kind", one_of(&sessions::KINDS, "work or plan.")),
+            (
+                "attempt",
+                prop("integer", "Which attempt on the issue this run was."),
+            ),
+            (
+                "how",
+                one_of(
+                    &sessions::HOWS,
+                    "What started it. millwright and fixer name the same person.",
+                ),
+            ),
+            ("started", given("When it started, UTC.")),
+            ("ended", given("When it ended, UTC. Left out while it runs.")),
+            ("seconds", prop("integer", "Seconds from start to end.")),
+            (
+                "outcome",
+                one_of(&sessions::OUTCOMES, "How it ended. Left out while it runs."),
+            ),
+            ("failedStep", prop("string", "The step that failed.")),
+            ("failureKind", prop("string", "The kind of failure.")),
+            ("failureCause", prop("string", "The cause of the failure.")),
+            ("parkReason", prop("string", "Why it was parked.")),
+            (
+                "prUrl",
+                prop(
+                    "string",
+                    "Its pull request on GitHub. Left out without a pull request or a valid repo.",
+                ),
+            ),
+        ],
+        "One run of the issue within the snapshot's window.",
+    )
+}
+
+fn issue_schema() -> Value {
+    output(vec![
+        ("api", api()),
+        ("issue", prop("integer", "The issue number.")),
+        (
+            "issueUrl",
+            prop(
+                "string",
+                "The issue on GitHub. Left out without a valid repo.",
+            ),
+        ),
+        (
+            "stage",
+            one_of(
+                &STAGES,
+                "The stage the dashboard lists it under: the first of queued, planning, running, awaiting, stopped and completed that holds it. Left out when the dashboard lists it nowhere.",
+            ),
+        ),
+        (
+            "title",
+            prop("string", "Its title, when the dashboard lists it with one."),
+        ),
+        (
+            "running",
+            obj(
+                vec![
+                    ("step", prop("string", "The step it is in.")),
+                    ("status", one_of(&CYCLE_STATUSES, "What the cycle is doing.")),
+                ],
+                "The cycle running on it now. Left out when none is.",
+            ),
+        ),
+        (
+            "attempts",
+            arr(
+                attempt_row(),
+                "Its runs of the last 30 days, oldest first. An empty list when it has none.",
+            ),
+        ),
+        (
+            "firstSeen",
+            given("When its oldest returned run started, UTC."),
+        ),
+        ("lastSeen", given("When its newest returned run started, UTC.")),
+        (
+            "outcome",
+            one_of(
+                &sessions::OUTCOMES,
+                "The outcome of the newest returned run. Left out when it has none, or while it runs.",
+            ),
+        ),
+    ])
+}
+
 /// An n, a median and a p90, all in seconds.
 fn quartiles(desc: &str) -> Value {
     obj(
@@ -650,6 +752,23 @@ pub fn list() -> Value {
             "inputSchema": none,
             "outputSchema": stats_schema(),
         },
+        {
+            "name": "factory_issue",
+            "description": "One issue's story in one call: the stage the dashboard lists it under and its title, the cycle running on it now with its step and status, and every run of it of the last 30 days, oldest first, with its id, kind, attempt, how it started, its times, outcome and failure. An issue the dashboard lists nowhere and that has not run in the window is a tool error.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "issue": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The issue number.",
+                    },
+                },
+                "required": ["issue"],
+                "additionalProperties": false,
+            },
+            "outputSchema": issue_schema(),
+        },
     ]);
     if let Value::Array(a) = &mut tools {
         a.extend(sessions::tools());
@@ -681,6 +800,7 @@ pub fn call_held(
         "factory_endings" => endings(live)?,
         "factory_console" => console(live, args)?,
         "factory_stats" => stats(live)?,
+        "factory_issue" => sessions::issue(dirs, args)?,
         "factory_sessions" => sessions::list(dirs, args)?,
         "factory_session" => sessions::one(dirs, args)?,
         "factory_failures" => sessions::failures(dirs)?,
@@ -754,6 +874,10 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "issue": true, "step": true, "status": true, "statusText": true,
             "startedAt": true, "updatedAt": true, "console": true,
         }),
+        // The answer is joined from three live files and the snapshot, so its
+        // allowlist lives beside the join. The schema test still compares this
+        // spec with the outputSchema, which is the point of naming it here.
+        "factory_issue" => sessions::issue_spec(),
         "factory_stats" => {
             let counts = [
                 (

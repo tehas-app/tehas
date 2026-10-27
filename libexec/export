@@ -17,16 +17,15 @@
 #   plan.json          the planning session on the state store, for a kind:
 #                      plan line, as plan-show gives it
 #
-# Every text file goes through the console's mask, the one masker tehas has
-# (console --mask), with the same names of the host it is given when a cycle
-# runs (the host aliases, the model hosts, the bot's email): a token, a key, a
-# password or a private address that reached a log does not reach the copy. Only
-# a file the mask itself will not read is copied as it is, because a mask would
-# only corrupt it and what a cycle was given as an image or a video holds nothing
-# to hide; a log with one stray NUL in it is a file the mask reads, so it is
-# masked and not archived raw. The mask
-# catches accidents; it cannot stop what no pattern knows, so an export is still
-# a copy of what a cycle wrote.
+# The copying is the console's (console export run, console/src/export.rs).
+# Every file goes through its mask, with the same names of the host it is given
+# when a cycle runs (the host aliases, the model hosts, the bot's email): a
+# token, a key, a password or a private address that reached a log does not
+# reach the copy. Only a file of a Protolab page that is not UTF-8 is copied as
+# it is: an image or a video holds nothing to hide and a mask would only corrupt
+# it. A log is masked whatever bytes it holds. The mask catches accidents; it
+# cannot stop what no pattern knows, so an export is still a copy of what a
+# cycle wrote.
 #
 # A cycle with no logs, no transcripts or no Protolab page is not an error:
 # those directories are simply not there. The improvement loop removes logs
@@ -121,13 +120,13 @@ for candidate in "$dir" "$dir/cycles"; do
   esac
 done
 
-# The console is the one masker, and it is installed beside these scripts. A
+# The console copies and masks, and it is installed beside these scripts. A
 # checkout has no console built, so a `console' on the PATH is taken too.
 # Without either nothing is exported: an unmasked log would carry the bot's
 # token into an archive.
-masker=$here/console
-[ -x "$masker" ] || masker=$(command -v console 2>/dev/null) || masker=""
-if [ -z "$masker" ] || [ ! -x "$masker" ]; then
+console=$here/console
+[ -x "$console" ] || console=$(command -v console 2>/dev/null) || console=""
+if [ -z "$console" ] || [ ! -x "$console" ]; then
   echo "tehas export: no console to mask with; run install.sh" >&2
   exit 1
 fi
@@ -147,21 +146,6 @@ case "$(cd "$dir" && pwd -P)" in
     exit 64
     ;;
 esac
-
-# Readable by anyone, whatever the umask of the shell that ran the command: an
-# archive is for somebody else to open, and a copy made at 0777 or 0700 reads
-# as a mistake either way.
-make_dir() {
-  local d
-  for d in "$@"; do
-    mkdir -p "$d" || return 1
-    chmod 755 "$d" 2>/dev/null || true
-  done
-}
-make_dir "$abs" "$abs/cycles" || {
-  echo "tehas export: could not make $abs/cycles" >&2
-  exit 1
-}
 
 # The lines to copy, as tehas history prints them. Its exit status is this
 # command's: a factory whose settings are wrong is not half-exported.
@@ -196,122 +180,12 @@ done < <(tehas_models | while read -r model_provider _; do
   jq -r --arg p "$model_provider" '.providers[$p] | .baseUrl, .backupBaseUrl | strings' "$HOME/.pi/agent/models.json" 2>/dev/null
 done)
 add_private "$(git config --global user.email 2>/dev/null || true)"
-# The name a planning turn's session is exported under.
-plan_copy=plan.json
-
-cycles=$abs/cycles
-
-# copy_in <from> <to dir> <name>: one file, masked unless the mask itself will
-# not read it. A file that is not there is no error, and a file over 32 MiB is
-# left out: an export is for reading, not for whatever a cycle happened to write.
-#
-# The size is asked first, before anything of the file is read, so an oversized
-# log costs a stat and nothing else. The bytes are then read once and kept: a
-# second read of what standard input has already given up is empty, so the mask
-# cannot be asked twice. Whatever the mask makes of the file is kept as it is
-# written; a mask that will not read what it was given has nothing to say, so an
-# empty result of a file that is not empty is its own word for bytes it would only
-# corrupt, and those bytes go into the archive as they came. A log with one stray
-# NUL in it has printable bytes, so the mask speaks of it and the log is masked
-# like any other file.
-copy_in() {
-  local from=$1 to=$2 name=$3 size masked
-  [ -f "$from" ] && [ ! -L "$from" ] || return 0
-  size=$(stat -c %s "$from" 2>/dev/null) || return 0
-  [[ $size =~ ^[0-9]+$ ]] || return 0
-  [ "$size" -le 33554432 ] || return 0
-  make_dir "$to" || return 1
-  masked=$to/.tehas-masked.$$
-  rm -f "$masked"
-  if ! "$masker" --mask "${private[@]}" <"$from" >"$masked" 2>/dev/null; then
-    rm -f "$masked"
-    return 1
-  fi
-  if [ "$size" != 0 ] && [ ! -s "$masked" ]; then
-    cp -p -- "$from" "$to/$name" || { rm -f "$masked"; return 1; }
-  else
-    mv "$masked" "$to/$name" || { rm -f "$masked"; return 1; }
-  fi
-  chmod 644 "$to/$name" 2>/dev/null || true
-}
-
-copied=0
-failed=""
-while IFS= read -r line; do
-  cursor=$(jq -r .cursor <<<"$line")
-  issue=$(jq -r .issue <<<"$line")
-  kind=$(jq -r .kind <<<"$line")
-  # The cursor is the making of tehas history and holds only digits and dashes.
-  [[ $cursor =~ ^[0-9]+-[1-9][0-9]*-[1-9][0-9]*$ ]] || { failed="$failed <unreadable>"; continue; }
-  out=$cycles/$cursor
-  # An old copy of this cycle is replaced whole, so a line that has since lost
-  # a field cannot leave its value behind in the archive.
-  rm -rf "$out" || { failed="$failed $cursor"; continue; }
-  make_dir "$out" || { failed="$failed $cursor"; continue; }
-  printf '%s\n' "$line" >"$out/history.json" || { failed="$failed $cursor"; continue; }
-  chmod 644 "$out/history.json" 2>/dev/null || true
-
-  if [ "$kind" = plan ]; then
-    # The session as the store has it: an ended one stays until the next
-    # tehas:plan of the issue replaces it, so a turn that never came into being
-    # still brings the session it names. A session replaced since has no more
-    # than its line of history: the store keeps one session an issue, so one
-    # opened after the turn ended is another's. One the store could not read is
-    # a cycle not written.
-    if ! tehas_store plan-show "$issue"; then
-      [ "$tehas_store_rc" = 1 ] || echo "tehas export: ERROR: the state store cannot be used: $tehas_store_line" >&2
-      failed="$failed $cursor"
-      continue
-    fi
-    ended=$(jq -r '.ended | fromdateiso8601' <<<"$line" 2>/dev/null) || ended=""
-    [[ $ended =~ ^[0-9]+$ ]] || ended=0
-    if [ "$(tehas_store_get ".planning | select(type == \"object\" and (.opened_at | type) == \"number\"
-        and .opened_at <= $ended) | type")" = object ]; then
-      session_file=$(mktemp "$out/.tehas-plan.XXXXXX") || { failed="$failed $cursor"; continue; }
-      tehas_store_get '.planning' >"$session_file"
-      copy_in "$session_file" "$out" "$plan_copy" || failed="$failed $cursor"
-      rm -f "$session_file"
-    fi
-  else
-    copy_in "$TEHAS_HOME/state/cycles/$issue.result.json" "$out/logs" result.json
-    copy_in "$TEHAS_HOME/state/cycles/$issue.progress.json" "$out/logs" progress.json
-    copy_in "$TEHAS_HOME/state/cycles/$issue.manifest.json" "$out/logs" manifest.json
-    copy_in "$TEHAS_HOME/logs/dispatch-work-$issue.log" "$out/logs" dispatch-work.log
-    # The runner's progress and its side streams, of this issue, whatever stamp
-    # each carries: a cycle that was started twice has more than one and the
-    # archive keeps them all. The loop's own copies of them, under tmp/, are
-    # not taken: they are copies of what is here.
-    for f in "$TEHAS_HOME/logs/work-$issue"-*.jsonl "$TEHAS_HOME/logs/work-$issue"-*.jsonl.err \
-      "$TEHAS_HOME/logs/work-$issue"-*.jsonl.console "$TEHAS_HOME/logs/work-$issue"-*.jsonl.preflight; do
-      [ -f "$f" ] && [ ! -L "$f" ] || continue
-      copy_in "$f" "$out/logs" "${f##*/}"
-    done
-    for f in "$HOME/.pi/agent/ensemble-runs/issue-$issue"/*; do
-      [ -f "$f" ] && [ ! -L "$f" ] || continue
-      copy_in "$f" "$out/transcripts" "${f##*/}"
-    done
-  fi
-  # The ticket's page and its files, when it has one. The directory is the
-  # issue's number and holds no name a mask would miss.
-  if [ -d "$TEHAS_HOME/protolab/$issue" ] && [ ! -L "$TEHAS_HOME/protolab/$issue" ]; then
-    while IFS= read -r f; do
-      copy_in "$f" "$out/protolab/$(dirname "${f#"$TEHAS_HOME/protolab/$issue/"}")" "${f##*/}"
-    done < <(find "$TEHAS_HOME/protolab/$issue" -type f ! -name .stamp 2>/dev/null)
-  fi
-  copied=$((copied + 1))
-done < <(jq -c '.cycles[]' <<<"$listing")
-
-if [ -n "$failed" ]; then
-  echo "tehas export: could not write$failed" >&2
-fi
-
-if [ "$json" = 1 ]; then
-  jq -c --arg to "$abs" '. + {to: $to}' <<<"$listing"
-else
-  while IFS= read -r line; do
-    printf '%s  %s  #%s\n' "$(jq -r .cursor <<<"$line")" "$(jq -r .kind <<<"$line")" "$(jq -r .issue <<<"$line")"
-  done < <(jq -c '.cycles[]' <<<"$listing")
-  printf 'exported  %s cycles to %s (next: %s)\n' "$copied" "$abs" "$(jq -r '.next // "none"' <<<"$listing")"
-fi
-# A cycle that could not be written is said above and is not claimed below.
-[ -z "$failed" ]
+# The console makes cycles/ and every directory below it 0755 and every file
+# 0644, whatever the umask: an archive is for somebody else to open.
+jq -c '.cycles[]' <<<"$listing" |
+  "$console" export run "$TEHAS_HOME" "$HOME/.pi/agent/ensemble-runs" "$abs" \
+    "$(jq -r '.next // ""' <<<"$listing")" "$((1 - json))" "${private[@]}"
+rc=${PIPESTATUS[1]}
+[ "$json" = 0 ] || jq -c --arg to "$abs" '. + {to: $to}' <<<"$listing"
+# A cycle that could not be written is said on standard error.
+[ "$rc" = 0 ]

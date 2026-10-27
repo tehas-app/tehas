@@ -97,9 +97,10 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
 | `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave four containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most 4; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave `TEHAS_SLICE_CONTAINERS` containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most `TEHAS_SLICE_CONTAINERS`; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
-| `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most a quarter of the slice's `MemoryMax`, else the command stops with 78 naming both numbers. With the default the host needs about 11 GiB of memory; a smaller host sets it lower |
+| `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, else the command stops with 78 naming both numbers. With the defaults the host needs about 11 GiB of memory; a smaller host sets it lower |
+| `TEHAS_SLICE_CONTAINERS`        | `4`                                      | Containers `tehas.slice` holds at once, from 2 to 16. Each container's memory ceiling is the slice's `MemoryMax` over this, and the dispatcher starts no cycle while this many containers are in the slice, so the ceilings never sum to more than the slice. Every container counts: cycles, refreshes, dev sessions, planning turns, the indexer. A higher value runs more cycles side by side, each with a lower ceiling: raise the host's memory with it. With `TEHAS_TICKET_CONCURRENCY=5` and one refresh slot, 6 on a 64 GiB host gives each container 8 GiB |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, and the sandbox image must say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them. Else the dispatcher holds the cycles of issues whose text links an attachment; other issues start, and `install.sh` reports what the label says |
@@ -745,7 +746,7 @@ it on the issue, records the cap `wall-clock` with that step, and removes the
 file.
 
 The container runs in `tehas.slice` and gets the bot token and the
-`PI_ENSEMBLE_*` settings, a memory ceiling of a quarter of the slice with no
+`PI_ENSEMBLE_*` settings, a memory ceiling of the slice over `TEHAS_SLICE_CONTAINERS` with no
 swap, `TEHAS_CYCLE_RESERVE` as its floor, a CPU quota of the host's CPUs less
 one, a pids limit that follows its share of them, a CPU weight and an init, and
 no Docker socket or SSH keys. git inside it is given the
@@ -1020,8 +1021,12 @@ operator's answer. Each turn is one run of pi-rukas's headless runner,
 `pi-rukas-headless plan`, as the container's command. It exits when the
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
 plan duplicates open work (10). After a drafted plan, an answer that ticked
-**File this plan** runs `plan --resume <id> --confirm`, which files the plan
-as it was shown and nothing else; any other answer runs `--answer`. The first
+**File as a new issue** runs `plan --resume <id> --confirm`, which files the
+plan as it was shown and nothing else. One that ticked **Update this issue**
+runs no container: the turn reads the issue's title and body and hands the
+drafted plan, kept in the `--keep` directory as `draft.json`, to the
+dispatcher, which writes it onto the issue and ends the session. Any other
+answer runs `--answer`. The first
 turn runs `plan "<title> (issue #<n>)" --start --context <brief>`. The
 image must say `features.planTurns` in its `--capabilities`, or no turn
 starts: exit 78. pi-rukas v0.14.0 is the first release that does.
@@ -1079,7 +1084,9 @@ turn: exit 4, said on the issue, and the directory stays as it was; a reply
 runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
-the planner's proposals and offers one option, **File this plan**. Two or more
+the planner's proposals and offers two options, **Update this issue** and
+**File as a new issue**. The `console` beside the command shapes it, and
+without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the
 dispatcher can run the turn again in the same session, and it is not written
@@ -1497,9 +1504,15 @@ setting that is there and differs is never replaced without `--force`. The run
 names each one and stops with 78 before it calls GitHub or the endpoint and
 before it writes anything.
 
+Steps 1 and 2 are the console's (`console setup files`), and what they say
+goes to standard error. It writes `models.json` with its keys sorted. A release
+carries the console; from a checkout that has not built one, setup builds it
+with cargo first.
+
 Exit 0 when done, 1 when a check or a step failed (or the step's own status,
 such as 78 from `install.sh`), 64 on an unknown option, 78 for a setting that is
-missing, malformed or differs.
+missing, malformed or differs, or when there is no console and no checkout to
+build one from.
 
 ## tehas labels
 

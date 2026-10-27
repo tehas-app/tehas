@@ -13,6 +13,53 @@ empty one above it.
 
 ### Changes
 
+- `TEHAS_SLICE_CONTAINERS`, 4 by default, sets how many containers
+  `tehas.slice` holds. Each container's memory ceiling is the slice over this
+  number, and admission, the CPU share and the pids limit follow it. Before,
+  four was fixed.
+- `tehas setup` checks the settings, asks GitHub and the endpoint and writes
+  the instance's files in the console (`console setup files`, #882);
+  `libexec/setup` keeps git, the clone and the install steps (452 to 201
+  lines). What those first steps say goes to standard error, and
+  `models.json` is written with its keys sorted. From a checkout with no built
+  console, setup builds it with cargo first.
+
+### Adopter action
+
+None. A host that wants more cycles side by side sets
+`TEHAS_SLICE_CONTAINERS` and gives the host the memory for it.
+
+## v0.14.5 (2026-10-27)
+
+### Changes
+
+- A drafted plan offers **Update this issue** beside **File as a new
+  issue**. The first makes the plan the issue's own title and text and ends
+  the session: the discussion stays in the comments, and the last one holds
+  the text the plan replaced. Apply `tehas:ready` to build it (#874).
+- Every planning session gives the planner the issue brief,
+  `lib/issue-brief.md`: what a good issue body is. The refine brief keeps
+  only what is refine's own (#875).
+- What a planning turn says is shaped in the console (`console plan`), not
+  in jq. A host with no console beside `libexec/plan` runs no turn and stops
+  with 78.
+- `tehas export` copies in the console (`console export run`), one process
+  for the whole export rather than one mask per file (#876). Protolab images
+  are now copied byte for byte; before, the mask read them as text and
+  replaced their bytes. A file that cannot be read fails its cycle (exit 1)
+  instead of being left out without a word.
+- The MCP server has a tenth tool, `factory_issue` (#837): `{"issue": N}`
+  answers the stage the dashboard lists the issue under, its title, the step
+  and status of a cycle that owns it now, and every run of it of the last 30
+  days oldest first, with each run's id, so one call answers "what happened to
+  issue N" instead of three. It reads only the files the server already reads
+  and calls nothing.
+- A park that repeats the last park of the same issue says so in its comment,
+  and its history line carries a `repeat` count, so a retry on the same text
+  is seen to be likely to stop the same way (#716).
+- AGENTS.md: the rule that jq programs must also run on jq 1.7 goes, now
+  that hosts, the sandbox image and CI all run jq 1.8.1 (#867).
+
 ### Adopter action
 
 None.

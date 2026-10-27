@@ -45,8 +45,9 @@
 #   tehas_cycle_history <issue>   the issue's cycle history on the state store
 #                                 (history-show), one JSON object per line in
 #                                 the shape the lines had before the store
-#                                 (tehas_history_shape). Returns 1, printing
-#                                 nothing, when the store could not answer
+#                                 (lib/history-lines.jq, the cycle rows).
+#                                 Returns 1, printing nothing, when the store
+#                                 could not answer
 #   tehas_park_marker <issue> <step> <cap> <park reason> <failure kind>
 #                     <failure cause> <provider 0|1>
 #                                 the marker line of a park comment, for a
@@ -54,6 +55,16 @@
 #                                 history line has them, cut to [a-z0-9-], and
 #                                 sig, the sha256 of the history line's
 #                                 step|cap|park_reason|failure_kind|failure_cause
+#   tehas_park_repeat <issue> <marker>
+#                                 the word 1 when the end the issue's history
+#                                 lists last is a park of <marker>'s sig and no
+#                                 provider outage, so this park repeats it, and
+#                                 nothing otherwise, and 64 when <marker> is not
+#                                 one of this issue. Only that one end counts, so
+#                                 a merge, a handoff or any end that was not a
+#                                 park breaks the run, and an outage park counts
+#                                 for nothing. The sig is compared, never the
+#                                 free text of a failure.
 #
 # Sourcing this file does nothing.
 
@@ -162,8 +173,8 @@ tehas_millwright_answer() { # <session, as plan_view writes it>
 
 tehas_cycle_history() { # <issue>
   tehas_store history-show "$1" --kind cycle || return 1
-  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets both
-  jq -c --arg repo "${TEHAS_REPO:-}" "$tehas_history_shape" <<<"$tehas_store_out" 2>/dev/null
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets this
+  jq -c --arg repo "${TEHAS_REPO:-}" --argjson kinds '["cycle"]' -f "${BASH_SOURCE[0]%/*}/history-lines.jq" <<<"$tehas_store_out" 2>/dev/null
 }
 
 # The free text is in the sig only, so nothing of it reaches the marker.
@@ -177,4 +188,27 @@ tehas_park_marker() { # <issue> <step> <cap> <park reason> <failure kind> <failu
   [ "$7" != 1 ] || provider=1
   sig=$(printf '%s|%s|%s|%s|%s' "$2" "$3" "$4" "$5" "$6" | sha256sum | cut -c1-64) || return 1
   printf '<!-- tehas:park issue=%s step=%s kind=%s provider=%s sig=%s -->\n' "$1" "$step" "$kind" "$provider" "$sig"
+}
+
+# tehas_park_repeat <issue> <marker>: prints 1 when the last end of the issue in
+# its history is a park of <marker>'s sig and no provider outage, so this park
+# repeats it, and nothing otherwise: a merge, a handoff or any end that was not a
+# park breaks the run, and an outage park counts for nothing. Nothing when the
+# history cannot be read; 64 when <marker> is not one of this issue.
+tehas_park_repeat() { # <issue> <marker>
+  local marker=$2 step sig fields re
+  # The pattern is held in a variable: bash takes the word between the angle
+  # brackets of a literal pattern for a command word.
+  re='^<!-- tehas:park issue=([1-9][0-9]*) step=([a-z0-9-]{0,40}) kind=[a-z0-9-]{0,40} provider=([01]) sig=([0-9a-f]{64}) -->$'
+  [[ $marker =~ $re && ${BASH_REMATCH[1]} = "$1" ]] || return 64
+  [ "${BASH_REMATCH[3]}" != 1 ] || return 0
+  step=${BASH_REMATCH[2]} sig=${BASH_REMATCH[4]}
+  # The read is made here, not by tehas_cycle_history: the park is recorded after
+  # this, and the store keeps an answer only until its next call.
+  tehas_store history-show "$1" || return 0
+  # The five words of the park, joined, from the program of the file: equal
+  # hashes, equal parks, and no free text of a failure in this shell.
+  fields=$(jq -r --arg step "$step" -f "${BASH_SOURCE[0]%/*}/park-fields.jq" <<<"$tehas_store_out" 2>/dev/null) || return 0
+  [ -n "$fields" ] && [ "$sig" = "$(printf '%s' "$fields" | sha256sum | cut -c1-64)" ] || return 0
+  printf '1\n'
 }
