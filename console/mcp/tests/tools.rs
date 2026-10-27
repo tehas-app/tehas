@@ -11,11 +11,18 @@ fn live() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live")
 }
 
+// A snapshot with no sessions, and with the days an answer names: the tools
+// of the live files do not read it, and `factory_issue` answers the stage of
+// issue 7 from those files alone. The tests of its runs write their own.
+fn empty_snapshot() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sessions")
+}
+
 // A tool over the live files in `live`, for the tools that answer JSON.
 fn call(live: &Path, name: &str, args: &Value) -> Result<Value, ToolError> {
     let dirs = Dirs {
         live: live.to_path_buf(),
-        sessions: live.join("no-sessions"),
+        sessions: empty_snapshot(),
         logs: live.join("no-logs"),
     };
     match mcp::tools::call(&dirs, name, args)? {
@@ -136,19 +143,19 @@ fn schema_of(name: &str) -> Value {
         .clone()
 }
 
-const NAMES: [&str; 5] = [
+const NAMES: [&str; 6] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
     "factory_console",
     "factory_stats",
+    "factory_issue",
 ];
 
 fn args(name: &str) -> Value {
-    if name == "factory_console" {
-        json!({"issue": 7})
-    } else {
-        json!({})
+    match name {
+        "factory_console" | "factory_issue" => json!({"issue": 7}),
+        _ => json!({}),
     }
 }
 
@@ -631,11 +638,26 @@ fn schema_matches_output() {
         }
         for p in want.difference(&got) {
             // A closed issue has closedAt, so the fixtures cannot show it in
-            // every stage; the issues of a plan with no turn are none.
-            assert!(
-                name == "factory_issues" && (p.ends_with(".closedAt") || p == "planning.issues"),
-                "{name}: {p} is in its schema and never comes out"
-            );
+            // every stage; the issues of a plan with no turn are none; and
+            // factory_issue answers the stage of issue 7 from the live files
+            // with a snapshot of no runs, so nothing of an attempt comes out.
+            // The runs of an issue are the subject of their own tests, which
+            // write a snapshot and compare the same schema with that answer.
+            let allowed = match name {
+                "factory_issues" => p.ends_with(".closedAt") || p == "planning.issues",
+                // The snapshot of these fixtures has no runs, so nothing of a
+                // run comes out: not an attempt's fields, and not the two
+                // times and the outcome drawn from them.
+                "factory_issue" => {
+                    p.starts_with("attempts[].")
+                        || p == "running.step"
+                        || p == "firstSeen"
+                        || p == "lastSeen"
+                        || p == "outcome"
+                }
+                _ => false,
+            };
+            assert!(allowed, "{name}: {p} is in its schema and never comes out");
         }
     }
 }
