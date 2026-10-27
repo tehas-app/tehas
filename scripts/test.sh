@@ -37,7 +37,7 @@
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
 # cgroup it runs in, rounded up, when that is less]: each test file keeps
 # everything under a scratch directory of its own (test/lib.sh). Each task is
-# While the host's load is half again its CPUs, from other runners or a build,
+# While the host's load is its CPUs or more, from other runners or a build,
 # the next task waits for one to end; one task always runs, so the run goes
 # on. TEHAS_TEST_LOADAVG names the file read in place of /proc/loadavg. Each
 # task is stopped after TEHAS_TEST_FILE_TIMEOUT seconds [300] and counts as failed,
@@ -108,7 +108,7 @@ loadavg=${TEHAS_TEST_LOADAVG:-/proc/loadavg}
 busy() {
   local load
   read -r load _ <"$loadavg" 2>/dev/null && [[ $load =~ ^[0-9]+ ]] &&
-    [ $((BASH_REMATCH * 2)) -ge $((host_cpus * 3)) ]
+    [ $((BASH_REMATCH * 2)) -ge $((host_cpus * 2)) ]
 }
 limit=${TEHAS_TEST_FILE_TIMEOUT:-300}
 [[ $limit =~ ^[1-9][0-9]*$ ]] || limit=300
