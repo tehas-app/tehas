@@ -783,13 +783,13 @@ nums=$(jq -r '[.[][] | select((.state // "OPEN") != "CLOSED") | .number | tonumb
 # the queue whether or not a list names it. With $fx/page-drops-events the
 # page answers every timeline empty, as GitHub can for a large page. A cycle
 # that holds its lock was marked running by the bot ($running).
-# Held, as /proc/locks lists the inodes locked: the stub runs no flock, which
-# a case may count.
-inodes=" $(awk '{n = split($6, f, ":"); print f[n]}' /proc/locks | tr '\n' ' ') "
-# One ls for all of them: a host has hundreds.
-locked=$(ls -i "$T"/home/tehas/state/cycles/ 2>/dev/null | while read -r ino f; do
-  case "$f" in [0-9]*.lock) ;; *) continue ;; esac
-  case "$inodes" in *" $ino "*) echo "${f%.lock}" ;; esac
+# Held, as flock -n finds it. The system's flock, on an open file and with no
+# command: a case may count the flock and true it stubs. /proc/locks does not
+# do, as in a container its inodes are not the ones ls -i gives.
+fl=$(command -pv flock)
+locked=$(for f in "$T"/home/tehas/state/cycles/[0-9]*.lock; do
+  [ -e "$f" ] || continue
+  { "$fl" -n 3 || { f=${f##*/}; echo "${f%.lock}"; }; } 3<"$f"
 done | jq -Rcs 'split("\n") | map(select(. != "") | tonumber)')
 for n in $(jq -r '.[]' <<<"$locked"); do
   [ "$(jq -r '.state // "open" | ascii_downcase' "$fx/work-$n.json" 2>/dev/null || echo open)" = open ] && nums=$(printf '%s\n%s\n' "$nums" "$n" | sort -un)
