@@ -1,9 +1,14 @@
 # The tehas sandbox image: the pi-rukas image plus what cycles need on top.
 #
 # Adds what the upstream image lacks:
-#   - the in-container user remapped to the tehas user's id (upstream hardcodes
-#     vscode = UID 1000; with another id on the host, bind-mounted host
-#     directories are not writable),
+#   - the in-container user remapped to the tehas user's id, in the steps after
+#     the uid enters (upstream hardcodes vscode = UID 1000; with another id on
+#     the host, bind-mounted host directories are not writable). This file ends
+#     at a stage that takes the layers above it as its base and reads the uid
+#     nowhere in them, so the instance users of one host share those layers: see
+#     host/docs/host.md. sandbox/build.sh builds from these lines as they stand,
+#     with the uid's own argument moved below the boundary, so this is the only
+#     file of the image a person edits.
 #   - shellcheck, which gates commonly run (.pi/verify-cmd, .pi/smoke-cmd),
 #   - cargo's registry given to that user (the upstream image has Rust, and
 #     a registry only root can write, so a gate could not fetch a crate),
@@ -22,15 +27,26 @@
 #
 # Build with sandbox/build.sh, which passes the user id, the versions from
 # versions.env and the base: upstream's image for the pi-rukas commit
-# versions.env follows. shellcheck is pinned by checksum, Playwright by a
-# lockfile beside this file, and codebase-memory-mcp by its installer's
+# versions.env follows. It hands docker a copy of these lines with the uid's
+# argument moved below the boundary, written just before the build and taken away
+# when it ends, so the file a person edits is this one and the order the build
+# runs is the order written here. shellcheck is pinned by checksum, Playwright by
+# a lockfile beside this file, and codebase-memory-mcp by its installer's
 # checksum plus a version read back from the binary. A step near the end checks
 # that every command a cycle reaches for, and every command tehas gives a
 # container, answers in the image.
 ARG PI_RUKAS_IMAGE
-FROM ${PI_RUKAS_IMAGE}
+# The layers every instance user of one host shares: everything this file does
+# that the uid does not decide. A second stage below takes them with a FROM of
+# its own.
+FROM ${PI_RUKAS_IMAGE} AS shared
 
-ARG TEHAS_UID=1000
+# The version arguments, declared here rather than beside the steps that read
+# them: sandbox/build.sh passes one --build-arg for each ARG line of this file,
+# and test/build_test.sh counts the two. A build that says nothing about one of
+# them gets the empty value of the stage that reads it, which its own check
+# refuses. TEHAS_UID is the exception: it is declared below, where the remap reads
+# it, and the build's copy of this file carries that one line and no other twice.
 ARG SHELLCHECK_VERSION
 ARG SHELLCHECK_SHA256
 ARG JQ_VERSION
@@ -46,11 +62,6 @@ ARG VIPUNE_MODEL_SHA256_ONNX
 ARG VIPUNE_MODEL_SHA256_TOKENIZER
 
 USER root
-
-RUN if [ "$TEHAS_UID" != 1000 ]; then \
-      usermod -u "$TEHAS_UID" vscode && groupmod -g "$TEHAS_UID" vscode \
-      && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
-    fi
 
 # What a gate fetches stays in its own container and goes with it: a registry
 # kept between cycles would be code one cycle leaves for the next one's gate.
@@ -119,9 +130,11 @@ RUN curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-errors 
 # vipune downloads its embedding model on its first search. A cycle has no
 # route to the publisher, so the download failed and every later search answered
 # an empty store, which reads as a host that recorded nothing. The model is put
-# where hf_hub looks for it, in the home of the user a container runs as: the
-# ref names the revision, and the snapshot holds the files. hf_hub reads a file
-# from the snapshot without asking the network.
+# where hf_hub looks for it, in the home of the user a container runs as, by the
+# name that user has in this stage: vscode at the id the base gave it. The remap
+# below moves that id and takes the files by the same name, so where the uid
+# enters does not change what this layer holds. hf_hub reads a file from the
+# snapshot without asking the network.
 RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL" | sed 's#/#--#g')" \
  && snap="$repo/snapshots/$VIPUNE_MODEL_REVISION" \
  && url="https://huggingface.co/$VIPUNE_MODEL/resolve/$VIPUNE_MODEL_REVISION" \
@@ -139,6 +152,41 @@ RUN repo="/home/vscode/.cache/huggingface/hub/models--$(printf %s "$VIPUNE_MODEL
 # the base has to be the version versions.env names, since that version picks
 # the revision. Every call names the scratch store: any vipune call, version
 # included, otherwise creates one in ~/.vipune, where a cycle mounts its own.
+#
+# The remap, and the step the two stages are drawn around: the file ends at the
+# stage that takes what came before it, and sandbox/build.sh builds the image
+# from these lines with the uid's argument carried to the stage that reads it, so
+# it is named once, below the boundary. The steps of `shared` declare no argument,
+# so they hold no uid to be read, and a step of them that asked for one would be
+# built and stored again for every instance user, which is what the two stages are
+# here to avoid. test/build_test.sh reads the image as the build sees it and
+# refuses either.
+#
+# The remap cannot go higher. Each step above writes files, as root or as vscode
+# at the id the base gave it, and a remap above them would leave what they wrote
+# owned by the id that has since moved. The same find (-xdev, the image's own
+# filesystem only) takes those files by the user's name once the id has moved, so
+# the image ends as it did before the move.
+FROM shared
+USER root
+
+# The id the steps below are given, and the remap that gives it: the only step of
+# the image that reads the uid, and the first one below the boundary. An argument
+# is scoped to the stage that declares it, so the steps of `shared` hold no value
+# for it whatever the build passes. sandbox/build.sh passes it with the uid of the
+# person who ran the build; the default is the id the base gave the user, so a
+# build made without that argument holds the image as it came. The remap goes
+# before any step of this stage, since what they write is owned by whoever wrote
+# it and the find below takes only what was there when the id moved.
+ARG TEHAS_UID=1000
+RUN if [ "$TEHAS_UID" != 1000 ]; then \
+      usermod -u "$TEHAS_UID" vscode && groupmod -g "$TEHAS_UID" vscode \
+      && find / -xdev \( -user 1000 -o -group 1000 \) -exec chown -h vscode:vscode {} + ; \
+    fi
+
+# The model is read as a cycle reads it, as the user a container runs as: the id
+# that user holds is the one the remap above gave it. The steps under it run as
+# that user, or as root, exactly as they did before the remap moved here.
 USER vscode
 RUN db=$(mktemp -d) \
  && found=$(vipune version --db-path "$db/gate.db" | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1) \
