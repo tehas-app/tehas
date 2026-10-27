@@ -24,10 +24,12 @@
 //! lead time of those. Counts only, no issue number: the sizes are coarse and
 //! say nothing of what the issue asked for.
 //!
-//! `gate` says what the runs of the product's gate cost: their median and p90,
-//! how many a run made and their share of the runs' time, over the runs that
-//! recorded them. They come from `runs.gate_runs` and `runs.gate_ms`, which
-//! `run.rs` fills from the cycle's stream. Counts and durations only.
+//! `gate` says what the runs of the product's gate cost, and is the one section
+//! of the report a `tehasbot status` poll does not publish: `libexec/status`
+//! names the keys it copies and this is not among them. Its figures are the
+//! median and p90 of one run of the gate, how many a work run made and their
+//! share of the runs' time, over the runs that recorded them, from the two gate
+//! columns `run.rs` fills. Counts and durations only.
 
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -89,6 +91,9 @@ const LEDGER_AT_MAX: i64 = 4_102_444_800_000; // 2100-01-01T00:00:00Z
 /// of more than nine digits, so a count of more holds no figure the buckets
 /// can answer for.
 const SIZE_MAX_FILES: i64 = 999_999_999;
+/// The greatest gate share the report prints: a run of the gate that outlasted
+/// the run it was in is a figure of two clocks, not a share above the whole.
+const MAX_SHARE: f64 = 1.0;
 /// The two ledgers beside the database, named once: `sessions` reads
 /// `refined.jsonl` too, and both readers must mean the same file.
 const SIZES_LEDGER: &str = "sizes.jsonl";
@@ -179,10 +184,28 @@ struct WorkRun {
     failed_step: Option<String>,
     tehas: String,
     rukas: String,
-    // The run's own gate figures, in seconds: `gate_ms` is milliseconds on the
-    // row, and the report speaks seconds the way every other duration here does.
+    // The run's gate figures as the report reads them. `gate_runs` is the
+    // count of the runs of the gate the stream held; `gate_seconds` is their
+    // milliseconds on the row brought to seconds, with the whole second a
+    // printed duration needs.
     gate_runs: Option<i64>,
     gate_seconds: Option<i64>,
+}
+
+/// The two gate figures of one run, bound together: a run that holds one holds
+/// both, so the four figures of the `gate` section provably count the same runs.
+struct GateFigures {
+    runs: i64,
+    seconds: i64,
+}
+
+impl GateFigures {
+    /// One run of the gate of this run: its gate time shared across the runs of
+    /// it, the way `spread` reads a figure of a run's whole time: a whole
+    /// second, and never none. The count is never 0, so no default is needed.
+    fn each(&self) -> i64 {
+        ((self.seconds as f64) / self.runs as f64).round() as i64
+    }
 }
 
 impl WorkRun {
@@ -191,12 +214,14 @@ impl WorkRun {
     }
 
     /// The gate's time as a share of this run's own time, which is the figure
-    /// the report's `share` is the sum of. A run of no recorded length tells
+    /// the report's `share` is the mean of. A run of no recorded length tells
     /// nothing of a share, and a gate that outlasted the run it was in is no
-    /// share above 1.
+    /// share above 1: the two are read from two clocks, the run's own history
+    /// line and the runner's own timings.
     fn gate_share(&self) -> Option<f64> {
-        let (gate, secs) = (self.gate_seconds?, self.seconds.filter(|s| *s > 0)?);
-        (gate >= 0).then(|| round3((gate as f64 / secs as f64).min(1.0)))
+        let gate = self.gate_seconds?;
+        let secs = self.seconds.filter(|s| *s > 0)?;
+        Some(round3((gate as f64 / secs as f64).min(MAX_SHARE)))
     }
     // Why a run that did not reach a pull request stopped: the failure kind,
     // the cap for a failure that is a cap, else the park reason, else how it
@@ -314,7 +339,9 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     );
 
     report.insert("availability".into(), availability(&samples, to));
-    report.insert("gate".into(), gate(&runs));
+    if let Some(g) = gate(&runs) {
+        report.insert(GATE.into(), g);
+    }
     if let Some(e) = energy(&samples, to, n_shipped) {
         report.insert(ENERGY.into(), e);
     }
@@ -331,10 +358,11 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
 /// actually publishes, so a section that gains a key without a row, or a row
 /// without a producer, fails a test rather than going unprinted. The rows that
 /// stand whatever the report holds -- `Shipped`, `Runs`, the times -- come from
-/// `build`, which always publishes them, and are not listed here. Of the five,
-/// three always hold a section of their own (`planned`, `energy` and `gate`, of
-/// which the last prints no row on a count of nothing) and two come with the
-/// ledgers beside the database, in `complete`.
+/// `build`, which always publishes them, and are not listed here. Each of the
+/// five holds an object of its own when it holds anything at all, and prints no
+/// row when it does not: `planned` and `energy` with a sample that counted
+/// them, `refine` and `sizes` with the ledgers beside the database, in
+/// `complete`, and `gate` with a run that recorded the gate.
 pub const SECTIONS: [(&str, &str); 5] = [
     (PLANNED, "Planned"),
     (ENERGY, "Energy"),
@@ -349,8 +377,9 @@ const PLANNED: &str = "planned";
 const ENERGY: &str = "energy";
 pub(crate) const REFINE: &str = "refine";
 pub(crate) const SIZES: &str = "sizes";
-/// `gate` is always a key of the report, as `planned` and `energy` are, and
-/// prints no row when it holds nothing but its count of nothing.
+/// `gate` is the section of a run that recorded the gate: absent with no such
+/// run, as the other four are absent with nothing to count, which is what
+/// leaves `text` no row to print.
 const GATE: &str = "gate";
 
 /// The label of one section's row, the word `text` prints it by. The five
@@ -673,50 +702,51 @@ pub fn complete(conn: &Connection, home: &Path, now: i64) -> Result<Value, (u8, 
 
 /// The gate figures of the window: of the `n` work runs that recorded a run of
 /// the product's gate, the median and p90 seconds one run of it took, the mean
-/// number of them per run, and the mean of the runs' own shares of the time
-/// that was the gate's. A run that recorded no gate run is in none of the four
-/// figures, as a run without usage is in no token figure: the `n` is the
-/// denominator of all of them. `seconds` is their gate's whole time, the figure
-/// #868's goal is read against. With no such run the section holds its count of
-/// nothing alone, and `text` prints no row for it.
+/// number of them per run, and `share`, the mean of those of the `n` that
+/// recorded a length of their own. `n` is the denominator of the count figures;
+/// `share` is the mean of the shares of the runs that had one. A run that
+/// recorded no gate run is in none of them, as a run without usage is in no
+/// token figure, and with no such run the section is absent: the producer
+/// returns `None` rather than a count of nothing, which is what leaves `text`
+/// no row to print. `seconds` is their gate's whole time, the figure
+/// #868's goal is read against.
 ///
 /// One run of the gate of a run that made several is the run's time divided
 /// across them, because the stream gives no wall time of its own: what the
 /// runner reports is the gate's own milliseconds, and a run of it that waited
 /// for another to free the container's CPU share does not count that wait.
-fn gate(runs: &[WorkRun]) -> Value {
-    let with: Vec<&WorkRun> = runs
+fn gate(runs: &[WorkRun]) -> Option<Value> {
+    let with: Vec<(&WorkRun, GateFigures)> = runs
         .iter()
-        .filter(|r| r.gate_runs.is_some() && r.gate_seconds.is_some())
+        .filter_map(|r| {
+            Some((
+                r,
+                GateFigures {
+                    runs: r.gate_runs?,
+                    seconds: r.gate_seconds?,
+                },
+            ))
+        })
         .collect();
     let n = with.len();
     if n == 0 {
-        return json!({"n": 0});
+        return None;
     }
-    // A run's gate time shared across its runs of it, the way `duration` reads
-    // a figure of a run's whole time: a whole second, and never none.
-    let mut each: Vec<i64> = with
-        .iter()
-        .map(|r| {
-            let runs = r.gate_runs.unwrap_or(1).max(1);
-            ((r.gate_seconds.unwrap_or(0) as f64) / runs as f64).round() as i64
-        })
-        .collect();
+    let mut each: Vec<i64> = with.iter().map(|(_, g)| g.each()).collect();
     each.sort_unstable();
-    let gate_seconds: i64 = with.iter().map(|r| r.gate_seconds.unwrap_or(0)).sum();
-    let per_run =
-        round3(with.iter().map(|r| r.gate_runs.unwrap_or(0)).sum::<i64>() as f64 / n as f64);
-    let shares: Vec<f64> = with.iter().filter_map(|r| r.gate_share()).collect();
+    let gate_seconds: i64 = with.iter().map(|(_, g)| g.seconds).sum();
+    let per_run = round3(with.iter().map(|(_, g)| g.runs).sum::<i64>() as f64 / n as f64);
+    let shares: Vec<f64> = with.iter().filter_map(|(r, _)| r.gate_share()).collect();
     let share =
         (!shares.is_empty()).then(|| round3(shares.iter().sum::<f64>() / shares.len() as f64));
-    obj(vec![
+    Some(obj(vec![
         ("n", Some(json!(n))),
         ("seconds", Some(json!(gate_seconds))),
         ("median", median(&each).map(Value::from)),
         ("p90", p90(&each).map(Value::from)),
         ("perRun", Some(json!(per_run))),
         ("share", share.map(Value::from)),
-    ])
+    ]))
 }
 
 fn spread(sorted: &[i64]) -> Value {
@@ -725,6 +755,17 @@ fn spread(sorted: &[i64]) -> Value {
         ("median", median(sorted).map(Value::from)),
         ("p90", p90(sorted).map(Value::from)),
     ])
+}
+
+/// One column of the runs table as a whole number: a cell that is not an
+/// integer is no figure, which keeps a stray REAL out of the report rather
+/// than ending it. The report publishes aggregates, so a column it cannot read
+/// leaves its figure absent, as any figure it cannot work out is absent.
+fn integer(r: &rusqlite::Row<'_>, n: usize) -> Option<i64> {
+    match r.get_ref(n) {
+        Ok(rusqlite::types::ValueRef::Integer(v)) => Some(v),
+        _ => None,
+    }
 }
 
 fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<WorkRun>> {
@@ -739,7 +780,6 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
         let (i, o, c): (Option<i64>, Option<i64>, Option<i64>) = (r.get(5)?, r.get(6)?, r.get(7)?);
         let tokens = (i.is_some() || o.is_some() || c.is_some())
             .then(|| (i.unwrap_or(0), o.unwrap_or(0), c.unwrap_or(0)));
-        let gate_ms: Option<i64> = r.get(16)?;
         Ok(WorkRun {
             id: r.get(0)?,
             started: r.get(1)?,
@@ -754,8 +794,10 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
             failed_step: r.get(12)?,
             tehas: r.get(13)?,
             rukas: r.get(14)?,
-            gate_runs: r.get::<_, Option<i64>>(15)?.filter(|n| *n > 0),
-            gate_seconds: gate_ms.filter(|m| *m > 0).map(|m| (m / 1000).max(1)),
+            gate_runs: integer(r, 15).filter(|n| *n > 0 && *n <= crate::run::MAX_GATE_RUNS as i64),
+            gate_seconds: integer(r, 16)
+                .filter(|m| *m > 0 && *m <= crate::run::MAX_GATE_MS)
+                .map(|m| (m / 1000).max(1)),
         })
     })?;
     rows.collect()
@@ -1073,6 +1115,9 @@ pub fn text(report: &Value) -> String {
     let pct = |v: &Value| v.as_f64().map_or("-".to_string(), percent);
     let dur = |v: &Value| int(v).map_or("-".to_string(), duration);
     let num = |v: &Value| int(v).map_or("-".to_string(), |x| x.to_string());
+    // A figure rounded to three places, printed as the three it holds: an f64
+    // of its own would print 1 as "1" and a small mean as 0.
+    let dec = |v: &Value| v.as_f64().map_or("-".to_string(), |x| format!("{x:.3}"));
     let from = int(&report["from"]).unwrap_or(0);
     let to = int(&report["to"]).unwrap_or(0);
 
@@ -1233,9 +1278,7 @@ pub fn text(report: &Value) -> String {
                 "median {}, p90 {}, {} runs per run, {} of run time",
                 dur(&gate["median"]),
                 dur(&gate["p90"]),
-                gate["perRun"]
-                    .as_f64()
-                    .map_or("-".to_string(), |r| format!("{r}")),
+                dec(&gate["perRun"]),
                 pct(&gate["share"]),
             ),
             format!(

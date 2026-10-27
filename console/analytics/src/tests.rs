@@ -657,6 +657,94 @@ fn a_run_whose_stream_held_no_gate_run_records_no_gate() {
 }
 
 #[test]
+fn the_gate_rows_past_the_bound_are_not_kept_and_a_time_past_it_is_no_figure() {
+    let home = scratch("gate-bounds");
+    let started = secs("2026-10-15T18:38:34Z");
+    let ended = secs("2026-10-15T18:39:50Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(ended), "started": started, "rc": 0, "status": "merged",
+               "pr": "https://github.com/o/r/pull/3"}),
+    );
+    let at = ended * 1000;
+    let line = |ms: i64| {
+        json!({"v": 1, "kind": "verify-completed", "issue": 7,
+               "event": {"kind": "verify-completed", "step": "develop",
+                          "command": "scripts/verify.sh", "target.kind": "full",
+                          "ok": true, "ms": ms, "at": at}})
+        .to_string()
+    };
+    // One line of every millisecond the runner may claim, and one more than
+    // the bound of rows: the runaway stream is bounded rather than kept. The
+    // last two lines are the bound of milliseconds itself, which is a figure,
+    // and a negative time, which is none.
+    let mut stream: Vec<String> = (0..run::MAX_GATE_RUNS - 1).map(|_| line(60_000)).collect();
+    stream.push(line(run::MAX_GATE_MS + 1));
+    stream.push(line(run::MAX_GATE_MS));
+    stream.push(line(-1));
+    stream.push(line(60_000));
+    put(
+        &home,
+        "logs/work-7-261015-183834.jsonl",
+        &format!("{}\n", stream.join("\n")),
+    );
+    let conn = record(&home, 7, ended);
+    // The bound of rows, no more: the runaway line is no row and no
+    // milliseconds of its own, and the read stops at the bound.
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM run_gate_runs"),
+        run::MAX_GATE_RUNS as i64
+    );
+    assert_eq!(
+        one::<Option<i64>>(&conn, "SELECT gate_runs FROM runs"),
+        Some(run::MAX_GATE_RUNS as i64)
+    );
+    assert_eq!(
+        one::<Option<i64>>(&conn, "SELECT gate_ms FROM runs"),
+        Some((run::MAX_GATE_RUNS as i64 - 1) * 60_000 + run::MAX_GATE_MS)
+    );
+    assert_eq!(
+        one::<Option<i64>>(&conn, "SELECT max(ms) FROM run_gate_runs"),
+        Some(run::MAX_GATE_MS)
+    );
+}
+
+#[test]
+fn a_run_whose_gate_named_no_time_records_no_gate() {
+    let home = scratch("gate-zero");
+    let started = secs("2026-10-15T18:38:34Z");
+    let ended = secs("2026-10-15T18:39:50Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(ended), "started": started, "rc": 0, "status": "merged",
+               "pr": "https://github.com/o/r/pull/3"}),
+    );
+    // The runner timed nothing: the rows are kept, and the run holds no figure,
+    // which is what the NULLs of the two columns mean.
+    let lines = json!({"v": 1, "kind": "verify-completed", "issue": 7,
+                       "event": {"kind": "verify-completed", "step": "develop",
+                                  "command": "scripts/verify.sh", "ok": true, "ms": 0,
+                                  "at": ended * 1000}})
+    .to_string();
+    put(
+        &home,
+        "logs/work-7-261015-183834.jsonl",
+        &format!("{lines}\n"),
+    );
+    let conn = record(&home, 7, ended);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_gate_runs"), 1);
+    assert_eq!(
+        one::<Option<i64>>(&conn, "SELECT gate_runs FROM runs"),
+        None
+    );
+    assert_eq!(one::<Option<i64>>(&conn, "SELECT gate_ms FROM runs"), None);
+}
+
+#[test]
 fn attempt_counts_earlier_runs_and_how_is_kept() {
     let home = scratch("attempt");
     let t = 1_792_000_000;
@@ -3181,7 +3269,6 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
             "daily",
             "firstPassYield",
             "from",
-            "gate",
             "handoffRate",
             "leadTime",
             "machineTime",
@@ -3208,9 +3295,9 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
     assert_eq!(got["availability"], json!({"n": 0}));
     assert_eq!(got["firstPassYield"], json!({"n": 0}));
     assert_eq!(got["leadTime"], json!({"n": 0}));
-    // No run recorded the gate, so its section holds its count alone and the
-    // terminal prints no row for it.
-    assert_eq!(got["gate"], json!({"n": 0}));
+    // No run recorded the gate, so its section is absent, as the other four
+    // are absent with nothing to count, and the terminal prints no row for it.
+    assert!(got.get("gate").is_none());
     assert_eq!(got["machineTime"], json!({"n": 0, "seconds": 0}));
     assert_eq!(got["daily"].as_array().unwrap().len(), 10);
     assert_eq!(got["from"], json!(to - 3600 - 9 * DAY));
