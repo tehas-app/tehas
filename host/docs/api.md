@@ -354,15 +354,16 @@ seconds), `answers`, `filed`, `answer` and `notes`. A session that ended stays
 on the store until the next `tehas:plan` of the issue replaces it, so a turn
 that never made a session still brings the one it ended; a turn whose session
 was replaced since, by one opened after the turn ended, brings no `plan.json`. A planning session the store did not
-give is a cycle not written: the others are copied, and the command exits 1.
-A cycle whose logs the improvement loop has already removed is not an
+give is a cycle not written, and so is one with a file that cannot be read:
+the others are copied, and the command exits 1. A cycle whose logs the improvement loop has already removed is not an
 error: those files are simply not there.
 
-Every text file goes through the console's mask, the one masker tehas has, with
-the same names of the host a cycle is given (the host aliases, the model hosts
-and the bot's email), so a token or a private address that reached a log does not
-reach the copy. Only a file the mask itself will not read is copied as it is, and
-one over 32 MiB is left out: an export is for reading. The mask catches accidents;
+The console does the copying, and every file goes through its mask, the one
+masker tehas has, with the same names of the host a cycle is given (the host
+aliases, the model hosts and the bot's email), so a token or a private address
+that reached a log does not reach the copy. Only a file of a Protolab page that
+is not UTF-8, such as an image, is copied as it is; a log is masked whatever
+bytes it holds. A file over 32 MiB is left out: an export is for reading. The mask catches accidents;
 it cannot stop what no pattern knows, so an export is still a copy of what a
 cycle wrote.
 

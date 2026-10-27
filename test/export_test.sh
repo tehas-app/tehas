@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for libexec/export: what a person reading a cycle is given, masked, and
 # the cursor a program keeps. Which files are copied, and under what names, is
-# the question here; what the mask matches is the console's own tests, so the
-# console is stubbed by one that knows a single token-shaped string.
+# the question here; what the mask matches is the console's own tests. The
+# console is this checkout's own, on the PATH as a checkout has it.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -15,22 +15,11 @@ out=$T/archive
 t_stub gh
 t_stub git
 
-# A token of the shape the mask knows, and what the mask makes of it. A file with
-# no printable byte in it is answered with nothing of the stub's own, which is how
-# the console answers such a file, and that silence is what tehas export takes for
-# a file to copy as it is rather than mask. The bytes are read once and kept: a
-# second read of standard input gives nothing, and a shell stub, unlike a program,
-# cannot read what it was given twice over.
+# A token of the shape the mask knows, and what the mask makes of it.
 token=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 masked='ghp_***'
-mask_stub='if [ "${1-}" != --mask ]; then exit 64; fi
-bytes=$(cat)
-case $bytes in
-  *"$(printf "\001")"*) exit 0 ;;
-esac
-[ -n "$bytes" ] || exit 0
-printf "%s\n" "${bytes//ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/ghp_***}"'
-t_stub console "$mask_stub"
+t_console || t_bad "no console: $t_console_why"
+console_on() { cp "$T_CONSOLE" "$T/bin/console"; }
 
 T0=1760700000
 iso() { date -u -d "@$1" +%FT%TZ; }
@@ -40,8 +29,8 @@ reset() {
   T_ENV=()
   t_instance "${T_MINIMAL[@]}"
   t_store_home "$home"
-  # A case that takes the stub away leaves it away, so every case gets its own.
-  t_stub console "$mask_stub"
+  # A case that takes the console away leaves it away, so every case gets it.
+  console_on
 }
 # cycle <issue> <epoch of the end> [fields]: a cycle that ended, with the files
 # a cycle leaves behind that an export is meant to carry.
@@ -96,7 +85,7 @@ logs/work-12-1760.jsonl.console
 logs/work-12-1760.jsonl.err
 logs/work-12-1760.jsonl.preflight"
 
-t_case "text is masked, a file the mask cannot read is copied as it is, and one stray NUL does not escape the mask"
+t_case "a log is masked whatever bytes it holds, and one stray NUL does not escape the mask"
 reset
 cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
 printf 'a line with %s in it\n' "$token" >"$logs/work-12-1760.jsonl"
@@ -105,10 +94,14 @@ printf 'a log with one stray \0 in it and %s\n' "$token" >"$logs/work-12-1760.js
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$t_rc" 0
 t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "a line with $masked in it"
-t_eq "$(cmp -s "$logs/work-12-1760.jsonl.err" "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.err" &&
-  echo same || echo differs)" same
-t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.console")" "a log with one stray  in it and $masked"
-t_eq "$(t_calls console | head -n 1)" "--mask"
+t_eq "$(cmp -s <(printf '\000\001\002\003\004\005\006\007\010\013\014\016\017\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037 %s\n' "$masked") \
+  "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.err" && echo masked || echo differs)" masked
+t_eq "$(tr -d '\000' <"$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl.console")" "a log with one stray  in it and $masked"
+# Bytes that are not UTF-8 in a log are no way past the mask.
+printf 'cut short \377\376 and %s\n' "$token" >"$logs/work-12-1760.jsonl"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_contains "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "and $masked"
+t_lacks "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "$token"
 
 t_case "bytes the mask makes nothing of are copied as they came, and an empty file stays empty"
 reset
@@ -196,6 +189,19 @@ protolab/index.md
 transcripts/abc.jsonl"
 t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/files/note.md")" "a file with $masked"
 
+t_case "an image of the Protolab page is copied byte for byte, and its text files are masked"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+mkdir -p "$home/protolab/12/files"
+printf '\211PNG\r\n\032\n\377\376\000 %s' "$token" >"$home/protolab/12/files/shot.png"
+printf '<p>%s</p>\n' "$token" >"$home/protolab/12/files/page.html"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 0
+t_eq "$(cmp -s "$home/protolab/12/files/shot.png" "$out/cycles/1760700000-12-1/protolab/files/shot.png" &&
+  echo same || echo differs)" same
+t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/files/page.html")" "<p>$masked</p>"
+t_eq "$(stat -c %a "$out/cycles/1760700000-12-1/protolab" "$out/cycles/1760700000-12-1/protolab/files" | uniq)" 755
+
 t_case "a cycle with no logs, no transcripts and no page is exported all the same"
 reset
 t_history_end "$home" 12 "$T0" '{"rc":0,"status":"merged"}'
@@ -238,6 +244,19 @@ truncate -s 33554433 "$logs/work-12-1760.jsonl"
 run_export --json --after $((T0 - 1))-12 "$out"
 t_eq "$(listing 1760700000-12-1 | grep -c 'work-12-1760.jsonl$')" 0
 t_contains "$(listing 1760700000-12-1)" "logs/result.json"
+
+t_case "a file that cannot be read fails its cycle, and the rest of it and the other cycles are copied"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+cycle 13 "$((T0 + 60))" '{"kind":"work","rc":0,"status":"merged"}'
+chmod 000 "$logs/work-12-1760.jsonl.err"
+run_export --json --after $((T0 - 1))-1 "$out"
+chmod 644 "$logs/work-12-1760.jsonl.err"
+t_eq "$t_rc" 1
+t_eq "$(grep 'could not write' <<<"$t_out")" "tehas export: could not write 1760700000-12-1"
+t_eq "$(listing 1760700000-12-1 | grep -c 'jsonl.err$')" 0
+t_contains "$(listing 1760700000-12-1)" "logs/work-12-1760.jsonl.console"
+t_contains "$(listing 1760700060-13-2)" "logs/work-13-1760.jsonl.err"
 
 t_case "a link is not followed, and only this issue's logs are taken"
 reset
