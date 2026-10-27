@@ -56,7 +56,7 @@ impl Env {
         std::fs::write(snap.join("sessions.jsonl"), text + "\n").unwrap();
         let dirs = Dirs {
             live,
-            sessions: snap,
+            sessions: snap.clone(),
             logs: root.join("no-logs"),
         };
         Env { root, dirs }

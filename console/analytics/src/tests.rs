@@ -3326,8 +3326,55 @@ fn plan_log_words() {
 
 #[test]
 fn sessions_is_a_command_without_arguments() {
-    assert_eq!(parse(&["sessions".to_string()]), Some(Cmd::Sessions));
+    assert_eq!(parse(&["sessions".to_string()]), Some(Cmd::Sessions(None)));
     assert_eq!(parse(&["sessions".to_string(), "x".to_string()]), None);
+    // --out asks for the file instead of the print, as outcomes' does.
+    assert_eq!(
+        parse(&[
+            "sessions".to_string(),
+            "--out".to_string(),
+            "/tmp/s".to_string()
+        ]),
+        Some(Cmd::Sessions(Some(std::path::PathBuf::from("/tmp/s"))))
+    );
+    for bad in [
+        vec!["--out"],
+        vec!["--out", ""],
+        vec!["--out", "-x"],
+        vec!["--out", "/a", "--out", "/b"],
+    ] {
+        let mut args = vec!["sessions".to_string()];
+        args.extend(bad.iter().map(|s| s.to_string()));
+        assert_eq!(parse(&args), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn sessions_written_makes_its_own_private_directory() {
+    // The host only names the directory: the program makes it mode 700 and the
+    // file mode 600, so a poll of status writes nothing with its own hands.
+    let home = scratch("sessions-written");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, how, started, ended) VALUES ('work-1-a', 'work', 1, 'agent', ?1, ?2)",
+        rusqlite::params![now - 3600, now - 3000],
+    )
+    .unwrap();
+    let lines = crate::sessions::lines(&conn, &home, now).unwrap();
+    let dir = home.join("mcp");
+    crate::sessions::write(&dir, &lines).unwrap();
+    let file = dir.join(crate::sessions::FILE);
+    assert_eq!(fs::read_to_string(&file).unwrap(), lines.join("\n") + "\n");
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
 }
 
 #[test]
@@ -3366,4 +3413,703 @@ fn plan_sessions_carry_filed() {
     );
     fs::remove_file(home.join("state/refined.jsonl")).unwrap();
     assert!(sessions_output(&home, now)[1].get("filed").is_none());
+}
+
+// outcomes: the counts behind factory_outcomes, as far back as the database
+// holds. A run is counted on its end, a run that never ended on its start.
+// The dates these tests name are the ones the clock of the host carries: 2026
+// makes a Tuesday of the 20th and a Monday of the 19th.
+
+fn outcomes_output(conn: &Connection, now: i64, f: &crate::outcomes::Filter) -> Vec<Value> {
+    crate::outcomes::lines(conn, now, f)
+        .unwrap()
+        .iter()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+/// A work run that ended `at`, with what the counts group it by.
+#[allow(clippy::too_many_arguments)]
+fn add_outcome_run(
+    conn: &Connection,
+    id: &str,
+    at: i64,
+    tehas: Option<&str>,
+    rukas: Option<&str>,
+    outcome: Option<&str>,
+    kind: Option<&str>,
+    park: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, tehas_version, rukas_version, \
+         outcome, failure_kind, park_reason) \
+         VALUES (?1, 'work', 1, ?2, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![id, at, tehas, rukas, outcome, kind, park],
+    )
+    .unwrap();
+}
+
+fn ofilter(
+    tehas: Option<&str>,
+    rukas: Option<&str>,
+    since: Option<&str>,
+    until: Option<&str>,
+    by: &str,
+) -> crate::outcomes::Filter {
+    crate::outcomes::Filter {
+        tehas: tehas.map(str::to_string),
+        rukas: rukas.map(str::to_string),
+        since: since.and_then(crate::outcomes::bound),
+        until: until.and_then(crate::outcomes::bound),
+        by: match by {
+            "week" => crate::outcomes::By::Week,
+            _ => crate::outcomes::By::Version,
+        },
+    }
+}
+
+fn entries(conn: &Connection, now: i64, f: &crate::outcomes::Filter) -> Vec<Value> {
+    outcomes_output(conn, now, f)[1..].to_vec()
+}
+
+#[test]
+fn outcomes_is_a_command_whose_options_are_each_given_once() {
+    assert_eq!(
+        parse(&["outcomes".to_string()]),
+        Some(Cmd::Outcomes(crate::outcomes::Filter::default(), None))
+    );
+    let whole = parse(&[
+        "outcomes".to_string(),
+        "--out".to_string(),
+        "/tmp/counts".to_string(),
+        "--tehas".to_string(),
+        "v0.14.2".to_string(),
+        "--rukas".to_string(),
+        "v0.14.0".to_string(),
+        "--since".to_string(),
+        "2026-01-01".to_string(),
+        "--until".to_string(),
+        "2026-02-01T08:00:00Z".to_string(),
+        "--by".to_string(),
+        "week".to_string(),
+    ]);
+    assert_eq!(
+        whole,
+        Some(Cmd::Outcomes(
+            crate::outcomes::Filter {
+                tehas: Some("v0.14.2".to_string()),
+                rukas: Some("v0.14.0".to_string()),
+                since: crate::outcomes::bound("2026-01-01"),
+                until: crate::outcomes::bound("2026-02-01T08:00:00Z"),
+                by: crate::outcomes::By::Week,
+            },
+            Some(std::path::PathBuf::from("/tmp/counts")),
+        ))
+    );
+    // The options in any order, and any subset of them.
+    let by_version = parse(&[
+        "outcomes".to_string(),
+        "--by".to_string(),
+        "version".to_string(),
+        "--since".to_string(),
+        "2026-01-01".to_string(),
+    ]);
+    assert_eq!(
+        by_version,
+        Some(Cmd::Outcomes(
+            crate::outcomes::Filter {
+                since: crate::outcomes::bound("2026-01-01"),
+                ..Default::default()
+            },
+            None,
+        ))
+    );
+    // A word of another shape, a time that is no time, a grouping that is
+    // neither of its two words, an option twice, a value that is another
+    // option's shape: none of them is a command.
+    for bad in [
+        vec!["--tehas", ""],
+        vec!["--tehas", "--rukas"],
+        vec!["--since", "2026-01-01", "--by"],
+        vec!["--tehas", "../x"],
+        vec!["--rukas", "x/"],
+        vec!["--since", "2026-13-01"],
+        vec!["--since", "2026-01-01T24:00:00Z"],
+        vec!["--until", "2026-01-01T00:00:00"],
+        vec!["--until", "2026-02-30"],
+        vec!["--since", "yesterday"],
+        vec!["--by", "day"],
+        vec!["--tehas", "v1", "--tehas", "v2"],
+        vec!["--tehas"],
+        vec!["--out"],
+        vec!["--out", ""],
+        vec!["--out", "--tehas"],
+        vec!["--out", "/tmp/a", "--out", "/tmp/b"],
+        vec!["extra"],
+    ] {
+        let mut args = vec!["outcomes".to_string()];
+        args.extend(bad.iter().map(|s| s.to_string()));
+        assert_eq!(parse(&args), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn outcomes_words_of_another_shape_count_as_none() {
+    // A word is a release's name or nothing: what a caller may ask for and
+    // what the file may hold are the same shape.
+    for bad in ["", "a b", "../x", "x/y", "v1\n", "v1\tx", &"v".repeat(65)] {
+        assert_eq!(crate::outcomes::word(bad), None, "{bad:?}");
+    }
+    for good in ["v0.14.2", "abc1234", "0", "a-b_c.d", &"v".repeat(64)] {
+        assert_eq!(
+            crate::outcomes::word(good),
+            Some(good.to_string()),
+            "{good:?}"
+        );
+    }
+    // The two ends of one contract, kept together here: a group the writer may
+    // name must be a word the reader of the MCP server can be asked for, or a
+    // filter for it answers nothing. The reader's pattern is A-Za-z0-9._+- of
+    // 1 to 64; a word of the database may also hold a `:`, which is why a
+    // version may not, and the reader's extra `+` is a shape the writer never
+    // names, so every word this module accepts is one a filter can be given.
+    let reader = regex::Regex::new(r"^[A-Za-z0-9._+-]{1,64}$").unwrap();
+    for good in ["v0.14.2", "abc1234", "0", "a-b_c.d", &"v".repeat(64)] {
+        assert_eq!(
+            crate::outcomes::word(good),
+            Some(good.to_string()),
+            "{good:?}"
+        );
+        assert!(reader.is_match(good), "{good:?} is not a reader's word");
+    }
+    for bad in [
+        "",
+        "a b",
+        "../x",
+        "x/y",
+        "v1\n",
+        "v1\tx",
+        "v1+build",
+        &"v".repeat(65),
+    ] {
+        assert_eq!(crate::outcomes::word(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_day_bound_is_stricter_than_a_time_bound() {
+    // The two shapes of a bound and the two rules they follow, said plainly:
+    // a day is read by this module, which refuses a date the calendar does not
+    // hold, and a full time by iso_ms of run.rs, which reads the parts it is
+    // given and so counts 2026-02-30 on into March. The manual says a bound is
+    // a day or a full UTC time; a date that is no date belongs to neither.
+    assert_eq!(crate::outcomes::bound("2026-02-30"), None);
+    assert_eq!(crate::outcomes::bound("2026-02-28"), Some(1772236800));
+    assert!(
+        crate::outcomes::bound("2026-02-30T00:00:00Z").is_some(),
+        "a full time is read as its parts, as the snapshot's lines are"
+    );
+}
+
+#[test]
+fn outcomes_bounds_accept_a_day_or_a_full_time() {
+    let day = crate::outcomes::bound("2026-01-01").unwrap();
+    assert_eq!(day % DAY, 0, "a day is its own start");
+    assert_eq!(
+        crate::outcomes::bound("2026-02-01T08:00:00Z").unwrap() % DAY,
+        8 * 3600
+    );
+    // Neither shape: no bound, and so no command.
+    for bad in [
+        "yesterday",
+        "2026-13-01",
+        "2026-02-30",
+        "2026-01-01T24:00:00Z",
+        "2026-01-01 00:00",
+        "",
+    ] {
+        assert_eq!(crate::outcomes::bound(bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn outcomes_weeks_begin_on_monday() {
+    // 2026 makes a Tuesday of the 20th and a Monday of the 19th: the whole of
+    // a week answers to the Monday that opens it.
+    for (day, week) in [
+        ("2026-10-19", "2026-10-19"),
+        ("2026-10-20", "2026-10-19"),
+        ("2026-10-25", "2026-10-19"),
+        ("2026-10-26", "2026-10-26"),
+    ] {
+        let at = crate::outcomes::bound(&format!("{day}T12:00:00Z")).unwrap();
+        assert_eq!(crate::outcomes::week_of(at), week.to_string(), "{day}");
+    }
+}
+
+#[test]
+fn outcomes_header_names_the_file_and_the_grouping() {
+    let home = scratch("outcomes-header");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    let head = outcomes_output(&conn, now, &ofilter(None, None, None, None, "version"))[0].clone();
+    assert_eq!(head["api"], 1);
+    assert_eq!(head["file"], "outcomes.jsonl");
+    assert_eq!(head["by"], "version");
+    assert_eq!(head["outcomes"], 1, "the shape of the counts");
+    // The reach the reader answers with, named by the file that holds it, so
+    // the two programs cannot each state a retention of their own.
+    assert_eq!(head["days"], db::RETENTION_DAYS, "the reach of the counts");
+    assert_eq!(head["generatedAt"], iso(now));
+    let weeks = outcomes_output(&conn, now, &ofilter(None, None, None, None, "week"))[0].clone();
+    assert_eq!(weeks["by"], "week");
+}
+
+#[test]
+fn outcomes_per_version_pair_the_most_runs_first() {
+    let home = scratch("outcomes-versions");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    for n in 0..3 {
+        add_outcome_run(
+            &conn,
+            &format!("work-1-{n}"),
+            now - 2 * DAY,
+            Some("v1"),
+            Some("r1"),
+            Some("merged"),
+            None,
+            None,
+        );
+    }
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 3 * DAY,
+        Some("v2"),
+        Some("r1"),
+        Some("merged"),
+        None,
+        None,
+    );
+    let out = entries(&conn, now, &ofilter(None, None, None, None, "version"));
+    assert_eq!(out.len(), 2);
+    assert_eq!(out[0]["tehasVersion"], "v1");
+    assert_eq!(out[0]["runs"], 3, "the pair of the most runs leads");
+    assert_eq!(out[1]["tehasVersion"], "v2");
+    assert_eq!(out[1]["runs"], 1);
+    assert_eq!(out[0]["rukasVersion"], "r1");
+}
+
+#[test]
+fn outcomes_per_week_newest_first() {
+    let home = scratch("outcomes-weeks");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - 3 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 20 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-3-a",
+        now - 16 * DAY,
+        Some("v1"),
+        None,
+        Some("failed"),
+        None,
+        None,
+    );
+    let out = entries(&conn, now, &ofilter(None, None, None, None, "week"));
+    assert_eq!(out.len(), 3, "three weeks, not three runs: {out:?}");
+    assert!(
+        out[0]["week"].as_str().unwrap() > out[1]["week"].as_str().unwrap(),
+        "newest week first"
+    );
+    assert!(out[1]["week"].as_str().unwrap() > out[2]["week"].as_str().unwrap());
+}
+
+#[test]
+fn outcomes_count_how_the_cycle_ended() {
+    let home = scratch("outcomes-ended");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("failed"),
+        Some("tests"),
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-3-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        Some("parked"),
+        None,
+        Some("needs-human"),
+    );
+    add_outcome_run(
+        &conn,
+        "work-4-a",
+        now - 2 * DAY,
+        Some("v1"),
+        None,
+        None,
+        None,
+        None,
+    );
+    let out = entries(
+        &conn,
+        now,
+        &ofilter(Some("v1"), None, None, None, "version"),
+    );
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0]["runs"], 4);
+    assert_eq!(out[0]["outcomes"]["merged"], 1);
+    assert_eq!(out[0]["outcomes"]["failed"], 1);
+    assert_eq!(out[0]["outcomes"]["parked"], 1);
+    assert_eq!(
+        out[0]["outcomes"]["unknown"], 1,
+        "a run of no outcome is counted, not dropped"
+    );
+    assert_eq!(out[0]["failureKinds"]["tests"], 1);
+    assert_eq!(out[0]["parkReasons"]["needs-human"], 1);
+}
+
+#[test]
+fn outcomes_counts_a_run_that_never_ended_on_its_start() {
+    let home = scratch("outcomes-never-ended");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, tehas_version, outcome) \
+         VALUES ('work-1-a', 'work', 1, ?1, 'v1', 'merged')",
+        rusqlite::params![now - 3 * DAY],
+    )
+    .unwrap();
+    let out = entries(&conn, now, &ofilter(None, None, None, None, "version"));
+    assert_eq!(out.len(), 1, "a run of no end is still a run");
+    assert_eq!(out[0]["runs"], 1);
+}
+
+#[test]
+fn outcomes_reaches_past_the_thirty_day_window() {
+    let home = scratch("outcomes-long");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - 100 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 200 * DAY,
+        Some("v1"),
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    let out = entries(&conn, now, &ofilter(None, None, None, None, "week"));
+    assert_eq!(out.len(), 2, "two weeks, however far back: {out:?}");
+    // The sessions of a snapshot reach thirty days; these reach a year.
+    let old = iso(now - 200 * DAY);
+    let out = entries(
+        &conn,
+        now,
+        &ofilter(None, None, Some("2020-01-01"), None, "week"),
+    );
+    assert!(out
+        .iter()
+        .any(|e| e["week"] == crate::outcomes::week_of(crate::outcomes::bound(&old).unwrap())));
+}
+
+#[test]
+fn outcomes_holds_no_issue_cause_or_log() {
+    let home = scratch("outcomes-no-leak");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, tehas_version, outcome, \
+         failure_cause, failure_kind) \
+         VALUES ('work-1-a', 'work', 42, ?1, ?1, 'v1', 'failed', \
+         'the whole of a log line with a token sk-abc123', 'tests')",
+        rusqlite::params![now - DAY],
+    )
+    .unwrap();
+    let text = crate::outcomes::lines(&conn, now, &ofilter(None, None, None, None, "version"))
+        .unwrap()
+        .join("\n");
+    for forbidden in ["sk-abc123", "log line", "\"cause\"", "\"issue\""] {
+        assert!(
+            !text.contains(forbidden),
+            "the counts hold {forbidden:?}: {text}"
+        );
+    }
+    assert!(text.contains("tests"), "the kinds are counted: {text}");
+}
+
+#[test]
+fn outcomes_filters_by_version_and_window() {
+    let home = scratch("outcomes-filters");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - 5 * DAY,
+        Some("v1"),
+        Some("r1"),
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 5 * DAY,
+        Some("v2"),
+        Some("r1"),
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-3-a",
+        now - 40 * DAY,
+        None,
+        None,
+        Some("merged"),
+        None,
+        None,
+    );
+    let names = |f: crate::outcomes::Filter| {
+        entries(&conn, now, &f)
+            .iter()
+            .map(|e| {
+                (
+                    e["tehasVersion"].as_str().unwrap_or("-").to_string(),
+                    e["rukasVersion"].as_str().unwrap_or("-").to_string(),
+                    e["runs"].as_u64().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(ofilter(Some("v1"), None, None, None, "version")),
+        vec![("v1".to_string(), "r1".to_string(), 1)]
+    );
+    // A pi-rukas version is matched as the sessions match theirs: the word the
+    // run holds, its commit where it holds no version.
+    assert_eq!(
+        names(ofilter(None, Some("r1"), None, None, "version")).len(),
+        2
+    );
+    // Nothing asked for: every entry, the pair of the run of no version among them.
+    assert_eq!(names(ofilter(None, None, None, None, "version")).len(), 3);
+    assert!(names(ofilter(Some("nope"), None, None, None, "version")).is_empty());
+    // A day bound is its own start.
+    assert_eq!(crate::outcomes::bound("2026-01-01").unwrap() % DAY, 0);
+    // Both shapes of a bound name a moment, and both read the same way. The
+    // runs of five days ago fell at 17:46 of that day; a stamp an hour later
+    // is after them, so it leaves them out at the front of a window and keeps
+    // them at the back. A whole day names its own start, which is before them,
+    // so it opens the window on them and closes it before them. A bound is
+    // read as far as itself, inclusive: the bound of the run's own second
+    // keeps it, as the pair below shows.
+    let stamp = iso(now - 5 * DAY + 3600);
+    let day = iso(now - 5 * DAY).chars().take(10).collect::<String>();
+    let n = |s: Option<&str>, u: Option<&str>| names(ofilter(None, None, s, u, "version")).len();
+    assert_eq!(n(Some(&stamp), None), 0);
+    assert_eq!(n(Some(&day), None), 2);
+    assert_eq!(
+        n(None, Some(&stamp)),
+        3,
+        "the hour after the pair, the older run with them"
+    );
+    // The day of the pair opens at midnight of it, which is before them, and
+    // before the run of forty days ago: what is left is that one entry.
+    assert_eq!(n(None, Some(&day)), 1);
+    // An hour on either side of the runs, and the pair is out of the window
+    // at one end and in at the other.
+    let before = iso(now - 5 * DAY - 3600);
+    let after = iso(now - 5 * DAY + 3600);
+    // The hour before reaches them; the hour after has only the run of forty
+    // days ago left out of a year's window, so the count is one and not nought.
+    assert_eq!(n(Some(&before), None), 2);
+    assert_eq!(n(Some(&after), None), 0);
+    assert_eq!(n(None, Some(&before)), 1);
+    assert_eq!(n(None, Some(&after)), 3);
+    // A window the runs are outside of: nothing.
+    assert!(names(ofilter(
+        None,
+        None,
+        Some("1970-01-01"),
+        Some("1970-01-02"),
+        "version"
+    ))
+    .is_empty());
+    // The weeks answer as whole weeks: a window inside a week keeps the whole
+    // of it, so the two runs of five days ago stand for their Monday.
+    let weeks = entries(&conn, now, &ofilter(None, None, Some(&day), None, "week"));
+    assert_eq!(weeks.len(), 1, "{weeks:?}");
+    assert_eq!(weeks[0]["runs"], 2);
+}
+
+#[test]
+fn outcomes_written_to_a_directory_is_the_file_the_reader_opens() {
+    let home = scratch("outcomes-written");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - 2 * DAY,
+        Some("v1"),
+        Some("r1"),
+        Some("merged"),
+        None,
+        None,
+    );
+    add_outcome_run(
+        &conn,
+        "work-2-a",
+        now - 2 * DAY,
+        Some("v1"),
+        Some("r1"),
+        Some("failed"),
+        Some("tests"),
+        None,
+    );
+    // The directory is the program's to make: the host names it and asks for
+    // the file, and writes nothing itself.
+    let dir = home.join("mcp");
+    crate::outcomes::write(
+        &dir,
+        &conn,
+        now,
+        &ofilter(None, None, None, None, "version"),
+    )
+    .unwrap();
+    let file = dir.join(crate::outcomes::FILE);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        crate::outcomes::lines(&conn, now, &ofilter(None, None, None, None, "version"))
+            .unwrap()
+            .join("\n")
+            + "\n",
+        "the file holds what the command prints"
+    );
+    assert_eq!(
+        fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    // Written again, it replaces itself, and no name of a run is left behind.
+    crate::outcomes::write(
+        &dir,
+        &conn,
+        now + 60,
+        &ofilter(None, None, None, None, "week"),
+    )
+    .unwrap();
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+    assert!(fs::read_to_string(&file)
+        .unwrap()
+        .contains("\"by\":\"week\""));
+    // A name in the way where the directory should be: an error that says so,
+    // and nothing written anywhere.
+    let blocked = home.join("blocked");
+    fs::write(&blocked, "").unwrap();
+    let why = crate::outcomes::write(
+        &blocked,
+        &conn,
+        now,
+        &ofilter(None, None, None, None, "version"),
+    )
+    .unwrap_err();
+    assert!(why.contains("the directory"), "{why}");
+    assert_eq!(fs::read_to_string(&blocked).unwrap(), "");
+}
+
+#[test]
+fn outcomes_out_is_a_directory_written_by_the_program_alone() {
+    // The host runs no reader of its own: the shape it puts on disk is what
+    // this wrote, so a call of the whole command writes the file and prints
+    // nothing.
+    let home = scratch("outcomes-out-command");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_outcome_run(
+        &conn,
+        "work-1-a",
+        now - DAY,
+        Some("v1"),
+        None,
+        Some("parked"),
+        None,
+        Some("needs-human"),
+    );
+    drop(conn);
+    let dir = home.join("mcp");
+    let cmd = parse(&[
+        "outcomes".to_string(),
+        "--out".to_string(),
+        dir.to_str().unwrap().to_string(),
+    ])
+    .unwrap();
+    assert!(matches!(cmd, Cmd::Outcomes(_, Some(_))));
+    execute(&home, &cmd, now).unwrap();
+    let text = fs::read_to_string(dir.join(crate::outcomes::FILE)).unwrap();
+    assert!(
+        text.contains("\"parkReasons\":{\"needs-human\":1}"),
+        "{text}"
+    );
+    // The unfiltered command prints the same and writes nothing new.
+    let printed = parse(&["outcomes".to_string()]).unwrap();
+    execute(&home, &printed, now).unwrap();
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
 }

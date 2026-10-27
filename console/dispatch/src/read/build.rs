@@ -5,6 +5,7 @@
 
 use super::run::{self, Calls, GhFail};
 use super::{github, host, models, store};
+use crate::events::{pause_holds, Events};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
@@ -370,6 +371,13 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         }
     }
 
+    // A paused poll ends after its clean-up: what only the rules after the
+    // pause read is not read.
+    if paused(&s, c) {
+        s["issues"] = Value::Object(issues);
+        return Ok(s);
+    }
+
     // The questions waiting for an answer.
     let asking = numbers(&s["asking"]);
     let read = github::comments_of(calls, &c.repo, &asking);
@@ -438,6 +446,26 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
     s["issues"] = Value::Object(issues);
     Ok(s)
+}
+
+/// Whether the poll stops at the pause, as decide's pause_flag and
+/// pause_label find it. A read that failed is not a pause: decide ends the
+/// poll on it.
+fn paused(s: &Value, c: &Settings) -> bool {
+    if !s["pause_flag"].is_null() {
+        return true;
+    }
+    let control = &s["control"];
+    if control["labels"]
+        .as_array()
+        .is_some_and(|l| l.iter().any(|x| x["name"] == "tehas:pause"))
+    {
+        return true;
+    }
+    match Events::parse(&control["events"]) {
+        Events::Read(events) => pause_holds(&events, &|l| c.allowed(l)).is_some(),
+        _ => false,
+    }
 }
 
 /// An issue the rules ask about that is not open: closed, as far as the poll

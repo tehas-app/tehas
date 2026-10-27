@@ -518,7 +518,13 @@ $(bad_line b_test.sh 'timed out after 1s')"
 t_eq "$((SECONDS - began < 15))" 1
 
 # Each file notes when it starts and ends. Three at a time, they overlap; on a
-# host whose load is past its CPUs, the next waits for the one before.
+# host whose load has reached its CPUs, the next waits for the one before.
+# The threshold is the host's CPUs, not 1.5 times them: three gates side by
+# side on one host used to run past the CPUs before the runner held a file
+# back. The load is read as a whole number, so 0.04 on a host of 8 CPUs is
+# below the threshold and 8.00 reaches it. The stubbed count is also below
+# what cpus() reads, so every case here sizes its pool from TEHAS_TEST_JOBS
+# and never from the host.
 overlap() {
   fresh
   for n in a b c; do
@@ -530,11 +536,26 @@ overlap() {
   run
   T_ENV=(TEHAS_TEST_JOBS=1 TMPDIR="$recs")
 }
+# The runner takes the host's CPUs from nproc, so a stub makes the threshold
+# the same on every machine: eight here, where the host may have sixteen.
+t_stub nproc 'echo 8'
 t_case "an idle host runs the files side by side"
 echo "0.00 0.00 0.00 1/100 1" >"$T/loadavg"
 overlap
 t_eq "$t_rc" 0
 t_eq "$(head -n 2 "$T/order" | cut -d' ' -f1 | tr '\n' ' ')" "start start "
+
+t_case "a load just below the host's CPUs still starts them together"
+echo "7.90 7.90 7.90 1/100 1" >"$T/loadavg"
+overlap
+t_eq "$t_rc" 0
+t_eq "$(head -n 2 "$T/order" | cut -d' ' -f1 | tr '\n' ' ')" "start start "
+
+t_case "a load at the host's CPUs holds the next file back"
+echo "8.00 8.00 8.00 1/100 1" >"$T/loadavg"
+overlap
+t_eq "$t_rc" 0
+t_eq "$(cut -d' ' -f1 "$T/order" | tr '\n' ' ')" "start end start end start end "
 
 t_case "a busy host runs them one after another, and all of them"
 echo "99999.00 0.00 0.00 1/100 1" >"$T/loadavg"
