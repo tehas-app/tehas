@@ -458,10 +458,10 @@ slice_child "$b" lots 0 $((2 * GIB))
 room 0
 t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$b.scope/memory.stat has no number for anon"
 
-t_case "a memory.stat without one of the four numbers is unreadable"
+t_case "a memory.stat with no number for one of the four keys is unreadable"
 good
 slice_child "$a" $((500 * MIB)) 0 $((2 * GIB))
-printf '%s\n' "anon 1" "shmem 0" "kernel 0" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
+printf '%s\n' "anon 1" "shmem 0" "kernel 0" "slab_reclaimable lots" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
 room 0
 t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$a.scope/memory.stat has no number for slab_reclaimable"
 
@@ -471,6 +471,23 @@ slice_child "$a" $((3 * GIB)) $GIB 0
 printf '%s\n' "anon $((3 * GIB))" "shmem $GIB" "slab_reclaimable $GIB" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
 room 0
 t_eq "$t_out" "3 $((4 * GIB)) $MAX $((2 * GIB))"
+
+# A container that is starting has its scope before the kernel fills in the
+# file, so a memory.stat with no slab_reclaimable line is read as the slab
+# being 0: the charge counts high and errs toward holding.
+t_case "a memory.stat with no slab_reclaimable line counts its kernel whole"
+good
+slice_child "$a" $GIB 0 0
+printf '%s\n' "anon $((500 * MIB))" "shmem $GIB" "kernel $GIB" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
+room 0
+t_eq "$t_out" "3 2671771648 $MAX $((2 * GIB))"
+
+t_case "a memory.stat with no anon line still holds and names the key"
+good
+slice_child "$a" $GIB 0 $((2 * GIB))
+printf '%s\n' "shmem $GIB" "kernel 0" "slab_reclaimable 0" >"$T_CGROUP/tehas.slice/docker-$a.scope/memory.stat"
+room 0
+t_eq "$t_out" "0 0 $MAX $((2 * GIB)) unreadable $T_CGROUP/tehas.slice/docker-$a.scope/memory.stat has no number for anon"
 
 t_case "a missing memory.low is unreadable, and nothing falls back to memory.current"
 good
