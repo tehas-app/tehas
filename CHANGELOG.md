@@ -13,9 +13,18 @@ empty one above it.
 
 ### Changes
 
+- One jq everywhere (#860): `host/versions.env` pins jq 1.8.1 by its
+  checksum, and the host (`bootstrap.sh user`, into `~/tehas/bin`), the
+  sandbox image (ahead of the base image's jq 1.7) and CI all run it. A jq
+  program that parses in one now parses in all three. Before, a test stub
+  that jq 1.7 cannot parse passed CI and failed every cycle's gate (#849,
+  #859). `bootstrap.sh check` reports jq's version against the pin.
+
 ### Adopter action
 
-None.
+- After the update, run `./bootstrap.sh user` (the update's `later:` line
+  says so): it installs jq 1.8.1 into `~/tehas/bin`. The update rebuilds the
+  sandbox image with it, since its jq pin is new.
 
 ## v0.14.3 (2026-10-27)
 

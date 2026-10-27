@@ -171,8 +171,8 @@ it, then merge it. See [tehas check-product](/tools#tehas-check-product).
 
 ### 5. The sandbox image
 
-The platform's `host/sandbox/Dockerfile` adds shellcheck and Playwright's
-Chromium to the pi-rukas image and remaps the user id. It is part of the
+The platform's `host/sandbox/Dockerfile` adds shellcheck, tehas's jq and
+Playwright's Chromium to the pi-rukas image and remaps the user id. It is part of the
 release and is replaced by the next one, so your toolchain does not go there.
 
 Put it in `sandbox.Dockerfile` in your instance directory instead (the one

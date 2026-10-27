@@ -191,6 +191,8 @@ docker build \
   --build-arg TEHAS_UID="$(id -u)" \
   --build-arg SHELLCHECK_VERSION="$SHELLCHECK_VERSION" \
   --build-arg SHELLCHECK_SHA256="$SHELLCHECK_SHA256" \
+  --build-arg JQ_VERSION="$JQ_VERSION" \
+  --build-arg JQ_SHA256="$JQ_SHA256" \
   --build-arg PLAYWRIGHT_VERSION="$PLAYWRIGHT_VERSION" \
   --build-arg PLAYWRIGHT_LOCK_SHA256="$PLAYWRIGHT_LOCK_SHA256" \
   --build-arg CBM_VERSION="$CBM_VERSION" \

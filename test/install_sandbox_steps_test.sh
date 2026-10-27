@@ -149,6 +149,17 @@ t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "next: sandbox"
 
+t_case "a moved jq pin asks for the sandbox build"
+fresh
+instance
+t_run "$install"
+t_eq "$t_rc" 0
+rm -f "$th/state/update-pending"
+versions_line JQ_VERSION 1.7.1
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "next: sandbox"
+
 t_case "a fresh install owes the sandbox build whatever its versions.env holds"
 fresh
 instance

@@ -259,9 +259,9 @@ curl_bounds='-fsSL --connect-timeout 20 --max-time 300 --retry 3 --retry-all-err
 # folded onto the line of a curl that is already bounded is a record of its own.
 fetches=$(docker_runs "$dockerfile" | grep -oE "curl [^&;|]* -o ")
 # The fetches the image makes today: the code indexer's installer, shellcheck,
-# and the two files of the embedding model. The rule below is over downloads,
-# so the count only says the read found the fetches at all.
-t_eq "$(grep -c . <<<"$fetches")" 4
+# jq, and the two files of the embedding model. The rule below is over
+# downloads, so the count only says the read found the fetches at all.
+t_eq "$(grep -c . <<<"$fetches")" 5
 while IFS= read -r fetch; do
   t_contains "$fetch" "curl $curl_bounds"
 done <<<"$fetches"
