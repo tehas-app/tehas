@@ -23,6 +23,14 @@ empty one above it.
   lines). What those first steps say goes to standard error, and
   `models.json` is written with its keys sorted. From a checkout with no built
   console, setup builds it with cargo first.
+- A planned issue's title is the work in full. The first turn asks the console
+  for its descriptor (`console plan descriptor`, `console/plan.rs`) instead of
+  cutting the brief's first line and adding `(issue #<n>)` to it: the number
+  goes on only when the title has fewer than six words and the whole still
+  fits what pi-rukas keeps of a title, so a long title is never cut at a word
+  boundary. A brief whose first line is `Title: <text>` is named by `<text>`,
+  so a half of a split is named for its own work and not the whole issue it
+  came from (#899).
 - With `TEHAS_DISPATCHER=rust`, an open issue marked `tehas:planning` with no
   planning session on record is handed to a person: it gets
   `needs-human-attention` in place of the mark and a comment to apply
