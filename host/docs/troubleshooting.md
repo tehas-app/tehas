@@ -857,8 +857,9 @@ rm ~/tehas/sandbox/sandbox-uid.Dockerfile   # the copy a killed build left
 
 `tehasbot clean` takes a copy of `TEHAS_CLEAN_AFTER` hours and older with the rest
 of the host scratch, and `sandbox/build.sh` itself takes back the temporaries of
-earlier runs before it starts. The copy the build hands docker is printed as the
-name it was built from, and it is gitignored, so `tehas update` sees no local
+earlier runs before it starts. The copy is staged at
+`~/tehas/sandbox/sandbox-uid.Dockerfile`, the name the build says when a stale
+copy or a bad name stops it, and it is gitignored, so `tehas update` sees no local
 change in it: what the image was built of is what the tracked
 `~/tehas/sandbox/Dockerfile` holds.
 

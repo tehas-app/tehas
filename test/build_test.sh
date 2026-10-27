@@ -11,23 +11,36 @@
 
 build="$T_ROOT/host/sandbox/build.sh"
 dockerfile=$T_ROOT/host/sandbox/Dockerfile
-# The boundary the two stages are cut at, and the one argument that belongs below
-# it, read out of the tracked file the way build.sh reads them: one whole line of
-# each, or the build refuses the recipe. The cases below use the same two names,
-# so no reader of the recipe disagrees with the one the staging uses.
-boundary=$(sed -n 's/^\(FROM shared\)$/\1/p' "$dockerfile")
-uid_arg=$(sed -n 's/^\(ARG TEHAS_UID=\).*/\1/p' "$dockerfile")
+# The two lines the stages are cut at, named as the literals build.sh counts whole
+# and refuses any other spelling of. They are written here and nowhere else in
+# this file, so no reader takes a value out of the recipe and reads it back.
+boundary='FROM shared'
+uid_arg='ARG TEHAS_UID='
+# The counts build.sh asks of a recipe, in one place: the boundary as one whole
+# line, the uid's argument as one whole line with nothing after the `=`, and the
+# argument declared once. A recipe that fails these is one the build refuses.
+recipe_counts() { # <file>
+  printf '%s %s %s\n' \
+    "$(grep -cxF -- "$boundary" "$1")" \
+    "$(grep -cxF -- "$uid_arg" "$1")" \
+    "$(grep -c '^ARG TEHAS_UID' "$1")"
+}
 # image_steps <file>: the steps of one recipe, as the build runs them, and the
 # number of the boundary among them. One entry per instruction, the continuations
-# joined into the instruction, and the comments, which run no step, left out. The
-# number of the boundary comes back under the name `boundary`, so no second reader
-# of the recipe counts the steps against another number. A comment on a
-# continuation line is part of the instruction the build runs and is not read here,
-# so the case that uses this keeps the recipe free of them and says so.
+# joined into the instruction, and the comments, which run no step, left out - a
+# comment that opens a continuation line is dropped before the joining, as docker
+# drops it. The number of the boundary comes back under the name `boundary`, or
+# `none` when the recipe holds no step that reads exactly that, so a consumer that
+# compares step numbers has to refuse it rather than compare against zero. A
+# comment that stands inside a continuation is said under the name `comment`, so
+# the one read of the file names it too.
 image_steps() { # <file>
   awk '{ line = $0
+  while (line ~ /^[ \t]*#/) { if ((getline line) <= 0) next }
+  start = line
   while (sub(/[ \t]*\\[ \t]*$/, "", line)) {
     if ((getline nxt) <= 0) break
+    if (nxt ~ /^[ \t]*#/ || nxt ~ /^#/) { print "comment\t" start; continue }
     line = line " " nxt
   }
   if (line !~ /^[ \t]*(FROM|RUN|COPY|ADD)([ \t]|$)/) next
@@ -37,25 +50,15 @@ image_steps() { # <file>
 }
 END {
   for (i = 1; i <= n; i++) print i "\t" step[i]
-  print "boundary\t" boundary + 0
+  print "boundary\t" (boundary ? boundary : "none")
 }' "$1"
 }
-# The copy of the recipe the build is handed, which build.sh makes beside the
-# recipe just before it asks for the build and takes back when it ends. It is not
-# in the checkout - its words come out of the recipe - so the cases that ask
-# something of it make it the way the build does, from the same two names, rather
-# than trusting a copy a run left behind. Like the build, they make it under
-# another name and rename it into place.
-uid_recipe=$T/sandbox-uid.Dockerfile
-stage_uid_recipe() {
-  tmp=$(mktemp "$uid_recipe.XXXXXX") || return 1
-  {
-    sed -n "1,/^${boundary}\$/p" "$dockerfile" |
-      sed "/^${boundary}\$/d;/^${uid_arg}/d"
-    sed -n "/^${boundary}\$/,\$p" "$dockerfile"
-  } >"$tmp" || { rm -f "$tmp"; return 1; }
-  mv -f "$tmp" "$uid_recipe"
-}
+# The copy the build handed docker is the file the stub kept out of the docker
+# call, and that file is the only reading of it these cases use: nothing here
+# stages a recipe of its own, since a staging written beside the build's is a
+# second reader that drifts with the build rather than against it. Each case that
+# asks something of it runs a build first and reads $T/docker-build-recipe, which
+# setup clears, so the copy is always the one the case's own run handed over.
 # install_host_toolchain: the toolchain as a host holds it, which is where the
 # build reads the recipe beside itself: the script, the tracked recipe, the lib it
 # sources, and the pins it reads. A variant of the script is copied by a case that
@@ -171,13 +174,12 @@ t_eq "$t_out" ""
 # The file the run made is asked of the stub while the build is still standing,
 # so a copy an earlier run left behind cannot answer for it: the copy is made,
 # used and taken away by the same run, and what docker was handed is the whole
-# image - both stages, with every step the tracked recipe holds. The image's
-# steps, the boundary and the uid argument are asked of that file and not of the
-# tracked one, because it is the file docker is handed.
-stage_uid_recipe
-t_eq "$(cat "$T/docker-build-recipe")" "$(cat "$uid_recipe")"
-t_eq "$(grep -cxF -- "$boundary" "$T/docker-build-recipe")" 1
-t_eq "$(grep -c "^${uid_arg}" "$T/docker-build-recipe")" 1
+# image - both stages, with every step the tracked recipe holds. The boundary and
+# the uid argument are counted of that file by the same counts build.sh makes, and
+# the stages are compared against the tracked file by name, not against a copy
+# this file staged itself.
+t_eq "$(recipe_counts "$T/docker-build-recipe")" "1 1 1"
+t_eq "$(recipe_counts "$dockerfile")" "1 1 1"
 # The copy is made under a name of its own and renamed onto the one docker is
 # given, so the build never has that name open: whatever stood under it is gone by
 # the time docker reads it, and the file it reads is the one this run wrote, which
@@ -199,19 +201,19 @@ t_contains "$build_call" "-f $home/sandbox-uid.Dockerfile"
 t_lacks "$build_call" "-f $home/Dockerfile"
 t_contains "$build_call" "--build-arg TEHAS_UID=$uid"
 # The stage below the boundary is the one the tracked file ends at: its FROM, the
-# remap, and the read of the model that has to see the id the remap gave.
-stage=$(sed -n "/^${boundary}\$/,\$p" "$dockerfile")
+# remap, and the read of the model that has to see the id the remap gave. The
+# boundary of the copy docker was handed is read as the whole line build.sh cuts
+# at, so the second stage named here is the stage docker reads.
+stage=$(sed -n "/^${boundary}\$/,\$p" "$T/docker-build-recipe")
+t_contains "$stage" 'ARG TEHAS_UID='
 t_contains "$stage" 'usermod -u "$TEHAS_UID"'
 
 t_case "the staged image holds every step the tracked file has and no argument twice"
 setup
 install_host_toolchain
-# The copy the build is made of, staged by hand the way the build stages it: the
-# whole image, the shared stage as the file writes it and the stage below the
-# boundary, with each argument declared where the step that reads it stands. The
-# steps of the build's own copy are asked of the file the stub kept out of the
-# docker call, so a staging that drifted from this one fails here and not green.
-stage_uid_recipe
+# The build makes its own copy; this case asks everything of the file the stub
+# kept out of the docker call, so a staging that lost a step, added one or cut the
+# boundary elsewhere fails here rather than beside a copy this file staged too.
 t_run "\"$home/build.sh\" >/dev/null"
 t_eq "$t_rc" 0
 # Every RUN, COPY and ADD of the tracked file is in the copy docker was handed,
@@ -222,15 +224,21 @@ t_eq "$t_rc" 0
 tracked=$(image_steps "$dockerfile" | cut -f2- | grep -E '^(RUN|COPY|ADD)' | LC_ALL=C sort)
 staged=$(image_steps "$T/docker-build-recipe" | cut -f2- | grep -E '^(RUN|COPY|ADD)' | LC_ALL=C sort)
 t_eq "$staged" "$tracked"
+# The steps above the boundary are the same steps, in the same order, on both
+# sides of the cut: the shared half of the image is the tracked file's own half,
+# and not something the staging invented.
+tracked_shared=$(image_steps "$dockerfile" | awk -F '\t' '$1 == "comment" { next } $1 == "boundary" { exit } { print $2 }')
+staged_shared=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment" { next } $1 == "boundary" { exit } { print $2 }')
+t_eq "$staged_shared" "$tracked_shared"
 # One ARG line for the uid, and it stands below the boundary of the file docker
 # was handed: an argument is read from the line that declares it, so a second one
 # above would let the remap see the empty value of the stage that holds it. Both
 # are asked of the copy the build made, since that is the recipe docker reads.
-t_eq "$(grep -c '^ARG TEHAS_UID' "$T/docker-build-recipe")" 1
-t_contains "$(sed -n "/^${boundary}\$/,\$p" "$T/docker-build-recipe")" 'ARG TEHAS_UID'
-# The build's copy and the copy this case staged by hand are the same bytes, so
-# the two readers of the recipe - build.sh and the parses below - cannot drift.
-t_eq "$(cat "$T/docker-build-recipe")" "$(cat "$uid_recipe")"
+t_eq "$(grep -cxF -- "$uid_arg" "$T/docker-build-recipe")" 1
+t_contains "$(sed -n "/^${boundary}\$/,\$p" "$T/docker-build-recipe")" 'ARG TEHAS_UID='
+# Nothing stands above the boundary of the copy that carries the argument: the
+# half every instance user shares holds no uid for its own stage to read.
+t_eq "$(sed -n "1,/^${boundary}\$/p" "$T/docker-build-recipe" | grep -c '^ARG TEHAS_UID')" 0
 
 t_case "a recipe whose two-stage boundary the build cannot read is refused and asks nothing"
 setup
@@ -253,6 +261,140 @@ t_eq "$t_rc" 0
 t_run "test -s \"$home/sandbox-uid.Dockerfile\""
 t_eq "$t_rc" 1
 
+# The five branches between the recipe and docker are each a way a copy of it
+# could stand after a refused run, so each is driven and each is asked for the
+# same two things: the reason it says, and nothing left at either name.
+t_case "a uid that is not a number is refused with 78 and leaves nothing"
+setup
+install_host_toolchain
+# The path of this run is a copy of the stub directory with its own id in front
+# of the real one, so the build asks an account of the case's choosing and nothing
+# else about the run changes.
+noid=$T/bin/not-a-number
+mkdir -p "$noid"
+printf '#!%s\nprintf "%%s\\n" "$UID_NOT_A_NUMBER"\n' "$T_BASH" >"$noid/id"
+chmod +x "$noid/id"
+T_ENV=(UID_NOT_A_NUMBER=10o1 "PATH=$noid:$T/bin:$PATH")
+t_run "\"$home/build.sh\""
+T_ENV=()
+t_eq "$t_rc" 78
+t_contains "$t_out" "the uid of this account is '10o1', not a number"
+t_eq "$(t_calls docker)" ""
+t_run "for f in \"$home\"/sandbox-uid.Dockerfile*; do [ -e \"\$f\" ] || [ -L \"\$f\" ] || continue; echo \"left \$f\"; done
+true"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+
+t_case "without mktemp the build says it could not stage and asks nothing"
+setup
+install_host_toolchain
+# The temporary is made where the recipe stands, not in TMPDIR, so the run is
+# driven down its own staging path with the directory it ends at made unwritable:
+# a copy of the toolchain that cannot hold a file. The run has the whole tool
+# path, so everything but the staging is as a build's is, and the refusal is the
+# staging's own, before docker is asked.
+for_stage=$T/home/no-stage
+mkdir -p "$for_stage/sandbox" "$for_stage/lib"
+cp "$build" "$dockerfile" "$for_stage/sandbox/"
+cp "$T_ROOT"/lib/headless.sh "$T_ROOT"/lib/rukas.sh "$T_ROOT"/lib/config.sh \
+  "$T_ROOT"/lib/sandbox.sh "$T_ROOT"/lib/models.sh "$for_stage/lib/"
+cp "$T_ROOT/host/versions.env" "$for_stage/"
+# The name the staging would have used is made first, owned by the case, so the
+# refusal is asked of a copy the run would have replaced: the run takes nothing
+# out of a directory it cannot write, and leaves the copy for the next build.
+printf 'kept by the case\n' >"$for_stage/sandbox/sandbox-uid.Dockerfile"
+: >"$T/docker-build-recipe"
+t_run "chmod 500 \"$for_stage/sandbox\"; \"$for_stage/sandbox/build.sh\"; rc=\$?; chmod 755 \"$for_stage/sandbox\"; exit \$rc"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not stage a recipe beside $for_stage/sandbox"
+t_run "cat \"$for_stage/sandbox/sandbox-uid.Dockerfile\" 2>/dev/null || echo gone; true"
+t_eq "$t_rc" 0
+t_eq "$t_out" "kept by the case"
+
+# A temporary of an earlier run the directory will not give up is refused with it:
+# the sweep takes back what it can and stops rather than building beside a
+# leftover it cannot call its own.
+printf 'kept by the case\n' >"$for_stage/sandbox/sandbox-uid.Dockerfile.123456"
+t_run "chmod 500 \"$for_stage/sandbox\"; \"$for_stage/sandbox/build.sh\"; rc=\$?; chmod 755 \"$for_stage/sandbox\"; exit \$rc"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not take back $for_stage/sandbox/sandbox-uid.Dockerfile.123456"
+t_run "cat \"$for_stage/sandbox/sandbox-uid.Dockerfile.123456\" 2>/dev/null || echo gone; true"
+t_eq "$t_rc" 0
+t_eq "$t_out" "kept by the case"
+
+t_case "a directory at the staged name is refused and left as its owner left it"
+setup
+install_host_toolchain
+# A directory under the name stops the build on its redirect, so the name is
+# refused before anything is asked of docker, and what stands there is what its
+# owner left: the run takes back nothing it did not make.
+mkdir "$home/sandbox-uid.Dockerfile"
+t_run "\"$home/build.sh\""
+t_eq "$t_rc" 1
+t_contains "$t_out" "refusing to build, $home/sandbox-uid.Dockerfile is already there and is not a plain file"
+t_eq "$(t_calls docker | grep -c -e '^pull' -e '^build')" 0
+t_run "test -d \"$home/sandbox-uid.Dockerfile\" || echo taken away; true"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+rmdir "$home/sandbox-uid.Dockerfile"
+
+t_case "a link under the name of a build's temporary is refused, not removed"
+setup
+install_host_toolchain
+# The sweep of earlier temporaries names a file, it does not prove who wrote it,
+# so a link at that name is refused with the run rather than unlinked: the file it
+# points at is not the build's to take away either.
+printf 'kept\n' >"$T/foreign-temp"
+ln -s "$T/foreign-temp" "$home/sandbox-uid.Dockerfile.abcdef"
+t_run "\"$home/build.sh\""
+t_eq "$t_rc" 1
+t_contains "$t_out" "sandbox-uid.Dockerfile.abcdef is named like a build's temporary and is not a plain file"
+t_eq "$(t_calls docker)" ""
+t_run "[ -L \"$home/sandbox-uid.Dockerfile.abcdef\" ] || echo link taken
+[ -e \"$T/foreign-temp\" ] || echo target gone
+true"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+rm -f "$home/sandbox-uid.Dockerfile.abcdef" "$T/foreign-temp"
+
+# A default written after the uid's argument is the other way the contract breaks:
+# the line still reads ARG TEHAS_UID, so a check that anchors only the prefix
+# accepts it, and the stage then holds a uid of its own for the remap to fall back
+# on. The build reads the whole line, refuses, and asks docker nothing.
+t_case "a recipe whose uid argument holds a default is refused and asks nothing"
+setup
+install_host_toolchain
+sed -i 's|^ARG TEHAS_UID=$|ARG TEHAS_UID=1000|' "$home/Dockerfile"
+t_run "\"$home/build.sh\""
+t_eq "$t_rc" 1
+t_contains "$t_out" "$home/Dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line"
+t_eq "$(t_calls docker)" ""
+t_run "test -e \"$home/sandbox-uid.Dockerfile\""
+t_eq "$t_rc" 1
+
+# A whole-line boundary the cut cannot stop at is the other way the contract
+# breaks: the counts read whole lines and see one boundary, while the cut that
+# takes its pattern from the file looks elsewhere, and docker is handed a recipe
+# whose second stage was never opened. The build catches that in the copy it made,
+# before docker is asked, and leaves neither its temporary nor the staged name.
+t_case "a staged copy whose boundary the cut cannot find is refused before docker"
+setup
+install_host_toolchain
+# The build reads the two lines of the contract out of the tracked file, so a
+# boundary whose characters the cut it builds cannot read is refused by the count
+# of the copy and not by the count of the file. `+` is no operator at the start of
+# a regular expression and reads as itself, which is why the recipe holds it.
+sed -i 's|^FROM shared$|FROM shar+ed|' "$home/Dockerfile"
+t_eq "$(grep -cxF -- 'FROM shared' "$home/Dockerfile")" 0
+t_run "\"$home/build.sh\""
+t_eq "$t_rc" 1
+t_contains "$t_out" "$home/Dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line"
+t_eq "$(t_calls docker)" ""
+t_run "for f in \"$home\"/sandbox-uid.Dockerfile*; do [ -e \"\$f\" ] || [ -L \"\$f\" ] || continue; echo \"left \$f\"; done
+true"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+
 # The build reads the recipe beside itself, as it reads the libraries beside
 # itself: a toolchain that lacks it says so and asks nothing, rather than failing
 # inside the staging with a sed error.
@@ -267,7 +409,34 @@ t_eq "$(t_calls docker | grep -c -e '^pull' -e '^build')" 0
 
 # The name of the staged recipe is gitignored, so the dirt test of the repository
 # - the git status tehas update refuses on, and the only one that counts untracked
-# files - reports nothing for it. It is therefore the one path in the build's own
+# files - reports nothing for it. That invisibility is what lets the build write
+# beside the tracked recipe at all, so it is pinned here rather than assumed: the
+# two names the build stages are asked of git itself, in the directory the build
+# writes in. A rename of either name, or a rule dropped from .gitignore, is red
+# here and not in the next `tehas update` of a host.
+t_case "both names a build stages beside the recipe are gitignored"
+# The two names the build stages beside the recipe are invisible to the dirt test
+# of the repository, which is what lets the build write there at all. Asked of the
+# repository itself: git answers nothing for a path a rule of .gitignore covers,
+# and this case takes the exit status as the answer - the stub git of this file
+# would answer any other question with a tag list.
+t_run "git -C \"$T_ROOT\" check-ignore -q host/sandbox/sandbox-uid.Dockerfile"
+t_eq "$t_rc" 0
+t_run "git -C \"$T_ROOT\" check-ignore -q host/sandbox/sandbox-uid.Dockerfile.abcdef"
+t_eq "$t_rc" 0
+
+# A stray copy of the ignored name in a checkout is then no dirt, which is the
+# state `tehas update`'s refusal depends on: the status a run reads stays empty
+# beside it. The copy is made under $T, never in the checkout of the platform.
+t_run "printf 'FROM nowhere\\n' >\"$T/sandbox-uid.Dockerfile\"
+grep -qxF '/host/sandbox/sandbox-uid.Dockerfile' \"$T_ROOT/.gitignore\" || echo 'no rule for the staged recipe'
+grep -qxF '/host/sandbox/sandbox-uid.Dockerfile.??????' \"$T_ROOT/.gitignore\" || echo 'no rule for the temporary'
+rm -f \"$T/sandbox-uid.Dockerfile\""
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+
+# The name of the staged recipe is gitignored, so the dirt test of the repository
+# reports nothing for it. It is therefore the one path in the build's own
 # directory that is writable and unmonitored, and it is exactly the file the image
 # is built from. A link under the name is written through and a directory stops
 # the build on its redirect, so both are refused, left as their owner left them,
@@ -337,8 +506,10 @@ t_contains "$t_out" "is the copy an earlier build left, written"
 t_eq "$(t_calls docker | grep -c -e '^pull' -e '^build')" 2
 t_run "cmp -s \"$home/Dockerfile\" \"$dockerfile\""
 t_eq "$t_rc" 0
-stage_uid_recipe
-t_eq "$(cat "$T/docker-build-recipe")" "$(cat "$uid_recipe")"
+# The copy docker was handed is the whole image the tracked file describes, not
+# the words of the stale one: the boundary and the argument are counted by the
+# same counts build.sh makes, of the file the stub kept.
+t_eq "$(recipe_counts "$T/docker-build-recipe")" "1 1 1"
 # The temporary of a run that never reached its trap has the build's own name and
 # no owner: the next run takes it back, and no copy of the recipe is left standing
 # between builds.
@@ -363,38 +534,47 @@ t_contains "$build_call" "--build-arg TEHAS_UID=$uid"
 t_eq "$(cat "$T/docker-build-mode")" 600
 
 t_case "every argument the image reads is passed from versions.env"
+# The copy the last case built is the recipe whose ARG lines are read here, so
+# the run is made first and its kept recipe is the single source of the names.
+setup
+install_host_toolchain
+t_run "\"$home/build.sh\" >/dev/null"
+t_eq "$t_rc" 0
+# The build of this case, so the copy docker was handed is the one read below.
+install_host_toolchain
+t_run "\"$home/build.sh\" >/dev/null"
+t_eq "$t_rc" 0
 while read -r arg; do
   case $arg in PI_RUKAS_IMAGE | PI_RUKAS_COMMIT | TEHAS_UID | TEHAS_RUKAS_IMAGES) continue ;; esac
   grep -q "^$arg=" "$T_ROOT/host/versions.env" || t_bad "$arg is not in versions.env"
   grep -qF -- "--build-arg $arg=\"\$$arg\"" "$build" || t_bad "build.sh does not pass $arg"
 done < <(sed -n 's/^ARG \([A-Z0-9_]*\).*/\1/p' "$dockerfile")
-# One --build-arg for each ARG line the staged image declares, and no build-arg
-# for a name the staged image does not declare. The two sides are read by one
-# rule apiece, on the shape the build writes and the recipe holds - a name made of
-# a letter or underscore and then word characters - so neither side is cut short by
-# a value the other one reads, and a line that leaves either shape is named rather
-# than silently dropped from a count. The ARG lines are asked of the copy the build
-# made, below the boundary as the remap reads them, so a second declaration of a
-# name is visible here and not folded away.
-stage_uid_recipe
+# One --build-arg for each ARG line the copy docker was handed declares, and no
+# build-arg for a name that copy does not declare. Both sides are read the same
+# way - one entry per declaration, then sorted, then compared whole and compared
+# by count - so a name written twice on either side is named rather than folded
+# away by a de-duplicating sort. The ARG lines are asked of the file the stub kept
+# out of the docker call, since that is the recipe docker reads.
 build_args=$(grep -oE -- '--build-arg [A-Za-z_][A-Za-z0-9_]*=' "$build" |
   sed 's/^--build-arg //; s/=$//' | LC_ALL=C sort)
-recipe_args=$(sed -n 's/^ARG \([A-Za-z_][A-Za-z0-9_]*\)\([ =]\|$\).*/\1/p' "$uid_recipe" |
+recipe_args=$(sed -n 's/^ARG \([A-Za-z_][A-Za-z0-9_]*\)\([ =]\|$\).*/\1/p' "$T/docker-build-recipe" |
   LC_ALL=C sort)
-bad_build=$(grep -E -- '--build-arg [^A-Za-z_= ]|ARG [^A-Za-z_ ]' "$build" || true)
+bad_build=$(grep -E -- '--build-arg [^A-Za-z0-9_= ]' "$build" || true)
 [ -z "$bad_build" ] || t_bad "build.sh passes a --build-arg of a shape the parity below cannot read: $bad_build"
-bad_recipe=$(grep -nE '^ARG [^A-Za-z_ ]' "$uid_recipe" || true)
+bad_recipe=$(grep -nE '^ARG [^A-Za-z0-9_ ]' "$T/docker-build-recipe" || true)
 [ -z "$bad_recipe" ] || t_bad "the staged recipe declares an ARG of a shape the parity below cannot read: $bad_recipe"
 t_eq "$recipe_args" "$build_args"
 # Both directions, as the header of the image claims: one --build-arg for each ARG
-# line, and no argument that declares nothing. sort -u would let a duplicate ARG
-# line through the count, so the two lists are kept whole and compared a name at a
-# time: a name on one side and not the other is named, in whichever direction.
+# line, and no argument that declares nothing. The lists are kept whole, so a name
+# on one side and not the other is named, in whichever direction, and the counts
+# are compared as well as the names: a name that stands twice on one side and once
+# on the other has no name to report, and only the count says so.
 missing=$(LC_ALL=C comm -23 <(printf '%s\n' "$recipe_args") <(printf '%s\n' "$build_args"))
 extra=$(LC_ALL=C comm -13 <(printf '%s\n' "$recipe_args") <(printf '%s\n' "$build_args"))
 [ -z "$missing" ] || t_bad "the staged recipe declares an argument no --build-arg answers for: $missing"
 [ -z "$extra" ] || t_bad "build.sh passes an argument the staged recipe does not declare: $extra"
-t_eq "$(grep -c '^ARG TEHAS_UID' "$uid_recipe")" 1
+t_eq "$(printf '%s\n' "$recipe_args" | wc -l)" "$(printf '%s\n' "$build_args" | wc -l)"
+t_eq "$(grep -c '^ARG TEHAS_UID' "$T/docker-build-recipe")" 1
 
 # The image is shared between the instance users of a host by its layers: a
 # layer built for one uid is a layer every other uid's build reuses, and one
@@ -428,27 +608,24 @@ t_eq "$t_rc" 0
 # the want of a match.
 
 steps=$(image_steps "$dockerfile")
-comment_in_step=$(awk '{ line = $0
-  start = $0
-  while (sub(/[ \t]*\\[ \t]*$/, "", line)) {
-    if ((getline nxt) <= 0) break
-    if (nxt ~ /^[ \t]*#/) { print start; break }
-    line = line " " nxt
-  }
-}' "$dockerfile")
+# The parser names a comment it dropped or refused to fold, so the one read of
+# the file says both what the steps are and whether a comment stands where a
+# continuation should.
+comment_in_step=$(awk -F '\t' '$1 == "comment" { print $2 }' <<<"$steps")
 [ -z "$comment_in_step" ] ||
-  t_bad "a step of the image continues with a comment line, which the parser below cannot read as the build does: $comment_in_step"
+  t_bad "a step of the image continues with a comment line, which no reader of the recipe reads as the build does: $comment_in_step"
 # step_of <words>: the number of the first step whose words hold these, 0 for none.
 # A word that stands only in a comment names no step, since the comments are not
 # among the lines below.
 step_of() {
   awk -F '\t' -v want="$1" 'index($2, want) { print $1; exit }' <<<"$steps"
 }
-# The number the steps are counted against, taken from the same read
-# so no second parser can disagree with the first. A file that lost the boundary
-# has no number to count against, and says so here rather than letting the checks
-# below lean on the separate read of the two lines the staging cuts at.
+# The number the steps are counted against, taken from the same read so no second
+# parser can disagree with the first. A file that lost the boundary answers `none`
+# rather than 0, because 0 is a number every comparison below would answer without
+# noticing: no step is less than 0, so the checks would pass for the want of one.
 step_number=$(awk -F '\t' '$1 == "boundary" { print $2; exit }' <<<"$steps")
+[ "$step_number" != none ] || t_bad "the image has no 'FROM shared' stage to count the steps against"
 [ "$step_number" -gt 0 ] || t_bad "the image has no 'FROM shared' stage to count the steps against"
 # The steps that read the uid, and the remap among them.
 uid_steps=$(awk -F '\t' '$2 ~ /TEHAS_UID/ { print $1 }' <<<"$steps")
@@ -496,7 +673,10 @@ base_id=$(awk -F '\t' -v b="$step_number" '$1 < b && $2 ~ /(^|[^0-9])1000([^0-9]
 # drifted from the tracked file would fail here rather than pass beside it.
 build_steps=$(image_steps "$T/docker-build-recipe")
 build_boundary=$(awk -F '\t' '$1 == "boundary" { print $2; exit }' <<<"$build_steps")
-[ "$build_boundary" -gt 0 ] || t_bad "the copy docker was handed has no 'FROM shared' stage"
+[ "$build_boundary" != none ] ||
+  t_bad "the copy docker was handed has no 'FROM shared' stage"
+[ "$build_boundary" -gt 0 ] ||
+  t_bad "the copy docker was handed has no 'FROM shared' stage"
 build_uid_steps=$(awk -F '\t' '$2 ~ /TEHAS_UID/ { print $1 }' <<<"$build_steps")
 build_remap=$(awk -F '\t' 'index($2, "usermod -u") && index($2, "$TEHAS_UID") { print $1; exit }' <<<"$build_steps")
 t_eq "$build_uid_steps" "$build_remap"
