@@ -318,6 +318,8 @@ exits 1 before it changes anything. The update hands its lock to the
 `install.sh` it runs. `--check` takes no lock.
 
 From a checkout of tehas on another machine, two scripts release and deploy.
+Both fetch the remote's tags with `--force`, so a tag the remote re-points
+follows the remote instead of stopping the script.
 `scripts/tag-release.sh` runs the gate on the head of the remote's default
 branch in a temporary worktree, tags that commit as the next `vX.Y.Z` with an
 annotated tag, and pushes the tag. It refuses a commit whose `CHANGELOG.md`

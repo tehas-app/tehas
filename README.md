@@ -162,7 +162,8 @@ scripts/tag-release.sh              # tag the head of main as the next patch and
 scripts/tag-deploy.sh tehas-tehas   # run tehas update on that host, check it lands on the tag
 ```
 
-Both run unattended. `tag-release.sh` runs the gate on the head of main before
+Both run unattended. Both fetch the remote's tags by force, so a tag the remote
+re-points is taken rather than refused, and a fetch that fails says so. `tag-release.sh` runs the gate on the head of main before
 it tags, does nothing when the head is already tagged, and prints the tag on
 stdout; `--minor`, `--major`, `--message`, `--no-verify` and `--dry-run` are
 there too. Before it tags, it removes the polyfills the newest pi-rukas no

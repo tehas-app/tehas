@@ -90,8 +90,8 @@ done
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
-if ! git fetch --quiet --tags "$remote"; then
-  echo "tag-release: git fetch from $remote failed" >&2
+if ! git fetch --quiet --tags --force "$remote"; then
+  echo "tag-release: git fetch --tags --force from $remote failed" >&2
   exit 1
 fi
 # The first line names the default branch, the second its commit.
