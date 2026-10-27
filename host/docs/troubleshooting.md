@@ -288,6 +288,10 @@ Run `tehas dispatch --dry-run` and read what it prints.
 - `ERROR: gh ... failed`: a GitHub call did not answer, or the control issue
   does not exist. The poll ends there on purpose: the pause switch, the limit
   and the labeller check are never decided on an answer that did not come.
+  After `failed`, the line names gh's own error when it is one of a fixed
+  list (`HTTP 502`, `rate limit`, `timed out`, `connection reset`, `no such
+  host`, `unexpected EOF`): `ERROR: gh api graphql failed: HTTP 502`. Nothing
+  else of gh's error is logged, since an agent can write it.
 - `ERROR: <repo> is now <other> on GitHub`: the repository was renamed or
   moved. Until it is put right the factory floor shows an empty board. Set
   `TEHAS_REPO` to the new name, and `TEHAS_IMPROVE_REPO` too if it named the
