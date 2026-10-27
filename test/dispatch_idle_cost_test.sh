@@ -32,6 +32,30 @@
 # ceiling keeps out: nothing here grows with what the host holds. The same
 # figure before #736 was 405, and the ceiling then was 480: a raise of the
 # ceiling is the signal that a poll has grown, which is the point of it.
+#
+# #871 is the second lowering, and it does not move this figure. The three
+# steps it takes out of a poll that starts nothing - the journal read of a
+# write no poll left open, the status after a queue that did not change, and
+# the analytics' sample of a queue no poll refreshed - are worth 169 processes
+# and 5 gh calls of the fixture, measured by running the same poll with each
+# step's own program named as a stub that answers at once: 152 and 5 for
+# libexec/status, 19 and 1 for libexec/tidy, and the sample's one store call
+# and one run of the analytics. But the fixture of this test does not reach
+# those steps: it is the fixture of #736, which was written when the poll's
+# host commands were named on the case's own environment, before
+# test/dispatch_lib.sh began to name them for every case, and its environment
+# now says `TEHAS_STATUS_CMD=$T_ROOT/libexec/status` after the lib named the
+# test's stub. So this poll runs the real libexec/status whether the queue
+# changed or not, and the figure is the status's own 169 processes plus the
+# poll's. That is why the number below is the figure and not the figure minus
+# what #871 took out: the ceiling is where the fixture's cost sits, and the
+# test of the change is the new case in test/dispatch_start_test.sh that names
+# the stub and counts the status's calls.
+# 386 is the figure of three runs on 2026-10-27. The ceiling of a fifth above
+# it is 463; it is left at 405, a fifth above the 339 that #736 measured, so a
+# change that pays a gh call or a process per lock file is still refused and
+# the room a raise used to give is not there. A raise is the signal that a poll
+# has grown.
 PROCS_MAX=405
 log=$T/home/tehas/state/github-writes.log
 

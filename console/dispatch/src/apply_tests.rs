@@ -170,6 +170,7 @@ fn world() -> World {
         ended: None,
         spend: None,
         status_due: false,
+        changed: false,
         gh_writes: 0,
         starts: 0,
         fetched: false,

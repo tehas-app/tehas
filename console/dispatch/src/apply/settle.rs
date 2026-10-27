@@ -33,7 +33,30 @@ fn names(v: &Value) -> Vec<String> {
 }
 
 impl Writer {
-    /// The actions left open, each settled or said.
+    /// The journal's open actions, and whether it could be read at all: false
+    /// when it cannot, so a caller that skips work on an empty journal does
+    /// not skip the work of a poll whose journal it never saw.
+    pub fn journal_open(&mut self, log: &mut Vec<String>) -> (Vec<Value>, bool) {
+        match self.calls.store(&["journal-open"]) {
+            Ok(v) => (
+                v.get("actions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+                true,
+            ),
+            Err(f) => {
+                log.push(format!(
+                    "WARN: the journal's open actions could not be read ({}); the next poll tries again",
+                    word(&f)
+                ));
+                (Vec::new(), false)
+            }
+        }
+    }
+
+    /// The actions left open, each settled or said. `settle` reads them first;
+    /// a caller that has read them passes them here.
     pub fn settle(&mut self, now: i64, log: &mut Vec<String>) {
         let open = match self.calls.store(&["journal-open"]) {
             Ok(v) => v
@@ -49,6 +72,11 @@ impl Writer {
                 return;
             }
         };
+        self.settle_actions(now, open, log);
+    }
+
+    /// The read list of actions, each settled or said.
+    pub fn settle_actions(&mut self, now: i64, open: Vec<Value>, log: &mut Vec<String>) {
         for a in open {
             let id = a.get("id").and_then(Value::as_i64).unwrap_or(0).to_string();
             let kind = text(&a, "kind").to_string();
