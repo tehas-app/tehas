@@ -18,7 +18,7 @@ shadow_on() {
   : >"$home/state/cycle-shadow.on"
 }
 # The shadow's files of #7, which go when it has compared.
-leftovers() { find "$state" -name '7.shadow*' 2>/dev/null | wc -l; }
+leftovers() { find "$state" -name 'shadow-7.*' -o -name '7.shadow*' 2>/dev/null | wc -l; }
 
 t_case "with the shadow off, nothing of it runs or is written"
 reset
@@ -73,6 +73,20 @@ t_eq "$(find "$home/state/cycle-shadow" -name '*-7-1.json' | wc -l)" 1
 # The shadow, which could not read the pull requests, parked it.
 t_eq "$(jq -c '[(.bash.end | index("--parked")), (.report.end | index("--parked") != null)]' "$home"/state/cycle-shadow/*-7-1.json)" '[null,true]'
 t_eq "$(leftovers)" 0
+
+t_case "the shadow's files are named so a poll never takes them for an older tehas's records"
+reset
+shadow_on
+# A compare that never comes keeps the files a poll could see mid-cycle.
+mv "$home/libexec/tehas-cycle" "$home/libexec/tehas-cycle.real"
+printf '%s\n' '#!/usr/bin/env bash' '[ "$1" = compare ] || exec "$0.real" "$@"' >"$home/libexec/tehas-cycle"
+chmod +x "$home/libexec/tehas-cycle"
+ended aborted develop
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(find "$state" -name 'shadow-7.*' -printf '%f\n' | sort | tr '\n' ' ')" "shadow-7.end shadow-7.gh shadow-7.json shadow-7.park "
+t_eq "$(find "$state" -name '[1-9]*shadow*' | wc -l)" 0
+rm -f "$state"/shadow-7.*
 
 t_case "a shadow that cannot run leaves the report as it was"
 reset
