@@ -17,11 +17,19 @@ pub const MAX_HEAD: usize = 8192;
 pub const IO_TIMEOUT: Duration = Duration::from_secs(10);
 const ENDPOINT: &str = "/mcp";
 
-/// Serves the one request on `stream` and returns its access-log line.
-pub fn serve(mut stream: TcpStream, keys: &Keys, dirs: &Dirs, version: &str) -> String {
+/// Serves the one request on `stream` within `io_timeout` and returns its
+/// access-log line. The binary passes the deadline of its `--io-timeout`,
+/// which is `IO_TIMEOUT` unless a test asks for a shorter one.
+pub fn serve(
+    mut stream: TcpStream,
+    keys: &Keys,
+    dirs: &Dirs,
+    version: &str,
+    io_timeout: Duration,
+) -> String {
     let started = Instant::now();
-    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-    let deadline = started + IO_TIMEOUT;
+    let _ = stream.set_write_timeout(Some(io_timeout));
+    let deadline = started + io_timeout;
     let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
     write(&mut stream, &r);
     format!(

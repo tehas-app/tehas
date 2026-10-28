@@ -179,4 +179,19 @@ docs=$T_ROOT/host/docs
 [ -f "$docs/mcp-server.md" ] || t_bad "host/docs/mcp-server.md is missing"
 t_eq "$(grep -rlE '\]\(/mcp\)|href="/mcp"|/mcp\.md\)' "$docs" | wc -l)" 0
 
+t_case "the manual keeps the server's deadline at 10 seconds and names the flag it is given by"
+# libexec/mcp gives the binary no --io-timeout, so the only deadline a host ever
+# waits is the default the manual states.
+grep -q "must arrive whole within 10 seconds" "$docs/mcp-server.md" \
+  || t_bad "the manual no longer gives the 10 second deadline"
+grep -q -- "--io-timeout" "$docs/mcp-server.md" \
+  || t_bad "the manual does not name --io-timeout"
+
+t_case "the flag is the binary's, not the container's: the run line does not hold it"
+reset
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "--io-timeout"
+
 t_done

@@ -244,12 +244,29 @@ fn last_line_without_newline() {
     assert_eq!(masked(&path).unwrap(), text);
 }
 
+// A plain read masks the whole file and then cuts one piece from it, so the
+// wait of this test is the mask of the whole log times the number of pieces,
+// not the size of a piece. In the debug profile the mask of a megabyte of
+// these lines costs about a second, so the log this test had - two and a half
+// megabytes - cost near two seconds a read, and the four reads of it (one to
+// know the whole, then the pieces) were most of the eight seconds of this
+// file. The mask stays where the source puts it: a read of a piece has to know
+// the size and the end of the whole masked text, and `joined` is the right
+// answer only if each read masks again. What went was the size of the log, so
+// it is now the smallest that still needs two pieces. A piece is counted in
+// bytes of the masked text and the mask makes these lines about 40 percent
+// shorter, so a file of about 1.75 MB masks to just over the 1 MiB of one
+// plain read: two pieces, two masks, and a quarter of the wait. The other
+// tests of this file read a log of a few hundred bytes and each waited about
+// six seconds only because they take turns, so they waited on this one.
 #[test]
 fn pieces_join() {
     let _t = turn();
+    const MIN_LOG: usize = 1_750_000;
+    const MAX_LOG: usize = 1_760_000;
     let mut log = String::new();
     let mut i = 0;
-    while log.len() < 2_621_440 {
+    while log.len() < MIN_LOG {
         log.push_str(&format!(
             "{{\"n\":{i},\"t\":\"{} ä {}\"}}\n",
             token(),
@@ -257,6 +274,9 @@ fn pieces_join() {
         ));
         i += 1;
     }
+    // Each line is 70 bytes, so the log overshoots the floor by one line at
+    // most and is nowhere near a third piece.
+    assert!(log.len() <= MAX_LOG, "the log grew to {} B", log.len());
     let env = Env::new(
         "pieces",
         "work",
