@@ -243,10 +243,23 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
         ended: None,
         spend: None,
         status_due: false,
+        changed: false,
         gh_writes: 0,
         starts: 0,
         fetched: false,
     }
+}
+
+/// What a poll's actions could change: the reason its end runs the status
+/// again and takes a sample. A poll that starts, stops, writes or turns
+/// nothing leaves both to the next poll that does, and idle polls are the
+/// common ones.
+#[derive(Debug, Default)]
+struct Changed {
+    /// A write to GitHub, a start, a stop, or a poll that ended inside a step
+    /// it could not finish: the queue itself changed, so the status's files
+    /// are out of date.
+    queue: bool,
 }
 
 /// The poll's end, run however it ended once it held the lock: tidy once
@@ -258,6 +271,7 @@ struct End<'a> {
     started: f64,
     gh: u32,
     starts: u32,
+    changed: Changed,
 }
 
 impl End<'_> {
@@ -277,6 +291,18 @@ impl End<'_> {
         }
         if self.dry {
             return;
+        }
+        // The status and the sample below follow work, not the clock, and keep
+        // their order: the sample reads the status's files. A poll that
+        // started, stopped, wrote or turned nothing leaves both to the next
+        // poll that does - the poll's cost is still recorded, as health and
+        // status read it whatever the last poll did. The prune keeps its
+        // schedule, being the one step of the end that bounds what the others
+        // read.
+        if self.changed.queue {
+            let mut printed = Vec::new();
+            w.status(&mut printed);
+            pass(&printed);
         }
         let state = self.home.join("state");
         let tally = state.join("poll-gh.tally");
@@ -312,7 +338,11 @@ impl End<'_> {
             ));
         }
         let mut log = Vec::new();
-        w.analytics(&["sample".into()], &mut log);
+        // The sample of the queue as the status above wrote it; the rule and
+        // the prune's exemption are stated at the status.
+        if self.changed.queue {
+            w.analytics(&["sample".into()], &mut log);
+        }
         w.analytics(&["prune".into()], &mut log);
         for l in &log {
             say(l);
@@ -392,10 +422,12 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         started,
         gh: 0,
         starts: 0,
+        changed: Changed::default(),
     };
     let rc = body(home, settings, dry, &mut w, &mut end);
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
+    end.changed.queue = w.changed;
     end.run(&mut w);
     drop(lock);
     rc
@@ -403,12 +435,24 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
 
 fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut End) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
-    // that died between two writes left is settled from fresh reads.
+    // that died between two writes left is settled from fresh reads. One that
+    // holds nothing open has nothing to settle, which is the case of every
+    // poll that did not die: the read is the poll's first call, and an idle
+    // poll pays it for no reason. A journal the store would not answer is not
+    // an empty one, so its WARN is said and the settling waits for the next
+    // poll.
     if !dry {
         let mut lines = Vec::new();
-        w.settle(w.before, &mut lines);
+        let open = w.journal_open(&mut lines);
         for l in &lines {
             say(l);
+        }
+        if let Some(open) = open.filter(|open| !open.is_empty()) {
+            let mut lines = Vec::new();
+            w.settle_actions(w.before, open, &mut lines);
+            for l in &lines {
+                say(l);
+            }
         }
     }
     if !dry {

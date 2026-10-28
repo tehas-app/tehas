@@ -55,7 +55,10 @@ info --format {{.DockerRootDir}}"
 t_contains "$(t_calls fake-index)" "--before-cycle"
 t_contains "$(t_calls systemd-run)" "--user --quiet --collect --unit tehas-index -p RuntimeMaxSec=2400 /bin/bash -c"
 t_eq "$(find "$T/home/tehas/state/dispatch.again" 2>/dev/null | wc -l)" 0
-t_eq "$(t_calls fake-status | wc -l)" 2
+# Three, not four: the poll's end runs the status only after a poll that could
+# change the queue, and one that starts an index rather than a cycle cannot
+# (#871; the index itself refreshes it when it ends).
+t_eq "$(t_calls fake-status | wc -l)" 3
 for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_eq "$(t_calls "$name")" ""; done
 
 t_case "without the test seams a planning turn runs the script beside it too"

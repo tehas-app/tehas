@@ -49,6 +49,12 @@ pub struct Writer {
     pub spend: Option<u64>,
     /// Set by a turn: the status command runs after it, as after a start.
     pub status_due: bool,
+    /// The poll changed the queue, so its end refreshes the status and takes
+    /// a sample: the poll wrote to GitHub, started or stopped something, or
+    /// ended on an action that could not be read. Marked where the change is
+    /// made - write(), the two stops here - or where the poll ends inside a
+    /// step. An idle poll marks nothing, so it runs neither.
+    pub changed: bool,
     /// The gh calls the writes made, for the poll's cost.
     pub gh_writes: u32,
     /// The issues marked running this poll, for the poll's cost.
@@ -127,6 +133,13 @@ impl Writer {
             if self.status_due {
                 self.status_due = false;
                 self.status(&mut out.printed);
+            }
+            // A step that ended the poll changed the queue: the units it
+            // would have started, or the poll that could not read GitHub
+            // again. A step that changed something and lives on says so
+            // itself where it does it: write(), quiet()'s stop, stop_done().
+            if self.ended.is_some() {
+                self.changed = true;
             }
             if let Some(rc) = self.ended.take() {
                 out.exit = Some(rc);
@@ -294,6 +307,8 @@ impl Writer {
         {
             return Wrote::Unrecorded;
         }
+        // The queue changes here: the poll's end owes a status and a sample.
+        self.changed = true;
         self.gh_writes += 1;
         let r = run_input(&self.gh, &args, body, self.bound);
         let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));

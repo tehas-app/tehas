@@ -24,11 +24,18 @@ what changed in which file. It is not the visitor analytics of
 | The issue events `ready` and `started` | the dispatcher | `ready` with the time `tehas:ready` was accepted, `started` as a cycle starts |
 | The issue event `ended` | `tehasbot cycle` | As a cycle ends |
 | The issue events `awaiting`, `merged`, `closed` and `stopped` | `tehasbot status` | The first time a run of it sees the issue in that state, by comparing with its last snapshot |
-| A sample | the dispatcher | At the end of each poll: about every two minutes, and also when a cycle ends. Some 720 rows a day, 263000 in 365 days |
+| A sample | the dispatcher | At the end of a poll that wrote to GitHub, started, stopped or turned anything: about every two minutes on a busy factory, and also when a cycle ends. A poll that changed nothing takes none, so an idle factory writes no row rather than the same reading again. Some 720 rows a day on a working one |
 | `meta` | the program | When it makes the file |
 
 Each event is stored once per issue, the first time. A second run of an issue
 adds no event; every run is in `runs`.
+
+Samples are the clock of the ten-day report: `availability` credits each row
+with the time to the next one, at most ten minutes, and `energy` with the same
+span, so a stretch with no row - a paused or held factory, an idle week -
+counts as not available and as no draw rather than as one reading held. A fall
+in `availability` or in a report's `n` after a long pause means the factory did
+no work, not that the dispatcher is down.
 
 The commands run `~/tehas/libexec/analytics`, a Rust program with SQLite built
 in, which holds all of the SQL; `install.sh` builds it. Each call from a cycle

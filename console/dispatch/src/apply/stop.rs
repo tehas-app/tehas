@@ -114,6 +114,7 @@ impl Writer {
             ));
         }
         // Without waiting for it: the cycle reports as it stops.
+        self.changed = true;
         let rc = match &self.host.stop_cmd {
             Some(cmd) => run_quiet(cmd, &[n.to_string()], None, Duration::from_secs(30)),
             None => run_quiet(
@@ -140,6 +141,7 @@ impl Writer {
     /// A cycle whose work is done: told why in <issue>.done, stopped, and
     /// waited for until it lets its lock go.
     pub(super) fn stop_done(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
+        self.changed = true;
         let done = self.home.join(format!("state/cycles/{n}.done"));
         if std::fs::write(&done, format!("{}\n", text(a, "why"))).is_err() {
             log.push(format!("WARN: could not write the reason for #{n}"));
