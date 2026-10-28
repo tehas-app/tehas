@@ -45,6 +45,9 @@ None.
   ones (#909, #908, #910); the installed programs keep theirs, and `tehas-mcp`
   takes `--io-timeout` for its tests only. The MCP outcomes test no longer
   fails when the clock reads 42.
+- `scripts/verify.sh` keeps the whole output of each run's steps in a log,
+  the newest 20 under `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`),
+  and a failed run names it on its last line, `log: <path>` (#930).
 
 ### Adopter action
 

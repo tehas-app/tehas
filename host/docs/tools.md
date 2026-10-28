@@ -3338,6 +3338,13 @@ runs it and then `.pi/verify-cmd` on every tree it gates: each worktree, the
 consolidated tree and the base commit. So the whole gate still runs before a
 pull request opens, and CI runs it again.
 
+A failed step shows only its last 40 lines. Each run keeps the whole output of
+every step in a log of its own, `<mode>-<UTC time>-<pid>.log` under
+`TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`, else `/tmp/tehas-verify`),
+the newest 20 of them, and a run that failed names its log on the last line:
+`log: <path>`. A tree that passed already prints the lines of that run and
+keeps no new log.
+
 `--changed` takes the paths changed since the merge base with `origin/main`,
 uncommitted and untracked files included, and hands them to
 `scripts/select-tests.sh`. A changed test file runs itself; another path runs
