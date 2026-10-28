@@ -1,10 +1,11 @@
 //! `factory_log`: one log file of one session, masked, plain in pieces or
-//! whole gzipped.
+//! whole gzipped, and the search over those logs.
 //!
 //! The logs directory also holds the host's own logs. A file is opened only
 //! by a name the session's snapshot line holds, after that name matches the
 //! one pattern its word allows for the session's kind and issue. A caller
-//! never gives a path.
+//! never gives a path, and the search opens no file the snapshot does not
+//! name.
 
 use crate::sessions;
 use crate::snapshot::Snapshot;
@@ -25,6 +26,18 @@ pub const LOG_MAX: u64 = 16 * 1024 * 1024;
 pub const PLAIN_MAX: u64 = 1024 * 1024;
 /// Logs sent at the same time. Each holds a whole masked file in memory.
 pub const LOGS_AT_ONCE: usize = 2;
+/// The shortest and longest text a search asks for: a shorter one matches too
+/// much of a log to be worth reading it for, and a longer one is a quote, not
+/// a search.
+const TEXT_MIN: usize = 3;
+const TEXT_MAX: usize = 200;
+/// The most lines one search answer holds, and the default.
+pub const MATCHES_MAX: u64 = 200;
+/// The most bytes one search reads through, and the default.
+pub const SEARCH_BYTES_MAX: u64 = 8 * 1024 * 1024;
+/// The most a match's line is cut to, in characters. A transcript line is
+/// long, and an answer of whole lines would be the log again.
+const MATCH_LINE: usize = 400;
 
 pub const WORDS: [&str; 7] = [
     "transcript",
@@ -44,6 +57,73 @@ const WORK: [&str; 6] = [
     "dispatch",
 ];
 const PLAN: [&str; 3] = ["progress", "result", "dispatch"];
+
+/// A log of a session, as the snapshot names it: the word of `WORDS` it was
+/// written as, the one file name the snapshot's line holds for it, and where to
+/// start reading it, in masked bytes - 0, or the `offset` of the record's
+/// `searchResume` of this word.
+struct LogFile<'a> {
+    word: &'a str,
+    name: &'a str,
+    offset: u64,
+}
+
+/// Where the reading of one log got to, as a search gives it back in `next`:
+/// the session it was reading, the word of the log and the offset, in masked
+/// bytes, of the rest - the one number that says where both the search and
+/// `factory_log` read on. Give it back as that record's `searchResume`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Resume<'a> {
+    pub id: &'a str,
+    pub word: &'a str,
+    pub offset: u64,
+}
+
+/// The logs of one session that the tool serves: the words its kind has, each
+/// once, with a name its pattern allows. A word the snapshot lists twice, or
+/// under a name it does not allow, answers as the reader of one log does: a
+/// file error that names the snapshot or the word, never the bad name.
+fn logs_of(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
+    let id = s["id"].as_str().unwrap_or("");
+    let kind = s["kind"].as_str().unwrap_or("");
+    let issue = match (words_of(kind), s["issue"].as_u64().filter(|n| *n > 0)) {
+        (w, Some(n)) if !w.is_empty() && id.starts_with(&format!("{kind}-{n}-")) => n,
+        _ => {
+            return Err(file_error(
+                crate::snapshot::FILE,
+                &format!("has no session {id} with a kind and issue to find its logs by"),
+            ))
+        }
+    };
+    let listed = listed_of(s);
+    let mut seen: Vec<&str> = listed.iter().filter_map(|l| l["word"].as_str()).collect();
+    seen.sort_unstable();
+    if let Some(w) = seen.windows(2).find(|p| p[0] == p[1]).map(|p| p[0]) {
+        return Err(file_error(
+            crate::snapshot::FILE,
+            &format!("lists the {w} log of {id} twice"),
+        ));
+    }
+    let mut out = Vec::new();
+    for word in words_of(kind) {
+        let Some(entry) = listed.iter().find(|l| l["word"].as_str() == Some(*word)) else {
+            continue;
+        };
+        let name = entry["name"].as_str().unwrap_or("");
+        if !name_ok(kind, issue, word, name) {
+            return Err(file_error(
+                word,
+                "has a name in the snapshot that is not a log's",
+            ));
+        }
+        out.push(LogFile {
+            word,
+            name,
+            offset: 0,
+        });
+    }
+    Ok(out)
+}
 
 static LOGS: AtomicUsize = AtomicUsize::new(0);
 
@@ -244,7 +324,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
         (w, Some(n)) if !w.is_empty() && id.starts_with(&format!("{kind}-{n}-")) => (w, n),
         _ => return Err(bad("the session has no kind and issue to find its logs by")),
     };
-    let listed: Vec<&Value> = s["logs"].as_array().into_iter().flatten().collect();
+    let listed = listed_of(&s);
     // Two files under one word would be two runs' logs: neither is served.
     let mut seen: Vec<&str> = listed.iter().filter_map(|l| l["word"].as_str()).collect();
     seen.sort_unstable();
@@ -254,16 +334,16 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
             &format!("lists the {w} log of {id} twice"),
         ));
     }
-    let has: Vec<&str> = words
-        .iter()
-        .copied()
-        .filter(|w| listed.iter().any(|l| l["word"].as_str() == Some(w)))
-        .collect();
     let entry = listed
         .iter()
         .find(|l| l["word"].as_str() == Some(word))
         .filter(|_| words.contains(&word));
     let Some(entry) = entry else {
+        let has: Vec<&str> = words
+            .iter()
+            .copied()
+            .filter(|w| listed.iter().any(|l| l["word"].as_str() == Some(w)))
+            .collect();
         let logs = if has.is_empty() {
             "none".to_string()
         } else {
@@ -318,6 +398,276 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), Tool
     }
     out.insert("text".into(), json!(&text[start..end]));
     Ok((Output::Json(Value::Object(out)), place))
+}
+
+/// The logs a snapshot line lists: `word`, `name` and `bytes` each. Neither the
+/// reader of one log nor the search opens a file that is not on the list.
+fn listed_of(s: &Value) -> Vec<&Value> {
+    s["logs"].as_array().into_iter().flatten().collect()
+}
+
+/// One line of a masked log: its text, and where it stands in the masked text
+/// of the file, whose newline each line keeps as the whole-file reader keeps it.
+/// `start` is an offset a match gives and one to give `factory_log`; `end` is
+/// past the line, where the next one starts.
+struct MaskedLine {
+    start: u64,
+    end: u64,
+    text: String,
+}
+
+/// The file read line by line and masked as the whole-file reader masks - the
+/// mask of the line, and its newline kept as it was - so a line holds what of
+/// the secrets the patterns know and nothing more, and a match's offset is one
+/// to give `factory_log`. `from` is one of those offsets: a line that begins
+/// before it is read and masked, but not kept, because the search reads on from
+/// where a `Resume` left off and a line is one unit of it - the line that holds
+/// a `from` in the middle of it is read and masked for nothing. A resumed
+/// reading that kept no line at all read the file for nothing: the cap was
+/// spent before its reading got past the offset, and what lies past it is
+/// beyond this search, which is what says the log is done. The reading stops at
+/// the last line that ends within `stop` raw bytes, which it says with
+/// `stopped`, and gives the bytes it read so the cap of a whole search can be
+/// shared out. Nothing past the cap is read, so a cap never cuts a line in two,
+/// which would hide a secret that spans the cut. The file must be a plain file
+/// of at most `LOG_MAX` bytes, never one through a link.
+fn scan(path: &Path, from: u64, stop: u64) -> Result<(Vec<MaskedLine>, u64, bool), ToolError> {
+    let err = |why: &str| file_error("log", why);
+    let meta = std::fs::symlink_metadata(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            err("is gone")
+        } else {
+            err("could not be read")
+        }
+    })?;
+    if !meta.file_type().is_file() {
+        return Err(err("is not a plain file"));
+    }
+    if meta.len() > LOG_MAX {
+        return Err(err("is over 16 MiB and is not served"));
+    }
+    let f = std::fs::File::open(path).map_err(|_| err("could not be read"))?;
+    // The file opened is the one checked, not a link put in its place since.
+    let opened = f.metadata().map_err(|_| err("could not be read"))?;
+    if opened.dev() != meta.dev() || opened.ino() != meta.ino() || !opened.is_file() {
+        return Err(err("is not a plain file"));
+    }
+    let mut r = BufReader::new(f);
+    let mut lines = Vec::new();
+    let (mut raw_read, mut masked_read) = (0u64, 0u64);
+    loop {
+        // Over `LOG_MAX` is not served, whoever asks for the lines.
+        if raw_read > LOG_MAX {
+            return Err(err("is over 16 MiB and is not served"));
+        }
+        // One line of more than what is left of the cap is cut where the
+        // reading stops: the bytes past it are never looked at.
+        if raw_read >= stop {
+            break;
+        }
+        let mut raw = Vec::new();
+        let n = r
+            .read_until(b'\n', &mut raw)
+            .map_err(|_| err("could not be read"))?;
+        if n == 0 {
+            break;
+        }
+        raw_read += n as u64;
+        let end = raw.strip_suffix(b"\n");
+        let (had_newline, body) = match end {
+            Some(body) => (true, body),
+            None => (false, &raw[..]),
+        };
+        let mut text = mask(&String::from_utf8_lossy(body));
+        if had_newline {
+            text.push('\n');
+        }
+        // The newline belongs to the masked text as the whole-file reader keeps
+        // it, so the offset of the next line counts it too.
+        let masked_end = masked_read + text.len() as u64;
+        // The line is kept when it begins at `from` or later; the one that
+        // holds a `from` in the middle of it is read and masked for nothing.
+        if masked_read >= from {
+            lines.push(MaskedLine {
+                start: masked_read,
+                end: masked_end,
+                text,
+            });
+        }
+        masked_read = masked_end;
+    }
+    Ok((lines, raw_read, raw_read >= stop))
+}
+
+/// `line` cut to `MATCH_LINE` characters, never inside one. The newline of the
+/// line is kept, as it is in the masked text the offset counts, so the answer
+/// of a match is the line the log holds.
+fn cut(line: &str) -> String {
+    match line.char_indices().nth(MATCH_LINE) {
+        Some((at, _)) => line[..at].to_string(),
+        None => line.to_string(),
+    }
+}
+
+/// The `logs` of one session record, in the order its kind lists the words,
+/// with the one place a stopped search reads that log on from: the record's own
+/// `searchResume`, or the start of it.
+fn logs_with_resume(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
+    let mut out = logs_of(s)?;
+    let r = &s["searchResume"];
+    for l in &mut out {
+        if r["word"].as_str() == Some(l.word) {
+            l.offset = r["offset"].as_u64().unwrap_or(0);
+        }
+    }
+    Ok(out)
+}
+
+/// One line a search found, and where it is: the word of the log it was read
+/// from, its offset in masked bytes - one to give `factory_log` - and the line
+/// itself, cut to `MATCH_LINE` characters with its newline kept as the masked
+/// text keeps it.
+pub struct Found<'a> {
+    pub word: &'a str,
+    pub offset: u64,
+    pub line: String,
+}
+
+/// The lines of the logs of `sessions` that hold `text`, a fixed string, not a
+/// pattern, and where the reading got to. Each session is one snapshot record;
+/// nothing here opens a file a record's `logs` list does not name.
+///
+/// A log is masked line by line as `factory_log` masks a file, so a search
+/// cannot find what the mask takes out. It stops when `limit` matches are found
+/// or `byte_cap` raw bytes have been read, whichever comes first, and says so
+/// with the `Resume` of where it got to - the record, the word of its log and
+/// the offset of the rest in masked bytes - and gives `None` when every log was
+/// read to its end. `files`, when given, narrows the search to the words named.
+///
+/// The way on of a search that stopped is the same call with the `Resume` put on
+/// the record it names as that record's `searchResume`: of that record then only
+/// that one log is read, from that offset on, and every other record keeps its
+/// own way on, so the rest of one log never hides another session's lines. The
+/// offset is the end of the last line the answer holds, so no line is in two
+/// answers at once. The answer of a reading the cap spent before it reached a
+/// line of its own is that the log is done: it holds none, and the way on of a
+/// log reads it no further.
+pub fn search<'a>(
+    dirs: &Dirs,
+    sessions: &'a [Value],
+    text: &str,
+    files: Option<&'a [&'a str]>,
+    limit: u64,
+    byte_cap: u64,
+) -> Result<(Vec<Found<'a>>, Option<Resume<'a>>), ToolError> {
+    let len = text.chars().count();
+    if !(TEXT_MIN..=TEXT_MAX).contains(&len) {
+        return Err(bad(&format!(
+            "text is {TEXT_MIN} to {TEXT_MAX} characters, not {len}"
+        )));
+    }
+    if !(1..=MATCHES_MAX).contains(&limit) {
+        return Err(bad(&format!(
+            "limit is from 1 to {MATCHES_MAX}, not {limit}"
+        )));
+    }
+    if byte_cap == 0 || byte_cap > SEARCH_BYTES_MAX {
+        return Err(bad(&format!(
+            "bytes is from 1 to {SEARCH_BYTES_MAX}, not {byte_cap}"
+        )));
+    }
+    if let Some(words) = files {
+        for w in words {
+            if !WORDS.contains(w) {
+                return Err(bad(&format!("file {w} is not one of {}", WORDS.join(", "))));
+            }
+        }
+    }
+
+    // The logs of every record first, all of them checked, so a snapshot that
+    // names one file twice or under a name it does not allow is refused before
+    // a byte of any log is read.
+    let mut logs = Vec::with_capacity(sessions.len());
+    for s in sessions {
+        let id = s["id"].as_str().unwrap_or("");
+        if !sessions::ID.is_match(id) {
+            return Err(bad("id is like work-12-1792485967"));
+        }
+        // Of a record that carries a `searchResume` only the log it names is
+        // read, from its offset on; of the rest, every log `files` names.
+        let resumed = s["searchResume"]["word"].as_str();
+        let wanted = |word: &str| match resumed {
+            Some(w) => w == word,
+            None => files.is_none_or(|fs| fs.contains(&word)),
+        };
+        let kept = logs_with_resume(s)?
+            .into_iter()
+            .filter(|l| wanted(l.word))
+            .collect::<Vec<_>>();
+        logs.push((id, kept));
+    }
+
+    // The cap is the whole search's: what one log costs is off what the rest of
+    // it has left, whatever session the rest belongs to.
+    let mut left = byte_cap;
+    let mut found = Vec::new();
+    let mut next = None;
+    for (id, logs) in &logs {
+        for l in logs {
+            let (lines, read, stopped) =
+                scan(&dirs.logs.join(l.name), l.offset, left).map_err(|e| match e {
+                    ToolError::File { why, .. } => file_error(l.word, &why),
+                    e => e,
+                })?;
+            left = left.saturating_sub(read);
+            for line in &lines {
+                if !line.text.contains(text) {
+                    continue;
+                }
+                found.push(Found {
+                    word: l.word,
+                    offset: line.start,
+                    line: cut(&line.text),
+                });
+                if found.len() as u64 == limit {
+                    // The match just taken is in the answer, so the rest starts
+                    // at the line after it.
+                    next = Some(Resume {
+                        id,
+                        word: l.word,
+                        offset: line.end,
+                    });
+                    return Ok((found, next));
+                }
+            }
+            if stopped {
+                // Where a stopped reading leaves this log: the end of the last
+                // line the answer holds, and the rest of the log follows from
+                // there, past that line and so never the offset it came from.
+                // A resumed reading that kept no line read the file for nothing:
+                // the cap was spent on bytes the answer already holds, so the
+                // log is done, and a `next` naming the offset the caller resumed
+                // from would be a way on that is no way on.
+                let to = match lines.last() {
+                    Some(last) => last.end,
+                    // The reading holds no line: past the offset it came from
+                    // there is nothing of this log left to answer, and at it the
+                    // answer would say nothing new.
+                    None if l.offset > 0 => continue,
+                    None => l.offset,
+                };
+                return Ok((
+                    found,
+                    Some(Resume {
+                        id,
+                        word: l.word,
+                        offset: to,
+                    }),
+                ));
+            }
+        }
+    }
+    Ok((found, next))
 }
 
 /// From `offset` moved on to a character, at most `n` bytes cut back to one,
