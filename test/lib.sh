@@ -232,9 +232,9 @@ t_stub() {
 # lock files of the state). A number read back that is no number is the count of
 # no case: it starts again at 1 rather than abort the call, which would leave it
 # neither answered nor recorded.
-exec 6<"$T/gh-n.lock" || exit 64
-flock 6
-raw=$(cat "$T/gh-n" 2>/dev/null)
+exec 6>>"$T/gh-n.lock" || exit 64
+command -p flock 6
+raw=$(command -p cat "$T/gh-n" 2>/dev/null)
 case $raw in '' | *[!0-9]*) raw=0 ;; esac
 n=$((raw + 1))
 echo "$n" >"$T/gh-n"
@@ -254,7 +254,7 @@ REC
 # The answers once, into one name: the stub reads the bytes it read at the test
 # below, so a case that takes the file away between the two cannot leave this
 # call answered as an ordinary one.
-fails=$(cat "$T/gh-fails" 2>/dev/null)
+fails=$(command -p cat "$T/gh-fails" 2>/dev/null)
 if [ -n "$fails" ]; then
   # One tab between the fields of one line, each field read literally, the line
   # ended by a newline: the format t_gh_fail writes. The last line is read with
