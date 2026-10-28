@@ -1,9 +1,10 @@
 // Tests for host/fun/business-view.js: the business page's line, board and
-// live strip as data, from files like the ones the dispatcher writes. No
+// live strip and console as data, from files like the ones the dispatcher writes. No
 // browser: the module draws only where a page has the line.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { STAGES, STALE_QUEUE, lineView, boardRows, liveView, labBase } from "../host/fun/business-view.js";
+import "../host/fun/console-tabs.js";
+import { STAGES, STALE_QUEUE, lineView, boardRows, liveView, labBase, consoleView } from "../host/fun/business-view.js";
 
 const NOW = Date.parse("2026-10-20T12:00:00Z");
 const at = (secondsAgo) => new Date(NOW - secondsAgo * 1000).toISOString();
@@ -174,4 +175,27 @@ test("a mesh that counts no tokens gives no token figure", () => {
   const v = liveView(plain, NOW);
   assert.equal(v.tokens, null);
   assert.deepEqual(v.tokenRates, []);
+});
+
+const { view: tabsView } = globalThis.TEHAS_CONSOLE_TABS;
+const cycle = (issue, over = {}) => ({
+  issue, running: true, status: "running", step: "develop", statusText: "developing",
+  startedAt: 1000, updatedAt: 2000, console: `console-${issue}.txt`, ...over,
+});
+
+test("the console shows the running cycle, its title and how long it has run", () => {
+  const v = consoleView(tabsView({ cycles: [cycle(23)], last: null }, null), new Map([[23, "Add the widget"]]), 1000 + 125 * 60);
+  assert.deepEqual(v, { state: "live", tag: "Live", cycle: "Working on #23  Add the widget",
+    step: "developing (2 h 5 min so far)", file: "console-23.txt", running: 1 });
+});
+
+test("an ended cycle says how it ended; nothing to show says so", () => {
+  const ended = cycle(9, { running: false, status: "handoff", step: "review", console: "bad/name" });
+  const v = consoleView(tabsView({ cycles: [], last: ended }, null), new Map(), 5000);
+  assert.equal(v.state, "ended");
+  assert.equal(v.cycle, "Last cycle: #9");
+  assert.equal(v.step, "Ended as handoff at step review after 16 min.");
+  assert.equal(v.file, null); // not a name under /live/
+  assert.deepEqual(consoleView(tabsView(null, null), new Map(), 0), { state: "off", tag: "No console",
+    cycle: "No cycle to show.", step: "No cycle has run yet, or this page cannot reach the factory's live files.", file: null, running: 0 });
 });

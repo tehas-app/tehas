@@ -30,6 +30,7 @@
       <nav aria-label="Sections">
         <a href="#top" aria-current="location">Overview</a>
         <a href="#production">Production</a>
+        <a href="#console">Console</a>
         <a href="#period" id="nav-period" hidden>Activity</a>
         <a href="#board">Issues</a>
         <a href="#live" id="nav-power" hidden>Power</a>
@@ -80,6 +81,20 @@
     <section class="panel" id="production" aria-labelledby="line-title">
       <div class="panel-head"><div><p class="section-kicker">Current work</p><h2 id="line-title">Production line</h2></div><span id="line-note"></span></div>
       <div class="pipeline" id="line"></div>
+    </section>
+
+    <section class="panel console" id="console" aria-labelledby="console-title">
+      <div class="panel-head"><div><p class="section-kicker">Running now</p><h2 id="console-title">Console</h2></div><span class="console-tag" id="console-tag" role="status" data-state="off">Reading</span></div>
+      <div class="console-body">
+        <div class="console-tabs" id="console-tabs" role="tablist" aria-label="Cycles" hidden></div>
+        <p class="console-cycle" id="console-cycle">Looking for a running cycle.</p>
+        <p class="console-step" id="console-step"></p>
+        <pre id="console-out" role="tabpanel" tabindex="0" aria-label="Console of the selected cycle"></pre>
+        <div class="console-bar">
+          <label><input type="checkbox" id="console-follow" checked> Follow the output</label>
+          <span id="console-note"></span>
+        </div>
+      </div>
     </section>
 
     <section class="panel period" id="period" aria-labelledby="period-title" hidden>
@@ -137,6 +152,7 @@
   </main>
 
   <script src="/fun/sample-issues.js"></script>
+  <script src="/fun/console-tabs.js"></script>
   <script type="module" src="/fun/business-view.js"></script>
 </body>
 </html>
