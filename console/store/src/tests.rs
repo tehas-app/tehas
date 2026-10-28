@@ -3,7 +3,7 @@
 //! `init` and `check` answer.
 
 use crate::db;
-use crate::{execute, parse, Settings, Verb};
+use crate::{execute, parse, ReviewIssue, Settings, Verb};
 use rusqlite::Connection;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -1732,4 +1732,282 @@ fn slow_names_a_file_argument_and_refuses_any_other_shape() {
     ] {
         assert_eq!(parse(&args), None, "{args:?}");
     }
+}
+
+// --- the review issue -------------------------------------------------------
+// The title and body of the issue tehasbot review files for triage, rendered
+// from the document of one run (tehas_core::review).
+
+/// The verb's three arguments, given as words.
+fn review_args(args: &[&str]) -> Vec<String> {
+    let mut v = vec!["review-issue".to_string()];
+    v.extend(args.iter().map(|s| s.to_string()));
+    v
+}
+
+/// The document of a run, written to a file of its own and handed to the verb
+/// with the two names the title is built from.
+fn review_issue(home: &Path, name: &str, document: &str) -> Result<String, (u8, String)> {
+    let dir = scratch(name);
+    let given = dir.join("review-2026-10-27.json");
+    fs::write(&given, document).unwrap();
+    execute(
+        home,
+        &Verb::ReviewIssue(ReviewIssue {
+            path: given,
+            branch: "main".to_string(),
+            commit: "cb6912a".to_string(),
+        }),
+        1_792_000_000,
+    )
+}
+
+/// The same verb at a file the caller names, for the refusals that are about
+/// the file rather than its contents.
+fn review_at(path: PathBuf) -> Result<String, (u8, String)> {
+    execute(
+        &scratch("review-at"),
+        &Verb::ReviewIssue(ReviewIssue {
+            path,
+            branch: "main".to_string(),
+            commit: "cb6912a".to_string(),
+        }),
+        1_792_000_000,
+    )
+}
+
+#[test]
+fn review_issue_answers_the_title_and_body_as_one_line() {
+    let home = scratch("review-home");
+    let document = concat!(
+        "{\"exitCode\":0,\"verdict\":\"ISSUES_FOUND\",\"noReview\":false,\"findings\":[",
+        "{\"severity\":\"CRITICAL\",\"lens\":\"security\",\"path\":\"lib/config.sh\",\"line\":4,",
+        "\"title\":\"a token is printed\",\"description\":\"at length\",\"suggestion\":\"hide it\"},",
+        "{\"severity\":\"MEDIUM\",\"lens\":\"simplicity\",\"path\":\"console/src/render.rs\",\"line\":2,",
+        "\"title\":\"a branch that repeats\"},",
+        "{\"severity\":\"LOW\",\"lens\":\"performance\",\"path\":\"console/core/src/slow.rs\",\"line\":9,",
+        "\"title\":\"a read of the whole file\"}]}",
+    );
+    let answer = review_issue(&home, "review-answered", document).unwrap();
+    assert_eq!(
+        answer.lines().count(),
+        1,
+        "one object is one line: {answer}"
+    );
+    assert!(
+        answer.starts_with("{\"api\":1,\"verb\":\"review-issue\",\"ok\":true,"),
+        "{answer}"
+    );
+    // The body is model text with newlines and quotes in it, so the test of
+    // what the answer means is the parser the shell's reader uses.
+    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(
+        line["title"],
+        "Six-lens review: 3 findings on main since cb6912a"
+    );
+    assert_eq!(
+        line["body"],
+        "### Critical\n- [security] lib/config.sh:4: a token is printed\n\n\
+         ### Medium\n- [simplicity] console/src/render.rs:2: a branch that repeats\n\n\
+         Low: 1 more findings not listed."
+    );
+    // What a finding says at length stays in the log of the run.
+    assert!(!answer.contains("at length"), "{answer}");
+}
+
+#[test]
+fn review_issue_escapes_an_answer_whose_body_holds_newlines_and_quotes() {
+    // The words of a finding are the model's. The answer is still one line,
+    // and parses back with the newlines and the quotes of the body preserved:
+    // what the store's reader in lib/store.sh requires of every verb.
+    let home = scratch("review-escaped");
+    let document = "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\
+                    \"path\":\"a\\\"b.rs\",\"line\":7,\"title\":\"says \\\"no\\\" and \\\\n more\"}]}";
+    let answer = review_issue(&home, "review-escape", document).unwrap();
+    assert_eq!(
+        answer.lines().count(),
+        1,
+        "one object is one line: {answer}"
+    );
+    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(
+        line["body"],
+        "### High\n- [security] a\"b.rs:7: says \"no\" and \\n more"
+    );
+    assert!(line["body"].as_str().unwrap().contains('\n'));
+}
+
+#[test]
+fn review_issue_answers_a_title_that_quotes_a_token_as_one_line() {
+    // The words of a finding are the model's and may hold a secret it saw. The
+    // renderer masks nothing -- the half that files the issue does that, on
+    // the way out -- so what the verb guarantees is that such a body reaches
+    // the answer escaped, as one line the store's reader parses back.
+    let home = scratch("review-token");
+    // Synthetic filler, the shape the workspace uses for token fixtures
+    // (console/src/export.rs): a real token pattern with no token in it, so no
+    // secret scan fires on this file.
+    let secret = format!("ghp_{}", "A".repeat(36));
+    let document = format!(
+        concat!(
+            "{{\"findings\":[{{\"severity\":\"CRITICAL\",\"lens\":\"security\",",
+            "\"path\":\"instances/example/settings.sh\",\"line\":7,",
+            "\"title\":\"a token is printed: {}\"}}]}}",
+        ),
+        secret
+    );
+    let answer = review_issue(&home, "review-token-file", &document).unwrap();
+    assert_eq!(
+        answer.lines().count(),
+        1,
+        "one object is one line: {answer}"
+    );
+    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(
+        line["body"],
+        format!(
+            "### Critical\n- [security] instances/example/settings.sh:7: a token is printed: {secret}"
+        )
+    );
+}
+
+#[test]
+fn review_issue_of_no_findings_answers_the_empty_body() {
+    let home = scratch("review-none");
+    let answer = review_issue(
+        &home,
+        "review-no-findings",
+        "{\"exitCode\":0,\"findings\":[]}",
+    )
+    .unwrap();
+    let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
+    assert_eq!(line["body"], "");
+    assert_eq!(
+        line["title"],
+        "Six-lens review: 0 findings on main since cb6912a"
+    );
+}
+
+#[test]
+fn review_issue_refuses_a_document_that_is_not_json() {
+    let home = scratch("review-malformed");
+    // An array, a string and a number are JSON but no document of a run, and
+    // bytes that are no UTF-8 are no JSON: all of them are refused.
+    for document in [
+        "not json at all",
+        "{\"findings\":",
+        "",
+        "\u{ff}\u{fe} bytes no UTF-8 decoder takes",
+        "[]",
+        "\"a string\"",
+        "42",
+    ] {
+        let (code, why) = review_issue(&home, "review-bad", document).unwrap_err();
+        assert_eq!(code, 64, "{document:?} answered {why}");
+        assert!(why.starts_with("review-issue: "), "{document:?} said {why}");
+    }
+}
+
+#[test]
+fn review_issue_refuses_a_file_it_cannot_read() {
+    // A link, a file over the bound and a file that is not there: each is
+    // refused at 64 with the name of the argument that was refused, and the
+    // line main prints carries the verb's own word first.
+    let dir = scratch("review-file-args");
+
+    let real = dir.join("elsewhere.json");
+    fs::write(&real, "{\"findings\":[]}").unwrap();
+    let link = dir.join("review.json");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let (code, why) = review_at(link).unwrap_err();
+    assert_eq!(code, 64, "{why}");
+    assert!(
+        why.starts_with("review-issue: ") && why.ends_with(" is not a plain file"),
+        "{why}"
+    );
+
+    let over = dir.join("over.json");
+    fs::write(&over, vec![b'x'; (1 << 20) + 1]).unwrap();
+    let (code, why) = review_at(over).unwrap_err();
+    assert_eq!(code, 64, "{why}");
+    assert!(
+        why.starts_with("review-issue: ") && why.ends_with(" is over 1 MiB"),
+        "{why}"
+    );
+
+    let missing = dir.join("gone.json");
+    let (code, why) = review_at(missing).unwrap_err();
+    assert_eq!(code, 64, "{why}");
+    assert!(
+        why.starts_with("review-issue: ") && why.ends_with(" is not a plain file"),
+        "{why}"
+    );
+    // The document of the same directory that is a plain file is read: the
+    // refusals above are about the file, not about where it sits.
+    review_at(real).unwrap();
+}
+
+#[test]
+fn review_issue_names_three_arguments_and_refuses_any_other_shape() {
+    assert_eq!(
+        parse(&review_args(&["/a.json", "main", "cb6912a"])),
+        Some(Verb::ReviewIssue(ReviewIssue {
+            path: PathBuf::from("/a.json"),
+            branch: "main".to_string(),
+            commit: "cb6912a".to_string(),
+        }))
+    );
+    assert_eq!(
+        parse(&review_args(&[
+            "/a.json",
+            "feature/issue-883-review",
+            &"a".repeat(40)
+        ])),
+        Some(Verb::ReviewIssue(ReviewIssue {
+            path: PathBuf::from("/a.json"),
+            branch: "feature/issue-883-review".to_string(),
+            commit: "a".repeat(40),
+        })),
+        "the branch of a worktree is a name the verb takes"
+    );
+    // Any other shape, and either name outside its grammar, is refused by
+    // parse: main prints the usage and exits 64 without reading the document.
+    for bad in [
+        vec![],
+        vec!["/a.json"],
+        vec!["/a.json", "main"],
+        vec!["/a.json", "main", "cb6912a", "extra"],
+        vec!["/a.json", "", "cb6912a"],
+        vec!["/a.json", " main", "cb6912a"],
+        vec!["/a.json", "-main", "cb6912a"],
+        vec!["/a.json", &format!("a{}", "b".repeat(80)), "cb6912a"],
+        vec!["/a.json", "main;rm", "cb6912a"],
+        vec!["/a.json", "main", "cb6912"],
+        vec!["/a.json", "main", "cb6912z"],
+        vec!["/a.json", "main", "CB6912A"],
+        vec!["/a.json", "main", ""],
+        vec!["--json", "/a.json", "main", "cb6912a"],
+    ] {
+        assert_eq!(parse(&review_args(&bad)), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn review_issue_writes_nothing_to_the_home() {
+    // The verb reads the document it was given and answers: it is not one of
+    // the verbs that open the store, so the home of a call is left as it was.
+    let home = scratch("review-quiet");
+    let before: Vec<String> = names(&home);
+    review_issue(&home, "review-kept", "{\"findings\":[]}").unwrap();
+    assert_eq!(names(&home), before, "the verb wrote into the home");
+    assert!(!home.join("state").exists(), "no database was opened");
+}
+
+fn names(home: &Path) -> Vec<String> {
+    let mut v: Vec<String> = fs::read_dir(home)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    v.sort();
+    v
 }

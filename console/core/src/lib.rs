@@ -7,5 +7,6 @@ pub mod grammar;
 pub mod mask;
 #[cfg(feature = "mask")]
 pub mod question;
+pub mod review;
 pub mod slow;
 pub mod time;
