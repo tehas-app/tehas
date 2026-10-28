@@ -18,6 +18,9 @@ empty one above it.
   took `<issue>.shadow.park` for the record of an older tehas, stopped with 78
   and said to run `install.sh`. Only a host with `state/cycle-shadow.on` was
   touched, one poll at a time.
+- `scripts/verify.sh` keeps the whole output of each run's steps in a log,
+  the newest 20 under `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`),
+  and a failed run names it on its last line, `log: <path>` (#930).
 
 ### Adopter action
 
