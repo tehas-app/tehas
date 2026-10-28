@@ -318,12 +318,20 @@ fn the_counts_hold_no_issue_number_or_cause() {
         &[json!({
             "tehasVersion": "v1", "runs": 2,
             "outcomes": {"failed": 2}, "failureKinds": {"tests": 1}, "parkReasons": {},
-            "issue": 42, "cause": "the whole of a log line with a token sk-abc123",
+            "issue": 98765, "cause": "the whole of a log line with a token sk-abc123",
             "title": "the issue's title", "started": iso(now() - DAY),
         })],
     );
     let text = ok(&dir, json!({})).to_string();
-    for forbidden in ["sk-abc123", "log line", "42", "title", "started", "cause"] {
+    // 98765 and not 42: the answer's generatedAt can hold any two digits.
+    for forbidden in [
+        "sk-abc123",
+        "log line",
+        "98765",
+        "title",
+        "started",
+        "cause",
+    ] {
         assert!(
             !text.contains(forbidden),
             "the answer holds {forbidden:?}: {text}"
