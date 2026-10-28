@@ -1,6 +1,6 @@
 /* The business layout's front page (business.html): the factory as a quiet
-   dashboard. A page head, the live figures, the production line, the last ten
-   days and the issue board, one panel each. Drawn for beesknees26; every
+   dashboard. A page head, the live figures, the production line, the console,
+   the last ten days and the issue board, one panel each. Drawn for beesknees26; every
    colour, typeface, edge and shadow is the theme's token, from /fun/theme.css,
    which the page loads first. Sizes are the drawing's, raised to the theme's
    --type-small and --type-big where those are larger, so pixel keeps Topaz at
@@ -129,6 +129,20 @@ svg text { fill: var(--text-faint); font: max(var(--type-small), 11px) var(--fon
 .more::after { content: " \2192"; }
 .more:hover { text-decoration: underline; }
 
+/* The console of the selected cycle, on the theme's screen */
+.console-tag { font-size: max(var(--type-small), 11px); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px; border-radius: calc(var(--radius) * 99); color: var(--text-quiet); background: var(--rule); }
+.console-tag[data-state="live"] { color: var(--text-cool); background: var(--accent); }
+.console-body { padding: 20px 28px 18px; display: grid; gap: 8px; min-width: 0; }
+.console-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
+.console-tabs button { font: 500 max(var(--type-small), 12px) var(--font-code); color: var(--text-quiet); background: var(--surface-quiet); border: var(--edge) solid var(--rule); border-radius: var(--radius); padding: 6px 10px; cursor: pointer; }
+.console-tabs button[aria-selected="true"] { color: var(--text-cool); background: var(--accent); border-color: var(--good); font-weight: 600; }
+.console-cycle { font-size: max(var(--type-small), 14px); font-weight: 600; overflow-wrap: anywhere; }
+.console-step { font-size: max(var(--type-small), 12px); color: var(--text-faint); }
+#console-out { margin: 6px 0 0; height: 340px; overflow: auto; padding: 14px 16px; background: var(--screen); color: var(--screen-text); border-radius: calc(var(--radius) * 1.5); font: max(var(--type-small), 12px)/1.5 var(--font-code); white-space: pre-wrap; overflow-wrap: anywhere; }
+#console-out:empty::before { content: attr(data-empty); color: var(--screen-quiet); }
+.console-bar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: max(var(--type-small), 12px); color: var(--text-faint); }
+.console-bar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
 /* The last ten days */
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border-bottom: var(--edge) solid var(--rule); }
 .tile { padding: 22px 24px 17px; border-right: var(--edge) solid var(--rule); display: grid; gap: 5px; align-content: start; min-width: 0; }
@@ -221,6 +235,8 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .stage:last-child { border-bottom: 0; }
   .tile { padding: 18px; }
   .chart, .stations { padding: 20px; }
+  .console-body { padding: 16px 20px; }
+  #console-out { height: 260px; }
   .section-break { margin-top: 55px; }
   .register .filters { overflow-x: auto; flex-wrap: nowrap; max-width: 100%; }
   .filters button { white-space: nowrap; }

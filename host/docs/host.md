@@ -1668,16 +1668,18 @@ shadows, and the colours the canvases paint with. `TEHAS_THEME` in
 | Layout     | Front page                                                                          |
 | ---------- | ----------------------------------------------------------------------------------- |
 | `floor`    | The default: the factory floor, the game view                                       |
-| `business` | The business page: live power and tokens, the production line from prototypes to shipped, the last 10 days and the issue board |
+| `business` | The business page: live power and tokens, the production line from prototypes to shipped, the console of the running cycles, the last 10 days and the issue board |
 
 Both pages are always there, at `/floor` and `/business`, in whatever theme
 the instance has; the setting only picks the one at `/`. The business page was
 drawn for beesknees, and the floor for pixel. The business page reads the
-same files as the floor: `live/status.json`, `live/protolab.json`,
-`live/analytics.json` and `live/energy.json`. Its live strip shows only where
-the host publishes power, and its 10 days only once there is a report. With no
-queue file it shows the floor's sample tickets and says so. Its live charts
-cover the last 30 minutes, which is what `energy.json` holds.
+same files as the floor: `live/status.json`, `live/running.json` and the
+cycles' consoles, `live/protolab.json`, `live/analytics.json` and
+`live/energy.json`. Its console follows the running cycle's output, with a tab
+for each cycle when there are several, as on the floor. Its live strip shows
+only where the host publishes power, and its 10 days only once there is a
+report. With no queue file it shows the floor's sample tickets and says so.
+Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
 A page asks for `/fun/theme.css`, and the docs server and the edge router
 answer with `~/tehas/fun/theme-<name>.css`. Both read the settings when their
