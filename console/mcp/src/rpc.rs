@@ -41,7 +41,9 @@ pub struct Response {
     pub key: Option<String>,
     /// The tool of a `tools/call`, for the access log: its name only, never
     /// its arguments, which can carry an issue number or text from a private
-    /// repository. A name the server does not know is `?`.
+    /// repository. A name the server does not know is `?`; a `tools/call`
+    /// whose name is not text at all is `-`, so a broken client is told from
+    /// a probe. A request that is not a `tools/call` has none.
     pub tool: Option<String>,
     /// The place of a log being sent, freed when the answer is dropped.
     pub hold: Option<LogGuard>,
@@ -199,11 +201,14 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             // The name alone goes to the log, and only a name the server has:
             // the arguments can carry an issue number or text from a private
-            // repository, and are never copied. A request the gate refused
-            // before its body was read carries no tool at all.
-            tool = Some(match tools::known(name) {
-                true => name.to_string(),
-                false => "?".into(),
+            // repository, and are never copied. A name that is not text is
+            // `-`, so a client sending a malformed request is told from one
+            // probing a tool the server does not have. A request the gate
+            // refused before its body was read carries no tool at all.
+            tool = Some(match params["name"].as_str() {
+                Some(n) if tools::known(n) => n.to_string(),
+                Some(_) => "?".into(),
+                None => "-".into(),
             });
             match tools::call_held(dirs, name, &args).map(|(out, place)| {
                 hold = place;

@@ -98,10 +98,13 @@ tell which agent is calling.
 
 One line goes to the journal per request: the method, the status, the time it
 took and the key, and for a `tools/call` the tool as well, as
-`POST 200 4ms key=3511bfc5 tool=factory_log`. The name of the tool only: the
-arguments are never logged, as one can carry an issue number or text from a
-private repository. A name the server does not have is logged as `tool=?`, and
-a request that is not a `tools/call` logs no `tool=`.
+`POST 200 4ms key=3511bfc5 tool=factory_log`. The line goes to the unit's
+journal on the host, not to the client: read it with
+`journalctl --user -u tehas-mcp`. The name of the tool only: the arguments are
+never logged, as one can carry an issue number or text from a private
+repository. A name the server does not have, and one that is not text at all,
+are logged as `tool=?` and `tool=-`, so a client that is broken is told from
+one probing. A request that is not a `tools/call` logs no `tool=`.
 
 ## How it runs
 

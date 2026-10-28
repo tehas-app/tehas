@@ -207,9 +207,10 @@ fn an_unknown_method_is_404_method_not_found() {
 }
 
 // What the access line adds for a tools/call: the name of the tool, and
-// nothing of the arguments.
+// nothing of the arguments. A name the server has not is `?`; a name that is
+// not text at all is `-`.
 #[test]
-fn the_line_of_a_call_names_the_tool_and_no_argument() {
+fn a_call_names_its_tool_and_no_argument_in_the_line() {
     let secret = "issue-987-please-do-not-log-this-text";
     let r = modern(
         "tools/call",
@@ -222,23 +223,18 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     assert!(!line.contains("queued"), "{line}");
 
     // A name the server does not have is logged as ?.
-    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "factory_delete", "arguments": {"issue": 987},
-                   "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
-    .to_string();
-    let auth = format!("Bearer {K1}");
-    let h = [
-        ("Authorization", auth.as_str()),
-        ("MCP-Protocol-Version", MODERN),
-        ("Mcp-Method", "tools/call"),
-        ("Mcp-Name", "factory_delete"),
-    ];
-    let r = send("POST", &h, body.as_bytes());
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_delete", "arguments": {"issue": 987}}),
+    );
     assert_eq!(json_of(&r)["error"]["code"], -32602);
     assert_eq!(r.tool.as_deref(), Some("?"));
+}
 
-    // A name of another shape than a string is refused by the mirror of its
-    // header, which compares text, so no tool is logged for it.
+// A name of another shape than a string is refused by the mirror of its
+// header, which compares text, so no tool is logged for it.
+#[test]
+fn a_name_that_is_not_text_is_refused_by_the_mirror() {
     let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": 7, "arguments": {"issue": 987},
                    "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
@@ -279,6 +275,18 @@ fn only_a_call_names_a_tool_in_the_line() {
     );
     assert_eq!(r.status, 200);
     assert_eq!(r.tool.as_deref(), Some("factory_status"));
+}
+
+// A `tools/call` whose name is not text at all is a name the server has not,
+// told from a probe by the dash it logs: the legacy handshake carries no
+// `Mcp-Name` to mirror, so the body is what the server reads.
+#[test]
+fn a_call_whose_name_is_not_text_logs_a_dash() {
+    let r = legacy(Some(1), "tools/call", json!({"name": 7}));
+    assert_eq!(r.status, 200);
+    assert_eq!(r.tool.as_deref(), Some("-"));
+    let r = legacy(Some(1), "tools/call", json!({"arguments": {}}));
+    assert_eq!(r.tool.as_deref(), Some("-"));
 }
 
 #[test]
