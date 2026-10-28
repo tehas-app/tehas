@@ -13,6 +13,20 @@ empty one above it.
 
 ### Changes
 
+- Which open pull requests get a preview is chosen by the console
+  (#892, `console preview choose`, console/src/preview.rs): the rules of
+  which pull request is ours (a head in the product repository, opened by an
+  owner, member or collaborator), which of those are the newest
+  `TEHAS_PREVIEW_MAX` and which say "over-limit", and when a list is not one
+  the previews may be chosen from, all move from bash to Rust. `libexec/preview`
+  keeps the paging of GitHub, the builds and the removals, and loses the four
+  jq programs that made the choice; the 31 lines they took pay for the call to
+  the console, the reading of the pages, and the three helpers of the choice,
+  so the tree's bash does not grow and the ceiling goes down with it. A
+  console that is not installed builds no previews (78) and says to run
+  `install.sh`. Nothing changes for a preview that serves: the same list, the
+  same names, the same notices.
+
 ### Adopter action
 
 None.
