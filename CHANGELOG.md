@@ -13,6 +13,23 @@ empty one above it.
 
 ### Changes
 
+- The Rust poll no longer takes an approval from a label timeline GitHub cut
+  short. A page asks for 100 open issues at a time and 100 label events per
+  issue, and GitHub answers a page over its budget for nested items with
+  timelines cut short and no error: on 2026-10-28 the page gave one issue its
+  oldest 49 label events and the issues after it none at all. The guard read
+  the timeline only for a label no event applied, so a cut one that still
+  held an older application of the label was taken for the whole story, and
+  the poll skipped the issue on every poll with the line that its earlier
+  approval had started a cycle already. An issue's events are now read from
+  the REST list when the newest event of a label the issue carries is not an
+  application or the label has no event, and the open issues are read in
+  pages of 25, which stays well under that budget. The bot's own
+  `tehas:running` mark is excepted from that comparison: it is applied by
+  the bot alone, so guarding it would spend a paginated read on every running
+  issue on every poll, and the park of a mark with no cycle behind it rests
+  on the lock file rather than the timeline. (#928)
+
 ### Adopter action
 
 None.
