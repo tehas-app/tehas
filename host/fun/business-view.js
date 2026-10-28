@@ -1,10 +1,10 @@
 // The business layout's front page (TEHAS_LAYOUT=business, host/fun/business.html):
-// the live strip, the production line, the last ten days and the issue board,
-// from the files the dispatcher writes under /live/. See host/docs/host.md,
-// "Layouts".
+// the live strip, the production line, the console of the running cycles, the
+// last ten days and the issue board, from the files the dispatcher writes under
+// /live/. See host/docs/host.md, "Layouts".
 //
-// lineView(), liveView() and boardRows() turn files into what is drawn and
-// have no side effects, so they are tested without a browser
+// lineView(), liveView(), consoleView() and boardRows() turn files into what
+// is drawn and have no side effects, so they are tested without a browser
 // (test/business_view_test.mjs). The rest fetches and draws, and runs only on
 // a page that has the line.
 
@@ -148,6 +148,32 @@ export function liveView(energy, nowMs = Date.now()) {
     kwh30: v.kwh30,
     power,
     tokenRates: v.meter.tokens == null ? [] : tokens,
+  };
+}
+
+// v: what TEHAS_CONSOLE_TABS.view() returns for /live/running.json. titles:
+// issue number to title, from status.json. The selected cycle's lines and the
+// console file to tail, a name under /live/ or null.
+const minutes = (secs) => {
+  const m = Math.max(0, Math.floor(secs / 60)), h = Math.floor(m / 60);
+  return h > 0 ? `${h} h ${m % 60} min` : `${m} min`;
+};
+export function consoleView(v, titles, nowSecs) {
+  const tab = v.shown;
+  if (!tab) {
+    return { state: "off", tag: "No console", cycle: "No cycle to show.",
+      step: "No cycle has run yet, or this page cannot reach the factory's live files.", file: null, running: v.running };
+  }
+  const c = tab.cycle, title = titles.get(c.issue);
+  const elapsed = (tab.running ? nowSecs : Number(c.updatedAt)) - Number(c.startedAt);
+  return {
+    state: tab.running ? "live" : "ended",
+    tag: tab.running ? "Live" : "Ended",
+    cycle: (tab.running ? "Working on #" : "Last cycle: #") + c.issue + (title ? "  " + title : ""),
+    step: tab.running ? `${c.statusText || "step " + c.step} (${minutes(elapsed)} so far)`
+      : `Ended as ${c.status} at step ${c.step} after ${minutes(elapsed)}.`,
+    file: globalThis.TEHAS_CONSOLE_TABS.consoleFile(c),
+    running: v.running,
   };
 }
 
@@ -308,6 +334,73 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   for (const [ev, h] of [["pointerenter", true], ["pointerleave", false], ["focusin", true], ["focusout", false]])
     $("line").addEventListener(ev, () => { held = h; });
 
+  // ---- The console of the selected cycle, tailed with Range requests so only
+  // what is new is fetched. Its text is untrusted and only appended as text.
+  const TABS = globalThis.TEHAS_CONSOLE_TABS;
+  const term = { now: null, selected: null, file: null, offset: 0, running: false, idle: false, tailing: false };
+  function titles() {
+    const m = new Map();
+    for (const key of ["running", "queued", "stopped", "awaiting", "completed"]) {
+      for (const t of list(obj(data.status)[key])) m.set(Number(t.number), String(t.title || ""));
+    }
+    return m;
+  }
+  function renderConsole() {
+    const tabs = TABS.view(term.now, term.selected);
+    TABS.render($("console-tabs"), tabs, (issue) => { term.selected = issue; renderConsole(); });
+    const v = consoleView(tabs, titles(), now() / 1000);
+    $("console-tag").dataset.state = v.state;
+    $("console-tag").textContent = v.tag;
+    $("console-cycle").textContent = v.cycle;
+    $("console-step").textContent = v.step;
+    term.running = v.state === "live";
+    if (term.running) term.idle = false;
+    if (v.file !== term.file) {
+      term.file = v.file;
+      term.offset = 0;
+      term.idle = false;
+      $("console-out").textContent = "";
+      $("console-out").dataset.empty = v.state === "off" ? "The console of a running cycle appears here."
+        : v.file ? "Waiting for output." : "This cycle has no console file.";
+      tail();
+    }
+  }
+  async function tail() {
+    // An ended cycle's console is read once; asking again only earns a 416.
+    // Two requests for the same offset would both append their answer.
+    if (!term.file || document.hidden || term.idle || term.tailing) return;
+    term.tailing = true;
+    const out = $("console-out"), file = term.file;
+    try {
+      const r = await fetch("/live/" + file, { headers: { Range: `bytes=${term.offset}-` }, cache: "no-store" });
+      if (file !== term.file) return;
+      if (r.status === 206 || (r.status === 200 && term.offset === 0)) {
+        const bytes = new Uint8Array(await r.arrayBuffer());
+        if (file !== term.file || !bytes.length) return;
+        term.offset += bytes.length;
+        out.append(new TextDecoder().decode(bytes));
+        // Keep the page light on a long cycle.
+        if (out.textContent.length > 400000) out.textContent = out.textContent.slice(-300000);
+        if ($("console-follow").checked) out.scrollTop = out.scrollHeight;
+      } else if (r.status === 416) {
+        if (!term.running) term.idle = true;
+      } else if (r.status === 200) {
+        // The file was replaced by a new cycle.
+        term.offset = 0;
+        out.textContent = "";
+      }
+      $("console-note").textContent = "";
+    } catch {
+      $("console-note").textContent = "Console unavailable";
+    } finally {
+      term.tailing = false;
+    }
+  }
+  $("console-follow").addEventListener("change", (event) => {
+    if (event.target.checked) $("console-out").scrollTop = $("console-out").scrollHeight;
+  });
+  TABS.keys($("console-tabs"), (issue) => { term.selected = issue; renderConsole(); });
+
   // ---- The last ten days.
   function renderPeriod() {
     const v = analyticsView(data.analytics);
@@ -403,12 +496,18 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   addEventListener("hashchange", markNav);
   markNav();
 
-  // ---- Polling, as the factory floor does: the queue every ten seconds, the
-  // power every period, the Protolab and the report once a minute.
+  // ---- Polling, as the factory floor does: the queue and the running cycles
+  // every ten seconds, the console every two, the power every period, the
+  // Protolab and the report once a minute.
   const lift = () => document.querySelector(".topbar").classList.toggle("is-scrolled", scrollY > 4);
   addEventListener("scroll", lift, { passive: true });
   lift();
-  async function queue() { if (!document.hidden) { data.status = await read("/live/status.json"); renderLine(); } }
+  async function queue() {
+    if (document.hidden) return;
+    [data.status, term.now] = await Promise.all([read("/live/status.json"), read("/live/running.json")]);
+    renderLine();
+    renderConsole();
+  }
   async function power() { if (!document.hidden) { data.energy = await read("/live/energy.json"); renderLive(); } }
   async function lab() { if (!document.hidden) { data.lab = await read("/live/protolab.json"); renderLine(); } }
   async function report() {
@@ -419,6 +518,7 @@ if (typeof document !== "undefined" && document.getElementById("line")) {
   }
   queue(); power(); lab(); report();
   setInterval(queue, 10000);
+  setInterval(tail, 2000);
   setInterval(power, ENERGY_PERIOD * 1000);
   setInterval(lab, 60000);
   setInterval(report, 15000);
