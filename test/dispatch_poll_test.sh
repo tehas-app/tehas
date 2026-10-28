@@ -154,15 +154,67 @@ t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 
 t_case "a read the poll cannot make ends the poll with gh's own words"
 reset
-if bash_reads; then
-  t_skip "the words of a failed read are the Rust poll's, not the bash poll's"
+# Both halves of one contract, each beside the read that produces it: the Rust
+# poll's words come from the read of the queue (console/dispatch/src/read/run.rs,
+# gh and gh_all) and the bash poll's from gh_json (libexec/dispatch). The case
+# below is the Rust half and runs wherever the Rust poll runs; the bash half has
+# a case of its own further down for T_BASH_POLL=1, so the rule is never left to
+# one host alone and a t_skip says which half a given run proved.
+t_gh_fail 1
+# A host of the GitHub App, so the poll takes a token before its first call and
+# hands it to every gh child as TEHAS_GH_TOKEN. The kept token is ghs_poll and a
+# token the token program makes is ghs_fresh<n>, and neither is a word the poll
+# may print: its lines go to state/dispatch.last and logs/dispatch.log, which
+# tehasbot clean keeps, so a failure that echoed gh's own error through would
+# keep a token in a log. This is the first case to send gh's stderr into them.
+mkdir -p "$home/libexec" "$home/state/github"
+printf 'ghs_poll\n' >"$home/state/github/token"
+echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
+printf '#!%s\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" >"$home/libexec/github-token"
+chmod +x "$home/libexec/github-token"
+T_ENV+=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
+  "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+t_run "$rpoll"
+t_eq "$t_rc" 1
+t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
+# The outage was the call the case armed: the page of the queue is the poll's
+# first read, the stub was run for it once, and its count stands at one. Without
+# these the case reads as a pass on a poll that never met the outage at all.
+t_contains "$(t_calls gh)" "api graphql"
+t_eq "$(head -1 "$T/calls/gh" | cut -d' ' -f1-2)" "api graphql"
+t_eq "$(cat "$T/gh-n")" 1
+t_lacks "$t_out" "ghs_poll"
+t_lacks "$t_out" "ghs_fresh"
+t_lacks "$t_out" "TEHAS_GH_TOKEN"
+t_eq "$(started)" ""
+t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
+t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
+
+# The same property of the bash poll, whose first read is its look-up of the
+# repository and whose words are gh_json's. Under the default run of the gate
+# the Rust poll answers instead, and that is what the skip says.
+t_case "the bash poll's failed first read ends it with gh_json's own words"
+reset
+if ! bash_reads; then
+  t_skip "this run is the Rust poll's: T_BASH_POLL=1 is the configuration that runs gh_json"
 else
   t_gh_fail 1
-  t_run "$rpoll"
+  mkdir -p "$home/libexec" "$home/state/github"
+  printf 'ghs_poll\n' >"$home/state/github/token"
+  echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
+  printf '#!%s\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" >"$home/libexec/github-token"
+  chmod +x "$home/libexec/github-token"
+  T_ENV+=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
+    "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+  t_run "$dispatch"
   t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
+  t_contains "$t_out" "ERROR: gh repo view failed"
+  t_contains "$(t_calls gh)" "repo view acme/widget --json nameWithOwner"
+  t_eq "$(head -1 "$T/calls/gh")" "repo view acme/widget --json nameWithOwner"
+  t_eq "$(cat "$T/gh-n")" 1
+  t_lacks "$t_out" "ghs_poll"
+  t_lacks "$t_out" "ghs_fresh"
   t_eq "$(started)" ""
-  t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
   t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
 fi
 
