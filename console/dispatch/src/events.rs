@@ -88,21 +88,63 @@ pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
     }
 }
 
-/// The latest labeled or unlabeled event of `label`: tehas_label_state. A
-/// removal sharing a stamp with an application comes after it.
-pub fn label_state(events: &[Event], label: &str) -> (String, String, String) {
+/// The newest labeled or unlabeled event of one label: tehas_label_state.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LabelState {
+    /// The page had no event of the label, so it says nothing about it.
+    Absent,
+    /// An application by `actor` at `at` (empty when the page gave no stamp).
+    Labeled { actor: String, at: String },
+    /// A removal by `actor` at `at`.
+    Unlabeled { actor: String, at: String },
+}
+
+impl LabelState {
+    /// The kind as the bash's rule compares it: `"labeled"`, `"unlabeled"` or
+    /// `""` for a label the timeline has no event of.
+    pub fn event(&self) -> &str {
+        match self {
+            LabelState::Absent => "",
+            LabelState::Labeled { .. } => "labeled",
+            LabelState::Unlabeled { .. } => "unlabeled",
+        }
+    }
+
+    /// Who applied or took off the label, "" when the timeline has no event
+    /// of it.
+    pub fn actor(&self) -> &str {
+        match self {
+            LabelState::Absent => "",
+            LabelState::Labeled { actor, .. } | LabelState::Unlabeled { actor, .. } => actor,
+        }
+    }
+}
+
+/// The latest labeled or unlabeled event of `label`. Of two events sharing a
+/// stamp the removal comes last; one with no stamp is older than any. A
+/// caller that reads the answer as a trust decision relies on that ordering:
+/// it is what settles the newest event at a one-second boundary and among
+/// unstamped events.
+pub fn label_state(events: &[Event], label: &str) -> LabelState {
     let mut v: Vec<&Event> = events
         .iter()
         .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
         .collect();
     v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
-    match v.last() {
-        Some(e) => (
-            e.event.clone(),
-            e.actor.clone(),
-            e.at.clone().unwrap_or_default(),
-        ),
-        None => (String::new(), String::new(), String::new()),
+    let Some(e) = v.last() else {
+        return LabelState::Absent;
+    };
+    let at = e.at.clone().unwrap_or_default();
+    if e.event == "labeled" {
+        LabelState::Labeled {
+            actor: e.actor.clone(),
+            at,
+        }
+    } else {
+        LabelState::Unlabeled {
+            actor: e.actor.clone(),
+            at,
+        }
     }
 }
 
