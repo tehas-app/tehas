@@ -55,6 +55,43 @@ pub enum Call {
     },
 }
 
+/// The arguments of `park-show` as the read of `store batch` takes them: the
+/// issue of the row, refused by the verb's own grammar when the call asked for
+/// the owed list instead or named nothing. The line of a refusal is the one the
+/// single call prints, so a batch and a call made alone answer alike.
+pub fn read_park_show(rest: &[String]) -> Option<Result<i64, String>> {
+    Some(
+        Args::parse(
+            "park-show",
+            rest,
+            &[("--automatic", Kind::Switch), ("--refine", Kind::Switch)],
+            true,
+        )
+        .and_then(|a| {
+            let refine = a.has("--refine");
+            if refine && a.has("--automatic") {
+                return Err(a.usage("--refine", "is not taken with --automatic"));
+            }
+            a.target(if refine { "--refine" } else { "--automatic" })?
+                .ok_or_else(|| a.usage("<issue>", "or --automatic is required"))
+        }),
+    )
+}
+
+/// The arguments of `question-known` as the read of `store batch` takes them:
+/// the issue and the comment id, each refused by the verb's own grammar. The
+/// line of a refusal is the one the single call prints.
+pub fn read_question_known(rest: &[String]) -> Option<Result<(i64, i64), String>> {
+    Some(
+        Args::parse("question-known", rest, &[("--id", Kind::Value)], true).and_then(|a| {
+            Ok((
+                a.issue()?,
+                a.strict_need("--id", "a comment id", verbs::comment_id)?,
+            ))
+        }),
+    )
+}
+
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
         "park" => park_args(rest),
@@ -387,7 +424,9 @@ fn park(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     })
 }
 
-fn show(home: &Path, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
+/// `park-show <issue>`, or the parks owed a start (`--automatic`) or a refine
+/// (`--refine`). Also the read `store batch` makes through `verbs::look_many`.
+pub fn show(home: &Path, issue: Option<i64>, refine: bool) -> Result<String, Fail> {
     let owed = if refine { "refine" } else { "automatic" };
     verbs::look(home, |c| match issue {
         Some(issue) => Ok(line("park-show", &[("park", park_json(c, issue)?)])),
@@ -554,7 +593,10 @@ pub fn on_record(c: &Connection, issue: i64, id: i64) -> Result<bool, Fail> {
     Ok(plan)
 }
 
-fn known(home: &Path, issue: i64, id: i64) -> Result<String, Fail> {
+/// `question-known <issue> --id <id>`: whether the comment is the question the
+/// host has on record for the issue. Also the read `store batch` makes through
+/// `verbs::look_many`.
+pub fn known(home: &Path, issue: i64, id: i64) -> Result<String, Fail> {
     verbs::look(home, |c| {
         let row: Option<(String, Option<i64>)> = c
             .query_row(

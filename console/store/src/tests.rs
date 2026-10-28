@@ -2412,24 +2412,26 @@ fn batch_reads_the_four_verbs_and_the_writes_are_refused_with_64() {
         .iter()
         .map(|a| a["rc"].as_i64().unwrap())
         .collect();
-    // The answer of a call this verb refuses is the line the single call prints
+    // Each answer of a call this verb refuses is the line the single call prints
     // on its error stream, and the exit the single command gives with it: the
-    // poll reads the same word for a read of a batch and for the read alone.
-    assert_eq!(rc, vec![1, 64, 1, 1, 64, 64], "{answers:?}");
+    // poll reads the same word for a read of a batch and for the read made alone.
+    assert_eq!(rc, vec![1, 1, 1, 1, 1, 64], "{answers:?}");
     // The word a write is refused with names the verb, so a caller that logs
     // the answer knows which call it was.
     assert_eq!(answers[1]["out"], "park-retry #12: not a read of a batch");
     assert_eq!(answers[6]["out"], "usage not-a-verb: unknown verb");
-    // A read of the same grammar that this verb does not run is refused with
-    // the word its own verb gives and the exit of a read of the store: the
-    // calls of a poll that names a park are answered `parked` or `unparked`,
-    // never `usage`, so the poll's rules read the branch they read alone.
+    // A verb outside the four is refused by its name alone, before its other
+    // arguments are asked anything: the exit of a read of the store and a line
+    // naming the verb and the issue, whether its arguments would have parsed
+    // or not. A name the store does not have at all keeps the usage line and
+    // the 64 the command gives it.
     let (rc, refused, _) = batch(&home, &request(&[vec!["park".into(), "12".into()]]));
     assert_eq!(rc, 0, "{refused:?}");
-    // `park` takes arguments this call does not give it, so it stops at its
-    // arguments: 64, the same exit and the same line the single command gives.
+    assert_eq!(refused[0]["rc"], 1, "{}", refused[0]);
+    assert_eq!(refused[0]["out"], "park #12: not a read of a batch");
+    let (_, refused, _) = batch(&home, &request(&[vec!["not-a-verb".into(), "12".into()]]));
     assert_eq!(refused[0]["rc"], 64, "{}", refused[0]);
-    assert_eq!(refused[0]["out"], "usage park: --attempt is required");
+    assert_eq!(refused[0]["out"], "usage not-a-verb: unknown verb");
     // Nothing was written: every row of the store is the row it was.
     assert_eq!(table_counts(&home), before);
 }
@@ -2487,6 +2489,132 @@ fn a_batch_that_is_not_a_request_is_64_and_writes_nothing() {
         assert!(child.stdout.is_empty(), "{given:?} answered JSON");
     }
     assert_eq!(table_counts(&home), before, "a bad request wrote");
+}
+
+#[test]
+fn a_batch_refuses_every_write_the_store_has() {
+    // The allowlist of the batch is four names wide and the store has about
+    // forty verbs. Every verb the store's own parser accepts is asked of
+    // `batch::parse` here, and anything that is not one of the four reads must
+    // come back refused, whatever its arguments: were `READS` widened without
+    // an audit of a verb's body, this is the case that says so.
+    let verb_of = |call: &str| call.split(' ').next().unwrap_or("").to_string();
+    for given in [
+        "cycle-start 12",
+        "cycle-stop 12",
+        "cycle-end 12 --attempt 1 --status failed",
+        "cycle-show 12",
+        "cycle-show --running",
+        "cycle-note 12 --text x",
+        "park 12 --attempt 1 --reason provider-outage --body-sha aaaaaaaa",
+        "park-retry 12",
+        "park-told 12",
+        "park-show --automatic",
+        "park-show --refine",
+        "question-asked 12 --id 4001 --kind park --body-sha aaaaaaaa",
+        "question-answered 12 --id 4001",
+        "plan-begin 12 --by alice --label r --brief-file /dev/null",
+        "plan-answer 12 --turn 1 --text x",
+        "plan-end 12 --close",
+        "plan-show --open",
+        "plan-note 12 --kind brief --id 1",
+        "approval-record 12 --at 1 --by alice --how label --label r --body-sha aaaaaaaa",
+        "approval-undo 12 --at 1",
+        "live-open 12",
+        "upkeep-backup",
+        "locks-held",
+        "poll-begin",
+        "poll-show",
+        "poll-idle",
+        "journal-open",
+        "journal-attempt --action x",
+        "history-show 12 --kind cycle",
+        "not-a-verb",
+    ] {
+        let text = serde_json::to_string(&[vec![verb_of(given)]]).unwrap();
+        let asked = crate::batch::parse(&text).unwrap_or_else(|e| panic!("{given}: {e}"));
+        match &asked[0] {
+            crate::batch::Asked::Refused(_, _) => {}
+            crate::batch::Asked::Call(call) => {
+                panic!("{given} reached the store as a read of a batch: {call:?}")
+            }
+        }
+        // The four reads are the only calls that parse into one.
+        let four = matches!(
+            verb_of(given).as_str(),
+            "plan-show" | "park-show" | "question-known" | "approval-current"
+        );
+        assert_eq!(
+            four,
+            crate::batch::is_read(&verb_of(given)),
+            "{given} is outside the four the batch names"
+        );
+    }
+}
+
+#[test]
+fn a_batch_refuses_a_verb_whose_name_is_a_read_but_is_not() {
+    // A name of the four is answered by the grammar of that verb alone, so the
+    // one call of the store's own read arms is the one a batch makes: `--open`
+    // and `--automatic` are the switches of the same verb that read the whole
+    // store rather than the issue, and a batch of them is refused, not run.
+    let home = crate::verbs_tests::home("batch-switches");
+    let before = table_counts(&home);
+    for call in [
+        vec!["plan-show".to_string(), "--open".to_string()],
+        vec!["park-show".to_string(), "--automatic".to_string()],
+        vec!["park-show".to_string(), "--refine".to_string()],
+        vec!["park-show".to_string()],
+    ] {
+        let one = [call.as_slice()];
+        let text = serde_json::to_string(&one).unwrap();
+        let (rc, answers, err) = batch(&home, &text);
+        assert_eq!(rc, 0, "{call:?}: {err}");
+        assert_eq!(answers[0]["rc"], 64, "{call:?}: {}", answers[0]);
+        assert!(
+            answers[0]["out"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with(&format!("usage {}: ", call[0])),
+            "{call:?}: {}",
+            answers[0]
+        );
+    }
+    assert_eq!(table_counts(&home), before, "a refused switch wrote");
+}
+
+#[test]
+fn a_batch_with_no_home_refuses_before_it_reads_its_request() {
+    // The guard every verb passes: the home is asked for before a byte of the
+    // request is read, so a caller with no usable home cannot make the store
+    // take its input into memory at all. The request is never written: there is
+    // 1 MiB of calls the store must not have to hold.
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(store_binary())
+        .arg("batch")
+        .env_remove("TEHAS_HOME")
+        .env(crate::TEST_NOW, crate::verbs_tests::NOW.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the store of this build runs");
+    // The pipe is closed with nothing in it, so a store that read its request
+    // first would answer 64 for an empty one rather than 78 for no home.
+    drop(child.stdin.take());
+    let out = child.wait_with_output().expect("the store answered");
+    assert_eq!(
+        out.status.code(),
+        Some(78),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.stdout.is_empty(), "a call with no home answered JSON");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("TEHAS_HOME"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
@@ -2548,6 +2676,48 @@ fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
         "{}",
         answers[0]
     );
+}
+
+#[test]
+fn a_batch_writes_nothing_however_its_calls_are_mixed() {
+    // The claim the whole design rests on: a batch reads. The refusals are
+    // answered without the store, the reads run inside one transaction that is
+    // committed with nothing in it, and a call whose own row is damaged does not
+    // make its neighbours answer differently. `table_counts` is the proof a write
+    // cannot pass unseen: a row the batch wrote and COMMIT discarded would still
+    // not show, so the case asks for the writes of the store by name -- a batch
+    // that reached one would answer it as a read and be seen here.
+    let home = crate::verbs_tests::home("batch-no-write");
+    asked(&home, 12, 4001);
+    let before = table_counts(&home);
+    let calls = vec![
+        vec!["park-retry".to_string(), "12".to_string()],
+        vec!["park-told".to_string(), "12".to_string()],
+        vec![
+            "question-answered".to_string(),
+            "12".to_string(),
+            "--id".to_string(),
+        ],
+        vec!["park-show".to_string(), "12".to_string()],
+        vec!["plan-show".to_string(), "12".to_string()],
+    ];
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0, "{err}");
+    // The three refusals carry their own lines and no answer of a write; the two
+    // reads answer as the single call does, and the read of the issue that has a
+    // park is undamaged by the calls beside it. A verb outside the four is
+    // refused by its name, whatever its arguments were meant to be.
+    assert_eq!(answers[0]["out"], "park-retry #12: not a read of a batch");
+    assert_eq!(answers[1]["out"], "park-told #12: not a read of a batch");
+    assert_eq!(
+        answers[2]["out"],
+        "question-answered #12: not a read of a batch"
+    );
+    assert_eq!(
+        said(&answers[3]),
+        crate::verbs_tests::ok(&home, &["park-show", "12"])
+    );
+    assert_eq!(table_counts(&home), before, "a batch wrote");
 }
 
 #[test]

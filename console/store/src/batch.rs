@@ -11,114 +11,93 @@
 //!
 //! What stays outside this file is the contract the four verbs have on their
 //! own: each element is parsed and run by the same code the single call runs,
-//! so an answer of a batch is the answer of that call byte for byte. Only
-//! those four verbs are answered; anything else in the list is refused with 64
-//! and the database is not opened for it, and no verb of the four writes.
+//! so an answer of a batch is the answer of that call byte for byte. Only the
+//! verbs of `READS` are answered; anything else is refused before it reaches
+//! the store, which `verbs::parse_read` holds as a type -- a write is not a
+//! `ReadCall`, so there is no call a batch can run that writes.
 
 use crate::verbs::{self, Fail};
 use serde_json::Value;
 use std::io::Read;
 use std::path::Path;
 
-/// The longest request the verb reads. The poll's list is one line per issue
-/// it read; a request over this is not a batch anyone meant.
+/// The longest request this verb reads, counted in bytes of the whole JSON
+/// array on its standard input. At the ~40 bytes of one call of the poll's
+/// list this is room for about 13k calls, far more than `MAX_CALLS` allows, so
+/// in practice the count is the bound that bites and the bytes are defence
+/// against a writer that is not the poll. A request over it is the usage error
+/// it is, and the store is not opened for it.
 pub const MAX_BYTES: u64 = 1 << 20;
 
-/// The most calls in one batch: the poll's four reads of each issue it would
-/// decide about, and a poll decides about far fewer issues than that.
+/// The most calls in one batch, counted in elements of the JSON array. The
+/// poll's list is the four reads of each issue it would decide about -- four
+/// calls for every issue it read -- and a host that asks about more than this
+/// is refused the whole request with 64 rather than answered in part, because
+/// half a snapshot's answers are no use to a poll that decides by all of them.
 pub const MAX_CALLS: usize = 512;
 
-/// The four reads of one issue, and the most arguments of the call that asks
-/// for one. `question-known` is the longest: `<issue> --id <id>`.
-const READS: [&str; 4] = [
+/// The verbs one batch answers. `verbs::parse_read` takes its four arms from
+/// this list, so a name added here without an audit of its body is a name
+/// `parse_read` will try to parse; the arms it does not know are refused.
+pub const READS: [&str; 4] = [
     "plan-show",
     "park-show",
     "question-known",
     "approval-current",
 ];
+
+/// The longest call of the four in arguments: `question-known <issue> --id
+/// <id>`. The bound is not what keeps a write out of a batch -- `verbs::parse_read`
+/// answers for that, by name -- it is what keeps a request that is not four
+/// reads of an issue from being read at all. A call of more arguments is refused
+/// with the whole request, before one call of it runs.
 const MAX_ARGS: usize = 4;
-
-/// The line of a call this part refuses: what the same call would have said
-/// when the store was asked for it on its own. The call is parsed by the same
-/// grammar the single call goes through, so the word -- `unknown` for a row
-/// that is not there, `usage` for arguments that do not parse, `busy` for a
-/// store that could not be read -- is the one the caller reads either way. The
-/// store is not opened for it: only the arguments are asked, and a call that
-/// needs no argument to be wrong is refused with the word its verb gives for
-/// the case, which is what a caller that logs failures sorts on.
-fn refusal(args: &[String]) -> (i64, String) {
-    let verb = args.first().map(String::as_str).unwrap_or("");
-    // The arguments say what the call asked of the store, so they are parsed by
-    // the store's own grammar first: a call that does not parse is refused with
-    // the usage line the single call gets, and a call that does is refused as a
-    // read this verb does not answer. An argument that is not one of the verb's
-    // is the call's own fault, and says so, whatever the verb was.
-    match verbs::parse(args) {
-        // The arguments do not parse: the call's own fault. The line says the
-        // exit: `usage` is the one of a call that stops at its arguments, and
-        // anything else is the verb's own refusal, which is the exit of a read
-        // of the store.
-        Some(Err(why)) => (usage_rc(&why), why),
-        // The arguments parse, so the call would have been run: what it says of
-        // the row it asks about is what its own verb answers, and the only case
-        // this part answers without the store is one whose answer does not
-        // depend on the store at all. A call that reads a row of the store is
-        // refused for the row it does not hold, which is the answer the verb
-        // gives when nothing is on record; a batch does not open the store for
-        // one, so the line is the verb's own refusal of nothing on record.
-        Some(Ok(_)) => (
-            1,
-            format!("{verb} #{}: not a read of a batch", issue_of(args)),
-        ),
-        // An argument the store does not know: the same line the command gives.
-        None => (64, format!("usage {verb}: unknown verb")),
-    }
-}
-
-/// The exit of a line the store's own grammar refused: 64 for a call that stops
-/// at its arguments, which is what the single command answers a call that cannot
-/// be run, and 1 for the verb's own refusal of the row it was asked about, which
-/// is the exit of the read made alone. A caller that reads the word of a failure
-/// reads the same word, and the same exit, either way.
-fn usage_rc(why: &str) -> i64 {
-    if why.starts_with("usage ") {
-        64
-    } else {
-        1
-    }
-}
-
-/// The issue a call asks about, for the line of one this part refuses: the
-/// second argument of the reads of an issue, and 0 for a call that names none,
-/// which is how the store's own refusals of a call without an issue read.
-fn issue_of(args: &[String]) -> &str {
-    args.get(1)
-        .map(String::as_str)
-        .filter(|a| a.bytes().all(|b| b.is_ascii_digit()))
-        .unwrap_or("0")
-}
 
 /// Whether `verb` names one of the four reads this verb answers.
 pub fn is_read(verb: &str) -> bool {
     READS.contains(&verb)
 }
 
-/// What one element of the request named: the call to run, or the word of the
-/// refusal. An element that is not an array of arguments, or names a verb that
-/// is none of the four, is refused with 64 before the store is opened.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What one element of the request named: the call to run, or the refusal of
+/// it. An element that is not an array of arguments, or holds a verb that is
+/// none of the four, is refused before the store is opened. The variants are
+/// built only by `parse`, and a `Request` holds only what `parse` judged.
+#[derive(Debug, PartialEq, Eq)]
 pub enum Asked {
-    Call(Vec<String>),
+    /// A call the store will read: parsed by `verbs::parse_read`, so it is one
+    /// of the four reads and carries the arguments already read.
+    Call(verbs::ReadCall),
     /// The refusal of one this verb does not run: its exit status and the line
-    /// the single call prints on standard error, `store: ` left off.
-    Refused(i64, String),
+    /// the single call prints on standard error, `store: ` left off. A verb
+    /// outside the four is refused by its name alone, with the line naming the
+    /// verb and the issue it was asked about.
+    Refused(u8, String),
+}
+
+/// The request of one batch, held by a type whose only constructor is
+/// `Request::of`: the judgements of `parse` and nothing else. `main` builds it
+/// and `execute` runs it, so a caller of `execute` cannot name a verb the batch
+/// is allowed to read.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Request {
+    asked: Vec<Asked>,
+}
+
+impl Request {
+    /// The request of one batch: the standard input read whole and judged by
+    /// `parse`. A caller with no usable home asks for nothing, so this is not
+    /// reached before the guard of `main` has passed.
+    pub fn read() -> Result<Request, String> {
+        parse(&read_input()?).map(|asked| Request { asked })
+    }
 }
 
 /// The request of one batch: a JSON array whose elements are arrays of
 /// arguments. One that is not JSON at all, holds an element that is not a list
-/// of arguments, or holds more than `MAX_CALLS` elements, is the usage error it
-/// is: the whole request is judged before one call of it runs, so a poll that
-/// built half a request reads no answers of the other half.
+/// of arguments, holds a call of more than `MAX_ARGS` arguments, or holds more
+/// than `MAX_CALLS` elements, is the usage error it is: the whole request is
+/// judged before one call of it runs, so a poll that built half a request reads
+/// no answers of the other half.
 pub fn parse(text: &str) -> Result<Vec<Asked>, String> {
     let given: Value =
         serde_json::from_str(text).map_err(|e| format!("batch: stdin is not JSON: {e}"))?;
@@ -150,21 +129,16 @@ pub fn parse(text: &str) -> Result<Vec<Asked>, String> {
                     .ok_or_else(|| "batch: an argument is not text".to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        asked.push(match args.first() {
-            // A verb this part does not know is the store's own refusal, which
-            // is 64 for one that holds no verb; one it knows that is not a read
-            // is refused here and never reaches the store, and so does a request
-            // whose every call is refused, which never opens the database.
-            None => return Err("batch: a call holds no verb".to_string()),
-            // The line names the verb and carries the issue the call asked
-            // about: the same shape the single call's own refusal has, so a
-            // caller that reads the word of a failure reads the same word for a
-            // read of a batch and a read made on its own.
-            Some(verb) if !is_read(verb) => {
-                let (rc, why) = refusal(&args);
-                Asked::Refused(rc, why)
-            }
-            Some(_) => Asked::Call(args),
+        if args.is_empty() {
+            return Err("batch: a call holds no verb".to_string());
+        }
+        // The verb's own grammar answers for it: one of the four reads becomes
+        // a call, and anything else -- a `plan-show --open`, a write, a name
+        // the store does not have -- becomes the refusal the single command
+        // prints for the same arguments, with the exit it gives with them.
+        asked.push(match verbs::parse_read(&args) {
+            Ok(call) => Asked::Call(call),
+            Err((rc, why)) => Asked::Refused(rc, why),
         });
     }
     Ok(asked)
@@ -214,23 +188,22 @@ fn answers(lines: Vec<(i64, String)>) -> String {
 }
 
 /// Runs the batch: the database is opened once, in one transaction, and every
-/// call reads that one snapshot. A call that its own arguments would refuse
-/// gets 64 and asks nothing of the store; a call that names a verb this verb
-/// does not answer is refused before it, without a name of the store's being
-/// parsed at all.
-pub fn run(home: &Path, asked: Vec<Asked>, now: i64) -> Result<String, Fail> {
+/// call reads that one snapshot. A call its own arguments would refuse is
+/// answered from the request alone, and the store is not opened at all for a
+/// batch that holds nothing to read.
+pub fn run(home: &Path, asked: &Request) -> Result<String, Fail> {
+    let asked = &asked.asked;
     // The calls that reach the store, with the place each answer belongs to.
-    // A call this part refuses asks nothing of the store and gets the line the
-    // single call would have printed, with the exit the single command would
-    // have had: a caller that reads the word of a failure reads the same word
-    // for a read of a batch and for a read made on its own, whether that word
-    // is 64's `usage` or the 1 of a verb that found nothing on record.
-    let mut wanted: Vec<(usize, Vec<String>)> = Vec::new();
+    // A refusal asks nothing of the store and holds the line the single call
+    // would have printed, with the exit the single command would have had, so
+    // a caller that reads the word of a failure reads the same word for a read
+    // of a batch and for a read made on its own.
+    let mut wanted: Vec<(usize, verbs::ReadCall)> = Vec::new();
     let mut lines: Vec<(i64, String)> = vec![(64, String::new()); asked.len()];
-    for (i, a) in asked.into_iter().enumerate() {
+    for (i, a) in asked.iter().enumerate() {
         match a {
-            Asked::Refused(rc, why) => lines[i] = (rc, why),
-            Asked::Call(args) => wanted.push((i, args)),
+            Asked::Refused(rc, why) => lines[i] = (i64::from(*rc), why.clone()),
+            Asked::Call(call) => wanted.push((i, call.clone())),
         }
     }
     if wanted.is_empty() {
@@ -238,8 +211,8 @@ pub fn run(home: &Path, asked: Vec<Asked>, now: i64) -> Result<String, Fail> {
         // refusals is answered by a store that is not there.
         return Ok(answers(lines));
     }
-    let calls: Vec<Vec<String>> = wanted.iter().map(|(_, args)| args.clone()).collect();
-    let got: Vec<(i64, String)> = verbs::look_many(home, &calls, now)?;
+    let calls: Vec<verbs::ReadCall> = wanted.iter().map(|(_, c)| c.clone()).collect();
+    let got: Vec<(i64, String)> = verbs::look_many(home, calls.as_slice())?;
     for ((i, _), got) in wanted.iter().zip(got) {
         lines[*i] = got;
     }
