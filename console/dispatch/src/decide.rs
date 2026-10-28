@@ -926,18 +926,18 @@ impl<'a> Poll<'a> {
     /// or the fixer applied it last and nobody took it off since.
     fn order_label(&mut self, n: u64, label: &str) -> Step<bool> {
         let ev = self.events(n)?;
-        let (event, who, _) = label_state(&ev, label);
-        if event == "unlabeled" {
+        let state = label_state(&ev, label);
+        if state.event() == "unlabeled" {
             self.log(format!(
                 "ignore #{n}: {label} was taken off by '{}' since it was applied",
-                or_unknown(&who)
+                or_unknown(state.actor())
             ));
             return Ok(false);
         }
-        if self.c.allowed(&who) || self.c.is_millwright(&who) {
+        if self.c.allowed(state.actor()) || self.c.is_millwright(state.actor()) {
             return Ok(true);
         }
-        self.deny("ignore", n, label, &who);
+        self.deny("ignore", n, label, state.actor());
         Ok(false)
     }
 
