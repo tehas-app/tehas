@@ -731,17 +731,47 @@ WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
 # <args> and a space, and runs the real store for every other call. Each call
 # is noted in t_calls store.
 store_refuses() {
-  local bin=$T/home/tehas/libexec/store
+  local bin=$T/home/tehas/libexec/store request_file=$T/store-batch-request.json
   rm -f "$bin"
   printf '%s\n' '#!/usr/bin/env bash' \
-    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
-    "a=\"\$*\" p=$(t_q "$1")" \
-    'if [ "$a" = "$p" ] || [ "${a#"$p "}" != "$a" ]; then' \
+    'a="$*"' \
+    'batch=0' \
+    'if [ "$a" = batch ]; then' \
+    '  # A batch carries its calls on standard input, one array of arguments' \
+    '  # apiece, so the line it is judged by is the request itself: one call per' \
+    '  # line, which the loop below reads whole. The request is kept in a file' \
+    '  # of the run, so the store can read it again when none of the calls is' \
+    '  # refused: a command substitution would empty the pipe before the store' \
+    '  # reads it, and the store would judge a request of nothing.' \
+    "  request_file=$(t_q "$request_file")" \
+    '  cat >"$request_file"' \
+    '  if [ ! -s "$request_file" ] || ! jq -e "type == \"array\"" "$request_file" >/dev/null 2>&1; then' \
+    '    echo "store: garbled: batch request is no JSON array" >&2' \
+    '    exit 78' \
+    '  fi' \
+    '  a="batch $(jq -r ".[] | join(\" \")" "$request_file")"' \
+    '  batch=1' \
+    'fi' \
+    "printf '%s\\n' \"\$a\" >>$(t_q "$T/calls/store")" \
+    "p=$(t_q "$1")" \
+    'found=0' \
+    'while IFS= read -r w; do' \
+    '  [ -n "$w" ] || continue' \
+    '  if [ "$w" = "$p" ] || [ "${w#"$p "}" != "$w" ]; then' \
+    '    found=1' \
+    '    break' \
+    '  fi' \
+    "done < <(printf '%s\\n' \"\${a#batch }\")" \
+    'if [ "$found" = 1 ]; then' \
     "  printf '%s\\n' $(t_q "$3") >&2; exit $(t_q "$2")" \
+    'fi' \
+    'if [ "$batch" = 1 ]; then' \
+    "  exec $(t_q "$T_STORE") \"\$@\" <\"$request_file\"" \
     'fi' \
     "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
   chmod 755 "$bin"
 }
+
 # open_read_fails_again: the open planning sessions are read once, and every
 # read of them after that answers busy, as after a planning write of the poll.
 # With a session on #9 whose issue no longer asks, the poll ends it, which is

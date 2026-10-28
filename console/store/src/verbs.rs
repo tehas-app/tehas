@@ -512,6 +512,12 @@ pub fn write<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> 
 /// A read with a bounded wait and no write, in one transaction so that every
 /// query of the verb sees the same snapshot.
 pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> Result<T, Fail> {
+    // Inside a batch the store is open already, in the transaction that gives
+    // every call of the batch one snapshot; the batch's reads run their queries
+    // on it and ask for no transaction of their own.
+    if let Some(conn) = reading() {
+        return schema(conn).and_then(|()| f(conn));
+    }
     let file = db::path(home);
     not_empty(&file)?;
     let conn = db::open_look(&file).map_err(crate::line)?;
@@ -527,6 +533,83 @@ pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> R
             Err(e)
         }
     }
+}
+
+/// Several calls of `store batch`, read from one opening of the store and one
+/// transaction, so all of them see the same snapshot (src/batch.rs).
+///
+/// Each element is parsed by `parse` and run by `run` above -- the same code
+/// the single call runs -- with one difference: the `look` each read verb calls
+/// finds this thread already inside a read and answers from this connection
+/// instead of opening the file again. A call that fails is answered with its own
+/// exit and its own line and the batch goes on, because one issue whose row is
+/// damaged is no reason for a poll to lose the other reads, and none of the four
+/// writes whatever it answers.
+///
+/// The caller has refused every verb outside the batch's four reads; a name this
+/// part does not know is 64 here, the same answer `main` gives it.
+pub fn look_many(home: &Path, calls: &[Vec<String>], now: i64) -> Result<Vec<(i64, String)>, Fail> {
+    let file = db::path(home);
+    not_empty(&file)?;
+    let conn = db::open_look(&file).map_err(crate::line)?;
+    conn.execute_batch("BEGIN").q()?;
+    // The schema first, as `look` reads it: one answer of a store nobody
+    // migrated, not one per call.
+    let started = schema(&conn).map(|()| {
+        READING.with(|cell| cell.set(Some(&conn as *const Connection)));
+        let mut out = Vec::with_capacity(calls.len());
+        for call in calls {
+            out.push(match parse(call) {
+                Some(Ok(call)) => run(home, &call, now),
+                Some(Err(why)) => Err((64u8, why)),
+                // A verb this part does not know: the answer `main` gives an
+                // argument it does not know, kept as this call's own answer so
+                // the rest of the batch is still read.
+                None => Err((64u8, format!("usage {}: unknown verb", batch_verb(call)))),
+            });
+        }
+        READING.with(|cell| cell.set(None));
+        out
+    });
+    // The connection is given up before the transaction closes: no verb is
+    // left holding one that has been committed.
+    READING.with(|cell| cell.set(None));
+    let done = started.and_then(|answers| conn.execute_batch("COMMIT").q().map(|()| answers));
+    match done {
+        Ok(answers) => Ok(answers
+            .into_iter()
+            .map(|r| match r {
+                Ok(line) => (0i64, line),
+                Err((rc, why)) => (i64::from(rc), why),
+            })
+            .collect()),
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+/// The verb of a batch's call, for the line of one this part does not know.
+/// The caller has refused an empty call already.
+fn batch_verb(call: &[String]) -> &str {
+    call.first().map(String::as_str).unwrap_or("")
+}
+
+// The connection of the read this thread is inside, set for the calls of one
+// batch. A thread that is not in a batch reads the store the way it always did,
+// by opening it. The pointer is to a local of `look_many`, which outlives every
+// call made between the set and the clear.
+thread_local! {
+    static READING: std::cell::Cell<Option<*const Connection>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+/// Whether this thread is inside a batch's read, and so whether `look` must
+/// open the store again or has it already.
+fn reading() -> Option<&'static Connection> {
+    READING.with(|cell| cell.get().map(|p| unsafe { &*p }))
 }
 
 /// The row every record table references, made when the issue has none. An

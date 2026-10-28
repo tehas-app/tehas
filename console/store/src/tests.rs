@@ -6,6 +6,7 @@ use crate::db;
 use crate::live;
 use crate::{execute, parse, ReviewIssue, Settings, Verb};
 use rusqlite::Connection;
+use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -2208,4 +2209,398 @@ fn names(home: &Path) -> Vec<String> {
         .collect();
     v.sort();
     v
+}
+
+// --- store batch ------------------------------------------------------------
+
+/// The rows of every table, as one number each, so a batch that wrote is seen
+/// whatever it wrote and wherever it wrote it.
+fn table_counts(home: &Path) -> Vec<(String, i64)> {
+    let conn = Connection::open(db::path(home)).unwrap();
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    tables
+        .into_iter()
+        .map(|t| {
+            let n: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM \"{t}\""), [], |r| r.get(0))
+                .unwrap();
+            (t, n)
+        })
+        .collect()
+}
+
+/// One `store batch` of the given calls, run as the command runs it: the
+/// request on standard input, the answers on standard output. The verb's own
+/// exit and the two lines it may print are given back with the answers.
+fn batch(home: &Path, request: &str) -> (i32, Vec<Value>, String) {
+    batch_at(home, crate::verbs_tests::NOW, request)
+}
+
+fn batch_at(home: &Path, now: i64, request: &str) -> (i32, Vec<Value>, String) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(store_binary())
+        .arg("batch")
+        .env("TEHAS_HOME", home)
+        .env(crate::TEST_NOW, now.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the store of this build runs");
+    child
+        .stdin
+        .take()
+        .expect("the pipe is ours")
+        .write_all(request.as_bytes())
+        .expect("the request is written");
+    let out = child.wait_with_output().expect("the store answered");
+    let said = String::from_utf8_lossy(&out.stdout).to_string();
+    let answers = serde_json::from_str::<Value>(said.trim())
+        .unwrap_or_else(|e| panic!("{e} of {said:?}"))
+        .get("answers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| panic!("no answers in {said:?}"));
+    (
+        out.status.code().unwrap_or(-1),
+        answers,
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    )
+}
+
+/// What a call's answer printed, as the poll reads it: the text is the verb's
+/// own line, and the store answers nothing else, so it parses.
+fn said(a: &Value) -> Value {
+    let text = a["out"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the answer of a read is not text: {a}"));
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("{e} of {text:?}"))
+}
+
+/// The four reads of one issue, in the order the poll asks them.
+fn four(n: i64, qid: i64) -> Vec<Vec<String>> {
+    let a = |x: &[&str]| x.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let (n, q) = (n.to_string(), qid.to_string());
+    vec![
+        a(&["plan-show", &n]),
+        a(&["park-show", &n]),
+        a(&["question-known", &n, "--id", &q]),
+        a(&["approval-current", &n]),
+    ]
+}
+
+fn request(calls: &[Vec<String>]) -> String {
+    serde_json::to_string(calls).unwrap()
+}
+
+/// A cycle started by a label, ended and parked with a question of its own on
+/// record: what the poll reads of an issue that waits for a person. Each issue
+/// is approved and parked for a body of its own, so two issues of one test
+/// differ by a name the answers carry: a batch that answered one issue with
+/// another's rows is seen rather than assumed away.
+fn asked(home: &Path, issue: i64, id: i64) {
+    use crate::verbs_tests::{end, hold, next_at, ok, SHA_B};
+    let lock = hold(home, issue);
+    let bound = format!("{:064x}", 1_000_000 + issue * 1_000 + 7);
+    let (n, at) = (issue.to_string(), next_at().to_string());
+    ok(
+        home,
+        &[
+            "approval-record",
+            &n,
+            "--at",
+            &at,
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            &bound,
+        ],
+    );
+    let attempt = ok(home, &["cycle-start", &n])["attempt"].as_i64().unwrap();
+    end(home, issue, attempt, "failed");
+    let (a, q) = (attempt.to_string(), id.to_string());
+    ok(
+        home,
+        &[
+            "park",
+            &n,
+            "--attempt",
+            &a,
+            "--reason",
+            "provider-outage",
+            "--comment-id",
+            &q,
+            "--body-sha",
+            SHA_B,
+        ],
+    );
+    drop(lock);
+}
+
+#[test]
+fn batch_answers_three_reads_in_the_order_it_was_given() {
+    let home = crate::verbs_tests::home("batch-order");
+    asked(&home, 12, 4001);
+    let calls = vec![
+        vec!["plan-show".into(), "12".into()],
+        vec!["park-show".into(), "12".into()],
+        vec![
+            "question-known".into(),
+            "12".into(),
+            "--id".into(),
+            "4001".into(),
+        ],
+    ];
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0, "{err}");
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    assert_eq!(answers.len(), 3, "{answers:?}");
+    for a in &answers {
+        assert_eq!(a["rc"], 0, "{a}");
+    }
+    // Each out is the very line the single verb prints, and in the order of
+    // the request: the poll reads an answer by its position, not its name.
+    let single = |args: &[&str]| crate::verbs_tests::ok(&home, args);
+    assert_eq!(said(&answers[0]), single(&["plan-show", "12"]));
+    assert_eq!(said(&answers[1]), single(&["park-show", "12"]));
+    assert_eq!(
+        said(&answers[2]),
+        single(&["question-known", "12", "--id", "4001"])
+    );
+    // The park's question is the one on record, so the read says it is known.
+    assert_eq!(said(&answers[2])["known"], true);
+    // The park read is of the same issue the plan read asked of: no answer
+    // belongs to another call's arguments.
+    assert_eq!(said(&answers[1]), single(&["park-show", "12"]));
+}
+
+#[test]
+fn batch_reads_the_four_verbs_and_the_writes_are_refused_with_64() {
+    let home = crate::verbs_tests::home("batch-refuses");
+    asked(&home, 12, 4001);
+    let before = table_counts(&home);
+    let calls = vec![
+        vec!["approval-current".into(), "12".into()],
+        vec!["park-retry".into(), "12".into()],
+        vec!["plan-begin".into(), "12".into()],
+        vec!["journal-open".into()],
+        vec!["poll-begin".into()],
+        vec!["cycle-end".into(), "12".into()],
+        vec!["not-a-verb".into()],
+    ];
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0);
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    assert_eq!(answers[0]["rc"], 0, "{}", answers[0]);
+    assert_eq!(said(&answers[0])["verb"], "approval-current");
+    // A call this verb does not run is refused before the store is opened, and
+    // the exit says why: 64 for a call that stops at its arguments or names a
+    // verb the store does not have at all, and 1 for a verb of the store that
+    // this part does not answer, which is the exit a read of the store gives.
+    let rc: Vec<i64> = answers[1..]
+        .iter()
+        .map(|a| a["rc"].as_i64().unwrap())
+        .collect();
+    // The answer of a call this verb refuses is the line the single call prints
+    // on its error stream, and the exit the single command gives with it: the
+    // poll reads the same word for a read of a batch and for the read alone.
+    assert_eq!(rc, vec![1, 64, 1, 1, 64, 64], "{answers:?}");
+    // The word a write is refused with names the verb, so a caller that logs
+    // the answer knows which call it was.
+    assert_eq!(answers[1]["out"], "park-retry #12: not a read of a batch");
+    assert_eq!(answers[6]["out"], "usage not-a-verb: unknown verb");
+    // A read of the same grammar that this verb does not run is refused with
+    // the word its own verb gives and the exit of a read of the store: the
+    // calls of a poll that names a park are answered `parked` or `unparked`,
+    // never `usage`, so the poll's rules read the branch they read alone.
+    let (rc, refused, _) = batch(&home, &request(&[vec!["park".into(), "12".into()]]));
+    assert_eq!(rc, 0, "{refused:?}");
+    // `park` takes arguments this call does not give it, so it stops at its
+    // arguments: 64, the same exit and the same line the single command gives.
+    assert_eq!(refused[0]["rc"], 64, "{}", refused[0]);
+    assert_eq!(refused[0]["out"], "usage park: --attempt is required");
+    // Nothing was written: every row of the store is the row it was.
+    assert_eq!(table_counts(&home), before);
+}
+
+#[test]
+fn a_batch_of_only_refusals_never_opens_the_store() {
+    // The one case a poll cannot answer for: a request that holds no read at
+    // all is answered without the database, so a batch cannot be made to open
+    // a store it was not given.
+    let home = crate::verbs_tests::home("batch-no-store");
+    let file = db::path(&home);
+    fs::remove_file(&file).unwrap();
+    let calls = vec![vec!["park-retry".into(), "12".into()]];
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0);
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    assert_eq!(answers[0]["rc"], 1);
+    assert_eq!(answers[0]["out"], "park-retry #12: not a read of a batch");
+    assert!(!file.exists(), "a refusal made the store's file");
+}
+
+#[test]
+fn a_batch_that_is_not_a_request_is_64_and_writes_nothing() {
+    let home = crate::verbs_tests::home("batch-usage");
+    asked(&home, 12, 4001);
+    let before = table_counts(&home);
+    let too_many: Vec<Vec<String>> =
+        vec![vec!["park-show".to_string(), "12".to_string()]; crate::batch::MAX_CALLS + 1];
+    let too_many = serde_json::to_string(&too_many).unwrap();
+    for given in [
+        "",
+        "not json",
+        "{\"plan-show\":\"12\"}",
+        "[\"park-show\",\"12\"]",
+        "[[\"park-retry\",\"12\"],[42]]",
+        "[[]]",
+        "[[\"park-show\",\"12\",\"extra\",\"1\",\"2\",\"3\"]]",
+        &too_many,
+    ] {
+        let child = {
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+            let mut c = Command::new(store_binary())
+                .arg("batch")
+                .env("TEHAS_HOME", &home)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            c.stdin.take().unwrap().write_all(given.as_bytes()).unwrap();
+            c.wait_with_output().unwrap()
+        };
+        assert_eq!(child.status.code(), Some(64), "{given:?}");
+        assert!(child.stdout.is_empty(), "{given:?} answered JSON");
+    }
+    assert_eq!(table_counts(&home), before, "a bad request wrote");
+}
+
+#[test]
+fn a_batch_reads_one_snapshot_of_the_store() {
+    // The point of the one opening: two calls of one batch cannot see two
+    // states of the store, whatever another writer does while the batch runs.
+    // The batch's own reads show it: the second read of one issue is the same
+    // answer as the first, and both are read after a writer has been held out.
+    let home = crate::verbs_tests::home("batch-snapshot");
+    asked(&home, 12, 4001);
+    // A writer holds the store's write lock: a batch that opened the store
+    // twice would pay for the wait twice, and a batch that read without a
+    // transaction would see whatever it committed in between.
+    let holder = crate::verbs_tests::writer_lock(&home);
+    let calls = vec![
+        vec!["park-show".into(), "12".into()],
+        vec!["park-show".into(), "12".into()],
+    ];
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    drop(holder);
+    assert_eq!(rc, 0);
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    assert_eq!(answers[0], answers[1]);
+    assert_eq!(said(&answers[0]), said(&answers[1]));
+    assert_eq!(said(&answers[0])["verb"], "park-show");
+}
+
+#[test]
+fn a_read_of_a_batch_is_the_answer_of_the_same_call_alone() {
+    // The contract the poll depends on: `out` is what the verb prints, parsed.
+    // Every field of the four answers, and the refusal of a call whose issue
+    // is not a number, are what the single call gives.
+    let home = crate::verbs_tests::home("batch-same");
+    asked(&home, 12, 4001);
+    let calls = four(12, 4001);
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0);
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    let alone = [
+        crate::verbs_tests::ok(&home, &["plan-show", "12"]),
+        crate::verbs_tests::ok(&home, &["park-show", "12"]),
+        crate::verbs_tests::ok(&home, &["question-known", "12", "--id", "4001"]),
+        crate::verbs_tests::ok(&home, &["approval-current", "12"]),
+    ];
+    for (a, b) in answers.iter().zip(alone) {
+        assert_eq!(a["rc"], 0, "{a}");
+        assert_eq!(said(a), b, "the batch's answer is not the single call's");
+    }
+    // An issue that is not a number is the single verb's 64, kept as this
+    // call's answer: the line the verb prints, and its exit.
+    let (rc, answers, _) = batch(&home, &request(&[vec!["park-show".into(), "x".into()]]));
+    assert_eq!(rc, 0);
+    assert_eq!(answers[0]["rc"], 64, "{}", answers[0]);
+    assert!(
+        answers[0]["out"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("usage park-show: "),
+        "{}",
+        answers[0]
+    );
+}
+
+#[test]
+fn a_batch_of_13_issues_answers_each_issue_it_was_asked_about() {
+    // The poll's own shape: 13 issues, the four reads of each. Every answer is
+    // the answer of the issue its own arguments named, so a batch that answered
+    // one issue's call with another's rows is seen.
+    let home = crate::verbs_tests::home("batch-13");
+    let mut calls: Vec<Vec<String>> = Vec::new();
+    for i in 0..13i64 {
+        let n = 100 + i;
+        asked(&home, n, 4000 + i);
+        calls.extend(four(n, 4000 + i));
+    }
+    let (rc, answers, err) = batch(&home, &request(&calls));
+    assert_eq!(rc, 0, "{err}");
+    assert_eq!(err, "", "the verb wrote its failure on the error stream");
+    assert_eq!(answers.len(), 52);
+    for (i, a) in answers.iter().enumerate() {
+        assert_eq!(a["rc"], 0, "{i}: {a}");
+    }
+    for i in 0..13i64 {
+        let n = 100 + i;
+        let at = (i * 4) as usize;
+        // The park and the approval name the issue they were read for; the
+        // question of the issue's own attempt is the one the read says is
+        // known; and the plan read of an issue with no session is the null the
+        // single verb answers.
+        assert_eq!(said(&answers[at])["verb"], "plan-show");
+        assert_eq!(said(&answers[at])["planning"], Value::Null, "{n}");
+        assert_eq!(said(&answers[at + 1])["park"]["issue"], json!(n), "{n}");
+        assert_eq!(said(&answers[at + 2])["known"], json!(true), "{n}");
+        assert_eq!(said(&answers[at + 3])["current"]["issue"], json!(n), "{n}");
+        // Each of the four is the answer the same call alone gives, so the
+        // order of the batch changed nothing but how often the store opened.
+        let alone = |args: &[&str]| crate::verbs_tests::ok(&home, args);
+        let q = (4000 + i).to_string();
+        let n = n.to_string();
+        assert_eq!(said(&answers[at]), alone(&["plan-show", &n]), "{n} plan");
+        assert_eq!(
+            said(&answers[at + 1]),
+            alone(&["park-show", &n]),
+            "{n} park"
+        );
+        assert_eq!(
+            said(&answers[at + 2]),
+            alone(&["question-known", &n, "--id", &q]),
+            "{n} question"
+        );
+        assert_eq!(
+            said(&answers[at + 3]),
+            alone(&["approval-current", &n]),
+            "{n} approval"
+        );
+    }
 }
