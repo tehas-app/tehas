@@ -9,9 +9,11 @@
 # why the logic cannot go into Rust now and names the issue that takes the
 # lines out again.
 #
-# Over the ceiling, it says how many lines to take out and which files
-# changed since the merge base with the default branch, with their deltas.
-# Without a merge base it lists the largest files. It reads only local refs.
+# Every run prints the count, the ceiling and the room left or the lines
+# over, so a cycle can see how far it has to go without rerunning the check.
+# Over the ceiling it adds the files that changed since the merge base with
+# the default branch, with their deltas. Without a merge base it lists the
+# largest files. It reads only local refs.
 #
 # Usage: scripts/check-bash-lines.sh
 # Exit: 0 at or under the ceiling, 1 over it or the ceiling is unreadable
@@ -21,7 +23,9 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
 
 max=$(tr -d '[:space:]' <scripts/bash-lines.max 2>/dev/null)
-if ! [[ $max =~ ^[0-9]+$ ]]; then
+# Eighteen digits: one more overflows a signed 64-bit integer and the ceiling
+# would read as a negative number, which no tree can be under.
+if ! [[ $max =~ ^[0-9]{1,18}$ ]]; then
   echo "check-bash-lines: scripts/bash-lines.max holds no number" >&2
   exit 1
 fi
@@ -33,12 +37,18 @@ done
 lines=0
 [ "${#files[@]}" = 0 ] || lines=$(cat "${files[@]}" | wc -l)
 
+# The ceiling in base 10. The guard above accepts a digit string, so one with
+# a leading zero is a number bash would read as octal: 08 is no octal digit and
+# $(( )) would fail on it. The room and the over figures are the first places
+# the ceiling meets arithmetic, so the base is forced here, once.
+max=$((10#"$max"))
+
 if [ "$lines" -le "$max" ]; then
-  echo "check-bash-lines: $lines of $max"
+  echo "check-bash-lines: $lines of $max: $((max - lines)) lines of room"
   exit 0
 fi
 
-echo "check-bash-lines: $lines lines of bash, over the ceiling of $max (scripts/bash-lines.max)."
+echo "check-bash-lines: $lines lines of bash, over the ceiling of $max: $((lines - max)) lines over (scripts/bash-lines.max)."
 echo "Take out $((lines - max)) lines."
 echo "A raise of the ceiling says why this cannot go into Rust now, and which issue takes the lines out again."
 
