@@ -106,8 +106,8 @@ t_contains "$(cat "$T_ROOT/host/edge/docs.compose.yaml")" 'TEHAS_LAYOUT: "${TEHA
 
 t_case "the business page reads the dispatcher's files and loads its sample first"
 order=$(grep -oE 'src="/fun/[a-z-]+\.js"' "$fun/business.html" | sed 's/src="\/fun\///; s/"//' | xargs)
-t_eq "$order" "mode.js sample-issues.js business-view.js"
+t_eq "$order" "mode.js sample-issues.js console-tabs.js business-view.js"
 t_contains "$(cat "$fun/business.html")" '<script type="module" src="/fun/business-view.js">'
-t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/energy.json /live/protolab.json /live/status.json'
+t_eq "$(grep -oE '"/live/[a-z]+\.json"' "$fun/business-view.js" | tr -d '"' | sort -u | xargs)" '/live/analytics.json /live/energy.json /live/protolab.json /live/running.json /live/status.json'
 
 t_done
