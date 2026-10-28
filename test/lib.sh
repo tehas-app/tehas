@@ -9,6 +9,12 @@
 #   t_instance KEY=VALUE...          write a scratch instance directory
 #   t_stub NAME ['<bash body>']      a stub command that records its arguments
 #   t_calls NAME                     what the stub was called with, one call per line
+#   t_gh_fail N [RC] [MESSAGE]       the n-th gh call of the case, counting
+#                                    from 1 over every call the gh stub makes:
+#                                    it prints MESSAGE [HTTP 502: Bad Gateway]
+#                                    on stderr and ends with RC [1], and the
+#                                    call is recorded as any other is; several
+#                                    calls may be named; t_case clears them
 #   t_stub_analytics ['<bash body>'] a stub of the analytics program where the
 #                                    commands look for it, in the scratch
 #                                    TEHAS_HOME; t_calls analytics
@@ -158,6 +164,9 @@ T_MINIMAL=(TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=a
 t_after=""
 t_case() {
   [ "$t_count" = 0 ] || [ -z "$t_after" ] || eval "$t_after"
+  # The answers of the case, cleared with the count the stub keeps: one line a
+  # call t_gh_fail named, its number, its status and its message.
+  rm -f "$T/gh-fails" "$T/gh-n"
   t_name=$1
   t_count=$((t_count + 1))
 }
@@ -203,6 +212,8 @@ t_stub() {
       # A body given on standard input, as the Rust poll gives it, is written
       # down as the bash poll's arguments say it: one record for both.
       cat <<'REC'
+n=$(($(cat "$T/gh-n" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$T/gh-n"
 call="$*"
 case " $* " in
   *" --body-file - "*) body=$(cat); call=${call/--body-file -/--body $body} ;;
@@ -210,6 +221,35 @@ case " $* " in
 esac
 REC
       printf '%s\n' "printf '%s\\n' \"\$call\" >>\"$T/calls/$name\""
+      # The answer of t_gh_fail comes after the record, so a body that exits or
+      # execs is answered too, and the failed call stands in t_calls gh like any
+      # other. t_case takes both files away, so the count is the case's, not the
+      # file's: a case that stubs gh again partway through does not start over.
+      cat <<'FAIL'
+if [ -s "$T/gh-fails" ]; then
+  # One tab between the fields of a line: the fields are read literally. The
+  # answer is kept and the exit is taken after the loop: an exit run inside the
+  # loop while the file is still its input lets the rest of the stub's body
+  # answer too, so the call would end 0 with its body's words on stdout. The
+  # message is kept under its own name, not back into f_msg: the read of the
+  # loop runs in a subshell, so that name is empty again after it.
+  f_rc=
+  f_answer=
+  while IFS=$'\t' read -r f_n f_w f_msg; do
+    [ "$f_n" = "$n" ] || continue
+    [ -z "$f_rc" ] || {
+      printf 't_gh_fail: call %s is named twice: %s then %s\n' "$n" "$f_rc" "$f_w" >&2
+      exit 64
+    }
+    f_rc=$f_w
+    f_answer=$f_msg
+  done <"$T/gh-fails"
+  if [ -n "$f_rc" ]; then
+    printf '%s\n' "$f_answer" >&2
+    exit "$f_rc"
+  fi
+fi
+FAIL
     else
       printf '%s\n' "printf '%s\\n' \"\$*\" >>\"$T/calls/$name\""
     fi
@@ -219,6 +259,59 @@ REC
   chmod +x "$T/bin/$name"
 }
 t_calls() { cat "$T/calls/$1" 2>/dev/null || true; }
+# t_gh_fail <n> [<rc>] [<message>]: the <n>-th gh call of the current case -
+# counting from 1, every call the t_stub gh stub records - prints <message>
+# [HTTP 502: Bad Gateway] on stderr and ends with <rc> [1], as GitHub does on a
+# bad minute. The failed call is recorded as the stub records any other, and
+# calls it does not name answer as today. It may be given several times for
+# several calls, once for each; t_case clears them. The answers live in a file
+# the stub reads when it runs, so a case may name t_gh_fail before or after
+# t_stub gh. The call is a number written the way the stub counts (1, 2, 12 and
+# not 01, ' 1' or 1*: the stub compares what it wrote down character for
+# character, so a spelling it cannot produce names no call) and the status is
+# one a program can end with (1 to 255: 0 is not a failure and 256 is not a
+# status). A bad one of either is a failure of the case, refused before anything
+# is written down.
+t_gh_fail() {
+  # ${1-} and not $1: the shell of the test files has set -u, and an argument
+  # that was left out is the one case this helper must report through t_bad
+  # rather than end the file with an unbound variable of lib.sh. The defaults
+  # are for arguments left out; an argument given as "" is a bad one, refused
+  # with the message below, and not a way to name a call by an empty number or
+  # give it the status of the default.
+  local n=${1-} rc=${2-1} message=${3-HTTP 502: Bad Gateway}
+  local why="" g_n g_w g_m named=0
+  # case and not [: : a [ ] of a value bash reads as a number aborts on its
+  # own line with its own words on standard error and the case sails on, so the
+  # shape of both fields is settled by pattern first and the range by arithmetic
+  # only afterwards, on values that cannot make [ ] complain. 0*) is the shape
+  # the stub never writes (01, 0002) and so names no call; a leading blank fails
+  # the digit test for the same reason.
+  case $n in '' | 0 | *[!0-9]* | 0*) why=bad ;; esac
+  case $rc in '' | 0 | *[!0-9]* | 0*) why=bad ;; esac
+  if [ -z "$why" ] && { [ "$n" -gt 255 ] || [ "$rc" -gt 255 ]; }; then
+    why=bad
+  fi
+  if [ -n "$why" ]; then
+    why="the call and its status are numbers, got '$n' '$rc'"
+  elif [ -e "$T/gh-fails" ]; then
+    # The fields of a line are read literally, one tab between them, as the
+    # stub of the case reads them. A call named twice would give that call two
+    # answers, so the first of them decides and the case believes the other.
+    while IFS=$'\t' read -r g_n g_w g_m; do
+      [ "$g_n" = "$n" ] && named=1
+    done <"$T/gh-fails"
+  fi
+  if [ -n "$why" ]; then
+    t_bad "t_gh_fail: $why"
+    return 64
+  fi
+  if [ "$named" = 1 ]; then
+    t_bad "t_gh_fail: call $n is already named by this case"
+    return 64
+  fi
+  printf '%s\t%s\t%s\n' "$n" "$rc" "$message" >>"$T/gh-fails"
+}
 # t_hold <file>: another process holds a flock on <file> until t_release.
 # The holder is the subshell itself, turned into a sleep, so killing it frees
 # the lock at once; t_hold returns once the lock is held.
