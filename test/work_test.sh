@@ -225,15 +225,13 @@ PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
 
-t_case "the child bound is tehas', not the instance's"
+t_case "the child bound is tehas', not the instance's, and takes its default when the case names none"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SPAWN_TIMEOUT_MS=60000 TEHAS_CHILD_TIMEOUT=5400
 rm -f "$T"/calls/*
 t_run "$work 7"
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_SPAWN_TIMEOUT_MS')" 1
 t_eq "$(after -e | grep '^PI_ENSEMBLE_SPAWN_TIMEOUT_MS')" "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=5400000"
 t_instance "${T_MINIMAL[@]}"
-
-t_case "the child bound a case leaves alone is tehas' default, not pi-rukas'"
 rm -f "$T"/calls/*
 t_run "$work 7"
 t_eq "$(after -e | sed -n 's/^PI_ENSEMBLE_SPAWN_TIMEOUT_MS=//p')" "7200000"

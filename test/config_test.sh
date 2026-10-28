@@ -8,6 +8,8 @@
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
 # The ceiling as lib/config.sh writes it, so a test never hand-copies it.
 plan_max=$(sed -n 's/^[[:space:]]*local TEHAS_PLAN_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
+# The bound of one child, likewise read from the config rather than copied.
+child_max=$(sed -n 's/^[[:space:]]*local TEHAS_CHILD_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
 
 t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
@@ -62,10 +64,18 @@ t_instance "${T_MINIMAL[@]}"
 
 t_case "a child's bound is two hours unless the instance says otherwise"
 t_run "$load && echo \$TEHAS_CHILD_TIMEOUT"
-t_eq "$t_out" "7200"
+t_eq "$t_out" "$child_max"
 t_instance "${T_MINIMAL[@]}" TEHAS_CHILD_TIMEOUT=10800
 t_run "$load && echo \$TEHAS_CHILD_TIMEOUT"
 t_eq "$t_out" "10800"
+# The copy an operator copies and the row of the manual are the same number as
+# the config's, and a line that names the setting and leaves it empty takes the
+# default rather than leaving it unset for the arithmetic of tehas work.
+t_contains "$(grep '^#TEHAS_CHILD_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$child_max"
+t_contains "$(grep '^| .TEHAS_CHILD_TIMEOUT.' "$T_ROOT/host/docs/tools.md")" "| \`$child_max\`"
+t_instance "${T_MINIMAL[@]}" TEHAS_CHILD_TIMEOUT=
+t_run "$load; echo rc=\$? \$TEHAS_CHILD_TIMEOUT"
+t_eq "$t_out" "rc=0 $child_max"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a child bound longer than the cycle's own limit is refused"
@@ -324,7 +334,7 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
-  "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" \
+  "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \

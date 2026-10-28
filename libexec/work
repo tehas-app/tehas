@@ -22,7 +22,7 @@
 # Anything else is exit 78. So is an entry of TEHAS_RUKAS_WORKAROUNDS whose
 # release the image's pi-rukas has reached: the workaround has expired.
 #
-# Four PI_ENSEMBLE_* values are this command's, whatever the instance says:
+# Five PI_ENSEMBLE_* values are this command's, whatever the instance says:
 #   PI_ENSEMBLE_HANDOFF_CHANNEL=host  pi-rukas posts no handoff comment and
 #                       applies no label; tehasbot cycle posts the one comment
 #                       from the result's handoff and labels the issue.
@@ -45,6 +45,9 @@
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
 #                       container's share of the CPUs and memory ceiling
 #                       (tehas_slice_verify).
+#   PI_ENSEMBLE_SPAWN_TIMEOUT_MS  one child's bound in ms from
+#                       TEHAS_CHILD_TIMEOUT: pi-rukas's backstop for a child
+#                       nothing else ended.
 #
 # Usage: tehas work <issue-number> [--restart]
 #
@@ -113,6 +116,8 @@
 #                       seconds later if it has not.
 #   TEHAS_WORK_STALL    seconds with no line added to any of the cycle's logs
 #                       before it is stopped as stalled [3600]
+#   TEHAS_CHILD_TIMEOUT seconds one child may take, as
+#                       PI_ENSEMBLE_SPAWN_TIMEOUT_MS [7200]
 #   TEHAS_CYCLE_RESERVE the container's memory floor [2g]
 #   TEHAS_RUKAS_WORKAROUNDS  settings that work around a pi-rukas defect, as
 #                       NAME@VERSION: VERSION is the release that fixes it []
@@ -120,14 +125,13 @@
 #   TEHAS_WORK_DESCRIBE 1 has the model describe those images first [0]
 #   TEHAS_WORK_FILES    1 gives the cycle the text files its issue links [0]
 #   TEHAS_WORK_COMMENTS 1 takes those of the issue's comments too [0]
-#   TEHAS_WORK_ZIPS     1 unpacks a zip its issue links into the same
-#                       directory [0]; needs TEHAS_WORK_IMAGES or
-#                       TEHAS_WORK_FILES
+#   TEHAS_WORK_ZIPS     1 unpacks a zip its issue links into the same directory
+#                       [0]; needs TEHAS_WORK_IMAGES or TEHAS_WORK_FILES
 # From the environment, for tests: TEHAS_PREFLIGHT_WAIT (seconds the push check
 # may take [300]), TEHAS_WORK_GRACE (seconds past the time limit [300]),
-# TEHAS_STOP_WAIT (seconds a docker stop may take before
-# the container is killed [60]), TEHAS_CONSOLE_WAIT (seconds the console
-# may take to stop before it is killed [30]) and TEHAS_TEXT_WAIT (seconds the
+# TEHAS_STOP_WAIT (seconds a docker stop may take before the container is
+# killed [60]), TEHAS_CONSOLE_WAIT (seconds the console may take to stop before
+# it is killed [30]) and TEHAS_TEXT_WAIT (seconds the
 # read of the issue's text may take, and every comment that names why a start
 # stopped [60]).
 #
@@ -220,13 +224,12 @@
 # files are fetched from too, so a start asks GitHub for the issue once
 # whatever it is given. By hand, where this host holds no record, the run is
 # its own approval and GitHub is asked for nothing.
-# When the dispatcher's approval
-# record lists attachment links, the gap is said rather than left for an agent
-# to find from a file that is not there: one line naming how many links and
-# which approval it read, on this command's error stream and in $log.err,
-# which is err.txt of the cycle's improvement record, and a manifest kept as
-# state/cycles/<issue>.manifest.json. What the line and the manifest say, and
-# why, is tehas_issue_images_left_out.
+# When the dispatcher's approval record lists attachment links, the gap is said
+# rather than left for an agent to find from a file that is not there: one line
+# naming how many links and which approval it read, on this command's error
+# stream and in $log.err, which is err.txt of the cycle's improvement record, and
+# a manifest kept as state/cycles/<issue>.manifest.json. What the line and the
+# manifest say, and why, is tehas_issue_images_left_out.
 #
 # A cycle that ended at a cap, or was aborted, with nothing in $log.err gets that
 # account there: the cap with the reason the progress read for it, or the abort
@@ -241,14 +244,14 @@
 # mount and no variable more. A description that fails says so in the file and
 # stops nothing.
 #
-# tehas work also bounds one child of a cycle: pi-rukas's backstop for a child
-# nothing else ended, from the instance's TEHAS_CHILD_TIMEOUT, so a fixer still
-# making progress is not stopped at pi-rukas's default with hours of budget left.
+# tehas work also bounds one child of a cycle, from TEHAS_CHILD_TIMEOUT, so a
+# fixer still making progress is not stopped at pi-rukas's own default with
+# hours of the cycle's budget left.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
-# limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of
-# the slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU, a pids
-# limit that follows its share of that and a CPU weight.
+# limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of the
+# slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU,
+# a pids limit that follows its share of that and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
 # that outlives its parent would count against the pids limit until the
 # container ends. A pass of the shell tests leaves several hundred.
@@ -284,13 +287,13 @@
 #
 # The workspace is $TEHAS_HOME/work/<name>-<issue>, a fresh clone made here for
 # every cycle. What a stopped cycle of the same issue left there is kept
-# beside it as <name>-<issue>.before-retry. Every cycle has its workspace at the same path inside its
-# container, $TEHAS_HOME/work/<name>: the code index is kept under that path,
-# so one index serves all cycles. The container never sees the product
-# checkout: an agent can write anything into the tree it works in, hooks and
-# git configuration included, and the host runs git in the product checkout.
-# So the host runs git only in a tree no container has touched, and reads
-# nothing from the workspace afterwards.
+# beside it as <name>-<issue>.before-retry. Every cycle has its workspace at the
+# same path inside its container, $TEHAS_HOME/work/<name>: the code index is kept
+# under that path, so one index serves all cycles. The container never sees the
+# product checkout: an agent can write anything into the tree it works in, hooks
+# and git configuration included, and the host runs git in the product checkout.
+# So the host runs git only in a tree no container has touched, and reads nothing
+# from the workspace afterwards.
 #
 # Beside the workspace is <name>-<issue>.state, the cycle's own: cache holds its
 # copy of the code index $TEHAS_HOME/state/index, memory its own store of what
@@ -497,8 +500,8 @@ fi
 # Its path is this command's to give, not the instance's: dropped whether or
 # not this cycle is given attachments, so no container names a directory tehas
 # did not mount. So are who reports a handoff, the time it may take, the cycle's
-# deadline, how many gate runs it makes at once, and the bound of one child,
-# which is this command's to give, from TEHAS_CHILD_TIMEOUT, below.
+# deadline, how many gate runs it makes at once, and one child's bound, from
+# TEHAS_CHILD_TIMEOUT, below.
 unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_SPAWN_TIMEOUT_MS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
@@ -512,7 +515,10 @@ verify_at_once=$(tehas_slice_verify) ||
 handoff=480
 # tehasbot cycle posts the one comment of a handoff and labels the issue.
 envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=$((handoff * 1000))"
-  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once" -e "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=$((TEHAS_CHILD_TIMEOUT * 1000))")
+  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once"
+  # 10# reads the value as the decimal count the config checked, which holds it
+  # at or under TEHAS_WORK_TIMEOUT: at most 25200 s, so no overflow here.
+  -e "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=$((10#$TEHAS_CHILD_TIMEOUT * 1000))")
 features=handoffChannel
 # The runner by its path in the image: the link to it on PATH does not find
 # its own source (pi-rukas v0.12.80).
@@ -542,13 +548,13 @@ else
   echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"
 fi
 
-# A fresh workspace for this cycle, at the tip the product checkout last
-# fetched for the branch. A workspace is still here only when this issue's last
-# cycle stopped without a pull request, and what it holds may exist nowhere
-# else: commits that were never pushed. It is moved aside, not removed, and
-# replaces the one moved aside before it. No container is given it and the
-# host runs nothing in it. Only a directory this command made is ever moved or
-# removed, and never another issue's.
+# A fresh workspace for this cycle, at the tip the product checkout last fetched
+# for the branch. A workspace is still here only when this issue's last cycle
+# stopped without a pull request, and what it holds may exist nowhere else:
+# commits that were never pushed. It is moved aside, not removed, and replaces
+# the one moved aside before it. No container is given it and the host runs
+# nothing in it. Only a directory this command made is ever moved or removed, and
+# never another issue's.
 works=$(dirname "$tree")
 if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
   echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
@@ -744,9 +750,9 @@ if [ -z "$gate" ] && [ -z "$stack" ]; then
   echo "tehas work: $tree is left in place with what it holds, and $tree.before-retry holds what the last cycle left, if any" >&2
   exit 78
 fi
-# Before spending an hour of model time: can the sandbox push at all? A dry
-# run needs the same credentials a real push does and creates nothing. The
-# client passes the timeout's TERM on to git in the container.
+# Before spending an hour of model time: can the sandbox push at all? A dry run
+# needs the same credentials a real push does and creates nothing. The client
+# passes the timeout's TERM on to git in the container.
 timeout -k 10 "$preflight_wait" docker run --rm "${sec[@]}" --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
   -w "$repo" -v "$tree:$repo" --entrypoint git "$image" \
   push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1
@@ -793,18 +799,18 @@ if [ "$give" != 1 ]; then
 fi
 
 # Docker refuses a cid file that is already there. One is left only by a cycle
-# that was killed outright, and so is a count of kills, and so is the name a
-# write of one of these files was made beside before it was moved into place.
+# that was killed outright, and so is a count of kills, and so is the name a write
+# of one of these files was made beside before it was moved into place.
 rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
   "$nostart_file" "$nostart_file.new" \
   "$runner_exit_file.new" "$status_file.new"
-# A container under this name outlived the client that started it: this
-# command holds the issue's lock, so no cycle owns it. It would work on with
-# the bot's token, and Docker would refuse the name below.
+# A container under this name outlived the client that started it: this command
+# holds the issue's lock, so no cycle owns it. It would work on with the bot's
+# token, and Docker would refuse the name below.
 timeout -k 10 "$stop_wait" docker rm -f "$name" >/dev/null 2>&1
 
-# stop_container <grace>: docker stop, bounded. When dockerd does not answer
-# in time the container is killed, also bounded: the end must be reported.
+# stop_container <grace>: docker stop, bounded. When dockerd does not answer in
+# time the container is killed, also bounded: the end must be reported.
 stop_container() {
   timeout -k 5 "$stop_wait" docker stop -t "$1" "$name" >/dev/null 2>&1
   case $? in 124 | 137) ;; *) return 0 ;; esac
@@ -813,11 +819,11 @@ stop_container() {
     echo "tehas work: docker kill of $name did not work either"
 }
 
-# The image the cycle runs, as the container starts: a rebuild or a new pin
-# while the cycle runs does not change what it ran. On the cycle's record with
-# what the container is given of the settings, and how many cycles run now,
-# this one with them. A record that is not this start's, or has ended, is no
-# start to run; a store that is only busy costs the record, not the cycle.
+# The image the cycle runs, as the container starts: a rebuild or a new pin while
+# the cycle runs does not change what it ran. On the cycle's record with what the
+# container is given of the settings, and how many cycles run now, this one with
+# them. A record that is not this start's, or has ended, is no start to run; a
+# store that is only busy costs the record, not the cycle.
 if [ -n "$attempt" ]; then
   image_id="" image_rukas=""
   read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
@@ -872,10 +878,10 @@ if [ -n "${gap_said:-}" ]; then
     echo "tehas work: could not write $log.err" >&2
 fi
 
-# The runner is the container's command, so a docker stop reaches it: it ends
-# the cycle as interrupted and still writes its result.
-# The container reads the app's token from a directory the host keeps fresh;
-# the renewer ends with the container, or with this command.
+# The runner is the container's command, so a docker stop reaches it: it ends the
+# cycle as interrupted and still writes its result. The container reads the app's
+# token from a directory the host keeps fresh; the renewer ends with the
+# container, or with this command.
 renewer=$(tehas_github_renew)
 trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; [ -z "$renewer" ] || kill "$renewer" 2>/dev/null; stop_container 10
 [ "$live_on" = 0 ] || now_file false interrupted' TERM INT
@@ -954,8 +960,8 @@ oom_look() {
   return 0
 }
 
-# The newest change to any of the cycle's logs, in whole seconds since the
-# epoch. Transcripts of an earlier cycle are older than this one's start.
+# The newest change to any of the cycle's logs, in whole seconds since the epoch.
+# Transcripts of an earlier cycle are older than this one's start.
 moved() {
   find "$log" "$runs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1
 }

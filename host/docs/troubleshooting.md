@@ -685,7 +685,8 @@ no retry: split the issue with `tehas:plan`, or make the body smaller. See
 
 `spawn-backstop`: a child ran past the backstop, `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`,
 which only catches a child nothing else ended. tehas gives the container that
-bound from `TEHAS_CHILD_TIMEOUT`, 7200 seconds by default; pi-rukas alone allows
+bound from `TEHAS_CHILD_TIMEOUT`, whose default the settings table of
+[the tools page](/tools#instance-settings) states; pi-rukas alone allows
 the same two hours. When a child that was still making progress is stopped by
 it, raise `TEHAS_CHILD_TIMEOUT` in the instance's `optional.env`; it may be at
 most `TEHAS_WORK_TIMEOUT`. Until result schema 5 (pi-rukas v0.14.0) this cap was

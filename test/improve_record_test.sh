@@ -275,13 +275,16 @@ settings() { lib "export $1; tehas_improve_settings \"\$TEHAS_HOME/s.json\" ${2:
 t_case "the settings a container is given, the TEHAS_* that shape a cycle, and how many cycles ran"
 reset
 mkdir -p "$home"
-settings "PI_ENSEMBLE_MAX_WORKSTREAMS=1 TEHAS_WORK_TIMEOUT=21600 TEHAS_HOST_ADDR=192.0.2.9 TEHAS_ANALYTICS_COOKIE=c" 3 \
+settings "PI_ENSEMBLE_MAX_WORKSTREAMS=1 TEHAS_WORK_TIMEOUT=21600 TEHAS_CHILD_TIMEOUT=7200 TEHAS_HOST_ADDR=192.0.2.9 TEHAS_ANALYTICS_COOKIE=c" 3 \
   "-e GH_TOKEN -e PI_ENSEMBLE_SANDBOX_MODE=1 -e PI_ENSEMBLE_MAX_WORKSTREAMS -e GIT_CONFIG_COUNT=4 -v /a:/b -e PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/w.images"
 t_eq "$t_rc" 0
 t_eq "$(jq -c .container "$home/s.json")" \
   '{"PI_ENSEMBLE_SANDBOX_MODE":"1","PI_ENSEMBLE_MAX_WORKSTREAMS":"1","PI_ENSEMBLE_EXTRA_IMAGE_DIRS":"[withheld]"}'
 t_eq "$(jq -c .concurrentCycles "$home/s.json")" 3
 t_eq "$(jq -r '.host.TEHAS_WORK_TIMEOUT' "$home/s.json")" 21600
+# The bound of one child too: a spawn-backstop park is read from it, and an
+# analyst cannot tell a low instance value from the default without it.
+t_eq "$(jq -r '.host.TEHAS_CHILD_TIMEOUT' "$home/s.json")" 7200
 t_eq "$(jq -c '.host | has("TEHAS_HOST_ADDR") or has("TEHAS_ANALYTICS_COOKIE") or has("TEHAS_REPO")' "$home/s.json")" false
 
 t_case "a value whose name or shape may be a secret is withheld, and a count that is not one is null"
