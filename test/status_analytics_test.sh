@@ -38,6 +38,7 @@ cat >"$T/report.json" <<'EOF'
   "1-2":{"n":2,"shipped":1,"leadTime":{"n":1,"median":7200}},
   "3-4":{"n":0,"shipped":0,"leadTime":{"n":0}},
   "5+":{"n":1,"shipped":0,"leadTime":{"n":0}}},
+ "gate":{"n":3,"seconds":1200,"median":300,"p90":540,"perRun":1.333,"share":0.467},
  "failureCause":"a cause that may not be public","issues":[12,13]}
 EOF
 keys="availability,cycleTime,daily,energy,firstPassYield,from,handoffRate,leadTime,machineTime,planned,planningTurns,refine,report,runs,shipped,stations,stopReasons,to,tokens,versions"
@@ -88,6 +89,10 @@ t_eq "$(jq -r 'keys | join(",")' "$file")" "$keys"
 # it true.
 t_eq "$(jq -e 'has("sizes")' "$T/report.json")" "true"
 t_eq "$(jq -e 'has("sizes")' "$file")" "false"
+# The gate figures are the report's own, for the same reason: the gate's time
+# is a figure of the cycles, not of the factory the page shows.
+t_eq "$(jq -e 'has("gate")' "$T/report.json")" "true"
+t_eq "$(jq -e 'has("gate")' "$file")" "false"
 t_lacks "$file" "may not be public"
 t_eq "$(jq -c .runs "$file")" "$(jq -c .runs "$T/report.json")"
 t_eq "$(jq -c .refine "$file")" "$(jq -c .refine "$T/report.json")"
