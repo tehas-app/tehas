@@ -33,22 +33,41 @@ fn names(v: &Value) -> Vec<String> {
 }
 
 impl Writer {
-    /// The actions left open, each settled or said.
-    pub fn settle(&mut self, now: i64, log: &mut Vec<String>) {
-        let open = match self.calls.store(&["journal-open"]) {
-            Ok(v) => v
-                .get("actions")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
+    /// The actions left open, each settled or said: the read, then the list.
+    /// The poll takes the two steps itself, so that a journal it could not
+    /// read is not mistaken for an empty one; this is the whole of them, for
+    /// the tests.
+    #[cfg(test)]
+    pub(super) fn settle(&mut self, now: i64, log: &mut Vec<String>) {
+        let Some(open) = self.journal_open(log) else {
+            return;
+        };
+        self.settle_actions(now, open, log);
+    }
+
+    /// The actions the journal holds open, or None when it could not be read
+    /// at all: a caller that skips work on an empty journal must not skip the
+    /// work of a poll whose journal it never saw.
+    pub(crate) fn journal_open(&mut self, log: &mut Vec<String>) -> Option<Vec<Value>> {
+        match self.calls.store(&["journal-open"]) {
+            Ok(v) => Some(
+                v.get("actions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
             Err(f) => {
                 log.push(format!(
                     "WARN: the journal's open actions could not be read ({}); the next poll tries again",
                     word(&f)
                 ));
-                return;
+                None
             }
-        };
+        }
+    }
+
+    /// The read list of actions, each settled or said.
+    pub(crate) fn settle_actions(&mut self, now: i64, open: Vec<Value>, log: &mut Vec<String>) {
         for a in open {
             let id = a.get("id").and_then(Value::as_i64).unwrap_or(0).to_string();
             let kind = text(&a, "kind").to_string();

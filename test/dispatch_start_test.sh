@@ -19,7 +19,19 @@ t_case "the poll's lock is not passed on to the cycle it starts"
 t_eq "$(find "$T/calls/start.fd8" 2>/dev/null | wc -l)" 0
 
 t_case "the status is refreshed before the poll and after the start"
-t_eq "$(t_calls fake-status | wc -l)" 2
+# Three: the poll's own read, the one start_cycles runs when the starts are
+# done, and the poll's end, which #871 leaves to the poll that changed the
+# queue - and a start is one.
+t_eq "$(t_calls fake-status | wc -l)" 3
+
+# #871: the poll's end runs the status only after a poll that could change
+# the queue, so a poll that writes nothing runs none of them.
+t_case "a poll that starts nothing runs no status: the queue did not change"
+reset
+echo '[]' >"$fx/ready.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-status)" ""
 
 t_case "for one issue: the running label, then the start comment, then the start"
 reset
@@ -601,8 +613,8 @@ sample
 prune"
 t_eq "$(<"$T/calls/analytics.moment")" "event 7 ready: approved status=1
 event 7 started: approved started status=1
-sample: approved started tidied status=2
-prune: approved started tidied status=2"
+sample: approved started tidied status=3
+prune: approved started tidied status=3"
 t_lacks "$t_out" "analytics"
 
 t_case "ready is recorded at the time tehas:ready was accepted, as the approval record says it"
@@ -635,37 +647,36 @@ t_eq "$(t_calls analytics)" "event 7 ready
 sample
 prune"
 
-t_case "a poll that starts nothing, a held poll, a paused poll and a poll GitHub fails still sample"
+t_case "a poll that starts nothing, a held poll and a paused poll take no sample; a poll GitHub fails still does"
 reset
 analytics_stub
 echo '[]' >"$fx/ready.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
-t_eq "$(t_calls analytics)" "sample
-prune"
+t_eq "$(t_calls analytics)" "prune"
 reset
 analytics_stub
 no_slice
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(t_calls analytics)" "sample
-prune"
+t_eq "$(t_calls analytics)" "prune"
 reset
 analytics_stub
 echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
-t_eq "$(t_calls analytics)" "sample
-prune"
+t_eq "$(t_calls analytics)" "prune"
 reset
+# The poll's read of GitHub fails before any write, so nothing marks the queue
+# changed: the sample of it would say what the poll never read, so it is the
+# next poll's.
 analytics_stub
 rm -f "$fx/repo.json"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_eq "$(t_calls analytics)" "sample
-prune"
+t_eq "$(t_calls analytics)" "prune"
 
 t_case "a dry run and TEHAS_ANALYTICS=off call no analytics"
 reset

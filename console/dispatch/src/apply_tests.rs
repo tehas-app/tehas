@@ -173,6 +173,7 @@ fn world() -> World {
         ended: None,
         spend: None,
         status_due: false,
+        changed: false,
         gh_writes: 0,
         starts: 0,
         fetched: false,
@@ -2361,6 +2362,22 @@ fn settled(t: &World) -> Vec<String> {
         .into_iter()
         .filter(|c| c.starts_with("store journal-settle"))
         .collect()
+}
+
+#[test]
+fn a_journal_the_store_would_not_answer_is_not_read_as_an_empty_one() {
+    // journal_open says None, not an empty list: a poll that skips the work of
+    // a journal holding nothing must still do it when the read failed.
+    let mut t = world();
+    // The stub's way of refusing a verb: a line naming its word, then exit 1.
+    fs::write(t.dir.join("fail-store"), "journal-open|busy\n").unwrap();
+    let mut log = Vec::new();
+    assert!(t.w.journal_open(&mut log).is_none());
+    assert_eq!(
+        log,
+        ["WARN: the journal's open actions could not be read (busy); the next poll tries again"]
+    );
+    assert!(settled(&t).is_empty());
 }
 
 #[test]
