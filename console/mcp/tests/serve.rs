@@ -138,13 +138,13 @@ impl Server {
         self.stop_after(0)
     }
 
-    // A request's log line is written after its answer is sent, so a client
-    // can see the answer before the line exists. Read the `lines` the test
-    // needs before the kill, which would lose them.
-    /// One line of the log, read after the request that made it.
+    /// One line of the log. A request's line is written after its answer is
+    /// sent, so read the lines you need before `stop`, which would lose them,
+    /// and treat a read that answers nothing as the server dying.
     fn log_line(&mut self) -> String {
         let mut line = String::new();
-        self.log.read_line(&mut line).unwrap();
+        let n = self.log.read_line(&mut line).unwrap();
+        assert!(n > 0, "the server wrote no log line");
         line
     }
 
@@ -439,8 +439,9 @@ fn a_method_cannot_write_into_the_log() {
 }
 
 // The whole line of one request, as the binary prints it: method, status,
-// time, key, and the tool of a tools/call. The name of a call is logged,
-// never an argument of it.
+// time, key, and the tool of a tools/call, with one field per space-separated
+// part. The name of a call is logged, never an argument of it, and never a
+// name that is not a word of the server's own.
 #[test]
 fn the_line_of_a_call_names_the_tool_and_no_argument() {
     let mut s = Server::start();
@@ -463,6 +464,23 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
         h
     };
 
+    // The shape of the whole line, with the two variable parts replaced, so
+    // a field cannot move, repeat or go missing without an assert failing.
+    // The time and the key's fingerprint vary, so they are masked; a request
+    // with no key keeps `key=-`, which is how the line says so.
+    let shaped = |log: &str| {
+        let mut parts: Vec<String> = log.split_whitespace().map(str::to_string).collect();
+        if let Some(p) = parts.get_mut(2) {
+            *p = "<ms>ms".into();
+        }
+        if let Some(p) = parts.get_mut(3) {
+            if p != "key=-" {
+                *p = "key=<fp>".into();
+            }
+        }
+        parts.join(" ")
+    };
+
     let body = call("factory_issues", json!({"stage": "queued", "note": secret}));
     let (status, _) = s.raw(
         &post_raw(
@@ -476,11 +494,9 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert!(log.starts_with("POST 200 "), "{log}");
-    assert!(log.contains("ms key=") && !log.contains("key=-"), "{log}");
-    assert!(log.contains(" tool=factory_issues"), "{log}");
-    assert!(!log.contains(secret) && !log.contains("queued"), "{log}");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=factory_issues");
     assert!(!log.contains(K1), "{log}");
+    assert!(!log.contains(secret) && !log.contains("queued"), "{log}");
 
     // A name the server does not have is logged as ?.
     let body = call("factory_delete", json!({"issue": 987}));
@@ -496,7 +512,24 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert!(log.contains(" tool=?"), "{log}");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=?");
+    assert!(!log.contains("987"), "{log}");
+
+    // A name that is not text is logged as -, so a client that sends a
+    // malformed request is told from one probing a tool the server has not.
+    // Only the legacy handshake answers such a body: a modern one needs an
+    // `Mcp-Name` whose text equals the body's name, and no text equals a
+    // number, so the modern mirror answers 400 for it (see tests/rpc.rs).
+    let malformed = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": 7, "arguments": {"issue": 987}}})
+    .to_string();
+    let (status, _) = s.raw(
+        &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &malformed),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200, "the answer before the line");
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=-");
     assert!(!log.contains("987"), "{log}");
 
     // A request that is not a call logs no tool, and neither does one refused
@@ -516,8 +549,7 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert!(log.starts_with("POST 200 "), "{log}");
-    assert!(!log.contains("tool="), "{log}");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp>");
 
     let (status, _) = s.raw(
         &post_raw("POST", "/mcp", None, &[], "{}"),
@@ -525,10 +557,33 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 401);
     let log = s.log_line();
-    assert!(log.contains("401") && log.contains("key=-"), "{log}");
+    assert_eq!(shaped(&log), "POST 401 <ms>ms key=-");
     assert!(!log.contains("tool="), "{log}");
 
+    // A name of another shape than a word of letters stays one line with no
+    // escape or newline of the client's in it: the allowlist of `known` is
+    // what keeps the line the server writes the server's own. The legacy
+    // handshake is what lets the body's name reach the log at all, since the
+    // modern mirror refuses a name its header does not carry.
+    let hostile = "factory_log\r\nFORGED \x1b[31m";
+    let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": hostile, "arguments": {}}})
+    .to_string();
+    let (status, _) = s.raw(
+        &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &body),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert_eq!(log.matches('\n').count(), 1, "{log:?}");
+    assert!(!log.contains("FORGED") && !log.contains('\x1b'), "{log:?}");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=?");
+
     s.stop();
+}
+
+fn legacy_headers() -> [(&'static str, &'static str); 1] {
+    [("MCP-Protocol-Version", "2025-11-25")]
 }
 
 fn post_raw(

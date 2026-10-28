@@ -31,19 +31,21 @@ pub fn serve(
     let _ = stream.set_write_timeout(Some(io_timeout));
     let deadline = started + io_timeout;
     let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
-    let tool = r
-        .tool
-        .as_deref()
-        .map(|t| format!(" tool={t}"))
-        .unwrap_or_default();
     write(&mut stream, &r);
-    format!(
-        "{method} {} {}ms key={}{}",
-        r.status,
-        started.elapsed().as_millis(),
-        r.key.as_deref().unwrap_or("-"),
-        tool,
-    )
+    // The parts are built by name, in the order of the line the manual shows:
+    // method, status, time, key, and the tool of a tools/call. The time is
+    // read before the answer is written, which takes its own.
+    let elapsed = started.elapsed().as_millis();
+    let mut parts = vec![
+        method,
+        r.status.to_string(),
+        format!("{elapsed}ms"),
+        format!("key={}", r.key.as_deref().unwrap_or("-")),
+    ];
+    if let Some(t) = &r.tool {
+        parts.push(format!("tool={t}"));
+    }
+    parts.join(" ")
 }
 
 /// Sends a short answer on a connection that is not served, such as one over

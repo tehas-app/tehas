@@ -788,11 +788,12 @@ pub fn list() -> Value {
     tools
 }
 
-/// The names `call_held` dispatches. A tool added to that match is added
-/// here too, and the test beside it compares the two with the list the
-/// server publishes, so the log can name no name the server does not have.
+/// The one list of the tool names, in no particular order. `known` answers
+/// from it and `call_held` dispatches every name in it and no other; the test
+/// beside it compares it with the list the server publishes, so the access log
+/// can name no name the server does not serve, and serves none it does not
+/// publish.
 const CALLED: [&str; 11] = [
-    "factory_log",
     "factory_status",
     "factory_issues",
     "factory_endings",
@@ -801,6 +802,7 @@ const CALLED: [&str; 11] = [
     "factory_issue",
     "factory_sessions",
     "factory_session",
+    "factory_log",
     "factory_failures",
     "factory_outcomes",
 ];
@@ -823,6 +825,11 @@ pub fn call_held(
     name: &str,
     args: &Value,
 ) -> Result<(Output, Option<LogGuard>), ToolError> {
+    // The dispatch and the allowlist of the access log cannot disagree: a
+    // name outside `CALLED` is refused here, before any arm of it is reached.
+    if !known(name) {
+        return Err(ToolError::Unknown(name.to_string()));
+    }
     if name == "factory_log" {
         return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
     }
@@ -1264,13 +1271,12 @@ mod tests {
         assert_eq!(epoch("2026-10-20 08:46:07"), None);
     }
 
-    // The access log prints the name of a called tool only when `known` says
-    // it is one, so the two lists of names may not drift apart.
+    // The log prints the name of a called tool only when `known` says it is
+    // one, so the list of names, the dispatch and the published list may not
+    // drift apart. Each is compared with the other, both ways, and every name
+    // is called through the dispatch itself.
     #[test]
     fn the_names_the_log_calls_are_the_names_the_server_lists() {
-        for name in CALLED {
-            assert!(known(name), "{name}");
-        }
         let listed = list();
         let listed: Vec<&str> = listed
             .as_array()
@@ -1278,12 +1284,38 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().expect("a name"))
             .collect();
-        assert_eq!(listed.len(), CALLED.len());
-        for name in &listed {
-            assert!(known(name), "{name} is listed but not called");
+        // The published list and `CALLED` hold the same names, so each is
+        // checked against the other and a name in one and not the other fails.
+        let mut want = CALLED.to_vec();
+        want.sort_unstable();
+        let mut listed = listed;
+        listed.sort_unstable();
+        assert_eq!(listed, want);
+        // Every name is answered by an arm of the dispatch, which refuses
+        // only a name outside `CALLED`.
+        let dirs = Dirs {
+            live: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live"),
+            sessions: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sessions"),
+            logs: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/logs"),
+        };
+        for name in CALLED {
+            assert!(
+                !matches!(
+                    call_held(&dirs, name, &json!({})),
+                    Err(ToolError::Unknown(_))
+                ),
+                "{name} is dispatched by no arm"
+            );
         }
         for name in ["", "factory_delete", "factory_status_x", "Factory_Status"] {
             assert!(!known(name), "{name}");
+            assert!(
+                matches!(
+                    call_held(&dirs, name, &json!({})),
+                    Err(ToolError::Unknown(_))
+                ),
+                "{name} is dispatched by an arm"
+            );
         }
     }
 }
