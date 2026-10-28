@@ -96,7 +96,7 @@ t_eq "$t_rc" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(runs)" 1
 t_contains "$t_out" "100 pull requests from elsewhere, not built"
-t_eq "$(t_calls gh | grep -c 'pulls?')" 2
+t_eq "$(pages_read)" 2
 
 t_case "a list longer than the run reads builds and removes nothing"
 reset
@@ -114,7 +114,7 @@ rm -f "$T"/calls/*
 t_run "$preview"
 t_eq "$t_rc" 0
 t_contains "$t_out" "the open pull requests are more than 1000: the list was not read, nothing was built or removed"
-t_eq "$(t_calls gh | grep -c 'pulls?')" 11
+t_eq "$(pages_read)" 11
 t_eq "$(builds)" 0
 t_eq "$(state_of 12)" "serving"
 t_eq "$(cat "$fx/docker/container-12")" "$a"
@@ -135,7 +135,7 @@ page_with 10 "$(page_of 99 1001 stranger/widget NONE)" "$(pull 12 "$a")"
 rm -f "$T"/calls/*
 t_run "$preview"
 t_eq "$t_rc" 0
-t_eq "$(t_calls gh | grep -c 'pulls?')" 11
+t_eq "$(pages_read)" 11
 t_lacks "$t_out" "more than 1000"
 t_contains "$t_out" "999 pull requests from elsewhere, not built"
 t_eq "$(state_of 12)" "serving"
