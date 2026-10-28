@@ -161,18 +161,15 @@ fn main() {
     let home = PathBuf::from(home);
     let mut src = Sources {
         home: &home,
-        calls: Calls {
-            bound: Duration::from_secs(30),
-            store_bound: Duration::from_secs(
+        calls: Calls::idle(
+            Duration::from_secs(
                 std::env::var("tehas_store_bound")
                     .ok()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(20),
             ),
-            gh: "gh".into(),
-            store: home.join("libexec/store").to_string_lossy().into_owned(),
-            gh_count: 0,
-        },
+            home.join("libexec/store").to_string_lossy().into_owned(),
+        ),
         systemctl: "systemctl".into(),
         now,
         models: tehas_dispatch::read::models::Models::read(),
