@@ -123,7 +123,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
       [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
       _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
@@ -271,10 +271,7 @@ _tehas_valid() {
       IFS=' ' read -r -a clean_dirs <<<"$v"
       for clean_dir in "${clean_dirs[@]}"; do
         case "$clean_dir" in
-          */*)
-            echo "expected names and no path: $clean_dir has a slash"
-            return 1
-            ;;
+          */*) echo "expected names and no path: $clean_dir has a slash" && return 1 ;;
           . | .. | .[gG][iI][tT] | .[pP][iI] | .[pP][iI].*)
             echo "refuses $clean_dir: that is not build output"
             return 1
@@ -361,13 +358,13 @@ _tehas_why() {
 _tehas_roles=(DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST)
 tehas_model_roles() { printf '%s\n' "${_tehas_roles[@]}"; }
 
-# Check the per-role model settings and give each role model a provider.
-# A name pi-rukas does not read would reach the container and be ignored, and
-# that role would run on PI_ENSEMBLE_SUBAGENT_MODEL without a word, so it is
-# refused. So is a provider without its model: pi-rukas ignores it. A role
-# model with no provider of its own gets PI_ENSEMBLE_SUBAGENT_PROVIDER, because
-# Pi cannot find a custom provider's model by its id alone. An empty line is
-# not set. Returns 78 with one line on stderr.
+# Check the per-role model settings and give each role model a provider. A name
+# pi-rukas does not read would reach the container and be ignored, and that role
+# would run on PI_ENSEMBLE_SUBAGENT_MODEL without a word, so it is refused. So
+# is a provider without its model: pi-rukas ignores it. A role model with no
+# provider of its own gets PI_ENSEMBLE_SUBAGENT_PROVIDER, because Pi cannot find
+# a custom provider's model by its id alone. An empty line is not set. Returns
+# 78 with one line on stderr.
 _tehas_role_models() { # <instance.env>
   local file=$1 v m p role reason roles
   roles=" ${_tehas_roles[*]} "
@@ -609,7 +606,7 @@ tehas_load() {
   # reads the same bound in milliseconds under two names, one for a workstream's
   # gate and one for the gate on the combined tree; it gives the first ten
   # minutes when it is told nothing. A gate refused below is not passed on.
-  export TEHAS_VERIFY_TIMEOUT=${TEHAS_VERIFY_TIMEOUT:-1800}
+  export TEHAS_VERIFY_TIMEOUT=${TEHAS_VERIFY_TIMEOUT:-1800} TEHAS_CHILD_TIMEOUT=${TEHAS_CHILD_TIMEOUT:-7200}
   if _tehas_is_count "$TEHAS_VERIFY_TIMEOUT"; then
     export PI_ENSEMBLE_VERIFY_TIMEOUT_MS=$((TEHAS_VERIFY_TIMEOUT * 1000))
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
@@ -625,7 +622,7 @@ tehas_load() {
   # The settings an instance may write, each with the rule for its value. An
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -706,6 +703,11 @@ tehas_load() {
   fi
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then
     tehas_err "TEHAS_WORK_STALL ($TEHAS_WORK_STALL) is not longer than TEHAS_VERIFY_TIMEOUT ($TEHAS_VERIFY_TIMEOUT): a gate that prints nothing would be stopped as stalled (see $file)"
+    return 78
+  fi
+  # No child may outlive the cycle that spawned it: refused, not clamped.
+  if [ "$TEHAS_CHILD_TIMEOUT" -gt "$TEHAS_WORK_TIMEOUT" ]; then
+    tehas_err "TEHAS_CHILD_TIMEOUT ($TEHAS_CHILD_TIMEOUT) is more than TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT): a child that outlives its cycle is one tehas stopped too late (see $file)"
     return 78
   fi
   # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec) and a unit

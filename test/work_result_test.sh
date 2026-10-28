@@ -66,7 +66,7 @@ t_eq "$(find "$T/home/tehas/state/cycles/7.nostart" 2>/dev/null | wc -l)" 0
 # so no note goes beside it. The report of tehasbot cycle reads the note first,
 # and a note that coexisted with a timed file would take the cap of that stop.
 fresh
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "$hold; $gone"
 t_run "$work 7"
@@ -335,10 +335,10 @@ t_contains "$(grep ' 0 -> ' "$T/calls/container.fds")" "/dev/null"
 
 t_case "the runner is given the time limit in whole minutes, at least one"
 fresh
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=61
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=61 TEHAS_CHILD_TIMEOUT=61
 t_run "$work 7"
 t_contains "$(cycle_args | tr '\n' ' ')" "work 7 --timeout 2 --json"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
 fresh
 t_run "$work 7"
 t_contains "$(cycle_args | tr '\n' ' ')" "work 7 --timeout 1 --json"
