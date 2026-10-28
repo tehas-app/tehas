@@ -28,6 +28,12 @@
 # the same time as the shell tests; each step's output is printed in the order
 # below. Prints one line per step.
 #
+# Every run keeps the whole output of its steps in a log of its own,
+# $TEHAS_VERIFY_LOGS/<mode>-<UTC time>-<pid>.log (default
+# ${TMPDIR:-/tmp}/tehas-verify; the newest 20 are kept), and a run that failed
+# names it on its last line, "log: <path>": a failure's lines show only the
+# tail of a step.
+#
 # Exit: 0 everything passed, 1 a step failed.
 set -uo pipefail
 
@@ -43,6 +49,9 @@ esac
 
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
+mode=${1:-}
+mode=${mode#--}
+mode=${mode:-plain}
 
 # A tree that passed is not checked again: the same files, tracked or not, in
 # the same mode, from the same merge base for --changed, with the same tools.
@@ -80,6 +89,7 @@ if [ -z "${TEHAS_VERIFY_FRESH:-}" ] && key=$(tree_key "${1:-}") && [ -n "$key" ]
 fi
 
 report() { # name rc output-file
+  { echo "== $1: exit $2" && cat "$3" && echo; } >>"$tmp/log" 2>/dev/null
   if [ "$2" = 0 ]; then
     echo "ok    $1"
   else
@@ -176,5 +186,11 @@ if [ "$full" = 1 ]; then
   else
     echo "skip  the workspace's lints (clippy is not installed)"
   fi
+fi
+logs=${TEHAS_VERIFY_LOGS:-${TMPDIR:-/tmp}/tehas-verify}
+log=$logs/$mode-$(date -u +%Y%m%dT%H%M%SZ)-$$.log
+if mkdir -p "$logs" && cp "$tmp/log" "$log" 2>/dev/null; then
+  find "$logs" -maxdepth 1 -name '*.log' -printf '%T@ %p\n' | sort -rn | tail -n +21 | cut -d' ' -f2- | xargs -r rm -f
+  [ "$failed" = 0 ] || echo "log: $log"
 fi
 exit "$failed"

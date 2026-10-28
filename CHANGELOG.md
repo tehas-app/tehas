@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- `scripts/verify.sh` keeps the whole output of each run's steps in a log,
+  the newest 20 under `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`),
+  and a failed run names it on its last line, `log: <path>` (#930).
+
 ### Adopter action
 
 None.
