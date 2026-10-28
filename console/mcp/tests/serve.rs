@@ -1,5 +1,6 @@
 // The binary: settings, the HTTP loop and the access log.
 
+use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
@@ -9,6 +10,9 @@ use tehas_core::time::iso;
 
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
+/// How long a read of the unit's stderr may take: the server answers within
+/// its own `--io-timeout`, so longer than that is a server that is not there.
+const LOG_WAIT: Duration = Duration::from_secs(10);
 
 fn fixture(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -137,9 +141,47 @@ impl Server {
         self.stop_after(0)
     }
 
-    // A request's log line is written after its answer is sent, so a client
-    // can see the answer before the line exists. Read the `lines` the test
-    // needs before the kill, which would lose them.
+    /// One line of the log, read within `LOG_WAIT`. A request's line is
+    /// written after its answer is sent, so read the lines you need before
+    /// `stop`, which would lose them. `stop_after` treats no line as the end
+    /// of the stream; this treats it as the server dying, because its caller
+    /// asked for a line the request must have written.
+    fn log_line(&mut self) -> String {
+        // A pipe from a child has no timeout of its own, so the read runs on a
+        // thread that can be given up on: without this a server that died
+        // without closing its stderr, or that wrote no line, would hold the
+        // test binary to the harness's own bound and say nothing about why.
+        let log = &mut self.log;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let mut line = String::new();
+                match log.read_line(&mut line) {
+                    Ok(0) | Err(_) => {
+                        let _ = tx.send(Err("the stream ended".to_string()));
+                    }
+                    Ok(_) => {
+                        let _ = tx.send(Ok(line));
+                    }
+                }
+            });
+            match rx.recv_timeout(LOG_WAIT) {
+                Ok(Ok(line)) => line,
+                Ok(Err(why)) => {
+                    let died = self.child.try_wait().ok().flatten();
+                    panic!("the server wrote no log line ({why}); its exit status is {died:?}");
+                }
+                Err(_) => {
+                    let died = self.child.try_wait().ok().flatten();
+                    panic!(
+                        "the server wrote no log line within {LOG_WAIT:?}; \
+                         its exit status is {died:?}"
+                    );
+                }
+            }
+        })
+    }
+
     fn stop_after(mut self, lines: usize) -> String {
         let mut err = std::mem::take(&mut self.first);
         for _ in 0..lines {
@@ -428,6 +470,194 @@ fn a_method_cannot_write_into_the_log() {
     let log = s.stop_after(1);
     assert!(!log.contains("FORGED"), "{log}");
     assert!(!log.contains('\x1b'), "{log}");
+}
+
+// The whole line of one request, as the binary prints it: method, status,
+// time, key, and the tool of a tools/call, with one field per space-separated
+// part. The name of a call is logged, never an argument of it, and never a
+// name that is not a word of the server's own.
+#[test]
+fn the_line_of_a_call_names_the_tool_and_no_argument() {
+    let mut s = Server::start();
+    let meta = json!({"io.modelcontextprotocol/protocolVersion": "2026-07-28"});
+    let auth = format!("Bearer {K1}");
+    let secret = "issue-987-please-do-not-log-this-text";
+    let call = |name: &str, args: Value| {
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": name, "arguments": args, "_meta": meta}})
+        .to_string()
+    };
+    let mirrored = |method: &'static str, name: Option<&'static str>| {
+        let mut h: Vec<(&str, &str)> = vec![
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", method),
+        ];
+        if let Some(n) = name {
+            h.push(("Mcp-Name", n));
+        }
+        h
+    };
+
+    // The shape of the whole line, read field by field rather than by
+    // position: the method, the status, the time, the key and the tool, in
+    // that order, and nothing else. The time and the key's fingerprint vary,
+    // so they are kept as their kind; a field the line does not know, in any
+    // position, fails here rather than shifting into a masked slot.
+    let shaped = |log: &str| {
+        let parts: Vec<&str> = log.split_whitespace().collect();
+        let [method, status, time, key, rest @ ..] = parts.as_slice() else {
+            panic!("{log:?} is not method, status, time and key");
+        };
+        assert_eq!(*method, "POST");
+        assert!(status.parse::<u16>().is_ok(), "{status}");
+        let ms = time.strip_suffix("ms").expect("a time in ms");
+        assert!(ms.chars().all(|c| c.is_ascii_digit()), "{time}");
+        let fp = key.strip_prefix("key=").expect("a key field");
+        assert!(
+            fp == "-" || (fp.len() == 8 && fp.chars().all(|c| c.is_ascii_hexdigit())),
+            "{key}"
+        );
+        assert!(
+            rest.len() <= 1,
+            "{log:?} carries {} parts after the key",
+            rest.len()
+        );
+        // The one optional field, and only that: a part the line does not
+        // know, in any position, fails rather than shifting into a masked slot.
+        let tool = rest
+            .first()
+            .map(|p| p.strip_prefix("tool=").expect("a tool field"))
+            .unwrap_or("<none>");
+        format!(
+            "POST {status} <ms>ms key={} tool={}",
+            if fp == "-" { "-" } else { "<fp>" },
+            tool
+        )
+    };
+
+    let body = call("factory_issues", json!({"stage": "queued", "note": secret}));
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/call", Some("factory_issues")),
+            &body,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=factory_issues");
+    assert!(!log.contains(K1), "{log}");
+    assert!(!log.contains(secret) && !log.contains("queued"), "{log}");
+
+    // A name the server does not have is logged as ?.
+    let body = call("factory_delete", json!({"issue": 987}));
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/call", Some("factory_delete")),
+            &body,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=?");
+    assert!(!log.contains("987"), "{log}");
+
+    // A name that is not text is logged as -, so a client that sends a
+    // malformed request is told from one probing a tool the server has not.
+    // Only the legacy handshake answers such a body: a modern one needs an
+    // `Mcp-Name` whose text equals the body's name, and no text equals a
+    // number, so the modern mirror answers 400 for it (see tests/rpc.rs).
+    let malformed = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": 7, "arguments": {"issue": 987}}})
+    .to_string();
+    let (status, _) = s.raw(
+        &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &malformed),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200, "the answer before the line");
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=-");
+    assert!(!log.contains("987"), "{log}");
+
+    // A request that is not a call logs no tool, and neither does one refused
+    // before its body is read.
+    let list = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+        "params": {"_meta": meta}})
+    .to_string();
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/list", None),
+            &list,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=<none>");
+
+    let (status, _) = s.raw(
+        &post_raw("POST", "/mcp", None, &[], "{}"),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 401);
+    let log = s.log_line();
+    assert_eq!(shaped(&log), "POST 401 <ms>ms key=- tool=<none>");
+    assert!(!log.contains("tool="), "{log}");
+
+    // A name of another shape than a word of letters stays one line with no
+    // escape or newline of the client's in it: the allowlist of `known` is
+    // what keeps the line the server writes the server's own, and the name in
+    // the line is never the client's text. The legacy handshake is what lets
+    // the body's name reach the log at all, since the modern mirror refuses a
+    // name its header does not carry. Every shape is asked for, not just one
+    // fixture: each is one line, and its tool field is only ever a word of
+    // `CALLED` or one of the two sentinels of the server.
+    for hostile in [
+        "factory_log\r\nFORGED \x1b[31m",
+        "factory_status\n\x1b]0;pwn\x07",
+        "\r\n",
+        " ",
+        "factory status",
+        "&",
+        "factory_\u{7f}status",
+        "factory_status",
+    ] {
+        let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": hostile, "arguments": {}}})
+        .to_string();
+        let (status, _) = s.raw(
+            &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &body),
+            Duration::from_secs(3),
+        );
+        assert_eq!(status, 200, "{hostile:?}");
+        let log = s.log_line();
+        assert_eq!(log.matches('\n').count(), 1, "{log:?}");
+        assert!(!log.contains("FORGED") && !log.contains('\x1b'), "{log:?}");
+        let named = log
+            .split_whitespace()
+            .find_map(|p| p.strip_prefix("tool="))
+            .unwrap_or("<none>");
+        assert!(
+            ["?", "-", "factory_status", "factory_log"].contains(&named),
+            "{hostile:?} logged {named}"
+        );
+    }
+
+    s.stop();
+}
+
+fn legacy_headers() -> [(&'static str, &'static str); 1] {
+    [("MCP-Protocol-Version", "2025-11-25")]
 }
 
 fn post_raw(

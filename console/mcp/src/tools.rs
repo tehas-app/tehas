@@ -788,6 +788,30 @@ pub fn list() -> Value {
     tools
 }
 
+/// The names `known` admits and `call_held` dispatches. `list()` and
+/// `spec_of()` name the same tools in their own literals, and the test beside
+/// `call_held` compares the three, so the access log can name no name the
+/// server does not serve, and serves none it does not publish.
+const CALLED: [&str; 11] = [
+    "factory_status",
+    "factory_issues",
+    "factory_endings",
+    "factory_console",
+    "factory_stats",
+    "factory_issue",
+    "factory_sessions",
+    "factory_session",
+    "factory_log",
+    "factory_failures",
+    "factory_outcomes",
+];
+
+/// Whether the server has a tool of this name. The access log asks it before
+/// naming one, so a name it prints is one this dispatch serves.
+pub fn known(name: &str) -> bool {
+    CALLED.contains(&name)
+}
+
 /// The structured content of one call, with "api": 1.
 pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
     call_held(dirs, name, args).map(|(out, _)| out)
@@ -800,6 +824,12 @@ pub fn call_held(
     name: &str,
     args: &Value,
 ) -> Result<(Output, Option<LogGuard>), ToolError> {
+    // A name outside `CALLED` is refused here, before any arm is reached. The
+    // test beside `call_held` holds a list of these arms and compares it with
+    // `CALLED`, so the guard and the arms answer the same set.
+    if !known(name) {
+        return Err(ToolError::Unknown(name.to_string()));
+    }
     if name == "factory_log" {
         return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
     }
@@ -815,7 +845,9 @@ pub fn call_held(
         "factory_session" => sessions::one(dirs, args)?,
         "factory_failures" => sessions::failures(dirs)?,
         "factory_outcomes" => outcomes::call(dirs, args)?,
-        _ => return Err(ToolError::Unknown(name.to_string())),
+        // The guard above admits only the names of `CALLED` and every one of
+        // them has an arm, which the test beside it proves name by name.
+        _ => unreachable!("known admits only the names matched above"),
     };
     out.insert("api".into(), json!(1));
     Ok((Output::Json(Value::Object(out)), None))
@@ -1239,5 +1271,108 @@ mod tests {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-20T08:46:07Z"), Some(1792485967));
         assert_eq!(epoch("2026-10-20 08:46:07"), None);
+    }
+
+    // The log prints the name of a called tool only when `known` says it is
+    // one, so the list of names, the dispatch and the published list may not
+    // drift apart. A name outside `CALLED` is refused by the guard of
+    // `call_held`, so an assertion about its error cannot tell a served name
+    // from an armless one: the arms themselves are compared with `CALLED` by
+    // `arms_agree_with_the_called_list`.
+    #[test]
+    fn the_names_the_log_calls_are_the_names_the_server_lists() {
+        let listed = list();
+        let listed: Vec<&str> = listed
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|t| t["name"].as_str().expect("a name"))
+            .collect();
+        // The published list and `CALLED` hold the same names, so each is
+        // checked against the other and a name in one and not the other fails.
+        let mut want = CALLED.to_vec();
+        want.sort_unstable();
+        let mut listed = listed;
+        listed.sort_unstable();
+        assert_eq!(listed, want);
+        // `spec_of` is the third list of the names, and the one the dispatch's
+        // guard does not touch: the five tools whose answer is copied from a
+        // live file name themselves there, so a name that drifts out of
+        // `CALLED` loses its allowlist here. The other six build their answer
+        // beside their own pick list, in their own module, and have none.
+        for name in [
+            "factory_status",
+            "factory_issues",
+            "factory_endings",
+            "factory_console",
+            "factory_stats",
+        ] {
+            assert!(known(name), "{name} is not called");
+            assert!(spec_of(name).is_some(), "{name} has no answer allowlist");
+        }
+        for name in ["", "factory_delete", "factory_status_x", "Factory_Status"] {
+            assert!(!known(name), "{name}");
+            assert!(spec_of(name).is_none(), "{name} has an answer allowlist");
+            assert!(
+                matches!(
+                    call_held(&fixture_dirs(), name, &json!({})),
+                    Err(ToolError::Unknown(_))
+                ),
+                "{name} is dispatched by an arm"
+            );
+        }
+    }
+
+    // Every name `known` admits is answered by an arm of the dispatch, and
+    // no arm answers a name the allowlist does not admit. The arms and
+    // `CALLED` are written out twice on purpose: reading them apart is the
+    // point, and a name in one and not the other fails here.
+    #[test]
+    fn arms_agree_with_the_called_list() {
+        // The names of the match arms of `call_held`, in its order: the guard
+        // of `call_held` answers every name absent from this list, so a name
+        // written here and not there, or there and not here, is the drift the
+        // dispatch alone cannot show.
+        const ARMS: [&str; 11] = [
+            "factory_log",
+            "factory_status",
+            "factory_issues",
+            "factory_endings",
+            "factory_console",
+            "factory_stats",
+            "factory_issue",
+            "factory_sessions",
+            "factory_session",
+            "factory_failures",
+            "factory_outcomes",
+        ];
+        let mut arms = ARMS.to_vec();
+        arms.sort_unstable();
+        let mut called = CALLED.to_vec();
+        called.sort_unstable();
+        assert_eq!(arms, called);
+        // And each arm really answers its name, read off the dispatch rather
+        // than off this list: only a name the guard refuses answers `Unknown`.
+        let dirs = fixture_dirs();
+        for name in ARMS {
+            assert!(
+                !matches!(
+                    call_held(&dirs, name, &json!({})),
+                    Err(ToolError::Unknown(_))
+                ),
+                "{name} is dispatched by no arm"
+            );
+        }
+    }
+
+    // Dirs of the fixtures, for tests that ask the dispatch which side of it
+    // refused a name: a name it serves may well fail on a file the fixtures do
+    // not hold, and only the guard of the dispatch answers `Unknown`.
+    fn fixture_dirs() -> Dirs {
+        Dirs {
+            live: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/live"),
+            sessions: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sessions"),
+            logs: Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/logs"),
+        }
     }
 }
