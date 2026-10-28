@@ -41,7 +41,9 @@
 //!     Prints the ten-day report the dashboard shows, aggregates only
 //!     (report.rs says what is in it): as plain text for a person, or with
 //!     --json as one JSON object, which libexec/status writes to
-//!     live/analytics.json.
+//!     live/analytics.json. Among the figures, `gate`: report.rs's `gate`
+//!     says what it holds, and libexec/status publishes no key it does not
+//!     name, which `gate` is not.
 //!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
 //!     (sessions.rs lists the keys): a header line, then one session per

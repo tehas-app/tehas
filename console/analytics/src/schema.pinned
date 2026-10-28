@@ -1,4 +1,4 @@
-user_version 1
+user_version 2
 
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
@@ -21,6 +21,19 @@ CREATE TABLE issue_events (
 CREATE TABLE meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- table run_gate_runs
+CREATE TABLE run_gate_runs (
+  run_id TEXT NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  command TEXT,
+  tier TEXT,
+  step TEXT,
+  ok INTEGER,
+  ms INTEGER,
+  at INTEGER,
+  PRIMARY KEY (run_id, seq)
 );
 
 -- table run_roles
@@ -91,7 +104,9 @@ CREATE TABLE runs (
   forks_refused INTEGER,
   concurrent INTEGER,
   runner_ms INTEGER,
-  result_schema INTEGER
+  result_schema INTEGER,
+  gate_runs INTEGER,
+  gate_ms INTEGER
 );
 
 -- table samples

@@ -12,8 +12,36 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const ANALYTICS: &str = env!("CARGO_BIN_EXE_analytics");
 
+/// The schema the copy of this database is made under, read from the program
+/// rather than written here, so the version is named in one place: an export
+/// of an empty home prints `PRAGMA user_version` of a database it just made.
+fn schema_version() -> i64 {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("command-schema");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("state")).unwrap();
+    let copy = dir.join("copy.db");
+    let out = Command::new(ANALYTICS)
+        .args(["export", copy.to_str().unwrap(), "--json"])
+        .env("TEHAS_HOME", &dir)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let line: Value = serde_json::from_slice(&out.stdout).unwrap();
+    line["schema"].as_i64().expect("the copy names its schema")
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+// One `verify-completed` line of the cycle's stream, as the runner ends a run
+// of the product's gate: the tier the command named, whether it passed and its
+// own milliseconds.
+fn gate(at: i64, command: &str, tier: &str, ok: bool) -> String {
+    json!({"v": 1, "kind": "verify-completed", "issue": 7,
+           "event": {"kind": "verify-completed", "step": "develop", "command": command,
+                      "target.kind": tier, "ok": ok, "ms": 300_000, "at": at}})
+    .to_string()
 }
 
 // An address written out here, so no private one stands in the source.
@@ -184,6 +212,22 @@ impl Host {
             .to_string(),
         );
         let facts = self.home.join("tmp/facts.json");
+        // The gate's two runs, appended to the stream the copy is read from:
+        // the rows of run_gate_runs and the gate columns of the run hold what
+        // these lines say, and the scan of the copy below reaches every text
+        // column of them, so a command of the gate is checked for a host as
+        // the cause is. The fixture's own lines hold no secret, so it is these
+        // appended lines the scan of the gate's columns has to find a host in.
+        let stream = fs::read_to_string(self.home.join("logs/work-7-261015-183834.jsonl")).unwrap();
+        fs::write(
+            self.home.join("logs/work-7-261015-183834.jsonl"),
+            format!(
+                "{stream}{}\n{}\n",
+                gate(1792318700000, "scripts/verify.sh --fast", "fast", true),
+                gate(1792318760000, "scripts/verify.sh", "full", false),
+            ),
+        )
+        .unwrap();
         let image = format!("sha256:{}", "ab".repeat(32));
         for args in [
             vec![
@@ -223,7 +267,8 @@ fn an_export_through_tehas_analytics_holds_no_token_host_or_address() {
     assert_eq!(
         out,
         format!(
-            "{{\"api\":1,\"schema\":1,\"from\":{started},\"to\":{},\"runs\":1}}\n",
+            "{{\"api\":1,\"schema\":{},\"from\":{started},\"to\":{},\"runs\":1}}\n",
+            schema_version(),
             started + 30
         )
     );
@@ -253,7 +298,18 @@ fn an_export_through_tehas_analytics_holds_no_token_host_or_address() {
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    assert_eq!(tables.len(), 6, "{tables:?}");
+    assert_eq!(tables.len(), 7, "{tables:?}");
+    // The gate was recorded: two runs of it, of two tiers, and the run's own
+    // total of them.
+    let gate: (i64, i64, i64) = db
+        .query_row(
+            "SELECT (SELECT count(*) FROM run_gate_runs), coalesce(sum(tier IS NOT NULL), 0),
+                    (SELECT gate_ms FROM runs) FROM run_gate_runs",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(gate, (2, 2, 600_000));
     // Every text column holds a value, so every one is scanned.
     for t in &tables {
         let cols: Vec<String> = db
