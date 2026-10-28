@@ -15,6 +15,8 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::live;
+
 /// PRAGMA user_version of the schema in schema.sql.
 pub const SCHEMA_VERSION: i64 = 8;
 pub const SCHEMA: &str = include_str!("schema.sql");
@@ -141,7 +143,8 @@ ALTER TABLE poll_cost ADD COLUMN starts INTEGER;
 
 /// How long SQLite waits for a lock another connection holds before giving
 /// up, as the spec's section 4 states it. A database still busy then is exit
-/// 1 with the word `busy`.
+/// 1 with the word `busy`. A test that only needs to meet a busy database asks
+/// for the short pair of `install_test_bounds`; what a host runs waits this.
 pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long a reader waits. In WAL mode a writer's lock never stops a reader;
@@ -150,6 +153,36 @@ pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// milliseconds. Without any wait, tests/concurrency.rs saw a `check` answer
 /// `busy` during a recovery.
 pub const READ_WAIT: Duration = Duration::from_secs(1);
+
+/// The waits a test may install for its thread in place of the installed pair:
+/// `busy`, but arrived at in milliseconds rather than seconds, so a test that
+/// proves the word is the lock's does not sit through the installed bound. The
+/// pair is a tenth of it -- far enough below that a test which means to beat a
+/// lock it holds itself (verbs_tests::a_reader_waits_out_a_short_lock) keeps its
+/// margin, and far enough above a millisecond of polling that a test which means
+/// to meet the bound still sees the handler run.
+/// `tests::the_installed_bounds_are_the_ones_the_spec_states` is the test that
+/// pins the installed pair, and
+/// `tests::a_store_the_tests_did_not_shorten_waits_the_installed_bounds` the one
+/// that shows the program a host runs is not on this pair.
+#[cfg(test)]
+pub const TEST_BUSY_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// See `TEST_BUSY_TIMEOUT`.
+#[cfg(test)]
+pub const TEST_READ_WAIT: Duration = Duration::from_millis(200);
+
+// The pair `install_test_bounds` puts on the waits, None for the program a host
+// runs. Read by every connection of the thread and set only by the tests, so one
+// run waits one pair and nothing changes it under a test already waiting -- the
+// tests run in parallel, so a bound one test could set at will would be a race
+// rather than a setting.
+#[cfg(test)]
+thread_local! {
+    static TEST: std::cell::Cell<Option<(Duration, Duration)>> = const {
+        std::cell::Cell::new(None)
+    };
+}
 
 /// How often a waiting connection asks again. SQLite's own busy timeout backs
 /// off to 100 ms between tries, so among writers that keep the lock busy the
@@ -160,7 +193,9 @@ const BUSY_POLL: Duration = Duration::from_millis(1);
 
 /// A busy handler: true to try again. `tries` is 0 at the start of each wait,
 /// which is when the clock starts. A process of the store waits on one
-/// connection at a time, so the start is kept per thread.
+/// connection at a time, so the start is kept per thread. The count is part of
+/// SQLite's handler signature and is not read: the limit is a duration, so only
+/// the clock says when a wait has run out.
 pub(crate) fn busy_wait(tries: i32, limit: Duration) -> bool {
     thread_local! {
         static SINCE: Cell<Option<Instant>> = const { Cell::new(None) };
@@ -177,11 +212,100 @@ pub(crate) fn busy_wait(tries: i32, limit: Duration) -> bool {
 }
 
 fn write_wait(tries: i32) -> bool {
-    busy_wait(tries, BUSY_TIMEOUT)
+    busy_wait(tries, write_bound())
 }
 
 fn read_wait(tries: i32) -> bool {
-    busy_wait(tries, READ_WAIT)
+    busy_wait(tries, read_bound())
+}
+
+/// The two waits of this program for a connection of `purpose`: the bound its
+/// busy handler takes, and the constant that bound is meant to come from.
+///
+/// Both are answered, in the build that answers the bound check at all, so the
+/// one test that runs the store as a child can compare them. A debug binary is a
+/// separate compilation from the test harness, so the child's constant and the
+/// parent's are not the same read: reported together with the wait that met the
+/// bound, they close the gap where a bound drifted from its constant on either
+/// side and the elapsed time still agreed with the parent's copy. See
+/// `tests::a_store_the_tests_did_not_shorten_waits_the_installed_bounds`.
+#[cfg(debug_assertions)]
+pub(crate) fn bound_check_answer(purpose: Purpose) -> (Duration, Duration) {
+    // Read on a thread that never installed the short pair, which is what
+    // `bound_check` does, so the two are the installed bound and its constant.
+    match purpose {
+        Purpose::Write => (write_bound(), installed_constants().0),
+        Purpose::Read => (read_bound(), installed_constants().1),
+    }
+}
+
+/// The bound of a connection that writes, of one that reads, and of publish's
+/// wait for state/publish.lock: the installed `BUSY_TIMEOUT`, `READ_WAIT` and
+/// `live::LOCK_WAIT`, unless this thread installed the tests' short pair. The
+/// three are the only places the short pair is applied, so the two waits of the
+/// database and the one file lock of the live view are shortened together, and a
+/// build a host runs has no `install_test_bounds` to call and waits the spec.
+///
+/// None of the three ends on a constant. The one test that cannot ask for the
+/// short pair runs the store as a child process, and a child of a test run is
+/// built with `cfg(test)` on without asking, so its bound is read from here too.
+/// Answering from one place keeps the bound a child was given and the bound its
+/// parent asserts against on the same read, so a bound that drifted from the
+/// constant is measured rather than read past.
+pub(crate) fn write_bound() -> Duration {
+    #[cfg(test)]
+    if let Some((write, _)) = installed() {
+        return write;
+    }
+    installed_constants().0
+}
+
+/// See `write_bound`.
+pub(crate) fn read_bound() -> Duration {
+    #[cfg(test)]
+    if let Some((_, read)) = installed() {
+        return read;
+    }
+    installed_constants().1
+}
+
+/// See `write_bound`.
+pub(crate) fn lock_wait() -> Duration {
+    #[cfg(test)]
+    if let Some((write, _)) = installed() {
+        return write;
+    }
+    installed_constants().2
+}
+
+/// The three waits of the program a host runs: the busy handler of a connection
+/// that writes or reads, and publish's retry loop. Each of the three reads its
+/// value here, so the bound a child process was given and the bound its parent
+/// asserts against come from one place. The constants themselves are pinned by
+/// `tests::the_installed_bounds_are_the_ones_the_spec_states`.
+fn installed_constants() -> (Duration, Duration, Duration) {
+    (BUSY_TIMEOUT, READ_WAIT, live::LOCK_WAIT)
+}
+
+/// The pair this thread installed, if any. `install_test_bounds` puts it there;
+/// nothing else can, and a build a host runs has no such code at all.
+#[cfg(test)]
+fn installed() -> Option<(Duration, Duration)> {
+    TEST.with(|bound| bound.get())
+}
+
+/// The tests' short pair, installed for this thread. `verbs_tests::short_bounds`
+/// calls it before the first connection of a test, and every thread that opens a
+/// store asks first, so one test waits one pair and a test that compares an
+/// elapsed time with `write_bound` is told the truth. The store binary answers
+/// `--test-store-bound-check` without this call, which is how the tests show the
+/// installed pair is untouched. Returns the pair, so the caller can say what it
+/// asked for.
+#[cfg(test)]
+pub fn install_test_bounds() -> (Duration, Duration) {
+    let pair = (TEST_BUSY_TIMEOUT, TEST_READ_WAIT);
+    TEST.with(|bound| bound.set(Some(pair)));
+    pair
 }
 
 /// The indexes of the schema by name, so the test that pins the schema can name
