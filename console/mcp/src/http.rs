@@ -31,12 +31,18 @@ pub fn serve(
     let _ = stream.set_write_timeout(Some(io_timeout));
     let deadline = started + io_timeout;
     let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
+    let tool = r
+        .tool
+        .as_deref()
+        .map(|t| format!(" tool={t}"))
+        .unwrap_or_default();
     write(&mut stream, &r);
     format!(
-        "{method} {} {}ms key={}",
+        "{method} {} {}ms key={}{}",
         r.status,
         started.elapsed().as_millis(),
-        r.key.as_deref().unwrap_or("-")
+        r.key.as_deref().unwrap_or("-"),
+        tool,
     )
 }
 

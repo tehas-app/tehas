@@ -1,5 +1,6 @@
 // The binary: settings, the HTTP loop and the access log.
 
+use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
@@ -140,6 +141,13 @@ impl Server {
     // A request's log line is written after its answer is sent, so a client
     // can see the answer before the line exists. Read the `lines` the test
     // needs before the kill, which would lose them.
+    /// One line of the log, read after the request that made it.
+    fn log_line(&mut self) -> String {
+        let mut line = String::new();
+        self.log.read_line(&mut line).unwrap();
+        line
+    }
+
     fn stop_after(mut self, lines: usize) -> String {
         let mut err = std::mem::take(&mut self.first);
         for _ in 0..lines {
@@ -428,6 +436,99 @@ fn a_method_cannot_write_into_the_log() {
     let log = s.stop_after(1);
     assert!(!log.contains("FORGED"), "{log}");
     assert!(!log.contains('\x1b'), "{log}");
+}
+
+// The whole line of one request, as the binary prints it: method, status,
+// time, key, and the tool of a tools/call. The name of a call is logged,
+// never an argument of it.
+#[test]
+fn the_line_of_a_call_names_the_tool_and_no_argument() {
+    let mut s = Server::start();
+    let meta = json!({"io.modelcontextprotocol/protocolVersion": "2026-07-28"});
+    let auth = format!("Bearer {K1}");
+    let secret = "issue-987-please-do-not-log-this-text";
+    let call = |name: &str, args: Value| {
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": name, "arguments": args, "_meta": meta}})
+        .to_string()
+    };
+    let mirrored = |method: &'static str, name: Option<&'static str>| {
+        let mut h: Vec<(&str, &str)> = vec![
+            ("MCP-Protocol-Version", "2026-07-28"),
+            ("Mcp-Method", method),
+        ];
+        if let Some(n) = name {
+            h.push(("Mcp-Name", n));
+        }
+        h
+    };
+
+    let body = call("factory_issues", json!({"stage": "queued", "note": secret}));
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/call", Some("factory_issues")),
+            &body,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert!(log.starts_with("POST 200 "), "{log}");
+    assert!(log.contains("ms key=") && !log.contains("key=-"), "{log}");
+    assert!(log.contains(" tool=factory_issues"), "{log}");
+    assert!(!log.contains(secret) && !log.contains("queued"), "{log}");
+    assert!(!log.contains(K1), "{log}");
+
+    // A name the server does not have is logged as ?.
+    let body = call("factory_delete", json!({"issue": 987}));
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/call", Some("factory_delete")),
+            &body,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert!(log.contains(" tool=?"), "{log}");
+    assert!(!log.contains("987"), "{log}");
+
+    // A request that is not a call logs no tool, and neither does one refused
+    // before its body is read.
+    let list = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+        "params": {"_meta": meta}})
+    .to_string();
+    let (status, _) = s.raw(
+        &post_raw(
+            "POST",
+            "/mcp",
+            Some(&auth),
+            &mirrored("tools/list", None),
+            &list,
+        ),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 200);
+    let log = s.log_line();
+    assert!(log.starts_with("POST 200 "), "{log}");
+    assert!(!log.contains("tool="), "{log}");
+
+    let (status, _) = s.raw(
+        &post_raw("POST", "/mcp", None, &[], "{}"),
+        Duration::from_secs(3),
+    );
+    assert_eq!(status, 401);
+    let log = s.log_line();
+    assert!(log.contains("401") && log.contains("key=-"), "{log}");
+    assert!(!log.contains("tool="), "{log}");
+
+    s.stop();
 }
 
 fn post_raw(

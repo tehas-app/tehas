@@ -788,6 +788,29 @@ pub fn list() -> Value {
     tools
 }
 
+/// The names `call_held` dispatches. A tool added to that match is added
+/// here too, and the test beside it compares the two with the list the
+/// server publishes, so the log can name no name the server does not have.
+const CALLED: [&str; 11] = [
+    "factory_log",
+    "factory_status",
+    "factory_issues",
+    "factory_endings",
+    "factory_console",
+    "factory_stats",
+    "factory_issue",
+    "factory_sessions",
+    "factory_session",
+    "factory_failures",
+    "factory_outcomes",
+];
+
+/// Whether the server has a tool of this name. The access log asks it before
+/// naming one, so a name it prints is one this dispatch serves.
+pub fn known(name: &str) -> bool {
+    CALLED.contains(&name)
+}
+
 /// The structured content of one call, with "api": 1.
 pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
     call_held(dirs, name, args).map(|(out, _)| out)
@@ -1239,5 +1262,28 @@ mod tests {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-20T08:46:07Z"), Some(1792485967));
         assert_eq!(epoch("2026-10-20 08:46:07"), None);
+    }
+
+    // The access log prints the name of a called tool only when `known` says
+    // it is one, so the two lists of names may not drift apart.
+    #[test]
+    fn the_names_the_log_calls_are_the_names_the_server_lists() {
+        for name in CALLED {
+            assert!(known(name), "{name}");
+        }
+        let listed = list();
+        let listed: Vec<&str> = listed
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|t| t["name"].as_str().expect("a name"))
+            .collect();
+        assert_eq!(listed.len(), CALLED.len());
+        for name in &listed {
+            assert!(known(name), "{name} is listed but not called");
+        }
+        for name in ["", "factory_delete", "factory_status_x", "Factory_Status"] {
+            assert!(!known(name), "{name}");
+        }
     }
 }
