@@ -13,6 +13,17 @@ empty one above it.
 
 ### Changes
 
+- The forge interface, and its GitHub adapter, as a library: `tehas_core::forge`
+  (#947). One trait in tehas terms - an issue's labels, the newest event of a
+  label, who applied the label that approves work, and a label put on or taken
+  off - and a `GitHub` adapter that backs each term with labels as the bash
+  does today, reading the events with `--paginate` and running gh through a
+  `GhRunner` so its rules are tested without gh or a network. The approval
+  term reads applications alone, as `tehas_label_actor` does: a label taken
+  off answers the state term, never who approved. Nothing calls it yet: the
+  next issues of #800 give bash a command for it and move
+  `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
+
 ### Adopter action
 
 None.
