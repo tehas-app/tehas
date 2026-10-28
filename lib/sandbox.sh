@@ -116,9 +116,9 @@ tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
 # With no-token the bot's token is left out of the list altogether: not given
 # an empty value and not given its bare name, but absent. A caller that starts
 # a run which writes nothing to the tracker asks for that, so the name the
-# token carries is not among the container's variables at all. What is kept
-# back is decided here, before the list is made, and not by a caller editing the
-# list afterwards: the one place a name is dropped is this one.
+# token carries is not among the container's variables at all. What is kept back
+# is decided here, before the list is made, and not by a caller editing the list
+# afterwards: this is the one place a name is dropped.
 #
 # git inside the sandbox has no configuration of its own: no credential helper
 # and no identity. Without the helper the driver commits but cannot push, and
@@ -249,7 +249,7 @@ tehas_sandbox_seed() { # <state> [<index dir>]
   for f in "$src"/*; do
     [ -e "$f" ] || continue
     case "$f" in */logs | *.db.stage.* | *.tmp) continue ;; esac
-    cp -a "$f" "$state/cache/" || { rm -rf "$state/cache" && mkdir -p "$state/cache" && return 1; }
+    cp -a "$f" "$state/cache/" || { rm -rf "$state/cache"; mkdir -p "$state/cache"; return 1; }
   done
 }
 
@@ -259,12 +259,12 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # file capabilities. The same options for the four containers tehas starts an
 # agent in: a cycle, a planning turn, a manual session and the push check
 # before a cycle. The contract is one array: tehas_sandbox_security_count prints
-# how many words it prints, and tehas_sandbox_security_ok says whether they are
-# the documented ones in order, so a guard asked before Docker names what
-# drifted instead of counting somewhere else. host/docs/host.md documents the
-# same options in a table, and test/work_caps_test.sh compares that table with
-# what is printed here, so adding one option is an edit here, a row there, and
-# nothing else.
+# how many words it prints, and tehas_sandbox_security_ok says whether the words
+# it prints are the documented ones in order, so a guard asked before Docker
+# names what drifted instead of counting somewhere else. host/docs/host.md
+# documents the same options in a table, and test/work_caps_test.sh compares
+# that table with what is printed here, so adding one option is an edit here, a
+# row there, and nothing else.
 #
 # Only CHOWN and FOWNER are given back:
 #
@@ -352,7 +352,6 @@ tehas_sandbox_security_ok() {
     --security-opt no-new-privileges:true
     --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
   )
-  local sec
   sec=()
   mapfile -d '' -t sec < <(tehas_sandbox_security)
   [ "${#sec[@]}" -eq "${#documented[@]}" ] || return 1
