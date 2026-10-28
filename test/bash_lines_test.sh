@@ -21,20 +21,34 @@ t_case "at the ceiling passes and says the count"
 fresh 6
 t_run "$check"
 t_eq "$t_rc" 0
-t_contains "$t_out" "6 of 6"
+t_contains "$t_out" "6 of 6: 0 lines of room"
 
 t_case "over the ceiling fails and points at the Rust workspace"
 fresh 5
 t_run "$check"
 t_eq "$t_rc" 1
-t_contains "$t_out" "6 lines of bash, over the ceiling of 5"
+t_contains "$t_out" "6 lines of bash, over the ceiling of 5: 1 lines over"
 t_contains "$t_out" "console/"
 
 t_case "under the ceiling says one line and names no file"
 fresh 7
 t_run "$check"
 t_eq "$t_rc" 0
-t_eq "$t_out" "check-bash-lines: 6 of 7"
+t_eq "$t_out" "check-bash-lines: 6 of 7: 1 lines of room"
+
+t_case "under the ceiling prints the room in one line"
+fresh 10
+t_run "$check"
+t_eq "$t_rc" 0
+t_eq "$t_out" "check-bash-lines: 6 of 10: 4 lines of room"
+
+t_case "over the ceiling prints the lines over in the first line"
+fresh 4
+t_run "GIT_CEILING_DIRECTORIES='$T' $check"
+t_eq "$t_rc" 1
+[ "$(printf '%s\n' "$t_out" | head -n 1)" = "check-bash-lines: 6 lines of bash, over the ceiling of 4: 2 lines over (scripts/bash-lines.max)." ] \
+  || t_bad "first line: $t_out"
+t_contains "$t_out" "Take out 2 lines."
 
 t_case "over the ceiling without git lists the largest files and the rule"
 fresh 5
@@ -62,7 +76,7 @@ printf '%s\n' '#!/usr/bin/env bash' 'echo new' >"$tree/libexec/new"
 rm "$tree/bin/tool"
 t_run "$check"
 t_eq "$t_rc" 1
-t_contains "$t_out" "8 lines of bash, over the ceiling of 6"
+t_contains "$t_out" "8 lines of bash, over the ceiling of 6: 2 lines over"
 t_contains "$t_out" "Take out 2 lines."
 t_contains "$t_out" "merge base with origin/main"
 t_contains "$t_out" "+2      4  libexec/cmd"
@@ -80,6 +94,25 @@ t_eq "$t_rc" 0
 
 t_case "a ceiling that is not a number fails"
 fresh "lots"
+t_run "$check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "holds no number"
+
+t_case "a ceiling with leading zeros counts in base ten"
+fresh 010
+t_run "$check"
+t_eq "$t_rc" 0
+t_eq "$t_out" "check-bash-lines: 6 of 10: 4 lines of room"
+
+t_case "a ceiling with leading zeros over the ceiling says the lines over"
+fresh 005
+t_run "GIT_CEILING_DIRECTORIES='$T' $check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "6 lines of bash, over the ceiling of 5: 1 lines over"
+t_contains "$t_out" "Take out 1 lines."
+
+t_case "a ceiling too big for an integer fails as no number"
+fresh 99999999999999999999
 t_run "$check"
 t_eq "$t_rc" 1
 t_contains "$t_out" "holds no number"
