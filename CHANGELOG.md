@@ -17,6 +17,18 @@ empty one above it.
 
 None.
 
+## v0.15.2 (2026-10-28)
+
+### Changes
+
+- `scripts/check-bash-lines.sh` prints the room left on every run, and the
+  lines over when over the ceiling (#931). A ceiling with a leading zero is
+  read in base 10, and one of more than 18 digits is refused as no number.
+
+### Adopter action
+
+None.
+
 ## v0.15.1 (2026-10-28)
 
 ### Changes
