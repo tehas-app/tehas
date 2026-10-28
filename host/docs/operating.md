@@ -519,7 +519,7 @@ on nothing on GitHub or in the state store. Just before the cycle reads what
 tehas work left, the shadow reads the same files, the cycle's record and its
 approval, asks GitHub once for the bot's pull requests on the branch (and,
 for a handoff, the issue's labels), decides, and keeps its report in
-`~/tehas/state/cycles/<issue>.shadow.json`. It has 60 seconds. The bash
+`~/tehas/state/cycles/shadow-<issue>.json`. It has 60 seconds. The bash
 report then keeps what it did beside it: each call of `gh`, the park and the
 end it put on record. After the report the shadow sets the two side by side
 and adds one line to `~/tehas/logs/cycle-shadow.log`:

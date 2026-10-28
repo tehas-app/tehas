@@ -13,9 +13,18 @@ empty one above it.
 
 ### Changes
 
+- The report's shadow names its files `state/cycles/shadow-<issue>.*`, where
+  it named them `<issue>.shadow.*` (#923). A poll that ran while a cycle ended
+  took `<issue>.shadow.park` for the record of an older tehas, stopped with 78
+  and said to run `install.sh`. Only a host with `state/cycle-shadow.on` was
+  touched, one poll at a time.
+
 ### Adopter action
 
-None.
+With `state/cycle-shadow.on` there, drain before you update (`tehas drain
+--wait`), then `tehas limit clear`: a cycle that ends across the update
+leaves its `<issue>.shadow.*` files, which stop every poll until removed.
+Without the shadow, none.
 
 ## v0.15.0 (2026-10-27)
 
