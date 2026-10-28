@@ -134,6 +134,7 @@ fn world() -> World {
             gh: s("gh"),
             store: s("store"),
             gh_count: 0,
+            gh_token: None,
         },
         poll_at: 1000,
         before: 990,

@@ -119,7 +119,11 @@ with a token; remove the token from `~/.config/tehas/env` after.
 - `env.sh` puts `~/tehas/shim` first on `PATH`. Its `gh` asks for the token at
   every call, so a command that runs for hours never holds an expired one;
   git's github.com credential helper asks the same `gh`. A `GH_TOKEN` left in
-  `~/.config/tehas/env` is dropped.
+  `~/.config/tehas/env` is dropped. The dispatcher's poll is the one caller
+  that asks once: it takes the token at its start, gives it to every `gh` of
+  the poll as `TEHAS_GH_TOKEN`, and the shim uses that instead of asking again
+  (#938). The poll keeps it in memory only - never in a log, a file, or the
+  poll's record.
 - A cycle's container is given `~/tehas/state/github` read-only, never the key.
   The image's own `gh` reads the token there at every call, and `tehas work`
   renews it every 5 minutes while the cycle runs.

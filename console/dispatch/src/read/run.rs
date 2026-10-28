@@ -5,6 +5,7 @@
 use regex::Regex;
 use serde_json::Value;
 use std::io::Read;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -30,8 +31,24 @@ pub fn run(program: &str, args: &[String], bound: Duration) -> Ran {
 
 /// Run a program with a bound, given `input` on its standard input.
 pub fn run_input(program: &str, args: &[String], input: Option<&str>, bound: Duration) -> Ran {
-    let child = Command::new(program)
-        .args(args)
+    run_input_env(program, args, input, bound, &[])
+}
+
+/// run_input with extra variables in the child's environment, each a name and
+/// its value. A poll gives every gh call it makes the token it took once.
+pub fn run_input_env(
+    program: &str,
+    args: &[String],
+    input: Option<&str>,
+    bound: Duration,
+    extra: &[(&str, &str)],
+) -> Ran {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    for (k, v) in extra {
+        cmd.env(k, v);
+    }
+    let child = cmd
         .stdin(if input.is_some() {
             Stdio::piped()
         } else {
@@ -234,6 +251,16 @@ fn parse(out: &str) -> Value {
     }
 }
 
+/// The extra environment of one gh call of the poll: the token it took, when
+/// the poll has one. Nothing else is given, so a call without an app is the
+/// call it was.
+fn gh_env(token: Option<&str>) -> Vec<(&str, &str)> {
+    match token {
+        Some(t) => vec![("TEHAS_GH_TOKEN", t)],
+        None => Vec::new(),
+    }
+}
+
 /// The calls of one snapshot, and how many went to GitHub.
 pub struct Calls {
     pub bound: Duration,
@@ -242,6 +269,53 @@ pub struct Calls {
     pub gh: String,
     pub store: String,
     pub gh_count: u32,
+    /// The GitHub App's token, taken once at the poll's first gh call and kept
+    /// here. Every gh process of the poll gets it as `TEHAS_GH_TOKEN`, which
+    /// host/shim/gh hands to gh as `GH_TOKEN` instead of asking
+    /// libexec/github-token for one of its own. The poll holds it in memory
+    /// only: it is never logged, written, or put in the poll's record, and a
+    /// poll with no app named has nothing here.
+    pub gh_token: Option<String>,
+}
+
+impl Calls {
+    /// The calls of a poll's reads, with the store's bound and its path.
+    pub fn idle(store_bound: Duration, store: String) -> Calls {
+        Calls {
+            bound: Duration::from_secs(30),
+            store_bound,
+            gh: "gh".into(),
+            store,
+            gh_count: 0,
+            gh_token: None,
+        }
+    }
+}
+
+/// The token of the host's GitHub App, asked for once by the poll that first
+/// needs it: `$TEHAS_HOME/libexec/github-token` with the poll's own environment,
+/// as the bash runs it, printing the token and nothing else. Only when
+/// `TEHAS_GITHUB_APP_ID` names an app. When the program could not be run or
+/// answered nothing, this gives nothing and the poll's gh calls go on as they
+/// did before, each asking for a token of its own.
+pub fn read_gh_token(home: &Path, bound: Duration) -> Option<String> {
+    if std::env::var("TEHAS_GITHUB_APP_ID")
+        .unwrap_or_default()
+        .is_empty()
+    {
+        return None;
+    }
+    let program = home
+        .join("libexec/github-token")
+        .to_string_lossy()
+        .into_owned();
+    let r = run(&program, &[], bound);
+    let token = r.out.lines().next().unwrap_or("").trim();
+    if r.ok() && !token.is_empty() {
+        Some(token.to_string())
+    } else {
+        None
+    }
 }
 
 /// A gh call that failed: what the bash's gh_json says for it.
@@ -252,6 +326,9 @@ impl Calls {
     pub fn gh_all(&mut self, calls: &[Vec<String>]) -> Vec<Result<Value, GhFail>> {
         let bound = self.bound;
         let gh = self.gh.clone();
+        // The token, owned, so each spawned call holds its own view of it and
+        // the borrow of self ends here.
+        let token = self.gh_token.clone();
         let mut out: Vec<Result<Value, GhFail>> = Vec::new();
         for chunk in calls.chunks(8) {
             let answers: Vec<Result<Value, GhFail>> = std::thread::scope(|s| {
@@ -259,12 +336,14 @@ impl Calls {
                     .iter()
                     .map(|args| {
                         let gh = gh.clone();
+                        let token = token.clone();
                         s.spawn(move || {
                             let word = format!("ERROR: gh {} {} failed", args[0], args[1]);
                             if !gh_reads(args) {
                                 return Err(GhFail(format!("{word}: refused, it is no read")));
                             }
-                            let r = run(&gh, args, bound);
+                            let extra = gh_env(token.as_deref());
+                            let r = run_input_env(&gh, args, None, bound, &extra);
                             if r.ok() {
                                 Ok(parse(&r.out))
                             } else {
@@ -295,7 +374,8 @@ impl Calls {
             return Err(GhFail(format!("{word}: refused, it is no read")));
         }
         self.gh_count += 1;
-        let r = run(&self.gh, &args, self.bound);
+        let extra = gh_env(self.gh_token.as_deref());
+        let r = run_input_env(&self.gh, &args, None, self.bound, &extra);
         if !r.ok() {
             return Err(GhFail(format!("{word}{}", gh_why(&r.err))));
         }
@@ -310,7 +390,8 @@ impl Calls {
             return None;
         }
         self.gh_count += 1;
-        let r = run(&self.gh, &args, self.bound);
+        let extra = gh_env(self.gh_token.as_deref());
+        let r = run_input_env(&self.gh, &args, None, self.bound, &extra);
         serde_json::from_str(&r.out).ok()
     }
 
@@ -399,6 +480,10 @@ impl Calls {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cases of the poll's token read and write one environment variable,
+    /// so one of them runs at a time.
+    static TOKEN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn a(x: &[&str]) -> Vec<String> {
         x.iter().map(|s| s.to_string()).collect()
@@ -500,6 +585,179 @@ mod tests {
         assert_eq!(parse("[1,2][3]"), serde_json::json!([1, 2, 3]));
         assert_eq!(parse("{\"a\":1}"), serde_json::json!({"a": 1}));
         assert_eq!(parse("not json"), serde_json::json!("not json"));
+    }
+
+    /// A host of one's own for a case of the token: `libexec/github-token` of
+    /// the home counts its runs and answers a token of its own, and the stub gh
+    /// beside it answers a read with the token it was given. `counter` asks for
+    /// the program that counts, which a case that only fails it does not need.
+    /// The directory is named by the case, so two cases never share a counter.
+    fn token_home(name: &str, counter: bool) -> Option<std::path::PathBuf> {
+        let dir = match std::fs::canonicalize(std::env::temp_dir()) {
+            Ok(d) => d.join(format!("tehas-{name}-{}", std::process::id())),
+            Err(_) => return None,
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        if std::fs::create_dir_all(dir.join("libexec")).is_err() {
+            return None;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let token = dir.join("libexec/github-token");
+        // The program of a case that fails at making one says its reason on the
+        // error stream and ends non-zero, as libexec/github-token does.
+        let body = if counter {
+            "#!/bin/sh\ncount=\"$0.count\"\nn=$(cat \"$count\" 2>/dev/null || echo 0)\n\
+             n=$((n + 1)); echo \"$n\" >\"$count\"\nprintf 'ghs_%s\\n' \"$n\"\n"
+        } else {
+            "#!/bin/sh\nprintf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n"
+        };
+        std::fs::write(&token, body).ok()?;
+        std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o755)).ok()?;
+        let gh = dir.join("gh");
+        std::fs::write(
+            &gh,
+            "#!/bin/sh\nprintf '%s\\n' \"${TEHAS_GH_TOKEN:-untouched}\"\n",
+        )
+        .ok()?;
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).ok()?;
+        Some(dir)
+    }
+
+    /// The calls of a snapshot that asks its reads of the stub gh of `home`.
+    fn calls_of(home: &Path) -> Calls {
+        let mut calls = Calls::idle(
+            Duration::from_secs(5),
+            home.join("store").to_string_lossy().into_owned(),
+        );
+        calls.gh = home.join("gh").to_string_lossy().into_owned();
+        calls
+    }
+
+    /// One read of gh, answered with the token the stub was given.
+    fn given(calls: &mut Calls) -> String {
+        match calls.gh(&["api", "user"]) {
+            // gh's own answer keeps the newline printf gave it, as any command's
+            // does; the token is what lies before it.
+            Ok(v) => v.as_str().unwrap_or_default().trim_end().to_string(),
+            Err(f) => panic!("the stub gh answers, not {}", f.0),
+        }
+    }
+
+    #[test]
+    fn a_poll_takes_the_token_once_however_many_calls_it_makes() {
+        // The poll's order: the token is taken before its first call, and the
+        // calls of the poll go after it. The poll takes it with `read_gh_token`
+        // and gives what it printed to every `Calls` of the poll, which is what
+        // the poll of `poll.rs` does for its reads and its writes.
+        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // With an app named, one run of the token program covers the whole
+        // poll, and every gh call of it sees the same token.
+        std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
+        let home = match token_home("token-once", true) {
+            Some(d) => d,
+            None => return,
+        };
+        let taken = read_gh_token(&home, Duration::from_secs(5));
+        assert_eq!(taken.as_deref(), Some("ghs_1"));
+        let mut calls = calls_of(&home);
+        calls.gh_token = taken.clone();
+        for _ in 0..5 {
+            assert_eq!(given(&mut calls), "ghs_1");
+        }
+        assert_eq!(calls.gh_token, taken);
+        assert_eq!(calls.gh_count, 5);
+        // Nothing between the take above and these five calls ran the token
+        // program: the poll's gh calls were served by the token it kept. A
+        // second take asks the program again, which is why the poll keeps what
+        // it took instead of asking for every call.
+        assert_eq!(
+            read_gh_token(&home, Duration::from_secs(5)).as_deref(),
+            Some("ghs_2")
+        );
+        let n = std::fs::read_to_string(home.join("libexec/github-token.count"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        assert_eq!(n, "2", "the poll ran the token program once for its calls");
+        let _ = std::fs::remove_dir_all(&home);
+
+        // A write of the poll is given the token in the same way.
+        let home = match token_home("token-write", true) {
+            Some(d) => d,
+            None => return,
+        };
+        let mut calls = calls_of(&home);
+        calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
+        let gh = calls.gh.clone();
+        let extra = gh_env(calls.gh_token.as_deref());
+        let r = run_input_env(
+            &gh,
+            &a(&["issue", "comment", "7"]),
+            Some("a body"),
+            Duration::from_secs(5),
+            &extra,
+        );
+        assert!(r.ok());
+        assert_eq!(r.out.trim(), "ghs_1");
+        let _ = std::fs::remove_dir_all(&home);
+
+        // With no app named the poll takes nothing and gh is given nothing:
+        // each call pays for a token of its own, as it did before.
+        std::env::remove_var("TEHAS_GITHUB_APP_ID");
+        let home = match token_home("token-none", true) {
+            Some(d) => d,
+            None => return,
+        };
+        let mut calls = calls_of(&home);
+        calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
+        for _ in 0..3 {
+            assert_eq!(given(&mut calls), "untouched");
+        }
+        assert_eq!(calls.gh_token, None);
+        assert_eq!(calls.gh_count, 3);
+        assert!(
+            !home.join("libexec/github-token.count").exists(),
+            "no token program runs when the instance names no app"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_token_that_could_not_be_had_leaves_the_calls_as_they_were() {
+        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = match token_home("token-failed", false) {
+            Some(d) => d,
+            None => return,
+        };
+        use std::os::unix::fs::PermissionsExt;
+        let program = home.join("libexec/github-token");
+        std::env::set_var("TEHAS_GITHUB_APP_ID", "5452597");
+        let mut calls = calls_of(&home);
+
+        // The program is not there at all: nothing is kept, and the calls go
+        // as they always did, each asking for a token of its own.
+        std::fs::remove_file(&program).ok();
+        calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
+        assert_eq!(calls.gh_token, None);
+        assert_eq!(given(&mut calls), "untouched");
+
+        // One that answers nothing is no token; one that prints a word of a
+        // token and still fails is no token; and the one of this home, which
+        // says its reason and ends 1, is no token either.
+        for body in [
+            "#!/bin/sh\nexit 0\n",
+            "#!/bin/sh\nprintf 'ghs_x\\n'\nexit 1\n",
+            "#!/bin/sh\nprintf 'tehas: no GitHub App is set\\n' >&2\nexit 1\n",
+        ] {
+            std::fs::write(&program, body).expect("the token program is written");
+            let _ = std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755));
+            calls.gh_token = read_gh_token(&home, Duration::from_secs(5));
+            assert_eq!(calls.gh_token, None, "a failed run of {body}");
+            assert_eq!(given(&mut calls), "untouched");
+        }
+        std::env::remove_var("TEHAS_GITHUB_APP_ID");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
