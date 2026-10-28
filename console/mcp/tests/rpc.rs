@@ -206,6 +206,125 @@ fn an_unknown_method_is_404_method_not_found() {
     assert_eq!(json_of(&r)["error"]["code"], -32601);
 }
 
+// What the access line adds for a tools/call: the name of the tool, and
+// nothing of the arguments. A name the server has not is `?`; a name that is
+// not text at all is `-`.
+#[test]
+fn a_call_names_its_tool_and_no_argument_in_the_line() {
+    let secret = "issue-987-please-do-not-log-this-text";
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_issues", "arguments": {"stage": "queued", "note": secret}}),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.tool.as_deref(), Some("factory_issues"));
+    let line = r.tool.as_deref().unwrap();
+    assert!(!line.contains(secret), "{line}");
+    assert!(!line.contains("queued"), "{line}");
+
+    // A name the server does not have is logged as ?, and the answer gives
+    // the caller nothing back to enumerate with: no name of its own.
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_delete", "arguments": {"issue": 987}}),
+    );
+    assert_eq!(json_of(&r)["error"]["code"], -32602);
+    assert_eq!(json_of(&r)["error"]["message"], "Unknown tool");
+    assert!(!String::from_utf8_lossy(&r.body).contains("factory_delete"));
+    assert_eq!(r.tool.as_deref(), Some("?"));
+}
+
+// The value the line carries for a call is one the server wrote, never the
+// client's text: a name it serves, or one of the two sentinels. Every shape
+// below goes through the legacy handshake, the only one that lets the body's
+// name reach the log.
+#[test]
+fn the_logged_name_is_a_word_of_the_server_or_a_sentinel() {
+    for name in [
+        json!("factory_log\r\nFORGED \x1b[31m"),
+        json!("factory_status\n\x1b]0;pwn\x07"),
+        json!("\r\n"),
+        json!(" "),
+        json!("factory status"),
+        json!("&"),
+        json!(null),
+        json!(7),
+        json!({"a": 1}),
+        json!(["factory_status"]),
+        json!(""),
+        json!("x".repeat(4000)),
+    ] {
+        let r = legacy(Some(1), "tools/call", json!({"name": name}));
+        let logged = r.tool.clone().unwrap_or_default();
+        assert!(
+            ["?", "-", "factory_status", "factory_log"].contains(&logged.as_str()),
+            "{name} logged {logged:?}"
+        );
+        assert!(
+            !logged.contains(['\r', '\n', '\t', ' ']) && !logged.contains('\x1b'),
+            "{name} logged {logged:?}"
+        );
+    }
+}
+
+// A name of another shape than a string is refused by the mirror of its
+// header, which compares text, so no tool is logged for it.
+#[test]
+fn a_name_that_is_not_text_is_refused_by_the_mirror() {
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": 7, "arguments": {"issue": 987},
+                   "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
+    .to_string();
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", MODERN),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "factory_status"),
+    ];
+    let r = send("POST", &h, body.as_bytes());
+    assert_eq!(json_of(&r)["error"]["code"], -32020);
+    assert_eq!(r.tool, None);
+}
+
+// Only a tools/call names a tool. The other methods, and a request refused
+// before its body is read, log as they did.
+#[test]
+fn only_a_call_names_a_tool_in_the_line() {
+    // ping is answered to a legacy client, not to a modern one.
+    for method in ["server/discover", "tools/list"] {
+        let r = modern(method, json!({}));
+        assert_eq!(r.status, 200, "{method}");
+        assert_eq!(r.tool, None, "{method}");
+    }
+    assert_eq!(legacy(Some(1), "ping", json!({})).tool, None);
+    let auth = format!("Bearer {K1}");
+    for m in ["GET", "DELETE"] {
+        let r = send(m, &[("Authorization", &auth)], b"");
+        assert_eq!(r.status, 405, "{m}");
+        assert_eq!(r.tool, None, "{m}");
+    }
+    let r = legacy(
+        Some(1),
+        "tools/call",
+        json!({"name": "factory_status", "arguments": {"note": "private text"}}),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(r.tool.as_deref(), Some("factory_status"));
+}
+
+// A `tools/call` whose name is not text at all is a name the server has not,
+// told from a probe by the dash it logs: the legacy handshake carries no
+// `Mcp-Name` to mirror, so the body is what the server reads.
+#[test]
+fn a_call_whose_name_is_not_text_logs_a_dash() {
+    let r = legacy(Some(1), "tools/call", json!({"name": 7}));
+    assert_eq!(r.status, 200);
+    assert_eq!(r.tool.as_deref(), Some("-"));
+    let r = legacy(Some(1), "tools/call", json!({"arguments": {}}));
+    assert_eq!(r.tool.as_deref(), Some("-"));
+}
+
 #[test]
 fn headers_must_mirror_the_body() {
     let auth = format!("Bearer {K1}");

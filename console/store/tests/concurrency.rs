@@ -13,13 +13,21 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
 const READERS: u32 = 8;
-const LOAD: Duration = Duration::from_secs(10);
+const LOAD: Duration = Duration::from_secs(2);
+/// A call that answered ok and took this long met the busy handler on the way:
+/// the store's own five seconds is what it would have waited, and the whole load
+/// of eight writers and eight readers costs a few tens of milliseconds. Under the
+/// installed bounds a waiter would still be caught, but only after ten seconds of
+/// the load, which is why the load is measured against this instead of against
+/// `db::BUSY_TIMEOUT`.
+const LEAST_BUSY: Duration = Duration::from_millis(1000);
 const ROWS_PER_WRITE: u32 = 3;
 
 /// A home with a store `init` made, as install.sh will leave it.
@@ -90,6 +98,12 @@ fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (String, String)> {
 fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     let home = home("load");
     let end = Instant::now() + LOAD;
+    // What any of the sixteen processes took long enough to be a wait rather
+    // than a call, named so a failure says who met the lock. The handles are
+    // collected before the join, so the closures are alive by the time their
+    // lifetimes are checked and a borrow of a local here cannot serve: the
+    // vector is leaked and shared by pointer, and dropped with the process.
+    let slowest: &'static Mutex<Vec<String>> = Box::leak(Box::new(Mutex::new(Vec::new())));
     let writers: Vec<_> = (0..WRITERS)
         .map(|w| {
             let home = home.clone();
@@ -111,6 +125,13 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
                     );
                     if out.status.success() {
                         written.push(batch);
+                        let took = asked.elapsed();
+                        if took >= LEAST_BUSY {
+                            slowest
+                                .lock()
+                                .unwrap()
+                                .push(format!("writer {w}, batch {batch}: {took:?}"));
+                        }
                     } else {
                         failed.push(format!(
                             "writer {w}, batch {batch}, {:?}: {}",
@@ -130,9 +151,17 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             thread::spawn(move || {
                 let (mut reads, mut failed) = (0, Vec::new());
                 while Instant::now() < end {
+                    let asked = Instant::now();
                     let out = run(&home, &["check"]);
                     if out.status.success() {
                         reads += 1;
+                        let took = asked.elapsed();
+                        if took >= LEAST_BUSY {
+                            slowest
+                                .lock()
+                                .unwrap()
+                                .push(format!("reader {r}: {took:?}"));
+                        }
                     } else {
                         failed.push(format!("reader {r}: {}", said(&out)));
                     }
@@ -159,11 +188,26 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
         failed.extend(f);
     }
     // A busy database is exit 1 with the word on stderr, so a call that met
-    // SQLITE_BUSY is a failed call here.
+    // SQLITE_BUSY to the end of its bound is a failed call here. Nothing is
+    // allowed to have waited either: the store's handler is a five-second wait
+    // even in this debug build -- the tests' short pair belongs to the unit
+    // tests, not to these child processes -- so a call that had to sit on a lock
+    // would reach `waited` or `failed`, and no healthy call comes near a second.
     assert!(failed.is_empty(), "{} calls failed:\n{}", failed.len(), {
         failed.truncate(10);
         failed.join("\n")
     });
+    let waited = slowest.lock().unwrap().clone();
+    assert!(
+        waited.is_empty(),
+        "{} calls waited on the store:\n{}",
+        waited.len(),
+        {
+            let mut shown = waited.clone();
+            shown.truncate(10);
+            shown.join("\n")
+        }
+    );
     eprintln!(
         "{} rows written; fewest writes, reads per process: {fewest:?}",
         want.len()

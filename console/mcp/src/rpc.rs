@@ -39,6 +39,16 @@ pub struct Response {
     pub body: Vec<u8>,
     /// The fingerprint of the key that was used, for the access log.
     pub key: Option<String>,
+    /// The tool of a `tools/call`, for the access log: its name only, never
+    /// its arguments, which can carry an issue number or text from a private
+    /// repository. The value is one the server wrote, never the client's: a
+    /// name of a tool it serves, `?` for a text name it has not (a probe), and
+    /// `-` for a `tools/call` whose name is not text at all, which only the
+    /// 2025-11-25 handshake can carry, as a modern request must mirror its
+    /// name in `Mcp-Name` and no text equals a number. So `-` covers a broken
+    /// client and a probe whose name never reached the server as text alike.
+    /// A request that is not a `tools/call` has none.
+    pub tool: Option<String>,
     /// The place of a log being sent, freed when the answer is dropped.
     pub hold: Option<LogGuard>,
 }
@@ -50,6 +60,7 @@ impl Response {
             headers: vec![],
             body: vec![],
             key: None,
+            tool: None,
             hold: None,
         }
     }
@@ -60,6 +71,7 @@ impl Response {
             headers: vec![("Content-Type".into(), "application/json".into())],
             body: v.to_string().into_bytes(),
             key: None,
+            tool: None,
             hold: None,
         }
     }
@@ -160,6 +172,7 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     }
     let info = json!({"name": "tehas", "version": server_version});
     let mut hold = None;
+    let mut tool = None;
     let mut result = match (method, modern) {
         ("server/discover", _) => json!({
             "resultType": "complete",
@@ -188,9 +201,24 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
             "cacheScope": "private",
         }),
         ("tools/call", _) => {
-            let name = params["name"].as_str().unwrap_or("");
+            // One read of the body's name, shared by the dispatch and the log
+            // so the two cannot name different tools. Only the name goes to
+            // the log: the arguments can carry an issue number or text from a
+            // private repository, and are never copied.
+            let name = params["name"].as_str();
+            // The line says which tool the request asked for even when the
+            // call is refused: the server's own name for one it serves, `?`
+            // for a text name it has not, and `-` for a name that is not
+            // text. A name it serves is a word of `CALLED`, copied from the
+            // body only ever as one, so no byte of the client's reaches the
+            // line.
+            tool = Some(match name {
+                Some(n) if tools::known(n) => n.to_string(),
+                Some(_) => "?".into(),
+                None => "-".into(),
+            });
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            match tools::call_held(dirs, name, &args).map(|(out, place)| {
+            match tools::call_held(dirs, name.unwrap_or(""), &args).map(|(out, place)| {
                 hold = place;
                 out
             }) {
@@ -212,8 +240,14 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
                     ],
                     "structuredContent": meta,
                 }),
-                Err(ToolError::Unknown(n)) => {
-                    return error(200, &id, -32602, &format!("Unknown tool: {n}"), None)
+                Err(ToolError::Unknown(_)) => {
+                    // The name the client sent is not echoed: the answer is
+                    // the same for any name the server has not, so it gives a
+                    // caller no way to tell a tool it has from one it has not.
+                    // The journal holds the distinction, as `tool=?`.
+                    let mut r = error(200, &id, -32602, "Unknown tool", None);
+                    r.tool = tool.take();
+                    return r;
                 }
                 Err(ToolError::BadArgs(why)) => tool_error(&why),
                 Err(ToolError::File { file, why }) => tool_error(&format!("{file} {why}")),
@@ -226,6 +260,7 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     }
     let mut r = Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}));
     r.hold = hold;
+    r.tool = tool;
     r
 }
 
