@@ -9,7 +9,7 @@
 
 t_case "a runner that does not stop at its own limit is stopped after the grace, and not reported as killed"
 fresh
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "progress '{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"lens-review\"}}'; $hold; $gone"
 t_run "$work 7"
@@ -93,7 +93,7 @@ t_contains "$t_out" "status=stalled"
 t_case "a cycle whose agents keep writing is not stalled"
 fresh
 rm -f "$T/home/tehas/state/cycles/7.stalled"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5 TEHAS_CHILD_TIMEOUT=5
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "$hold; ( while kill -0 \"\$(cat \"\$T/sleeper.pid\")\" 2>/dev/null; do date >>\"$runs/agent.jsonl\"; \"\$nap\" 0.3; done ) & $gone"
 t_run "$work 7"
@@ -106,7 +106,7 @@ T_ENV=("${env_ok[@]}")
 
 t_case "progress the runner writes keeps a cycle from being stalled"
 fresh
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=2 TEHAS_VERIFY_TIMEOUT=1 TEHAS_WORK_TIMEOUT=5 TEHAS_CHILD_TIMEOUT=5
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 container "$hold; ( while kill -0 \"\$(cat \"\$T/sleeper.pid\")\" 2>/dev/null; do progress '{\"v\":1,\"kind\":\"log\",\"message\":\"x\"}'; \"\$nap\" 0.3; done ) & $gone"
 t_run "$work 7"
@@ -159,7 +159,7 @@ t_eq "$([ -n "$rm_at" ] && [ -n "$run_at" ] && [ "$rm_at" -lt "$run_at" ] && ech
 t_case "a docker stop that does not end is given up after its bound, said, and the container killed"
 fresh
 : >"$T/stop-hangs"
-t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=1 TEHAS_CHILD_TIMEOUT=1
 T_ENV=("${env_ok[@]}" TEHAS_STOP_WAIT=1 TEHAS_WORK_GRACE=0)
 container "$hold; says handoff; $gone"
 t_run "$work 7"

@@ -8,6 +8,8 @@
 load='. "$T_ROOT/lib/config.sh"; tehas_load'
 # The ceiling as lib/config.sh writes it, so a test never hand-copies it.
 plan_max=$(sed -n 's/^[[:space:]]*local TEHAS_PLAN_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
+# The bound of one child, likewise read from the config rather than copied.
+child_max=$(sed -n 's/^[[:space:]]*local TEHAS_CHILD_TIMEOUT_MAX=//p' "$T_ROOT/lib/config.sh")
 
 t_case "a minimal instance loads and derives the checkout path"
 t_instance "${T_MINIMAL[@]}"
@@ -58,6 +60,32 @@ t_contains "$t_out" "TEHAS_WORK_STALL (1800) is not longer than TEHAS_VERIFY_TIM
 t_instance "${T_MINIMAL[@]}" TEHAS_WORK_STALL=1000 TEHAS_VERIFY_TIMEOUT=600
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a child's bound is two hours unless the instance says otherwise"
+t_run "$load && echo \$TEHAS_CHILD_TIMEOUT"
+t_eq "$t_out" "$child_max"
+t_instance "${T_MINIMAL[@]}" TEHAS_CHILD_TIMEOUT=10800
+t_run "$load && echo \$TEHAS_CHILD_TIMEOUT"
+t_eq "$t_out" "10800"
+# The copy an operator copies and the row of the manual are the same number as
+# the config's, and a line that names the setting and leaves it empty takes the
+# default rather than leaving it unset for the arithmetic of tehas work.
+t_contains "$(grep '^#TEHAS_CHILD_TIMEOUT=' "$T_ROOT/instances/example/optional.env")" "$child_max"
+t_contains "$(grep '^| .TEHAS_CHILD_TIMEOUT.' "$T_ROOT/host/docs/tools.md")" "| \`$child_max\`"
+t_instance "${T_MINIMAL[@]}" TEHAS_CHILD_TIMEOUT=
+t_run "$load; echo rc=\$? \$TEHAS_CHILD_TIMEOUT"
+t_eq "$t_out" "rc=0 $child_max"
+t_instance "${T_MINIMAL[@]}"
+
+t_case "a child bound longer than the cycle's own limit is refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=21600 TEHAS_CHILD_TIMEOUT=3601
+t_run "$load; echo rc=\$?"
+t_eq "$t_out" "rc=0"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=3600 TEHAS_CHILD_TIMEOUT=3601
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_CHILD_TIMEOUT (3601) is more than TEHAS_WORK_TIMEOUT (3600): a child that outlives its cycle is one tehas stopped too late"
 t_instance "${T_MINIMAL[@]}"
 
 t_case "a cycle's time limit that the unit's own limit would cut is refused"
@@ -306,6 +334,7 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
   "TEHAS_PLAN_MAX_TURNS=0" "TEHAS_PLAN_TIMEOUT=1h" "TEHAS_VERIFY_TIMEOUT=30m" "TEHAS_VERIFY_TIMEOUT=0" \
+  "TEHAS_CHILD_TIMEOUT=30m" "TEHAS_CHILD_TIMEOUT=0" "TEHAS_CHILD_TIMEOUT=-1" "TEHAS_CHILD_TIMEOUT= \t" \
   "TEHAS_BUILD_TIMEOUT=30m" "TEHAS_BUILD_TIMEOUT=0" \
   "TEHAS_DOMAIN=https://example.org" "TEHAS_DOMAIN=example.org/" "TEHAS_DOMAIN=Example.org" \
   "TEHAS_DOMAIN=localhost" "TEHAS_DOMAIN=-a.example.org" "TEHAS_PREVIEWS=yes" \
@@ -455,7 +484,7 @@ done
 # Every count: a number no comparison can hold is refused by its length, not
 # taken as passing the comparison that failed on it.
 for name in TEHAS_WORK_TIMEOUT TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_VERIFY_TIMEOUT \
-  TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
+  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
   t_case "loading rejects a $name of 20 digits"
   t_instance "${T_MINIMAL[@]}" "$name=99999999999999999999"
   t_run "$load; echo rc=\$?"

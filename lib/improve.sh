@@ -140,7 +140,7 @@ tehas_improve_record() { # <issue> <started> <rc> <status> <step> [<pr> [<kills>
 # The TEHAS_* settings a record carries: those that shape a cycle. Not every one:
 # the analyst's words are filed in public, and a host's addresses and the
 # analytics settings are none of its business.
-_tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)$'
+_tehas_improve_host='^TEHAS_(WORK_(TIMEOUT|STALL|CPUS|MEMORY|IMAGES|FILES|COMMENTS|DESCRIBE)|CONCURRENCY|TICKET_CONCURRENCY|MAX_AWAITING|CYCLE_RESERVE|VERIFY_TIMEOUT|CHILD_TIMEOUT|PREFLIGHT_WAIT|STOP_WAIT|CONSOLE_WAIT|BRANCH)$'
 
 # Only a value of a safe shape goes in: a number, a boolean, or a short word
 # of [A-Za-z0-9_.,:=-]. Everything else is [withheld], and so is any value whose

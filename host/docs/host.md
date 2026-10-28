@@ -1103,8 +1103,14 @@ count as `oomKills`.
 
 #### Time limits
 
-`TEHAS_WORK_TIMEOUT` bounds the cycle itself, and `TEHAS_WORK_STALL` a cycle
-that writes nothing. Before the limit comes the cycle's deadline,
+`TEHAS_WORK_TIMEOUT` bounds the cycle itself, `TEHAS_WORK_STALL` a cycle
+that writes nothing, and `TEHAS_CHILD_TIMEOUT` one child of a cycle: pi-rukas
+ends a child that runs past it, the backstop for a child nothing else stopped.
+It is given to the container as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, in milliseconds,
+and is tehas' to set; pi-rukas alone allows two hours. It may be at most
+`TEHAS_WORK_TIMEOUT`, so no child outlives the cycle that spawned it: a longer
+one is refused with 78, because tehas would only see such a child when the
+cycle itself ended. Before the limit comes the cycle's deadline,
 `PI_ENSEMBLE_CYCLE_DEADLINE`: a quarter of `TEHAS_WORK_TIMEOUT` before the end,
 or one run of the gate and the handoff allowance when that is longer. The
 allowance is 8 minutes, and pi-rukas is given it as
@@ -1136,6 +1142,7 @@ hold a slot for ever:
 | The dispatcher's fetch of the product checkout | 120 s | `WARN: could not fast-forward`, and the poll goes on |
 | A poll of the dispatcher | 1 hour (`TimeoutStartSec` of `tehas-dispatch.service`) | systemd stops it. A poll runs no planning turn and no index run, so it has none to cut off |
 | A planning turn | `TEHAS_PLAN_TIMEOUT`, then a quarter of an hour (`RuntimeMaxSec` of `tehas-plan-<issue>.service`) | The next poll reports the turn as cut off |
+| One child of a cycle | `TEHAS_CHILD_TIMEOUT`, given as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | pi-rukas ends the child and the cycle goes on without it |
 | The code index | 30 minutes for the indexer, then 40 minutes for the unit (`RuntimeMaxSec` of `tehas-index.service`) | The index stays as it was. The next poll starts the cycles |
 
 `tehas-cycle@.service` stops a cycle after 8 hours (`RuntimeMaxSec`), as the

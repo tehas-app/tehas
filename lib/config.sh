@@ -45,8 +45,8 @@
 #     versions.env, and is checked whenever it is set: release, branch:<name>
 #     or commit:<40 hex>.
 #   - Loading runs no git command, makes no network call and writes nothing.
-#     TEHAS_PLAN_TIMEOUT_MAX, the ceiling of one planning turn, is local to
-#     tehas_load: nothing sources this file and reads it from the environment.
+#     TEHAS_PLAN_TIMEOUT_MAX and TEHAS_CHILD_TIMEOUT_MAX, the ceiling of a
+#     planning turn and the bound of one child, are local to tehas_load.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is
 #     none. TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
 #     Neither is TEHAS_REPO: a person triages findings before they are tickets.
@@ -123,18 +123,17 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
-      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
+      TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
       [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
       _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
     TEHAS_LOW_GATE_WAIT)
       # The dispatcher waits for the gate while it holds state/dispatch.lock, so
-      # these seconds delay every later poll too: that is the ceiling. Its length
-      # is checked before the value, so a number no comparison can hold is
-      # refused by the length instead of by a failing comparison.
+      # these seconds delay every later poll too: that is the ceiling. The length
+      # is checked before the value, so a number no comparison can hold is refused
+      # by the length and not by a failing comparison.
       [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
-      [ "${#v}" -le 3 ] && [ "$v" -le 600 ] ||
-        { echo "expected at most 600 seconds"; return 1; }
+      [ "${#v}" -le 3 ] && [ "$v" -le 600 ] || { echo "expected at most 600 seconds"; return 1; }
       ;;
     TEHAS_ALLOWED_LABELERS)
       # Exactly one space between logins and none around them: the dispatcher
@@ -174,9 +173,9 @@ _tehas_valid() {
     TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
-    # Both end up in an HTML attribute of every page, so no quote, space or
-    # angle bracket may get through.
     TEHAS_ANALYTICS_SRC)
+      # Both end up in an HTML attribute of every page, so no quote, space or
+      # angle bracket may get through.
       [[ $v =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?/[A-Za-z0-9._/-]*$ ]] ||
         { echo "expected the https address of a script"; return 1; }
       ;;
@@ -185,13 +184,11 @@ _tehas_valid() {
       ;;
     TEHAS_CYCLE_RESERVE)
       # The shape lib/slice.sh reads at every start: no leading zero, at most
-      # twelve digits of bytes or nine with a unit. Docker refuses a memory
-      # value under 6m.
-      if ! [[ $v =~ ^([1-9][0-9]{0,11}[bB]?|[1-9][0-9]{0,8}[kmgKMG])$ ]] ||
-        ! _tehas_mem_mb "$v" || [ "$mb" -lt 6 ]; then
-        echo "expected a size of at least 6m, such as 512m or 2g"
-        return 1
-      fi
+      # twelve digits of bytes or nine with a unit, and a size Docker takes: it
+      # refuses a memory value under 6m.
+      [[ $v =~ ^([1-9][0-9]{0,11}[bB]?|[1-9][0-9]{0,8}[kmgKMG])$ ]] &&
+        _tehas_mem_mb "$v" && [ "$mb" -ge 6 ] ||
+        { echo "expected a size of at least 6m, such as 512m or 2g"; return 1; }
       ;;
     TEHAS_HOST_ADDR)
       [[ $v =~ ^[A-Za-z0-9.:-]+$ ]] || { echo "expected an address or host name"; return 1; }
@@ -213,18 +210,16 @@ _tehas_valid() {
       [[ $v =~ ^[1-9][0-9]?$ ]] || { echo "expected a number from 1 to 99"; return 1; }
       ;;
     TEHAS_PREVIEW_MIN_FREE | TEHAS_CYCLE_MIN_FREE | TEHAS_CLEAN_MIN_FREE)
-      if ! _tehas_mem_mb "$v" || [ "$mb" -le 0 ]; then
-        echo "expected a size such as 512m or 5g"
-        return 1
-      fi
+      _tehas_mem_mb "$v" && [ "$mb" -gt 0 ] ||
+        { echo "expected a size such as 512m or 5g"; return 1; }
       ;;
     TEHAS_RUKAS_WORKAROUNDS)
       [[ $v =~ ^(PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3}(\ (PI_ENSEMBLE|TEHAS)_[A-Z0-9_]+@[0-9]{1,6}(\.[0-9]{1,6}){1,3})*$ ]] ||
         { echo "expected NAME@VERSION entries separated by single spaces, such as PI_ENSEMBLE_COMMENT_RETENTION@0.12.80"; return 1; }
       ;;
-    # What tehasbot clean removes, and when. The hours are docker's `until`
-    # and find's `-newermt`, and the names are each one directory name.
-    # Minutes between two runs of tehasbot refresh, at most a day.
+    # What tehasbot clean removes, and when: the hours are docker's `until` and
+    # find's `-newermt`, the names are each one directory name, and the minutes
+    # between two runs of tehasbot refresh are at most a day.
     TEHAS_REFRESH_SLOTS)
       [[ $v =~ ^[0-8]$ ]] || { echo "expected a whole number from 0 to 8"; return 1; }
       ;;
@@ -252,29 +247,21 @@ _tehas_valid() {
       done
       ;;
     # What tehas work measures of an approved body, and no further: the two
-    # bounds of lib/sizing.sh. Each holds what the other leaves unbounded, a
-    # body of one huge line and a body of many short ones, so both are settings
-    # and both must be usable numbers.
+    # bounds of lib/sizing.sh, each holding what the other leaves unbounded (a
+    # body of one huge line, a body of many short ones). Both must be numbers.
     TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
       [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
       ;;
     TEHAS_CLEAN_DIRS)
-      # Names, not paths: the cleaner matches them with find -name, and a name
-      # with a slash, a bare dot, or one of the two dot-names a workspace keeps
-      # -- in any spelling, since a name close to one of them is a name someone
-      # meant as one of them -- would be something the cleaner has no business
-      # removing.
+      # Names, not paths: the cleaner matches them with find -name, so the pattern
+      # below admits no slash, no bare dot and none of the dot-names a workspace
+      # keeps, in any spelling.
       [[ $v =~ ^[A-Za-z0-9._-]+(\ [A-Za-z0-9._-]+)*$ ]] ||
         { echo "expected directory names of letters, digits and ._-, separated by single spaces"; return 1; }
-      # Split on the single spaces the pattern above allows, whatever IFS the
-      # instance file set.
+      # Split on the single spaces the pattern above allows, whatever IFS was set.
       IFS=' ' read -r -a clean_dirs <<<"$v"
       for clean_dir in "${clean_dirs[@]}"; do
         case "$clean_dir" in
-          */*)
-            echo "expected names and no path: $clean_dir has a slash"
-            return 1
-            ;;
           . | .. | .[gG][iI][tT] | .[pP][iI] | .[pP][iI].*)
             echo "refuses $clean_dir: that is not build output"
             return 1
@@ -361,13 +348,13 @@ _tehas_why() {
 _tehas_roles=(DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST)
 tehas_model_roles() { printf '%s\n' "${_tehas_roles[@]}"; }
 
-# Check the per-role model settings and give each role model a provider.
-# A name pi-rukas does not read would reach the container and be ignored, and
-# that role would run on PI_ENSEMBLE_SUBAGENT_MODEL without a word, so it is
-# refused. So is a provider without its model: pi-rukas ignores it. A role
-# model with no provider of its own gets PI_ENSEMBLE_SUBAGENT_PROVIDER, because
-# Pi cannot find a custom provider's model by its id alone. An empty line is
-# not set. Returns 78 with one line on stderr.
+# Check the per-role model settings and give each role model a provider. A name
+# pi-rukas does not read would reach the container and be ignored, and that role
+# would run on PI_ENSEMBLE_SUBAGENT_MODEL without a word, so it is refused. So is
+# a provider without its model: pi-rukas ignores it. A role model with no provider
+# of its own gets PI_ENSEMBLE_SUBAGENT_PROVIDER, because Pi cannot find a custom
+# provider's model by its id alone. An empty line is not set. Returns 78 with one
+# line on stderr.
 _tehas_role_models() { # <instance.env>
   local file=$1 v m p role reason roles
   roles=" ${_tehas_roles[*]} "
@@ -381,13 +368,10 @@ _tehas_role_models() { # <instance.env>
       *" $role "*) ;;
       *)
         tehas_err "$v names no role pi-rukas gives a model to; the roles are$roles (see $file)"
-        return 78
-        ;;
+        return 78 ;;
     esac
-    if [ -z "${!v}" ]; then
-      unset "$v"
-      continue
-    fi
+    # An empty line is not a setting: the name goes, so no container is given it.
+    [ -n "${!v}" ] || { unset "$v"; continue; }
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   for role in $roles; do
@@ -405,9 +389,9 @@ _tehas_role_models() { # <instance.env>
 # The TEHAS_FIXER_* names were renamed TEHAS_MILLWRIGHT_* in v0.14.0 (#676)
 # and stopped being read in a later release (#799).
 _tehas_fixer_names() {
-  local key
+  local key old
   for key in LOGIN MAX_RETRIES MAX_PLAN_ANSWERS; do
-    local old=TEHAS_FIXER_$key
+    old=TEHAS_FIXER_$key
     [ -z "${!old+x}" ] || {
       tehas_err "$old is no longer read: rename it TEHAS_MILLWRIGHT_$key (see $file)"
       return 78
@@ -461,7 +445,6 @@ tehas_load() {
   set +a
 
   _tehas_role_models "$file" || return 78
-
   _tehas_fixer_names || return 78
 
   # Database clones are not part of this version. An instance that still asks
@@ -470,7 +453,7 @@ tehas_load() {
     tehas_err "TEHAS_CLONES is set and this version of tehas has no database clones (see $file)"
     return 78
   fi
-  # The budget of an earlier version. The limit around every container is the
+  # The budgets of an earlier version: the limit around every container is the
   # slice on the host now, and nothing here divides anything, so a budget line
   # would be a setting that does nothing. Refused, not ignored.
   if [ -n "${TEHAS_WORK_CPUS+x}" ]; then
@@ -567,9 +550,9 @@ tehas_load() {
   v=3
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
-  # Seconds a cycle may run, and how long it may go without adding to any of its
-  # logs before it is stopped as stalled: the stall bound is longer than a run of
-  # the gate, which may print nothing.
+  # logs before it is stopped as stalled, longer than a run of the gate, which
+  # may print nothing. These and the child bound below are the chain of time
+  # bounds checked further down.
   export TEHAS_WORK_TIMEOUT=${TEHAS_WORK_TIMEOUT:-21600} TEHAS_WORK_STALL=${TEHAS_WORK_STALL:-3600}
   # Whether a cycle is given the images and the text files its issue links, and
   # whether the model describes those images in words first (one request per
@@ -593,44 +576,52 @@ tehas_load() {
   # which none is built.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-} TEHAS_PREVIEWS=${TEHAS_PREVIEWS:-0}
   export TEHAS_PREVIEW_MAX=${TEHAS_PREVIEW_MAX:-5} TEHAS_PREVIEW_MIN_FREE=${TEHAS_PREVIEW_MIN_FREE:-5g}
-  # Free disk below which the dispatcher starts no cycle, and below which
-  # tehasbot clean takes build output and Docker's build cache whatever their
-  # age (the 2026-10-20 outage, when the host disk filled and every running
-  # cycle died). The cleaner's hold sits above the dispatcher's, so space goes
-  # before the host stops starting work.
+  # Free disk below which the dispatcher starts no cycle, and below which tehasbot
+  # clean takes build output and Docker's build cache whatever their age (the
+  # 2026-10-20 outage, when the host disk filled and every running cycle died). The
+  # cleaner's hold sits above the dispatcher's, so space goes before the host stops
+  # starting work.
   export TEHAS_CYCLE_MIN_FREE=${TEHAS_CYCLE_MIN_FREE:-10g} TEHAS_CLEAN_MIN_FREE=${TEHAS_CLEAN_MIN_FREE:-30g}
-  # The sandbox image, the private names it must resolve, and how many
-  # workstreams one cycle runs side by side inside it: pi-rukas reads the last
-  # name, and its own default is more than one, so it is always told.
+  # The sandbox image, the private names it must resolve, and how many workstreams
+  # one cycle runs side by side inside it: pi-rukas reads the last name, and its
+  # own default is more than one, so it is always told.
   export PI_ENSEMBLE_IMAGE=${PI_ENSEMBLE_IMAGE:-tehas/pi-rukas:uid$EUID}
-  export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-}
-  export PI_ENSEMBLE_MAX_WORKSTREAMS=$TEHAS_CONCURRENCY
-  # Seconds one run of the product's gate may take inside a cycle. pi-rukas
-  # reads the same bound in milliseconds under two names, one for a workstream's
-  # gate and one for the gate on the combined tree; it gives the first ten
-  # minutes when it is told nothing. A gate refused below is not passed on.
+  export PI_ENSEMBLE_HOST_ALIASES=${PI_ENSEMBLE_HOST_ALIASES:-} \
+    PI_ENSEMBLE_MAX_WORKSTREAMS=$TEHAS_CONCURRENCY
+  # Seconds one run of the product's gate may take inside a cycle. pi-rukas reads
+  # the same bound in ms under two names, one for a workstream's gate and one for
+  # the gate on the combined tree; it gives the first ten minutes when it is told
+  # nothing. A gate refused below is not passed on.
   export TEHAS_VERIFY_TIMEOUT=${TEHAS_VERIFY_TIMEOUT:-1800}
   if _tehas_is_count "$TEHAS_VERIFY_TIMEOUT"; then
     export PI_ENSEMBLE_VERIFY_TIMEOUT_MS=$((TEHAS_VERIFY_TIMEOUT * 1000))
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
   # The most files an issue's own body may name before the dispatcher holds it
-  # back instead of starting a cycle on it (libexec/dispatch, lib/sizing.sh):
-  # unset, the dispatcher never asks the measure. Read from the instance file
-  # alone, and an empty value stays empty rather than become a ceiling.
+  # instead of starting a cycle on it (libexec/dispatch, lib/sizing.sh): unset,
+  # the dispatcher never asks the measure, and an empty value stays empty rather
+  # than become a ceiling.
   export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
   # Agents get neither the host Docker socket nor SSH keys. Not a setting.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
-
+  # The bound of one child of a cycle: tehas work passes it to the container as
+  # PI_ENSEMBLE_SPAWN_TIMEOUT_MS. TEHAS_CHILD_TIMEOUT_MAX is the one place that
+  # bound is written: pi-rukas's own two hours. A written-but-empty line is swept
+  # away above, so the default comes after that sweep, not from the export's :-
+  # alone. The bounds below hold it at or under TEHAS_WORK_TIMEOUT, and
+  # test/config_test.sh pins the copies of it in the manual and the example.
+  local TEHAS_CHILD_TIMEOUT_MAX=7200
+  [ -n "${TEHAS_CHILD_TIMEOUT:-}" ] || TEHAS_CHILD_TIMEOUT=$TEHAS_CHILD_TIMEOUT_MAX
+  export TEHAS_CHILD_TIMEOUT
   # The settings an instance may write, each with the rule for its value. An
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
-  # Its default belongs to install.sh, so an instance that left it out is
-  # checked only when it wrote one.
+  # Its default belongs to install.sh, so an instance that left it out is checked
+  # only when it wrote one. PI_RUKAS_FOLLOW is checked whenever it is named.
   if [ -n "${TEHAS_BUILD_TIMEOUT:-}" ]; then
     _tehas_why TEHAS_BUILD_TIMEOUT "$TEHAS_BUILD_TIMEOUT" ||
       { tehas_err "TEHAS_BUILD_TIMEOUT is not valid: $reason (see $file)"; return 78; }
@@ -704,8 +695,21 @@ tehas_load() {
     tehas_err "TEHAS_CONCURRENCY ($TEHAS_CONCURRENCY) and TEHAS_TICKET_CONCURRENCY ($TEHAS_TICKET_CONCURRENCY) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see $file)"
     return 78
   fi
+  # The cycle's time bounds in the order they must sit in: the gate under the
+  # stall that must not fire while a gate prints nothing, one child at or under
+  # the whole cycle, and the cycle under what the unit outlives. Each is refused,
+  # not clamped, and each name is a count by now (_tehas_is_count, in the sweep
+  # above), so no [ -gt ] here reads a failed comparison as no refusal. The unit
+  # gets RuntimeMaxSec = TEHAS_PLAN_TIMEOUT + 900 (lib/planning.sh); 7200 + 900 is
+  # 2h15, inside the unit's own bound, and beyond it a turn outlives its unit. The
+  # length is bounded with the value: a count longer than the ceiling's digits
+  # cannot be compared by [ ], and would wrap in that arithmetic.
   if [ "$TEHAS_WORK_STALL" -le "$TEHAS_VERIFY_TIMEOUT" ]; then
     tehas_err "TEHAS_WORK_STALL ($TEHAS_WORK_STALL) is not longer than TEHAS_VERIFY_TIMEOUT ($TEHAS_VERIFY_TIMEOUT): a gate that prints nothing would be stopped as stalled (see $file)"
+    return 78
+  fi
+  if [ "$TEHAS_CHILD_TIMEOUT" -gt "$TEHAS_WORK_TIMEOUT" ]; then
+    tehas_err "TEHAS_CHILD_TIMEOUT ($TEHAS_CHILD_TIMEOUT) is more than TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT): a child that outlives its cycle is one tehas stopped too late (see $file)"
     return 78
   fi
   # tehas-cycle@.service stops a cycle after 8 hours (RuntimeMaxSec) and a unit
@@ -714,10 +718,6 @@ tehas_load() {
     tehas_err "TEHAS_WORK_TIMEOUT ($TEHAS_WORK_TIMEOUT) is more than 25200: tehas-cycle@.service stops a cycle after 8 hours, and the stop and the report need the hour after the limit (see $file)"
     return 78
   fi
-  # The unit gets RuntimeMaxSec = this + 900 (lib/planning.sh); 7200 + 900 is
-  # 2h15, inside the unit's own bound. Beyond it a turn outlives its unit. The
-  # length is bounded with the value: a count longer than the ceiling's digits
-  # cannot be compared by [ ], and would wrap in that arithmetic.
   if [ "${#TEHAS_PLAN_TIMEOUT}" -gt "${#TEHAS_PLAN_TIMEOUT_MAX}" ] ||
     [ "$TEHAS_PLAN_TIMEOUT" -gt "$TEHAS_PLAN_TIMEOUT_MAX" ]; then
     tehas_err "TEHAS_PLAN_TIMEOUT ($TEHAS_PLAN_TIMEOUT) is more than $TEHAS_PLAN_TIMEOUT_MAX: a planning turn may take at most two hours, and while one runs no other planning turn starts (see $file)"
@@ -728,14 +728,15 @@ tehas_load() {
     return 78
   fi
   # The three sizes above in MiB, for the df figures of dispatch, clean and
-  # preview, which are in KiB.
+  # preview, which are in KiB. Each is a valid size by now, so the call's own
+  # status carries nothing.
   _tehas_mem_mb "$TEHAS_PREVIEW_MIN_FREE"; TEHAS_PREVIEW_MIN_FREE_MB=$mb
   _tehas_mem_mb "$TEHAS_CYCLE_MIN_FREE"; TEHAS_CYCLE_MIN_FREE_MB=$mb
   _tehas_mem_mb "$TEHAS_CLEAN_MIN_FREE"; TEHAS_CLEAN_MIN_FREE_MB=$mb
   export TEHAS_PREVIEW_MIN_FREE_MB TEHAS_CYCLE_MIN_FREE_MB TEHAS_CLEAN_MIN_FREE_MB
-  if [ -n "${TEHAS_DOMAIN:-}" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ]; then
+  # The dashboard's lab host name follows the edge's unless the instance named one.
+  [ -n "${TEHAS_DOMAIN:-}" ] && [ -z "${TEHAS_PROTOLAB_URL:-}" ] &&
     export TEHAS_PROTOLAB_URL=https://lab.$TEHAS_DOMAIN
-  fi
   return 0
 }
 
@@ -807,15 +808,12 @@ tehas_checkout() {
 # checkout's origin/HEAD is set by install.sh, never looked up here.
 tehas_branch() {
   local b=""
-  if [ -n "${TEHAS_BRANCH:-}" ]; then
-    printf '%s\n' "$TEHAS_BRANCH"
-    return 0
-  fi
+  [ -z "${TEHAS_BRANCH:-}" ] || { printf '%s\n' "$TEHAS_BRANCH"; return 0; }
   b=$(git -C "${TEHAS_WORK_REPO:-/nonexistent}" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || b=""
   b=${b#origin/}
-  if [ -z "$b" ]; then
+  [ -n "$b" ] || {
     tehas_err "the default branch of ${TEHAS_WORK_REPO:-the product checkout} is unknown: run install.sh, or set TEHAS_BRANCH in ${TEHAS_INSTANCE_DIR:-?}/instance.env"
     return 78
-  fi
+  }
   printf '%s\n' "$b"
 }

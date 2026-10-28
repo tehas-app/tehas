@@ -157,6 +157,15 @@ t_contains "$t_out" "does not support what this cycle is given, not starting a c
 t_contains "$t_out" "the input PI_ENSEMBLE_SUBAGENT_MODEL"
 caps_good
 
+t_case "an image that does not read the child's bound stops the cycle: 78, named"
+caps_fresh
+jq '.inputs |= map(select(.name != "PI_ENSEMBLE_SPAWN_TIMEOUT_MS"))' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
+t_run "$work 7"
+caps_refused
+t_contains "$t_out" "does not support what this cycle is given, not starting a cycle"
+t_contains "$t_out" "the input PI_ENSEMBLE_SPAWN_TIMEOUT_MS"
+caps_good
+
 t_case "an instance line for an input the image does not read stops the cycle: 78, named"
 caps_fresh
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_NOT_A_LEVER=1
@@ -335,7 +344,7 @@ caps_good
 
 t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
 caps_fresh
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120 TEHAS_CHILD_TIMEOUT=600
 jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 t_run "$work 7"
 t_lacks "$t_out" "does not support"
