@@ -222,13 +222,49 @@ fn a_call_names_its_tool_and_no_argument_in_the_line() {
     assert!(!line.contains(secret), "{line}");
     assert!(!line.contains("queued"), "{line}");
 
-    // A name the server does not have is logged as ?.
+    // A name the server does not have is logged as ?, and the answer gives
+    // the caller nothing back to enumerate with: no name of its own.
     let r = modern(
         "tools/call",
         json!({"name": "factory_delete", "arguments": {"issue": 987}}),
     );
     assert_eq!(json_of(&r)["error"]["code"], -32602);
+    assert_eq!(json_of(&r)["error"]["message"], "Unknown tool");
+    assert!(!String::from_utf8_lossy(&r.body).contains("factory_delete"));
     assert_eq!(r.tool.as_deref(), Some("?"));
+}
+
+// The value the line carries for a call is one the server wrote, never the
+// client's text: a name it serves, or one of the two sentinels. Every shape
+// below goes through the legacy handshake, the only one that lets the body's
+// name reach the log.
+#[test]
+fn the_logged_name_is_a_word_of_the_server_or_a_sentinel() {
+    for name in [
+        json!("factory_log\r\nFORGED \x1b[31m"),
+        json!("factory_status\n\x1b]0;pwn\x07"),
+        json!("\r\n"),
+        json!(" "),
+        json!("factory status"),
+        json!("&"),
+        json!(null),
+        json!(7),
+        json!({"a": 1}),
+        json!(["factory_status"]),
+        json!(""),
+        json!("x".repeat(4000)),
+    ] {
+        let r = legacy(Some(1), "tools/call", json!({"name": name}));
+        let logged = r.tool.clone().unwrap_or_default();
+        assert!(
+            ["?", "-", "factory_status", "factory_log"].contains(&logged.as_str()),
+            "{name} logged {logged:?}"
+        );
+        assert!(
+            !logged.contains(['\r', '\n', '\t', ' ']) && !logged.contains('\x1b'),
+            "{name} logged {logged:?}"
+        );
+    }
 }
 
 // A name of another shape than a string is refused by the mirror of its
