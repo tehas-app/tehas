@@ -14,7 +14,7 @@
 use super::run::Calls;
 use crate::decide::iso;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn get(v: &Value, k: &str) -> Value {
     v.get(k).cloned().unwrap_or(Value::Null)
@@ -51,23 +51,37 @@ impl Read {
             Read::Question(n) | Read::Park(n) | Read::Approval(n) => *n,
         }
     }
-}
 
-/// The digits of an id as the bash reads them, from a number or a string.
-fn digits(v: Option<&Value>) -> String {
-    match v {
-        Some(Value::Number(x)) => x.to_string(),
-        Some(Value::String(s)) => s.clone(),
-        _ => String::new(),
+    /// The verb of the read's own call, the one `args` begins with. The rules
+    /// name a failure by it and the batch names its answers by it, so the
+    /// mapping lives beside the arguments it is read from.
+    fn name(&self) -> &'static str {
+        match self {
+            Read::Question(_) => "plan-show",
+            Read::Park(_) => "park-show",
+            Read::Approval(_) => "approval-current",
+        }
     }
 }
 
-/// Whether the digits are a comment id the store would know.
-fn ok(qid: &str) -> bool {
-    !qid.is_empty()
-        && qid.len() <= 16
-        && !qid.starts_with('0')
-        && qid.bytes().all(|b| b.is_ascii_digit())
+/// The digits of a comment id, from the number or the text the store answered,
+/// or nothing when they are not an id the store would know: the same rule as
+/// `verbs::comment_id` on the store's side, which is the bound the store
+/// refuses a `question-known` by. One function holds the whole rule, so the
+/// poll and the store agree on which ids are legal.
+fn digits(v: Option<&Value>) -> Option<String> {
+    let s = match v {
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::String(s)) => s.clone(),
+        _ => return None,
+    };
+    let below_float = s.parse::<u64>().is_ok_and(|n| n < (1u64 << 53));
+    (!s.is_empty()
+        && s.len() <= 16
+        && !s.starts_with('0')
+        && s.bytes().all(|b| b.is_ascii_digit())
+        && below_float)
+        .then_some(s)
 }
 
 /// The plan of an issue, as `question` reads it from `plan-show`: the row of an
@@ -109,44 +123,42 @@ impl Asked {
     fn answer(&self, read: Read) -> Value {
         match self.answers.get(&read) {
             Some(v) => v.clone(),
-            None => self.why(read),
+            None => self.failure(read.name(), read.issue()),
         }
     }
 
-    /// The failure to give for a read that was not answered: the batch's own,
-    /// named for the read the poll was left without. One run stood for all of
-    /// the reads, so a store that refused it refused this one too, and the rules
-    /// of the poll read the word of that refusal -- `busy`, `corrupt`, `absent`
-    /// -- exactly as they read it when the call stood alone.
-    fn why(&self, read: Read) -> Value {
-        let (verb, n) = match read {
-            Read::Question(n) => ("plan-show", n),
-            Read::Park(n) => ("park-show", n),
-            Read::Approval(n) => ("approval-current", n),
-        };
-        match self.failed.clone() {
+    /// The failure to give for a read of the batch that was never answered: the
+    /// batch's own, named for the read the poll was left without. One run stood
+    /// for all of the reads, so a store that refused it refused this one too, and
+    /// the rules of the poll read the word of that refusal -- `busy`, `corrupt`,
+    /// `absent` -- exactly as they read it when the call stood alone.
+    ///
+    /// A batch that failed with nothing to name itself by is not read as one of
+    /// the store's own refusals: it is `unasked`, a word no verb of the store
+    /// gives, so a break of the batch's contract cannot be mistaken for a refusal
+    /// of the state store, and cannot be mistaken for the per-issue skip a rc of
+    /// 1 means. The rc is the 78 of a store that cannot be used, which is the
+    /// fail-closed reading of a poll that has no answers at all.
+    fn failure(&self, verb: &str, n: u64) -> Value {
+        match self.failed.as_ref() {
             Some(e) => json!({
                 "failed": true,
                 "rc": e.get("rc").cloned().unwrap_or(json!(78)),
-                "word": e.get("word").cloned().unwrap_or(json!("garbled")),
+                "word": e.get("word").cloned().unwrap_or(json!("unasked")),
                 "line": format!("store: {}: {verb} {n} of the batch: {}",
-                    e.get("word").and_then(Value::as_str).unwrap_or("garbled"),
+                    e.get("word").and_then(Value::as_str).unwrap_or("unasked"),
                     e.get("line").and_then(Value::as_str).unwrap_or("")),
             }),
-            None => {
-                json!({"failed": true, "rc": 78, "word": "garbled",
-                    "line": format!("store: garbled: {verb} {n} answered nothing")})
-            }
+            None => json!({"failed": true, "rc": 78, "word": "unasked",
+                "line": format!("store: unasked: {verb} {n} answered nothing")}),
         }
     }
 
     fn know(&self, n: u64) -> Value {
-        self.known.get(&n).cloned().unwrap_or_else(|| {
-            self.failed.clone().unwrap_or_else(|| {
-                json!({"failed": true, "rc": 78, "word": "garbled",
-                    "line": format!("store: garbled: question-known {n} answered nothing")})
-            })
-        })
+        self.known
+            .get(&n)
+            .cloned()
+            .unwrap_or_else(|| self.failure("question-known", n))
     }
 }
 
@@ -162,16 +174,21 @@ fn known_call(n: u64, qid: &str) -> Vec<String> {
     ]
 }
 
-/// The snapshot's per-issue reads of the store, asked in one run of the program
-/// and one opening of the database: `plan-show`, `park-show` and
+/// The most calls of one run of the store, the ceiling `store batch` itself
+/// answers above with 64 (src/batch.rs). The list of a snapshot is built from
+/// the whole queue, so a host with a queue four times this long would lose every
+/// read of the poll to one refusal; asking in runs of this size costs a busy
+/// host more processes and no answers.
+const MAX_CALLS: usize = 512;
+
+/// The snapshot's per-issue reads of the store, asked in runs of the program
+/// and one opening of the database apiece: `plan-show`, `park-show` and
 /// `approval-current` of every issue named, and the `question-known` of the
 /// issues whose session or park carries a question. The id of that question is
 /// read first, from the same store, because the batch cannot ask a call whose
-/// arguments it has not read yet; the reads it needs are two calls and, unlike
-/// the reads above, they are the same two the batch goes on to answer. Every
-/// read the poll needs after this one -- an issue a rule names once the batch has
-/// run -- is asked by another run, which is what a poll of a queue that grew
-/// paid for anyway.
+/// arguments it has not read yet. Every read the poll needs after this one -- an
+/// issue a rule names once the batch has run -- is asked by another run, which is
+/// what a poll of a queue that grew paid for anyway.
 pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
     let mut want: Vec<Read> = reads.to_vec();
     want.sort_unstable();
@@ -179,6 +196,17 @@ pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
     if want.is_empty() {
         return;
     }
+    // The ids of the questions come first, in runs of their own: the batch
+    // cannot ask a call whose arguments it has not read, so the two columns the
+    // id lives in are read before the batch is built, one list of plans and one
+    // of parks, each asked in a single run.
+    let ids = match question_ids(calls, &want) {
+        Ok(ids) => ids,
+        Err(e) => {
+            asked.failed = Some(e);
+            return;
+        }
+    };
     // The calls of the run, and which read or question each one answers, so the
     // answers go back by position and not by name.
     let mut calls_of: Vec<Vec<String>> = Vec::new();
@@ -187,45 +215,51 @@ pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
         calls_of.push(read.args());
         owners.push(Owner::Read(*read));
     }
-    // The ids of the questions come first, in runs of their own: the batch
-    // cannot ask a call whose arguments it has not read, so the two columns the
-    // id lives in are read before the batch is built, one list of plans and one
-    // of parks, each asked in a single run. A store that cannot answer them
-    // cannot answer the question either, and the failure is kept for the read of
-    // it rather than read as a question with none on record.
-    let ids = match question_ids(calls, &want) {
-        Ok(ids) => ids,
-        Err(e) => {
-            asked.failed = Some(e);
-            return;
-        }
-    };
     for (n, qid) in &ids {
         calls_of.push(known_call(*n, qid));
         owners.push(Owner::Known(*n));
     }
     // One call apiece: the reads of the list and the `question-known` of an
     // issue can name the same thing, and the store is asked for it once. Each
-    // call keeps the reads it answers, so one answer serves them all.
-    let mut asked_calls: Vec<Vec<String>> = Vec::new();
-    let mut slots: Vec<Vec<Owner>> = Vec::new();
+    // call keeps the reads it answers, so one answer serves them all. The keys
+    // are ordered, so a `BTreeMap` of them dedups without a scan of the list.
+    let mut slots: BTreeMap<Vec<String>, Vec<Owner>> = BTreeMap::new();
     for (call, owner) in calls_of.into_iter().zip(owners) {
-        match asked_calls.iter().position(|c| *c == call) {
-            Some(i) => slots[i].push(owner),
-            None => {
-                asked_calls.push(call);
-                slots.push(vec![owner]);
+        slots.entry(call).or_default().push(owner);
+    }
+    let asked_calls: Vec<Vec<String>> = slots.keys().cloned().collect();
+    // A list longer than one batch is asked in more than one: the store refuses
+    // a request of more than `MAX_CALLS` calls whole, and every read of the
+    // poll would come back as the failure of that one refusal.
+    for chunk in asked_calls.chunks(MAX_CALLS) {
+        match calls.store_batch(chunk) {
+            Ok(answers) => record(asked, chunk, &answers, &slots),
+            Err(e) => {
+                asked.failed = Some(e);
+                return;
             }
         }
     }
-    let answers = match calls.store_batch(&asked_calls) {
-        Ok(a) => a,
-        Err(e) => {
-            asked.failed = Some(e);
-            return;
-        }
-    };
-    for (owners, answer) in slots.iter().zip(answers) {
+}
+
+/// Which read or question one answer of the run belongs to.
+enum Owner {
+    Read(Read),
+    Known(u64),
+}
+
+/// Puts the answers of one run back where they belong: the answer of a call
+/// serves every read that call answers.
+fn record(
+    asked: &mut Asked,
+    chunk: &[Vec<String>],
+    answers: &[Value],
+    slots: &BTreeMap<Vec<String>, Vec<Owner>>,
+) {
+    for (call, answer) in chunk.iter().zip(answers) {
+        let Some(owners) = slots.get(call) else {
+            continue;
+        };
         for owner in owners {
             match *owner {
                 Owner::Read(read) => {
@@ -239,88 +273,80 @@ pub fn gather(calls: &mut Calls, asked: &mut Asked, reads: &[Read]) {
     }
 }
 
-/// Which read or question one answer of the run belongs to.
-enum Owner {
-    Read(Read),
-    Known(u64),
-}
-
 /// The issues of the batch that carry a question, with the comment whose
 /// question the store confirms: the open session's own, or the park's, in the
 /// order the single call of `question` tried them. Asked as one run of the store
-/// -- two calls per issue at the most, and one process for all of them --
+/// apiece -- two calls per issue at the most, and one process for each list --
 /// because the arguments of the confirming call are not known until the answer
 /// of these is in hand.
+///
+/// A read the store refused is not a question with none on record: the failure
+/// of either list is given back rather than folded into an empty id, because the
+/// rules that gate a tick count a tick only on the comment the host has on
+/// record, and a `busy` answer must not read as "this issue asks nothing".
 fn question_ids(calls: &mut Calls, want: &[Read]) -> Result<Vec<(u64, String)>, Value> {
-    // The issues with a question on record are the ones whose session or park
-    // carries an id: the park's own question counts too, so an issue that is
-    // parked for a person asks its `question-known` with the id of the comment
-    // they were left, which is what the poll answers them from. The session's
-    // id is tried first and the park's after it, the order the single call of
-    // `question` tried them in.
-    let asking: Vec<u64> = want
-        .iter()
-        .filter_map(|r| match r {
-            Read::Question(n) | Read::Park(n) => Some(*n),
-            Read::Approval(_) => None,
-        })
-        .collect();
-    if asking.is_empty() {
-        return Ok(Vec::new());
-    }
-    // One list of calls apiece, made from the reads the snapshot asked and not
-    // from the issues: a read of an issue the snapshot never asked is never
-    // asked here either, and one run of the store reads the plan of each asking
-    // issue and one its park. A list with nothing in it asks nothing, so a poll
-    // with no parked issue runs no process for its parks.
-    // One run of the store asks the plan of every issue the poll read as a
-    // question, and one asks the park of every issue it read as a park: the two
-    // lists together are the reads of the asking issues, no more.
-    let plans: Vec<Vec<String>> = want
+    // The two lists are built from the reads the snapshot asked, as pairs of the
+    // issue and its call: a read of an issue the snapshot never asked is never
+    // asked here either, the answer goes back to the issue by the pair it was
+    // built from, and a list with nothing in it asks nothing of the store.
+    let plans: Vec<(u64, Vec<String>)> = want
         .iter()
         .filter(|r| matches!(r, Read::Question(_)))
-        .map(Read::args)
+        .map(|r| (r.issue(), r.args()))
         .collect();
-    let parks: Vec<Vec<String>> = want
+    let parks: Vec<(u64, Vec<String>)> = want
         .iter()
         .filter(|r| matches!(r, Read::Park(_)))
-        .map(Read::args)
+        .map(|r| (r.issue(), r.args()))
         .collect();
-    let plan = calls.store_batch(&plans)?;
-    let park = calls.store_batch(&parks)?;
-    // The answers go back to the issue each call asked about, read off the call
-    // itself: a run asked the plan of an issue once, whatever the list held.
-    let of = |calls_of: &[Vec<String>], answers: Vec<Value>| -> BTreeMap<u64, Value> {
-        calls_of
-            .iter()
-            .zip(answers)
-            .filter_map(|(c, v)| Some((c.get(1)?.parse().ok()?, v)))
-            .collect()
+    if plans.is_empty() && parks.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut asked_of = |list: &[(u64, Vec<String>)]| -> Result<BTreeMap<u64, Value>, Value> {
+        // One run of the store per chunk of the list, so a long list is asked in
+        // more than one rather than refused whole; each answer belongs to the
+        // pair its own call was built from.
+        let mut got: BTreeMap<u64, Value> = BTreeMap::new();
+        for chunk in list.chunks(MAX_CALLS) {
+            let calls_of: Vec<Vec<String>> = chunk.iter().map(|(_, c)| c.clone()).collect();
+            let answers = calls.store_batch(&calls_of)?;
+            for ((n, _), answer) in chunk.iter().zip(answers) {
+                got.insert(*n, answer);
+            }
+        }
+        Ok(got)
     };
-    let plans = of(&plans, plan);
-    let parks = of(&parks, park);
-    Ok(asking
-        .into_iter()
-        .filter_map(|n| {
-            let id = match plans.get(&n) {
-                Some(v) if v.get("failed") != Some(&json!(true)) => {
-                    digits(v.pointer("/planning/comment_id"))
-                }
-                _ => String::new(),
-            };
-            if ok(&id) {
-                return Some((n, id));
+    let plans = asked_of(&plans)?;
+    let parks = asked_of(&parks)?;
+    let failed = |v: &Value| v.get("failed") == Some(&json!(true));
+    let mut ids = Vec::new();
+    for n in plans
+        .keys()
+        .chain(parks.keys())
+        .copied()
+        .collect::<BTreeSet<u64>>()
+    {
+        if let Some(v) = plans.get(&n) {
+            if failed(v) {
+                return Err(v.clone());
             }
-            match parks.get(&n) {
-                Some(v) if v.get("failed") != Some(&json!(true)) => {
-                    let id = digits(v.pointer("/park/question"));
-                    ok(&id).then_some((n, id))
-                }
-                _ => None,
+            if let Some(id) = digits(v.pointer("/planning/comment_id")) {
+                ids.push((n, id));
+                continue;
             }
-        })
-        .collect())
+        }
+        if let Some(v) = parks.get(&n) {
+            if failed(v) {
+                return Err(v.clone());
+            }
+            if let Some(id) = digits(v.pointer("/park/question")) {
+                ids.push((n, id));
+            }
+        }
+    }
+    Ok(ids)
 }
+
 /// plan-show --open: the open sessions, or the store's failure.
 pub fn sessions(calls: &mut Calls) -> Value {
     match calls.store(&["plan-show", "--open"]) {
@@ -506,17 +532,13 @@ pub fn question(asked: &Asked, n: u64) -> Value {
         return plan;
     }
     let plan = open_plan(&plan);
-    let mut qid = digits(plan.get("comment_id"));
-    if !ok(&qid) {
-        qid.clear();
+    let mut qid = digits(plan.get("comment_id")).unwrap_or_default();
+    if qid.is_empty() {
         let park = asked.answer(Read::Park(n));
         if park.get("failed") == Some(&json!(true)) {
             return park;
         }
-        qid = digits(park.pointer("/park/question"));
-        if !ok(&qid) {
-            qid.clear();
-        }
+        qid = digits(park.pointer("/park/question")).unwrap_or_default();
     }
     let mut kind = String::new();
     if !qid.is_empty() {
@@ -598,9 +620,7 @@ mod tests {
             // is kept in a file rather than a shell variable because a request of
             // a whole queue is longer than a line, and `cat` of it answers the
             // store's every read.
-            format!(
-                "#!/bin/sh\ncat > \"$0.request\"\nprintf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {bin} \"$@\" <\"$0.request\"\n"
-            ),
+            wrapper(&bin, None),
         )
         .unwrap();
         fs::set_permissions(&store, fs::Permissions::from_mode(0o755)).unwrap();
@@ -629,6 +649,33 @@ mod tests {
             "example-owner/example-product",
         ]);
         Host { home, store }
+    }
+
+    /// The store of a case: the one shell script that records a call and hands
+    /// the request to the real store. `test/dispatch_lib.sh`'s `store_refuses`
+    /// writes the same script for the shell's cases; this is the one the Rust
+    /// cases use, so the batch's request is handled in one place and one shell
+    /// dialect. With `busy_for` the wrapper answers that call's JSON text busy
+    /// on its error stream and runs nothing, which is how a case makes the store
+    /// refuse one read of a batch.
+    fn wrapper(bin: &str, busy_for: Option<&str>) -> String {
+        // One line per run: the verb and the store's own arguments, then the
+        // request the poll wrote on its standard input. The store reads that
+        // request and nothing else, so the line is the whole call. The body is
+        // kept in a file rather than a shell variable because a request of a
+        // whole queue is longer than a line, and `cat` of it answers the store's
+        // every read.
+        let refuse = match busy_for {
+            Some(needle) => format!(
+                "if grep -qF {needle:?} \"$0.request\"; then\n  \
+echo 'store: busy #0: the database is locked' >&2\n  exit 1\nfi\n"
+            ),
+            None => String::new(),
+        };
+        format!(
+            "#!/bin/sh\ncat > \"$0.request\"\n{refuse}\
+printf 'store %s %s\\n' \"$*\" \"$(cat \"$0.request\")\" >>\"$0.calls\"\nexec {bin} \"$@\" <\"$0.request\"\n"
+        )
     }
 
     /// The `Calls` of a host: the store program is the wrapper beside its home,
@@ -722,10 +769,9 @@ mod tests {
 
     #[test]
     fn the_snapshot_asks_its_per_issue_reads_in_one_run_of_the_store() {
-        // The deliverable: 13 issues, three reads each, and the store runs once
-        // for them (and once more for the questions their answers name), where it
-        // ran 39 times before. The decisions are the other case's business; this
-        // one is about how the reads are asked.
+        // The deliverable: 52 reads of 13 issues, asked in one run of the store
+        // where the poll made 52 before #941. The decisions are the other case's
+        // business; this one is about how the reads are asked.
         let h = host("batch");
         let mut reads = Vec::new();
         for i in 0..13u64 {
@@ -737,15 +783,12 @@ mod tests {
         let mut calls = calls_of(&h);
         let mut asked = Asked::empty();
         super::gather(&mut calls, &mut asked, &reads);
-        // 52 reads were asked (the 13 issues' four reads each), and the store ran
-        // once for them; before #941 it ran 52 times. The `question-known` of each
-        // issue rides in the same run, so the 13 questions cost no process of their own.
-        // 52 reads were asked, and the store ran three times: once for the ids
-        // of the questions, once more for the parks those ids were not in, and
-        // once for all 52 reads themselves. Before #941 it ran 52 times, one
+        // Three runs of the store for the 52 reads: one for the plans of the
+        // asking issues, one for their parks -- the two lists the id of a
+        // question lives in, which the batch cannot ask until they are read --
+        // and one for all 52 reads themselves. Before #941 it ran 52 times, one
         // process and one database open per question.
         let runs = runs(&h);
-        // The two runs of ids, then the one run of the 52 reads themselves.
         assert_eq!(
             runs.len(),
             3,
@@ -880,15 +923,18 @@ mod tests {
     }
 
     #[test]
-    fn a_read_the_batch_did_not_answer_is_the_failure_the_single_call_gives() {
-        // A poll that cannot ask the reads cannot decide, and says so as it said
-        // so before: the reader gets a failed answer with its word, not a panic
-        // and not another issue's rows.
+    fn a_read_the_batch_did_not_answer_is_named_as_no_refusal_of_the_store() {
+        // A poll that cannot ask the reads cannot decide, and says so. A read of
+        // a batch that was never answered is not one of the store's own
+        // refusals: it carries `unasked`, a word no verb gives, at the 78 of a
+        // store that cannot be used, so a break of the batch's contract is never
+        // read as a refusal of a row (or as the per-issue skip of a rc of 1).
         let h = host("missing");
         let asked = Asked::empty();
         let v = asked.answer(Read::Park(9));
         assert_eq!(v["failed"], true);
-        assert_eq!(v["word"], "garbled");
+        assert_eq!(v["word"], "unasked");
+        assert_eq!(v["rc"], 78);
         assert_eq!(super::park(&asked, 9)["failed"], true);
         let (shape, current) = super::approval(&asked, 9);
         assert_eq!(shape, json!({"failed": true}));
@@ -901,6 +947,12 @@ mod tests {
             json!({"failed": true, "rc": 78, "word": "absent", "line": "store: absent: x could not be run"}),
         );
         assert_eq!(asked.answer(Read::Approval(3))["word"], "absent");
+        // A batch that failed without a word of its own is still `unasked`, and
+        // still the 78 that ends the poll rather than the 1 that skips an issue.
+        let mut asked = Asked::empty();
+        asked.failed = Some(json!({"failed": true, "line": "store: "}));
+        assert_eq!(asked.answer(Read::Approval(3))["word"], "unasked");
+        assert_eq!(asked.answer(Read::Approval(3))["rc"], 78);
         let _ = h;
     }
 
@@ -950,10 +1002,9 @@ mod tests {
         // The five reads of the list are three calls of the snapshot's own run:
         // `park-show` once for all three of its asks, and the other two reads
         // once each. The fourth is the question's `question-known`, whose id the
-        // store answered in an earlier run of the same poll.
-        // Three calls, one apiece: the park of #7 was asked three times over and
-        // the store was asked for it once. The `question-known` rides with them,
-        // asked once the id had been read.
+        // store answered in one of the runs before it. Three calls, one apiece:
+        // the park of #7 was asked three times over and the store was asked for
+        // it once.
         let last = request_of(&runs[runs.len() - 1]);
         assert_eq!(
             last.as_array().unwrap().len(),
@@ -978,6 +1029,36 @@ mod tests {
             1,
             "three asks of the park, one call: {seen:?}"
         );
+    }
+
+    #[test]
+    fn a_busy_id_read_is_the_failure_of_the_question_and_not_no_question() {
+        // The gate of a tick counts a tick only on the comment the host has on
+        // record, so a store that could not say is never read as an issue that
+        // asks nothing: the failure of either list of ids is given back, at the
+        // store's own exit, and the rules see `busy` rather than `id: ""`.
+        let h = host("ids-busy");
+        asked_about(&h, 7, 4001);
+        // The same wrapper, with the one call it refuses: the plan of #7, which
+        // is the read the id of a question lives in. The parks and the reads of
+        // the snapshot still go to the real store.
+        let body = wrapper(
+            &store_binary().display().to_string(),
+            Some("[\"plan-show\",\"7\"]"),
+        );
+        std::fs::write(&h.store, body).unwrap();
+        std::fs::set_permissions(&h.store, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut calls = calls_of(&h);
+        let mut asked = Asked::empty();
+        super::gather(
+            &mut calls,
+            &mut asked,
+            &[Read::Question(7), Read::Park(7), Read::Approval(7)],
+        );
+        let q = super::question(&asked, 7);
+        assert_eq!(q["failed"], true, "a busy plan read is a question: {q}");
+        assert_eq!(q["word"], "busy", "{q}");
+        assert_eq!(q["rc"], 1, "{q}");
     }
 
     #[test]

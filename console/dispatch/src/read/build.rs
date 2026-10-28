@@ -306,15 +306,14 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     // asked: the rules name the issues they ask the store about, and all of
     // those names are known here from the queue, the locks and the requests. One
     // run of `store batch` answers the whole list (#941), where the poll used to
-    // start the store once per question -- 49 processes for one idle poll.
+    // start the store once per question -- 49 processes for one idle poll. The
+    // list is not deduped here: `gather` sorts and dedups it before it asks.
     let mut per_issue: Vec<store::Read> = Vec::new();
-    let mut want = |reads: &[store::Read]| {
-        for r in reads {
-            if !per_issue.contains(r) {
-                per_issue.push(*r);
-            }
-        }
-    };
+    // A function rather than a closure: the list is whatever the caller has, and
+    // a closure cannot name its type parameter.
+    fn want<I: IntoIterator<Item = store::Read>>(per_issue: &mut Vec<store::Read>, reads: I) {
+        per_issue.extend(reads);
+    }
 
     // Refreshes: the history, the marks, the requests and what they read.
     let history = store::refreshed(calls);
@@ -326,11 +325,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     from.sort_unstable();
     from.dedup();
     want(
-        &from
-            .iter()
-            .copied()
-            .map(store::Read::Approval)
-            .collect::<Vec<_>>(),
+        &mut per_issue,
+        from.iter().copied().map(store::Read::Approval),
     );
     // A refresh row with no lock counts as the bash's took_how does: in the
     // issues a refresh of this host may own.
@@ -368,31 +364,30 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
     let requests = host::requests(home);
     want(
-        &requests
-            .iter()
-            .map(|(n, _)| store::Read::Approval(*n))
-            .collect::<Vec<_>>(),
+        &mut per_issue,
+        requests.iter().map(|(n, _)| store::Read::Approval(*n)),
     );
     // The asking issues, the candidates of rule 6, and what each owes.
     let asking = numbers(&s["asking"]);
     want(
-        &asking
+        &mut per_issue,
+        asking
             .iter()
-            .flat_map(|n| [store::Read::Question(*n), store::Read::Park(*n)])
-            .collect::<Vec<_>>(),
+            .flat_map(|n| [store::Read::Question(*n), store::Read::Park(*n)]),
     );
     let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
     candidates.extend(numbers(&s["blocked"]));
     let candidates: Vec<u64> = candidates.into_iter().collect();
     want(
-        &candidates
+        &mut per_issue,
+        candidates
             .iter()
-            .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)])
-            .collect::<Vec<_>>(),
+            .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)]),
     );
     // One run of the store answers all of them, and the answers are read below
-    // as the single calls were read. A poll that ends at the pause below has
-    // read nothing the bash's poll did not read either.
+    // as the single calls were read. A poll that ends at the pause below pays
+    // this batch for the refresh reads above the pause and nothing else: the
+    // rules after it are not read at all.
     let mut asked = store::Asked::empty();
     store::gather(calls, &mut asked, &per_issue);
 

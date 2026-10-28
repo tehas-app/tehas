@@ -268,23 +268,40 @@ fn main() -> ExitCode {
         return ExitCode::from(64);
     }
     // `batch` is the one verb whose request is on standard input rather than in
-    // its arguments, so its request is read before its arguments are judged and
-    // before the home is asked for: a batch that is not JSON stops at 64 having
-    // read nothing but its own standard input.
+    // its arguments. Its home is asked for first, before a byte of the request
+    // is read, so a call with no usable home stops at 78 without holding the
+    // pipe open or taking the request into memory: every verb passes the same
+    // guard before it reads anything.
     if args.first().is_some_and(|a| a == "batch") {
         let rest = &args[1..];
         if rest.iter().any(|a| a != "--json") {
             eprintln!("{USAGE}");
             return ExitCode::from(64);
         }
-        let asked = match batch::read_input().and_then(|text| batch::parse(&text)) {
+        let Some(home) = home_of_call() else {
+            return ExitCode::from(78);
+        };
+        let now = match now_or_78() {
+            Ok(t) => t,
+            Err(code) => return code,
+        };
+        let asked = match batch::Request::read() {
             Ok(a) => a,
             Err(why) => {
                 eprintln!("store: {why}");
                 return ExitCode::from(64);
             }
         };
-        return run_batch(Verb::Batch(asked));
+        return match execute(&home, &Verb::Batch(asked), now) {
+            Ok(line) => {
+                println!("{line}");
+                ExitCode::SUCCESS
+            }
+            Err((code, why)) => {
+                eprintln!("store: {why}");
+                ExitCode::from(code)
+            }
+        };
     }
     let Some(verb) = parse(&args) else {
         eprintln!("{USAGE}");
@@ -294,12 +311,9 @@ fn main() -> ExitCode {
         Some(h) => h,
         None => return ExitCode::from(78),
     };
-    let now = match now() {
+    let now = match now_or_78() {
         Ok(t) => t,
-        Err(why) => {
-            eprintln!("store: {why}");
-            return ExitCode::from(78);
-        }
+        Err(code) => return code,
     };
     match execute(&home, &verb, now) {
         Ok(line) => {
@@ -325,31 +339,12 @@ fn home_of_call() -> Option<PathBuf> {
     }
 }
 
-/// One `store batch`: the home, the clock, and the one line of answers. The
-/// verb's own exit is 0 whenever it answered; the calls inside it carry their
-/// own exit in the answer, which is how a caller reads a refusal of one call
-/// without losing the answers of the rest.
-fn run_batch(verb: Verb) -> ExitCode {
-    let Some(home) = home_of_call() else {
-        return ExitCode::from(78);
-    };
-    let now = match now() {
-        Ok(t) => t,
-        Err(why) => {
-            eprintln!("store: {why}");
-            return ExitCode::from(78);
-        }
-    };
-    match execute(&home, &verb, now) {
-        Ok(line) => {
-            println!("{line}");
-            ExitCode::SUCCESS
-        }
-        Err((code, why)) => {
-            eprintln!("store: {why}");
-            ExitCode::from(code)
-        }
-    }
+/// The `now` of a call, or the 78 the command prints when it cannot name one.
+fn now_or_78() -> Result<i64, ExitCode> {
+    now().map_err(|why| {
+        eprintln!("store: {why}");
+        ExitCode::from(78)
+    })
 }
 
 /// What the review verb was given: the document of one run, and the two names
@@ -387,8 +382,10 @@ pub enum Verb {
         out: PathBuf,
     },
     ReviewIssue(ReviewIssue),
-    /// The calls of one `store batch`, already read from standard input.
-    Batch(Vec<batch::Asked>),
+    /// The calls of one `store batch`, already read from standard input and
+    /// judged by `batch::parse`: built by `batch::Request::of` and by nothing
+    /// else, so a caller of `execute` cannot name a verb the batch would run.
+    Batch(batch::Request),
     Record(verbs::Call),
 }
 
@@ -685,7 +682,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::TestWrite(w) => exercise::write(&file, w, now),
         Verb::Slow { file, out } => slow::run(file, out),
         Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
-        Verb::Batch(asked) => batch::run(home, asked.clone(), now),
+        Verb::Batch(asked) => batch::run(home, asked),
         Verb::Record(call) => verbs::run(home, call, now),
     }
 }
