@@ -32,20 +32,22 @@ pub fn serve(
     let deadline = started + io_timeout;
     let (method, r) = exchange(&mut stream, deadline, keys, dirs, version);
     write(&mut stream, &r);
-    // The parts are built by name, in the order of the line the manual shows:
-    // method, status, time, key, and the tool of a tools/call. The time is
-    // read before the answer is written, which takes its own.
-    let elapsed = started.elapsed().as_millis();
-    let mut parts = vec![
-        method,
-        r.status.to_string(),
-        format!("{elapsed}ms"),
-        format!("key={}", r.key.as_deref().unwrap_or("-")),
-    ];
+    // The line's fields are named, in the order the manual shows them. Only
+    // bytes of the server's own go into it: `method` comes from `parse_head`,
+    // which keeps capitals, and `tool` from the allowlist of `tools::known`.
+    let mut line = format!(
+        "{method} {} {}ms key={}",
+        r.status,
+        started.elapsed().as_millis(),
+        r.key.as_deref().unwrap_or("-")
+    );
     if let Some(t) = &r.tool {
-        parts.push(format!("tool={t}"));
+        // A field of the line, not the client's text: `known` admits only the
+        // words of `CALLED`, so no name, space or control byte of a request
+        // can add or move a field here.
+        line.push_str(&format!(" tool={t}"));
     }
-    parts.join(" ")
+    line
 }
 
 /// Sends a short answer on a connection that is not served, such as one over

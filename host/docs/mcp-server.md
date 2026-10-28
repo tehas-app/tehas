@@ -102,9 +102,15 @@ took and the key, and for a `tools/call` the tool as well, as
 journal on the host, not to the client: read it with
 `journalctl --user -u tehas-mcp`. The name of the tool only: the arguments are
 never logged, as one can carry an issue number or text from a private
-repository. A name the server does not have, and one that is not text at all,
-are logged as `tool=?` and `tool=-`, so a client that is broken is told from
-one probing. A request that is not a `tools/call` logs no `tool=`.
+repository. `tool=?` is a name the server does not have, which is what a probe
+of a tool it has not looks like. `tool=-` is a name that is not text, and only
+the 2025-11-25 handshake can carry one, as a modern request must mirror its
+name in `Mcp-Name` and no text equals a number: so a dash tells a client that
+is broken from one that is probing, except for a probe whose name never reached
+the server as text, which is a dash too. A request that is not a `tools/call`
+logs no `tool=`. The fields are the server's own words, never the client's
+text, so the line the unit writes stays one field per space-separated part: do
+not add a field to it without naming where its bytes come from.
 
 ## How it runs
 

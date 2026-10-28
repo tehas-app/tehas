@@ -10,6 +10,9 @@ use tehas_core::time::iso;
 
 const BIN: &str = env!("CARGO_BIN_EXE_tehas-mcp");
 const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
+/// How long a read of the unit's stderr may take: the server answers within
+/// its own `--io-timeout`, so longer than that is a server that is not there.
+const LOG_WAIT: Duration = Duration::from_secs(10);
 
 fn fixture(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -138,14 +141,45 @@ impl Server {
         self.stop_after(0)
     }
 
-    /// One line of the log. A request's line is written after its answer is
-    /// sent, so read the lines you need before `stop`, which would lose them,
-    /// and treat a read that answers nothing as the server dying.
+    /// One line of the log, read within `LOG_WAIT`. A request's line is
+    /// written after its answer is sent, so read the lines you need before
+    /// `stop`, which would lose them. `stop_after` treats no line as the end
+    /// of the stream; this treats it as the server dying, because its caller
+    /// asked for a line the request must have written.
     fn log_line(&mut self) -> String {
-        let mut line = String::new();
-        let n = self.log.read_line(&mut line).unwrap();
-        assert!(n > 0, "the server wrote no log line");
-        line
+        // A pipe from a child has no timeout of its own, so the read runs on a
+        // thread that can be given up on: without this a server that died
+        // without closing its stderr, or that wrote no line, would hold the
+        // test binary to the harness's own bound and say nothing about why.
+        let log = &mut self.log;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                let mut line = String::new();
+                match log.read_line(&mut line) {
+                    Ok(0) | Err(_) => {
+                        let _ = tx.send(Err("the stream ended".to_string()));
+                    }
+                    Ok(_) => {
+                        let _ = tx.send(Ok(line));
+                    }
+                }
+            });
+            match rx.recv_timeout(LOG_WAIT) {
+                Ok(Ok(line)) => line,
+                Ok(Err(why)) => {
+                    let died = self.child.try_wait().ok().flatten();
+                    panic!("the server wrote no log line ({why}); its exit status is {died:?}");
+                }
+                Err(_) => {
+                    let died = self.child.try_wait().ok().flatten();
+                    panic!(
+                        "the server wrote no log line within {LOG_WAIT:?}; \
+                         its exit status is {died:?}"
+                    );
+                }
+            }
+        })
     }
 
     fn stop_after(mut self, lines: usize) -> String {
@@ -464,21 +498,41 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
         h
     };
 
-    // The shape of the whole line, with the two variable parts replaced, so
-    // a field cannot move, repeat or go missing without an assert failing.
-    // The time and the key's fingerprint vary, so they are masked; a request
-    // with no key keeps `key=-`, which is how the line says so.
+    // The shape of the whole line, read field by field rather than by
+    // position: the method, the status, the time, the key and the tool, in
+    // that order, and nothing else. The time and the key's fingerprint vary,
+    // so they are kept as their kind; a field the line does not know, in any
+    // position, fails here rather than shifting into a masked slot.
     let shaped = |log: &str| {
-        let mut parts: Vec<String> = log.split_whitespace().map(str::to_string).collect();
-        if let Some(p) = parts.get_mut(2) {
-            *p = "<ms>ms".into();
-        }
-        if let Some(p) = parts.get_mut(3) {
-            if p != "key=-" {
-                *p = "key=<fp>".into();
-            }
-        }
-        parts.join(" ")
+        let parts: Vec<&str> = log.split_whitespace().collect();
+        let [method, status, time, key, rest @ ..] = parts.as_slice() else {
+            panic!("{log:?} is not method, status, time and key");
+        };
+        assert_eq!(*method, "POST");
+        assert!(status.parse::<u16>().is_ok(), "{status}");
+        let ms = time.strip_suffix("ms").expect("a time in ms");
+        assert!(ms.chars().all(|c| c.is_ascii_digit()), "{time}");
+        let fp = key.strip_prefix("key=").expect("a key field");
+        assert!(
+            fp == "-" || (fp.len() == 8 && fp.chars().all(|c| c.is_ascii_hexdigit())),
+            "{key}"
+        );
+        assert!(
+            rest.len() <= 1,
+            "{log:?} carries {} parts after the key",
+            rest.len()
+        );
+        // The one optional field, and only that: a part the line does not
+        // know, in any position, fails rather than shifting into a masked slot.
+        let tool = rest
+            .first()
+            .map(|p| p.strip_prefix("tool=").expect("a tool field"))
+            .unwrap_or("<none>");
+        format!(
+            "POST {status} <ms>ms key={} tool={}",
+            if fp == "-" { "-" } else { "<fp>" },
+            tool
+        )
     };
 
     let body = call("factory_issues", json!({"stage": "queued", "note": secret}));
@@ -549,7 +603,7 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp>");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=<none>");
 
     let (status, _) = s.raw(
         &post_raw("POST", "/mcp", None, &[], "{}"),
@@ -557,27 +611,47 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 401);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 401 <ms>ms key=-");
+    assert_eq!(shaped(&log), "POST 401 <ms>ms key=- tool=<none>");
     assert!(!log.contains("tool="), "{log}");
 
     // A name of another shape than a word of letters stays one line with no
     // escape or newline of the client's in it: the allowlist of `known` is
-    // what keeps the line the server writes the server's own. The legacy
-    // handshake is what lets the body's name reach the log at all, since the
-    // modern mirror refuses a name its header does not carry.
-    let hostile = "factory_log\r\nFORGED \x1b[31m";
-    let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": hostile, "arguments": {}}})
-    .to_string();
-    let (status, _) = s.raw(
-        &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &body),
-        Duration::from_secs(3),
-    );
-    assert_eq!(status, 200);
-    let log = s.log_line();
-    assert_eq!(log.matches('\n').count(), 1, "{log:?}");
-    assert!(!log.contains("FORGED") && !log.contains('\x1b'), "{log:?}");
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=?");
+    // what keeps the line the server writes the server's own, and the name in
+    // the line is never the client's text. The legacy handshake is what lets
+    // the body's name reach the log at all, since the modern mirror refuses a
+    // name its header does not carry. Every shape is asked for, not just one
+    // fixture: each is one line, and its tool field is only ever a word of
+    // `CALLED` or one of the two sentinels of the server.
+    for hostile in [
+        "factory_log\r\nFORGED \x1b[31m",
+        "factory_status\n\x1b]0;pwn\x07",
+        "\r\n",
+        " ",
+        "factory status",
+        "&",
+        "factory_\u{7f}status",
+        "factory_status",
+    ] {
+        let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": hostile, "arguments": {}}})
+        .to_string();
+        let (status, _) = s.raw(
+            &post_raw("POST", "/mcp", Some(&auth), &legacy_headers(), &body),
+            Duration::from_secs(3),
+        );
+        assert_eq!(status, 200, "{hostile:?}");
+        let log = s.log_line();
+        assert_eq!(log.matches('\n').count(), 1, "{log:?}");
+        assert!(!log.contains("FORGED") && !log.contains('\x1b'), "{log:?}");
+        let named = log
+            .split_whitespace()
+            .find_map(|p| p.strip_prefix("tool="))
+            .unwrap_or("<none>");
+        assert!(
+            ["?", "-", "factory_status", "factory_log"].contains(&named),
+            "{hostile:?} logged {named}"
+        );
+    }
 
     s.stop();
 }
