@@ -17,13 +17,14 @@ use crate::apply::Writer;
 use crate::decide::{iso, iso_now};
 use crate::read::build::{fill, snapshot, Sources};
 use crate::read::host::hostname;
-use crate::read::run::{run, Calls};
+use crate::read::run::{read_gh_token, run, Calls};
 use crate::{decide, Settings, Snapshot};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// How long a held dispatcher lock may last before it is said to hang.
@@ -174,13 +175,10 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
         home: home.to_path_buf(),
         gh: "gh".into(),
         docker: "docker".into(),
-        calls: Calls {
-            bound: Duration::from_secs(30),
-            store_bound: secs("tehas_store_bound", 20),
-            gh: "gh".into(),
-            store: libexec.join("store").to_string_lossy().into_owned(),
-            gh_count: 0,
-        },
+        calls: Calls::idle(
+            secs("tehas_store_bound", 20),
+            libexec.join("store").to_string_lossy().into_owned(),
+        ),
         poll_at,
         before,
         bound: Duration::from_secs(30),
@@ -350,6 +348,42 @@ impl End<'_> {
     }
 }
 
+/// The poll's GitHub token, taken by the first gh call of the poll and kept in
+/// memory for the rest of it. One `Arc` and one `Mutex` of its own, as the
+/// poll's two sets of calls - its reads and its writes - are two `Calls` and
+/// both ask this for the token before they start one.
+#[derive(Default)]
+struct PollToken(Arc<Mutex<Option<String>>>);
+
+/// How long the poll waits for its one run of the token program, as its other
+/// gh calls wait for their bound.
+const TOKEN_BOUND: Duration = Duration::from_secs(30);
+
+impl PollToken {
+    /// The token of the host's GitHub App: the one already taken, or the first
+    /// run of `$TEHAS_HOME/libexec/github-token`, which answers the token and
+    /// nothing else. Only when `TEHAS_GITHUB_APP_ID` names an app. A run that
+    /// could not be had leaves nothing taken, so the poll's gh calls go on as
+    /// they did before and each pays for a token of its own. The token is held
+    /// here and nowhere else: never logged, never written, never recorded.
+    fn get(&self, home: &Path) -> Option<String> {
+        {
+            let held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            if held.is_some() {
+                return held.clone();
+            }
+        }
+        let token = read_gh_token(home, TOKEN_BOUND);
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        // Another call of the poll asked while this one ran: its token is the
+        // poll's, and no second one is kept.
+        if held.is_none() {
+            *held = token.clone();
+        }
+        held.clone()
+    }
+}
+
 /// One poll. The exit status the bash poll would end with.
 pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let state = home.join("state");
@@ -415,6 +449,14 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
     let mut w = writer(home, settings, "", 0, now() as i64);
+    // The poll's GitHub token, kept in memory from before its first call: the
+    // first gh of the poll asks the host's token program once, and every gh
+    // process after it - its reads and its writes - is given the token as
+    // TEHAS_GH_TOKEN, so the shim of a call runs no libexec/github-token of its
+    // own. With no app named nothing is asked and nothing is given, and a token
+    // that could not be had leaves the calls as they were: each pays for one.
+    let token = PollToken::default();
+    w.calls.gh_token = token.get(home);
     let mut end = End {
         home,
         dry,
@@ -424,7 +466,7 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
         starts: 0,
         changed: Changed::default(),
     };
-    let rc = body(home, settings, dry, &mut w, &mut end);
+    let rc = body(home, settings, dry, &token, &mut w, &mut end);
     end.gh += w.calls.gh_count + w.gh_writes;
     end.starts = w.starts;
     end.changed.queue = w.changed;
@@ -433,7 +475,14 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     rc
 }
 
-fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut End) -> i32 {
+fn body(
+    home: &Path,
+    settings: &Settings,
+    dry: bool,
+    token: &PollToken,
+    w: &mut Writer,
+    end: &mut End,
+) -> i32 {
     // The journal first, before GitHub is read for the queue: what a poll
     // that died between two writes left is settled from fresh reads. One that
     // holds nothing open has nothing to settle, which is the case of every
@@ -463,19 +512,19 @@ fn body(home: &Path, settings: &Settings, dry: bool, w: &mut Writer, end: &mut E
     let now = w.before;
     let mut src = Sources {
         home,
-        calls: Calls {
-            bound: Duration::from_secs(30),
-            store_bound: secs("tehas_store_bound", 20),
-            gh: "gh".into(),
-            store: home.join("libexec/store").to_string_lossy().into_owned(),
-            gh_count: 0,
-        },
+        calls: Calls::idle(
+            secs("tehas_store_bound", 20),
+            home.join("libexec/store").to_string_lossy().into_owned(),
+        ),
         systemctl: "systemctl".into(),
         now,
         models: crate::read::models::Models::read(),
         endpoint: (String::new(), String::new()),
         gate: true,
     };
+    // The same token for the poll's reads as for its writes: what the shim of
+    // every gh call would ask for anyway, asked once by the poll.
+    src.calls.gh_token = w.calls.gh_token.clone().or_else(|| token.get(home));
     let snap = snapshot(&mut src, settings);
     end.gh = src.calls.gh_count;
     let mut snap = match snap {

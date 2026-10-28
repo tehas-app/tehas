@@ -4,7 +4,10 @@
 # instance names an app (TEHAS_GITHUB_APP_ID). Each call takes a token from
 # tehasbot github-token, which keeps one and makes a new one before it runs
 # out, so a command that runs for hours never holds a token that expired.
-# Without an app it is gh as it was.
+# Given TEHAS_GH_TOKEN in its environment it uses that instead and asks for no
+# token of its own: the dispatcher's poll takes one at its start and gives it
+# to every gh child of the poll, so twenty calls of a poll run the token
+# program once and not twenty times (#938). Without an app it is gh as it was.
 #
 # The real gh is $TEHAS_HOME/bin/gh, where bootstrap.sh installs it.
 #
@@ -24,7 +27,15 @@
 set -uo pipefail
 
 home=${TEHAS_HOME:-$HOME/tehas}
-if [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
+if [ -n "${TEHAS_GH_TOKEN:-}" ]; then
+  # The dispatcher's poll holds the app's token and gives it to every gh child
+  # of the poll as TEHAS_GH_TOKEN (#938). The token has at least 10 minutes
+  # left and a poll lasts under a minute, so the poll's calls use it and none
+  # of them runs libexec/github-token. An empty value asks for one as before:
+  # the poll sets the name only when the program gave it a token.
+  GH_TOKEN=$TEHAS_GH_TOKEN
+  export GH_TOKEN
+elif [ -n "${TEHAS_GITHUB_APP_ID:-}" ]; then
   GH_TOKEN=$("$home/libexec/github-token") || exit 1
   export GH_TOKEN
 fi

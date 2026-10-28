@@ -2885,11 +2885,16 @@ installation reaches `TEHAS_REPO`, and never the token.
 With an app named, the host acts as the app. `env.sh` puts `~/tehas/shim`
 first on `PATH`: its `gh` takes a token from `tehasbot github-token` at every
 call and runs `~/tehas/bin/gh`, so a command that runs for hours never holds an
-expired token. git's github.com credential helper is pointed at the same shim,
-as environment-level config (no file is written), and a `GH_TOKEN` left in
-`~/.config/tehas/env` is dropped so nothing acts as the user it belongs to. The
-dispatcher, the refresh and the Protolab take the bot's login from
-`TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
+expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
+uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
+poll takes the token once at its start and gives it to every `gh` it runs that
+way, so twenty calls of a poll ask for one token and not twenty (#938). The
+poll holds that token in memory: it is never logged, never written to a file,
+and never put in the poll's record. git's github.com credential helper is
+pointed at the same shim, as environment-level config (no file is written), and
+a `GH_TOKEN` left in `~/.config/tehas/env` is dropped so nothing acts as the
+user it belongs to. The dispatcher, the refresh and the Protolab take the bot's
+login from `TEHAS_BOT_LOGIN`: an installation token cannot ask GitHub who it is.
 
 A cycle's container is given `~/tehas/state/github` read-only at
 `/run/tehas/github`, never the key. The image's `gh` (`host/sandbox/gh-shim`,
