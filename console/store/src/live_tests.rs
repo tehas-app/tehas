@@ -260,6 +260,9 @@ fn a_report_that_is_not_an_object_writes_nothing() {
 
 #[test]
 fn a_held_publish_lock_is_busy() {
+    // The publisher has to meet the bound of state/publish.lock rather than beat
+    // the holder, so this thread asks for the short pair.
+    short_bounds();
     let home = home("publish-busy");
     let f = File::create(home.join("state/publish.lock")).unwrap();
     f.lock().unwrap();
@@ -321,6 +324,10 @@ fn a_heartbeat_takes_one_of_running_and_ended() {
 
 #[test]
 fn heartbeats_keep_the_newest_of_an_issue() {
+    // KEEP is what the test counts, not what it waits: the sixty-odd heartbeats
+    // are sixty-odd writes, and the thread takes the short pair so a host that
+    // met contention elsewhere does not push this one into the installed seconds.
+    short_bounds();
     let home = home("beat-keep");
     let (_lock, _) = start_by(&home, 31, "alice", "label", 1000);
     for i in 0..(KEEP + 5) {

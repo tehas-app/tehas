@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 pub const NOW: i64 = 1_792_000_000;
+
 pub const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub const SHA_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 pub const IMAGE: &str = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
@@ -44,8 +45,11 @@ pub fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-/// A home with an initialised store.
+/// A home with an initialised store. Every test asks for the tests' short busy
+/// and lock bounds on its own thread first, so no test sits through the installed
+/// five seconds to prove a word the lock says.
 pub fn home(name: &str) -> PathBuf {
+    short_bounds();
     let home = scratch(name);
     execute(
         &home,
@@ -112,7 +116,12 @@ pub fn usage(args: &[&str]) -> String {
 }
 
 pub fn conn(home: &Path) -> Connection {
-    Connection::open(db::path(home)).unwrap()
+    // The test's own connection, so it gets the wait of the test: SQLite's own
+    // default of five seconds would otherwise be what a helper pays for a lock
+    // another test's thread holds.
+    let c = Connection::open(db::path(home)).unwrap();
+    c.busy_timeout(db::read_bound()).unwrap();
+    c
 }
 
 pub fn one<T: rusqlite::types::FromSql>(home: &Path, sql: &str) -> T {
@@ -589,6 +598,9 @@ fn every_writer_says_busy_and_commits_nothing_while_the_lock_is_held() {
         .filter(|a| !READERS.contains(&a[0].as_str()))
         .map(|args| {
             std::thread::spawn(move || {
+                // The writer's own thread asks for the short pair: the verb has
+                // to meet the bound rather than beat the holder.
+                short_bounds();
                 let home = home("busy");
                 let _lock = hold(&home, 1);
                 let holder = writer_lock(&home);
@@ -612,6 +624,7 @@ fn every_reader_says_busy_when_it_cannot_look() {
         .filter(|a| READERS.contains(&a[0].as_str()))
         .map(|args| {
             std::thread::spawn(move || {
+                short_bounds();
                 let home = home("busy-reader");
                 let holder = exclusive_lock(&home);
                 let (code, line) = run_strings(&home, &args).expect_err("busy");
@@ -628,10 +641,14 @@ fn every_reader_says_busy_when_it_cannot_look() {
 
 #[test]
 fn a_reader_waits_out_a_short_lock() {
+    // The holder releases the lock at half the bound of a reader's wait and the
+    // reader is meant to still be waiting when it does, so the proof holds at
+    // either bound: the installed second, or the tests' short one.
     let home = home("short-lock");
     let holder = exclusive_lock(&home);
+    let release = db::read_bound() / 2;
     let t = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(release);
         drop(holder);
     });
     let v = ok(&home, &["cycle-show", "1"]);
@@ -706,17 +723,21 @@ fn a_constraint_failure_is_exit_1_conflict_not_78() {
 
 #[test]
 fn files_are_read_before_the_write_lock() {
+    // The second half waits a held lock out on purpose, so its sleeps are
+    // fractions of the bound this process has rather than fixed milliseconds:
+    // the verb must still be waiting when the file changes, at either bound.
     let home = home("files-first");
     let (_lock, attempt) = start(&home, 7);
     let result = write_file(&home, "result.json", b"not json");
     let holder = writer_lock(&home);
     // While the verb waits for the lock the file becomes a good result. The
     // verb judged it before it asked for the lock, so the old bytes count.
+    let quarter = db::write_bound() / 4;
     let path = result.clone();
     let t = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(quarter);
         fs::write(&path, br#"{"schemaVersion":3}"#).unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+        std::thread::sleep(quarter);
         drop(holder);
     });
     let a = attempt.to_string();
@@ -792,4 +813,25 @@ fn a_look_reads_one_snapshot() {
     .unwrap();
     assert_eq!(seen, (0, 0));
     assert_eq!(count(&home, "issues"), 1);
+}
+
+/// The tests' short busy and lock bounds, asked for on the test's own thread
+/// before its first connection, so a test that proves the word `busy` does not
+/// sit through the five seconds and the one second the installed program waits.
+/// The pair cannot change once a thread has asked: the tests run in parallel, and
+/// a bound that moved under a test already waiting would be worth nothing. A test
+/// that compares an elapsed time with a bound therefore asks
+/// `db::write_bound`/`db::read_bound` rather than naming a constant, and
+/// `tests::a_store_the_tests_did_not_shorten_waits_the_installed_bounds` is the
+/// test that shows the program a host runs still waits the installed pair.
+///
+/// A test that beats a lock it holds itself rather than meeting the bound is
+/// written as a fraction of the bound, so it holds with either pair:
+/// `a_reader_waits_out_a_short_lock` and `files_are_read_before_the_write_lock`.
+#[cfg(test)]
+pub fn short_bounds() {
+    // The pair for this thread; `db::install_test_bounds` makes the thread wait
+    // the short one from here on, and a thread of a build a host runs has no
+    // such call to make.
+    let _ = db::install_test_bounds();
 }
