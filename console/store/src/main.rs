@@ -121,14 +121,18 @@
 //! state-audit are later parts of epic #244; an argument this command does
 //! not know is exit 64. A build with debug assertions also has `test-write`,
 //! the writer its own tests run (src/exercise.rs), and reads its clock from
-//! TEHAS_STORE_TEST_NOW when that is set; a release build has neither.
+//! TEHAS_STORE_TEST_NOW when that is set; a release build has neither. The busy
+//! and lock bounds are not a setting at all: no variable and no instance setting
+//! reaches them, and the waits are the constants of `src/db.rs` and `src/live.rs`
+//! until the unit tests shorten them for their own thread. A debug build also
+//! answers `--test-store-bound-check`, which is how they prove it.
 //!
 //! The database is $TEHAS_HOME/state/tehas.db, mode 0600, made so before
 //! SQLite opens it, in WAL mode with synchronous=FULL and foreign_keys ON on
 //! every connection. A connection that writes waits up to 5000 ms for a lock,
-//! asking again every millisecond; one that reads waits up to a second. Its
-//! directory, state/, is kept mode 0700: with WAL on, a readable state/ is a
-//! readable copy of the store.
+//! asking again every millisecond; one that reads waits up to a second. Those
+//! are the bounds of the program a host runs. Its directory, state/, is kept
+//! mode 0700: with WAL on, a readable state/ is a readable copy of the store.
 //! The path is refused when it is a link or sits under live/ or state/index;
 //! no container sees the file (AGENTS.md rule 4). The store never moves a
 //! damaged file aside: the four classes of failure stop the command with 78
@@ -225,6 +229,27 @@ const MAX_COMMIT: usize = 40;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(debug_assertions)]
+    if args.first().is_some_and(|a| a == BOUND_CHECK) {
+        let Some(file) = args.get(1) else {
+            eprintln!("usage: store {BOUND_CHECK} <file>");
+            return ExitCode::from(64);
+        };
+        // The one caller that does not ask for the short pair, so it waits what
+        // the constants say. `tests::a_store_the_tests_did_not_shorten_waits_the_installed_bounds`
+        // runs a store this way against a lock it holds, to show the installed
+        // bounds are still the installed bounds.
+        return match bound_check(Path::new(file)) {
+            Ok(line) => {
+                println!("{line}");
+                ExitCode::SUCCESS
+            }
+            Err((code, why)) => {
+                eprintln!("store: {why}");
+                ExitCode::from(code)
+            }
+        };
+    }
     if let Some(Err(why)) = verbs::parse(&args) {
         eprintln!("store: {why}");
         return ExitCode::from(64);
@@ -489,6 +514,54 @@ fn now() -> Result<i64, String> {
 /// reads it.
 #[cfg(debug_assertions)]
 pub const TEST_NOW: &str = "TEHAS_STORE_TEST_NOW";
+
+/// The tests' short busy and lock bounds are `db::install_test_bounds`, which
+/// only the test binary can call: a build a host runs -- debug or release -- has
+/// no code at all that reads a setting for a bound, and waits `db::BUSY_TIMEOUT`,
+/// `db::READ_WAIT` and `live::LOCK_WAIT`.
+///
+/// `store --test-store-bound-check <file>` is the argument that shows it. The
+/// store answers with the bound it applied to the write lock, whether it met
+/// `busy` waiting for that lock and how long it waited, so a test can run the
+/// very program a host runs against a lock it cannot get and compare what it
+/// waited with what it was given: the answer names both, so neither side of the
+/// comparison is a constant the other has to be kept in step with. A release
+/// build -- what install.sh installs -- does not know the argument, as
+/// `test-write` is not known by one either.
+#[cfg(debug_assertions)]
+const BOUND_CHECK: &str = "--test-store-bound-check";
+
+#[cfg(debug_assertions)]
+fn bound_check(file: &Path) -> Result<String, (u8, String)> {
+    let asked = std::time::Instant::now();
+    // The bound of the wait and the constant it is supposed to come from, both
+    // read off this very program: the assertions of
+    // `tests::a_store_the_tests_did_not_shorten_waits_the_installed_bounds` are
+    // made against them, so a bound that drifted from the constant is seen here
+    // rather than read past from the parent's own compilation.
+    let (constant, bound) = db::bound_check_answer(db::Purpose::Write);
+    // `lock` and not `open`: BEGIN IMMEDIATE is the statement that asks for the
+    // write lock, so the wait is the one whose bound is in question.
+    let opened = db::lock(file).map(|conn| {
+        let _ = db::settle(&conn);
+        false
+    });
+    let waited = asked.elapsed().as_millis();
+    let said = |busy: bool| {
+        format!(
+            "{{\"api\":1,\"verb\":\"store-bound-check\",\"ok\":true,\
+             \"busy\":{busy},\"waited_ms\":{waited},\
+             \"bound_ms\":{},\"installed_ms\":{}}}",
+            bound.as_millis(),
+            constant.as_millis()
+        )
+    };
+    match opened {
+        Ok(busy) => Ok(said(busy)),
+        Err(db::DbError::Busy) => Ok(said(true)),
+        Err(e) => Err(line(e)),
+    }
+}
 
 /// The time the variable gives, None when it is not set. A value that is not
 /// a Unix time stops the command rather than fall back to the real clock.

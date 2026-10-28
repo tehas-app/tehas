@@ -3,12 +3,14 @@
 //! `init` and `check` answer.
 
 use crate::db;
+use crate::live;
 use crate::{execute, parse, ReviewIssue, Settings, Verb};
 use rusqlite::Connection;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 fn scratch(name: &str) -> PathBuf {
     static N: AtomicUsize = AtomicUsize::new(0);
@@ -518,6 +520,182 @@ fn check_says_what_failed_and_exits_1_without_moving_the_file() {
 }
 
 #[test]
+fn the_installed_bounds_are_the_ones_the_spec_states() {
+    // As every helper that makes a home does: the last two assertions are about
+    // the wait this thread is under, and a process that never asked keeps the
+    // installed pair, which the test below shows.
+    crate::verbs_tests::short_bounds();
+    // The tests run with a short busy and lock bound of their own, so the
+    // installed program's pair is pinned here rather than by a test that waits
+    // it out: five seconds for a connection that writes, a second for one that
+    // reads, and five for the publisher's file lock.
+    assert_eq!(db::BUSY_TIMEOUT, Duration::from_secs(5));
+    assert_eq!(db::READ_WAIT, Duration::from_secs(1));
+    assert_eq!(live::LOCK_WAIT, Duration::from_secs(5));
+    // The short pair is what the tests above actually wait: long enough that
+    // the millisecond polling is seen, short enough not to be the installed
+    // bound, and inside it by a margin no slow host closes. The tests' own
+    // thread asked for it through `verbs_tests::short_bounds`; a thread that did
+    // not, as the test below shows, still waits the pair above.
+    assert!(db::TEST_BUSY_TIMEOUT < db::BUSY_TIMEOUT);
+    assert!(db::TEST_READ_WAIT < db::TEST_BUSY_TIMEOUT);
+    assert!(live::LOCK_WAIT > db::TEST_BUSY_TIMEOUT);
+    assert_eq!(db::write_bound(), db::TEST_BUSY_TIMEOUT);
+    assert_eq!(db::read_bound(), db::TEST_READ_WAIT);
+}
+
+#[test]
+fn publish_waits_the_lock_bound_the_spec_states() {
+    // The constant above is only half the pin: `live::take_lock` reads its bound
+    // from `db::lock_wait`, so a thread that never asked for the short pair has
+    // to be answered with the five seconds publish really waits. A test that
+    // held state/publish.lock would have to sit through that five seconds, which
+    // is the cost this issue set out to remove; the bound is proved here instead,
+    // and the short pair's effect on the same read is shown by
+    // `live_tests::a_held_publish_lock_is_busy`.
+    assert_eq!(db::lock_wait(), live::LOCK_WAIT);
+    assert_eq!(db::lock_wait(), Duration::from_secs(5));
+}
+
+#[test]
+fn the_bound_a_connection_gets_is_the_installed_constant() {
+    // On a thread that never asked for the short pair, the bound each busy handler
+    // takes and the constant it comes from are one value, in the build the
+    // assertion is compiled into. The child process of the test below reports its
+    // own write pair the same way, so neither end of that comparison is a copy the
+    // other has to be kept in step with by hand. The reader's bound is read here
+    // too: `prepare` is the only place it is handed to SQLite, and a pin of
+    // `READ_WAIT` alone would not notice the handler being given another value.
+    let (bound, constant) = db::bound_check_answer(db::Purpose::Write);
+    assert_eq!(bound, constant);
+    assert_eq!(bound, db::BUSY_TIMEOUT);
+    let (bound, constant) = db::bound_check_answer(db::Purpose::Read);
+    assert_eq!(bound, constant);
+    assert_eq!(bound, db::READ_WAIT);
+}
+
+#[test]
+fn a_thread_that_asked_shortens_the_bound_a_connection_gets() {
+    // The short pair moves the bound a connection is given, not only the constant
+    // a test compares an elapsed time with: on a thread that asked, the bound is
+    // the short one while the constant stays where the spec puts it, and the
+    // difference is exactly what the bound check reports.
+    crate::verbs_tests::short_bounds();
+    let (bound, constant) = db::bound_check_answer(db::Purpose::Write);
+    assert_eq!(bound, db::TEST_BUSY_TIMEOUT);
+    assert_eq!(constant, db::BUSY_TIMEOUT);
+    assert_ne!(bound, constant);
+}
+
+#[test]
+fn a_thread_that_asked_shortens_the_publish_bound_too() {
+    // The three reads of the short pair go together: the two waits of the
+    // database and the file lock of the live view are shortened by one call, so
+    // a test cannot end up waiting the installed lock bound between two waits it
+    // shortened. The thread that did not ask is pinned above, where a hoist of
+    // `db::lock_wait` out of `live::take_lock`'s retry loop would leave this one
+    // and the test above agreeing at the installed pair while publish gave up at
+    // another.
+    crate::verbs_tests::short_bounds();
+    assert_eq!(db::lock_wait(), db::TEST_BUSY_TIMEOUT);
+}
+
+#[test]
+fn a_store_the_tests_did_not_shorten_waits_the_installed_bounds() {
+    // The short pair is a setting of the test binary and of nothing else: a
+    // process that never asked for it waits out `BUSY_TIMEOUT` on a lock it
+    // cannot get and says `busy` when that is gone. The store
+    // answers `--test-store-bound-check` with the wait it met, so the proof is
+    // made by the program itself rather than by a constant, and the short pair
+    // cannot quietly shorten the installed one. A thread of this binary that
+    // never called `db::install_test_bounds` is the same case; the store is the
+    // stronger of the two, because it is what a host runs.
+    let store = std::env::var("CARGO_BIN_EXE_store")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| store_binary());
+    let writer_met_the_bound = || {
+        let home = crate::verbs_tests::scratch("installed-bounds");
+        init(&home, false).unwrap();
+        // The holder waits for nothing, so the store cannot win the race and has
+        // to meet its bound: a write lock held by another connection is what a
+        // connection that writes wants.
+        let holder = Connection::open(db::path(&home)).unwrap();
+        holder
+            .pragma_update(None, "locking_mode", "EXCLUSIVE")
+            .unwrap();
+        holder
+            .execute("INSERT INTO meta (key, value) VALUES ('held', '1')", [])
+            .unwrap();
+        let child = std::process::Command::new(&store)
+            .args([crate::BOUND_CHECK])
+            .arg(db::path(&home))
+            .env_clear()
+            .output()
+            .unwrap_or_else(|e| panic!("{}: {e}", store.display()));
+        drop(holder);
+        assert!(
+            child.status.success(),
+            "{:?} {}",
+            child.status,
+            String::from_utf8_lossy(&child.stderr)
+        );
+        let said: serde_json::Value = serde_json::from_slice(&child.stdout).unwrap();
+        assert_eq!(said["busy"], true, "{said}");
+        (
+            said["waited_ms"].as_i64().unwrap(),
+            said["bound_ms"].as_i64().unwrap(),
+            said["installed_ms"].as_i64().unwrap(),
+            home,
+        )
+    };
+
+    // Five seconds, where the tests' own bound is half a second: this is the
+    // pair of the program a host runs and not the short one. The child names the
+    // bound it applied and the constant that bound comes from, both read off the
+    // child's own compilation, so the three are one quantity rather than three
+    // that have to be kept in step: a wait that fell short of the bound the child
+    // was given fails, a bound that drifted from the child's constant fails, and
+    // so does a child whose constant no longer matches the one the parent pins.
+    let (waited, bound, constant, home) = writer_met_the_bound();
+    assert_eq!(
+        bound,
+        db::BUSY_TIMEOUT.as_millis() as i64,
+        "the child did not wait the bound its constants state"
+    );
+    assert_eq!(
+        constant,
+        db::BUSY_TIMEOUT.as_millis() as i64,
+        "the child's bound and the parent's constant are not the same value"
+    );
+    assert!(
+        waited >= bound,
+        "a writer waited {waited} ms, not its bound of {bound} ms"
+    );
+    assert!(check(&home).is_ok());
+
+    // The reader's bound is the business of
+    // `a_reader_waits_a_second_for_a_lock_and_not_the_writers_five`, which
+    // compares a reader's wait with both bounds of the run: it is a second in
+    // what a host runs, and the short pair's two hundred milliseconds here.
+}
+
+/// The store of this build, for the one test that must run the program rather
+/// than call into it. cargo names it for an integration test; the unit tests of
+/// the binary find it beside the test harness it was built with.
+fn store_binary() -> PathBuf {
+    let deps = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let here = deps.join("store");
+    if here.exists() {
+        return here;
+    }
+    deps.parent().unwrap().join("store")
+}
+
+#[test]
 fn a_page_of_an_empty_table_holds_nothing_to_damage() {
     // Why the test above damages a page with rows on it: a byte of the page of
     // a table with none is SQLite's own header, and changing it answers the
@@ -539,6 +717,9 @@ fn a_page_of_an_empty_table_holds_nothing_to_damage() {
 
 #[test]
 fn a_locked_database_is_exit_1_and_the_word_busy() {
+    // The store has to meet the writer's bound rather than beat the holder, so
+    // this thread asks for the short pair.
+    crate::verbs_tests::short_bounds();
     let home = scratch("busy");
     init(&home, false).unwrap();
     // A second connection holds the write lock, and the store is made to want
@@ -556,7 +737,15 @@ fn a_locked_database_is_exit_1_and_the_word_busy() {
     let err = db::open_write(&db::path(&home)).unwrap_err();
     assert_eq!(err, db::DbError::Busy, "{err:?}");
     assert_eq!(err.word(), "busy");
-    assert!(asked.elapsed() >= db::BUSY_TIMEOUT, "{:?}", asked.elapsed());
+    let waited = asked.elapsed();
+    // The bound of this run: the handler is asked again until the wait it was
+    // given is gone, and `the_installed_bounds_are_the_ones_the_spec_states`
+    // pins the pair the program a host runs is given.
+    assert!(
+        waited >= db::write_bound(),
+        "waited {waited:?} on a bound of {:?}",
+        db::write_bound()
+    );
     drop(tx);
     // Once the lock is gone the same call answers, so the word is the lock's
     // and not the file's.
@@ -566,6 +755,11 @@ fn a_locked_database_is_exit_1_and_the_word_busy() {
 
 #[test]
 fn a_reader_waits_a_second_for_a_lock_and_not_the_writers_five() {
+    // The reader has to meet its own bound rather than beat the holder, so the
+    // thread asks for the short pair; the assertion below is between the two
+    // bounds of the run either way.
+    crate::verbs_tests::short_bounds();
+    //
     // A writer's lock does not stop a reader in WAL mode, so the holder takes
     // the one lock that does: the whole file, as locking_mode EXCLUSIVE keeps
     // it after a write.
@@ -582,8 +776,10 @@ fn a_reader_waits_a_second_for_a_lock_and_not_the_writers_five() {
     let err = db::open_read_only(&db::path(&home)).unwrap_err();
     let waited = asked.elapsed();
     assert_eq!(err, db::DbError::Busy, "{err:?}");
+    // A reader waits its own bound and not the writer's, whichever pair the run
+    // is under.
     assert!(
-        waited >= db::READ_WAIT && waited < db::BUSY_TIMEOUT,
+        waited >= db::read_bound() && waited < db::write_bound(),
         "{waited:?}"
     );
     drop(holder);
@@ -1207,6 +1403,8 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
 
 #[test]
 fn migrate_waits_on_a_lock_the_way_a_write_verb_does() {
+    // The verb has to meet the writer's bound rather than beat the holder.
+    crate::verbs_tests::short_bounds();
     // A migration is a write: it takes the write lock when it opens, so a
     // caller that already holds it is met before the verb reads a version or
     // copies a file. The holder waits for nothing, so the verb cannot win the
