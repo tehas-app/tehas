@@ -1,15 +1,16 @@
-//! What a snapshot asks of GitHub: the open issues in pages of 100 with
+//! What a snapshot asks of GitHub: the open issues in pages of 25 with
 //! everything the rules read of each, the marks on closed issues and pull
 //! requests, and the reads the bash makes of one issue at a time, in the
 //! shapes libexec/dispatch reads them.
 
 use super::run::{Calls, GhFail};
+use crate::events::{label_state, Events};
 use serde_json::{json, Map, Value};
 
 const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
     nameWithOwner
-    issues(states: OPEN, first: 100, after: $cursor) {
+    issues(states: OPEN, first: 25, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title body lastEditedAt editor { login }
@@ -162,20 +163,33 @@ pub fn events(node: &Value) -> Value {
     Value::Array(list)
 }
 
-/// Whether the page left out label events the issue has: a label on it that
-/// no event of its timeline applied. GitHub can answer a large page with
-/// empty timelines and no error.
+/// Whether the page left out the label events the rules read. For a label
+/// the rules ask who applied, or whether it still holds: a newest event in
+/// the timeline that is not an application, or no event at all, means the
+/// timeline disagrees with the labels. GitHub answers a large page with
+/// timelines cut short or left out and no error, and a timeline cut in the
+/// middle still holds an older application of the label, so the newest event
+/// is what tells them apart.
+///
+/// `tehas:running` is not asked. The bot applies it alone, so an issue whose
+/// cycle holds its lock carries it on every poll and its newest event is
+/// bot-written: guarding it would spend a paginated read on every running
+/// issue on every poll, and the rules ask nothing of its events — the park
+/// of a mark with no cycle behind it rests on the lock file, not the
+/// timeline.
 pub fn dropped_events(o: &Open) -> bool {
-    let applied: Vec<&str> = o
-        .node
-        .pointer("/timelineItems/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|e| e.get("__typename").and_then(Value::as_str) == Some("LabeledEvent"))
-        .filter_map(|e| e.pointer("/label/name").and_then(Value::as_str))
-        .collect();
-    o.labels.iter().any(|l| !applied.contains(&l.as_str()))
+    // `events()` always answers an array of objects, so this is Read for
+    // every node; the other arms are a wrong shape's safety net.
+    let Events::Read(ev) = Events::parse(&events(&o.node)) else {
+        return true;
+    };
+    o.labels.iter().any(|l| {
+        if l == "tehas:running" {
+            return false;
+        }
+        let (event, _, _) = label_state(&ev, l);
+        event != "labeled"
+    })
 }
 
 /// What an open issue answers to each read of the bash's: the REST issue
@@ -311,10 +325,40 @@ pub fn list(calls: &mut Calls, args: &[&str]) -> Value {
 mod tests {
     use super::*;
 
+    /// An issue with the labels it carries and the label events its page
+    /// gave it, each applied at its own time.
+    ///
+    /// The stamp and the actor are load-bearing, not decoration:
+    /// `label_state` reads the newest event by `at`, so events with no stamp
+    /// tie and resolve on `unlabeled`, and an assertion would be testing the
+    /// tiebreak instead of the guard.
     fn open(labels: &[&str], applied: &[&str]) -> Open {
         let nodes: Vec<Value> = applied
             .iter()
-            .map(|l| json!({"__typename": "LabeledEvent", "label": {"name": l}}))
+            .enumerate()
+            .map(|(i, l)| {
+                json!({"__typename": "LabeledEvent", "createdAt": format!("2026-01-0{}T00:00:00Z", i + 1),
+                    "actor": {"login": "alice"}, "label": {"name": l}})
+            })
+            .collect();
+        Open {
+            number: 7,
+            labels: labels.iter().map(|l| l.to_string()).collect(),
+            node: json!({"timelineItems": {"nodes": nodes}}),
+        }
+    }
+
+    /// The same, with the events given one by one: `kind` is `labeled` or
+    /// `unlabeled`, and a later pair in the list is a later event.
+    fn stamped(labels: &[&str], events: &[(&str, &str)]) -> Open {
+        let nodes: Vec<Value> = events
+            .iter()
+            .enumerate()
+            .map(|(i, (kind, l))| {
+                json!({"__typename": if *kind == "labeled" { "LabeledEvent" } else { "UnlabeledEvent" },
+                    "createdAt": format!("2026-01-0{}T00:00:00Z", i + 1),
+                    "actor": {"login": "alice"}, "label": {"name": l}})
+            })
             .collect();
         Open {
             number: 7,
@@ -327,7 +371,63 @@ mod tests {
     fn a_label_no_event_applied_was_left_out() {
         assert!(dropped_events(&open(&["tehas:ready"], &[])));
         assert!(dropped_events(&open(&["tehas:ready", "bug"], &["bug"])));
+        // A label on an issue with no timeline at all is a page that left
+        // its events out: without a stamp to read, the guard must still
+        // notice it, not rest on the tiebreak below.
+        assert!(dropped_events(&Open {
+            number: 7,
+            labels: vec!["tehas:ready".into()],
+            node: json!({}),
+        }));
         assert!(!dropped_events(&open(&["tehas:ready"], &["tehas:ready"])));
         assert!(!dropped_events(&open(&[], &[])));
+    }
+
+    #[test]
+    fn a_timeline_cut_short_of_the_newest_approval_is_left_out() {
+        // The page kept the older application and lost the one that came after
+        // it, so the issue carries a label the timeline says was taken off.
+        assert!(dropped_events(&stamped(
+            &["tehas:ready"],
+            &[("labeled", "tehas:ready"), ("unlabeled", "tehas:ready")]
+        )));
+        // And the newest event of the label really was an application.
+        assert!(!dropped_events(&stamped(
+            &["tehas:ready"],
+            &[("unlabeled", "tehas:ready"), ("labeled", "tehas:ready")]
+        )));
+        // One label cut short is enough, whatever the others agree on.
+        assert!(dropped_events(&stamped(
+            &["tehas:ready", "bug"],
+            &[
+                ("labeled", "bug"),
+                ("labeled", "tehas:ready"),
+                ("unlabeled", "tehas:ready")
+            ]
+        )));
+    }
+
+    #[test]
+    fn a_cycle_marked_running_by_the_bot_is_left_alone_when_its_event_is_cut() {
+        // The page gave this issue no timeline at all. `tehas:running` is the
+        // bot's own mark, so no person's approval rests on it and the poll
+        // reads the lock instead: the events are not re-read for it.
+        assert!(!dropped_events(&open(&["tehas:running"], &[])));
+        // A cut timeline of the running mark alone is not a dropped page
+        // either, nor is a timeline that ends with the mark taken off.
+        assert!(!dropped_events(&stamped(
+            &["tehas:running"],
+            &[("labeled", "tehas:running"), ("unlabeled", "tehas:running")]
+        )));
+        // What the mark does not excuse: a person's label on the same issue,
+        // whose newest event is not an application, still asks for the read.
+        assert!(dropped_events(&stamped(
+            &["tehas:ready", "tehas:running"],
+            &[
+                ("labeled", "tehas:ready"),
+                ("labeled", "tehas:running"),
+                ("unlabeled", "tehas:ready")
+            ]
+        )));
     }
 }
