@@ -21,7 +21,10 @@ empty one above it.
 
 ### Adopter action
 
-None.
+With `state/cycle-shadow.on` there, drain before you update (`tehas drain
+--wait`), then `tehas limit clear`: a cycle that ends across the update
+leaves its `<issue>.shadow.*` files, which stop every poll until removed.
+Without the shadow, none.
 
 ## v0.15.0 (2026-10-27)
 
