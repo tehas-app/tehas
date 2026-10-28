@@ -241,6 +241,10 @@
 # mount and no variable more. A description that fails says so in the file and
 # stops nothing.
 #
+# tehas work also bounds one child of a cycle: pi-rukas's backstop for a child
+# nothing else ended, from the instance's TEHAS_CHILD_TIMEOUT, so a fixer still
+# making progress is not stopped at pi-rukas's default with hours of budget left.
+#
 # The container runs in tehas.slice, as every sandbox container does, with the
 # limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of
 # the slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU, a pids
@@ -492,11 +496,10 @@ fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
 # Its path is this command's to give, not the instance's: dropped whether or
 # not this cycle is given attachments, so no container names a directory tehas
-# did not mount.
-unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
-# So are who reports a handoff, the time it may take, the cycle's deadline and
-# how many gate runs it makes at once.
-unset PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY
+# did not mount. So are who reports a handoff, the time it may take, the cycle's
+# deadline, how many gate runs it makes at once, and the bound of one child,
+# which is this command's to give, from TEHAS_CHILD_TIMEOUT, below.
+unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_SPAWN_TIMEOUT_MS
 mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
 mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
 tehas_sandbox_security_take "tehas work" "a cycle" || exit 78
@@ -509,7 +512,7 @@ verify_at_once=$(tehas_slice_verify) ||
 handoff=480
 # tehasbot cycle posts the one comment of a handoff and labels the issue.
 envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=$((handoff * 1000))"
-  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once")
+  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once" -e "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=$((TEHAS_CHILD_TIMEOUT * 1000))")
 features=handoffChannel
 # The runner by its path in the image: the link to it on PATH does not find
 # its own source (pi-rukas v0.12.80).

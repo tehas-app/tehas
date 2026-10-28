@@ -109,7 +109,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_WORK_COMMENTS`           | `0`                                      | `1` takes the images and files of the issue's comments too: those an allowed account wrote and nobody edited after the approval. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_WORK_ZIPS`               | `0`                                      | `1` unpacks a zip the issue's text links into the same read-only directory, at most 2 archives and 4 MB each. A zip is taken by its first bytes, not its name; every file in it goes through the checks of a linked one and counts against the same limits, and the archive is not kept. Needs `TEHAS_WORK_IMAGES=1` or `TEHAS_WORK_FILES=1`, else the command stops with 78. See [tehas work](#tehas-work) |
 | `TEHAS_VERIFY_TIMEOUT`          | `1800`                                   | Seconds one run of the product's gate may take inside a cycle. A gate that takes longer is stopped and the cycle parks with the cap `verify-timeout:<step>`. Passed to pi-rukas as `PI_ENSEMBLE_VERIFY_TIMEOUT_MS` and `PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS`; pi-rukas alone allows ten minutes. The bound is for one run under the container's CPU quota: a run that waits for another to end does not count its wait. With a `.pi/verify-cmd-fast`, the fast and the full command share it. The cycle's deadline leaves at least this much and the handoff allowance, 8 minutes, before `TEHAS_WORK_TIMEOUT` |
-| `TEHAS_BUILD_TIMEOUT`           | `1800`                                   | Seconds one `cargo build` of `install.sh` may take, the offline attempt and the online one each on its own. A build that runs past it is cut off, the install stops with the build's own words, and the message says the build was cut off and names the command of the attempt that was. Both programs due are built before anything is installed, so the worst case is four attempts in all: a value set with `tehas update` in mind must stay well under the 1800 s that `tehas update` gives the whole of `install.sh`, or that outer bound is the one that fires. A build cut off at the default is a host that has never fetched: run `./bootstrap.sh user` so cargo and its crate cache are there, or raise this bound. See [the host manual](/host) |
+| `TEHAS_CHILD_TIMEOUT`           | `7200`                                   | Seconds one child of a cycle may take before pi-rukas ends it: its backstop for a child nothing else stopped. A positive whole number, at most `TEHAS_WORK_TIMEOUT`, because no child may outlive the cycle that spawned it; a longer one is refused with 78. `tehas work` passes it to the container as `PI_ENSEMBLE_SPAWN_TIMEOUT_MS`, in milliseconds; pi-rukas alone allows two hours. Raise it when a fixer still making progress is stopped with hours of the cycle's budget left |
+| `TEHAS_BUILD_TIMEOUT`           | `1800`                                   | Seconds one `cargo build` of `install.sh` may take, the offline attempt and the online one each on its own.A build that runs past it is cut off, the install stops with the build's own words, and the message says the build was cut off and names the command of the attempt that was. Both programs due are built before anything is installed, so the worst case is four attempts in all: a value set with `tehas update` in mind must stay well under the 1800 s that `tehas update` gives the whole of `install.sh`, or that outer bound is the one that fires. A build cut off at the default is a host that has never fetched: run `./bootstrap.sh user` so cargo and its crate cache are there, or raise this bound. See [the host manual](/host) |
 | `TEHAS_RUKAS_WORKAROUNDS`       | empty                                    | Optional. The settings of this instance that only work around a pi-rukas defect, as `NAME@VERSION` separated by single spaces, `VERSION` being the pi-rukas release that fixes it. `tehas work` stops a cycle with 78 once the image's pi-rukas is that release or later, naming the setting: remove it and its entry. An entry for a setting the instance does not set stops every command with 78. Write the pi-rukas issue in a comment beside the setting |
 | `TEHAS_SIZE_MAX_FILES`          | unset                                    | Optional. The count of files an issue may name before the dispatcher holds it instead of starting it: see [Limits that hold work back](/operating#limits-that-hold-work-back). Unset, no issue is held for its size. A whole number of at least 1. The `sizes` figures of [tehas analytics](/analytics#size) say where to set it |
 | `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
@@ -141,6 +142,10 @@ session.
   replaced by tehas' value before the container starts, with no message: set
   the `TEHAS_*` name instead. No instance line gives a cycle the Docker socket
   or SSH keys.
+- `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` is `tehas work`'s to set for a cycle, from
+  `TEHAS_CHILD_TIMEOUT`: the command drops an instance line for it before it
+  adds its own, so a cycle's child bound is never the instance's. There is no
+  `PI_ENSEMBLE_*` name an instance sets for it.
 - `PI_ENSEMBLE_EXTRA_IMAGE_DIRS` names the mounted images directory and is
   tehas' to set: `tehas work`, `tehas plan` and `tehas dev` drop an instance
   line for it whether or not that container is given attachments, so one never
@@ -153,8 +158,8 @@ session.
   it rather than build into the clone, because the host runs no git in a kept
   clone to tell a person what an agent left there.
 - `PI_ENSEMBLE_HANDOFF_CHANNEL`, `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS`,
-  `PI_ENSEMBLE_CYCLE_DEADLINE` and `PI_ENSEMBLE_VERIFY_CONCURRENCY` are
-  `tehas work`'s to set for a cycle, and
+  `PI_ENSEMBLE_CYCLE_DEADLINE`, `PI_ENSEMBLE_VERIFY_CONCURRENCY` and
+  `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` are `tehas work`'s to set for a cycle, and
   `PI_ENSEMBLE_CYCLE_BUDGET_MS` is not passed: an instance line for one of
   them is dropped (see [tehas work](#tehas-work)). A planning session and a
   `tehas dev` session get none of them.
@@ -652,7 +657,7 @@ tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer need
     Remove the setting and its entry from /home/tehas/.config/tehas/instance.env.
 ```
 
-Four inputs are this command's, whatever the instance says:
+Five inputs are this command's, whatever the instance says:
 
 | Input | Value | Why |
 | --- | --- | --- |
@@ -660,6 +665,7 @@ Four inputs are this command's, whatever the instance says:
 | `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS` | `480000`, 8 minutes | The handoff allowance: the time the cycle's handoff may take. It is the one allowance tehas and pi-rukas share. The deadline's margin holds it, so the handoff is written before the container is stopped, not as it is stopped |
 | `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. When the image's `--capabilities` answer has the feature `cycleDeadlineHandoffAllowance`, its runner bounds every step by the deadline, and the margin is the handoff allowance alone: with the default limit the deadline is 5 h 52 min in. Otherwise the margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and the handoff allowance when that is longer: a step that started before the deadline may run past it, and the handoff comes after that step. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
 | `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's share and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
+| `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | `TEHAS_CHILD_TIMEOUT` times 1000, 7200000 by default | The bound on one child of the cycle: pi-rukas's backstop for a child nothing else ended. tehas gives it so a fixer still making progress is not stopped at pi-rukas's own two-hour default with hours of the cycle's budget left. An instance line for the name is dropped before tehas' own is added |
 
 It holds the issue's lock, `~/tehas/state/cycles/<issue>.lock`, while it runs.
 Run by hand for an issue whose cycle is running, it refuses before it moves
