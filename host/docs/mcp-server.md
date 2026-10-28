@@ -96,6 +96,13 @@ To remove a key, take it out of the list and run
 key by the first 8 hex characters of its sha256, never by the key, so you can
 tell which agent is calling.
 
+One line goes to the journal per request: the method, the status, the time it
+took and the key, and for a `tools/call` the tool as well, as
+`POST 200 4ms key=3511bfc5 tool=factory_log`. The name of the tool only: the
+arguments are never logged, as one can carry an issue number or text from a
+private repository. A name the server does not have is logged as `tool=?`, and
+a request that is not a `tools/call` logs no `tool=`.
+
 ## How it runs
 
 `tehasbot mcp serve`, run by `tehas-mcp.service`, checks the settings and runs

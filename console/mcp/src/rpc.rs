@@ -39,6 +39,10 @@ pub struct Response {
     pub body: Vec<u8>,
     /// The fingerprint of the key that was used, for the access log.
     pub key: Option<String>,
+    /// The tool of a `tools/call`, for the access log: its name only, never
+    /// its arguments, which can carry an issue number or text from a private
+    /// repository. A name the server does not know is `?`.
+    pub tool: Option<String>,
     /// The place of a log being sent, freed when the answer is dropped.
     pub hold: Option<LogGuard>,
 }
@@ -50,6 +54,7 @@ impl Response {
             headers: vec![],
             body: vec![],
             key: None,
+            tool: None,
             hold: None,
         }
     }
@@ -60,6 +65,7 @@ impl Response {
             headers: vec![("Content-Type".into(), "application/json".into())],
             body: v.to_string().into_bytes(),
             key: None,
+            tool: None,
             hold: None,
         }
     }
@@ -160,6 +166,7 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     }
     let info = json!({"name": "tehas", "version": server_version});
     let mut hold = None;
+    let mut tool = None;
     let mut result = match (method, modern) {
         ("server/discover", _) => json!({
             "resultType": "complete",
@@ -190,6 +197,14 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
         ("tools/call", _) => {
             let name = params["name"].as_str().unwrap_or("");
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
+            // The name alone goes to the log, and only a name the server has:
+            // the arguments can carry an issue number or text from a private
+            // repository, and are never copied. A request the gate refused
+            // before its body was read carries no tool at all.
+            tool = Some(match tools::known(name) {
+                true => name.to_string(),
+                false => "?".into(),
+            });
             match tools::call_held(dirs, name, &args).map(|(out, place)| {
                 hold = place;
                 out
@@ -213,7 +228,12 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
                     "structuredContent": meta,
                 }),
                 Err(ToolError::Unknown(n)) => {
-                    return error(200, &id, -32602, &format!("Unknown tool: {n}"), None)
+                    // The line names the tool even when the call is refused:
+                    // the request did ask for one, and a person reading the
+                    // journal wants to see which.
+                    let mut r = error(200, &id, -32602, &format!("Unknown tool: {n}"), None);
+                    r.tool = tool.take();
+                    return r;
                 }
                 Err(ToolError::BadArgs(why)) => tool_error(&why),
                 Err(ToolError::File { file, why }) => tool_error(&format!("{file} {why}")),
@@ -226,6 +246,7 @@ pub fn answer(req: &Request, dirs: &Dirs, server_version: &str) -> Response {
     }
     let mut r = Response::json(200, json!({"jsonrpc": "2.0", "id": id, "result": result}));
     r.hold = hold;
+    r.tool = tool;
     r
 }
 
