@@ -152,10 +152,14 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         issues.insert(o.number.to_string(), Value::Object(github::issue(o)));
     }
     // Those the page left out are read as the bash reads them, side by side.
+    // The bot's `RUNNING` mark is the one label the queue does not ask about:
+    // every running cycle carries it, the bot applies it alone, and the rules
+    // read the mark and the lock file rather than its events. The control
+    // issue is asked about by name below, with no label exempt.
     let dropped: Vec<u64> = q
         .open
         .iter()
-        .filter(|o| github::dropped_events(o))
+        .filter(|o| github::dropped_events(o, &[github::RUNNING]))
         .map(|o| o.number)
         .collect();
     let reads: Vec<Vec<String>> = dropped
@@ -173,9 +177,24 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
     match q.open.iter().find(|o| o.number == c.control) {
         Some(o) => {
-            let events = match issues.get(&o.number.to_string()) {
-                Some(i) if github::dropped_events(o) => i["events"].clone(),
-                _ => github::events(&o.node),
+            // The control issue asks about every label it carries, so the
+            // mark's exemption cannot reach it: the page's timeline is kept
+            // only when the guard vouches for it, and one cut short of the
+            // last `tehas:pause` event is read again rather than decide the
+            // pause. A page that left the control issue's events out entirely
+            // is already in `dropped` and holds its REST read. The guard runs
+            // again here, with nothing exempt, and its answer for the queue is
+            // kept beside the issue: the two differ only for an issue whose
+            // labels are the mark alone, and reading the timeline once and
+            // sharing it would give the control issue the queue's exemption.
+            let events = if github::dropped_events(o, &[]) {
+                issues
+                    .get(&o.number.to_string())
+                    .and_then(|i| i.get("events"))
+                    .cloned()
+                    .unwrap_or_else(|| github::events(&o.node))
+            } else {
+                github::events(&o.node)
             };
             s["control"] = json!({"labels": o.labels.iter().map(|l| json!({"name": l})).collect::<Vec<_>>(),
             "events": events})
@@ -210,7 +229,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let mut marked: Vec<Value> = q
         .open
         .iter()
-        .filter(|o| has(&o.labels, "tehas:running"))
+        .filter(|o| has(&o.labels, github::RUNNING))
         .map(|o| json!({"number": o.number, "state": "OPEN"}))
         .collect();
     marked.extend(

@@ -902,9 +902,12 @@ makes a call for each list; GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree — one it carries whose newest event in the timeline is not an
 application, or that has no event at all — has its events read on their own,
-as the bash reads them; `tehas:running` is excepted, because the bot applies
-that mark itself and the park of a mark with no cycle behind it rests on the
-lock file, not the timeline), the decision, the actions, and the end every
+as the bash reads them; an issue the page gave no timeline at all is always
+read again, and the only label the queue does not ask about is `tehas:running`,
+which the bot applies itself and whose park rests on the lock file rather than
+the timeline — the control issue is asked about with no label exempt, because
+its `tehas:pause` history holds the whole factory), the decision, the actions,
+and the end every
 poll that held the lock has. Each write to GitHub goes through the state
 store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
