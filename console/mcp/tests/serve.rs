@@ -347,16 +347,22 @@ fn a_flood_of_idle_connections_is_answered_and_survived() {
 }
 
 // A client that sends a byte now and then is cut off at the deadline for the
-// whole request, not kept for as long as it keeps sending.
+// whole request, not kept for as long as it keeps sending. The deadline is
+// 1 s here, not the 10 s of the installed server, which the next test asserts.
 #[test]
 fn a_request_has_a_deadline_however_it_trickles() {
-    let s = Server::start();
+    let s = Server::start_with(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &["--io-timeout", "1"],
+    );
     let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
     c.write_all(b"POST /mcp HTTP/1.1\r\nX: ").unwrap();
     let started = std::time::Instant::now();
     let mut closed = false;
-    while started.elapsed() < Duration::from_secs(20) {
-        std::thread::sleep(Duration::from_secs(2));
+    while started.elapsed() < Duration::from_secs(4) {
+        std::thread::sleep(Duration::from_millis(100));
         if c.write_all(b"a").is_err() {
             closed = true;
             break;
@@ -369,9 +375,44 @@ fn a_request_has_a_deadline_however_it_trickles() {
             break;
         }
     }
-    assert!(closed, "still open after 20 s");
-    assert!(started.elapsed() < Duration::from_secs(15));
+    assert!(closed, "still open after 4 s");
+    // Well past the 1 s that was asked for, and well short of the 10 s the
+    // server would hold without the flag.
+    assert!(started.elapsed() >= Duration::from_millis(900));
+    assert!(started.elapsed() < Duration::from_secs(3));
     s.stop();
+}
+
+// The 10 seconds the manual promises is the default of the flag, not the flag:
+// libexec/mcp never passes `--io-timeout`, so what a host waits is what the
+// constant says, and a test says so without waiting out a second trickle. The
+// argument is read rather than ignored: 0 would mean no deadline at all, so a
+// value that is not a whole number of seconds from 1 to 3600 is 78 like any
+// other wrong argument.
+#[test]
+fn without_the_flag_the_deadline_is_ten_seconds() {
+    assert_eq!(mcp::http::IO_TIMEOUT, Duration::from_secs(10));
+    let base = [
+        "--live",
+        "/x",
+        "--sessions",
+        "/x",
+        "--logs",
+        "/x",
+        "--listen",
+        "127.0.0.1:1",
+        "--server-version",
+        "v",
+    ];
+    for bad in ["0", "abc", "1.5", "3601"] {
+        let mut args = base.to_vec();
+        args.extend(["--io-timeout", bad]);
+        let (rc, err) = run_once(Some(K1), &args);
+        assert_eq!(rc, 78, "{bad}: {err}");
+        assert!(err.contains("--io-timeout"), "{bad}: {err}");
+    }
+    let (rc, err) = run_once(Some(K1), &["--io-timeout"]);
+    assert_eq!(rc, 78, "{err}");
 }
 
 // The log takes the method as a word of letters only: what a client puts there

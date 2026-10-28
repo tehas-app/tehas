@@ -152,6 +152,11 @@ once the next one gets 503. A method that is not a word of capitals gets 400,
 so nothing a client sends there reaches the log as a line of its own. No
 session is kept.
 
+The binary takes the 10 seconds as `--io-timeout <seconds>`, a whole number
+from 1 to 3600, and keeps the default without it. `tehasbot mcp serve` never
+passes it, so the server on a host always waits the 10 seconds. The flag is
+there for the tests, which would otherwise wait out the deadline itself.
+
 The `2025-11-25` handshake is there because neither Hermes nor OpenClaw says
 yet which version it speaks. It goes once both speak `2026-07-28`.
 

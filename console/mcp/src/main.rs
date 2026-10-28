@@ -1,7 +1,7 @@
 //! tehas-mcp: the binary of the read-only MCP server (lib.rs).
 //!
 //!   tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port>
-//!             --server-version <v> [--private <name>]...
+//!             --server-version <v> [--io-timeout <seconds>] [--private <name>]...
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret.
@@ -15,6 +15,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Connections served at once; one more is answered 503 and closed. Each is a
 /// thread, and the container allows 64 processes.
@@ -23,7 +24,7 @@ const MAX_CONNECTIONS: usize = 32;
 fn usage(why: &str) -> ! {
     eprintln!("tehas-mcp: {why}");
     eprintln!(
-        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--private <name>]..."
+        "usage: tehas-mcp --live <dir> --sessions <dir> --logs <dir> --listen <addr:port> --server-version <v> [--io-timeout <seconds>] [--private <name>]..."
     );
     std::process::exit(78);
 }
@@ -42,6 +43,7 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let (mut live, mut sessions, mut logs) = (None, None, None);
     let (mut listen, mut version) = (None, None);
+    let mut io_timeout: Option<String> = None;
     let mut private = Vec::new();
     while let Some(a) = args.next() {
         if a == "--private" {
@@ -59,6 +61,7 @@ fn main() {
             "--logs" => &mut logs,
             "--listen" => &mut listen,
             "--server-version" => &mut version,
+            "--io-timeout" => &mut io_timeout,
             other => usage(&format!("unknown argument {other}")),
         };
         *slot = Some(
@@ -66,6 +69,17 @@ fn main() {
                 .unwrap_or_else(|| usage(&format!("{a} needs a value"))),
         );
     }
+    // The deadline for the whole of a request, an argument so that a test cuts
+    // a trickling client off in a second. libexec/mcp never passes the flag,
+    // so the installed server keeps mcp::http::IO_TIMEOUT, which a test of
+    // serve.rs asserts. The bound keeps a 0 from meaning no deadline.
+    let io_timeout = match io_timeout {
+        None => mcp::http::IO_TIMEOUT,
+        Some(secs) => match secs.parse::<u64>() {
+            Ok(secs) if (1..=3600).contains(&secs) => Duration::from_secs(secs),
+            _ => usage("--io-timeout is a whole number of seconds from 1 to 3600"),
+        },
+    };
     let dir = |v: Option<String>, name: &str| {
         PathBuf::from(v.unwrap_or_else(|| usage(&format!("{name} is missing"))))
     };
@@ -102,7 +116,7 @@ fn main() {
         "tehas-mcp: {version} listening on {bound}, {} keys",
         keys.len()
     );
-    let shared: Arc<(Keys, Dirs, String)> = Arc::new((keys, dirs, version));
+    let shared: Arc<(Keys, Dirs, String, Duration)> = Arc::new((keys, dirs, version, io_timeout));
     let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
@@ -116,7 +130,7 @@ fn main() {
         // A thread that cannot start drops its closure, and the slot with it.
         let _ = std::thread::Builder::new().spawn(move || {
             let _slot = slot;
-            let line = mcp::http::serve(stream, &shared.0, &shared.1, &shared.2);
+            let line = mcp::http::serve(stream, &shared.0, &shared.1, &shared.2, shared.3);
             eprintln!("{line}");
         });
     }
