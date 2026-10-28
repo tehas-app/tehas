@@ -478,7 +478,7 @@ trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
 # The report's shadow (#256): tehas-cycle decides beside this report, from the
 # same files, while state/cycle-shadow.on is there. It never fails the report.
-[ ! -e "$TEHAS_HOME/state/cycle-shadow.on" ] || ! timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" shadow "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" >/dev/null 2>&1 || shadow=$cycles/$issue.shadow
+[ ! -e "$TEHAS_HOME/state/cycle-shadow.on" ] || ! timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" shadow "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" >/dev/null 2>&1 || shadow=$cycles/shadow-$issue
 mins=$(((EPOCHSECONDS - started) / 60))
 [ ! -f "${workdir%/*}/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"

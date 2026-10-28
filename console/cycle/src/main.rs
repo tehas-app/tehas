@@ -11,7 +11,7 @@
 //!       --requeued 0|1
 //!                                     just before libexec/cycle reports:
 //!                                     decide the report from the host and
-//!                                     keep it in state/cycles/<issue>.shadow.json
+//!                                     keep it in state/cycles/shadow-<issue>.json
 //!   tehas-cycle compare <issue>       after the report: set the bash's
 //!                                     beside it and add one line to
 //!                                     logs/cycle-shadow.log
