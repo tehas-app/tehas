@@ -217,12 +217,24 @@ PI_ENSEMBLE_HANDOFF_TIMEOUT_MS
 PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_MAX_WORKSTREAMS
 PI_ENSEMBLE_SANDBOX_MODE
+PI_ENSEMBLE_SPAWN_TIMEOUT_MS
 PI_ENSEMBLE_SUBAGENT_MODEL
 PI_ENSEMBLE_SUBAGENT_PROVIDER
 PI_ENSEMBLE_VERIFY_CONCURRENCY
 PI_ENSEMBLE_VERIFY_TIMEOUT_MS
 PI_ENSEMBLE_WORKSPACE_ROOT"
 t_eq "$(after -e | sed 's/=.*//' | LC_ALL=C sort)" "$(printf '%s\n' "$want" | LC_ALL=C sort)"
+
+t_case "the child bound is tehas', not the instance's, and takes its default when the case names none"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_SPAWN_TIMEOUT_MS=60000 TEHAS_CHILD_TIMEOUT=5400
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(after -e | grep -c '^PI_ENSEMBLE_SPAWN_TIMEOUT_MS')" 1
+t_eq "$(after -e | grep '^PI_ENSEMBLE_SPAWN_TIMEOUT_MS')" "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=5400000"
+t_instance "${T_MINIMAL[@]}"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$(after -e | sed -n 's/^PI_ENSEMBLE_SPAWN_TIMEOUT_MS=//p')" "7200000"
 
 t_case "a role's own model is passed in under the names pi-rukas reads, and nothing else is"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST=small-model

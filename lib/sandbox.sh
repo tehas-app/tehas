@@ -116,14 +116,14 @@ tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
 # With no-token the bot's token is left out of the list altogether: not given
 # an empty value and not given its bare name, but absent. A caller that starts
 # a run which writes nothing to the tracker asks for that, so the name the
-# token carries is not among the container's variables at all. What is kept
-# back is decided here, before the list is made, and not by a caller editing
-# the list afterwards - the one place a name is dropped is this one.
+# token carries is not among the container's variables at all. What is kept back
+# is decided here, before the list is made, and not by a caller editing the list
+# afterwards: this is the one place a name is dropped.
 #
 # git inside the sandbox has no configuration of its own: no credential helper
 # and no identity. Without the helper the driver commits but cannot push, and
-# a cycle parks after all the work is done. Hand git the bot's token through
-# gh (which reads GH_TOKEN) and an identity, as environment-level config: it
+# a cycle parks after all the work is done. Hand git the bot's token through gh
+# (which reads GH_TOKEN) and an identity, as environment-level config: it
 # outranks any file, reaches every agent process, and writes nothing into the
 # tree.
 tehas_sandbox_env() { # <tree> <git name> <git email> [no-token]
@@ -167,12 +167,11 @@ tehas_sandbox_env() { # <tree> <git name> <git email> [no-token]
 #
 # The two cache volumes pi-rukas mounts are not mounted here. What a container
 # writes under its home, caches of packages among them, stays in its own layer
-# and goes when the container is removed.
-#
-# Pi's settings.json is the one install.sh puts in ~/.pi/agent: its provider
-# retry and timeout. The image has none, and without it Pi makes no retry of a
-# failed request. A missing file is a failure, not a default: Docker would
-# make a root-owned directory in its place.
+# and goes when the container is removed. Pi's settings.json is the one
+# install.sh puts in ~/.pi/agent: its provider retry and timeout. The image has
+# none, and without it Pi makes no retry of a failed request. A missing file is
+# a failure, not a default: Docker would make a root-owned directory in its
+# place.
 #
 # models.json is the container's own, <state>/models.json: the host's with
 # each provider on the endpoint picked now (lib/models.sh). <state>/endpoints
@@ -250,11 +249,7 @@ tehas_sandbox_seed() { # <state> [<index dir>]
   for f in "$src"/*; do
     [ -e "$f" ] || continue
     case "$f" in */logs | *.db.stage.* | *.tmp) continue ;; esac
-    cp -a "$f" "$state/cache/" || {
-      rm -rf "$state/cache"
-      mkdir -p "$state/cache"
-      return 1
-    }
+    cp -a "$f" "$state/cache/" || { rm -rf "$state/cache"; mkdir -p "$state/cache"; return 1; }
   done
 }
 
@@ -263,13 +258,13 @@ tehas_sandbox_seed() { # <state> [<index dir>]
 # default is taken away, and a program cannot gain rights through its mode or
 # file capabilities. The same options for the four containers tehas starts an
 # agent in: a cycle, a planning turn, a manual session and the push check
-# before a cycle. The contract is one array: tehas_sandbox_security_count
-# prints how many words it prints, and tehas_sandbox_security_ok says whether
-# the words are the documented ones in order. Each command asks that before it
-# calls Docker, so a guard names what drifted instead of counting somewhere
-# else. host/docs/host.md documents the same options in a table, and
-# test/work_caps_test.sh compares that table with what is printed here, so
-# adding one option is an edit here, a row there, and nothing else.
+# before a cycle. The contract is one array: tehas_sandbox_security_count prints
+# how many words it prints, and tehas_sandbox_security_ok says whether the words
+# it prints are the documented ones in order, so a guard asked before Docker
+# names what drifted instead of counting somewhere else. host/docs/host.md
+# documents the same options in a table, and test/work_caps_test.sh compares
+# that table with what is printed here, so adding one option is an edit here, a
+# row there, and nothing else.
 #
 # Only CHOWN and FOWNER are given back:
 #
@@ -342,13 +337,13 @@ tehas_sandbox_security_count() {
   printf '%s\n' "${#sec[@]}"
 }
 
-# True when what tehas_sandbox_security prints is the documented list: the
-# words below, in this order, as separate arguments (docker also accepts
-# --tmpfs=<value>, which is not what is printed and would be a shorter list).
-# A caller that cannot ask this has only a length to go on; the tests ask it of
-# the function itself (test/work_caps_test.sh).
+# True when what tehas_sandbox_security prints is the documented list below, in
+# this order and as separate arguments (docker also accepts --tmpfs=<value>,
+# which is not what is printed and would be a shorter list). A caller that
+# cannot ask this has only a length to go on; the tests ask it of the function
+# itself (test/work_caps_test.sh).
 tehas_sandbox_security_ok() {
-  local documented
+  local documented sec i
   [[ ${TEHAS_SLICE_CEILING_MB:-} =~ ^[1-9][0-9]{1,8}$ ]] || return 1
   documented=(
     --cap-drop ALL
@@ -357,11 +352,9 @@ tehas_sandbox_security_ok() {
     --security-opt no-new-privileges:true
     --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
   )
-  local sec
   sec=()
   mapfile -d '' -t sec < <(tehas_sandbox_security)
   [ "${#sec[@]}" -eq "${#documented[@]}" ] || return 1
-  local i
   for i in "${!documented[@]}"; do
     [ "${sec[i]}" = "${documented[i]}" ] || return 1
   done

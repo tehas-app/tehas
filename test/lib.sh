@@ -149,7 +149,9 @@ t_name=""
 t_out=""
 t_rc=0
 
-# Values a minimal valid instance needs.
+# Values a minimal valid instance needs. A case that lowers TEHAS_WORK_TIMEOUT
+# below the child bound's default names TEHAS_CHILD_TIMEOUT with it: the load
+# refuses a child that may outlive the cycle.
 T_MINIMAL=(TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=alice
   PI_ENSEMBLE_SUBAGENT_MODEL=test-model PI_ENSEMBLE_SUBAGENT_PROVIDER=test-provider)
 

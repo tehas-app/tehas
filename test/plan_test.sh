@@ -403,10 +403,10 @@ t_eq "$(t_calls docker | grep -c '^info ')" 1
 # The options without the pairs only a cycle is given: who reports its
 # handoff and the time it may take, its deadline and its gate runs at once.
 without_cycle_only() {
-  awk 'held { if ($0 !~ /^PI_ENSEMBLE_(HANDOFF_CHANNEL|HANDOFF_TIMEOUT_MS|CYCLE_DEADLINE|VERIFY_CONCURRENCY)=/) print "-e"; else { held = 0; next } }
+  awk 'held { if ($0 !~ /^PI_ENSEMBLE_(HANDOFF_CHANNEL|HANDOFF_TIMEOUT_MS|CYCLE_DEADLINE|VERIFY_CONCURRENCY|SPAWN_TIMEOUT_MS)=/) print "-e"; else { held = 0; next } }
     { held = ($0 == "-e") } !held { print } END { if (held) print "-e" }'
 }
-t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own four inputs and what is run differ"
+t_case "docker is given what tehas work gives a cycle's container: only the name, the two directories of its own, the cycle's cid file, the cycle's own five inputs and what is run differ"
 turn_args | options |
   sed -e "s|^$tree:|$ws-7:|" -e 's|/ensemble-runs/plan-7:|/ensemble-runs/issue-7:|' -e 's|widget-plan-7\.state|widget-7.state|' >"$T/plan.options"
 rm -f "$T"/calls/*
@@ -414,7 +414,7 @@ rm -f "$T"/calls/*
 jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson: {stable: {version: 1}}},
   verbs: {work: {flags: ["--restart", "--json", "--timeout"]}},
   inputs: [("SANDBOX_MODE", "WORKSPACE_ROOT", "MAX_WORKSTREAMS", "VERIFY_TIMEOUT_MS", "INTEGRATION_VERIFY_TIMEOUT_MS",
-    "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY")
+    "SUBAGENT_MODEL", "SUBAGENT_PROVIDER", "HANDOFF_CHANNEL", "HANDOFF_TIMEOUT_MS", "CYCLE_DEADLINE", "VERIFY_CONCURRENCY", "SPAWN_TIMEOUT_MS")
     | {name: "PI_ENSEMBLE_\(.)", scope: "cycle"}],
   features: {handoffChannel: true, cycleDeadline: true}}' >"$T/caps.json"
 # tehas work reads its approval from the state store: nothing on record, a run
