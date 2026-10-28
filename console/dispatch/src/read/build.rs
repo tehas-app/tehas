@@ -302,6 +302,20 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     s["leftovers"] = host::leftovers(home, &work_dir, &user_home, src.now);
     s["disk_kb"] = host::disk(home);
 
+    // The per-issue reads the snapshot makes, gathered before any of them is
+    // asked: the rules name the issues they ask the store about, and all of
+    // those names are known here from the queue, the locks and the requests. One
+    // run of `store batch` answers the whole list (#941), where the poll used to
+    // start the store once per question -- 49 processes for one idle poll.
+    let mut per_issue: Vec<store::Read> = Vec::new();
+    let mut want = |reads: &[store::Read]| {
+        for r in reads {
+            if !per_issue.contains(r) {
+                per_issue.push(*r);
+            }
+        }
+    };
+
     // Refreshes: the history, the marks, the requests and what they read.
     let history = store::refreshed(calls);
     let mut from: Vec<u64> = history
@@ -311,6 +325,13 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     from.extend(&refresh_rows);
     from.sort_unstable();
     from.dedup();
+    want(
+        &from
+            .iter()
+            .copied()
+            .map(store::Read::Approval)
+            .collect::<Vec<_>>(),
+    );
     // A refresh row with no lock counts as the bash's took_how does: in the
     // issues a refresh of this host may own.
     s["refresh_history"] = match history {
@@ -345,11 +366,40 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     {
         entry(&mut issues, pr)["events"] = rest_events(calls, &c.repo, pr);
     }
+    let requests = host::requests(home);
+    want(
+        &requests
+            .iter()
+            .map(|(n, _)| store::Read::Approval(*n))
+            .collect::<Vec<_>>(),
+    );
+    // The asking issues, the candidates of rule 6, and what each owes.
+    let asking = numbers(&s["asking"]);
+    want(
+        &asking
+            .iter()
+            .flat_map(|n| [store::Read::Question(*n), store::Read::Park(*n)])
+            .collect::<Vec<_>>(),
+    );
+    let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
+    candidates.extend(numbers(&s["blocked"]));
+    let candidates: Vec<u64> = candidates.into_iter().collect();
+    want(
+        &candidates
+            .iter()
+            .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)])
+            .collect::<Vec<_>>(),
+    );
+    // One run of the store answers all of them, and the answers are read below
+    // as the single calls were read. A poll that ends at the pause below has
+    // read nothing the bash's poll did not read either.
+    let mut asked = store::Asked::empty();
+    store::gather(calls, &mut asked, &per_issue);
+
     for n in &from {
-        let (_, current) = store::approval(calls, *n);
+        let (_, current) = store::approval(&asked, *n);
         entry(&mut issues, *n)["current"] = current;
     }
-    let requests = host::requests(home);
     s["refresh_requests"] = json!(requests.iter().map(|(n, _)| n).collect::<Vec<_>>());
     for (n, req) in &requests {
         if !open.contains(n) {
@@ -361,7 +411,7 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             &home.join(format!("state/refresh/{n}.said")),
             200
         ));
-        let (shaped, _) = store::approval(calls, *n);
+        let (shaped, _) = store::approval(&asked, *n);
         let i = entry(&mut issues, *n);
         i["approval"] = shaped;
         i["history"] = store::history(calls, *n);
@@ -379,18 +429,15 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     }
 
     // The questions waiting for an answer.
-    let asking = numbers(&s["asking"]);
     let read = github::comments_of(calls, &c.repo, &asking);
     for (n, comments) in asking.into_iter().zip(read) {
-        let question = store::question(calls, n);
+        let question = store::question(&asked, n);
         let i = entry(&mut issues, n);
         i["question"] = question;
         i["comments"] = comments;
     }
 
     // The candidates of rule 6: what their start rests on.
-    let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
-    candidates.extend(numbers(&s["blocked"]));
     for n in candidates {
         let labels = q
             .open
@@ -398,8 +445,8 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .find(|o| o.number == n)
             .map(|o| o.labels.clone())
             .unwrap_or_default();
-        let park = store::park(calls, n);
-        let (shaped, _) = store::approval(calls, n);
+        let park = store::park(&asked, n);
+        let (shaped, _) = store::approval(&asked, n);
         let i = entry(&mut issues, n);
         i["park"] = park;
         i["approval"] = shaped;

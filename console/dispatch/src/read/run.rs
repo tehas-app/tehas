@@ -3,7 +3,7 @@
 //! change anything is refused before it runs.
 
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -69,6 +69,10 @@ pub fn run_input_env(
         std::thread::spawn(move || {
             use std::io::Write;
             let _ = stdin.write_all(text.as_bytes());
+            // The pipe is closed when the words are written: a reader that
+            // waits for the end of the request would wait for this otherwise.
+            let _ = stdin.flush();
+            drop(stdin);
         });
     }
     let mut out = child.stdout.take();
@@ -263,6 +267,11 @@ fn gh_env(token: Option<&str>) -> Vec<(&str, &str)> {
 
 /// The calls of one snapshot, and how many went to GitHub.
 pub struct Calls {
+    /// The instance's home, which `TEHAS_HOME` gives every store call: the
+    /// store names its own database from it. lib/store.sh passes it explicitly;
+    /// a `Calls` built by a test that means a store of its own sets it, and one
+    /// that names no home has no store to ask.
+    pub home: Option<String>,
     pub bound: Duration,
     /// lib/store.sh's tehas_store_bound.
     pub store_bound: Duration,
@@ -282,6 +291,7 @@ impl Calls {
     /// The calls of a poll's reads, with the store's bound and its path.
     pub fn idle(store_bound: Duration, store: String) -> Calls {
         Calls {
+            home: std::env::var("TEHAS_HOME").ok().filter(|h| !h.is_empty()),
             bound: Duration::from_secs(30),
             store_bound,
             gh: "gh".into(),
@@ -290,6 +300,16 @@ impl Calls {
             gh_token: None,
         }
     }
+}
+
+/// What a failed store call's line says, cut as the bash cuts it: the control
+/// characters of anything a container wrote are no part of a log line, and a
+/// line over 300 of them is no part of one either.
+fn trim(line: &str) -> String {
+    line.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .take(300)
+        .collect()
 }
 
 /// The token of the host's GitHub App, asked for once by the poll that first
@@ -395,16 +415,169 @@ impl Calls {
         serde_json::from_str(&r.out).ok()
     }
 
+    /// The answers of several store reads, asked in one run of the store
+    /// (`store batch`, #941). Each element is the arguments of one call, given
+    /// back in the same order as `store` would have answered it, so a caller
+    /// reads an answer exactly as it reads the answer of the single call. The
+    /// failure of the batch as a whole is the failure of any one of its calls:
+    /// one process stood for all of them, and a poll that could not ask them
+    /// could not have asked one of them either.
+    pub fn store_batch(&mut self, calls: &[Vec<String>]) -> Result<Vec<Value>, Value> {
+        if calls.is_empty() {
+            return Ok(Vec::new());
+        }
+        let request = serde_json::Value::Array(
+            calls
+                .iter()
+                .map(|c| serde_json::Value::Array(c.iter().map(|a| json!(a)).collect()))
+                .collect(),
+        )
+        .to_string();
+        let bad = |rc: i32, word: &str, line: String| json!({"failed": true, "rc": rc, "word": word, "line": trim(&line)});
+        // The program is tested before it runs, and the home is given to the
+        // child, both as lib/store.sh does for every verb: one that is not an
+        // executable file is `absent`, which is the answer a poll whose store was
+        // never installed gives, and the only one it can give.
+        if !std::fs::metadata(&self.store).is_ok_and(|m| {
+            use std::os::unix::fs::PermissionsExt;
+            m.is_file() && m.permissions().mode() & 0o111 != 0
+        }) {
+            return Err(bad(
+                78,
+                "absent",
+                format!("store: absent: {} is not an executable file", self.store),
+            ));
+        }
+        // The home of the poll, which is the home the store names its file from.
+        // A poll has one, and one that has none has no store to ask.
+        let home = self.home.as_deref().unwrap_or_default().to_string();
+        let extra = [("TEHAS_HOME", home.as_str())];
+        let r = run_input_env(
+            &self.store,
+            &["batch".into()],
+            Some(&request),
+            self.store_bound,
+            &extra,
+        );
+        // The bash reads the answer with stderr merged, so anything there makes
+        // it no answer; the shape is the one `store` gives its other verbs.
+        let said: Value = match r.status {
+            Some(0) if r.err.is_empty() => {
+                serde_json::from_str(r.out.trim()).unwrap_or_else(|_| json!({"answers": []}))
+            }
+            Some(0) => {
+                return Err(bad(
+                    78,
+                    "garbled",
+                    "store: garbled: batch answered 0 without its answer".to_string(),
+                ))
+            }
+            None => {
+                return Err(bad(
+                    1,
+                    "timeout",
+                    format!(
+                        "store: timeout: batch did not answer in {} s",
+                        self.store_bound.as_secs()
+                    ),
+                ))
+            }
+            Some(rc @ (1 | 64 | 78)) => {
+                let text = if r.err.is_empty() { &r.out } else { &r.err };
+                let first = text.lines().next().unwrap_or("").to_string();
+                let word: String = first
+                    .strip_prefix("store: ")
+                    .map(|w| {
+                        w.chars()
+                            .take_while(|c| c.is_ascii_lowercase() || *c == '_' || *c == '-')
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if rc == 1 && word.is_empty() {
+                    return Err(bad(
+                        78,
+                        "garbled",
+                        format!("store: garbled: batch refused without a word: {first}"),
+                    ));
+                }
+                return Err(bad(rc, &word, first));
+            }
+            Some(126 | 127) => {
+                return Err(bad(
+                    78,
+                    "absent",
+                    format!("store: absent: {} could not be run", self.store),
+                ))
+            }
+            Some(124 | 137) => {
+                return Err(bad(
+                    1,
+                    "timeout",
+                    format!(
+                        "store: timeout: batch did not answer in {} s",
+                        self.store_bound.as_secs()
+                    ),
+                ))
+            }
+            Some(rc) => {
+                return Err(bad(
+                    78,
+                    "garbled",
+                    format!("store: garbled: batch exited {rc}"),
+                ))
+            }
+        };
+        let answers = said
+            .get("answers")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if said.get("api") != Some(&json!(1))
+            || said.get("ok") != Some(&json!(true))
+            || said.get("verb").and_then(Value::as_str) != Some("batch")
+            || answers.len() != calls.len()
+        {
+            return Err(bad(
+                78,
+                "garbled",
+                "store: garbled: batch answered 0 without its answer".to_string(),
+            ));
+        }
+        Ok(answers
+            .into_iter()
+            .map(|a| {
+                // One call's answer, read as the answer of that call: the exit
+                // it had, and what it printed, which is the one line the verb
+                // writes and so the one JSON object the single call gives.
+                let rc = a.get("rc").and_then(Value::as_i64).unwrap_or(78);
+                if rc == 0 {
+                    match a.get("out").and_then(Value::as_str) {
+                        Some(text) => serde_json::from_str(text).unwrap_or(json!({"failed": true})),
+                        // A read answered no text: nothing to read.
+                        None => json!({"failed": true}),
+                    }
+                } else {
+                    // The word the verb's own line says, as `store` reads it.
+                    let line = a.get("out").and_then(Value::as_str).unwrap_or("");
+                    let word: String = line
+                        .strip_prefix("store: ")
+                        .unwrap_or(line)
+                        .chars()
+                        .take_while(|c| c.is_ascii_lowercase() || *c == '_' || *c == '-')
+                        .collect();
+                    json!({"failed": true, "rc": rc, "word": word, "line": trim(line)})
+                }
+            })
+            .collect())
+    }
+
     /// The store's answer to a read verb, or its failure as lib/store.sh
     /// keeps it: {failed, word, rc, line}.
     pub fn store(&mut self, args: &[&str]) -> Result<Value, Value> {
         let verb = args.first().copied().unwrap_or("");
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let r = run(&self.store, &args, self.store_bound);
-        let fail = |rc: i32, word: &str, line: String| {
-            serde_json::json!({"failed": true, "rc": rc, "word": word,
-                "line": line.chars().map(|c| if c.is_control() { '?' } else { c }).take(300).collect::<String>()})
-        };
+        let fail = |rc: i32, word: &str, line: String| json!({"failed": true, "rc": rc, "word": word, "line": trim(&line)});
         match r.status {
             Some(0) => {
                 let v: Value = serde_json::from_str(r.out.trim()).unwrap_or(Value::Null);

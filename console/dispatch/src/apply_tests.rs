@@ -129,6 +129,7 @@ fn world() -> World {
         gh: s("gh"),
         docker: s("docker"),
         calls: Calls {
+            home: None,
             bound: Duration::from_secs(10),
             store_bound: Duration::from_secs(10),
             gh: s("gh"),
