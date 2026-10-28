@@ -13,6 +13,15 @@ empty one above it.
 
 ### Changes
 
+- The Protolab's pages are written by a Rust verb, `console protolab`, and not
+  by the jq programs of `libexec/protolab`. The page of a ticket, the lab's
+  front page and `live/protolab.json` are made in `console/protolab.rs`, which
+  also reads the attachment links of a ticket. The command keeps the settings,
+  the calls to GitHub, the downloads and the order of the work. The pages are
+  the pages they were, line for line. A host needs the console installed
+  beside the command, which `install.sh` does: a pass that finds none says so
+  and exits 78 before it calls GitHub.
+
 ### Adopter action
 
 None.

@@ -3,14 +3,29 @@
 # are at the prototype stage and whose label counts, which files of a ticket
 # are taken, the 10 MB limit, what the page says, and that a ticket leaves the
 # lab when it is closed or unlabelled, and how an attached zip is unpacked.
+# The pages themselves are the console's, so the console of this checkout is
+# installed beside the command, as it is on a host.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+# The command takes its console beside itself, and a `console' on the PATH is
+# the other way a checkout has one. t_run builds the PATH it runs with, so the
+# file names the directory in T_CONSOLE_DIR and t_run_names it below.
+T_CONSOLE_DIR=$T/console-for-protolab
+mkdir -p "$T_CONSOLE_DIR"
+cp "$T_CONSOLE" "$T_CONSOLE_DIR/console"
 
 protolab="$T_ROOT/libexec/protolab"
 fx=$T/fx
 site=$T/home/tehas/protolab
 live=$T/home/tehas/live
+
+# The run of the command, with the console of this checkout on its PATH: t_run
+# builds the PATH it runs with, so a directory put on PATH above is not enough.
+t_protolab() { t_run "PATH=$T_CONSOLE_DIR:\$PATH \"$protolab\""; }
 
 # gh answers from fixture files.
 t_stub gh '
@@ -95,7 +110,7 @@ files_of() { (cd "$site/$1/files" 2>/dev/null && find . -type f | LC_ALL=C sort 
 t_case "invalid settings: exit 78 before GitHub is asked"
 reset
 t_instance TEHAS_CONTROL_ISSUE=1
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 78
 t_eq "$(t_calls gh)" ""
 
@@ -112,7 +127,7 @@ and https://example.com/not-ours.png" OWNER 2)"
 jq -n --arg video "$A/66666666-2222-3333-4444-555555555555" --arg other "$F/31/stranger.html" '[
   {author_association: "COLLABORATOR", body: $video},
   {author_association: "NONE", body: "[stranger.html](\($other))"}]' >"$fx/comments-7.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "#7: 4 files, 32 bytes, 1 left out"
 t_eq "$(files_of 7)" "./image-1.png ./proto.html ./style.css ./video-2.mp4 "
@@ -151,7 +166,7 @@ t_eq "$(cd "$site" && find . -mindepth 1 ! -path './7/files/*' | LC_ALL=C sort |
 
 t_case "an unchanged ticket is not fetched again"
 rm -f "$T"/calls/*
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_eq "$t_out" ""
 t_eq "$(t_calls curl)" ""
@@ -159,7 +174,7 @@ t_eq "$(t_calls gh | grep -c comments)" 0
 
 t_case "a changed ticket is built again"
 issues "$(issue 7 'Map and pins' "![shot]($A/11111111-2222-3333-4444-555555555555)" OWNER 0 2026-10-09T09:00:00Z)"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#7: 1 files, 7 bytes, 0 left out"
 t_eq "$(files_of 7)" "./image-1.png "
 t_contains "$(cat "$site/7/index.html")" "Map and pins"
@@ -168,7 +183,7 @@ t_case "the public address of the lab is passed on to the dashboard"
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_PROTOLAB_URL=https://lab.example
 issues
-t_run "$protolab"
+t_protolab
 t_eq "$(jq -r .url "$live/protolab.json")" "https://lab.example"
 t_contains "$(cat "$site/index.html")" "Nothing in the lab."
 
@@ -176,7 +191,7 @@ t_case "text by someone outside the repository brings nothing in"
 reset
 net "$F/40/theirs.html" "<p>theirs</p>"
 issues "$(issue 8 'From a stranger' "[theirs.html]($F/40/theirs.html)" NONE)"
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 8)" ""
 t_eq "$(t_calls curl)" ""
 t_contains "$(cat "$site/8/index.html")" "No image, video or HTML file is attached"
@@ -187,7 +202,7 @@ reset
 net "$F/91/idea.html" "<p>idea</p>"
 issues "$(issue 20 'Idea the bot labelled' "[idea.html]($F/91/idea.html)")"
 labeled 20 tehas-bot
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#20: tehas:prototype was applied by 'tehas-bot', not an allowed account"
 t_eq "$([ -e "$site/20" ] && echo there)" ""
 t_eq "$(t_calls curl)" ""
@@ -197,11 +212,11 @@ t_case "a page goes when the label was applied by an account outside the list"
 reset
 issues "$(issue 21 'Kept then taken' 'no files')"
 labeled 21 alice
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#21: 0 files, 0 bytes, 0 left out"
 issues "$(issue 21 'Kept then taken' 'no files' OWNER 0 2026-10-09T11:00:00Z)"
 labeled 21 mallory
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#21: tehas:prototype was applied by 'mallory', not an allowed account"
 t_contains "$t_out" "#21: no longer at the prototype stage, removed"
 t_eq "$([ -e "$site/21" ] && echo there)" ""
@@ -217,7 +232,7 @@ printf '%s\n' \
   '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"},"created_at":"2026-10-02T00:00:00Z"}]' \
   '[{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"mallory"},"created_at":"2026-10-01T00:00:00Z"}]' \
   >"$fx/events-23.json"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#22: tehas:prototype was applied by 'mallory', not an allowed account"
 t_contains "$t_out" "#23: 0 files, 0 bytes, 0 left out"
 t_contains "$(t_calls gh)" "api repos/acme/widget/issues/22/events?per_page=100 --paginate"
@@ -228,7 +243,7 @@ reset
 issues "$(issue 24 'Anonymous' '')" "$(issue 25 'No events' '')"
 labeled 24 ""
 echo '[]' >"$fx/events-25.json"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#24: tehas:prototype was applied by 'unknown', not an allowed account"
 t_contains "$t_out" "#25: tehas:prototype was applied by 'unknown', not an allowed account"
 t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" ""
@@ -237,11 +252,11 @@ t_case "label events that cannot be read leave the ticket's page as it was"
 reset
 issues "$(issue 26 'Held' 'no files')"
 labeled 26 alice
-t_run "$protolab"
+t_protolab
 before=$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)
 issues "$(issue 26 'Held' 'no files' OWNER 0 2026-10-09T12:00:00Z)"
 rm -f "$fx/events-26.json"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#26: its label events could not be read, nothing built or removed"
 t_eq "$([ -e "$site/26" ] && echo there)" "there"
 t_eq "$(cd "$site/26" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
@@ -251,12 +266,12 @@ t_contains "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[26]"
 t_case "events that are an answer of GitHub rather than a list of events are unreadable ones"
 reset
 issues "$(issue 27 'Held' 'no files')"
-t_run "$protolab"
+t_protolab
 before=$(cd "$site/27" && find . -type f | LC_ALL=C sort | xargs cksum)
 issues "$(issue 27 'Held' 'no files' OWNER 0 2026-10-09T13:00:00Z)" "$(issue 28 'Never built' 'no files')"
 echo '{"message":"Bad credentials"}' >"$fx/events-27.json"
 echo '{"event":"labeled","label":{"name":"tehas:prototype"},"actor":{"login":"alice"}}' >"$fx/events-28.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "#27: its label events could not be read, nothing built or removed"
 t_contains "$t_out" "#28: its label events could not be read, nothing built or removed"
@@ -269,7 +284,7 @@ reset
 net "$F/93/idea.html" "<p>idea</p>"
 issues "$(issue 30 'Labelled by the bot' "[idea.html]($F/93/idea.html)")"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 78
 t_contains "$t_out" "the bot account tehas-bot is in TEHAS_ALLOWED_LABELERS"
 t_contains "$(t_calls gh)" "api user"
@@ -282,7 +297,7 @@ net "$F/94/idea.html" "<p>idea</p>"
 issues "$(issue 31 'Labelled by an owner' "[idea.html]($F/94/idea.html)")"
 printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_ALLOWED_LABELERS='alice tehas-bot'" >"$TEHAS_INSTANCE_DIR/instance.env"
 : >"$fx/user-fails"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
 t_eq "$(t_calls gh)" "api user"
@@ -293,10 +308,10 @@ t_case "an own login GitHub answers without one leaves every page as it was"
 reset
 net "$F/95/idea.html" "<p>idea</p>"
 issues "$(issue 32 'Kept' "[idea.html]($F/95/idea.html)")"
-t_run "$protolab"
+t_protolab
 before=$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)
 echo '{"message":"Bad credentials"}' >"$fx/user.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "the bot's own login could not be read, nothing built or removed"
 t_eq "$(cd "$site/32" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
@@ -309,7 +324,7 @@ truncate -s 6M "$fx/net/$(printf %s "$F/51/part1.html" | tr -c 'A-Za-z0-9' _)"
 truncate -s 6M "$fx/net/$(printf %s "$F/52/part2.html" | tr -c 'A-Za-z0-9' _)"
 truncate -s 1M "$fx/net/$(printf %s "$F/53/part3.html" | tr -c 'A-Za-z0-9' _)"
 issues "$(issue 9 'Big' "$F/51/part1.html $F/52/part2.html $F/53/part3.html")"
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 9)" "./part1.html ./part3.html "
 t_contains "$(cat "$site/9/index.html")" "<span>part2.html</span><span class=\"asset-fact\">Over the 10 MB limit of a ticket.</span>"
 t_contains "$(cat "$site/9/index.html")" "2 FILES, 7 MB OF 10 MB"
@@ -328,7 +343,7 @@ while [ $# -gt 0 ]; do
 done
 cp "$T/fx/net/$(printf %s "$url" | tr -c "A-Za-z0-9" _)" "$out"'
 issues "$(issue 10 'Unbounded' "$F/61/first.html $F/62/late.html")"
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 10)" "./first.html "
 t_contains "$(cat "$site/10/index.html")" "<span>late.html</span><span class=\"asset-fact\">Over the 10 MB limit of a ticket.</span>"
 
@@ -344,7 +359,7 @@ while [ $# -gt 0 ]; do
 done
 cp "$T/fx/net/$(printf %s "$url" | tr -c "A-Za-z0-9" _)" "$out" 2>/dev/null || exit 22'
 issues "$(issue 11 'Names' "$F/71/..%2F..%2Fevil.html $F/72/same.html $F/73/same.html")"
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 11)" "./2-same.html ./2F..-2Fevil.html ./same.html "
 t_eq "$(find "$T/home" -name '*evil*' | wc -l)" 1
 
@@ -361,17 +376,17 @@ key=$(printf %s "$url" | tr -c "A-Za-z0-9" _)
 [ -f "$T/fx/net/$key.rc" ] && exit "$(cat "$T/fx/net/$key.rc")"
 cp "$T/fx/net/$key" "$out"'
 issues "$(issue 12 'Slow' "$F/81/slow.html")"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/12/index.html")" "Could not be fetched. The lab tries again."
 t_eq "$([ -e "$site/12/.stamp" ] && echo stamped)" ""
 rm -f "$fx"/net/*.rc
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 12)" "./slow.html "
 t_eq "$([ -e "$site/12/.stamp" ] && echo stamped)" "stamped"
 
 t_case "a ticket that is closed or unlabelled leaves the lab; a pull request never enters"
 issues "$(issue 13 'Stays' '')" "$(issue 14 'A pull request' '' | jq -c '. + {pull_request: {}}')"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#12: no longer at the prototype stage, removed"
 t_eq "$(cd "$site" && find . -maxdepth 1 -type d ! -name . | LC_ALL=C sort | tr '\n' ' ')" "./13 "
 t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[13]"
@@ -379,23 +394,23 @@ t_eq "$(jq -c '.tickets | map(.number)' "$live/protolab.json")" "[13]"
 t_case "GitHub down or answering oddly: everything is left as it is"
 before=$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)
 rm -f "$fx/issues.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 echo '{"message":"Bad credentials"}' >"$fx/issues.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
 t_case "comments that cannot be read leave the ticket's page as it was"
 issues "$(issue 13 'Stays' '' OWNER 3 2026-10-09T10:00:00Z)"
-t_run "$protolab"
+t_protolab
 t_contains "$t_out" "#13: could not be read, left as it was"
 t_eq "$(cd "$site" && find . -type f | LC_ALL=C sort | xargs cksum)" "$before"
 
 t_case "without a domain a ticket is linked by path, as before"
 reset
 issues "$(issue 7 'Map' 'no files')"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/index.html")" 'href="/7/"'
 t_contains "$(cat "$site/7/index.html")" '<a href="/">ALL PROTOTYPES</a>'
 t_eq "$(jq -c '.tickets[0].address' "$live/protolab.json")" "null"
@@ -404,13 +419,14 @@ t_case "with a domain a ticket is linked by its own name, and its page links bac
 reset
 t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
 issues "$(issue 7 'Map' 'no files')"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/index.html")" 'href="https://lab-7.example.org/"'
 t_lacks "$(cat "$site/index.html")" 'href="/7/"'
 t_contains "$(cat "$site/7/index.html")" '<a href="https://lab.example.org/">ALL PROTOTYPES</a>'
 t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://lab-7.example.org/"
-# The jq programs put the name together themselves, because jq cannot call a
-# shell function. It is the name tehas_edge_name makes.
+# The console puts the name together itself, because it cannot call a shell
+# function. It is the name tehas_edge_name makes, and the console's own test of
+# that name is in console/src/protolab.rs.
 t_run '. "$T_ROOT/lib/config.sh"; tehas_load && tehas_edge_name lab 7'
 t_eq "$(jq -r '.tickets[0].address' "$live/protolab.json")" "https://$t_out/"
 t_contains "$(cat "$site/index.html")" "href=\"https://$t_out/\""
@@ -418,7 +434,7 @@ t_eq "$(jq -r '.url' "$live/protolab.json")" "https://lab.example.org"
 
 t_case "a domain that changes rebuilds a ticket that did not"
 t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.net
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/7/index.html")" 'https://lab.example.net/'
 
 zips=$T_ROOT/test/fixtures/protolab
@@ -429,7 +445,7 @@ t_case "a zip is unpacked: its HTML is framed and the files beside it are served
 reset
 net_file "$F/1/good.zip" "$zips/good.zip"
 issues "$(issue 40 'A zip' "[good.zip]($F/1/good.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$t_out" "#40: 4 files"
 t_eq "$(files_of 40)" "./good/app.js ./good/data/sample.json ./good/index.html ./good/prototype.md "
@@ -449,7 +465,7 @@ t_case "a zip cannot write outside its folder, and links in it are left out"
 reset
 net_file "$F/2/evil.zip" "$zips/evil.zip"
 issues "$(issue 41 'Evil' "[evil.zip]($F/2/evil.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_eq "$(find "$T" \( -name escape.txt -o -name abs.txt -o -name link \) ! -path '*/files/evil/*' | wc -l)" 0
 t_eq "$(files_of 41)" "./evil/ok.txt "
@@ -462,7 +478,7 @@ t_case "a zip is held to the ticket's 10 MB by what it unpacks to"
 reset
 net_file "$F/3/bomb.zip" "$zips/bomb.zip"
 issues "$(issue 42 'Bomb' "[bomb.zip]($F/3/bomb.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$(find "$T/home" -name big.txt | wc -l)" 0
 t_contains "$(cat "$site/42/index.html")" "$(left_out bomb/big.txt 'Over the 10 MB limit of a ticket.')"
 t_eq "$(($(du -sb "$site/42" | cut -f1) < 1024 * 1024))" 1
@@ -471,7 +487,7 @@ t_case "a zip counts every file against the 40 a ticket"
 reset
 net_file "$F/4/many.zip" "$zips/many.zip"
 issues "$(issue 43 'Many' "[many.zip]($F/4/many.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$(find "$site/43/files" -type f | wc -l)" 40
 t_contains "$(cat "$site/43/index.html")" "40 FILES,"
 t_eq "$(grep -o 'More than 40 files.' "$site/43/index.html" | wc -l)" 5
@@ -482,7 +498,7 @@ reset
 net "$F/5/first.html" "<p>first</p>"
 net_file "$F/6/many.zip" "$zips/many.zip"
 issues "$(issue 44 'Many after one' "[first.html]($F/5/first.html) [many.zip]($F/6/many.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$(find "$site/44/files" -type f | wc -l)" 40
 t_eq "$(grep -o 'More than 40 files.' "$site/44/index.html" | wc -l)" 6
 
@@ -490,7 +506,7 @@ t_case "a file that is not a zip, named .zip, is left out and said"
 reset
 net "$F/7/fake.zip" "not a zip at all"
 issues "$(issue 45 'Fake' "[fake.zip]($F/7/fake.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_contains "$(cat "$site/45/index.html")" "$(left_out fake.zip 'Not a zip the lab can read.')"
 t_eq "$(cd "$site/45" && find . -mindepth 1 | LC_ALL=C sort | tr '\n' ' ')" \
@@ -500,7 +516,7 @@ t_case "a name in a zip is taken literally, never as a pattern or an option"
 reset
 net_file "$F/8/odd.zip" "$zips/odd.zip"
 issues "$(issue 46 'Odd' "[odd.zip]($F/8/odd.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$(files_of 46)" "./odd/1/2/3/4/5/ok.txt ./odd/a-1-.txt ./odd/a1.txt ./odd/q-.txt ./odd/qq.txt ./odd/st-r.txt ./odd/x.txt "
 t_eq "$(cat "$site/46/files/odd/a-1-.txt")" "content of a[1].txt"
 t_eq "$(cat "$site/46/files/odd/a1.txt")" "content of a1.txt"
@@ -518,7 +534,7 @@ reset
 net_file "$F/9/good.zip" "$zips/good.zip"
 net_file "$F/10/good.zip" "$zips/good.zip"
 issues "$(issue 47 'Twice' "[good.zip]($F/9/good.zip) [good.zip]($F/10/good.zip)")"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/47/index.html")" '<iframe src="files/good/index.html"'
 t_contains "$(cat "$site/47/index.html")" '<iframe src="files/2-good/index.html"'
 
@@ -526,7 +542,7 @@ t_case "a zip entry with no Unix file type is taken as a file"
 reset
 net_file "$F/13/edge.zip" "$zips/edge.zip"
 issues "$(issue 49 'Edges' "[edge.zip]($F/13/edge.zip)")"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_eq "$(files_of 49)" "./edge/a-b.txt ./edge/d.txt ./edge/plain.txt "
 t_eq "$(cat "$site/49/files/edge/plain.txt")" "plain"
@@ -550,7 +566,7 @@ t_case "a zip is read only up to 200 entries"
 reset
 net_file "$F/14/entries.zip" "$zips/entries.zip"
 issues "$(issue 50 'Entries' "[entries.zip]($F/14/entries.zip)")"
-t_run "$protolab"
+t_protolab
 page=$(cat "$site/50/index.html")
 t_eq "$(find "$site/50/files" -type f | wc -l)" 40
 t_eq "$(grep -o 'More than 40 files.' <<<"$page" | wc -l)" 160
@@ -561,7 +577,7 @@ t_case "small files of a zip together are held to what is left, and unpacking st
 reset
 net_file "$F/15/sizes.zip" "$zips/sizes.zip"
 issues "$(issue 51 'Sizes' "[sizes.zip]($F/15/sizes.zip)")"
-t_run "$protolab"
+t_protolab
 page=$(cat "$site/51/index.html")
 t_eq "$(files_of 51)" "./sizes/a.txt ./sizes/b.txt "
 t_contains "$page" "$(left_out sizes/c.txt 'Over the 10 MB limit of a ticket.')"
@@ -573,7 +589,7 @@ reset
 head -c "$(($(stat -c %s "$zips/good.zip") - 10))" "$zips/good.zip" >"$T/cut.zip"
 net_file "$F/16/good.zip" "$T/cut.zip"
 issues "$(issue 52 'Cut short' "[good.zip]($F/16/good.zip)")"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/52/index.html")" "$(left_out good.zip 'Not a zip the lab can read.')"
 t_eq "$(find "$site/52/files" -type f | wc -l)" 0
 
@@ -582,7 +598,7 @@ reset
 rm -f "$T/home/tehas/libexec/attach"
 net_file "$F/17/good.zip" "$zips/good.zip"
 issues "$(issue 53 'No checker' "[good.zip]($F/17/good.zip)")"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/53/index.html")" "$(left_out good.zip 'This host cannot unpack a zip.')"
 t_contains "$t_out" "attach: absent"
 
@@ -591,7 +607,7 @@ reset
 net "$F/11/solo.html" "<h1>solo</h1>"
 net "$F/12/solo.css" "h1{}"
 issues "$(issue 48 'Solo' "[solo.html]($F/11/solo.html) [solo.css]($F/12/solo.css)")"
-t_run "$protolab"
+t_protolab
 t_contains "$(cat "$site/48/index.html")" '<iframe src="files/solo.html"'
 t_contains "$(cat "$site/48/index.html")" 'href="files/solo.css"'
 
@@ -602,7 +618,7 @@ issues "$(issue 8 'Long thread' 'no files' OWNER 100)"
 # 100 comments of 2 KB: over 128 KiB, which no one argument can hold.
 jq -n --arg pad "$(head -c 2000 /dev/zero | tr '\0' x)" --arg link "$F/21/proto.html" \
   '[range(100) | {author_association: "OWNER", body: (if . == 99 then "[proto.html](\($link))" else $pad end)}]' >"$fx/comments-8.json"
-t_run "$protolab"
+t_protolab
 t_eq "$t_rc" 0
 t_eq "$(files_of 8)" "./proto.html "
 
