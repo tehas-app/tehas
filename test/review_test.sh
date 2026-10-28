@@ -233,6 +233,17 @@ case " $* " in
   printf "%s" "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" >"$T/calls/runner.rc"
   git -C "$ws" rev-parse HEAD >"$T/calls/head.seen" 2>&1
   git -C "$ws" status --porcelain >"$T/calls/tree.status" 2>&1
+  # The document of the run: the console makes the file named by --doc and
+  # writes into it what the container prints, so the stub makes it too, from the
+  # fixture it answers with - the two cannot then disagree. A case that means a
+  # run which wrote no document leaves the fixture away, and the file stays
+  # empty as it does on a host whose runner died before it answered.
+  seen="" ; doc=""
+  for a in "$@"; do
+    case "$seen" in --doc) case "$a" in /*) doc=$a ;; esac ;; esac
+    seen=$a
+  done
+  if [ -n "$doc" ]; then cat "$T/fx/doc.json" 2>/dev/null >"$doc"; fi
   cat "$T/fx/doc.json" 2>/dev/null
   exit "$(cat "$T/fx/doc.rc" 2>/dev/null || echo 0)" ;;
 esac'
@@ -296,6 +307,97 @@ console_absent() { rm -f "$shim/libexec/console"; }
 turn_doc='{"subcommand":"plan","mode":"turn","exitCode":12,"status":"draft",
   "session":{"id":"abc-123","turn":1},"text":"Drafted.","title":"Faster search",
   "spec":"Do it.","questions":[]}'
+# What the runner answers, both kinds of turn from files of their own: the
+# review reads doc and the planning turn reads doc_plan, since the two
+# documents differ.
+#
+# The bot's calls of the filing half. gh records every call (t_stub gh) and
+# answers the three this command makes: the list of open issues of the label, a
+# comment, and an issue. A case puts the list GitHub answers in
+# $T/fx/gh-open.json, and makes $T/fx/gh-<what>.rc to refuse one call.
+findings_repo=acme/backlog
+findings_on() {
+  t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO="$findings_repo"
+  # The filing half asks the store to render the document, so the home has the
+  # store of this checkout in its libexec, as a host's does.
+  t_store_filing
+}
+open_issues() { # <json>: what `gh issue list` answers for the review's label
+  printf '%s\n' "$1" >"$T/fx/gh-open.json"
+}
+# The body of the gh stub, carried to t_stub single-quoted so no expansion of
+# this file reaches it: what it names is read when the stub runs.
+# The calls of GitHub, with the words of a body left out of it: a body that
+# ends with the line of tehas:refine is recorded as the two words of the call
+# and then its own lines, so the lines of a body are not mistaken for calls.
+github_verbs() {
+  awk '$0 !~ /^[#-]/ && $1 == "issue" { print $2 }' "$T/calls/gh" |
+    LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+# The stub of GitHub for the filing half: the three calls the command makes,
+# each recorded for a case to read, each refused by a file of the case.
+t_stub_gh_filing() {
+  t_stub gh 'case "$1 $2" in
+  "issue list")
+    [ -f "$T/fx/gh-list.rc" ] && exit 1
+    # The filter the command asks for is applied here: the stub is GitHub, and
+    # GitHub is the one that reads --jq. With no list of the label open, the
+    # answer is the empty string the command reads as none.
+    if [ -f "$T/fx/gh-open.json" ]; then
+      filter=""
+      while [ $# -gt 0 ]; do
+        [ "$1" = --jq ] && filter=$2
+        shift
+      done
+      jq -r "$filter" "$T/fx/gh-open.json"
+    else
+      echo ""
+    fi ;;
+  "issue create")
+    [ -f "$T/fx/gh-create.rc" ] && exit 1
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --title) printf "%s\n" "$2" >"$T/calls/issue.title" ;;
+        --body) printf "%s\n" "$2" >"$T/calls/issue.body" ;;
+        --label) printf "%s\n" "$2" >>"$T/calls/issue.labels" ;;
+      esac
+      shift
+    done
+    echo "https://github.com/acme/backlog/issues/77" ;;
+  "issue comment")
+    [ -f "$T/fx/gh-comment.rc" ] && exit 1
+    printf "%s\n" "$3" >"$T/calls/comment.number"
+    while [ $# -gt 0 ]; do
+      [ "$1" = --body ] && printf "%s\n" "$2" >"$T/calls/comment.body"
+      shift
+    done ;;
+esac'
+}
+# The document of a run that found three findings, one a CRITICAL of a file
+# with a line, and the words of the third holding what must not reach GitHub
+# as it came: a comment marker and a token-shaped string.
+findings_doc='{"exitCode":10,"verdict":"ISSUES_FOUND","noReview":false,"findings":[
+  {"severity":"CRITICAL","lens":"security","path":"lib/config.sh","line":4,
+   "title":"a token is printed"},
+  {"severity":"MEDIUM","lens":"simplicity","path":"libexec/review","line":2,
+   "title":"a branch that repeats"},
+  {"severity":"HIGH","lens":"error-handling","path":"libexec/work","line":9,
+   "title":"<!-- sly --> and ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "}]}'
+# The findings of a run that ended with them: the status the runner gave and
+# the document it left, both of which the console reads against the other.
+# The store of the filing half: the binary of this checkout in the home's
+# libexec, which is where the command looks for it, and nothing else. The one
+# verb of the filing renders a document and touches no row, so the home needs
+# no database, and none is made: a case that says what a run left in the home
+# would otherwise find the store's file among it. Only the cases of the filing
+# ask for it, for the same reason.
+t_store_filing() {
+  t_store || t_bad "no store: $t_store_why"
+  mkdir -p "$T/home/tehas/libexec"
+  ln "$T_STORE" "$T/home/tehas/libexec/store" 2>/dev/null ||
+    cp "$T_STORE" "$T/home/tehas/libexec/store"
+}
+findings_says() { runner_says 10 "$findings_doc"; }
 reset() {
   # One directory for the calls of docker: the two commands of the case that
   # compares them write files named for themselves, every other run by the
@@ -311,6 +413,7 @@ reset() {
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
   slice_good
   console_on
+  t_stub_gh_filing
   runner_says 0 '{"verdict":"APPROVED","exitCode":0}'
 }
 
@@ -1039,5 +1142,156 @@ t_run "$review"
 t_eq "$t_rc" 78
 t_contains "$t_out" "was not made by tehas, not touching it"
 t_eq "$([ -e "$tree" ] && echo made)" ""
+
+# --- The findings of a run, filed for a person to triage ----------------------
+#
+# The issue of one run is the store's work (`store review-issue`, whose rule is
+# tehas_core::review) and the masking is lib/questions.sh's. What is tested
+# here is the glue: that a run that ended with findings asks the store and
+# files what it answered, that a run that ended without any files nothing, that
+# an open issue of findings is commented on rather than copied, and that the
+# words of a finding are masked on the way out.
+t_case "a run that exited 10 files one issue with the line that asks for tehas:refine"
+reset
+findings_on
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 1
+t_eq "$(cat "$T/calls/issue.title")" "Six-lens review: 3 findings on main since ${head:0:7}"
+t_eq "$(cat "$T/calls/issue.labels")" "tehas:improvement"
+t_contains "$(cat "$T/calls/issue.body")" "### Critical"
+t_contains "$(cat "$T/calls/issue.body")" "[security] lib/config.sh:4: a token is printed"
+t_eq "$(tail -n 1 "$T/calls/issue.body")" \
+  'Apply `tehas:refine` to plan this into parts sized for one cycle.'
+t_lacks "$(cat "$T/calls/issue.body")" "what the finding says at length"
+t_contains "$t_out" "3 findings are filed in $findings_repo"
+# The record moved on as it does with no filing at all.
+t_eq "$(jq -r .exit "$record")" 10
+
+t_case "a run that exited 20 files its findings the same way"
+reset
+findings_on
+runner_says 20 "${findings_doc/\"exitCode\":10/\"exitCode\":20}"
+t_run "$review"
+t_eq "$t_rc" 20
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 1
+
+t_case "a run that exited 0 files nothing"
+reset
+findings_on
+runner_says 0 '{"verdict":"APPROVED","exitCode":0}'
+t_run "$review"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "issue create"
+t_lacks "$(t_calls gh)" "issue comment"
+t_lacks "$t_out" "are filed"
+
+t_case "a review that names no repository files nothing and exits as it would have"
+reset
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(t_calls gh)" ""
+t_contains "$t_out" "TEHAS_REVIEW_REPO is not set"
+t_eq "$(jq -r .exit "$record")" 10
+
+t_case "an open issue of findings is commented on, and no second one is filed"
+reset
+findings_on
+open_issues '[{"number":41,"title":"Six-lens review: 2 findings on main since 1111111"}]'
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 0
+t_eq "$(grep -c '^issue comment' <<<"$(t_calls gh)")" 1
+t_eq "$(cat "$T/calls/comment.number")" 41
+t_contains "$(cat "$T/calls/comment.body")" "[security] lib/config.sh:4: a token is printed"
+t_eq "$(tail -n 1 "$T/calls/comment.body")" \
+  'Apply `tehas:refine` to plan this into parts sized for one cycle.'
+t_contains "$t_out" "a comment on #41 of $findings_repo"
+
+t_case "an open issue of another kind is no reason to comment instead of filing"
+reset
+findings_on
+open_issues '[{"number":41,"title":"Slow tests"}]'
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 1
+t_eq "$(grep -c '^issue comment' <<<"$(t_calls gh)")" 0
+
+t_case "a GitHub that will not answer the question of what is open files the findings anyway"
+reset
+findings_on
+: >"$T/fx/gh-list.rc"
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 1
+
+t_case "what a finding holds is escaped and masked, as q_clean does"
+reset
+findings_on
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+body=$(cat "$T/calls/issue.body")
+t_lacks "$body" "<!-- sly -->"
+# The marker left as the escaper of lib/questions.sh leaves it, with its two
+# backslashes. The expected line is a file the case made, so the shape of the
+# answer is compared rather than its escaping: the masking of a token-shaped
+# string below is the one that proves the text went through q_clean.
+t_contains "$body" sly
+t_lacks "$body" "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+t_contains "$body" "ghp_***"
+
+t_case "a filing GitHub refused is said, does not change the run's status, and keeps the record"
+reset
+findings_on
+: >"$T/fx/gh-create.rc"
+findings_says
+t_run "$review"
+t_eq "$t_rc" 10
+t_contains "$t_out" "the findings were not filed"
+t_contains "$t_out" "GitHub refused the issue in $findings_repo"
+t_eq "$(jq -r .exit "$record")" 10
+
+t_case "a run whose runner wrote no document files nothing and says so"
+reset
+findings_on
+# The container answered the status and wrote nothing into its document: the
+# file the run made stays empty, and the store has nothing to render. The two
+# cases below are the same shape seen from each side: no file at all, and a
+# file the store will not read as a review document. Both leave no findings.
+runner_says 10 '{"exitCode":10}'
+rm -f "$fx/doc.json"
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 0
+t_contains "$t_out" "nothing to file"
+t_eq "$(jq -r .exit "$record")" 10
+
+t_case "a document the store refuses is said about and does not change the status"
+reset
+findings_on
+# The document of the run is what the container wrote and the console masked
+# into logs/. A document that is no review document at all - its findings are
+# not an array - is refused by the store, which answers a body of no findings:
+# the record moves on, GitHub is asked nothing and the line says so.
+runner_says 10 '{"exitCode":10,"findings":"not an array"}'
+t_run "$review"
+t_eq "$t_rc" 10
+t_eq "$(grep -c '^issue create' <<<"$(t_calls gh)")" 0
+t_contains "$t_out" "nothing to file"
+t_contains "$t_out" "left no findings"
+
+t_case "the findings of a run are the only GitHub calls the review makes"
+reset
+findings_on
+findings_says
+t_run "$review"
+t_eq "$(github_verbs)" "create list"
+t_eq "$(grep -c -e 'GH_TOKEN' <<<"$(run_args)")" 0
 
 t_done
