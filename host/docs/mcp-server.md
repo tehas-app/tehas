@@ -96,6 +96,22 @@ To remove a key, take it out of the list and run
 key by the first 8 hex characters of its sha256, never by the key, so you can
 tell which agent is calling.
 
+One line goes to the journal per request: the method, the status, the time it
+took and the key, and for a `tools/call` the tool as well, as
+`POST 200 4ms key=3511bfc5 tool=factory_log`. The line goes to the unit's
+journal on the host, not to the client: read it with
+`journalctl --user -u tehas-mcp`. The name of the tool only: the arguments are
+never logged, as one can carry an issue number or text from a private
+repository. `tool=?` is a name the server does not have, which is what a probe
+of a tool it has not looks like. `tool=-` is a name that is not text, and only
+the 2025-11-25 handshake can carry one, as a modern request must mirror its
+name in `Mcp-Name` and no text equals a number: so a dash tells a client that
+is broken from one that is probing, except for a probe whose name never reached
+the server as text, which is a dash too. A request that is not a `tools/call`
+logs no `tool=`. The fields are the server's own words, never the client's
+text, so the line the unit writes stays one field per space-separated part: do
+not add a field to it without naming where its bytes come from.
+
 ## How it runs
 
 `tehasbot mcp serve`, run by `tehas-mcp.service`, checks the settings and runs
