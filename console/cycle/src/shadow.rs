@@ -5,9 +5,11 @@
 //!
 //! `begin`, just before the bash reads the cycle's files, reads them too,
 //! asks GitHub its own two questions, decides, and keeps all of it in
-//! state/cycles/<issue>.shadow.json. While that file is there the bash keeps
-//! what it does beside it: each call of gh (<issue>.shadow.gh), the park
-//! (<issue>.shadow.park) and the end (<issue>.shadow.end) on record.
+//! state/cycles/shadow-<issue>.json. While that file is there the bash keeps
+//! what it does beside it: each call of gh (shadow-<issue>.gh), the park
+//! (shadow-<issue>.park) and the end (shadow-<issue>.end) on record. The
+//! names start with a letter, so a poll never takes one for the record of an
+//! older tehas (#923).
 //! `compare`, after the bash's report, sets the two side by side, adds one
 //! line to logs/cycle-shadow.log, and removes the files. A report that
 //! differed keeps its shadow in state/cycle-shadow/, the newest 50.
@@ -24,14 +26,14 @@ use std::time::Instant;
 /// The comment a park posts when its question's label could not be added.
 const BOXES: &str = "The boxes above cannot be used: the label `tehas:question` could not be added (run `tehas labels` on the host). To retry, apply `tehas:ready`.";
 
-/// The end of one call in <issue>.shadow.gh: each argument ends in a NUL,
+/// The end of one call in shadow-<issue>.gh: each argument ends in a NUL,
 /// and the call in this one.
 const CALL_END: &str = "\u{1e}";
 
 const KEEP: usize = 50;
 
 fn base(home: &Path, issue: u64) -> PathBuf {
-    home.join(format!("state/cycles/{issue}.shadow"))
+    home.join(format!("state/cycles/shadow-{issue}"))
 }
 
 fn with(p: &Path, ext: &str) -> PathBuf {

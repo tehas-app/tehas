@@ -721,6 +721,7 @@ for f in dispatch.taken dispatch.stuck refined.jsonl plan-5.json.out plan-5.json
   cycles/5.forks cycles/5.stalled cycles/5.timed cycles/5.nostart cycles/5.result.json \
   cycles/5.progress.json cycles/5.cid cycles/5.manifest.json cycles/5.images.md \
   cycles/5.retry-context.md cycles/5.park.new cycles/5.approved.json.new plan-5.json.new \
+  cycles/shadow-5.json cycles/shadow-5.gh cycles/shadow-5.park cycles/shadow-5.end \
   imported-20261024/cycles/5.taken imported-20261024/park-5.id imported-20261024/plan-5.json; do
   mkdir -p "$(dirname "$T/home/tehas/state/$f")"
   : >"$T/home/tehas/state/$f"
@@ -729,6 +730,6 @@ t_run "$dispatch"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "older tehas"
 t_eq "$(t_calls fake-start)" "7"
-rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new
+rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new "$T"/home/tehas/state/cycles/shadow-5.*
 
 t_done
