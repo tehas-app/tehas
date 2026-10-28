@@ -2,17 +2,20 @@
 //! events answer a term.
 //!
 //! These are the rules `lib/labels.sh` states, kept where the tests can hold
-//! them without gh or a network. GitHub documents no order for label events,
-//! so the stamp decides, events sharing one stamp keep the order the pages
-//! handed them back, and an event with no stamp is older than any stamped one.
-//! Of a label applied and taken off inside one second the removal is read
-//! last, whichever page either came in and whatever gh's stream order was: a
-//! label that came off counts for nothing.
+//! them without gh or a network. [`event_order`] is the one place the ordering
+//! of events is stated; the terms here read it and nothing restates it.
 //!
 //! The other rule here is the one that keeps a poll honest: an answer that
 //! cannot be read is an error and never an empty list. An empty list is the
 //! site's answer that an issue carries no label, and a caller that took a
 //! broken answer for it would clear a label nobody took off.
+//!
+//! The three readers of label events in this workspace - this one,
+//! `console/dispatch/src/events.rs` and `lib/labels.sh` - order events by the
+//! same rule, and the words [`why`] holds are the words `libexec/dispatch`'s
+//! `gh_json` greps. The dispatcher's `read::run::gh_why` keeps a regex copy of
+//! that list where its own caller is; `tehas-dispatch` already depends on this
+//! crate, so the copy goes when the last issue of #800 moves the callers here.
 
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -26,30 +29,22 @@ pub(crate) struct Event {
     pub(crate) at: Option<String>,
 }
 
-/// The event `label_state` answers with: the latest of `label`'s events, or
+/// The event the state term answers with: the latest of `label`'s events, or
 /// None when no event carries it. Only the two kinds of label event count: a
 /// `renamed` or `subscribed` event that names the label in passing is not a
-/// label on the issue.
-///
-/// The sort is by stamp, then by kind, and `sort_by` is stable, so events
-/// sharing a stamp keep the order the pages handed them back. The removal of a
-/// label applied in the same second sorts after its application: whichever
-/// came first in the stream, the label counts as gone.
+/// label on the issue. Orders as [`event_order`] states, and reads both kinds.
 pub(crate) fn latest_event(events: &[Event], label: &str) -> Option<super::LabelEvent> {
     let mut of: Vec<&Event> = events
         .iter()
         .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
         .collect();
     of.sort_by(event_order);
-    of.last().map(|e| super::LabelEvent {
-        kind: e.event.clone(),
-        actor: e.actor.clone(),
-        at: e.at.clone().unwrap_or_default(),
-    })
+    last_of(&of)
 }
 
-/// The event `approval` answers with: the latest `labeled` event of `label`,
-/// or None when no event applied it.
+/// The event the approval term answers with: the latest `labeled` event of
+/// `label`, or None when no event applied it. Orders as [`event_order`] states,
+/// and reads applications alone.
 ///
 /// A removal is not an application, so it never supplies the account or the
 /// time here: `tehas_label_actor` filters to `labeled` and this keeps that
@@ -57,23 +52,18 @@ pub(crate) fn latest_event(events: &[Event], label: &str) -> Option<super::Label
 /// read as an approval by that maintainer, and authorisation is the account
 /// that applied the label (AGENTS.md rule 5): a poll would judge the remover
 /// against TEHAS_ALLOWED_LABELERS.
-///
-/// The tie-break of one second belongs to the term, not to the events: of a
-/// label applied and taken off inside a second `tehas_label_state` reads the
-/// removal last, while `tehas_pause_holds` reads the application last so that
-/// a pause lifted in the same second it was applied still holds the host. So
-/// [`event_order`] is the state term's order alone, and this keeps the rule
-/// `tehas_label_actor` states: the stamp decides, an event with no stamp is
-/// older than any stamped one, and of events the stamp cannot separate the
-/// LAST one the page handed back answers, because jq's `sort_by` and Rust's
-/// `sort_by` are both stable. Checked against both readers, not reasoned out:
-/// a rule about a tie is the kind that reads backwards in one's head.
 pub(crate) fn latest_applied(events: &[Event], label: &str) -> Option<super::LabelEvent> {
     let mut of: Vec<&Event> = events
         .iter()
         .filter(|e| e.event == "labeled" && e.label == label)
         .collect();
-    of.sort_by(|a, b| a.at.cmp(&b.at));
+    of.sort_by(event_order);
+    last_of(&of)
+}
+
+/// The last of a run the caller has ordered, as a term reads it: the fields the
+/// event names, and the empty time for one that names none.
+fn last_of(of: &[&Event]) -> Option<super::LabelEvent> {
     of.last().map(|e| super::LabelEvent {
         kind: e.event.clone(),
         actor: e.actor.clone(),
@@ -81,13 +71,18 @@ pub(crate) fn latest_applied(events: &[Event], label: &str) -> Option<super::Lab
     })
 }
 
-/// The order of two label events: the stamp first, then, within one second,
-/// the application before the removal. The state term's order: the approval
-/// term reads [`latest_applied`], whose candidates are applications alone and
-/// which therefore sorts by the stamp, as `tehas_label_actor` does. An
-/// unstamped event sorts before every stamped one (see [`Event`]). [`event_order`]
-/// and the test of one second's order both read the rule, so it is stated
-/// once.
+/// The order of two label events, stated once for every term here. GitHub
+/// documents no order, so the stamp decides and an unstamped event is older
+/// than any stamped one (see [`Event`]). Of events the stamp cannot separate,
+/// the application sorts before the removal, so a label applied and taken off
+/// inside one second counts as gone; of two of one kind `sort_by`'s stability
+/// keeps the order the pages handed back, so the LAST one answers, as jq's
+/// stable `sort_by` answers in `lib/labels.sh`.
+///
+/// The pause is the one reader of these rules that orders the tie the other
+/// way, so that a pause lifted in the second it was applied still holds the
+/// host. That term is `dispatch`'s `events::pause_holds`, which the last issue
+/// of #800 moves here; it is no term of this module today.
 pub(crate) fn event_order(a: &&Event, b: &&Event) -> Ordering {
     a.at.cmp(&b.at).then_with(|| rank(a).cmp(&rank(b)))
 }
@@ -97,15 +92,21 @@ fn rank(e: &Event) -> u8 {
     u8::from(e.event == "unlabeled")
 }
 
-/// One page as events. A page that is no list, or an entry that is no object,
-/// is an answer that cannot be read: the reason says so, and the caller stops
-/// rather than deciding an issue carries no labels. An entry that names no
-/// kind, or no label, is well formed and is no label event, which the site
-/// answers with its own fields: it is read as the empty fields it has and
-/// sorted out by the caller, not made into a failure.
+/// What the reader of the events says of an answer that holds none of them.
+/// It carries no `": "` of its own: that is the line of the error, not the
+/// reason's.
+const NO_EVENTS: &str = "no events to read";
+
+/// The reading of one page as its events. A page that is no list, or an entry
+/// that is no object, is an answer that cannot be read: the reason says so,
+/// and the caller stops rather than deciding an issue carries no labels. An
+/// entry that names no kind, or no label, is well formed and is no label
+/// event, which the site answers with its own fields: it is read as the empty
+/// fields it has and sorted out by the caller, not made into a failure. A
+/// reason carries no `": "` of its own: the error's line adds that.
 fn page_events(page: &Value) -> Result<Vec<Event>, String> {
     let Some(items) = page.as_array() else {
-        return Err(": a page of events is no list".to_string());
+        return Err("a page of events is no list".to_string());
     };
     let mut out = Vec::with_capacity(items.len());
     for e in items {
@@ -115,13 +116,23 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
             continue;
         }
         let Some(o) = e.as_object() else {
-            return Err(": an event is no object".to_string());
+            return Err("an event is no object".to_string());
         };
         let field = |k: &str| {
             o.get(k)
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string()
+        };
+        let stamp = match o.get("created_at") {
+            // Absent is the site saying nothing of the time; present and no
+            // text is an answer that cannot be read. jq sorts a number before
+            // every string, so reading a wrong-typed stamp as no stamp would
+            // win a tie the reference reader gives to the stamped event.
+            None => None,
+            Some(Value::Null) => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => return Err("an event's stamp is no text".to_string()),
         };
         out.push(Event {
             event: field("event"),
@@ -137,10 +148,7 @@ fn page_events(page: &Value) -> Result<Vec<Event>, String> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
-            at: o
-                .get("created_at")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            at: stamp,
         });
     }
     Ok(out)
@@ -157,20 +165,20 @@ pub(crate) fn parse_events(out: &str) -> Result<Vec<Event>, String> {
         .into_iter::<Value>()
         .peekable();
     match pages.peek() {
-        // Nothing at all: an answer that has no value in it even after the
-        // whitespace between the pages is cut away is no answer at all, and a
+        // Nothing at all, which is also what only the whitespace between the
+        // pages leaves: an answer with no value in it is no answer, and a
         // caller that read it as "no labels" would stop work nobody asked it
         // to stop. The site says an issue with no events by answering `[]`.
-        None => Err(": no events to read".to_string()),
+        None => Err(NO_EVENTS.to_string()),
         // A page, or something that is no JSON: a stream that breaks part way
         // is read below and reported there.
         Some(Ok(Value::Array(_))) | Some(Err(_)) => Ok(()),
         // A value that is no list says nothing of the events.
-        Some(Ok(_)) => Err(": no events to read".to_string()),
+        Some(Ok(_)) => Err(NO_EVENTS.to_string()),
     }?;
     let mut events = Vec::new();
     for page in pages {
-        let page = page.map_err(|_| ": no events to read".to_string())?;
+        let page = page.map_err(|_| NO_EVENTS.to_string())?;
         events.append(&mut page_events(&page)?);
     }
     Ok(events)
@@ -178,23 +186,31 @@ pub(crate) fn parse_events(out: &str) -> Result<Vec<Event>, String> {
 
 /// The labels of the REST issue read: `{"labels": [{"name": "…"}]}`. None for
 /// an answer that is no issue with labels: an issue carrying nothing answers
-/// `{"labels":[]}`, which reads as the empty list it is.
+/// `{"labels":[]}`, which reads as the empty list it is. An entry that names
+/// no label is no label and is dropped, as the dispatcher's `snapshot::names`
+/// reads it: a hand-written entry of one issue stops no other label of it.
 pub(crate) fn parse_labels(out: &str) -> Option<Vec<String>> {
     let v: Value = serde_json::from_str(out.trim()).ok()?;
     let names = v.get("labels")?.as_array()?;
-    names
-        .iter()
-        .map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
-        .collect()
+    Some(
+        names
+            .iter()
+            .filter_map(|l| l.get("name").and_then(Value::as_str).map(str::to_string))
+            .collect(),
+    )
 }
 
-/// Whether gh's reason is the one that means the label was not there: the 404
-/// of a removal that had nothing to remove. Matched on gh's own words, as the
-/// poll's refresh_unmark matches on `Not Found`, and in lower case, because the
-/// words are GitHub's and arrive in more than one spelling.
+/// Whether a failed removal answers that the label was not there, which is the
+/// state wanted. The words are gh's own, as the poll's `refresh_unmark` and
+/// `libexec/cycle` match `Not Found`, and the status is read whole out of the
+/// digits `find_http` located, never as "404" anywhere in the text: a gateway
+/// error whose body happens to carry those three digits is no removal.
 pub(crate) fn says_not_found(why: &str) -> bool {
     let w = why.to_ascii_lowercase();
-    w.contains("not found") || w.contains("404")
+    if w.contains("not found") {
+        return true;
+    }
+    find_http(&w).is_some_and(|i| &w.as_bytes()[i + 5..i + 8] == b"404")
 }
 
 /// What a failed gh call's answer says of its error: ": " and the first of a
@@ -204,8 +220,8 @@ pub(crate) fn says_not_found(why: &str) -> bool {
 /// status: the rest of gh's answer is written by a host and may name one, or
 /// carry a token.
 pub(crate) fn why(err: &str, code: Option<i32>) -> String {
-    // Longest first where two could match the same line, so a secondary limit
-    // is not reported as a plain one.
+    // Longest first where two could match the same word, so a secondary limit
+    // is not reported as a plain one where they start alike.
     const WORDS: [&str; 8] = [
         "secondary rate limit",
         "unexpected EOF",
@@ -219,14 +235,22 @@ pub(crate) fn why(err: &str, code: Option<i32>) -> String {
     for line in err.lines() {
         let low = line.to_ascii_lowercase();
         // The first line that says anything is the one quoted, and within it
-        // the first word of the list that matches: only these words, so the
-        // rest of gh's answer - a host's address, a token - stays out.
-        if let Some((i, w)) = WORDS.iter().find_map(|w| low.find(w).map(|i| (i, *w))) {
-            return format!(": {}", &line[i..i + w.len()]);
+        // the LEFTMOST word of the list, as grep -oE and the dispatcher's
+        // regex answer: the first entry of the list would report "rate limit"
+        // for a line whose only match is a secondary limit later on. Only
+        // these words, so the rest of gh's answer - a host's address, a token
+        // - stays out. The text is cut from `low`, the string that was
+        // searched, so the byte offsets of `find` are its own.
+        if let Some((i, w)) = WORDS
+            .iter()
+            .filter_map(|w| low.find(w).map(|i| (i, *w)))
+            .min_by_key(|(i, w)| (*i, std::cmp::Reverse(w.len())))
+        {
+            return format!(": {}", &low[i..i + w.len()]);
         }
         // An HTTP status is gh's own word for the state and is kept whole.
         if let Some(i) = find_http(&low) {
-            return format!(": HTTP {}", &line[i + 5..i + 8]);
+            return format!(": HTTP {}", &low[i + 5..i + 8]);
         }
     }
     match code {

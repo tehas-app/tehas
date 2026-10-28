@@ -20,7 +20,14 @@ empty one above it.
   does today, reading the events with `--paginate` and running gh through a
   `GhRunner` so its rules are tested without gh or a network. The approval
   term reads applications alone, as `tehas_label_actor` does: a label taken
-  off answers the state term, never who approved. Nothing calls it yet: the
+  off answers the state term, never who approved. A caller asks the same term
+  of any label - `applied_by(issue, label)` answers who put `tehas:urgent` on
+  an issue, and `approval()` is that term of `tehas:ready`. The adapter runs gh
+  through a `Bounded` runner that holds the program, gives one call a bound of
+  its own and stops the group with TERM and KILL, so no gh can hold a poll and
+  the lock it carries. A removal takes its label encoded and reads 404 only
+  where the status sits, so an error page that happens to carry the three
+  digits is not read as a label taken off. Nothing calls it yet: the
   next issues of #800 give bash a command for it and move
   `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
 
