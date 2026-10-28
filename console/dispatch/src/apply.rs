@@ -20,7 +20,7 @@ pub mod start;
 mod stop;
 mod turn;
 
-use crate::read::run::{run, run_input, Calls};
+use crate::read::run::{run, run_input_env, Calls};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -310,7 +310,12 @@ impl Writer {
         // The queue changes here: the poll's end owes a status and a sample.
         self.changed = true;
         self.gh_writes += 1;
-        let r = run_input(&self.gh, &args, body, self.bound);
+        // The token the poll took, when it has one, so the shim asks for none.
+        let extra: Vec<(&str, &str)> = match self.calls.gh_token.as_deref() {
+            Some(t) => vec![("TEHAS_GH_TOKEN", t)],
+            None => Vec::new(),
+        };
+        let r = run_input_env(&self.gh, &args, body, self.bound, &extra);
         let there = done_if.is_some_and(|w| r.out.contains(w) || r.err.contains(w));
         let result = match r.status {
             Some(0) => "ok",

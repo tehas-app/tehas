@@ -19,27 +19,31 @@ dgst) cat >/dev/null; [ -z "${SIGN_FAILS:-}" ] || exit 1; printf "signature" ;;
 esac'
 # curl: the token exchange answers a token that runs out in an hour, unless
 # CURL_FAILS or CURL_ANSWER says otherwise; the repository list names
-# acme/widget.
+# acme/widget. The answer of a case that wants to tell two of them apart is a
+# word with a counter of its own on the end, which no other case sees.
 t_stub curl 'for a in "$@"; do case "$a" in *Authorization:*) printf "%s\n" "$a" >>"$T/calls/auth" ;; esac; done
 [ -z "${CURL_FAILS:-}" ] || exit 22
 case "$*" in
-*access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$(date +%s%N)" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
+*access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else
+  n=$(($(cat "$T/mints" 2>/dev/null || echo 0) + 1)); echo "$n" >"$T/mints"
+  printf "{\"token\":\"ghs_fresh%s\",\"expires_at\":\"%s\"}" "$n" "$(date -u -d "+1 hour" +%FT%TZ)"; fi ;;
 *installation/repositories*) printf "{\"repositories\":[{\"full_name\":\"acme/widget\"}]}" ;;
 */app) printf "%s" "${APP_ANSWER:-{\"slug\":\"tehas-app-bot\"\}}" ;;
 esac'
 
 app=(TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
 reset() {
-  rm -rf "$T"/calls/* "$T/home/tehas/state" "$T/home/.config"
+  rm -rf "$T"/calls/* "$T/home/tehas/state" "$T/home/.config" "$T/mints"
   mkdir -p "$T/home/.config/tehas"
   printf 'a key\n' >"$key"
   chmod 600 "$key"
   T_ENV=()
   t_instance "${app[@]}"
 }
-keep() { # <seconds left>: a kept token that runs out then
+keep() { # <seconds left> [a word for the token]: a kept token that runs out then
+  local word=${2:-ghs_kept}
   mkdir -p "$T/home/tehas/state/github"
-  printf 'ghs_kept\n' >"$kept"
+  printf '%s\n' "$word" >"$kept"
   echo $(($(date +%s) + $1)) >"$kept.expires"
 }
 
@@ -262,6 +266,70 @@ reset
 installed
 t_run "GH_TOKEN=ghp_user $T/home/tehas/shim/gh api user"
 t_eq "$t_out" "gh api user token=ghp_user"
+
+# The poll's token (#938): the dispatcher takes one at the start of a poll and
+# gives it to every gh child as TEHAS_GH_TOKEN, so the shim asks for none. What
+# is under test is whether the token program ran, and the kept token of the
+# case is `ghs_poll` while a token the program makes is `ghs_fresh<n>` - the
+# words gh was given say which path the shim took, and the stub curl's calls
+# say how often it asked. An exchange is counted by its own path: the stub
+# records every call it makes, including the one that names the installation.
+case_no_token() { # <app given: 1 for the host's, 0 for none>
+  reset
+  installed
+  [ "$1" = 0 ] && t_instance TEHAS_REPO=acme/widget
+  # The host's own state as tehas_load leaves it for the commands it runs: the
+  # app's three names exported, no GH_TOKEN of a user left in the environment,
+  # and a token kept with half an hour left. The kept one is ghs_poll and a
+  # token the program makes is ghs_fresh<n>, so gh's own words say which path
+  # the shim took, and the stub curl's calls say how often it asked. An
+  # exchange is counted by its own path: the stub records every call it makes,
+  # including the one that names the installation.
+  T_ENV=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
+    "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
+  keep 3000 ghs_poll
+}
+
+t_case "given TEHAS_GH_TOKEN the shim exports it as GH_TOKEN and asks for no token"
+case_no_token 1
+t_run "TEHAS_GH_TOKEN=ghs_123456789 \"$T/home/tehas/shim/gh\" pr list --repo acme/widget"
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh pr list --repo acme/widget token=ghs_123456789"
+t_lacks "$t_out" "token=ghs_fresh"
+t_eq "$(t_calls curl)" ""
+
+t_case "without TEHAS_GH_TOKEN the shim still asks for a token at every call"
+case_no_token 1
+# TEHAS_GH_TOKEN is unset, as it is for a poll that took no token: a name the
+# caller's own environment left would be read here as the poll's. GH_TOKEN is
+# unset too, as tehas_github_app_env leaves it with an app named. Neither kept
+# token is left standing between the two calls, so each of them makes its own.
+t_run "unset TEHAS_GH_TOKEN GH_TOKEN
+rm -f '$T/home/tehas/state/github/token' '$T/home/tehas/state/github/token.expires'
+\"$T/home/tehas/shim/gh\" pr list --repo acme/widget
+rm -f '$T/home/tehas/state/github/token' '$T/home/tehas/state/github/token.expires'
+\"$T/home/tehas/shim/gh\" pr list --repo acme/widget"
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh pr list --repo acme/widget token=ghs_fresh1
+gh pr list --repo acme/widget token=ghs_fresh2"
+# Two calls of the shim, and the token program made a token for each of them.
+t_eq "$(t_calls curl | grep -c access_tokens)" 2
+
+t_case "an empty TEHAS_GH_TOKEN asks for a token as the name being unset does"
+case_no_token 1
+t_run "unset GH_TOKEN
+rm -f '$T/home/tehas/state/github/token' '$T/home/tehas/state/github/token.expires'
+TEHAS_GH_TOKEN= \"$T/home/tehas/shim/gh\" pr list"
+t_eq "$t_rc" 0
+t_contains "$t_out" "gh pr list token=ghs_fresh1"
+t_eq "$(t_calls curl | grep -c access_tokens)" 1
+
+t_case "with no app named, TEHAS_GH_TOKEN still reaches gh as its own token"
+case_no_token 0
+t_run "TEHAS_GH_TOKEN=ghs_123456789 \"$T/home/tehas/shim/gh\" api user"
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh api user token=ghs_123456789"
+t_eq "$(t_calls curl)" ""
 
 t_case "env.sh with an app: the shim is first, git asks it, and the user token is gone"
 reset

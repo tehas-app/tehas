@@ -10,23 +10,57 @@
 
 log=$T/home/tehas/state/github-writes.log
 
-# An installed home for the shim: the shim at its installed path and the real
-# gh beside it, where t_stub's gh is moved, as bootstrap.sh leaves them. No
-# case names the app: the token is test/github_app_test.sh's, and what is under
-# test here is the classification and the line, so the stub prints the call.
+# The poll's token (#938), measured on the same installed shim. The dispatcher
+# gives every gh child of a poll TEHAS_GH_TOKEN, and the shim then exports it
+# as GH_TOKEN and runs no libexec/github-token. A token program of the case's
+# stands under libexec and says on a file of its own that it ran, so the one
+# thing gh's arguments cannot say - that it was not run at all - is seen.
 install_shim() {
   local h=$T/home/tehas
-  rm -rf "$h" "$T"/calls/* "$T/err"
-  mkdir -p "$h/bin" "$h/shim"
+  rm -rf "$h" "$T"/calls/* "$T/err" "$T/token-runs"
+  mkdir -p "$h/bin" "$h/shim" "$h/libexec"
   cp "$T_ROOT/host/shim/gh" "$h/shim/gh"
   chmod +x "$h/shim/gh"
+  # The two lines lib/config.sh and lib/github-app.sh, from the source of this
+  # run: the token program of libexec is asked in the environment of the run,
+  # so it must be able to load its settings as the host's does.
+  mkdir -p "$h/lib"
+  cp "$T_ROOT/lib/config.sh" "$T_ROOT/lib/github-app.sh" "$T_ROOT/lib/paths.sh" "$h/lib/"
   # A gh that answers what it is told to: the words, the error and the status
   # are named by the case, in the environment of its run. With nothing named it
   # says the call back on stdout, which is how a case sees that the shim
-  # reached gh at all and handed its words back.
+  # reached gh at all and handed its words back. The words name no token: the
+  # token belongs to test/github_app_test.sh, which keeps a real one, and a
+  # case of this file names one itself when it wants gh to have had it.
   t_stub gh 'if [ -n "${GH_OUT:-}" ]; then printf "%s\n" "$GH_OUT"; else echo "gh $*"; fi
+if [ -n "${SHOW_TOKEN:-}" ]; then printf "token=%s tehas=%s\n" "${GH_TOKEN:-none}" "${TEHAS_GH_TOKEN:-unset}"; fi
 [ -z "${GH_ERR:-}" ] || printf "%s\n" "$GH_ERR" >&2
 exit "${GH_RC:-0}"'
+  # libexec/github-token of this run, which loads the settings and prints a
+  # token that has at least 10 minutes left; the case keeps the one it wants
+  # and the run notes here that the program was asked at all. openssl and curl
+  # are never reached, because the kept token has its time left.
+  cp "$T_ROOT/libexec/github-token" "$h/libexec/"
+  chmod +x "$h/libexec/github-token"
+  # t_instance writes the instance and names it in the runs that follow.
+  t_instance TEHAS_REPO=acme/widget TEHAS_GITHUB_APP_ID=5452597 \
+    TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+  mkdir -p "$T/home/.config/tehas"
+  printf 'a key\n' >"$T/home/.config/tehas/github-app.pem"
+  chmod 600 "$T/home/.config/tehas/github-app.pem"
+  # The note of a run, beside the kept token of the case, with an hour left.
+  # The real program stays under libexec, where its own directory finds the two
+  # lines of lib/ above; a case says whether it was asked by what it leaves on
+  # $T/token-runs.
+  mkdir -p "$h/state/github"
+  printf '%s\n' "${TOKEN_ANSWER:-ghs_token}" >"$h/state/github/token"
+  echo $(($(date +%s) + 3600)) >"$h/state/github/token.expires"
+  {
+    printf '%s\n' "printf x >>\"$T/token-runs\""
+    cat "$h/libexec/github-token"
+  } >"$h/libexec/github-token.new"
+  mv "$h/libexec/github-token.new" "$h/libexec/github-token"
+  chmod 755 "$h/libexec/github-token"
   mv "$T/bin/gh" "$h/bin/gh"
   chmod +x "$h/bin/gh"
 }
@@ -291,5 +325,52 @@ rm -rf "$T/home/tehas/state"
 shim issue comment 3 -R o/r >/dev/null
 t_eq "$t_rc" 0
 t_eq "$(lines | wc -l)" 1
+
+# The poll's token (#938): the dispatcher gives every gh child of a poll the
+# token it took at its start as TEHAS_GH_TOKEN, and the shim hands it to gh as
+# GH_TOKEN and runs no libexec/github-token. The token program of the home says
+# on a file of its own that it ran, so a case sees both that gh was given the
+# token and that the program was not run for the call.
+t_case "with TEHAS_GH_TOKEN set the shim gives gh that token and runs no token program"
+reset
+T_ENV=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GH_TOKEN=ghs_poll SHOW_TOKEN=1)
+shim issue view 12 -R o/r
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh issue view 12 -R o/r
+token=ghs_poll tehas=ghs_poll"
+# A read, so no line of its own, and no run of the token program either.
+t_eq "$(lines)" ""
+t_eq "$(cat "$T/token-runs" 2>/dev/null | wc -c | tr -d '[:space:]' | head -n 1)" 0
+
+t_case "without TEHAS_GH_TOKEN the shim runs the token program, as it did"
+reset
+T_ENV=(TEHAS_GITHUB_APP_ID=5452597 SHOW_TOKEN=1)
+shim issue view 12 -R o/r
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh issue view 12 -R o/r
+token=ghs_token tehas=unset"
+# The program ran once for the one call of the shim.
+t_eq "$(cat "$T/token-runs" | wc -c | tr -d '[:space:]' | head -n 1)" 1
+
+t_case "an empty TEHAS_GH_TOKEN asks the token program as the name being unset does"
+reset
+# env leaves an empty value assigned, as it does for the other names of the
+# run. What a case can read of such a call is that the program was asked: the
+# name itself reaches the stub of gh empty or not as env gave it, and the shim
+# asks for a token either way - the two readings together are the case.
+T_ENV=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GH_TOKEN= SHOW_TOKEN=1)
+shim issue view 12 -R o/r
+t_eq "$t_rc" 0
+t_contains "$t_out" "token=ghs_token"
+t_eq "$(cat "$T/token-runs" | wc -c | tr -d '[:space:]' | head -n 1)" 1
+
+t_case "with no app named, TEHAS_GH_TOKEN still reaches gh as its token"
+reset
+T_ENV=(TEHAS_GH_TOKEN=ghs_poll SHOW_TOKEN=1)
+shim api repos/o/r
+t_eq "$t_rc" 0
+t_eq "$t_out" "gh api repos/o/r
+token=ghs_poll tehas=ghs_poll"
+t_eq "$(cat "$T/token-runs" 2>/dev/null | wc -c | tr -d '[:space:]' | head -n 1)" 0
 
 t_done
