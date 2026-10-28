@@ -54,7 +54,16 @@ pub struct Beat {
 pub const LOST_AFTER: i64 = 120;
 /// The heartbeats kept per issue.
 pub const KEEP: i64 = 100;
-/// How long publish waits for state/publish.lock.
+/// How long publish waits for state/publish.lock. `db::lock_wait` is where the
+/// wait is read, and it is the only place the tests' short pair is applied here.
+/// The dependency between the two modules runs this way alone: `live` calls into
+/// `db`, and `db` names the three installed waits itself rather than reading back
+/// here. `tests::the_installed_bounds_are_the_ones_the_spec_states` pins this as
+/// a constant, and
+/// `tests::publish_waits_the_lock_bound_the_spec_states` is the test that shows
+/// `db::lock_wait` answers with it on a thread that never asked for the short
+/// pair -- a pin of the constant alone would not notice the wait being given
+/// another value.
 pub const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The largest --dispatch or --health file read.
 const REPORT_BOUND: u64 = 1 << 20;
@@ -383,10 +392,14 @@ fn take_lock(home: &Path) -> Result<Option<File>, Fail> {
         Err(e) => return Err((1, format!("lock state/publish.lock: {e}"))),
     };
     let start = Instant::now();
+    // Read on every pass of the retry loop: the bound publish waits is the one
+    // `db::lock_wait` answers with, which is where the tests' short pair is
+    // applied.
+    let bound = crate::db::lock_wait();
     loop {
         match f.try_lock() {
             Ok(()) => return Ok(Some(f)),
-            Err(TryLockError::WouldBlock) if start.elapsed() < LOCK_WAIT => {
+            Err(TryLockError::WouldBlock) if start.elapsed() < bound => {
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(TryLockError::WouldBlock) => {

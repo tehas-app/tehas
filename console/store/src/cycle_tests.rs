@@ -152,6 +152,9 @@ fn cycle_start_marks_the_approval_used_by_its_attempt_in_one_transaction() {
 
 #[test]
 fn cycle_start_that_is_busy_uses_nothing() {
+    // The verb has to meet the writer's bound rather than beat the holder, so
+    // this thread asks for the short pair.
+    short_bounds();
     let home = home("start-busy");
     approve(&home, 15, "alice", "label");
     let _lock = hold(&home, 15);
