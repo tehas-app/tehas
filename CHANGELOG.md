@@ -13,21 +13,52 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.15.1 (2026-10-28)
+
+### Changes
+
 - The report's shadow names its files `state/cycles/shadow-<issue>.*`, where
   it named them `<issue>.shadow.*` (#923). A poll that ran while a cycle ended
   took `<issue>.shadow.park` for the record of an older tehas, stopped with 78
   and said to run `install.sh`. Only a host with `state/cycle-shadow.on` was
   touched, one poll at a time.
+- An idle poll costs less (#871). A poll that wrote nothing to GitHub and
+  started, stopped or turned nothing runs neither the status nor the
+  analytics sample at its end; the next poll that does work runs them. Its
+  cost is still recorded. A poll settles the action journal only when it holds
+  an open action. The report counts a stretch with no sample as not
+  available, so `availability` falls while a factory is paused or idle.
+- Gate minutes per cycle in the analytics report (#870): each run records how
+  many runs of the product's gate the cycle made and their time
+  (`runs.gate_runs`, `runs.gate_ms`, and a table `run_gate_runs`), from the
+  runner's progress log. The analytics database moves to schema 2.
+- The MCP server's journal line names the tool of each `tools/call`, never
+  its arguments (#836).
+- `store review-issue` renders the six-lens review's findings as the title
+  and body of an issue, in Rust (#883). Nothing files it yet.
+- Tests: the dispatcher's apply tests, the store's busy and lock tests and
+  the MCP server's deadline and logs tests wait out short bounds, not the real
+  ones (#909, #908, #910); the installed programs keep theirs, and `tehas-mcp`
+  takes `--io-timeout` for its tests only. The MCP outcomes test no longer
+  fails when the clock reads 42.
 - `scripts/verify.sh` keeps the whole output of each run's steps in a log,
   the newest 20 under `TEHAS_VERIFY_LOGS` (default `$TMPDIR/tehas-verify`),
   and a failed run names it on its last line, `log: <path>` (#930).
 
 ### Adopter action
 
-With `state/cycle-shadow.on` there, drain before you update (`tehas drain
---wait`), then `tehas limit clear`: a cycle that ends across the update
-leaves its `<issue>.shadow.*` files, which stop every poll until removed.
-Without the shadow, none.
+- The analytics database moves to schema 2 with no migration. On the first
+  run after the update the schema 1 file is moved aside whole, as
+  `state/analytics.db.schema-1`, kept 365 days, and a new one starts: the
+  ten-day report and `tehas analytics export` start empty. A program that
+  reads the export, such as tehas-warehouse, must take schema 2.
+- With `state/cycle-shadow.on` there, drain before you update (`tehas drain
+  --wait`), then `tehas limit clear`: a cycle that ends across the update
+  leaves its `<issue>.shadow.*` files, which stop every poll until removed.
 
 ## v0.15.0 (2026-10-27)
 
