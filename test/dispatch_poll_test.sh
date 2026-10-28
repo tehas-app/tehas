@@ -152,6 +152,20 @@ t_eq "$(started)" "7 8 "
 t_eq "$([ -e "$home/state/low-gate.held" ] && echo held)" held
 t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 
+t_case "a read the poll cannot make ends the poll with gh's own words"
+reset
+if bash_reads; then
+  t_skip "the words of a failed read are the Rust poll's, not the bash poll's"
+else
+  t_gh_fail 1
+  t_run "$rpoll"
+  t_eq "$t_rc" 1
+  t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
+  t_eq "$(started)" ""
+  t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
+  t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
+fi
+
 t_case "a write a dead poll left in the journal is settled first, and decided again"
 reset
 st="$home/libexec/store"
