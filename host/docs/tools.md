@@ -1681,7 +1681,11 @@ hold is `limit`. With `--plan off` no new planning session starts, and
 still runs. One that expired or cannot be read holds every start, answers and
 retry ticks included, while the poll goes on cleaning up. See
 [Limit and drain](/operating#limit-and-drain) and
-[the factory API](/api#tehas-limit) for the JSON. Exit 0; 64 on a bad
+[the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an
+argument that reaches it, the write and the words of the answer are the
+console's (`~/tehas/libexec/console flags limit`); the command checks the shape
+of its arguments, loads the settings, and stops with 78 without an instance or
+1 when the file could not be written. Exit 0; 64 on a bad
 argument, which writes nothing; 78 without an instance.
 
 ## tehas drain
@@ -2755,6 +2759,15 @@ files attached to it, and the list
 `~/tehas/live/protolab.json` that the dashboard links from. The timer runs it
 every five minutes; the log is `~/tehas/logs/protolab.log`.
 
+The pages are the console's (`~/tehas/libexec/console protolab`,
+`console/protolab.rs`), as the steps of
+[`tehas clean`](#tehas-clean) are: the page of a ticket, the lab's front page
+and the dashboard's file. It escapes what came from GitHub, puts together every
+figure of a page, and reads the attachment links of a ticket, which is the one
+regular expression of `lib/attachments.sh`. The command beside it keeps the
+settings, the calls to GitHub, the downloads and the order of the work, and
+refuses with exit 78 when no console stands beside it.
+
 The container is the edge router, on port 8081. It answers for the Protolab
 and for the [previews](#tehasbot-preview), and picks by the name it is asked
 for: `lab-<issue>.` is that ticket's page, `uat-<pr>.` is the preview of that
@@ -2782,7 +2795,8 @@ under [Operating](/operating). A ticket gets 10 megabytes and 40 files. An
 issue that has not changed since the last pass is not built again, so a quiet
 pass fetches no files: one GitHub call for its own account, one for the list,
 and one for every ticket at the stage, its label events. When GitHub cannot be
-reached, what is there stays.
+reached, what is there stays. A pass that finds no console to write the pages
+with says so and exits 78 before it calls GitHub.
 
 A prototype is somebody's HTML and script. That is why the Protolab is a
 server of its own on another port, and why every attached file is answered

@@ -26,6 +26,18 @@ empty one above it.
   console that is not installed builds no previews (78) and says to run
   `install.sh`. Nothing changes for a preview that serves: the same list, the
   same names, the same notices.
+- The Protolab's pages are written by a Rust verb, `console protolab`, and not
+  by the jq programs of `libexec/protolab`. The page of a ticket, the lab's
+  front page and `live/protolab.json` are made in `console/protolab.rs`, which
+  also reads the attachment links of a ticket. The command keeps the settings,
+  the calls to GitHub, the downloads and the order of the work. The pages are
+  the pages they were, line for line. A host needs the console installed
+  beside the command, which `install.sh` does: a pass that finds none says so
+  and exits 78 before it calls GitHub.
+- The limit of the factory is read, checked, written and printed by the
+  console (`~/tehas/libexec/console flags limit`), not by bash
+  (`libexec/limit`, `lib/limit.sh`), which are thin callers of it now (#895).
+  `tehas limit` and the pages of `tehas status` say the same as they did.
 - What closed an issue is now the console's to decide. `console shipped`
   (`console/src/shipped.rs`) holds the page of the read, its GraphQL query and the
   rule that reads its answer, and `lib/shipped.sh` is the names of those verbs and

@@ -4,6 +4,9 @@
 # shellcheck disable=SC2016  # snippets are expanded by the shell under test
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+# The limit is read and written by the console (console flags).
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
 drain="$T_ROOT/libexec/drain"
 file=$T/home/tehas/state/limit.json
