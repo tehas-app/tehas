@@ -3,6 +3,10 @@
 //! between two writes, is read again and settled from what GitHub says now.
 //! Never replayed: the poll that settles it decides afresh whether anything
 //! is still owed. A write never attempted made no call, and is abandoned.
+//! An action whose `id`, `issue` or (attempted only) `attempted_at` is absent
+//! or not a positive integer is left open with one WARN: substituting 0 for
+//! one of them would settle an unknown row, read issue 0 for ever, or take
+//! the epoch as the start of the window and call an old comment the evidence.
 
 use super::{text, word, Writer};
 use serde_json::{json, Value};
@@ -21,6 +25,28 @@ fn after<'a>(args: &'a [Value], flag: &str) -> Vec<&'a str> {
         .filter(|w| w[0].as_str() == Some(flag))
         .filter_map(|w| w[1].as_str())
         .collect()
+}
+
+/// The field of an open action as a positive integer, or None when it is
+/// missing, not a number, or not above zero.
+fn positive(a: &Value, k: &str) -> Option<u64> {
+    a.get(k).and_then(Value::as_u64).filter(|n| *n > 0)
+}
+
+/// The field of an open action that a malformed row must be named by: the
+/// first of these that is not a positive integer, or None when the row is
+/// well formed. An intended action has no time yet, so none is asked of it.
+fn malformed(a: &Value) -> Option<&'static str> {
+    for (k, needed) in [
+        ("id", true),
+        ("issue", true),
+        ("attempted_at", text(a, "state") != "intended"),
+    ] {
+        if needed && positive(a, k).is_none() {
+            return Some(k);
+        }
+    }
+    None
 }
 
 fn names(v: &Value) -> Vec<String> {
@@ -69,9 +95,19 @@ impl Writer {
     /// The read list of actions, each settled or said.
     pub(crate) fn settle_actions(&mut self, now: i64, open: Vec<Value>, log: &mut Vec<String>) {
         for a in open {
-            let id = a.get("id").and_then(Value::as_i64).unwrap_or(0).to_string();
             let kind = text(&a, "kind").to_string();
-            let n = a.get("issue").and_then(Value::as_u64).unwrap_or(0);
+            if let Some(field) = malformed(&a) {
+                // Named by what it has: the number that identifies it is the
+                // one that may be missing. It stays in the journal for a
+                // person to look at.
+                log.push(format!(
+                    "WARN: the journal's {} action {kind} is malformed ({field} is not a positive integer); it is left open for a person",
+                    text(&a, "state")
+                ));
+                continue;
+            }
+            let id = positive(&a, "id").unwrap().to_string();
+            let n = positive(&a, "issue").unwrap();
             let age = now - a.get("intended_at").and_then(Value::as_i64).unwrap_or(now);
             let what = format!("action {id} ({kind} on #{n}, {age}s old)");
             let found = if text(&a, "state") == "intended" {
@@ -123,7 +159,7 @@ impl Writer {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let attempted = a.get("attempted_at").and_then(Value::as_i64).unwrap_or(0);
+        let attempted = positive(a, "attempted_at").unwrap_or(1) as i64;
         let since = crate::decide::iso(attempted.max(0) as u64);
         // A minute of slack for the clocks of the host and GitHub: a post is
         // also found by its sum.
