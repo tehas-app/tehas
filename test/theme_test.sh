@@ -12,7 +12,7 @@ themes=$(cd "$fun" && ls theme-*.css)
 # The stylesheets that draw the pages, and the files that write their markup or
 # paint their canvases.
 sheets=(game-view.css manual.css protolab.css energy-view.css host-view.css business.css)
-markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/libexec/protolab")
+markup=("$fun/index.html" "$fun/business.html" "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/docs/dashboard.frag" "$T_ROOT/console/src/protolab.rs")
 
 # The tokens a file sets: every custom property declared in it.
 sets() { grep -oE '^ *--[a-z0-9-]+:' "$1" | tr -d ' :' | sort -u; }
