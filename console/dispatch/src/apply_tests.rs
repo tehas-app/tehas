@@ -403,7 +403,22 @@ fn an_untick_logs_the_line_its_site_gave() {
 }
 
 #[test]
-fn the_said_and_told_records_are_written_whatever_the_comment_did() {
+fn the_said_and_told_records_follow_a_comment_that_worked() {
+    let mut t = world();
+    let a = t.apply(json!([
+        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
+        {"issue": 4, "park_told": true, "say": "Not started."},
+    ]));
+    assert!(a.log.is_empty());
+    assert_eq!(
+        fs::read_to_string(t.w.home.join("state/refresh/3.said")).unwrap(),
+        "conflict:abc"
+    );
+    assert!(t.calls().contains(&"store park-told 4".to_string()));
+}
+
+#[test]
+fn a_failed_comment_leaves_the_said_and_told_records_unwritten() {
     let mut t = world();
     t.fail("gh", "issue comment");
     let a = t.apply(json!([
@@ -414,11 +429,33 @@ fn the_said_and_told_records_are_written_whatever_the_comment_did() {
         a.log,
         vec!["WARN: comment on #3 failed", "WARN: comment on #4 failed"]
     );
+    assert!(!t.w.home.join("state/refresh/3.said").exists());
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store park-told")));
+}
+
+#[test]
+fn a_comment_the_journal_could_not_record_leaves_the_records_unwritten() {
+    let mut t = world();
+    t.fail("store", "journal-record");
+    let a = t.apply(json!([
+        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
+        {"issue": 4, "park_told": true, "say": "Not started."},
+    ]));
     assert_eq!(
-        fs::read_to_string(t.w.home.join("state/refresh/3.said")).unwrap(),
-        "conflict:abc"
+        a.log,
+        vec![
+            "WARN: the journal could not record a write on #3, so it was not made",
+            "WARN: the journal could not record a write on #4, so it was not made",
+        ]
     );
-    assert!(t.calls().contains(&"store park-told 4".to_string()));
+    assert!(!t.w.home.join("state/refresh/3.said").exists());
+    assert!(!t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with("store park-told")));
 }
 
 #[test]

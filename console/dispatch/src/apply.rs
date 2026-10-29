@@ -155,18 +155,22 @@ impl Writer {
         if let (Some(n), Some(_)) = (n, a.get("remove")) {
             self.label(n, a, log);
         } else if let (Some(n), Some(key)) = (n, a.get("refresh_said").and_then(Value::as_str)) {
-            self.say(n, text(a, "say"), log);
-            let path = self.home.join(format!("state/refresh/{n}.said"));
-            if std::fs::write(&path, key).is_err() {
-                log.push(format!("WARN: could not write {}", path.display()));
+            // The record only after the comment: a failed one leaves nothing
+            // behind, so the next poll says it again.
+            if self.say(n, text(a, "say"), log) {
+                let path = self.home.join(format!("state/refresh/{n}.said"));
+                if std::fs::write(&path, key).is_err() {
+                    log.push(format!("WARN: could not write {}", path.display()));
+                }
             }
         } else if let (Some(n), Some(_)) = (n, a.get("park_told")) {
-            self.say(n, text(a, "say"), log);
-            if let Err(f) = self.calls.store(&["park-told", &n.to_string()]) {
-                log.push(format!(
-                    "WARN: could not record the hold on the park of #{n} ({})",
-                    word(&f)
-                ));
+            if self.say(n, text(a, "say"), log) {
+                if let Err(f) = self.calls.store(&["park-told", &n.to_string()]) {
+                    log.push(format!(
+                        "WARN: could not record the hold on the park of #{n} ({})",
+                        word(&f)
+                    ));
+                }
             }
         } else if let (Some(n), Some(say)) = (n, a.get("say").and_then(Value::as_str)) {
             self.say(n, say, log);
@@ -373,7 +377,9 @@ impl Writer {
     }
 
     /// say: one comment, a warning when it fails, never the poll's end.
-    fn say(&mut self, n: u64, body: &str, log: &mut Vec<String>) {
+    /// True when GitHub took it: the records of having said something are
+    /// made only after a comment that worked.
+    fn say(&mut self, n: u64, body: &str, log: &mut Vec<String>) -> bool {
         let args = vec![
             "issue".into(),
             "comment".into(),
@@ -384,9 +390,15 @@ impl Writer {
             "-".into(),
         ];
         match self.write(n, "comment-post", args, Some(body), None) {
-            Wrote::Done(_) => {}
-            Wrote::Failed => log.push(format!("WARN: comment on #{n} failed")),
-            Wrote::Unrecorded => log.push(Self::unrecorded(n)),
+            Wrote::Done(_) => true,
+            Wrote::Failed => {
+                log.push(format!("WARN: comment on #{n} failed"));
+                false
+            }
+            Wrote::Unrecorded => {
+                log.push(Self::unrecorded(n));
+                false
+            }
         }
     }
 
