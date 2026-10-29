@@ -563,8 +563,9 @@ mod tests {
     use crate::read::run::Calls;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Once;
     use std::time::Duration;
 
     /// The store of a case: the real store program of this build, so the four
@@ -581,20 +582,74 @@ mod tests {
         dir
     }
 
-    /// The store program of this build. The tests of the store keep it beside
-    /// their harness; the workspace's target directory keeps it beside this one.
+    /// The store program of this build. cargo builds a package's own binary
+    /// beside its harness and names it in `CARGO_BIN_EXE_store`; this harness
+    /// is a library's, so no build of this package makes the store and the
+    /// variable is absent. The directories are tried first because they hold
+    /// the store of the profile under test, `target/<profile>/deps` and
+    /// `target/<profile>`.
+    ///
+    /// A run that built nothing yet is not a failure: `t_store` (test/lib.sh)
+    /// builds the store into a target directory of its own rather than
+    /// requiring it, and this does the same. Building is what keeps these cases
+    /// honest about the program a host runs, so an absent store is built, not
+    /// skipped.
     fn store_binary() -> PathBuf {
-        let deps = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        for cand in [deps.join("store"), deps.parent().unwrap().join("store")] {
-            if cand.exists() {
+        let exe = std::env::current_exe().unwrap();
+        let deps = exe.parent().unwrap();
+        for cand in [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()] {
+            let cand = cand.join("store");
+            if cand.is_file() {
+                return cand;
+            }
+        }
+        build_store();
+        for cand in [deps.to_path_buf(), deps.parent().unwrap().to_path_buf()] {
+            let cand = cand.join("store");
+            if cand.is_file() {
                 return cand;
             }
         }
         panic!("the store of this build is beside the test binary");
+    }
+
+    /// One build of the store for the whole harness, into the directory the
+    /// harness's own profile uses. `Once` because the cases run in parallel and
+    /// cargo's lock makes a second build wait for the first anyway; the build's
+    /// own words are kept for the panic.
+    fn build_store() {
+        static BUILT: Once = Once::new();
+        let mut outcome: Option<Result<(), String>> = None;
+        BUILT.call_once(|| {
+            let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
+            let profile = if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            };
+            // cargo names the directory when it was asked for one of its own;
+            // the workspace's default is one above this package's manifest.
+            let target = std::env::var_os("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../target"));
+            let built = std::process::Command::new("cargo")
+                .arg("build")
+                .args(["--locked", "--offline", "--quiet", "--manifest-path"])
+                .arg(&manifest)
+                .args(["--target-dir"])
+                .arg(&target)
+                .args(["-p", "store"])
+                .arg(format!("--{profile}"))
+                .output();
+            outcome = Some(match built {
+                Ok(out) if out.status.success() => Ok(()),
+                Ok(out) => Err(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+                Err(e) => Err(format!("cargo: {e}")),
+            });
+        });
+        if let Some(Err(words)) = outcome.as_ref() {
+            panic!("the store of this build could not be built: {words}");
+        }
     }
 
     /// A store that answers, with the calls it was made written under `count`

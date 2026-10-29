@@ -4,7 +4,8 @@
 
 use crate::db;
 use crate::live;
-use crate::{execute, parse, ReviewIssue, Settings, Verb};
+use crate::review_issue;
+use crate::{execute, parse, ReviewFile, ReviewIssue, Settings, Verb};
 use rusqlite::Connection;
 use serde_json::{json, Value};
 use std::fs;
@@ -2037,11 +2038,11 @@ fn review_issue_escapes_an_answer_whose_body_holds_newlines_and_quotes() {
 }
 
 #[test]
-fn review_issue_answers_a_title_that_quotes_a_token_as_one_line() {
+fn review_issue_answers_a_title_that_quotes_a_token_masked_and_as_one_line() {
     // The words of a finding are the model's and may hold a secret it saw. The
-    // renderer masks nothing -- the half that files the issue does that, on
-    // the way out -- so what the verb guarantees is that such a body reaches
-    // the answer escaped, as one line the store's reader parses back.
+    // verb answers with the body masked -- the same tehas_core::mask the
+    // console's log of the run goes through -- and one line the store's reader
+    // parses back: what reaches the half that files it is safe to post.
     let home = scratch("review-token");
     // Synthetic filler, the shape the workspace uses for token fixtures
     // (console/src/export.rs): a real token pattern with no token in it, so no
@@ -2064,9 +2065,7 @@ fn review_issue_answers_a_title_that_quotes_a_token_as_one_line() {
     let line: serde_json::Value = serde_json::from_str(&answer).unwrap();
     assert_eq!(
         line["body"],
-        format!(
-            "### Critical\n- [security] instances/example/settings.sh:7: a token is printed: {secret}"
-        )
+        "### Critical\n- [security] instances/example/settings.sh:7: a token is printed: ghp_***"
     );
 }
 
@@ -2088,14 +2087,45 @@ fn review_issue_of_no_findings_answers_the_empty_body() {
 }
 
 #[test]
+fn the_empty_document_of_a_run_that_wrote_nothing_is_a_filing_of_nothing() {
+    // The console makes the document before the container fills it, so a run
+    // whose container said nothing leaves a file of no bytes. It is no JSON,
+    // and it is not a refusal either: it is the document of a run that left no
+    // findings, and the verb that files renders it as one. GitHub is asked
+    // nothing, the answer is the line of a filing of nothing, and the record
+    // of the range moves on as it does for a run that found none.
+    let dir = scratch("file-empty-doc");
+    let gh = stub_gh(&dir);
+    let f = filing("empty-doc", EMPTY_DOC, &[]);
+    fs::write(&f.doc, "").unwrap();
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "nothing");
+    assert_eq!(line["findings"], 0);
+    assert_eq!(line["cost"], 0);
+    assert!(
+        line["said"]
+            .as_str()
+            .unwrap()
+            .starts_with("nothing to file:"),
+        "{line}"
+    );
+    assert!(
+        gh_calls(&gh).is_empty(),
+        "GitHub was asked: {:?}",
+        gh_calls(&gh)
+    );
+}
+
+#[test]
 fn review_issue_refuses_a_document_that_is_not_json() {
     let home = scratch("review-malformed");
     // An array, a string and a number are JSON but no document of a run, and
-    // bytes that are no UTF-8 are no JSON: all of them are refused.
+    // bytes that are no UTF-8 are no JSON: all of them are refused. An empty
+    // file is not among them: it is a run whose container wrote nothing, and
+    // `the_empty_document_of_a_run_that_wrote_nothing` holds what it answers.
     for document in [
         "not json at all",
         "{\"findings\":",
-        "",
         "\u{ff}\u{fe} bytes no UTF-8 decoder takes",
         "[]",
         "\"a string\"",
@@ -2209,6 +2239,544 @@ fn names(home: &Path) -> Vec<String> {
         .collect();
     v.sort();
     v
+}
+
+// --- store review-file ------------------------------------------------------
+
+/// The findings of one run, as the document of a run that found two holds
+/// them, with one word of a finding that the mask takes out and one that the
+/// host's own name is meant to.
+const REVIEW_DOC: &str = concat!(
+    "{\"exitCode\":10,\"verdict\":\"ISSUES_FOUND\",\"noReview\":false,\"findings\":[",
+    "{\"severity\":\"CRITICAL\",\"lens\":\"security\",\"path\":\"lib/config.sh\",\"line\":4,",
+    "\"title\":\"a token is printed\"},",
+    "{\"severity\":\"MEDIUM\",\"lens\":\"simplicity\",\"path\":\"libexec/review\",\"line\":2,",
+    "\"title\":\"a branch that repeats\"}]}",
+);
+
+/// What one filing was given, written to a document of its own, with the two
+/// names of the title and the command's own line. `gh` is looked for on the
+/// path of the call, which is where the cases of the filing put a stub of
+/// their own; `private` is the host's names, one per entry.
+struct Filing {
+    home: PathBuf,
+    doc: PathBuf,
+    ask: review_issue::Ask,
+}
+
+fn filing(name: &str, document: &str, private: &[&str]) -> Filing {
+    let home = scratch(&format!("file-{name}-home"));
+    // A home of the store's own shape, so the verb's own guard on TEHAS_HOME is
+    // met as it is on a host: the filing writes its body under state/.
+    fs::create_dir_all(home.join("state")).unwrap();
+    fs::write(home.join(".tehas-home"), "tehas\n").unwrap();
+    let dir = scratch(&format!("file-{name}-doc"));
+    let doc = dir.join("review-2026-10-28.json");
+    fs::write(&doc, document).unwrap();
+    Filing {
+        home,
+        doc: doc.clone(),
+        ask: review_issue::Ask {
+            repo: "acme/backlog".to_string(),
+            doc,
+            branch: "main".to_string(),
+            commit: "cb6912a".repeat(6),
+            ask: "Apply `tehas:refine` to plan this into parts.".to_string(),
+            private: private.iter().map(|s| s.to_string()).collect(),
+            gh: PathBuf::from("gh"),
+        },
+    }
+}
+
+/// The filing of a case, asked of the `gh` of the case: the verb is given the
+/// stub by name, so a case of the filing runs no GitHub and needs no token. The
+/// stub answers each kind of call from a file of the case and records the call,
+/// which the case reads back with `gh_calls`. The answer is the store's line.
+fn filed(f: &Filing, gh: &Path) -> Value {
+    let mut ask = f.ask.clone();
+    ask.gh = gh.to_path_buf();
+    let body = review_issue::file(&ask, &f.home).expect("the filing answered");
+    assert_eq!(body.lines().count(), 1, "one object is one line: {body}");
+    // The body of the filing is gone when the verb ends: what gh was given was
+    // the run's words, not a record of the host.
+    assert!(
+        !review_issue::body_file(&f.home).exists(),
+        "the body of the filing was left in the home"
+    );
+    let line: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(line["verb"], "review-file");
+    assert_eq!(line["ok"], true);
+    line
+}
+
+/// The calls the stub recorded, one per line, each ending with the kind the
+/// stub read out of it.
+fn gh_calls(gh: &Path) -> Vec<String> {
+    fs::read_to_string(gh.with_extension("calls"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+/// The `gh` of a case: a program of the case's own, which the verb finds on
+/// the path. One line per call goes into `<gh>.calls`; the arguments after the
+/// verb's two words are written as flags, so a body file is not mistaken for a
+/// call. A call of no kind the case named, and a kind with no file, answer as
+/// GitHub does when there is nothing of it; a file holding `fail` refuses.
+fn stub_gh(dir: &Path) -> PathBuf {
+    let bin = dir.join("gh");
+    let body = r#"#!/bin/sh
+# The gh of the store's own tests: one line per call in gh.calls, each ending
+# with the kind read from the arguments, and an answer for the list and for the
+# two calls of the filing from a file of the case (list.answer, create.answer,
+# comment.answer). A kind with no file answers as GitHub does when there is
+# nothing of it; a file that holds the word fail refuses the call.
+set -u
+dir=$(dirname "$0")
+args="$*"
+kind=other
+i=0
+for a in "$@"; do
+  i=$((i + 1))
+  case "$a" in
+    --body-file)
+      # The third word of a comment and the fifth of a create: the number of
+      # the issue tells them apart, not a guess at the position.
+      [ "$2" = comment ] && kind=comment || kind=create
+      j=0
+      for b in "$@"; do
+        j=$((j + 1))
+        [ "$b" = --body-file ] || continue
+        k=$((j + 1))
+        n=0
+        for c in "$@"; do
+          n=$((n + 1))
+          [ "$n" = "$k" ] && cp "$c" "$dir/last.body" 2>/dev/null
+        done
+      done
+      ;;
+    --state) kind=list ;;
+    --json) [ "$kind" = other ] && kind=list ;;
+    --title) kind=create ;;
+    --label) ;;
+  esac
+done
+case "$args" in
+  "issue list "*) kind=list ;;
+  "issue create "*) kind=create ;;
+  "issue comment "*) kind=comment ;;
+esac
+printf '%s %s\n' "$args" "$kind" >>"$dir/gh.calls"
+ans=$dir/$kind.answer
+if [ -f "$ans" ]; then
+  [ "$(cat "$ans")" != fail ] || exit 1
+  [ "$kind" = list ] && { cat "$ans"; exit 0; }
+  rm -f "$dir/last.body"
+  exit 0
+fi
+[ "$kind" = list ] && { echo '[]'; exit 0; }
+exit 0
+"#;
+    fs::write(&bin, body).unwrap();
+    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    bin
+}
+
+/// The answer a case gives for one kind of call, in the directory of the stub.
+fn gh_answer(dir: &Path, kind: &str, answer: &str) {
+    fs::write(dir.join(format!("{kind}.answer")), format!("{answer}\n")).unwrap();
+}
+
+/// The findings of a run that found none: the document answers a body of
+/// nothing, and a filing of nothing asks GitHub nothing.
+const EMPTY_DOC: &str = "{\"exitCode\":0,\"findings\":[]}";
+
+#[test]
+fn review_file_files_the_findings_as_one_issue_of_the_label() {
+    let dir = scratch("file-new");
+    let gh = stub_gh(&dir);
+    let f = filing("new", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["findings"], 2);
+    assert_eq!(line["action"], "issue");
+    assert_eq!(line["number"], Value::Null);
+    assert_eq!(
+        line["said"], "2 findings are filed in acme/backlog",
+        "{line}"
+    );
+    assert_eq!(line["why"], Value::Null);
+    assert_eq!(line["cost"], 2, "the list, then the issue: {line}");
+    let calls = gh_calls(&gh);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls[0].ends_with(" list"), "{}", calls[0]);
+    assert!(
+        calls[0].contains("--label tehas:improvement"),
+        "{}",
+        calls[0]
+    );
+    assert!(calls[0].contains("--json number,title"), "{}", calls[0]);
+    assert!(calls[1].ends_with(" create"), "{}", calls[1]);
+    assert!(
+        calls[1].contains("Six-lens review: 2 findings on main since cb6912a"),
+        "{}",
+        calls[1]
+    );
+    assert!(
+        calls[1].contains("--label tehas:improvement"),
+        "{}",
+        calls[1]
+    );
+    // The body gh was given: the two findings, masked, and the line of the
+    // command last of all, as the command wrote it and not as a finding.
+    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
+    assert_eq!(
+        body,
+        "### Critical\n- [security] lib/config.sh:4: a token is printed\n\n\
+         ### Medium\n- [simplicity] libexec/review:2: a branch that repeats\n\
+         Apply `tehas:refine` to plan this into parts.",
+        "{body}"
+    );
+}
+
+#[test]
+fn review_file_comments_on_the_open_issue_of_the_review_and_files_no_other() {
+    let dir = scratch("file-comment");
+    let gh = stub_gh(&dir);
+    gh_answer(
+        &dir,
+        "list",
+        "[{\"number\":41,\"title\":\"Six-lens review: 2 findings on main since 1111111\"}]",
+    );
+    let f = filing("comment", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "comment");
+    assert_eq!(line["number"], 41);
+    assert_eq!(line["findings"], 2);
+    assert_eq!(
+        line["said"],
+        "2 findings are a comment on #41 of acme/backlog"
+    );
+    assert_eq!(line["cost"], 2, "{line}");
+    let calls = gh_calls(&gh);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls[1].starts_with("issue comment 41"), "{}", calls[1]);
+    assert!(!calls.iter().any(|c| c.contains("create")), "{calls:?}");
+}
+
+#[test]
+fn review_file_of_an_open_issue_of_another_kind_files_a_new_one() {
+    let dir = scratch("file-other");
+    let gh = stub_gh(&dir);
+    gh_answer(&dir, "list", "[{\"number\":41,\"title\":\"Slow tests\"}]");
+    let f = filing("other", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "issue");
+    assert_eq!(line["number"], Value::Null);
+    let calls = gh_calls(&gh);
+    assert!(calls.iter().any(|c| c.ends_with(" create")), "{calls:?}");
+    assert!(!calls.iter().any(|c| c.ends_with(" comment")), "{calls:?}");
+}
+
+#[test]
+fn review_file_of_nothing_to_file_asks_the_host_nothing() {
+    // The two shapes of a run that left no findings: a document of no findings
+    // at all, and one the store will not read as a review document. The first
+    // files nothing and asks nothing; the second is refused at 64 and the
+    // command's own line says the run filed nothing.
+    let dir = scratch("file-none");
+    let gh = stub_gh(&dir);
+    let f = filing("none", EMPTY_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["findings"], 0);
+    assert_eq!(line["action"], "nothing");
+    assert_eq!(line["cost"], 0, "{line}");
+    assert_eq!(
+        line["said"], "nothing to file: cb6912a left no findings",
+        "{line}"
+    );
+    assert!(
+        gh_calls(&gh).is_empty(),
+        "GitHub was asked: {:?}",
+        gh_calls(&gh)
+    );
+
+    // A document that is no document: the filing is refused before GitHub is
+    // asked anything, with the store's own word for the file.
+    let dir = scratch("file-bad");
+    let gh = stub_gh(&dir);
+    let f = filing("bad", "{\"findings\":\"not an array\"}", &[]);
+    // The findings of such a document are none, so the filing asks nothing and
+    // says the run left none, as the command has always said it.
+    let line = review_issue::file(&f.ask, &f.home).unwrap();
+    let line: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(line["findings"], 0);
+    assert!(
+        gh_calls(&gh).is_empty(),
+        "GitHub was asked: {:?}",
+        gh_calls(&gh)
+    );
+}
+
+#[test]
+fn review_file_refuses_a_document_it_cannot_read_and_asks_nothing() {
+    let dir = scratch("file-unreadable");
+    let gh = stub_gh(&dir);
+    let f = filing("unreadable", EMPTY_DOC, &[]);
+    fs::write(&f.doc, "not json at all").unwrap();
+    let (code, why) = review_issue::file(&f.ask, &f.home).unwrap_err();
+    assert_eq!(code, 64, "{why}");
+    assert!(why.starts_with("review-file: "), "{why}");
+    assert!(
+        gh_calls(&gh).is_empty(),
+        "GitHub was asked: {:?}",
+        gh_calls(&gh)
+    );
+}
+
+#[test]
+fn review_file_asks_no_list_of_a_run_that_will_not_be_filed() {
+    // The list is the first call of a filing that has something to file, and
+    // never the first of one that has nothing: the order is what cost 0 and
+    // cost 2 tell apart.
+    let dir = scratch("file-order");
+    let gh = stub_gh(&dir);
+    let f = filing("order", REVIEW_DOC, &[]);
+    filed(&f, &gh);
+    assert_eq!(gh_calls(&gh).len(), 2);
+}
+
+#[test]
+fn review_file_says_why_a_filing_github_refused_did_not_happen() {
+    let dir = scratch("file-refused");
+    let gh = stub_gh(&dir);
+    gh_answer(&dir, "create", "fail");
+    let f = filing("refused", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "nothing");
+    assert_eq!(line["said"], "");
+    assert_eq!(line["why"], "GitHub refused the issue in acme/backlog");
+    assert_eq!(line["cost"], 2, "{line}");
+
+    // The comment of an open issue, refused, names the issue it tried.
+    let dir = scratch("file-comment-refused");
+    let gh = stub_gh(&dir);
+    gh_answer(
+        &dir,
+        "list",
+        "[{\"number\":41,\"title\":\"Six-lens review: 1 findings on main since cb6912a\"}]",
+    );
+    gh_answer(&dir, "comment", "fail");
+    let f = filing("comment-refused", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "nothing");
+    assert_eq!(line["number"], 41);
+    assert_eq!(
+        line["why"], "GitHub refused the comment on #41 of acme/backlog",
+        "{line}"
+    );
+}
+
+#[test]
+fn review_file_of_a_list_that_will_not_answer_files_the_findings_anyway() {
+    // A gh that refuses the list is asked nothing more than the list would
+    // have decided: the findings are filed as new, because a duplicate is read
+    // by a person and a lost finding is not.
+    let dir = scratch("file-list-refused");
+    let gh = stub_gh(&dir);
+    gh_answer(&dir, "list", "fail");
+    let f = filing("list-refused", REVIEW_DOC, &[]);
+    let line = filed(&f, &gh);
+    assert_eq!(line["action"], "issue");
+    assert_eq!(line["cost"], 2, "{line}");
+    let calls = gh_calls(&gh);
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert!(calls[1].ends_with(" create"), "{}", calls[1]);
+}
+
+#[test]
+fn review_file_masks_the_words_of_a_finding_before_gh_sees_them() {
+    // The third finding of the fixture holds a comment marker and a
+    // token-shaped string. The mask is tehas_core::mask, the one the console's
+    // log of the same run goes through; the title of the issue is the
+    // renderer's and holds no word of a finding that the mask would take.
+    let dir = scratch("file-mask");
+    let gh = stub_gh(&dir);
+    let token = format!("ghp_{}", "A".repeat(36));
+    let document = format!(
+        "{{\"findings\":[{{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"gives <!-- sly --> and {token}\"}}]}}"
+    );
+    let f = filing("mask", &document, &[]);
+    filed(&f, &gh);
+    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
+    assert!(!body.contains("<!-- sly -->"), "{body}");
+    assert!(body.contains("<\\!-- sly"), "{body}");
+    assert!(!body.contains(&format!("ghp_{}", "A".repeat(36))), "{body}");
+    assert!(body.contains("ghp_***"), "{body}");
+    // The command's own line, put on after the masking, is there as written.
+    assert!(body.ends_with("Apply `tehas:refine` to plan this into parts."));
+}
+
+/// The names of the host, among the findings. The mask keeps the first call's
+/// names for the process (the OnceLock of tehas_core::mask), and a program
+/// that masks two runs with two lists would keep the first; the console sets
+/// the names once, before its one run writes either of its two files, and the
+/// filing does the same. So this is the one case of the filing that names any,
+/// and the one above gives none.
+#[test]
+fn review_file_hides_the_names_the_command_gave_it() {
+    // What belongs to the host and nobody else: the aliases, the endpoints,
+    // the bot's email. The command hands the list to the verb, which masks them
+    // among the findings as the console masks them in the log of the run. The
+    // names are a OnceLock of the process, the first call's, as in the console,
+    // so this is the one case of the filing that names any.
+    let dir = scratch("file-private");
+    let gh = stub_gh(&dir);
+    let document = "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"the host is tehas-host-alias\"}]}";
+    let f = filing("private", document, &["tehas-host-alias"]);
+    let mut ask = f.ask.clone();
+    ask.gh = gh.clone();
+    // The names go to the mask as the command's own entry does: once, before
+    // the verb is run (main.rs's ReviewFile).
+    tehas_core::mask::set_private(ask.private_names()).unwrap();
+    review_issue::file(&ask, &f.home).unwrap();
+    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
+    // The name is a name of the host as the mask sees one: four characters at
+    // the least, and not a word the mask's own output writes.
+    assert!(
+        body.contains("[private name]"),
+        "the name of the host is hidden: {body}"
+    );
+    assert!(!body.contains("tehas-host-alias"), "{body}");
+}
+
+#[test]
+fn review_file_writes_the_body_where_no_other_account_reads_it() {
+    // The body is the model's words, and gh, a program of the host, is given
+    // the file. It is written 0600 in the directory of 0700 the store's own
+    // file lives in, and it goes when the verb ends.
+    let dir = scratch("file-mode");
+    let gh = stub_gh(&dir);
+    let f = filing("mode", REVIEW_DOC, &[]);
+    let mut ask = f.ask.clone();
+    ask.gh = gh.clone();
+    let line = review_issue::file(&ask, &f.home).unwrap();
+    assert!(line.contains("review-file"), "{line}");
+    assert!(!review_issue::body_file(&f.home).exists());
+    // The body the stub was handed is the run's words, and no file of the
+    // filing is left in the home: what gh read is gone with the verb.
+    let body = fs::read_to_string(dir.join("last.body")).expect("the body file");
+    assert!(body.contains("a branch that repeats"), "{body}");
+    assert!(
+        !review_issue::body_file(&f.home).exists(),
+        "state/ holds no body of the filing"
+    );
+}
+
+#[test]
+fn review_file_writes_nothing_else_to_the_home() {
+    let dir = scratch("file-quiet");
+    let gh = stub_gh(&dir);
+    let f = filing("quiet", REVIEW_DOC, &[]);
+    let before: Vec<String> = names(&f.home.join("state"));
+    filed(&f, &gh);
+    // The body the calls were made with is gone, and nothing else was written:
+    // the filing opens no database and keeps no record of its own.
+    assert_eq!(names(&f.home.join("state")), before, "{:?}", before);
+    assert!(!review_issue::body_file(&f.home).exists());
+    assert!(
+        !f.home.join("state").join("tehas.db").exists(),
+        "the filing opened the database"
+    );
+}
+
+#[test]
+fn review_file_names_its_arguments_and_refuses_any_other_shape() {
+    let good = |extra: &[&str]| {
+        let mut v = vec![
+            "review-file".to_string(),
+            "--repo".to_string(),
+            "acme/backlog".to_string(),
+            "--doc".to_string(),
+            "/a.json".to_string(),
+            "--branch".to_string(),
+            "main".to_string(),
+            "--commit".to_string(),
+            "cb6912a".to_string(),
+            "--ask".to_string(),
+            "Apply it.".to_string(),
+        ];
+        v.extend(extra.iter().map(|s| s.to_string()));
+        v
+    };
+    assert_eq!(
+        parse(&good(&[])),
+        Some(Verb::ReviewFile(ReviewFile {
+            repo: "acme/backlog".to_string(),
+            doc: PathBuf::from("/a.json"),
+            branch: "main".to_string(),
+            commit: "cb6912a".to_string(),
+            ask: "Apply it.".to_string(),
+            private: vec![],
+            gh: PathBuf::from("gh"),
+        }))
+    );
+    assert_eq!(
+        parse(&good(&["--json", "--private", "tehas-host"])).map(|v| match v {
+            Verb::ReviewFile(r) => r.private,
+            _ => panic!("not a filing"),
+        }),
+        Some(vec!["tehas-host".to_string()])
+    );
+    // Any name outside its grammar, a flag twice, a flag of no value, a flag
+    // the verb does not know, or a name the command did not write: all refused
+    // by parse, so main prints the usage and GitHub is asked nothing.
+    for bad in [
+        vec![],
+        good(&["--ask", "twice"]),
+        good(&["--repo", "other/backlog"]),
+        good(&["--private"]),
+        good(&["--repo"]),
+        good(&["--other", "x"]),
+        good(&["/extra"]),
+        good(&["--ask", "two\nlines"]),
+        good(&["--ask", ""]),
+        good(&["--private", "short\u{1}name"]),
+        good(&["--repo", "acme/"]),
+        good(&["--repo", "/backlog"]),
+        good(&["--repo", "acme/backlog/extra"]),
+        good(&["--repo", "acme/back\u{e5}log"]),
+        good(&["--branch", " main"]),
+        good(&["--branch", "main;rm"]),
+        good(&["--commit", "cb6912"]),
+        good(&["--commit", "CB6912A"]),
+    ] {
+        assert_eq!(parse(&bad), None, "{bad:?}");
+    }
+}
+
+#[test]
+fn the_title_prefix_is_the_renderers() {
+    // The filing recognises its own issues by the prefix of the title, and the
+    // renderer makes the title: the two are one string, and a change to either
+    // alone would file a second issue for a range that is already filed.
+    let dir = scratch("file-prefix");
+    let answer = review_issue(
+        &dir,
+        "file-prefix",
+        "{\"findings\":[{\"severity\":\"HIGH\",\"lens\":\"security\",\"path\":\"a.rs\",\"line\":1,\"title\":\"t\"}]}",
+    )
+    .unwrap();
+    let line: Value = serde_json::from_str(&answer).unwrap();
+    assert!(
+        line["title"]
+            .as_str()
+            .unwrap()
+            .starts_with(review_issue::TITLE_PREFIX),
+        "{}",
+        line["title"]
+    );
+    assert_eq!(review_issue::TITLE_PREFIX, "Six-lens review:");
 }
 
 // --- store batch ------------------------------------------------------------
