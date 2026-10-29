@@ -1,5 +1,5 @@
 //! `factory_log`: one log file of one session, masked, plain in pieces or
-//! whole gzipped, and the search over those logs.
+//! whole gzipped, and `factory_search`: the search over those logs.
 //!
 //! The logs directory also holds the host's own logs. A file is opened only
 //! by a name the session's snapshot line holds, after that name matches the
@@ -38,6 +38,15 @@ pub const SEARCH_BYTES_MAX: u64 = 8 * 1024 * 1024;
 /// The most a match's line is cut to, in characters. A transcript line is
 /// long, and an answer of whole lines would be the log again.
 const MATCH_LINE: usize = 400;
+/// The most a `factory_search` answer holds, and the default. `limit` of the
+/// tool may ask for fewer; the search of the rest answers with what is left.
+const DEFAULT_LIMIT: u64 = 50;
+/// The most session ids one `factory_search` is given.
+const IDS_MAX: usize = 50;
+/// The bytes one `factory_search` call reads through. The tool always asks
+/// with it: `bytes` is not an argument of the tool, so a caller cannot trade
+/// memory for reach.
+const CALL_BYTES: u64 = SEARCH_BYTES_MAX;
 
 pub const WORDS: [&str; 7] = [
     "transcript",
@@ -254,7 +263,11 @@ fn bad(why: &str) -> ToolError {
     ToolError::BadArgs(why.to_string())
 }
 
-/// The tool, for `tools::list`.
+/// The shape of a tool of `tools::list`: name, description, the two schemas.
+fn described(name: &str, description: &str, input: Value, output: Value) -> Value {
+    json!({"name": name, "description": description, "inputSchema": input, "outputSchema": output})
+}
+
 pub fn tool() -> Value {
     let int = |desc: &str| json!({"type": "integer", "description": desc});
     let text = |desc: &str| json!({"type": "string", "description": desc});
@@ -279,6 +292,53 @@ pub fn tool() -> Value {
             "gzipBytes": int("gzip: the size of the compressed file."),
         }, "required": ["api"]},
     })
+}
+
+fn arr(item: Value, desc: &str) -> Value {
+    json!({"type": "array", "description": desc, "items": item})
+}
+
+/// `factory_search`, for `tools::list`: the matches of the logs of the
+/// sessions one call names, and, when the reading stopped early, the place it
+/// stopped at. The answer's two words, `id` for the session and `file` for the
+/// log, are the words of `Found` - `word` for the reader of one log, `file` for
+/// the caller, who asks for a log by that word. Of a session the search read,
+/// the offset of a match is one to give `factory_log` for that log, and the
+/// `next` of an answer that stopped is where its reading got to.
+pub fn search_tool() -> Value {
+    let int = |desc: &str| json!({"type": "integer", "description": desc});
+    let text = |desc: &str| json!({"type": "string", "description": desc});
+    described(
+        "factory_search",
+        "The lines of the masked logs of the last 30 days that hold a fixed string, of one issue's sessions or of sessions named by id: not a pattern, and not a regular expression. Each match names its session, its log by word, the line cut to 400 characters, and its offset in masked bytes, which is one to give factory_log. When the answer stops early it gives next, the session, the word and the offset of the rest; read on with that session's logs. Files over 16 MiB are not read, and two logs are sent at a time, as for factory_log.",
+        json!({"type": "object", "properties": {
+            "text": {"type": "string", "minLength": TEXT_MIN, "maxLength": TEXT_MAX, "description": "The fixed string a line must contain, 3 to 200 characters."},
+            "issue": {"type": "integer", "minimum": 1, "description": "The issue whose sessions to search. Give this or ids."},
+            "ids": {"type": "array", "items": {"type": "string", "pattern": sessions::ID.as_str()}, "maxItems": IDS_MAX, "description": "The sessions to search, at most 50 ids from factory_sessions. Give this or issue."},
+            "files": {"type": "array", "items": {"type": "string", "enum": WORDS}, "description": "Only these logs, by word. All the logs of each session without it."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": MATCHES_MAX, "description": "How many matches to return, from 1 to 200. 50 without it."},
+        }, "required": ["text"], "additionalProperties": false}),
+        json!({"type": "object", "properties": {
+            "api": int("The API version, 1."),
+            "days": int("The days the snapshot covers."),
+            "stale": {"type": "boolean", "description": "True when the snapshot is more than ten minutes old."},
+            "sessions": int("How many sessions the search read."),
+            "matches": arr(
+                json!({"type": "object", "properties": {
+                    "id": text("The session the line was read from."),
+                    "file": text("The word of its log."),
+                    "offset": int("Where the line starts, in masked bytes: one to give factory_log."),
+                    "line": text("The line, cut to 400 characters, with its newline."),
+                }}),
+                "The matches, in the order the sessions were read.",
+            ),
+            "next": json!({"type": "object", "description": "Where the reading stopped: the rest of that session's log follows from there.", "properties": {
+                "id": text("The session it stopped in."),
+                "file": text("The word of its log."),
+                "offset": int("Where the rest starts, in masked bytes."),
+            }}),
+        }, "required": ["api"]}),
+    )
 }
 
 pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
@@ -406,6 +466,190 @@ fn listed_of(s: &Value) -> Vec<&Value> {
     s["logs"].as_array().into_iter().flatten().collect()
 }
 
+/// `factory_search`: the matches of the logs of the sessions one call names,
+/// and the place its reading stopped. The two words of the tool's answer, the
+/// one to say who it was and the one to say which of its logs, are the words of
+/// `Found` - `word` for the reader of one log, `file` for the caller, who asks
+/// for a log by that word. The place of `next` is always past the last line the
+/// answer holds, as it is for `factory_log`, whose `next` is past the last byte
+/// it answered: of a log the reading could not reach at all the call says
+/// nothing, because it has answered nothing of it.
+pub(crate) fn search_call(dirs: &Dirs, args: &Value) -> Result<(Output, LogGuard), ToolError> {
+    // The arguments first: a call that asks for nothing to search reads no
+    // file, so it takes no place of the two that are sent at a time. An argument
+    // the tool does not have is refused rather than left out, so a caller that
+    // means `bytes` of `factory_log` is told the search has no such argument and
+    // not answered as one that asked for nothing of the kind. Bytes that are not
+    // an object at all are refused the same way, as every other tool refuses
+    // them by indexing, which reads `null` for anything that is not a member of
+    // an object: a `tools/call` whose arguments are `"hit"` or `null` answers a
+    // tool error here and does not unwind the request.
+    let Some(map) = args.as_object() else {
+        return Err(bad(
+            "arguments are an object of text, issue or ids, files and limit",
+        ));
+    };
+    for key in map.keys() {
+        if !["text", "issue", "ids", "files", "limit"].contains(&key.as_str()) {
+            return Err(bad(&format!(
+                "{key} is not an argument: text, issue or ids, files and limit are"
+            )));
+        }
+    }
+    let text = match args["text"].as_str() {
+        Some(t) => t,
+        None => return Err(bad("text is a string of 3 to 200 characters")),
+    };
+    let (issue, ids) = (&args["issue"], &args["ids"]);
+    if !issue.is_null() && !ids.is_null() {
+        return Err(bad("give issue or ids, not both"));
+    }
+    let issue = if issue.is_null() {
+        None
+    } else {
+        Some(
+            issue
+                .as_u64()
+                .filter(|n| *n > 0)
+                .ok_or_else(|| bad("issue is a positive integer"))?,
+        )
+    };
+    let ids: Option<Vec<&str>> = match ids {
+        Value::Null => None,
+        Value::Array(a) if a.is_empty() => None,
+        Value::Array(a) => {
+            if a.len() > IDS_MAX {
+                return Err(bad(&format!("ids is at most {IDS_MAX} session ids")));
+            }
+            let mut some = Vec::with_capacity(a.len());
+            for id in a {
+                let id = id
+                    .as_str()
+                    .filter(|s| sessions::ID.is_match(s))
+                    .ok_or_else(|| bad("ids are ids like work-12-1792485967"))?;
+                some.push(id);
+            }
+            Some(some)
+        }
+        _ => return Err(bad("ids is a list of session ids")),
+    };
+    if issue.is_none() && ids.is_none() {
+        // Of an argument given as `{}` or `[]` the tool has no sessions to read,
+        // and an answer of nothing would be the answer of a search that looked
+        // and found none. The caller is told which of the two it has to give.
+        return Err(bad("give issue or ids"));
+    }
+    let files: Option<Vec<&str>> = match &args["files"] {
+        Value::Null => None,
+        Value::Array(a) => {
+            let mut some = Vec::with_capacity(a.len());
+            for w in a {
+                let w = w
+                    .as_str()
+                    .filter(|w| WORDS.contains(w))
+                    .ok_or_else(|| bad(&format!("files are words of {}", WORDS.join(", "))))?;
+                some.push(w);
+            }
+            Some(some)
+        }
+        _ => return Err(bad("files is a list of log words")),
+    };
+    let limit = match &args["limit"] {
+        Value::Null => DEFAULT_LIMIT,
+        v => v
+            .as_u64()
+            .filter(|n| (1..=MATCHES_MAX).contains(n))
+            .ok_or_else(|| bad(&format!("limit is from 1 to {MATCHES_MAX}")))?,
+    };
+
+    // The sessions of the snapshot the call names, in the snapshot's own order:
+    // newest first, which is the order the matches of the answer come in.
+    let snap = Snapshot::open(&dirs.sessions, tools::now())?;
+    let mut wanted: Vec<Value> = match (&issue, &ids) {
+        (Some(n), _) => snap
+            .sessions()
+            .filter(|s| s["issue"].as_u64() == Some(*n))
+            .collect(),
+        (_, Some(list)) => {
+            let mut left: Vec<&str> = list.clone();
+            let mut found: Vec<Value> = Vec::with_capacity(list.len());
+            for s in snap.sessions() {
+                // One session answers for its id however often the caller names
+                // it, so every name of it is taken out of the list at once: what
+                // is left at the end is a name of no session.
+                match s["id"].as_str().and_then(|id| {
+                    left.iter()
+                        .position(|w| *w == id)
+                        .map(|at| (at, left.iter().filter(|w| **w == id).count()))
+                }) {
+                    Some((at, n)) => {
+                        left.drain(at..at + n);
+                        found.push(s);
+                    }
+                    None => continue,
+                }
+            }
+            if let Some(id) = left.first() {
+                // The first id of no session, in the order the caller gave them.
+                return Err(bad(&format!(
+                    "no session {id} in the last {} days",
+                    snap.days
+                )));
+            }
+            found
+        }
+        _ => unreachable!("issue or ids is given above"),
+    };
+
+    let place =
+        acquire().ok_or_else(|| bad("two logs are being sent; try again in a few seconds"))?;
+    // A snapshot line is one session, so it cannot hold two of a name; a
+    // request can. Of a session named twice, one reading: a match would else be
+    // answered once per name.
+    if let Some(ids) = &ids {
+        let mut left: Vec<&str> = ids.clone();
+        wanted.retain(|s| {
+            match s["id"]
+                .as_str()
+                .and_then(|id| left.iter().position(|w| *w == id))
+            {
+                Some(at) => {
+                    left.remove(at);
+                    true
+                }
+                None => false,
+            }
+        });
+    }
+    let read = wanted.len() as u64;
+    let (found, next) = search(dirs, &wanted, text, files.as_deref(), limit, CALL_BYTES)?;
+
+    let matches: Vec<Value> = found
+        .iter()
+        .map(|f| {
+            json!({
+                "id": f.id,
+                "file": f.word,
+                "offset": f.offset,
+                "line": f.line,
+            })
+        })
+        .collect();
+    let mut out = Map::new();
+    out.insert("api".into(), json!(1));
+    out.insert("days".into(), json!(snap.days));
+    out.insert("stale".into(), json!(snap.stale));
+    out.insert("sessions".into(), json!(read));
+    out.insert("matches".into(), Value::Array(matches));
+    if let Some(r) = next {
+        out.insert(
+            "next".into(),
+            json!({"id": r.id, "file": r.word, "offset": r.offset}),
+        );
+    }
+    Ok((Output::Json(Value::Object(out)), place))
+}
+
 /// One line of a masked log: its text, and where it stands in the masked text
 /// of the file, whose newline each line keeps as the whole-file reader keeps it.
 /// `start` is an offset a match gives and one to give `factory_log`; `end` is
@@ -422,10 +666,10 @@ struct MaskedLine {
 /// to give `factory_log`. `from` is one of those offsets: a line that begins
 /// before it is read and masked, but not kept, because the search reads on from
 /// where a `Resume` left off and a line is one unit of it - the line that holds
-/// a `from` in the middle of it is read and masked for nothing. A resumed
-/// reading that kept no line at all read the file for nothing: the cap was
-/// spent before its reading got past the offset, and what lies past it is
-/// beyond this search, which is what says the log is done. The reading stops at
+/// a `from` in the middle of it is read and masked for nothing. A reading that
+/// kept no line at all read the file for nothing: the cap was spent before its
+/// reading got past the offset, and it has no line to answer from. The reading
+/// stops at
 /// the last line that ends within `stop` raw bytes, which it says with
 /// `stopped`, and gives the bytes it read so the cap of a whole search can be
 /// shared out. Nothing past the cap is read, so a cap never cuts a line in two,
@@ -523,11 +767,12 @@ fn logs_with_resume(s: &Value) -> Result<Vec<LogFile<'_>>, ToolError> {
     Ok(out)
 }
 
-/// One line a search found, and where it is: the word of the log it was read
-/// from, its offset in masked bytes - one to give `factory_log` - and the line
-/// itself, cut to `MATCH_LINE` characters with its newline kept as the masked
-/// text keeps it.
+/// One line a search found, and where it is: the session it was read from, the
+/// word of the log it was read from, its offset in masked bytes - one to give
+/// `factory_log` - and the line itself, cut to `MATCH_LINE` characters with its
+/// newline kept as the masked text keeps it.
 pub struct Found<'a> {
+    pub id: &'a str,
     pub word: &'a str,
     pub offset: u64,
     pub line: String,
@@ -549,9 +794,12 @@ pub struct Found<'a> {
 /// that one log is read, from that offset on, and every other record keeps its
 /// own way on, so the rest of one log never hides another session's lines. The
 /// offset is the end of the last line the answer holds, so no line is in two
-/// answers at once. The answer of a reading the cap spent before it reached a
-/// line of its own is that the log is done: it holds none, and the way on of a
-/// log reads it no further.
+/// answers at once, and a `next` never names a byte the answer did not answer.
+/// A log whose reading the cap spent before it kept a line of its own is left
+/// out of the call - it has no line to answer from, so no `next` of its own -
+/// and the reading goes on to the logs behind it with whatever the cap has left,
+/// which is none. What lies past such a log is reached by the way on of the log
+/// whose lines the answer holds, or by a later call.
 pub fn search<'a>(
     dirs: &Dirs,
     sessions: &'a [Value],
@@ -594,7 +842,8 @@ pub fn search<'a>(
             return Err(bad("id is like work-12-1792485967"));
         }
         // Of a record that carries a `searchResume` only the log it names is
-        // read, from its offset on; of the rest, every log `files` names.
+        // read, from its offset on: of the rest, every log `files` names, or
+        // every log of the session without them.
         let resumed = s["searchResume"]["word"].as_str();
         let wanted = |word: &str| match resumed {
             Some(w) => w == word,
@@ -625,6 +874,7 @@ pub fn search<'a>(
                     continue;
                 }
                 found.push(Found {
+                    id,
                     word: l.word,
                     offset: line.start,
                     line: cut(&line.text),
@@ -644,24 +894,24 @@ pub fn search<'a>(
                 // Where a stopped reading leaves this log: the end of the last
                 // line the answer holds, and the rest of the log follows from
                 // there, past that line and so never the offset it came from.
-                // A resumed reading that kept no line read the file for nothing:
-                // the cap was spent on bytes the answer already holds, so the
-                // log is done, and a `next` naming the offset the caller resumed
-                // from would be a way on that is no way on.
-                let to = match lines.last() {
-                    Some(last) => last.end,
-                    // The reading holds no line: past the offset it came from
-                    // there is nothing of this log left to answer, and at it the
-                    // answer would say nothing new.
-                    None if l.offset > 0 => continue,
-                    None => l.offset,
+                // A reading that kept no line has nothing to move on: the cap
+                // was spent on bytes the answer does not hold. `next` always
+                // names the place past the last byte the answer answered, so of
+                // such a log the call has no way on to give, and the reading
+                // goes on to the log behind it with whatever the cap has left -
+                // none - rather than ending the call at a log it read for
+                // nothing. The rest is answered by the way on of the log whose
+                // lines the answer holds, or by a later call.
+                let Some(last) = lines.last() else {
+                    left = 0;
+                    continue;
                 };
                 return Ok((
                     found,
                     Some(Resume {
                         id,
                         word: l.word,
-                        offset: to,
+                        offset: last.end,
                     }),
                 ));
             }
