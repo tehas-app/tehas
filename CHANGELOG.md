@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- A health file that could not read the failed units says so. When the
+  `systemctl --user --failed 'tehas-*'` read does not answer, `libexec/health`
+  leaves `--units` out and the console writes `checks.units` as `null` instead
+  of `[]`, so the file carries no units check rather than a passed one, and
+  raises no warning from a list it never read. An empty read is still `[]`
+  (#1055).
 
 ### Adopter action
 
