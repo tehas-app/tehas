@@ -45,11 +45,13 @@
 #     versions.env, and is checked whenever it is set: release, branch:<name>
 #     or commit:<40 hex>.
 #   - Loading runs no git command, makes no network call and writes nothing.
-#     TEHAS_PLAN_TIMEOUT_MAX and TEHAS_CHILD_TIMEOUT_MAX, the ceiling of a
-#     planning turn and the bound of one child, are local to tehas_load.
+#     TEHAS_PLAN_TIMEOUT_MAX and TEHAS_CHILD_TIMEOUT_MAX, the ceiling of a planning
+#     turn and the bound of one child, are local to tehas_load.
 #   - TEHAS_IMPROVE_REPO switches the improvement loop on; unset, there is
 #     none. TEHAS_IMPROVE_RUKAS_REPO needs it and not TEHAS_IMPROVE_RUKAS_SKIP=1.
 #     Neither is TEHAS_REPO: a person triages findings before they are tickets.
+#     TEHAS_REVIEW is the review loop's switch: 0, the default, and tehasbot
+#     review exits at once and calls nothing.
 #   - TEHAS_GITHUB_APP_ID, TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN
 #     name the GitHub App the factory acts as (lib/github-app.sh), all three or
 #     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
@@ -170,7 +172,7 @@ _tehas_valid() {
     TEHAS_LAYOUT)
       case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP | TEHAS_REVIEW)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     TEHAS_ANALYTICS_SRC)
@@ -507,9 +509,9 @@ tehas_load() {
   # The two bounds of the measure tehas work makes of an approved body, in
   # bytes and in lines (lib/sizing.sh).
   export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072} TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
-  # The factory's own 365 days of runs, events and samples in
-  # state/analytics.db (lib/analytics.sh), not the visitor analytics above. On
-  # unless the instance says off, which stops every write.
+  # The factory's own 365 days of runs, events and samples in state/analytics.db
+  # (lib/analytics.sh), not the visitor analytics above: on unless the instance
+  # says off, which stops every write.
   export TEHAS_ANALYTICS=${TEHAS_ANALYTICS:-on}
   # The improvement loop: the repository it files its findings in (unset, there
   # is no loop, nothing is recorded of a cycle and tehasbot improve does
@@ -518,39 +520,39 @@ tehas_load() {
   # issues may stay open in one repository before it files no more there.
   export TEHAS_IMPROVE_REPO=${TEHAS_IMPROVE_REPO:-} TEHAS_IMPROVE_RUKAS_REPO=${TEHAS_IMPROVE_RUKAS_REPO:-}
   export TEHAS_IMPROVE_RUKAS_SKIP=${TEHAS_IMPROVE_RUKAS_SKIP:-0} TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
-  # Where `tehasbot review` files the findings of a run: off until the instance
-  # names one, as the loop's two above are. Never TEHAS_REPO: the check below
-  # refuses it, since a person triages a model's findings into tickets first.
-  export TEHAS_REVIEW_REPO=${TEHAS_REVIEW_REPO:-}
+  # Where `tehasbot review` files the findings of a run, off until the instance
+  # names one as the loop's two above are (never TEHAS_REPO: the check below
+  # refuses it). TEHAS_REVIEW is whether it reviews at all: off, since it is an
+  # agent on a timer with no person in front of it.
+  export TEHAS_REVIEW_REPO=${TEHAS_REVIEW_REPO:-} TEHAS_REVIEW=${TEHAS_REVIEW:-0}
   # The millwright: the account whose tehas:ready the dispatcher takes on its own
-  # grant (unset, there is none), its ceiling of cycles on one issue since a
-  # person last approved it, its ceiling of planning questions per session.
+  # grant (unset, none), its ceiling of cycles on one issue since a person last
+  # approved it, and its ceiling of planning questions a session may get.
   export TEHAS_MILLWRIGHT_LOGIN=${TEHAS_MILLWRIGHT_LOGIN:-} TEHAS_MILLWRIGHT_MAX_RETRIES=${TEHAS_MILLWRIGHT_MAX_RETRIES:-2} TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=${TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS:-3}
   # The GitHub App the factory acts as, or none (lib/github-app.sh).
   export TEHAS_GITHUB_APP_ID=${TEHAS_GITHUB_APP_ID:-} TEHAS_GITHUB_APP_INSTALLATION=${TEHAS_GITHUB_APP_INSTALLATION:-} TEHAS_BOT_LOGIN=${TEHAS_BOT_LOGIN:-}
   # Refreshes: whether the factory resolves conflicts in its own pull requests
-  # that wait for a merge (off unless the instance says so: it starts cycles
-  # with no fresh label), how many of one pull request since the person's
-  # approval its cycle rests on, the minutes between two runs of tehasbot
-  # refresh, and how many run in a lane of their own, 0 for none: then they
-  # share the cycles' slots.
+  # that wait for a merge (off unless the instance says so: it starts cycles with
+  # no fresh label), how many of one pull request since the person's approval its
+  # cycle rests on, the minutes between two runs of tehasbot refresh, and how many
+  # run in a lane of their own, 0 for none: then they share the cycles' slots.
   export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0} TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
   export TEHAS_REFRESH_EVERY=${TEHAS_REFRESH_EVERY:-10} TEHAS_REFRESH_SLOTS=${TEHAS_REFRESH_SLOTS:-1}
   # The check on the branch's head commit whose failure holds new cycles back.
   # Unset, the poll does not ask.
   export TEHAS_BRANCH_CHECK=${TEHAS_BRANCH_CHECK:-}
-  # The command that decides whether the lowest issues may start, and the
-  # seconds it gets before its answer is a closed gate. Unset, there is no gate
-  # and every ready issue is started as before.
+  # The command that decides whether the lowest issues may start, and the seconds
+  # it gets before its answer is a closed gate; unset, there is no gate and every
+  # ready issue starts as before.
   export TEHAS_LOW_GATE=${TEHAS_LOW_GATE:-} TEHAS_LOW_GATE_WAIT=${TEHAS_LOW_GATE_WAIT:-60}
-  # Settings that only work around a pi-rukas defect, each with the release
-  # that fixes it. tehas work refuses a cycle once the image has that release,
-  # so a workaround does not outlive its reason. The address the docs server and
+  # Settings that only work around a pi-rukas defect, each with the release that
+  # fixes it: tehas work refuses a cycle once the image has that release, so a
+  # workaround does not outlive its reason. And the address the docs server and
   # the edge router bind to.
   export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-} TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review: a fixed
   # number would leave slots that can never be used. A concurrency that is not a
-  # number is refused below.
+  # number is refused below and leaves the floor of three.
   v=3
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
@@ -564,8 +566,8 @@ tehas_load() {
   # more thing a container is given and the images need a model that reads them.
   export TEHAS_WORK_IMAGES=${TEHAS_WORK_IMAGES:-0} TEHAS_WORK_DESCRIBE=${TEHAS_WORK_DESCRIBE:-0}
   export TEHAS_WORK_FILES=${TEHAS_WORK_FILES:-0} TEHAS_WORK_COMMENTS=${TEHAS_WORK_COMMENTS:-0}
-  # Whether a zip the issue links is unpacked into the same directory: an
-  # archive holds anything, so it is opt-in on top of the images or the files.
+  # Whether a zip the issue links is unpacked into the same directory: an archive
+  # holds anything, so it is opt-in on top of the images or the files.
   export TEHAS_WORK_ZIPS=${TEHAS_WORK_ZIPS:-0}
   # A planning session: how many turns it may take, and how long one turn may.
   # TEHAS_PLAN_TIMEOUT_MAX, kept out of the environment, is the one place the
@@ -575,16 +577,15 @@ tehas_load() {
   # a turn gets RuntimeMaxSec = the limit + 900 (lib/planning.sh).
   local TEHAS_PLAN_TIMEOUT_MAX=7200
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20} TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-$TEHAS_PLAN_TIMEOUT_MAX}
-  # Previews of pull requests and the names of the edge: off, and no names,
-  # unless the instance says so. How many run at once, and the free disk below
-  # which none is built.
+  # Previews of pull requests and the names of the edge: off, and no names, unless
+  # the instance says so; how many run at once, and the free disk under which
+  # none is built.
   export TEHAS_DOMAIN=${TEHAS_DOMAIN:-} TEHAS_PREVIEWS=${TEHAS_PREVIEWS:-0}
   export TEHAS_PREVIEW_MAX=${TEHAS_PREVIEW_MAX:-5} TEHAS_PREVIEW_MIN_FREE=${TEHAS_PREVIEW_MIN_FREE:-5g}
   # Free disk below which the dispatcher starts no cycle, and below which tehasbot
   # clean takes build output and Docker's build cache whatever their age (the
   # 2026-10-20 outage, when the host disk filled and every running cycle died). The
-  # cleaner's hold sits above the dispatcher's, so space goes before the host stops
-  # starting work.
+  # cleaner's hold sits above the dispatcher's, so space goes before work stops.
   export TEHAS_CYCLE_MIN_FREE=${TEHAS_CYCLE_MIN_FREE:-10g} TEHAS_CLEAN_MIN_FREE=${TEHAS_CLEAN_MIN_FREE:-30g}
   # The sandbox image, the private names it must resolve, and how many workstreams
   # one cycle runs side by side inside it: pi-rukas reads the last name, and its
@@ -602,17 +603,16 @@ tehas_load() {
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
   # The most files an issue's own body may name before the dispatcher holds it
-  # instead of starting a cycle on it (libexec/dispatch, lib/sizing.sh): unset,
-  # the dispatcher never asks the measure, and an empty value stays empty rather
-  # than become a ceiling.
+  # instead of starting a cycle (libexec/dispatch, lib/sizing.sh): unset, it never
+  # asks, and an empty value stays empty rather than become a ceiling.
   export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
-  # Agents get neither the host Docker socket nor SSH keys. Not a setting.
+  # Agents get neither the host Docker socket nor SSH keys: not a setting here.
   export PI_ENSEMBLE_NO_DOCKER_SOCKET=1 PI_ENSEMBLE_NO_SSH=1
   # The bound of one child of a cycle: tehas work passes it to the container as
-  # PI_ENSEMBLE_SPAWN_TIMEOUT_MS. TEHAS_CHILD_TIMEOUT_MAX is the one place that
-  # bound is written: pi-rukas's own two hours. A written-but-empty line is swept
-  # away above, so the default comes after that sweep, not from the export's :-
-  # alone. The bounds below hold it at or under TEHAS_WORK_TIMEOUT, and
+  # PI_ENSEMBLE_SPAWN_TIMEOUT_MS, and TEHAS_CHILD_TIMEOUT_MAX, the one place that
+  # bound is written, is pi-rukas's own two hours. A written-but-empty line goes
+  # away above, so the default comes after that sweep and not from the export's
+  # :- alone; the bounds below keep it under TEHAS_WORK_TIMEOUT and
   # test/config_test.sh pins the copies of it in the manual and the example.
   local TEHAS_CHILD_TIMEOUT_MAX=7200
   [ -n "${TEHAS_CHILD_TIMEOUT:-}" ] || TEHAS_CHILD_TIMEOUT=$TEHAS_CHILD_TIMEOUT_MAX
@@ -620,7 +620,7 @@ tehas_load() {
   # The settings an instance may write, each with the rule for its value. An
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
-  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
+  for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_REVIEW TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
     TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -772,9 +772,9 @@ tehas_edge_name() {
   printf '%s-%s.%s\n' "$1" "$2" "$TEHAS_DOMAIN"
 }
 
-# The settings an instance has to set itself, because nothing here can give
-# them a sensible default. install.sh, tehas-dispatch and tehas update each
-# check this one list before they call GitHub, Docker, git or write a file.
+# The settings an instance has to set itself, because nothing here can give them
+# a sensible default: install.sh, tehas-dispatch and tehas update each check this
+# one list before they call GitHub, Docker, git or write a file.
 tehas_require_instance_settings() {
   tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS \
     PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER

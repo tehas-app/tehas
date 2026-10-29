@@ -35,7 +35,7 @@ t_contains "$t_out" "removed: $th/bin/tehas-dispatch"
 t_contains "$t_out" "removed: $th/bin/tehas-test"
 # A running sampler is the old file calling itself. The units step restarts it,
 # so the step is asked for and owed although no unit file changed.
-t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer"
+t_contains "$t_out" "next: units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
 t_contains "$(cat "$th/state/update-pending")" "units tehas-dispatch.timer tehas-energy.service"
 # systemd reloaded before the files its old units name were removed.
 t_eq "$(t_calls systemctl | head -n 1)" "--user daemon-reload"

@@ -1388,6 +1388,54 @@ To turn the loop off, remove `TEHAS_IMPROVE_REPO` from `instance.env`: cycles
 stop leaving records and a run does nothing. Or stop the timer with
 `systemctl --user disable --now tehas-improve.timer`.
 
+## The review loop
+
+Optional. It is off unless the instance sets `TEHAS_REVIEW=1` and the timer
+`tehas-review.timer` is enabled; see [Commands](/tools). The two are separate
+on purpose: `install.sh` and `tehas update` copy the units and enable nothing,
+and a host that turns the setting on without the timer reviews nothing on a
+schedule.
+
+Once a week, on Monday morning, a model reads what the default branch gained
+since the commit the last review read and reports what it would change. It is
+the same six lens reviewers a cycle's own review runs, in one headless turn over
+a clone made for the run, with no token: the run writes nothing to the tracker
+but its findings.
+
+- **Where the findings go** is `TEHAS_REVIEW_REPO`, a repository of their own:
+  one issue per run, labelled `tehas:improvement` and never `tehas:ready`, so a
+  finding starts no cycle until a person says so. Loading refuses the product
+  repository, `TEHAS_REPO`: a model writes these from what it read, and a person
+  triages them into tickets first. While one of those issues is still open, a
+  later run's findings are a comment on it rather than a second issue.
+- **What it reads** is the whole range since the last review, kept in
+  `~/tehas/state/review.json`. With no record it starts at the commit 7 days
+  back. A run that failed records nothing, so the next one reads the same
+  commits again: the point is the range, not the schedule.
+- **What it costs** is one container in `tehas.slice`, bounded by
+  `TEHAS_PLAN_TIMEOUT` like a planning turn, and the model requests one headless
+  review turn takes. Nothing about a cycle changes, and no issue of the product
+  is written by it.
+
+To turn it on, write the two lines in `instance.env` and enable the timer:
+
+```
+TEHAS_REVIEW=1
+TEHAS_REVIEW_REPO=example-owner/example-backlog
+```
+
+```
+systemctl --user enable --now tehas-review.timer
+```
+
+`~/tehas/logs/review-timer.log` says what the runs did and `~/tehas/logs/review-<time>.json`
+holds one run's document. See [tehasbot review](/tools#tehasbot-review) for the
+container, the record and the exits.
+
+To turn it off, set `TEHAS_REVIEW=0` (or remove it) in `instance.env`: a run
+exits at once and calls nothing, so the timer costs one short process a week.
+`systemctl --user disable --now tehas-review.timer` stops the weekly run as well.
+
 ## The cleaner
 
 A full disk stops previews and fails clones, and most of what fills it is

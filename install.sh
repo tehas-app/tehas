@@ -513,6 +513,8 @@ files=(
   "systemd/tehas-preview-sweep.timer|$units/tehas-preview-sweep.timer|644"
   "systemd/tehas-refresh.service|$units/tehas-refresh.service|644"
   "systemd/tehas-refresh.timer|$units/tehas-refresh.timer|644"
+  "systemd/tehas-review.service|$units/tehas-review.service|644"
+  "systemd/tehas-review.timer|$units/tehas-review.timer|644"
   "systemd/tehas-top.service|$units/tehas-top.service|644"
   "pi/mcp.json|$agent/mcp.json|644"
   "$made/models.json|$agent/models.json|644"
