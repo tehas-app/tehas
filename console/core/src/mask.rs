@@ -1,4 +1,5 @@
-//! Masks tokens, keys, passwords and private network addresses.
+//! Masks tokens, keys, passwords, the program's own secret settings and
+//! private network addresses.
 //!
 //! An agent can print its environment and the console file is served by the
 //! dashboard, which may be on the internet. The mask is a net for accidents,
@@ -6,6 +7,7 @@
 //! knows.
 
 use regex::{Captures, Regex};
+use std::cmp::Reverse;
 use std::sync::{LazyLock, OnceLock};
 
 fn regex(pattern: &str) -> Regex {
@@ -19,8 +21,12 @@ static GITHUB_TOKEN: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(gh[pousr]_)[A-Za-z0-9]{16,}|(github_pat_)[A-Za-z0-9_]{16,}"));
 static URL_PASSWORD: LazyLock<Regex> =
     LazyLock::new(|| regex(r"(?i)([a-z][a-z0-9+.-]*://[^:/\s@]*:)[^@\s/]+@"));
-static SECRET_ASSIGNMENT: LazyLock<Regex> =
-    LazyLock::new(|| regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*=)\S+"));
+static SECRET_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
+    regex(r"(?-u:\b)([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY|CREDENTIAL)[A-Z0-9_]*=)\S+")
+});
+// The shape model providers give their keys: sk-, then a long run.
+static PROVIDER_KEY: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(?-u:\b)(sk-)[A-Za-z0-9][A-Za-z0-9_-]{19,}"));
 // A name that ends in one of these words, in any case, then `=` or `:`, as in
 // a shell, a YAML file or JSON (`"apiKey": "..."`). The value ends where a
 // quote, a separator or white space does, so the rest of the line is kept.
@@ -88,15 +94,53 @@ pub fn is_format(c: char) -> bool {
 
 pub fn mask(s: &str) -> String {
     let s: String = s.chars().filter(|c| !is_format(*c)).collect();
+    let s = match ENV_SECRETS.as_ref() {
+        Some(values) => values.replace_all(&s, "***").into_owned(),
+        None => s,
+    };
     let s = GITHUB_TOKEN.replace_all(&s, "${1}${2}***");
     let s = URL_PASSWORD.replace_all(&s, "${1}***@");
     let s = SECRET_ASSIGNMENT.replace_all(&s, "${1}***");
     let s = KEYED_SECRET.replace_all(&s, "${1}***");
     let s = BEARER.replace_all(&s, "${1}***");
+    let s = PROVIDER_KEY.replace_all(&s, "${1}***");
     let s = PRIVATE_IPV4.replace_all(&s, private_address);
     let s = PRIVATE_IPV6.replace_all(&s, private_address);
     let s = TAILNET_NAME.replace_all(&s, "[private name]");
     hide(PRIVATE.get().and_then(Option::as_ref), &s)
+}
+
+// The values of this program's own settings whose names say they are secret:
+// the model keys, tokens and passwords it was started with. Each is hidden as
+// literal text wherever it appears, whatever surrounds it, so a value printed
+// without its name is hidden too.
+static ENV_SECRETS: LazyLock<Option<Regex>> = LazyLock::new(|| secret_values(std::env::vars()));
+
+// A shorter value would mask ordinary words.
+const SHORTEST_SECRET: usize = 8;
+
+fn secret_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"]
+        .iter()
+        .any(|w| name.contains(w))
+}
+
+/// One pattern of the secret values among `vars`, the longest first. None
+/// when there is none.
+fn secret_values(vars: impl Iterator<Item = (String, String)>) -> Option<Regex> {
+    let mut values: Vec<String> = vars
+        .filter(|(name, _)| secret_name(name))
+        .map(|(_, value)| value.trim().to_string())
+        .filter(|v| v.chars().count() >= SHORTEST_SECRET)
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by_key(|v| Reverse(v.len()));
+    values.dedup();
+    let alternation: Vec<String> = values.iter().map(|v| regex::escape(v)).collect();
+    Regex::new(&alternation.join("|")).ok()
 }
 
 // Names the host knows and an agent can print: the host aliases, the model
@@ -142,7 +186,7 @@ fn hide(names: Option<&Regex>, s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::mask;
+    use super::{mask, secret_values};
 
     // Built here, not written out: scripts/check-generic.sh reads this file too.
     fn ip(parts: [u8; 4]) -> String {
@@ -256,6 +300,42 @@ mod tests {
         assert_eq!(mask("password: hunter2"), "password: ***");
         assert_eq!(mask("--client-secret=xyz"), "--client-secret=***");
         assert_eq!(mask("?access_token=abc&page=2"), "?access_token=***&page=2");
+    }
+
+    #[test]
+    fn masks_any_upper_case_name_with_key_in_it() {
+        assert_eq!(
+            mask("TEHAS_MODEL_KEY_MAIN=abcdef0123456789 x"),
+            "TEHAS_MODEL_KEY_MAIN=*** x"
+        );
+        assert_eq!(mask("SIGNING_KEY=s3cr3t"), "SIGNING_KEY=***");
+        assert_eq!(mask("A_CREDENTIAL=xyz"), "A_CREDENTIAL=***");
+    }
+
+    #[test]
+    fn masks_a_provider_shaped_key() {
+        let key = format!("sk-{}", "a1B2".repeat(8));
+        assert_eq!(mask(&format!("key is {key} ok")), "key is sk-*** ok");
+        assert_eq!(mask(&format!("sk-ant-{}", "x".repeat(30))), "sk-***");
+        assert_eq!(mask("a task-oriented run"), "a task-oriented run");
+        assert_eq!(mask("sk-short"), "sk-short");
+    }
+
+    #[test]
+    fn hides_secret_values_of_the_environment_as_text() {
+        let vars = vec![
+            (
+                "TEHAS_MODEL_KEY_MAIN".to_string(),
+                "Zq9xLm2Pw8Rt".to_string(),
+            ),
+            ("SOME_TOKEN".to_string(), "short".to_string()),
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+        ];
+        let values = secret_values(vars.into_iter()).expect("one value is kept");
+        let out = values.replace_all("got Zq9xLm2Pw8Rt back, PATH=/usr/bin:/bin", "***");
+        assert_eq!(out, "got *** back, PATH=/usr/bin:/bin");
+        assert!(values.find("short").is_none());
+        assert!(secret_values(std::iter::empty()).is_none());
     }
 
     #[test]
