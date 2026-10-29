@@ -161,7 +161,7 @@ for bad in "" "7" "x --out $T/out.json --keep $T/keep --brief $T/brief.md" "7 --
   "7 --out $T/out.json --brief $T/brief.md" "7 --keep $T/keep --brief $T/brief.md" \
   "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --session abc" "7 --out $T/out.json --keep $T/keep --session abc" \
   "7 --out $T/out.json --keep $T/keep --brief $T/missing.md" "7 --out $T/out.json --keep $T/keep --session 'a b;c' --answer $T/brief.md" \
-  "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --verbose"; do
+  "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --verbose" "7 --out $T/out.json --keep $T/keep --brief $T/brief.md --kind plan"; do
   t_case "a call that is not a turn ('$bad') is refused before anything runs"
   reset
   t_run "$plan $bad"
@@ -460,7 +460,7 @@ t_eq "$(cat "$T/calls/answer.seen")" "$(cat "$T/answer.md")"
 t_eq "$(cat "$T/calls/tree.status")" ""
 t_eq "$([ -e "$ws/.tehas/brief.md" ] && echo present)" ""
 
-t_case "a drafted plan is posted with its title and spec, its open points with the proposals, and two boxes; the draft is kept"
+t_case "a drafted plan is posted with its title and spec, its open points with the proposals, and one box; the draft is kept"
 reset
 shown
 t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
@@ -481,10 +481,18 @@ t_eq "$(jq -r .question.question "$T/out.json")" "Open points, with the planner'
 1. Index on the title too?
    Proposed: Yes, both
 
-Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it."
-t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue","File as a new issue"]'
+Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it."
+t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue"]'
 t_eq "$(cat "$T/keep/exit")" 12
 t_eq "$(jq -c . "$T/keep/draft.json")" '{"spec":"## Context\n\nSearch is slow.\n\n## Acceptance criteria\n\n- p95 under 100 ms","title":"Faster search"}'
+
+t_case "a refine session's drafted plan also offers File as a new issue"
+reset
+shown
+t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md --kind refine"
+t_eq "$t_rc" 0
+t_contains "$(jq -r .question.question "$T/out.json")" "this issue's text, File as a new issue to file it as its own issue, or reply to change it."
+t_eq "$(jq -c '[.question.options[].label]' "$T/out.json")" '["Update this issue","File as a new issue"]'
 
 t_case "after a drafted plan, Update this issue runs no container and hands the plan and the issue's old text to the dispatcher"
 t_stub gh 'printf "%s\n" "$*" >>"$T/calls/gh.args"; cat "$T/fx/view.json"'
@@ -527,7 +535,7 @@ t_run "$plan 7 --out $T/out.json --keep $T/keep --brief $T/brief.md"
 t_eq "$t_rc" 0
 t_contains "$(jq -r .text "$T/out.json")" "(cut: the plan is longer than a comment holds)"
 t_eq "$([ "$(jq -r '.text | length' "$T/out.json")" -lt 41000 ] && echo cut)" cut
-t_eq "$(jq -r .question.question "$T/out.json")" "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it."
+t_eq "$(jq -r .question.question "$T/out.json")" "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it."
 
 t_case "after a drafted plan, a tick on File as a new issue runs the confirm, and the issue it filed is named"
 reset
