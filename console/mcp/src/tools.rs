@@ -4,6 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::decisions;
 use crate::logs::{self, LogGuard};
 use crate::outcomes;
 use crate::outcomes_schema;
@@ -786,6 +787,7 @@ pub fn list() -> Value {
         a.insert(a.len() - 1, logs::tool());
         a.insert(a.len() - 1, logs::search_tool());
         a.push(outcomes_schema::tool());
+        a.push(decisions::tool());
     }
     tools
 }
@@ -794,7 +796,7 @@ pub fn list() -> Value {
 /// `spec_of()` name the same tools in their own literals, and the test beside
 /// `call_held` compares the three, so the access log can name no name the
 /// server does not serve, and serves none it does not publish.
-const CALLED: [&str; 12] = [
+const CALLED: [&str; 13] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
@@ -807,6 +809,7 @@ const CALLED: [&str; 12] = [
     "factory_search",
     "factory_failures",
     "factory_outcomes",
+    "factory_decisions",
 ];
 
 /// Whether the server has a tool of this name. The access log asks it before
@@ -851,6 +854,7 @@ pub fn call_held(
         "factory_session" => sessions::one(dirs, args)?,
         "factory_failures" => sessions::failures(dirs, args)?,
         "factory_outcomes" => outcomes::call(dirs, args)?,
+        "factory_decisions" => decisions::call(dirs, args)?,
         // The guard above admits only the names of `CALLED` and every one of
         // them has an arm, which the test beside it proves name by name.
         _ => unreachable!("known admits only the names matched above"),
@@ -1339,7 +1343,7 @@ mod tests {
         // of `call_held` answers every name absent from this list, so a name
         // written here and not there, or there and not here, is the drift the
         // dispatch alone cannot show.
-        const ARMS: [&str; 12] = [
+        const ARMS: [&str; 13] = [
             "factory_log",
             "factory_search",
             "factory_status",
@@ -1352,6 +1356,7 @@ mod tests {
             "factory_session",
             "factory_failures",
             "factory_outcomes",
+            "factory_decisions",
         ];
         let mut arms = ARMS.to_vec();
         arms.sort_unstable();

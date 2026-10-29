@@ -156,7 +156,29 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    assert_eq!(res["tools"].as_array().unwrap().len(), 12);
+    assert_eq!(res["tools"].as_array().unwrap().len(), 13);
+}
+
+#[test]
+fn decisions_are_served_from_the_dispatch_log() {
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_decisions", "arguments": {"limit": 2}}),
+    );
+    assert_eq!(r.status, 200);
+    let res = &json_of(&r)["result"];
+    assert!(
+        res.get("isError").is_none() || res["isError"] == false,
+        "{res}"
+    );
+    let d = &res["structuredContent"]["decisions"];
+    assert_eq!(d.as_array().unwrap().len(), 2);
+    assert_eq!(d[1]["issue"], 159);
+    let r = modern(
+        "tools/call",
+        json!({"name": "factory_decisions", "arguments": {"limit": 500}}),
+    );
+    assert_eq!(json_of(&r)["result"]["isError"], true);
 }
 
 #[test]
@@ -446,7 +468,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 12);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 13);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",
