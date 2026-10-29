@@ -173,6 +173,7 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         "factory_sessions",
         "factory_session",
         "factory_log",
+        "factory_search",
         "factory_failures",
         "factory_outcomes",
     ]);

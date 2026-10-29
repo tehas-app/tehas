@@ -33,6 +33,7 @@
         <a href="#console">Console</a>
         <a href="#period" id="nav-period" hidden>Activity</a>
         <a href="#board">Issues</a>
+        <a href="#epics" data-epics-nav hidden>Epics</a>
         <a href="#live" id="nav-power" hidden>Power</a>
         <a id="nav-lab" href="#" target="_blank" rel="noopener" hidden>Protolab</a>
         <a id="nav-repo" href="#" target="_blank" rel="noopener noreferrer" hidden>GitHub</a>
@@ -142,6 +143,12 @@
       <p class="note board-empty" id="board-empty" hidden>Nothing here.</p>
     </section>
 
+    <section class="panel epics" id="epics" aria-labelledby="epics-title" hidden>
+      <div class="panel-head"><div><p class="section-kicker">Plans</p><h2 id="epics-title">Open epics</h2></div><span id="epics-count" role="status"></span></div>
+      <p class="epics-intro">An epic is an open issue with sub-issues. Open one to see them. It leaves the list when it is closed.</p>
+      <div class="epics-list" id="epics-list"></div>
+    </section>
+
     <footer class="foot">
       <p>Tehas, a software factory. Powered by Pi and pi-rukas.</p>
       <p><a href="/floor">Factory floor</a> · <a href="/dashboard">Plain dashboard</a> · <a href="/overview">Manual</a> · <a href="/agents">Agents</a> · <a href="/llms.txt">llms.txt</a></p>
@@ -154,5 +161,6 @@
   <script src="/fun/sample-issues.js"></script>
   <script src="/fun/console-tabs.js"></script>
   <script type="module" src="/fun/business-view.js"></script>
+  <script src="/fun/epics-view.js"></script>
 </body>
 </html>

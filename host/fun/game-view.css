@@ -185,6 +185,7 @@ body[data-factory="live"] .console-state::before {
     "board monitor"
     "lab monitor"
     "console monitor"
+    "epics epics"
     "energy energy"
     "host host"
     "break break";
@@ -432,6 +433,67 @@ body[data-factory="live"] .console-state::before {
 .row:focus-visible { outline-offset: -4px; }
 .rows-note { padding: 24px 16px; }
 
+/* Epics: the open issues with sub-issues, one row each with a block per
+   sub-issue, filled when it is closed. A row opens to list its sub-issues
+   (epics-view.js). */
+
+.epics {
+  grid-area: epics;
+  margin-top: 72px;
+  scroll-margin-top: calc(var(--header) + 16px);
+  background: var(--surface);
+  border: var(--frame);
+  box-shadow: var(--shadow-sign);
+}
+.epics-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0 24px;
+  padding: 12px 16px;
+  background: var(--surface-head);
+  border-bottom: var(--frame);
+}
+.epics-intro { padding: 12px 16px; color: var(--text-quiet); border-bottom: var(--frame); }
+.epic { border-bottom: 1px solid var(--rule); }
+.epic:last-child { border-bottom: 0; }
+.epic-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(128px, 320px) max-content;
+  align-items: center;
+  gap: 16px;
+  min-height: 48px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+.epic-row::-webkit-details-marker { display: none; }
+.epic-row:hover { background: var(--surface-head); }
+.epic[open] > .epic-row { background: var(--accent-soft); }
+.epic-row:focus-visible { outline-offset: -4px; }
+.epic-number { font-weight: 400; color: var(--text-warm); white-space: nowrap; }
+.epic-number::before { content: "+"; display: inline-block; width: 16px; color: var(--text-quiet); }
+.epic[open] .epic-number::before { content: "-"; }
+.epic-title { overflow-wrap: anywhere; }
+.epic-bar { display: flex; gap: 4px; height: 16px; }
+.epic-bar i { flex: 1; min-width: 4px; background: var(--surface); box-shadow: inset 0 0 0 2px var(--line); }
+.epic-bar i.is-closed { background: var(--good); }
+.epic-bar i.is-more { background: var(--rule); box-shadow: none; }
+.epic-count { color: var(--text-quiet); text-align: right; white-space: nowrap; }
+.epic-body { padding: 8px 16px 16px 104px; background: var(--surface-quiet); border-top: 1px solid var(--rule); }
+.epic-subs { margin: 0; padding: 0; list-style: none; }
+.epic-subs li { display: flex; align-items: start; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.epic-subs li:last-child { border-bottom: 0; }
+.epic-state { flex: none; width: 72px; padding: 0 4px; text-align: center; text-transform: uppercase; background: var(--accent); border: 2px solid var(--line); }
+.is-closed .epic-state { background: var(--good); color: var(--text-on-good); }
+.is-closed .epic-sub { color: var(--text-quiet); }
+.epic-sub { overflow-wrap: anywhere; text-underline-offset: 4px; }
+.epic-sub:hover, .epic-link:hover { background: var(--accent-soft); }
+.epic-foot { margin-top: 8px; color: var(--text-quiet); }
+.epic-link { color: var(--text-cool); text-underline-offset: 4px; }
+.epic-empty, .epic-none { padding: 24px 16px; }
+
 /* The Protolab: tickets at the prototype stage, labelled tehas:prototype, beside the lab at work */
 
 .lab {
@@ -623,7 +685,7 @@ body[data-factory="live"] .console-state::before {
      taken: lab and the console would be dropped below the breakroom. */
   .stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "floor" "doors" "desk" "lab" "console" "energy" "host" "break";
+    grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break";
   }
   .floor { display: block; grid-area: floor; }
   /* Here the work order is a panel in the column: it scrolls away with the
@@ -660,7 +722,7 @@ body[data-factory="live"] .console-state::before {
   .floor-head { margin-top: 24px; }
   /* The stack is read as one run of panels here, so the gaps between them close
      to one grid step under the wide stage's. */
-  .board-wrap, .lab, .console, .doors { margin-top: 40px; }
+  .board-wrap, .lab, .console, .doors, .epics { margin-top: 40px; }
 
   /* Four signs no longer fit side by side: each turns sideways, its scene at the
      native 240 by 130 beside the text. */
@@ -705,6 +767,9 @@ body[data-factory="live"] .console-state::before {
   .board-tools label { flex: 1 1 100%; }
   .row { grid-template-columns: 56px minmax(0, 1fr); row-gap: 0; }
   .row .row-stage { grid-column: 2; text-align: left; }
+  .epic-row { grid-template-columns: max-content minmax(0, 1fr); row-gap: 8px; }
+  .epic-bar, .epic-count { grid-column: 2; text-align: left; }
+  .epic-body { padding-left: 16px; }
   .order-title, .order-facts, .order-foot { margin-top: 8px; }
   /* On a phone the monitor stays over the board, so the history facts pair up. */
   .order-facts { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }

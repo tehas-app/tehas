@@ -13,6 +13,55 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.16.0 (2026-10-29)
+
+### Changes
+
+- The floor and the business page show the open epics as a stack: one row
+  per epic with a block per sub-issue and `n/m closed`; a click lists the
+  sub-issues. `tehasbot status` writes `live/epics.json` at every poll from
+  `console epics`. Only sub-issues of `TEHAS_REPO` are named; others are only
+  counted (#981).
+- The business page shows the console of the running cycles, with a tab per
+  running cycle and one for the last ended cycle (#937).
+- The business line sits on one row while it fits, and has a Planning stage
+  while an open issue carries `tehas:plan` or `tehas:planning`.
+  `status.json` gains `planned`, the list behind the `planning` count (#976).
+- `tehasbot review` files its findings as one issue in `TEHAS_REVIEW_REPO`
+  for a person to triage, labelled `tehas:improvement` and never
+  `tehas:ready` (#508). With `TEHAS_REVIEW=1` the new `tehas-review.timer`
+  runs it once a week; the timer is installed but not enabled (#509).
+- `tehas work` sets a cycle's child bound from `TEHAS_CHILD_TIMEOUT`
+  (default 7200 s, at most `TEHAS_WORK_TIMEOUT`) and one verify bound,
+  instead of leaving both to pi-rukas's defaults (#932).
+- An idle poll costs less: the poll takes its GitHub token once and gives it
+  to every `gh` it runs, and to the tidy, status and health it starts at its
+  end (#938, #965); it asks the store its per-issue questions in one
+  `store batch` call, not about 43 (#941).
+- The Rust dispatcher fails closed on what GitHub leaves out. A rename with
+  no time counts as after the approval, and a check run is green only on
+  `success`, `neutral` or `skipped` (#961). A parked refresh with no start
+  time counts as a park since the approval (#970). An open journal action
+  with a missing or malformed id, issue or time is left open with a warning,
+  not settled as 0 (#967). A `poll-begin` answer with no time makes no write
+  (#971). A hold whose comment failed is told again on the next poll (#959).
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: the value of every setting the program was started with whose
+  name says it is secret (a name with TOKEN, SECRET, PASSWORD, PASSWD, KEY or
+  CREDENTIAL in it), as literal text wherever it appears; any upper-case
+  assignment of such a name; and keys in the shape model providers give
+  (`sk-` and a long run) (#984).
+- `console forge` gives bash one command over the forge interface: labels,
+  label events, who approved, and putting a label on or off (#948).
+- The MCP server has a `factory_search` tool: a bounded search of a
+  session's masked logs, by issue or by session ids, with a cursor to go on
+  (#839, #946).
+- Tests can make one chosen `gh` call fail (#942), and the dispatch tests
+  stub health unless a case reads it (#963).
 - Which open pull requests get a preview is chosen by the console
   (#892, `console preview choose`, console/src/preview.rs): the rules of
   which pull request is ours (a head in the product repository, opened by an
@@ -91,9 +140,13 @@ empty one above it.
 
 ### Adopter action
 
-None. `tehas tidy` and `tehasbot status` now ask the console what an answer of the
-closer read means, so where the two sit beside an old `libexec/console` that has no
-shipped verb they exit 78 and say to run `install.sh`.
+None is required. `tehas tidy`, `tehasbot status` and the preview and Protolab
+commands now need the console beside them: where an old
+`libexec/console` lacks their verbs they exit 78 and say to run `install.sh`.
+
+To run the weekly review, set `TEHAS_REVIEW=1` and `TEHAS_REVIEW_REPO` in the
+instance and enable `tehas-review.timer` by hand: an update installs it but
+does not turn it on.
 
 ## v0.15.2 (2026-10-28)
 

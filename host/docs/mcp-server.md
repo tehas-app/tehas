@@ -8,7 +8,8 @@ description: "A read-only MCP server for agents outside the host: what it shows,
 Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
 a running cycle's console and the last ten days, as the dashboard shows them,
-one issue's story, and the sessions of the last 30 days and their logs, masked.
+one issue's story, and the sessions of the last 30 days and their logs, masked,
+and the lines of those logs that hold a string you give.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
@@ -192,6 +193,7 @@ the same JSON as text.
 | `factory_sessions` | all optional: `outcome` (`pr`, `merged`, `handoff`, `parked`, `failed`, `refused`, `stopped`), `failureKind`, `tehasVersion`, `rukasVersion` (also matches the commit), `kind` (`work`, `plan`), `how` (`label`, `retry-tick`, `outage-retry`, `millwright`, `answer`, `refine`; the old `fixer` is accepted and matches the same runs), `issue`, `limit` from 1 to 200 (50 without it), `before` | The runs of the last 30 days, newest first, filters combined: id, kind, issue, attempt, how, started, ended, seconds, outcome, failedStep, failureKind, failureCause, parkReason, tehasVersion, rukasVersion, and links to the issue and pull request (`issueUrl`, `prUrl`). `next` is the last id when more remain: pass it as `before`. A version or failure kind is matched exactly |
 | `factory_session` | `id`, like `work-12-1792485967` | One run of the last 30 days: every figure of the session, its `steps`, its `roles` (model, provider, tokens), its `logs` as a word and a size in bytes (never a file name), `filed` for a planning session, and `issueUrl` and `prUrl` |
 | `factory_log` | `id`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. Plain: `id`, `file`, `size`, `offset`, `text`, and `next`, the offset of the rest, when more remains. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
+| `factory_search` | `text` (3 to 200 characters), one of `issue` or `ids` (at most 50 session ids), optional `files` (log words, all the session has without it) and `limit` from 1 to 200 matches (50 without it) | The masked lines of the last 30 days that hold `text`, a fixed string and not a pattern, of one issue's sessions or of the sessions named: `matches`, each with `id`, `file` (a word below), `offset` in masked bytes (one to give `factory_log`) and `line` cut to 400 characters, and `sessions`, how many were read. `days` and `stale` as the session tools. When the reading stops early it gives `next`: the `id`, the `file` and the `offset` of the rest, which is where that session's log is read on from. See [the logs](#logs) |
 | `factory_issue` | `issue`, a positive integer | One issue's story in one call: `issue`, `issueUrl`, `stage` (the first of `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` that lists it, left out when it is listed nowhere), `title` when the dashboard has it, `running` (`step`, `status`) while a cycle owns it — only a cycle that is running owns one, so a cycle the store has marked `lost`, or one that ended between publishes, puts nothing there and does not make the stage `running` — and `attempts`: every run of it of the last 30 days, oldest first, each with its `id` (the one to give `factory_session` or `factory_log`), `kind`, `attempt`, `how`, `started`, `ended`, `seconds`, `outcome`, `failedStep`, `failureKind`, `failureCause`, `parkReason` and `prUrl`. `firstSeen` and `lastSeen` are the started of the oldest and newest run, and `outcome` is the newest run's. An issue with no run in the window and no stage is a tool error that names it |
 | `factory_failures` | none | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. Planning sessions are not counted |
 | `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
@@ -254,13 +256,28 @@ is a tool error that names the word.
 
 Limits:
 
-- A file over 16 MiB is not served, plain or gzipped.
+- A file over 16 MiB is not served, plain or gzipped, and `factory_search` reads
+  none of them.
 - A plain read returns at most 1 MiB. Read a larger file in pieces: pass the
   `next` of one answer as the `offset` of the next. A piece starts and ends
   on a whole character.
-- Two logs are sent at a time. A log holds its place until its answer has
-  been sent, however slowly the client reads. A third call meanwhile gets a
-  tool error that asks to try again in a few seconds.
+- `factory_search` answers at most 200 matches, 50 without `limit`, and reads at
+  most 8 MiB of raw bytes in a call. The cap is the call's, not one log's: what
+  one log costs is off what the rest of the call has left, and where the reading
+  stops the answer says so with `next`. As with `factory_log`, whose `next` is
+  past the last byte it answered, `next` names a place the answer has read to:
+  a log the cap spent before it kept a line of its own has nothing in the answer
+  to read on past, so the reading moves on to the next log and the rest of that
+  one waits for a call of its own.
+- The way on of a search that stopped is the same call with the `next` put on the
+  session's own record as its `searchResume`, which is what a caller of the tools
+  holds from `factory_session`. Of that session then only the log `next` names is
+  read, from its offset on; every other session keeps its own way on, so the rest
+  of one log never hides another session's lines.
+- Two logs are sent at a time, by `factory_log` and `factory_search` together. A
+  log holds its place until its answer has been sent, however slowly the client
+  reads. A third call meanwhile gets a tool error that asks to try again in a few
+  seconds.
 
 Every line is masked before it is sent, so `size`, `offset` and `next` count
 bytes of the masked text, not of the file on the host. The size

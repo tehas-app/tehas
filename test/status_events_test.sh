@@ -31,6 +31,8 @@ case "$*" in
   "issue view"*) echo "" ;;
   "issue edit"*) ;;
   "api repos/"*) echo "[]" ;;
+  # The read of the epics: no open issue.
+  "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) cat "$T/shipped.json" ;;
 esac'
 now=$(date +%s)
