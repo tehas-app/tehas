@@ -1104,6 +1104,11 @@ Drained means no poll can still start a cycle: drain waits for the poll that is
 running before it says no cycle is, so a cycle a poll had already decided to start
 is counted rather than left behind.
 
+Most of the time you do not need it. The machine's CPUs and memory change while
+it runs, and a hypervisor restart saves the virtual machine with its cycles in
+it, so what runs goes on where it stopped: [Resize or restart the
+host](/resize) is that, and it names the four changes that still need a drain.
+
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
