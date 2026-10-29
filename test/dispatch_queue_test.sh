@@ -372,6 +372,9 @@ t_eq "$(jq -r '.time | fromdateiso8601 | type' "$demand_file")" number
 
 t_case "demand: the health file carries it after the poll"
 reset
+# The one dispatch case that reads health's output, so it runs the real
+# command rather than the stub the lib gives every other case.
+real_health
 ready_at 7 alice 2026-10-17T10:00:00Z
 hold 5
 t_run "$dispatch"
