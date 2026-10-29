@@ -384,6 +384,7 @@ impl Writer {
         if refine {
             cmd.extend(["--kind".into(), "refine".into()]);
         }
+        self.note_image(n);
         if !self.plan_launch(n, &cmd) {
             log.push(format!("ERROR: could not start the planning turn of #{n}"));
             self.plan_finish(n, "not started", turns, &sid, log);
