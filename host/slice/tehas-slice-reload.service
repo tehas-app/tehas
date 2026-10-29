@@ -1,8 +1,8 @@
 # Installed by "sudo ./bootstrap.sh slice" to /etc/systemd/system, and started
-# by 96-tehas-memory-online.rules when memory comes online. One reload of the
-# system manager, so tehas.slice takes its MemoryMax from the memory the host
-# has now. Nothing else is re-read: a running container keeps the limit it
-# started with. Started by udevd, never by hand and never at boot.
+# by 96-tehas-memory-online.rules when a memory block comes online. One reload
+# of the system manager, so tehas.slice takes its MemoryMax from the memory the
+# host has now. Why a oneshot, and what the limits below are for, is in the
+# manual's slice section. Never started by hand and never at boot.
 [Unit]
 Description=Tehas: reload systemd so tehas.slice follows memory added to the host
 # udevd pulls this in for each block that comes online; systemd coalesces the
@@ -12,4 +12,10 @@ Before=shutdown.target
 
 [Service]
 Type=oneshot
+# The path of the Ubuntu systemd this ships with. The bounds: a reload that
+# hangs would hold every later memory-online event in the same unfinished run,
+# and a device that flaps memory online would ask for it without limit.
+TimeoutStartSec=60
+StartLimitIntervalSec=300
+StartLimitBurst=5
 ExecStart=/usr/bin/systemctl daemon-reload

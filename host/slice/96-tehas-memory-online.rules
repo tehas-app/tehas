@@ -1,9 +1,7 @@
 # Installed by "sudo ./bootstrap.sh slice" to /etc/udev/rules.d, beside the unit
-# it names. Memory added to a running host: systemd works out a percentage
-# MemoryMax only when it loads the unit, so tehas.slice keeps the size of the
-# memory the host had when it booted until someone reloads systemd by hand. The
-# rule asks systemd-udevd for that reload when a block comes online, so nobody
-# has to. A oneshot unit does the reload rather than RUN+=: udevd kills a RUN
-# that runs too long, and many blocks come online at once. Memory going offline
-# needs nothing: the slice shrinks at the next reload.
+# it names. When a memory block comes online this asks systemd-udevd to start
+# tehas-slice-reload.service, which reloads the system manager so tehas.slice
+# works its percentage MemoryMax out against the memory the host has now. Why a
+# oneshot and no RUN+=, and why no offline rule, is in the manual's slice
+# section.
 SUBSYSTEM=="memory", ACTION=="online", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tehas-slice-reload.service"
