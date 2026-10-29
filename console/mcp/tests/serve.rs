@@ -342,9 +342,13 @@ fn a_chunked_body_or_none_at_all_needs_a_length() {
     let chunked = format!(
         "POST /mcp HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {K1}\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{{}}\r\n0\r\n\r\n"
     );
-    assert_eq!(s.raw(chunked.as_bytes(), wait).0, 411);
+    // The reply is printed on failure because a flake here comes back as 0
+    // (no first byte) or 408 (the deadline), and the status alone says which.
+    let chunked = s.raw(chunked.as_bytes(), wait);
+    assert_eq!(chunked.0, 411, "chunked: got {:?}", chunked);
     let none = format!("POST /mcp HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {K1}\r\n\r\n");
-    assert_eq!(s.raw(none.as_bytes(), wait).0, 411);
+    let none = s.raw(none.as_bytes(), wait);
+    assert_eq!(none.0, 411, "no body: got {:?}", none);
     s.stop();
 }
 
