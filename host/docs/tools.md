@@ -295,13 +295,19 @@ Every poll that gets past the bot's login ends by running `libexec/tidy`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
-`tehas:ready` and `tehas:plan`. Not `tehas:shipped`, not
+`tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:prototype`). It makes one search, for the closed issues
+`tehas:next`, `tehas:prototype`). The list is the console's
+(`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
+comes off which issue and which issue the read below is asked about
+(`console tidy plan`): the command keeps the settings, the two searches and the
+edits, and hands the answer of the first to the console. It makes one search,
+for the closed issues
 that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
 one edit and logs `tidy #N: removed <labels>`. The names it takes off are the
-state labels above and no others, whatever the search sent back. An open issue is
+state labels above and no others, whatever the search sent back: the console
+drops every other name before the plan reaches the edit or the log. An open issue is
 never touched, and a closed one whose cycle still holds its lock on this host
 waits for that cycle. The control issue `TEHAS_CONTROL_ISSUE` names is left out
 of every edit: it is not work, whatever label it carries. To the issues it tidies

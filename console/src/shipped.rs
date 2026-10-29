@@ -13,6 +13,12 @@
 //!     and the read carries one per issue, so a longer list is not truncated: it
 //!     is no answer at all.
 //!
+//!   console shipped label
+//!     The name of the label of a merge, on a line of its own: the one word the
+//!     two commands print when they add it, and the one word tidy compares. The
+//!     caller that edits holds the name only as a fallback for a console of an
+//!     older tehas, so a rename reaches the add and the removal rule at once.
+//!
 //!   console shipped query
 //!     The query: the last closed event of each issue the search $q names,
 //!     whether its closer was a merged pull request, and the names of the labels
@@ -75,6 +81,14 @@ use std::io::Read;
 // ceiling of the list a caller builds, in the one number.
 pub const PAGE: usize = 100;
 
+// The label of a merge: the name tehas tidy puts on in the edit that takes the
+// state labels off, and the name tehasbot status gives from its own read. It is
+// named here because both the comparison that earns it and the edit that writes
+// it read this one word - `console shipped label` prints it for the bash that
+// edits, and `lib/shipped.sh` holds the name only as a fallback for a host
+// whose console is older than this verb.
+pub const SHIPPED: &str = "tehas:shipped";
+
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
 // variable and reaches gh as the caller's -f q= argument. The braces are the
 // document's own and are pinned against the text by a test below: the page of
@@ -93,6 +107,10 @@ pub fn main(given: &[String]) -> u8 {
     match (verb, &given[1..]) {
         ("page", []) => {
             println!("{PAGE}");
+            0
+        }
+        ("label", []) => {
+            println!("{SHIPPED}");
             0
         }
         ("query", []) => {
@@ -176,7 +194,7 @@ pub fn main(given: &[String]) -> u8 {
 
 fn usage() -> u8 {
     eprintln!(
-        "console shipped: usage: page | query | answer <issue> <answer> \
+        "console shipped: usage: page | label | query | answer <issue> <answer> \
          | list [--control <number>]... | has <label> <node> | whole"
     );
     2
@@ -792,5 +810,15 @@ mod tests {
             "a search holds no more terms than that"
         );
         assert!(QUERY.contains(&format!("first: {PAGE}")));
+    }
+
+    #[test]
+    fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
+        // lib/shipped.sh holds the name too, for a host whose console is older
+        // than this verb: the two must say the same word, which is what the
+        // shell test of libexec/tidy reads out of the console.
+        assert_eq!(SHIPPED, "tehas:shipped");
+        let given: Vec<String> = ["label"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(main(&given), 0);
     }
 }
