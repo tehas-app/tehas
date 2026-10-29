@@ -2,19 +2,27 @@
 //! call and fail the ones a test names.
 
 use super::*;
+use crate::poll::End;
 use crate::read::run::Calls;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A stub answers each call, writes `<name> <args>` and its standard input
-/// to calls.log, and exits 1 when a line of fail-<name> is in its args.
+/// to calls.log, and exits 1 when a line of fail-<name> is in its args. When
+/// want-token-<name> names a file, the stub says one word on that file of the
+/// world if it ran with a token; the word is the only thing it writes, so a
+/// test can count the processes that were given one without any part of a
+/// token reaching a file, a log or an argument.
 const STUB: &str = r#"#!/bin/bash
 d=$(dirname "$0")
 name=$(basename "$0")
 input=""
 case $name in gh) input=$(cat) ;; esac
 printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
+if [ -f "$d/want-token-$name" ] && [ -n "${TEHAS_GH_TOKEN:-}" ]; then
+  printf 'token\n' >>"$d/$(cat "$d/want-token-$name")"
+fi
 if [ -f "$d/fail-$name" ]; then
   while IFS= read -r line; do
     p=${line%%|*} w=${line#*|}
@@ -38,6 +46,8 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "tidy "*) echo "the tidy line" ;;
+  "health "*) echo "the health line" ;;
   "store journal-open") cat "$d/open" 2>/dev/null || echo '{"api":1,"verb":"journal-open","ok":true,"actions":[]}' ;;
   "store plan-begin")
     for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
@@ -116,6 +126,8 @@ fn world() -> World {
         "docker",
         "start",
         "status",
+        "tidy",
+        "health",
         "analytics",
         "git",
         "systemctl",
@@ -152,6 +164,8 @@ fn world() -> World {
             stop_cmd: Some(s("start")),
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
+            health_cmd: s("health"),
+            tidy_cmd: s("tidy"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
@@ -200,12 +214,41 @@ impl World {
         fs::write(p, s).unwrap();
     }
 
-    fn calls(&self) -> Vec<String> {
-        fs::read_to_string(self.dir.join("calls.log"))
+    /// The lines of a file the stub wrote, one per call that wrote it.
+    fn lines_of(&self, file: &str) -> Vec<String> {
+        fs::read_to_string(self.dir.join(file))
             .unwrap_or_default()
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    /// Make <program>'s stub record a line in <file> of the world when it ran
+    /// with `TEHAS_GH_TOKEN` set. One line per process that saw a token.
+    fn asks_for_token(&self, program: &str, file: &str) {
+        fs::write(
+            self.dir.join(format!("want-token-{program}")),
+            format!("{file}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The three host commands of a poll - tidy, the status and health - each
+    /// recording its word in <file> when it was given a token.
+    fn expects_a_token_on_its_host_commands(&self, file: &str) {
+        for program in ["tidy", "status", "health"] {
+            self.asks_for_token(program, file);
+        }
+    }
+
+    /// The words the stubs said for the token, one line per process that was
+    /// given one.
+    fn token_said(&self, file: &str) -> Vec<String> {
+        self.lines_of(file)
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.lines_of("calls.log")
     }
 
     /// The gh and docker calls, without the journal's.
@@ -219,6 +262,14 @@ impl World {
     fn apply(&mut self, actions: Value) -> Applied {
         self.w.apply(actions.as_array().unwrap())
     }
+}
+
+/// The three host commands of a poll: tidy as the end of a poll of `dry`
+/// sends it, the status, and health as the poll's start sends it. Each prints
+/// its own word, so `printed` says which of them answered, and the arguments
+/// come from `End`, the code that really starts them.
+fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
+    End::host_of(dry).runs_host_commands(w, printed);
 }
 
 fn label() -> Value {
@@ -252,6 +303,60 @@ fn a_failed_label_change_logs_its_line_and_says_nothing() {
         vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"]
     );
     assert!(!t.calls().iter().any(|c| c.contains("issue comment")));
+}
+
+/// The token both token tests give the poll, and the file their stubs say
+/// their word on.
+const TOKEN: &str = "ghs_poll";
+const GIVEN: &str = "given";
+
+#[test]
+fn the_poll_gives_its_host_commands_its_token() {
+    // tidy, the status and health are host commands the poll runs through
+    // status_of: each of them gets the poll's token as TEHAS_GH_TOKEN, the same
+    // value the poll's own gh calls get, so the shim of a gh they run asks for
+    // none. The stubs say one word when they saw a token; the poll's taking of
+    // it is the case of the same name in read/run.rs, so here the poll starts
+    // out holding one.
+    let mut t = world();
+    t.expects_a_token_on_its_host_commands(GIVEN);
+    t.w.calls.gh_token = Some(TOKEN.into());
+    let mut printed = Vec::new();
+    runs_host_commands(&mut t.w, true, &mut printed);
+    assert_eq!(t.token_said(GIVEN), vec!["token"; 3]);
+    // The three lines are the three commands' own words, so neither of them
+    // stands in for another: the token reaches no output of any of them.
+    assert_eq!(
+        printed,
+        vec!["the tidy line", "the status line", "the health line"]
+    );
+    // The issue's rule: the token is in no log line and no argument.
+    assert!(!t.calls().iter().any(|c| c.contains(TOKEN)));
+    // The end's own arguments: a dry poll's tidy is asked for a dry run, the
+    // way End sends it and no other way. The name is a path, so the call is
+    // named by the word after its last slash.
+    let tidy = t.w.host.tidy_cmd.rsplit('/').next().unwrap().to_string();
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with(&format!("{tidy} --dry-run"))));
+}
+
+#[test]
+fn host_commands_get_none_without_a_token() {
+    // With no app named, or no token the poll could take, nothing is given. The
+    // gh side of the rule is `a_token_that_could_not_be_had_leaves_the_calls_as_they_were`
+    // in read/run.rs.
+    let mut t = world();
+    t.expects_a_token_on_its_host_commands(GIVEN);
+    assert_eq!(t.w.calls.gh_token, None);
+    let mut printed = Vec::new();
+    runs_host_commands(&mut t.w, true, &mut printed);
+    assert_eq!(t.token_said(GIVEN), Vec::<String>::new());
+    assert_eq!(
+        printed,
+        vec!["the tidy line", "the status line", "the health line"]
+    );
 }
 
 #[test]

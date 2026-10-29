@@ -203,6 +203,8 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
             start_wait: secs("TEHAS_CYCLE_START_WAIT", 30),
             status_cmd: or("TEHAS_STATUS_CMD", "status"),
+            health_cmd: or("TEHAS_HEALTH_CMD", "health"),
+            tidy_cmd: or("TEHAS_TIDY_CMD", "tidy"),
             analytics,
             // tehas_analytics_wait: 1 to 999 seconds, else 5.
             analytics_wait: Duration::from_secs(
@@ -262,7 +264,7 @@ struct Changed {
 
 /// The poll's end, run however it ended once it held the lock: tidy once
 /// past the bot's checks, then, unless dry, its cost and the analytics.
-struct End<'a> {
+pub struct End<'a> {
     home: &'a Path,
     dry: bool,
     tidy: bool,
@@ -273,18 +275,48 @@ struct End<'a> {
 }
 
 impl End<'_> {
+    /// tidy, as this end sends it: with `--dry-run` only of a dry poll, which
+    /// is how the bash's trap sends it too.
+    fn runs_tidy(&self, w: &mut Writer, printed: &mut Vec<String>) {
+        let args: Vec<String> = if self.dry {
+            vec!["--dry-run".into()]
+        } else {
+            Vec::new()
+        };
+        w.status_of(&w.host.tidy_cmd.clone(), &args, printed);
+    }
+
+    /// An end of a poll that got past the bot's login, for a test of the host
+    /// commands below: `dry` is all any of them reads, so the rest are an idle
+    /// poll's, and a test of these three runs neither the cost nor the status
+    /// of a real end, which need the home and the tally.
+    #[cfg(test)]
+    pub fn host_of(dry: bool) -> End<'static> {
+        End {
+            home: Path::new(""),
+            dry,
+            tidy: true,
+            started: 0.0,
+            gh: 0,
+            starts: 0,
+            changed: Changed::default(),
+        }
+    }
+
+    /// The three host commands of a poll, each the way the poll sends it: tidy
+    /// as this end sends it, the status, and health as `demand_health` sends
+    /// it. Reached through `End`, so the arguments are the ones a poll gives.
+    #[cfg(test)]
+    pub fn runs_host_commands(&self, w: &mut Writer, printed: &mut Vec<String>) {
+        self.runs_tidy(w, printed);
+        w.status(printed);
+        w.health(printed, &mut Vec::new());
+    }
+
     fn run(&self, w: &mut Writer) {
         if self.tidy {
-            let tidy = Some(env("TEHAS_TIDY_CMD"))
-                .filter(|v| !v.is_empty())
-                .unwrap_or_else(|| here(self.home).join("tidy").to_string_lossy().into_owned());
-            let args: Vec<String> = if self.dry {
-                vec!["--dry-run".into()]
-            } else {
-                Vec::new()
-            };
             let mut printed = Vec::new();
-            w.status_of(&tidy, &args, &mut printed);
+            self.runs_tidy(w, &mut printed);
             pass(&printed);
         }
         if self.dry {
@@ -451,10 +483,14 @@ pub fn run_poll(home: &Path, settings: &Settings, dry: bool) -> i32 {
     let mut w = writer(home, settings, "", 0, now() as i64);
     // The poll's GitHub token, kept in memory from before its first call: the
     // first gh of the poll asks the host's token program once, and every gh
-    // process after it - its reads and its writes - is given the token as
-    // TEHAS_GH_TOKEN, so the shim of a call runs no libexec/github-token of its
-    // own. With no app named nothing is asked and nothing is given, and a token
-    // that could not be had leaves the calls as they were: each pays for one.
+    // process after it is given the token as TEHAS_GH_TOKEN, so the shim of a
+    // call runs no libexec/github-token of its own: its reads, its writes, and
+    // the commands it starts at its end - tidy, the status and health, all
+    // through status_of - carry it in their environment too. With no app named
+    // nothing is asked and nothing is given, and a token that could not be had
+    // leaves the calls as they were: each pays for one. The token is never
+    // logged, never written to a file and never put in the arguments of
+    // anything.
     let token = PollToken::default();
     w.calls.gh_token = token.get(home);
     let mut end = End {
@@ -615,13 +651,16 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
                 say(&format!("WARN: could not write {}", file.display()));
             }
         }
-        // TEHAS_HEALTH_CMD is a test's, as TEHAS_STATUS_CMD is.
-        let health = Some(env("TEHAS_HEALTH_CMD"))
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| here(home).join("health").to_string_lossy().into_owned());
+        // health, whose gh calls are given the poll's token as the poll's own
+        // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
+        // is, and nothing of the token travels in the name.
         let mut printed = Vec::new();
-        let rc = w.status_of(&health, &[], &mut printed);
+        let mut log = Vec::new();
+        let rc = w.health(&mut printed, &mut log);
         pass(&printed);
+        for l in &log {
+            say(l);
+        }
         if rc != Some(0) {
             say("WARN: the health file could not be written");
         }

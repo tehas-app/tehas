@@ -150,9 +150,28 @@ pub fn run_grace(
     bound: Duration,
     grace: Duration,
 ) -> Option<i32> {
+    run_grace_env(program, args, out, bound, grace, &[])
+}
+
+/// run_grace with extra variables in the child's environment, each a name and
+/// its value, as `run_input_env` gives them: the poll gives the commands it
+/// starts at its end the token it took once, so their gh calls run no token
+/// program of their own.
+pub fn run_grace_env(
+    program: &str,
+    args: &[String],
+    out: Option<std::fs::File>,
+    bound: Duration,
+    grace: Duration,
+    extra: &[(&str, &str)],
+) -> Option<i32> {
     use std::os::unix::process::CommandExt;
-    let mut child = Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    for (k, v) in extra {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
         .stdin(Stdio::null())
         .stdout(out.map_or_else(Stdio::null, Stdio::from))
         .stderr(Stdio::null())
@@ -284,10 +303,11 @@ fn parse(out: &str) -> Value {
     }
 }
 
-/// The extra environment of one gh call of the poll: the token it took, when
-/// the poll has one. Nothing else is given, so a call without an app is the
-/// call it was.
-fn gh_env(token: Option<&str>) -> Vec<(&str, &str)> {
+/// The environment a process of the poll is given beyond its own: the poll's
+/// token as `TEHAS_GH_TOKEN`, which host/shim/gh hands to gh as `GH_TOKEN`. A
+/// poll with no app named, or no token it could take, gives nothing and each
+/// gh of it pays for a token of its own.
+pub fn gh_env(token: Option<&str>) -> Vec<(&str, &str)> {
     match token {
         Some(t) => vec![("TEHAS_GH_TOKEN", t)],
         None => Vec::new(),
