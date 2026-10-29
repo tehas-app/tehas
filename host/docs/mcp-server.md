@@ -360,7 +360,7 @@ Each line gets the closest of these kinds, by its first words:
 
 | Kind | Lines |
 | --- | --- |
-| `start` | `start`, a planning turn that `runs as` a unit, `refining`, and the cycle's own `tehas-cycle:` line |
+| `start` | `start`, a planning turn that `runs as` a unit or `continues`, `refining`, and the cycle's own `tehas-cycle:` line |
 | `done` | `done`, `stop` and a planning turn that `ended` |
 | `wait` | `wait`, `holding:`, `hold`, `released:`, `low issues`, a planning or refining turn that `waits`, `the code index stays`, `another poll` and `nothing to do` |
 | `skip` | `skip` and `ignore` |

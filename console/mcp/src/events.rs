@@ -455,7 +455,7 @@ pub fn kind_of(log: &str, text: &str) -> &'static str {
         (_, "start" | "tehas-cycle:") => "start",
         (_, "done" | "stop") => "done",
         (_, "planning" | "refining") if text.contains(" waits") => "wait",
-        (_, "planning") if text.contains(" runs as ") => "start",
+        (_, "planning") if text.contains(" runs as ") || text.contains(" continues") => "start",
         (_, "planning") if text.contains(" ended") => "done",
         (_, "refining") => "start",
         (_, "wait" | "holding:" | "hold" | "released:" | "low" | "another" | "nothing") => "wait",
@@ -626,6 +626,10 @@ mod tests {
         assert_eq!(d("done planning #1015 turn=1 rc=0"), "done");
         assert_eq!(d("stop #975: its issue is closed"), "done");
         assert_eq!(d("planning #3 ended"), "done");
+        assert_eq!(
+            d("planning #7 continues (answer from mill-bot, the fixer)"),
+            "start"
+        );
         assert_eq!(d("wait #462: tehas:blocked holds it"), "wait");
         assert_eq!(d("holding: the limit allows 0 cycles at once"), "wait");
         assert_eq!(d("hold #688: its last cycle parked"), "wait");
