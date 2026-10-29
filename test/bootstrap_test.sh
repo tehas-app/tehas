@@ -786,6 +786,9 @@ reload=$etc/systemd/system/tehas-slice-reload.service
 slice_stubs() { # <uid the caller has> [<what docker info answers>] [<systemd-oomd's state>]
   t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
   t_stub docker "case \"\$1\" in info) echo '${2-systemd 2}' ;; *) echo 'Docker version 29.1.3' ;; esac"
+  # The step asks udevd to re-read its rules after writing the new one; the
+  # stub records the call and answers like any other command here.
+  t_stub udevadm
   # slice-stale: the file on disk is newer than what systemd read, as systemd
   # reports it, until a daemon-reload.
   t_stub systemctl 'case "$*" in
@@ -810,6 +813,9 @@ t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
 t_eq "$(stat -c %a "$slice")" 644
 t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reload
 start tehas.slice"
+# daemon-reload does not read /etc/udev/rules.d, so the step has to ask udevd
+# for its own reload or the rule sits on disk until udevd next restarts.
+t_eq "$(t_calls udevadm)" "control --reload-rules"
 t_contains "$t_out" "bootstrap: slice part done"
 t_contains "$t_out" "21990232555"
 
@@ -817,16 +823,29 @@ t_contains "$t_out" "21990232555"
 # to a running host reaches the slice only through a reload: the rule asks
 # systemd-udevd for one, and the oneshot does it.
 t_case "slice installs the memory-online rule and the reload unit beside it"
+fresh_slice
+slice_stubs 0
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
 t_eq "$(cmp -s "$rule" "$rule_shipped" && echo same)" same
 t_eq "$(cmp -s "$reload" "$reload_shipped" && echo same)" same
 t_eq "$(stat -c %a "$rule")$(stat -c %a "$reload")" "644644"
 # The rule names the unit and nothing else does the reload: RUN+= is killed when
-# it runs too long, and many blocks come online at once.
-t_contains "$(grep -v '^#' "$rule")" 'SUBSYSTEM=="memory", ACTION=="online", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tehas-slice-reload.service"'
-t_lacks "$(grep -v '^#' "$rule")" 'ACTION=="offline"'
-t_lacks "$rule" "RUN+="
+# it runs too long, and many blocks come online at once. One read of the file,
+# comments away, for every assertion on it: a rule may name RUN+= in its prose
+# and still hold no RUN+=, and this case claims the second thing.
+rule_code=$(grep -v -e '^#' -e '^$' "$rule")
+t_eq "$rule_code" 'SUBSYSTEM=="memory", ACTION=="online", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tehas-slice-reload.service"'
+t_lacks "$rule_code" 'ACTION=="offline"'
+t_lacks "$rule_code" "RUN+="
+# The unit udevd is told to start is the one that ships beside the rule: both
+# names are read from the files, so a rename of one side alone fails here.
+t_eq "$(sed -n 's/.*SYSTEMD_WANTS}+="\([^"]*\)".*/\1/p' <<<"$rule_code")" "$(basename "$reload")"
 t_contains "$(cat "$reload")" "Type=oneshot"
 t_contains "$(cat "$reload")" "ExecStart=/usr/bin/systemctl daemon-reload"
+# The reload is bounded, as every unit of host/systemd bounds its run: a hung
+# daemon-reload would swallow every memory-online event that came after it.
+t_contains "$(cat "$reload")" "TimeoutStartSec="
 
 t_case "the shipped slice has one memory limit, a CPU weight and nothing else"
 t_eq "$(grep -v -e '^#' -e '^$' "$shipped")" "[Unit]
@@ -1080,21 +1099,83 @@ t_run "$bootstrap check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas.slice: differs (sudo ./bootstrap.sh slice)"
 t_lacks "$t_out" "tehas.slice: in place"
-t_contains "$t_out" "tehas.slice's udev rule: missing (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "96-tehas-memory-online.rules: missing (sudo ./bootstrap.sh slice)"
 t_contains "$t_out" "tehas-slice-reload.service: missing (sudo ./bootstrap.sh slice)"
 install -D -m 644 "$rule_shipped" "$rule"
 install -D -m 644 "$reload_shipped" "$reload"
 t_run "$bootstrap check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas.slice: differs"
-t_contains "$t_out" "tehas.slice's udev rule: in place"
+t_contains "$t_out" "96-tehas-memory-online.rules: in place"
 t_contains "$t_out" "tehas-slice-reload.service: in place"
 echo "SUBSYSTEM==\"memory\", ACTION==\"offline\"" >>"$rule"
 t_run "$bootstrap check"
 t_eq "$t_rc" 0
-t_contains "$t_out" "tehas.slice's udev rule: differs (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "96-tehas-memory-online.rules: differs (sudo ./bootstrap.sh slice)"
 t_eq "$(find "$etc" -type f | wc -l)" 3
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
+# The write path has three installs and each can fail on its own (an unreadable
+# source, a full or unwritable /etc). Two of the three on disk is not in place,
+# and the next run has to repair it: a rule beside no unit is the failure this
+# step exists to avoid.
+t_case "slice says so when a shipped file cannot be read, and writes nothing"
+fresh_slice
+slice_stubs 0
+# A shipped file the step cannot read is reported as the write that failed, and
+# nothing is left on disk: the pre-flight test of -f cannot tell that file from
+# one that is there and readable.
+chmod 000 "$reload_shipped"
+t_run "$bootstrap slice"
+chmod 644 "$reload_shipped"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not write"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$([ -e "$rule" ] && echo there)" ""
+t_eq "$([ -e "$reload" ] && echo there)" ""
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" ""
+
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
+# Each of the three installs can fail on its own (a full or unwritable target
+# directory, EACCES). Two of the three on disk is not in place, and the next run
+# has to repair it: a rule beside no unit is the failure this step exists to
+# avoid. The case writes the unit by hand and stubs install to fail at the rule.
+t_case "slice reports the file it could not write and the retry writes what is missing"
+fresh_slice
+slice_stubs 0
+# The unit is written first, so a run that fails at the rule leaves the shipped
+# unit beside no rule and no slice: what a guard on the slice alone would report
+# as "already in place". The directory of the rule is made unwritable to bring
+# that about, as EACCES or a full disk would.
+mkdir -p "$etc/udev"
+chmod 555 "$etc/udev"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not write $rule"
+t_eq "$([ -e "$slice" ] && echo there)" ""
+t_eq "$([ -e "$rule" ] && echo there)" ""
+t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" ""
+t_eq "$(t_calls udevadm)" ""
+# The retry writes the three and reloads udevd once.
+chmod 755 "$etc/udev"
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_eq "$(cmp -s "$rule" "$rule_shipped" && echo same)" same
+t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
+t_eq "$(t_calls udevadm)" "control --reload-rules"
+t_contains "$t_out" "bootstrap: slice part done"
+
+t_case "slice says so when udevd's rules could not be reloaded, and still installs"
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+fresh_slice
+slice_stubs 0
+t_stub udevadm 'exit 1'
+t_run "$bootstrap slice"
+t_eq "$t_rc" 0
+t_contains "$t_out" "udevadm control --reload-rules failed"
+t_contains "$t_out" "bootstrap: slice part done"
+t_eq "$(cmp -s "$rule" "$rule_shipped" && echo same)" same
 
 t_case "no arguments prints the usage"
 t_run "$bootstrap"

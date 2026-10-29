@@ -111,9 +111,24 @@ other two files make it follow:
 
 A oneshot unit and not `RUN+=` in the rule: udevd kills a `RUN` that runs too
 long, and many blocks come online at once. systemd coalesces the requests of one
-group of blocks into the one run of a oneshot that has not finished. Memory going
-offline needs nothing of its own: the slice shrinks at the next reload, and the
-dispatcher reads `MemoryMax` on every poll.
+group of blocks into the one run of a oneshot that has not finished, which is
+also why the unit bounds its run with `TimeoutStartSec=60` and a start limit: a
+reload that hung would hold every memory-online event after it in the same
+unfinished run. `libexec/update` bounds the same call at 60 seconds for the same
+reason. The unit names `/usr/bin/systemctl` by path: that is where Ubuntu's
+usr-merged systemd puts it.
+
+Memory going offline needs nothing of its own: the slice shrinks at the next
+reload. What reads the limit is `lib/slice.sh`, with one `systemctl show
+tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` per poll, so the
+dispatcher's next poll after a reload sees the new number.
+
+To read what the slice has now, and to see a reload that did not happen:
+
+```
+systemctl show tehas.slice -p FragmentPath -p MemoryMax
+systemctl status tehas-slice-reload.service
+```
 
 Root is needed for exactly this: writing the files under `/etc` and reloading the
 system manager. Docker places containers under the system manager, so a slice
@@ -127,22 +142,28 @@ What it does, in order:
    driver on cgroup v2 is refused and nothing is written. The fix is
    `"exec-opts": ["native.cgroupdriver=systemd"]` in `/etc/docker/daemon.json`
    and a restart of Docker.
-3. If the file under `/etc` equals the shipped one, systemd has the slice
-   loaded from a file with a memory limit, and systemd does not report the
-   file as changed since it read it (`NeedDaemonReload=no`), it prints
+3. If each file under `/etc` equals its shipped one and systemd has the slice
+   loaded from a file with a memory limit and does not report the file as
+   changed since it read it (`NeedDaemonReload=no`), it prints
    `bootstrap: slice part already in place` and changes nothing. A reload
    that failed after an update leaves the old limit in force beside an equal
-   file; that is not in place, and the step goes on to reload.
-4. Otherwise it writes the three files, runs `systemctl daemon-reload` and
-   `systemctl start tehas.slice`, and stops with exit 1 if the slice has no
-   memory limit after that.
+   file, and a run that wrote two of the three leaves the rule beside no unit:
+   neither is in place, and the step writes what is owed again.
+4. Otherwise it writes the three files, runs `systemctl daemon-reload`, asks
+   udevd to re-read its rules with `udevadm control --reload-rules` (bounded,
+   and a warning rather than a failure where there is no udevadm: the slice
+   itself is installed either way), then runs `systemctl start tehas.slice`,
+   and stops with exit 1 if the slice has no memory limit after that.
 5. It prints one line with the file systemd loaded, the limit in bytes, and
    whether `systemd-oomd` is active. That last part is information: tehas
    neither uses nor needs systemd-oomd, and the step does not touch it.
 
-Run it again when an update of tehas changes a shipped file.
-`./install.sh --check` says when: its `Slice:` line reads `DIFFERS`.
-`tehas update` cannot do it, because it runs as the tehas user.
+Run it again when an update of tehas changes one of the three shipped files.
+`./install.sh --check` compares the slice file only, and its `Slice:` line reads
+`DIFFERS` when that one has changed. `./bootstrap.sh check` reports all three,
+each `in place`, `missing` or `differs`, and says nothing about whether udevd has
+read the rule: the commands that say the files are current do not say the limit
+moved. `tehas update` cannot run this step, because it runs as the tehas user.
 
 Another limit for one host goes in
 `/etc/systemd/system/tehas.slice.d/override.conf`, written by root. The step
@@ -232,10 +253,12 @@ lingering. Exit 1 if anything is missing, at another version, or an npm tool
 not on its pinned tree. `./install.sh --check` runs it as its `Dependencies`
 line.
 
-The last lines are the slice and the two files that keep its limit honest:
-`tehas.slice`, `tehas.slice's udev rule` and `tehas-slice-reload.service`, each
-`in place`, `missing` or `differs`, by comparing what is under `/etc` with the
-file in the checkout. They do not change the exit status.
+The last three lines are the slice and the two files that keep its limit honest:
+`tehas.slice`, `96-tehas-memory-online.rules` and
+`tehas-slice-reload.service`, each `in place`, `missing` or `differs`, by
+comparing what is under `/etc` with the file in the checkout. They do not change
+the exit status, and they compare files: a limit that did not move is on
+`systemctl show tehas.slice -p MemoryMax`.
 
 ## Running it again
 
