@@ -796,7 +796,7 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
             }
             "--until" => {
                 take(&mut want.until, value)?;
-                if !epoch(value).is_some_and(|at| at > now()) {
+                if epoch(value).is_none_or(|at| at <= now()) {
                     return Err(
                         "--until wants a time of the form 2026-10-17T14:05:00Z, later than now",
                     );
