@@ -830,8 +830,9 @@ impl<'a> Poll<'a> {
     }
 
     /// branch_check: the hold of a red branch, when TEHAS_BRANCH_CHECK names
-    /// a check that failed on the branch's head commit. Anything else holds
-    /// nothing, and says why it could not tell once.
+    /// a check that failed on the branch's head commit, and the hold of one
+    /// that finished without saying it passed. Anything else holds nothing,
+    /// and says why it could not tell once.
     fn branch_check(&mut self) -> Option<String> {
         let c = self.c;
         if c.branch_check.is_empty() {
@@ -862,6 +863,14 @@ impl<'a> Poll<'a> {
             Some("none") => (
                 None,
                 format!("{branch} has no check named {name} on its head commit: cycles start"),
+            ),
+            // Its runs finished and none says it passed: the poll does not
+            // know what ended the gate, so nothing starts on it unsaid.
+            Some("unknown") => (
+                Some(format!(
+                    "holding: the check {name} on {branch} finished without saying it passed"
+                )),
+                String::new(),
             ),
             _ => (
                 None,
@@ -898,6 +907,13 @@ fn check_state(a: &Value) -> Option<String> {
     }
     let sha = &runs[0]["head_sha"].as_str()?[..12];
     let done = |r: &Value| r.get("status").and_then(Value::as_str) == Some("completed");
+    let passed = |r: &Value| {
+        done(r)
+            && matches!(
+                r.get("conclusion").and_then(Value::as_str),
+                Some("success" | "neutral" | "skipped")
+            )
+    };
     if runs.iter().any(|r| {
         done(r)
             && matches!(
@@ -906,8 +922,13 @@ fn check_state(a: &Value) -> Option<String> {
             )
     }) {
         Some(format!("red {sha}"))
-    } else if runs.iter().all(done) {
+    } else if runs.iter().all(passed) {
         Some(format!("done {sha}"))
+    } else if runs.iter().all(done) && !runs.iter().any(passed) {
+        // Every run finished and none says it passed: a cancelled run, one with
+        // no conclusion, or one whose conclusion is no conclusion GitHub
+        // answers. Nothing starts on a gate that did not pass.
+        Some("unknown".into())
     } else {
         Some(format!("pending {sha}"))
     }

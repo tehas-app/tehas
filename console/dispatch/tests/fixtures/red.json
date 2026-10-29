@@ -214,7 +214,7 @@
    }
   },
   {
-   "case": "red: cancelled, the cycles start as before",
+   "case": "red: a cancelled run is not read as green: nothing starts and the log says why",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
     "TEHAS_BRANCH_CHECK": "verify"
@@ -235,13 +235,131 @@
     }
    },
    "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check verify on main finished without saying it passed"
+    ],
+    "report": {
+     "why": "red",
+     "hold": "holding: the check verify on main finished without saying it passed"
+    },
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "start": 8
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a completed run that names no conclusion is not read as green",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check verify on main finished without saying it passed"
+    ],
+    "report": {
+     "why": "red"
+    },
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a run whose conclusion is no conclusion GitHub answers is not read as green",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "wontfix"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check verify on main finished without saying it passed"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "red: a run that did not finish with the unknown one is pending, not green",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "ready_n": [
+    7,
+    8
+   ],
+   "snapshot": {
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "cancelled"
+      },
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "in_progress",
+       "conclusion": null
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
     "picked": [
      7,
      8
     ],
-    "report": {
-     "why": ""
-    }
+    "log": [
+     "the check verify on main at 0123456789ab has not finished: cycles start"
+    ]
    }
   },
   {
@@ -304,6 +422,32 @@
     "report": {
      "why": ""
     }
+   }
+  },
+  {
+   "case": "red: said on every poll while a run's conclusion says nothing",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_BRANCH_CHECK": "verify"
+   },
+   "snapshot": {
+    "last_why": "red",
+    "checks": {
+     "check_runs": [
+      {
+       "head_sha": "0123456789abcdef0123456789abcdef01234567",
+       "status": "completed",
+       "conclusion": "cancelled"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "holding: the check verify on main finished without saying it passed"
+    ]
    }
   },
   {

@@ -51,8 +51,8 @@ t_run "$dispatch"
 t_contains "$t_out" "holding: main is red at 0123456789ab"
 t_eq "$(jq -r .why "$dispatch_json")" red
 
-t_case "red: passed, pending, cancelled or skipped, the cycles start as before"
-for st in "completed success" "in_progress" "queued" "completed cancelled" "completed skipped" "completed neutral"; do
+t_case "red: passed or pending, the cycles start as before"
+for st in "completed success" "in_progress" "queued" "completed skipped" "completed neutral"; do
   reset
   red_instance
   ready 7 8
@@ -62,6 +62,60 @@ for st in "completed success" "in_progress" "queued" "completed cancelled" "comp
   [ "$(started)" = "7 8 " ] || t_bad "$st: started '$(started)'"
   [ "$(jq -r .why "$dispatch_json")" = "" ] || t_bad "$st: why is $(jq -r .why "$dispatch_json")"
 done
+
+t_case "red: a cancelled run is not read as green: nothing starts and the log says so"
+reset
+red_instance
+ready 7 8
+checks completed cancelled
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" red
+t_eq "$(jq -r .hold "$dispatch_json")" "holding: the check verify on main finished without saying it passed"
+t_contains "$t_out" "holding: the check verify on main finished without saying it passed"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+
+t_case "red: a completed run that names no conclusion is not read as green either"
+reset
+red_instance
+ready 7 8
+checks completed
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" red
+t_contains "$t_out" "holding: the check verify on main finished without saying it passed"
+
+t_case "red: a conclusion GitHub does not answer is not read as green either"
+reset
+red_instance
+ready 7 8
+checks completed wontfix
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" red
+t_contains "$t_out" "holding: the check verify on main finished without saying it passed"
+
+t_case "red: an unknown conclusion beside a run that has not finished is pending"
+reset
+red_instance
+ready 7 8
+jq -nc --arg sha "$sha" '{total_count: 2, check_runs: [
+  {name: "verify", head_sha: $sha, status: "completed", conclusion: "cancelled"},
+  {name: "verify", head_sha: $sha, status: "in_progress", conclusion: null}]}' >"$fx/checks.json"
+t_run "$dispatch"
+t_eq "$(started)" "7 8 "
+t_contains "$t_out" "the check verify on main at 0123456789ab has not finished: cycles start"
+
+t_case "red: said on every poll while a run's conclusion says nothing"
+reset
+red_instance
+checks completed cancelled
+t_run "$dispatch"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_contains "$t_out" "holding: the check verify on main finished without saying it passed"
+t_eq "$(jq -r .why "$dispatch_json")" red
 
 t_case "red: a pending check is said once, with why the poll could not tell"
 reset
