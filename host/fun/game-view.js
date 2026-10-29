@@ -66,7 +66,7 @@
       tickets.push({
         number, title: item.title.slice(0, 180), labels, url, stage: stageOf(labels, closed),
         createdAt: when(item.createdAt), updatedAt: when(item.updatedAt), closedAt: when(item.closedAt),
-        tokens: amount(item.tokens), seconds: amount(item.timeSpentSeconds), kWh: amount(item.kWh),
+        tokens: amount(item.tokens), seconds: amount(item.timeSpentSeconds), kWh: amount(item.kWh), runs: amount(item.runs),
       });
     };
     for (const item of list) add(item, false);
@@ -321,16 +321,17 @@
       : `Nothing in the lab. An allowed account labels an open ticket ${LAB_LABEL} to put it here.`));
   }
 
-  // Work order facts. A dash means the data does not say, or nothing was spent yet.
+  // Work order facts. null means the data does not say, or nothing was spent
+  // yet, and the row is left out.
   const MONTHS = "JAN FEB MAR APR MAY JUN JUL AUG SEP OCT NOV DEC".split(" ");
   const day = (iso) => {
-    if (!iso) return "-";
+    if (!iso) return null;
     const d = new Date(iso);
     return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
   };
-  const tokenCount = (n) => (n == null ? "-" : n >= 1e6 ? (n / 1e6).toFixed(2) + " M" : n >= 1e3 ? Math.round(n / 1e3) + " K" : String(n));
+  const tokenCount = (n) => (n == null ? null : n >= 1e6 ? (n / 1e6).toFixed(2) + " M" : n >= 1e3 ? Math.round(n / 1e3) + " K" : String(n));
   const spent = (secs) => {
-    if (secs == null) return "-";
+    if (secs == null) return null;
     const m = Math.max(1, Math.round(secs / 60)), h = Math.floor(m / 60);
     return h ? `${h} H ${m % 60} MIN` : `${m} MIN`;
   };
@@ -338,22 +339,28 @@
   // A measured figure is shown as it is; an estimate is marked with a tilde.
   const energy = (t) => {
     if (t.kWh != null) return t.kWh.toFixed(2) + " KWH";
-    if (t.seconds == null) return "-";
+    if (t.seconds == null) return null;
     return "~" + (t.seconds / 3600 * state.kw).toFixed(2) + " KWH";
   };
 
   function renderOrder() {
     endPrint();
     const ticket = state.tickets.find((t) => t.number === state.selected);
-    $("order-created").textContent = ticket ? day(ticket.createdAt) : "-";
-    $("order-changed").textContent = ticket ? day(ticket.updatedAt) : "-";
-    $("order-tokens").textContent = ticket ? tokenCount(ticket.tokens) : "-";
-    $("order-time").textContent = ticket ? spent(ticket.seconds) : "-";
-    $("order-energy").textContent = ticket ? energy(ticket) : "-";
+    const fact = (id, text) => {
+      $(id).textContent = text ?? "";
+      $(id).parentElement.hidden = text == null;
+    };
+    fact("order-created", ticket && day(ticket.createdAt));
+    fact("order-changed", ticket && day(ticket.updatedAt));
+    fact("order-closed", ticket && ticket.stage === "shipped" ? day(ticket.closedAt) : null);
+    fact("order-runs", ticket && ticket.runs != null ? String(ticket.runs) : null);
+    fact("order-tokens", ticket && tokenCount(ticket.tokens));
+    fact("order-time", ticket && spent(ticket.seconds));
+    fact("order-energy", ticket && energy(ticket));
     $("order-number").textContent = ticket ? "#" + ticket.number : "----";
     $("order-title").textContent = ticket ? ticket.title : state.loaded ? "No ticket selected." : "No ticket data loaded.";
-    $("order-stage").textContent = ticket ? STAGES[ticket.stage] : "-";
-    $("order-labels").textContent = ticket && ticket.labels.length ? ticket.labels.join(", ") : "-";
+    fact("order-stage", ticket && STAGES[ticket.stage]);
+    fact("order-labels", ticket && ticket.labels.length ? ticket.labels.join(", ") : null);
     const link = $("order-link");
     link.replaceChildren();
     if (ticket && ticket.url) {
@@ -433,8 +440,9 @@
     const walker = document.createTreeWalker(document.querySelector(".screen"), NodeFilter.SHOW_TEXT);
     const pieces = [];
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      // Whitespace between elements is layout, not text on the line.
-      if (/\S/.test(node.nodeValue)) { pieces.push([node, node.nodeValue]); node.nodeValue = ""; }
+      // Whitespace between elements is layout, not text on the line, and a
+      // left-out row is not on the screen.
+      if (/\S/.test(node.nodeValue) && !node.parentElement.closest("[hidden]")) { pieces.push([node, node.nodeValue]); node.nodeValue = ""; }
     }
     printing = pieces;
     // Screen readers get the finished order, not every character.
@@ -597,13 +605,16 @@
   const queue = { mode: "auto", readAt: null, all: null, signature: "" };
   const IMPLIED = { queued: "tehas:ready", running: "tehas:running", awaiting: "tehas:awaiting-merge", stopped: "needs-human-attention" };
 
-  function fromSnapshot(s) {
+  // `orders` is what each ticket's runs spent (work-orders.js), or null.
+  function fromSnapshot(s, orders) {
     const byNumber = new Map();
     const take = (key, closed) => {
       for (const item of Array.isArray(s[key]) ? s[key] : []) {
         const number = Number(item && item.number);
         if (!Number.isSafeInteger(number) || number <= 0 || typeof item.title !== "string") continue;
-        const t = byNumber.get(number) || { number, title: item.title, state: "OPEN", labels: [], url: item.url, updatedAt: item.updatedAt, closedAt: item.closedAt };
+        const spent = (orders && orders.get(number)) || {};
+        const t = byNumber.get(number) || { number, title: item.title, state: "OPEN", labels: [], url: item.url,
+          createdAt: item.createdAt, updatedAt: item.updatedAt, closedAt: item.closedAt, tokens: spent.tokens, timeSpentSeconds: spent.seconds, runs: spent.runs };
         if (IMPLIED[key]) t.labels.push(IMPLIED[key]);
         if (closed) t.state = "CLOSED";
         byNumber.set(number, t);
@@ -647,10 +658,12 @@
     queue.readAt = typeof s.generatedAt === "string" ? s.generatedAt : null;
     const all = s.links && typeof s.links.all === "string" && s.links.all.startsWith("https://") ? s.links.all : null;
     queue.all = all;
-    const data = fromSnapshot(s);
+    const orders = window.TEHAS_ORDERS ? await window.TEHAS_ORDERS.read() : null;
+    if (queue.mode !== "auto") return state.live;
+    const data = fromSnapshot(s, orders);
     // The words can change while the tickets on the line stay as they were.
     if (state.live) words = data.words;
-    const signature = JSON.stringify([data.paused, data.pause, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.updatedAt, t.closedAt])]);
+    const signature = JSON.stringify([data.paused, data.pause, data.noResources, data.tickets.map((t) => [t.number, t.title, t.stage, t.createdAt, t.updatedAt, t.closedAt, t.tokens, t.seconds, t.runs])]);
     if (!state.live) {
       queue.signature = signature;
       show(data, "LIVE QUEUE", "");
@@ -726,7 +739,7 @@
     } catch {
       $("data-status").textContent =
         `Could not read ${file.name}. It needs to be JSON with a list of issues, each with a number, title, state and labels. ` +
-        "createdAt, updatedAt, tokens, timeSpentSeconds and kWh are shown when present.";
+        "createdAt, updatedAt, closedAt, runs, tokens, timeSpentSeconds and kWh are shown when present.";
     }
     event.target.value = "";
   });

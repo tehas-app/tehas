@@ -345,9 +345,13 @@ when that one has ended. Remove the label before then to withdraw it.
 
 Once an issue is closed, the next poll takes tehas's state labels off it:
 `tehas:running`, `tehas:awaiting-merge`, `tehas:question`, `tehas:planning`,
-`tehas:refreshing`, `tehas:blocked`, `tehas:ready` and `tehas:plan`.
+`tehas:refreshing`, `tehas:blocked`, `tehas:ready`, `tehas:plan` and
+`tehas:refine`.
 `needs-human-attention` and the labels a person chooses, such as `tehas:urgent`
-and `tehas:next`, stay.
+and `tehas:next`, stay. The list and the decision of what comes off which issue
+are the console's (`console tidy`, `console/src/tidy.rs`): `tehas tidy` keeps
+the settings, the two searches and the edits, and hands the answer of the search
+to the console.
 
 The same edit puts `tehas:shipped` on an issue that a merged pull request
 closed: `tehas tidy` reads what closed the issues it tidies and adds the label
@@ -814,7 +818,7 @@ dispatcher's log says so.
    model endpoint does not list the model.
 5. The planner shows you a drafted plan before anything is written: the
    comment holds its title and spec, lists its open points with the
-   planner's proposals, and offers two boxes. Reply to change the plan, and
+   planner's proposals, and offers **Update this issue**. Reply to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -822,9 +826,9 @@ dispatcher's log says so.
      container runs for it. The bot's last comment says so and holds the
      text the plan replaced, folded. The plan is written with the bot's
      token.
-   - **File as a new issue** files the plan as shown as one new issue, as
-     before. A session files once. To finish, tick `End this planning
-     session`.
+   - A `tehas:refine` session also offers **File as a new issue**, which
+     files the plan as shown as one new issue that replaces this one. A
+     session files once.
 
    Nothing is started on its own: read the plan and apply `tehas:ready` to
    the issue you want built. The label approves the text as it is when you

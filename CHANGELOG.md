@@ -13,6 +13,18 @@ empty one above it.
 
 ### Changes
 
+- `tehas tidy` decides its label changes in the console. The names it takes
+  off, the answer of the search and which issue the read of what closed them
+  is asked about are `console tidy`'s (`console/src/tidy.rs`, with its Rust
+  tests beside the source); the command keeps the settings, the two searches
+  and the label edits, and went from 216 lines of bash to 183. Nothing changes
+  for users: the same labels come off, and `tidy --dry-run` says what it said
+  before (#956). The shell test now pins all nine names end to end, so the list
+  the console holds is the list a poll searches for, takes off and logs; the
+  manual names `tehas:refine` among them.
+- A drafted plan in a `tehas:plan` session offers only **Update this
+  issue** and **End this planning session**. **File as a new issue** stays
+  for `tehas:refine` sessions, which exist to file one (#1010).
 - Less bash: the lines and the `--json` object of `tehas status` and the
   frame of `tehas top` are drawn by the console. `console status show|json`
   and `console top frame` replace the jq of `lib/status.sh` and `lib/top.sh`,
@@ -21,6 +33,7 @@ empty one above it.
   report` replaces the jq of `tehasbot health`, with the same checks, the same
   `output` and the same file; the command keeps the store calls, the failed
   units and the publish (#889).
+
 ### Adopter action
 
 None.
