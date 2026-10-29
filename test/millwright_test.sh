@@ -30,6 +30,22 @@ lib 'tehas_millwright_is tehas-fixer && echo a; tehas_millwright_is alice || ech
 t_eq "$t_out" "a
 b
 c"
+# A GitHub App's login is <slug>[bot] to REST and <slug> to GraphQL.
+for setting in acme-millwright 'acme-millwright[bot]'; do
+  t_case "an App millwright named $setting is itself in both forms, and no other account"
+  t_instance "${T_MINIMAL[@]}" "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  lib 'for l in acme-millwright "acme-millwright[bot]" "acme-millwright[bot][bot]" acme-millwright2 "acme-millwright2[bot]" acme-millwrigh "[bot]" bot ""; do
+    tehas_millwright_is "$l" && echo "yes $l" || echo "no $l"; done'
+  t_eq "$t_out" "yes acme-millwright
+yes acme-millwright[bot]
+no acme-millwright[bot][bot]
+no acme-millwright2
+no acme-millwright2[bot]
+no acme-millwrigh
+no [bot]
+no bot
+no "
+done
 t_instance "${T_MINIMAL[@]}"
 lib 'tehas_millwright_on || echo off; tehas_millwright_is "" || echo nobody'
 t_eq "$t_out" "off

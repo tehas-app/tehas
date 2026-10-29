@@ -56,10 +56,10 @@
 #     name the GitHub App the factory acts as (lib/github-app.sh), all three or
 #     none. With none, it acts with GH_TOKEN from ~/.config/tehas/env.
 #   - TEHAS_MILLWRIGHT_LOGIN names the millwright: an account whose tehas:ready
-#     the dispatcher takes, and whose answer to a planning question it takes,
-#     within a narrower grant than a person's (lib/millwright.sh). Unset is valid and
-#     means there is none. It is never one of TEHAS_ALLOWED_LABELERS. An old
-#     TEHAS_FIXER_* name stops the load with 78 and names the new one.
+#     and planning answers the dispatcher takes within a narrower grant than a
+#     person's (lib/millwright.sh). Unset means there is none. An App's
+#     <slug>[bot] (REST) and <slug> (GraphQL) are one account, never the bot nor
+#     an allowed labeller. A TEHAS_FIXER_* name stops the load with 78.
 #   - TEHAS_LOW_GATE names a command the dispatcher runs before it starts the
 #     lowest issues (libexec/dispatch, rule 7). Unset is valid and means there
 #     is no gate, and the dispatcher behaves as it did before the setting. It is
@@ -145,7 +145,7 @@ _tehas_valid() {
         { echo "expected GitHub logins separated by single spaces"; return 1; }
       ;;
     TEHAS_MILLWRIGHT_LOGIN)
-      [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] || { echo "expected one GitHub login"; return 1; }
+      [[ $v =~ ^[A-Za-z0-9][A-Za-z0-9-]*(\[bot\])?$ ]] || { echo "expected one GitHub login, such as tehas-millwright or tehas-millwright[bot]"; return 1; }
       ;;
     TEHAS_GITHUB_APP_ID | TEHAS_GITHUB_APP_INSTALLATION)
       [[ $v =~ ^[1-9][0-9]{0,11}$ ]] || { echo "expected the ID GitHub shows, a whole number"; return 1; }
@@ -678,10 +678,10 @@ tehas_load() {
       return 78
     }
   done
-  case " ${TEHAS_ALLOWED_LABELERS:-} " in
-    *" ${TEHAS_MILLWRIGHT_LOGIN:-} "*)
+  case " ${TEHAS_ALLOWED_LABELERS:-} ${TEHAS_BOT_LOGIN%\[bot\]} " in
+    *" ${TEHAS_MILLWRIGHT_LOGIN%\[bot\]} "*)
       [ -z "$TEHAS_MILLWRIGHT_LOGIN" ] || {
-        tehas_err "TEHAS_MILLWRIGHT_LOGIN ($TEHAS_MILLWRIGHT_LOGIN) is in TEHAS_ALLOWED_LABELERS: the millwright works within its own grant, never as a person (see $file)"
+        tehas_err "TEHAS_MILLWRIGHT_LOGIN ($TEHAS_MILLWRIGHT_LOGIN) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN: the millwright is an account of its own and works within its own grant, never as the bot or a person (see $file)"
         return 78
       }
       ;;
