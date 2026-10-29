@@ -2365,6 +2365,36 @@ fn settled(t: &World) -> Vec<String> {
         .collect()
 }
 
+/// An open label-add row of the journal, aimed at its issue and asking its
+/// label: `state` 'intended' carries no attempted time, as the store leaves it.
+fn open_label_add(id: u64, issue: u64, state: &str) -> Value {
+    let mut row = json!({"id": id, "kind": "label-add", "issue": issue, "state": state,
+        "intended_at": 990,
+        "args": {"gh": ["issue", "edit", issue.to_string(), "--repo", "r", "--add-label", "tehas:running"]}});
+    if state != "intended" {
+        row["attempted_at"] = json!(991);
+    }
+    row
+}
+
+/// The same row aimed at its issue and taking its label off: the pair the
+/// settling of a running cycle looks for.
+fn open_label_swap(id: u64, issue: u64) -> Value {
+    let mut row = open_label_add(id, issue, "attempted");
+    row["args"]["gh"] = json!([
+        "issue",
+        "edit",
+        issue.to_string(),
+        "--repo",
+        "r",
+        "--remove-label",
+        "tehas:ready",
+        "--add-label",
+        "tehas:running"
+    ]);
+    row
+}
+
 #[test]
 fn a_journal_the_store_would_not_answer_is_not_read_as_an_empty_one() {
     // journal_open says None, not an empty list: a poll that skips the work of
@@ -2387,12 +2417,9 @@ fn a_write_never_attempted_is_abandoned_and_one_that_landed_is_done() {
     left_open(
         &t,
         json!([
-            {"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
-             "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}},
-            {"id": 4, "kind": "label-add", "issue": 8, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-             "args": {"gh": ["issue", "edit", "8", "--repo", "r", "--remove-label", "tehas:ready", "--add-label", "tehas:running"]}},
-            {"id": 5, "kind": "label-add", "issue": 9, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-             "args": {"gh": ["issue", "edit", "9", "--repo", "r", "--add-label", "tehas:running"]}},
+            open_label_add(3, 7, "intended"),
+            open_label_swap(4, 8),
+            open_label_add(5, 9, "attempted"),
         ]),
     );
     fs::write(
@@ -2510,25 +2537,55 @@ fn a_malformed_open_action_is_left_open_and_reads_nothing() {
     // unknown row, read issue 0 for ever, or open the comment window at the
     // epoch and call an old comment of the same text the evidence.
     let mut t = world();
-    let ok = |id: u64| {
-        json!({"id": id, "kind": "label-add", "issue": 7, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-        "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}})
-    };
-    let mut no_issue = ok(4);
+    let mut no_issue = open_label_add(4, 7, "attempted");
     no_issue.as_object_mut().unwrap().remove("issue");
-    let mut no_time = ok(5);
+    let mut no_time = open_label_add(5, 7, "attempted");
     no_time
         .as_object_mut()
         .unwrap()
         .insert("attempted_at".into(), Value::Null);
-    let mut string_id = ok(6);
+    let mut string_id = open_label_add(6, 7, "attempted");
     string_id
         .as_object_mut()
         .unwrap()
         .insert("id".into(), json!("6"));
-    left_open(&t, json!([no_issue, no_time, string_id]));
-    // The stub answers a read of issue 0, so a read would be answered: the
-    // action must not be read at all.
+    // A row whose kind is not text names no kind at all: the line says so
+    // with an empty one, and the row is held to have no time until it says
+    // it was attempted. 'intended' stands in for the state it should have.
+    let mut numeric_kind = open_label_add(8, 7, "intended");
+    numeric_kind
+        .as_object_mut()
+        .unwrap()
+        .insert("kind".into(), json!(12));
+    // A row whose state is not text is not 'intended', so a time is asked of
+    // it: the WARN says so, and the row is left open with no read made of it
+    // at all. Its issue is answered by the stub, so were the guard to let it
+    // through it would be settled from that read.
+    let mut numeric_state = open_label_add(10, 7, "intended");
+    numeric_state
+        .as_object_mut()
+        .unwrap()
+        .insert("state".into(), json!(7));
+    // A state that is a number is held to the same rule, and the line names
+    // neither its state nor anything else of it.
+    let mut numeric_state_and_time = open_label_add(11, 7, "intended");
+    numeric_state_and_time
+        .as_object_mut()
+        .unwrap()
+        .insert("state".into(), json!(10));
+    left_open(
+        &t,
+        json!([
+            no_issue,
+            no_time,
+            string_id,
+            numeric_kind,
+            numeric_state,
+            numeric_state_and_time
+        ]),
+    );
+    // The stub answers a read of issue 0 with the label the rows want, so a
+    // row that fell through the guard would be settled from it.
     fs::write(
         t.dir.join("issue-0"),
         r#"{"labels":[{"name":"tehas:running"}]}"#,
@@ -2537,45 +2594,61 @@ fn a_malformed_open_action_is_left_open_and_reads_nothing() {
     let mut log = Vec::new();
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec![
-        "WARN: the journal's attempted action label-add is malformed (issue is not a positive integer); it is left open for a person",
-        "WARN: the journal's attempted action label-add is malformed (attempted_at is not a positive integer); it is left open for a person",
-        "WARN: the journal's attempted action label-add is malformed (id is not a positive integer); it is left open for a person",
+        "WARN: the journal's attempted action label-add is malformed (issue is not a positive integer; id 4); it is left open for a person to settle with store journal-settle --action N",
+        "WARN: the journal's attempted action label-add is malformed (attempted_at is not a positive integer; id 5, #7); it is left open for a person to settle with store journal-settle --action N",
+        "WARN: the journal's attempted action label-add is malformed (id is not a positive integer; #7); it is left open for a person to settle with store journal-settle --action N",
+        // A kind that is not text names nothing in the line, and a state of
+        // 'intended' is still asked for no time, so the row is well formed
+        // and abandoned by the read it does not make.
+        "journal: action 8 ( on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
+        // A state that is not text is not 'intended', so the row is malformed
+        // without a time: a text 'intended' beside it would have been settled
+        // with none.
+        "WARN: the journal's  action label-add is malformed (attempted_at is not a positive integer; id 10, #7); it is left open for a person to settle with store journal-settle --action N",
+        // A state that is a number is held to the same rule, and is named by
+        // nothing at all in the line.
+        "WARN: the journal's  action label-add is malformed (attempted_at is not a positive integer; id 11, #7); it is left open for a person to settle with store journal-settle --action N",
     ]);
-    assert!(settled(&t).is_empty());
-    assert!(!t
-        .calls()
-        .into_iter()
-        .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/0")));
+    // Nothing of a malformed row was read or settled: an arm of the guard
+    // that let one through would have read its issue, and the stub answers
+    // issues 0 and 7 with the labels these rows want, so a read of either
+    // would settle it. The only row settled is the intended one whose kind is
+    // not text: it is well formed.
+    assert_eq!(settled(&t), ["store journal-settle --action 8 --abandoned"]);
+    assert!(
+        !t.calls()
+            .iter()
+            .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/0")),
+        "a malformed action was read: {:?}",
+        t.calls()
+    );
+    assert!(
+        !t.calls()
+            .iter()
+            .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/7")),
+        "a malformed action was read: {:?}",
+        t.calls()
+    );
 }
 
 #[test]
-fn an_intended_action_needs_no_time_and_a_well_formed_one_is_still_settled() {
+fn an_intended_action_is_asked_for_no_time() {
+    // What only this says: the guard must let an intended row with no time
+    // through, and not ask it for one. The rows of the two states, and the
+    // reads each one makes, are the ones the older test settles.
     let mut t = world();
-    // The intended action has no attempted_at at all and settles as before;
-    // the attempted one beside it is settled by the read of its issue.
-    left_open(
-        &t,
-        json!([
-            {"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
-             "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}},
-            {"id": 4, "kind": "label-add", "issue": 8, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-             "args": {"gh": ["issue", "edit", "8", "--repo", "r", "--add-label", "tehas:running"]}},
-        ]),
-    );
-    fs::write(
-        t.dir.join("issue-8"),
-        r#"{"labels":[{"name":"tehas:running"}]}"#,
-    )
-    .unwrap();
+    left_open(&t, json!([open_label_add(3, 7, "intended")]));
     let mut log = Vec::new();
     t.w.settle(1000, &mut log);
     assert_eq!(log, vec![
         "journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
-        "journal: action 4 (label-add on #8, 10s old) was done",
     ]);
-    let s = settled(&t);
-    assert_eq!(s[0], "store journal-settle --action 3 --abandoned");
-    assert!(s[1].starts_with("store journal-settle --action 4 --result ok --evidence "));
+    assert_eq!(settled(&t), ["store journal-settle --action 3 --abandoned"]);
+    assert!(
+        !t.calls().iter().any(|c| c.starts_with("gh api")),
+        "an intended action was read: {:?}",
+        t.calls()
+    );
 }
 
 #[test]
