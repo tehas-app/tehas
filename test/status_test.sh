@@ -1225,6 +1225,18 @@ t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"count","text":"holding: 1 cycles are 
 t_eq "$(jq -c .room <<<"$t_out")" '{"cycles":0,"maxAwaiting":3,"slice":3}'
 t_eq "$(jq "$shape" <<<"$t_out")" true
 
+t_case "status: an unknown gate is the hold, in the text and in --json"
+# A gate whose runs finished without saying they passed holds the same way as
+# a red branch, under a word of its own: the one tells a person to fix the
+# branch, the other to name the right check.
+reset
+demand 0
+held unknown-gate 'holding: the check "build / verify (linux)" on main at 0123456789ab finished without saying it passed: cycles start' 1 3
+t_run "$status && $summary"
+t_contains "$t_out" 'slice     holding: the check "build / verify (linux)" on main at 0123456789ab'
+t_run "$status && $summary --json"
+t_eq "$(jq -c .hold <<<"$t_out")" '{"why":"unknown-gate","text":"holding: the check \"build / verify (linux)\" on main at 0123456789ab finished without saying it passed: cycles start"}'
+
 t_case "status: a red branch is the hold, in the text and in --json"
 reset
 held red "holding: main is red at 0123456789ab" 1 3

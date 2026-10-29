@@ -386,9 +386,10 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set"
 
-t_case "the loop never files in the product repository, whatever the case of its name"
+t_case "the loop and the review never file in the product repository, whatever its case"
 for v in TEHAS_IMPROVE_REPO=acme/widget TEHAS_IMPROVE_REPO=Acme/Widget \
-  "TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/widget"; do
+  "TEHAS_IMPROVE_REPO=acme/backlog TEHAS_IMPROVE_RUKAS_REPO=acme/widget" \
+  TEHAS_REVIEW_REPO=acme/widget TEHAS_REVIEW_REPO=Acme/Widget; do
   # shellcheck disable=SC2086  # $v is one or two settings
   printf '%s\n' "${T_MINIMAL[@]}" $v >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
