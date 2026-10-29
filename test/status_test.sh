@@ -61,8 +61,9 @@ esac'
 # otherwise; CURL_RC is what curl answers with, and 22 is no answer at all.
 t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 # The failed tehas units, as systemctl --user --failed --plain --no-legend lists
-# them: none until a case writes $T/failed-units.
-t_stub systemctl 'cat "$T/failed-units" 2>/dev/null'
+# them: none until a case writes $T/failed-units, and the read fails with
+# SYSTEMCTL_RC when a case names one.
+t_stub systemctl 'cat "$T/failed-units" 2>/dev/null; exit "${SYSTEMCTL_RC:-0}"'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -151,7 +152,7 @@ t_eq "$(find "$live" -name 'epics.json.*' | wc -l)" 0
 
 t_case "no failed tehas unit is no warning"
 reset
-rm -f "$T/failed-units"
+: >"$T/failed-units"
 t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -c .checks.units "$live/health.json")" '[]'
@@ -164,7 +165,15 @@ t_run "$status"
 t_eq "$(jq -r .status "$live/health.json")" warn
 t_eq "$(jq -c .checks.units "$live/health.json")" '["tehas-dispatch.path"]'
 t_contains "$(jq -r .output "$live/health.json")" "systemd gave up on tehas-dispatch.path"
-rm -f "$T/failed-units"
+: >"$T/failed-units"
+
+t_case "systemd not answering the failed units is no check and no warning"
+reset
+T_ENV=(SYSTEMCTL_RC=1)
+t_run "$status"
+t_eq "$(jq -c .checks.units "$live/health.json")" 'null'
+t_eq "$(jq -r .status "$live/health.json")" pass
+t_contains "$(t_calls systemctl)" "--user --failed --plain --no-legend tehas-*"
 
 t_case "a closed issue is not in line, being worked on or stopped, whatever label it carries"
 reset
