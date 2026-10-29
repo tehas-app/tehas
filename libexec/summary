@@ -12,7 +12,8 @@
 # a file older than ten minutes is not believed, whatever it says: the first
 # line then reads "stale" and the exit status is 1.
 #
-# The lines come from lib/status.sh, which `tehas top` uses for its frame.
+# The lines are the console's (console/src/status.rs), which `tehas top` uses
+# for its frame.
 #
 # Usage: tehas status [--json]
 #
@@ -55,41 +56,10 @@ case "$#:${1-}" in
 esac
 
 : "${TEHAS_HOME:=$HOME/tehas}"
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=lib/status.sh
-. "$here/../lib/status.sh"
+console=${TEHAS_CONSOLE:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/console}
 file=$TEHAS_HOME/live/health.json
 
-if ! tehas_health_readable "$file"; then
-  echo "tehas status: no health file at $file yet: the dispatcher has not run" >&2
-  exit 1
-fi
-
-now=$EPOCHSECONDS
-stale=false
-tehas_health_stale "$file" "$now" || stale=true
-
-health=$(jq -c . "$file" 2>/dev/null) || { echo "tehas status: $file is not JSON" >&2; exit 1; }
-
-if [ "$json" = 1 ]; then
-  tehas_status_json "$health" "$now" "$stale" || exit 1
-  [ "$stale" = false ] && [ "$(jq -r .status <<<"$health")" != fail ]
-  exit
-fi
-tehas_state_lines "$health" "$now" "$stale" "$("$TEHAS_HOME/libexec/store" poll-show 2>/dev/null | jq -r '.line // empty')" || exit 1
-
-# The current or last cycle. Two cycles at once are two lines, as the health
-# file lists them.
-while IFS= read -r cycle; do
-  tehas_cycle_line "$cycle" "$now" || exit 1
-done < <(jq -c 'if ((.checks.cycles // []) | length) > 1 then .checks.cycles[] else (.checks.cycle // null) end' "$file")
-tehas_plan_lines "$health" "$now" || exit 1
-tehas_slice_line "$health" "$now" || exit 1
-tehas_platform_line "$health" "$now" || exit 1
-# The last tehas check-product, when one ran.
-product=$TEHAS_HOME/state/check-product.json
-[ ! -r "$product" ] || jq -r --argjson now "$now" "$tehas_state_defs"'
-  "product   " + (if .ok then "keeps the contract" else "\(.failures | length) to fix: \(.failures | join("; "))" end)
-  + ", checked \(.at | age($now))"' "$product" 2>/dev/null || true
-
-[ "$stale" = false ] && [ "$(jq -r .status "$file")" != fail ]
+[ "$json" = 0 ] || exec "$console" status json "$file" "$EPOCHSECONDS"
+exec "$console" status show "$file" "$EPOCHSECONDS" \
+  --poll "$("$TEHAS_HOME/libexec/store" poll-show 2>/dev/null | jq -r '.line // empty')" \
+  --product "$TEHAS_HOME/state/check-product.json"

@@ -14,6 +14,8 @@
 //!     same pid and start time in both, so a reused pid is not one long
 //!     process. Two readings at the same instant measure nothing: their CPU
 //!     figures are null. Prints null when either reading is no object.
+//!   console top frame <width> <height> <snapshot
+//!     The frame drawn from a snapshot, see src/frame.rs.
 //!
 //! A process is named by its short command name only. The command line, the
 //! environment and the user are never opened.
@@ -61,9 +63,31 @@ pub fn main(given: &[String]) -> u8 {
                 }
             }
         }
+        [verb, cols, rows] if verb == "frame" => {
+            let mut given = String::new();
+            let snapshot = std::io::Read::read_to_string(&mut std::io::stdin(), &mut given)
+                .ok()
+                .and_then(|_| crate::jq::J::parse(&given));
+            match (cols.parse(), rows.parse(), snapshot) {
+                (Ok(cols), Ok(rows), Some(snapshot)) => {
+                    for line in crate::frame::frame(&snapshot, cols, rows) {
+                        println!("{line}");
+                    }
+                    0
+                }
+                (Ok(_), Ok(_), None) => {
+                    eprintln!("console top: frame: the snapshot is not JSON");
+                    1
+                }
+                _ => {
+                    eprintln!("console top: frame: <width> and <height> are whole numbers");
+                    2
+                }
+            }
+        }
         _ => {
             eprintln!(
-                "console top: usage: reading <dir> | host <later> <earlier> | snapshot <live> <lines> <max age> <reading> <earlier>"
+                "console top: usage: reading <dir> | host <later> <earlier> | snapshot <live> <lines> <max age> <reading> <earlier> | frame <width> <height> <snapshot"
             );
             2
         }

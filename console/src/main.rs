@@ -32,10 +32,14 @@
 //!
 //! What a planning turn of libexec/plan says, see src/plan.rs.
 //!
-//!   console top reading|host|snapshot ...
+//!   console top reading|host|snapshot|frame ...
 //!
-//! The snapshot behind tehas top and its host section, see src/top.rs and
-//! src/snapshot.rs.
+//! The snapshot behind tehas top, its host section and the frame drawn from
+//! it, see src/top.rs, src/snapshot.rs and src/frame.rs.
+//!
+//!   console status show|json ...
+//!
+//! The lines and the object of tehas status, see src/status.rs.
 //!
 //!   console review since|refused|run ...
 //!
@@ -89,6 +93,8 @@ mod epics;
 mod export;
 mod flags;
 mod forge;
+mod frame;
+mod jq;
 mod notice;
 mod plan;
 mod preview;
@@ -98,6 +104,7 @@ mod review;
 mod setup;
 mod shipped;
 mod snapshot;
+mod status;
 mod store;
 mod tail;
 mod top;
@@ -282,6 +289,7 @@ fn main() -> ExitCode {
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
