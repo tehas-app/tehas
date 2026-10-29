@@ -53,6 +53,11 @@
 //!
 //! What tehas export copies, see src/export.rs.
 //!
+//!   console protolab page|front|live|refs ...
+//!
+//! The pages of the Protolab and the links of a ticket, for libexec/protolab,
+//! see src/protolab.rs.
+//!
 //!   console setup files ...
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
@@ -71,6 +76,7 @@ mod export;
 mod flags;
 mod notice;
 mod plan;
+mod protolab;
 mod render;
 mod review;
 mod setup;
@@ -260,6 +266,7 @@ fn main() -> ExitCode {
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
+            Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}
         }
