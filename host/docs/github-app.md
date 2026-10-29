@@ -121,8 +121,9 @@ with a token; remove the token from `~/.config/tehas/env` after.
   git's github.com credential helper asks the same `gh`. A `GH_TOKEN` left in
   `~/.config/tehas/env` is dropped. The dispatcher's poll is the one caller
   that asks once: it takes the token at its start, gives it to every `gh` of
-  the poll as `TEHAS_GH_TOKEN`, and the shim uses that instead of asking again
-  (#938). The poll keeps it in memory only - never in a log, a file, or the
+  the poll as `TEHAS_GH_TOKEN`, and gives it to `tidy`, `status` and `health`
+  when the poll runs them, so the `gh` of none of them asks again (#938, #965).
+  The poll keeps it in memory only - never in a log, a file, or the
   poll's record.
 - A cycle's container is given `~/tehas/state/github` read-only, never the key.
   The image's own `gh` reads the token there at every call, and `tehas work`

@@ -14,6 +14,15 @@ checks() { # <status> [<conclusion>]: the one run of the check on the head
       conclusion: (if $c == "" then null else $c end)}]}' >"$fx/checks.json"
 }
 red_instance() { slots 2 TEHAS_BRANCH_CHECK=verify; }
+# cost <jq>: the cost the last poll recorded in the state store, as
+# test/dispatch_cost_test.sh reads it.
+cost() { t_at "$(date +%s)" poll-show | jq -r "$1"; }
+# unknown_hold <name>: the hold line of a check whose runs finished and none
+# of which says it passed. The poll quotes the name, which an instance may set
+# with spaces in it.
+unknown_hold() { # <name>
+  printf 'holding: the check "%s" on main at 0123456789ab finished without saying it passed: cycles start' "$1"
+}
 check_calls() { t_calls gh | grep -c 'commits/main/check-runs'; }
 
 t_case "red: a failed check on the head starts nothing and says so"
@@ -51,8 +60,8 @@ t_run "$dispatch"
 t_contains "$t_out" "holding: main is red at 0123456789ab"
 t_eq "$(jq -r .why "$dispatch_json")" red
 
-t_case "red: passed, pending, cancelled or skipped, the cycles start as before"
-for st in "completed success" "in_progress" "queued" "completed cancelled" "completed skipped" "completed neutral"; do
+t_case "red: passed or pending, the cycles start as before"
+for st in "completed success" "in_progress" "queued" "completed skipped" "completed neutral"; do
   reset
   red_instance
   ready 7 8
@@ -62,6 +71,84 @@ for st in "completed success" "in_progress" "queued" "completed cancelled" "comp
   [ "$(started)" = "7 8 " ] || t_bad "$st: started '$(started)'"
   [ "$(jq -r .why "$dispatch_json")" = "" ] || t_bad "$st: why is $(jq -r .why "$dispatch_json")"
 done
+
+t_case "red: a run that finished naming no conclusion holds the start and says so"
+reset
+red_instance
+ready 7 8
+checks completed
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$(t_calls fake-start)" ""
+t_eq "$(jq -r .why "$dispatch_json")" unknown-gate
+t_eq "$(jq -r .hold "$dispatch_json")" "$(unknown_hold verify)"
+t_contains "$t_out" "$(unknown_hold verify)"
+t_lacks "$(t_calls gh)" "--add-label tehas:running"
+
+# The classes of a finished run's conclusion, each line named with the outcome
+# it decides: the three that pass, the three that are red, and every other
+# word, which leaves the gate's outcome unknown and holds the start. A
+# conclusion GitHub adds later belongs in this list, or it holds by accident
+# rather than by the decision written here.
+for c in "success:" "skipped:" "neutral:" "failure:red" "timed_out:red" \
+         "startup_failure:red" "cancelled:unknown" "action_required:unknown" \
+         "stale:unknown" "wontfix:unknown"; do
+  concl=${c%%:*}
+  want=${c#*:}
+  t_case "red: a finished run of '$concl' is read as ${want:-green}"
+  reset
+  red_instance
+  ready 7 8
+  checks completed "$concl"
+  t_run "$dispatch"
+  case "$want" in
+    red)
+      [ -z "$(t_calls fake-start)" ] || t_bad "$concl: a cycle started"
+      [ "$(jq -r .why "$dispatch_json")" = red ] ||
+        t_bad "$concl: why is $(jq -r .why "$dispatch_json")"
+      ;;
+    unknown)
+      [ -z "$(t_calls fake-start)" ] || t_bad "$concl: a cycle started"
+      [ "$(jq -r .why "$dispatch_json")" = unknown-gate ] ||
+        t_bad "$concl: why is $(jq -r .why "$dispatch_json")"
+      [ "$(jq -r .hold "$dispatch_json")" = "$(unknown_hold verify)" ] ||
+        t_bad "$concl: hold is $(jq -r .hold "$dispatch_json")"
+      ;;
+    *)
+      [ "$(started)" = "7 8 " ] || t_bad "$concl: started '$(started)'"
+      [ "$(jq -r .why "$dispatch_json")" = "" ] ||
+        t_bad "$concl: why is $(jq -r .why "$dispatch_json")"
+      ;;
+  esac
+done
+
+t_case "red: an unknown conclusion beside a run that has not finished is pending"
+reset
+red_instance
+ready 7 8
+jq -nc --arg sha "$sha" '{total_count: 2, check_runs: [
+  {name: "verify", head_sha: $sha, status: "completed", conclusion: "cancelled"},
+  {name: "verify", head_sha: $sha, status: "in_progress", conclusion: null}]}' >"$fx/checks.json"
+t_run "$dispatch"
+t_eq "$(started)" "7 8 "
+t_contains "$t_out" "the check verify on main at 0123456789ab has not finished: cycles start"
+
+t_case "red: said on every poll while a run's conclusion says nothing, at the cost of one read"
+reset
+red_instance
+ready 7 8
+checks completed cancelled
+t_run "$dispatch"
+rm -f "$T"/calls/*
+t_run "$dispatch"
+t_contains "$t_out" "$(unknown_hold verify)"
+t_eq "$(jq -r .why "$dispatch_json")" unknown-gate
+# The hold is sticky and the timer fires every two minutes, so a poll held by
+# an unknown conclusion is an idle poll: it asks GitHub for the check once and
+# starts nothing. A figure above this is the signal to keep the answer across
+# polls by head commit instead of reading it again.
+t_eq "$(check_calls)" 1
+t_eq "$(cost .last.starts)" 0
 
 t_case "red: a pending check is said once, with why the poll could not tell"
 reset

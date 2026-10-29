@@ -94,6 +94,13 @@ pub fn kept_how(given: &str) -> Option<&'static str> {
         .map(|(w, _)| w)
 }
 
+/// The arguments of `approval-current` as the read of `store batch` takes them:
+/// the issue, refused by the verb's own grammar. The line of a refusal is the
+/// one the single call prints, so a batch and a call made alone answer alike.
+pub fn read_approval_current(rest: &[String]) -> Option<Result<i64, String>> {
+    Some(Args::parse("approval-current", rest, &[], true).and_then(|a| a.issue()))
+}
+
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
         "approval-record" => record_args(rest),
@@ -439,7 +446,9 @@ fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
     Ok((millwright_starts, refreshes))
 }
 
-fn current(home: &Path, issue: i64) -> Result<String, Fail> {
+/// `approval-current <issue>`: the approval of the issue's latest start. Also
+/// the read `store batch` makes through `verbs::look_many`.
+pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
     verbs::look(home, |c| {
         let unused = approval_json(
             c,

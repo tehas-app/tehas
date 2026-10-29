@@ -118,6 +118,19 @@ pub fn option_label(label: &str) -> String {
     v
 }
 
+/// The arguments of `plan-show` as the read of `store batch` takes them: the
+/// issue of the row, refused by the verb's own grammar when the call asked for
+/// the list instead or named nothing. The line of a refusal is the one the
+/// single call prints, so a batch and a call made alone answer alike.
+pub fn read_plan_show(rest: &[String]) -> Option<Result<i64, String>> {
+    Some(
+        Args::parse("plan-show", rest, &[("--open", Kind::Switch)], true).and_then(|a| {
+            a.target("--open")?
+                .ok_or_else(|| a.usage("<issue>", "or --open is required"))
+        }),
+    )
+}
+
 pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
     Some(match name {
         "plan-begin" => begin_args(rest),
@@ -848,7 +861,9 @@ fn close(home: &Path, issue: i64, now: i64) -> Result<String, Fail> {
     })
 }
 
-fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
+/// `plan-show <issue>` or `plan-show --open`: the row of one issue, or the
+/// list. Also the read `store batch` makes through `verbs::look_many`.
+pub fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
     verbs::look(home, |c| match issue {
         Some(issue) => Ok(line("plan-show", &[("planning", planning_json(c, issue)?)])),
         None => {
