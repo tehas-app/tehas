@@ -155,6 +155,12 @@
 //! damaged file aside: the four classes of failure stop the command with 78
 //! and say which one they are, as ADR 0003 decides.
 //!
+//! A cycle or a planning turn runs from its own copy of the code, made when it
+//! started (tehas-cycle run), and calls this store, the installed one, after an
+//! update. So a verb, an argument or a field of an answer that a released
+//! version's scripts use stays, with its meaning, for at least one release
+//! after the release that stops using it, and a migration only adds.
+//!
 //! The values meta records about the installation are the caller's: a command
 //! that runs the store has itself loaded the instance settings and passes what
 //! the verb names. The store does not read the settings of a host itself, so

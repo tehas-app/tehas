@@ -27,6 +27,50 @@ empty one above it.
 
 None.
 
+## v0.16.2 (2026-10-29)
+
+### Changes
+
+- The gate's kept pass no longer misses a same-size edit made in the
+  second of the last index write: its copy of the index keeps the index's
+  time, so git checks that file again (#983).
+- Less bash: `tehas pause` and `tehas resume` hand the pause flag to the
+  console. `console flags pause show|set|clear|read` reads, validates, writes
+  and prints `~/tehas/state/pause.json`, the same file in the same shape with
+  the same words as before, and the two commands keep only their settings,
+  their argument checks and the hand-off; `tehas resume` still reads the
+  `tehas:pause` label of the control issue itself, because only `gh` does that.
+  `flags pause clear` takes a name of the flag away only when it holds a
+  regular file of this account, so `tehas resume` never follows a symlink left
+  under one of them and says so instead (#962).
+
+### Adopter action
+
+None.
+
+## v0.16.1 (2026-10-29)
+
+### Changes
+
+- An update needs no drain. Each cycle runs from its own copy of `bin/`,
+  `libexec/` and `lib/` in `~/tehas/run`, made by `tehas-cycle run` when its
+  unit starts, and a planning turn the same way. Running cycles end on the
+  version they began on, and the slots stay full through an update (#988).
+- The business page orders its panels as the production line, the last 10
+  days, the issue board with the open epics beside it, and the console
+  (#1002).
+- The pixel and business footers show the pi-rukas version of the sandbox
+  image beside the tehas version. `host/sandbox/build.sh` writes it to
+  `~/tehas/fun/rukas-version.txt` (#998).
+- The filing decisions of `tehasbot review` move from bash into the store,
+  with Rust tests; the bash keeps the GitHub calls (#987).
+
+### Adopter action
+
+Drain once more for the update to this release (`tehas drain --wait 3600`,
+update, `tehas limit clear`): the cycles running now started before they had a
+copy of their own. Later updates need no drain.
+
 ## v0.16.0 (2026-10-29)
 
 ### Changes
