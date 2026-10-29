@@ -30,10 +30,10 @@
       <nav aria-label="Sections">
         <a href="#top" aria-current="location">Overview</a>
         <a href="#production">Production</a>
-        <a href="#console">Console</a>
         <a href="#period" id="nav-period" hidden>Activity</a>
         <a href="#board">Issues</a>
         <a href="#epics" data-epics-nav hidden>Epics</a>
+        <a href="#console">Console</a>
         <a href="#live" id="nav-power" hidden>Power</a>
         <a id="nav-lab" href="#" target="_blank" rel="noopener" hidden>Protolab</a>
         <a id="nav-repo" href="#" target="_blank" rel="noopener noreferrer" hidden>GitHub</a>
@@ -84,20 +84,6 @@
       <div class="pipeline" id="line"></div>
     </section>
 
-    <section class="panel console" id="console" aria-labelledby="console-title">
-      <div class="panel-head"><div><p class="section-kicker">Running now</p><h2 id="console-title">Console</h2></div><span class="console-tag" id="console-tag" role="status" data-state="off">Reading</span></div>
-      <div class="console-body">
-        <div class="console-tabs" id="console-tabs" role="tablist" aria-label="Cycles" hidden></div>
-        <p class="console-cycle" id="console-cycle">Looking for a running cycle.</p>
-        <p class="console-step" id="console-step"></p>
-        <pre id="console-out" role="tabpanel" tabindex="0" aria-label="Console of the selected cycle"></pre>
-        <div class="console-bar">
-          <label><input type="checkbox" id="console-follow" checked> Follow the output</label>
-          <span id="console-note"></span>
-        </div>
-      </div>
-    </section>
-
     <section class="panel period" id="period" aria-labelledby="period-title" hidden>
       <div class="panel-head"><div><p class="section-kicker">Performance</p><h2 id="period-title">Last 10 days</h2></div><span id="period-window"></span></div>
       <div class="tiles" id="tiles"></div>
@@ -123,30 +109,45 @@
       <div><p>Work register</p><h2>Issue board</h2></div>
       <span id="board-count"></span>
     </div>
-    <section class="panel register" id="board" aria-label="Issue board">
-      <div class="panel-head">
-        <h2>On the line</h2>
-        <div class="filters" id="filters" role="group" aria-label="Filter by stage">
-          <button type="button" data-filter="all" aria-pressed="true">All <span></span></button>
-          <button type="button" data-filter="line" aria-pressed="false">In line <span></span></button>
-          <button type="button" data-filter="build" aria-pressed="false">Building <span></span></button>
-          <button type="button" data-filter="review" aria-pressed="false">Review <span></span></button>
-          <button type="button" data-filter="stop" aria-pressed="false">Stopped <span></span></button>
+    <div class="work-split">
+      <section class="panel register" id="board" aria-label="Issue board">
+        <div class="panel-head">
+          <h2>On the line</h2>
+          <div class="filters" id="filters" role="group" aria-label="Filter by stage">
+            <button type="button" data-filter="all" aria-pressed="true">All <span></span></button>
+            <button type="button" data-filter="line" aria-pressed="false">In line <span></span></button>
+            <button type="button" data-filter="build" aria-pressed="false">Building <span></span></button>
+            <button type="button" data-filter="review" aria-pressed="false">Review <span></span></button>
+            <button type="button" data-filter="stop" aria-pressed="false">Stopped <span></span></button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Issue</th><th>Title</th><th>Stage</th></tr></thead>
+            <tbody id="board-rows"></tbody>
+          </table>
+        </div>
+        <p class="note board-empty" id="board-empty" hidden>Nothing here.</p>
+      </section>
+      <section class="panel epics" id="epics" aria-labelledby="epics-title" hidden>
+        <div class="panel-head"><div><p class="section-kicker">Plans</p><h2 id="epics-title">Open epics</h2></div><span id="epics-count" role="status"></span></div>
+        <p class="epics-intro">An epic is an open issue with sub-issues. Open one to see them. It leaves the list when it is closed.</p>
+        <div class="epics-list" id="epics-list"></div>
+      </section>
+    </div>
+
+    <section class="panel console" id="console" aria-labelledby="console-title">
+      <div class="panel-head"><div><p class="section-kicker">Running now</p><h2 id="console-title">Console</h2></div><span class="console-tag" id="console-tag" role="status" data-state="off">Reading</span></div>
+      <div class="console-body">
+        <div class="console-tabs" id="console-tabs" role="tablist" aria-label="Cycles" hidden></div>
+        <p class="console-cycle" id="console-cycle">Looking for a running cycle.</p>
+        <p class="console-step" id="console-step"></p>
+        <pre id="console-out" role="tabpanel" tabindex="0" aria-label="Console of the selected cycle"></pre>
+        <div class="console-bar">
+          <label><input type="checkbox" id="console-follow" checked> Follow the output</label>
+          <span id="console-note"></span>
         </div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Issue</th><th>Title</th><th>Stage</th></tr></thead>
-          <tbody id="board-rows"></tbody>
-        </table>
-      </div>
-      <p class="note board-empty" id="board-empty" hidden>Nothing here.</p>
-    </section>
-
-    <section class="panel epics" id="epics" aria-labelledby="epics-title" hidden>
-      <div class="panel-head"><div><p class="section-kicker">Plans</p><h2 id="epics-title">Open epics</h2></div><span id="epics-count" role="status"></span></div>
-      <p class="epics-intro">An epic is an open issue with sub-issues. Open one to see them. It leaves the list when it is closed.</p>
-      <div class="epics-list" id="epics-list"></div>
     </section>
 
     <footer class="foot">
