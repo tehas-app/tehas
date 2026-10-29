@@ -1787,6 +1787,12 @@ GitHub anything, so a host can be paused when GitHub cannot be reached. Pausing 
 paused host succeeds and keeps the first flag. The reason is one argument, kept
 to 200 characters, and it reaches pages that may be public.
 
+The reading, the checks of the reason, the write and the words of the answer are
+the console's (`~/tehas/libexec/console flags pause`); the command checks the
+number of its arguments, loads the settings, and stops with 78 without an
+instance or a console. A flag is written through `pause.json.new`, mode 600, and
+put in place by a rename, so what is there is always a whole flag.
+
 Exit 0 when the host is paused, 64 on more than one argument, 78 when the
 instance settings are missing or malformed, which writes nothing, 1 when the flag
 could not be written, a directory in its way among them.
@@ -1797,15 +1803,22 @@ could not be written, a directory in its way among them.
 tehas resume     # remove this host's pause flag
 ```
 
-Removes the flag, and succeeds when there is none. It then reports the other
-switch: `tehas:pause` on the control issue. Only an account in
+Removes the flag, and succeeds when there is none; the name the flag is written
+through goes with it, so a leftover of an interrupted `tehas pause` cannot
+outlive the flag. A name of the flag is taken away only when it holds a regular
+file of this account, so a symlink left on one of them is reported and stays
+where it is rather than being followed.
+Removing it is the console's (`console flags pause clear`);
+what is left here is the other switch, which only `gh` can read: `tehas:pause` on
+the control issue. Only an account in
 `TEHAS_ALLOWED_LABELERS` lifts that label, so when it is gone and its most recent
 `tehas:pause` event is a removal by anyone else, or is an application no event
 took back, this says so and that the factory stays paused. It never changes a
 label.
 
 Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
-when the instance settings are missing or malformed.
+when the instance settings are missing or malformed, 1 when a name of the flag
+could not be removed, or is not this account's to remove.
 
 ## tehas stop
 

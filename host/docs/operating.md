@@ -1024,7 +1024,8 @@ Two switches stop the factory. Either one is enough.
 `~/tehas/state/pause.json`, holding who set it, when and why, in a file only the
 account that ran the command can read. It asks GitHub nothing, so a host can be
 paused when GitHub cannot be reached. `tehas pause` again succeeds and keeps the
-first flag. **`tehas resume`** removes it, and says so when the factory stays
+first flag. **`tehas resume`** removes it, and the name the flag is written
+through with it, and says so when the factory stays
 paused for the other switch.
 
 **`tehas:pause`** on the control issue, the one `TEHAS_CONTROL_ISSUE` names (in

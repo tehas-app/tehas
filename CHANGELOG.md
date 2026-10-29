@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- Less bash: `tehas pause` and `tehas resume` hand the pause flag to the
+  console. `console flags pause show|set|clear|read` reads, validates, writes
+  and prints `~/tehas/state/pause.json`, the same file in the same shape with
+  the same words as before, and the two commands keep only their settings,
+  their argument checks and the hand-off; `tehas resume` still reads the
+  `tehas:pause` label of the control issue itself, because only `gh` does that.
+  `flags pause clear` takes a name of the flag away only when it holds a
+  regular file of this account, so `tehas resume` never follows a symlink left
+  under one of them and says so instead (#962).
+
 ### Adopter action
 
 None.
