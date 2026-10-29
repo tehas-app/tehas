@@ -274,7 +274,7 @@ platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" sort:updated-desc' \
-  --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
+  --json number,title,url,state,labels,createdAt,updatedAt,closedAt 2>/dev/null) || exit 0
 everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
 jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 # The closing pull request is only in the issue's closed event, so this one is
@@ -403,7 +403,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
   | def has($l): (.labels | map(.name) | index($l)) != null;
-  def slim: {number, title, url, updatedAt, closedAt};
+  def slim: {number, title, url, createdAt, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
   # The control issue holds the pause label and no outcome. It is not work, so
   # it is never counted in line, being worked on, waiting for a human or waiting

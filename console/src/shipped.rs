@@ -78,10 +78,11 @@ pub const PAGE: usize = 100;
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
 // variable and reaches gh as the caller's -f q= argument. The braces are the
 // document's own and are pinned against the text by a test below: the page of
-// the search is the constant above, written into it once.
+// the search is the constant above, written into it once. tehasbot status
+// lists each node it keeps, so the fields the list shows are asked here too.
 const QUERY: &str = concat!(
     "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue {\n",
-    "    number labels(first: 100) { nodes { name } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {\n",
+    "    number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {\n",
     "      closer { ... on PullRequest { merged } } } } } } } } }"
 );
 
@@ -775,6 +776,13 @@ mod tests {
             QUERY.starts_with("query($q: String!) { search(type: ISSUE, query: $q, first: 100) {")
         );
         assert!(QUERY.ends_with("closer { ... on PullRequest { merged } } } } } } } } }"));
+    }
+
+    #[test]
+    fn the_query_asks_for_the_fields_the_shipped_list_shows() {
+        // libexec/status publishes each node it keeps as an item of `completed`,
+        // and a field the query does not ask for is null on every one of them.
+        assert!(QUERY.contains("number title url createdAt updatedAt closedAt labels("));
     }
 
     #[test]

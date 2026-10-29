@@ -2355,6 +2355,8 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
 changed the queue, and a cycle when it ends.
+Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
+and `closedAt`.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
 (`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
