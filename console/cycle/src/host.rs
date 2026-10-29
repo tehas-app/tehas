@@ -1,6 +1,7 @@
 //! The facts of an ended cycle read from the host, as libexec/cycle reads
 //! them for its report: the files of the protocol, the newest run log, the
-//! cycle's record and its approval on the state store, and the workspace.
+//! cycle's record and its approval on the state store, the workspace, and
+//! when docker says the image on the record was built.
 //! And GitHub's two answers, asked with gh as the bash asks them, once each.
 
 use crate::report::Ask;
@@ -114,7 +115,23 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     let n = issue.to_string();
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
+    let (id, _) = crate::report::record_image(&f["record"], s.attempt);
+    if !id.is_empty() {
+        f["image_built"] = json!(built(&id));
+    }
     f
+}
+
+/// When the image `id` was built, as docker prints .Created, or nothing.
+fn built(id: &str) -> String {
+    let out = Command::new("timeout")
+        .args(["-k", "5", "30", "docker", "image", "inspect", "--format"])
+        .args(["{{.Created}}", id])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => crate::facts::line(&String::from_utf8_lossy(&o.stdout)),
+        _ => String::new(),
+    }
 }
 
 /// The newest logs/work-<issue>-*.jsonl by its name, a regular file and no

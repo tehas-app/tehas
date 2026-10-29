@@ -88,6 +88,23 @@ t_eq "$(find "$state" -name 'shadow-7.*' -printf '%f\n' | sort | tr '\n' ' ')" "
 t_eq "$(find "$state" -name '[1-9]*shadow*' | wc -l)" 0
 rm -f "$state"/shadow-7.*
 
+t_case "the shadow's report passes the image's build time to analytics, as docker says of the id on record"
+reset
+shadow_on
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo 2026-10-29T14:44:16.5Z >"$fx/image.label"
+ended aborted develop
+echo '"$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image '"$image_id"' >/dev/null' >"$fx/work.sh"
+# The compare is held back so the shadow's report is kept to read.
+mv "$home/libexec/tehas-cycle" "$home/libexec/tehas-cycle.real"
+printf '%s\n' '#!/usr/bin/env bash' '[ "$1" = compare ] || exec "$0.real" "$@"' >"$home/libexec/tehas-cycle"
+chmod +x "$home/libexec/tehas-cycle"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '.report.analytics[:4]' "$state/shadow-7.json")" '["--image","'"$image_id"'","--image-built","2026-10-29T14:44:16.5Z"]'
+t_eq "$(t_calls docker | grep -c "image inspect --format {{.Created}} $image_id")" 2
+rm -f "$state"/shadow-7.* "$fx/image.label" "$fx/work.sh"
+
 t_case "a shadow that cannot run leaves the report as it was"
 reset
 mkdir -p "$home/state"
