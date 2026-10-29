@@ -314,7 +314,9 @@ of every edit: it is not work, whatever label it carries. To the issues it tidie
 that do not carry `tehas:shipped` it adds the label, in the same edit, when the
 last closed event of the issue is a merged pull request, or, when that event
 names no pull request as its closer, when GitHub lists a merged pull request as
-closing the issue: one further GraphQL
+closing the issue. That list is what GitHub derives from the text and the links
+of the issue, not what the close event recorded, so a pull request that merely
+names the issue in its text is on it. One further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
 [tehasbot status](#tehasbot-status-and-the-console) makes, and the same console
@@ -322,9 +324,12 @@ verb decides its answer (`lib/shipped.sh`, `console/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person or an unmerged pull request, and which
-GitHub lists no merged pull request as closing, keeps no label: the state labels still come off and the line says
+GitHub lists no merged pull request as closing, keeps no label: the state labels
+still come off and the line says
 `WARN: tidy #N: no merged pull request was read as the closer, tehas:shipped was
-not added`. When the read itself failed or timed out, that line is said once for
+not added`, which covers both the closer that was read as unmerged and the
+closer the read could not name as a pull request. When the read itself failed or
+timed out, that line is said once for
 the whole poll as `WARN: tidy: the read of what closed these issues failed,
 tehas:shipped was not added for N issues`, so a search GitHub refused reads
 differently from a factory that shipped nothing. A dry run passes `--dry-run` and
@@ -2398,8 +2403,9 @@ Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
 and `closedAt`.
 Completed means closed by a merged pull request, by the close event's closer or
 by a merged pull request GitHub lists as closing the issue when the close event
-names none, whatever labels the issue was
-left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
+names none. That list is what GitHub derives from the text and the links of the
+issue, not what the close event recorded. Whatever labels the issue was left
+with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
 (`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` gives each issue its read finds shipped the label;
 `tehas tidy` is the one that logs the read, and both leave the control issue
