@@ -10,8 +10,8 @@ how it is doing over MCP: whether it is working, what is in line, what ended,
 a running cycle's console and the last ten days, as the dashboard shows them,
 one issue's story, and the sessions of the last 30 days and their logs, masked,
 the lines of those logs that hold a string you give, the dispatcher's and
-refresh's events as they are written, and why an issue's last stopped run
-stopped.
+refresh's events as they are written, why an issue's last stopped run
+stopped, and the dispatcher's last decisions.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
@@ -202,6 +202,7 @@ the same JSON as text.
 | `factory_failures` | all optional: `by` (`version` or `image`), `rukasVersion` (also matches the commit) | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. With `by: image` each pair is split by the sandbox image its runs used, and an entry also has `image` and `imageBuilt`, so two builds of one pi-rukas version can be compared; runs with no image on record are an entry without them. Planning sessions are not counted |
 | `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
 | `factory_park` | `issue`, an integer from 1 to 999999999 | Why the issue's last stopped work run of the last 30 days stopped: a run whose outcome is `handoff`, `parked`, `failed` or `refused`. `id`, `started`, `ended`, `outcome`, `status`, `exitCode`, `latest` (no later work run of the issue in the window), and as the park comment's `tehas:park` marker has them `step`, `kind` (the failure kind), `cap`, `reason` (the park reason), `cause`, `provider` and `sig`, and `forksRefused` and `oomKills` when the container refused a start of a process or had one killed for memory. From the run's `result` log: `result` (`read`, `none`, `gone` or `unreadable`), `errorCode` and `error` when the runner itself stopped, such as a crash, `message`, `causeClass`, `causeReason`, `userAction` and `checks`, the failing check lines, masked, at most 20 of 400 characters each, with `checksCut` when there were more. `days` and `stale` as the session tools. An issue with no stopped run in the window is a tool error that names it |
+| `factory_decisions` | `limit` from 1 to 200, optional (50 without it) | The dispatcher's last decisions, newest last: `decisions`, each with `time`, `decision` (`start`, `skip`, `wait` or `drop`; a drop is a refresh request the dispatcher dropped), `issue` as a number and `reason` as the dispatcher logs it, masked and cut to 400 characters; for a start the reason says who started it and how. `whole` is true when the read reached the start of the log. They are the last `limit` lines of the log that hold ` start #`, ` skip #`, ` wait #` or ` drop the refresh of #` after the time. Only the last 1 MiB of the log is read |
 
 The links are built from the `repo` the dashboard publishes, and only when it
 is `owner/name`. Without a valid repo a session has no links and a cause has no
@@ -247,6 +248,14 @@ for the cycle that owns the issue, and `health.json` for the issues being
 planned, whose list `status.json` gives only as a count. It reads nothing else,
 and it never gives an issue's body or its labels.
 
+`factory_decisions` reads the end of `dispatch.log` in the logs directory, by
+that fixed name, and nothing else. It reads at most the last 1 MiB, from the
+first whole line in it, so on a long log the oldest decisions are out of reach
+and `whole` is false. The time, the word and the issue of a decision are
+checked shapes; only the reason is free text, and it is masked before it is
+cut. A log that is missing, a link or not a plain file is a tool error that
+names it.
+
 ### Logs
 
 `factory_log` names a file by a word, never by a path. The words a session
@@ -274,7 +283,8 @@ The server opens only a file name the sessions snapshot gives for that
 session, and only when the name is the one pattern its word allows for the
 session's kind and issue. The logs directory also holds the host's own logs:
 `factory_events` reads `dispatch.log` and `refresh.log` by their fixed names,
-and nothing else in it can be named. A file that is now a link, or is gone,
+`factory_decisions` reads `dispatch.log` by that one name, and nothing else
+in it can be named. A file that is now a link, or is gone,
 is a tool error that names the word.
 
 Limits:

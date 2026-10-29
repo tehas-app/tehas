@@ -138,7 +138,7 @@ fn texts(events: &[(String, String)]) -> Vec<&str> {
 
 #[test]
 fn the_fixtures_give_the_last_events_merged_by_time_and_masked() {
-    let v = events_call(&fixture_dirs(), json!({})).unwrap();
+    let v = events_call(&fixture_dirs(), json!({"limit": mcp::events::EVENTS_MAX})).unwrap();
     let events = v["events"].as_array().unwrap();
     assert!(!events.is_empty());
     let times: Vec<&str> = events.iter().filter_map(|e| e["time"].as_str()).collect();
@@ -165,7 +165,10 @@ fn the_fixtures_give_the_last_events_merged_by_time_and_masked() {
     assert_eq!(kinds("done #41"), ["done"]);
     assert_eq!(kinds("skip #316"), ["skip"]);
     assert_eq!(kinds("read 1 pull requests"), ["refresh"]);
-    assert_eq!(kinds("holding: the limit"), ["wait"]);
+    assert_eq!(
+        kinds("holding: the limit allows 0 cycles at once and 1 are running"),
+        ["wait"]
+    );
     let start = events
         .iter()
         .find(|e| e["text"].as_str().unwrap().starts_with("start #41"))
