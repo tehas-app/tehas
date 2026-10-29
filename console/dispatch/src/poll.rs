@@ -195,7 +195,7 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
                 .split_whitespace()
                 .map(str::to_string)
                 .collect(),
-            millwright: env("TEHAS_MILLWRIGHT_LOGIN"),
+            millwright: crate::settings::account(&env("TEHAS_MILLWRIGHT_LOGIN")).to_string(),
             bot: if bot.is_empty() {
                 env("TEHAS_BOT_LOGIN")
             } else {
