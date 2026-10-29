@@ -5,6 +5,9 @@
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
+# The limit is read and written by the console (console flags).
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
 # The command as a host has it: beside the console, which decides what the read
 # of what closed an issue means (console/src/shipped.rs) and is this checkout's

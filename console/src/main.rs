@@ -44,6 +44,11 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console flags limit show|set|clear|read ...
+//!
+//! The flags under state/ of one instance: the limit tehas limit sets, see
+//! src/flags.rs.
+//!
 //!   console export run ...
 //!
 //! What tehas export copies, see src/export.rs.
@@ -63,6 +68,7 @@
 
 mod clean;
 mod export;
+mod flags;
 mod notice;
 mod plan;
 mod render;
@@ -248,6 +254,7 @@ fn main() -> ExitCode {
         match given.first().map(String::as_str) {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
+            Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(notice::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),

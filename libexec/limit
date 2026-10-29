@@ -37,6 +37,9 @@
 # "until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
 # and a field without a value is left out.
 #
+# The arguments are checked here, the settings are loaded here, and the
+# reading, the writing and the printing are the console's (console/src/flags.rs).
+#
 # Exit: 0 shown, set or cleared; 64 a bad argument, which writes nothing; 78
 # the instance settings are missing or malformed, which writes nothing.
 set -uo pipefail
@@ -47,7 +50,7 @@ usage() {
 }
 
 action=show json=0
-cycles="" plan=true for="" until="" reason="" have_reason=0 have_plan=0
+cycles="" plan=on for="" until="" reason="" have_reason=0 have_plan=0
 case "${1-}" in
   "") ;;
   --json) [ "$#" = 1 ] || usage; json=1 ;;
@@ -62,14 +65,12 @@ case "${1-}" in
         --plan)
           [ "$have_plan" = 0 ] || usage
           have_plan=1
-          case "$2" in on) plan=true ;; off) plan=false ;; *) usage ;; esac
+          case "$2" in on | off) plan=$2 ;; *) usage ;; esac
           ;;
         --for) [ -z "$for$until" ] || usage; [[ $2 =~ ^[1-9][0-9]{0,8}$ ]] || usage; for=$2 ;;
         --until)
           [ -z "$for$until" ] || usage
           [[ $2 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || usage
-          at=$(jq -nr --arg t "$2" '$t | fromdateiso8601' 2>/dev/null) || usage
-          [ "$at" -gt "$(date +%s)" ] || usage
           until=$2
           ;;
         --reason) [ "$have_reason" = 0 ] || usage; have_reason=1; reason=$2 ;;
@@ -83,41 +84,20 @@ case "${1-}" in
 esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The console is named before the settings are loaded: tehas_load clears the
+# TEHAS_* of the host from a command, and TEHAS_CONSOLE is not a setting, as
+# lib/top.sh has always found.
+console=${TEHAS_CONSOLE:-$here/console}
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 tehas_load || exit 78
-# shellcheck source=lib/status.sh
-. "$here/../lib/status.sh"
 # shellcheck source=lib/limit.sh
 . "$here/../lib/limit.sh"
-file=$(tehas_limit_file)
 
-case "$action" in
-  set)
-    [ -z "$for" ] || until=$(date -u -d "@$(($(date +%s) + for))" +%FT%TZ)
-    mkdir -p "${file%/*}" || { echo "tehas limit: could not create ${file%/*}" >&2; exit 1; }
-    tmp=$file.new
-    # Cleared first: a leftover or something planted under that name is not
-    # written through.
-    rm -f "$tmp" || { echo "tehas limit: could not remove $tmp" >&2; exit 1; }
-    if ! (umask 077; jq -nc --argjson cycles "$cycles" --argjson plan "$plan" --arg until "$until" --arg reason "$reason" \
-      '{v: 1, $cycles, $plan, until: (if $until == "" then null else $until end),
-        reason: ($reason | '"$tehas_pause_oneline"' | .[:200])}' >"$tmp") || ! mv -f "$tmp" "$file"; then
-      rm -f "$tmp"
-      echo "tehas limit: could not write $file" >&2
-      exit 1
-    fi
-    ;;
-  clear)
-    if [ -e "$file" ] || [ -L "$file" ]; then
-      rm -rf "$file" || { echo "tehas limit: could not remove $file" >&2; exit 1; }
-    fi
-    ;;
-esac
-
-limit=$(tehas_limit_read)
-if [ "$json" = 1 ]; then
-  jq -c '{api: 1} + .' <<<"$limit"
-else
-  tehas_limit_line "$limit"
-fi
+args=()
+[ "$json" = 0 ] || args=(--json)
+[ -x "$console" ] || { echo "tehas limit: no console at $console: run install.sh" >&2; exit 78; }
+[ "$action" != show ] || exec "$console" flags limit show "${args[@]}"
+[ "$action" != set ] || args+=(--cycles "$cycles" --plan "$plan")
+[ "$action" != set ] || { [ -z "$for" ] || args+=(--for "$for"); [ -z "$until" ] || args+=(--until "$until"); [ "$have_reason" = 0 ] || args+=(--reason "$reason"); }
+exec "$console" flags limit "$action" "${args[@]}"
