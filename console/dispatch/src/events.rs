@@ -123,12 +123,15 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
 }
 
 /// Logins named by `renamed` events after `since` (all of them when `since`
-/// is empty), "unknown" for one that names nobody.
+/// is empty), "unknown" for one that names nobody. One with no time is not
+/// old: it counts as after `since`, so an unstamped rename never reads as a
+/// title the approval covered.
 pub fn renamed_since(events: &[Event], since: &str) -> Vec<String> {
     events
         .iter()
         .filter(|e| {
-            e.event == "renamed" && (since.is_empty() || e.at.as_deref().unwrap_or("") > since)
+            e.event == "renamed"
+                && (since.is_empty() || e.at.as_deref().is_none_or(|at| at > since))
         })
         .map(|e| {
             if e.actor.is_empty() {

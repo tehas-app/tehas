@@ -187,6 +187,29 @@ t_run "$dispatch --dry-run"
 t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
 t_lacks "$t_out" "would run a cycle"
 
+t_case "a title rename with no time after the label is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+       {"event":"renamed","actor":{"login":"mallory"}}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'mallory'"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a title rename with no time and no account is not approved"
+reset
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"},
+       {"event":"renamed","actor":null}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "skip #7: its text was changed by 'unknown'"
+t_lacks "$t_out" "would run a cycle"
+
+t_case "a title rename before the label is what the label approved"
+reset
+echo '[{"event":"renamed","actor":{"login":"mallory"},"created_at":"2026-01-02T09:59:00Z"},
+       {"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"},"created_at":"2026-01-02T10:00:00Z"}]' >"$fx/events-7.json"
+t_run "$dispatch --dry-run"
+t_contains "$t_out" "would run a cycle for #7"
+
 # The pull requests GitHub says close an issue: <url> <state>...
 closing_prs() { # <issue> [<url> <state>]...
   local n=$1 nodes="[]"

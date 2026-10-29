@@ -604,6 +604,112 @@
     ],
     "nothing": true
    }
+  },
+  {
+   "case": "a title renamed with no time after the approval is not what was approved",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       },
+       {
+        "event": "renamed",
+        "actor": {
+         "login": "mallory"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'mallory' after alice applied tehas:ready; apply the label again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "a title renamed by an account GitHub no longer names, with no time, holds the start",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       },
+       {
+        "event": "renamed",
+        "actor": null
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true,
+    "log": [
+     "skip #7: its text was changed by 'unknown' after alice applied tehas:ready; apply the label again to approve it"
+    ]
+   }
+  },
+  {
+   "case": "a title renamed before the approval is what the approval covered",
+   "snapshot": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "renamed",
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-01-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "log": [
+     "would run a cycle for #7 (labelled by alice)"
+    ]
+   }
   }
  ]
 }
