@@ -124,6 +124,8 @@ impl Writer {
             "" => "tehas:plan".to_string(),
             l => l.to_string(),
         };
+        // Only a refine session offers to file its drafted plan as a new issue.
+        let mut refine = label == "tehas:refine";
         let by = text(a, "by").to_string();
         let keep = self.keep(n);
         let out = self.st(n, ".out");
@@ -212,6 +214,8 @@ impl Writer {
                     ));
                 }
             };
+            refine =
+                show.pointer("/planning/label").and_then(Value::as_str) == Some("tehas:refine");
             turns = show
                 .pointer("/planning/turns")
                 .and_then(Value::as_u64)
@@ -377,6 +381,9 @@ impl Writer {
             keep.to_string_lossy().into_owned(),
         ]);
         cmd.append(&mut args);
+        if refine {
+            cmd.extend(["--kind".into(), "refine".into()]);
+        }
         if !self.plan_launch(n, &cmd) {
             log.push(format!("ERROR: could not start the planning turn of #{n}"));
             self.plan_finish(n, "not started", turns, &sid, log);

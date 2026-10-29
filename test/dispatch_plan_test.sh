@@ -11,6 +11,7 @@ to_plan
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $T/home/tehas/tmp/plan-7.brief."
+t_lacks "$(plan_calls)" "--kind refine"
 t_eq "$(rec_brief)" '# Faster search
 
 Make it fast.'
