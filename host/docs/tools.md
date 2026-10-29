@@ -78,6 +78,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_REPO`      | empty                                    | Optional. `owner/name` of the repository the loop files in what only a change in pi-rukas can fix. Empty: those findings go to `TEHAS_IMPROVE_REPO` with the rest. Needs `TEHAS_IMPROVE_REPO`. Never `TEHAS_REPO` |
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
+| `TEHAS_REVIEW_REPO`             | empty                                    | Optional. `owner/name` of the repository [tehasbot review](#tehasbot-review) files the findings of a run in, as one issue a person triages. Empty: a run that found something says it filed nothing. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78 |
 | `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
@@ -1152,8 +1153,8 @@ a turn whose client died, is removed before the turn starts.
 
 Reviews what the default branch gained since the last reviewed commit, with
 pi-rukas's lens reviewer running headless in the sandbox image. It is the
-review step of the review loop; it files nothing, and no unit runs it on a
-timer yet.
+review step of the review loop; no unit runs it on a timer yet, and it files
+its findings only where `TEHAS_REVIEW_REPO` names a repository.
 
 ```
 tehasbot review
@@ -1199,14 +1200,52 @@ named in the line that says so.
 | 64 | an argument this command does not know, or no git identity for the clone; nothing ran |
 | 78 | the instance settings are invalid, `tehas.slice` cannot be used, the console is not installed beside the command, or the image's runner has no `lens-review` verb in its `--capabilities`; nothing was cloned and nothing ran |
 
+### What a review files
+
+A run that exited 10 or 20 files its findings as one issue in
+`TEHAS_REVIEW_REPO` for a person to triage; loading refuses a
+`TEHAS_REVIEW_REPO` equal to `TEHAS_REPO`, the product. The rule of what the
+issue says is
+`tehas_core::review` (`console/core/src/review.rs`): the findings of the six
+lenses, `CRITICAL`, `HIGH` and `MEDIUM` one to a line and the rest counted, the
+title naming the count, the branch and the commit the range starts at. The
+shell asks the store for the two values with `store review-issue <document>
+<branch> <commit>` and puts neither of them together itself.
+
+What comes out of a model goes through `q_clean` (`lib/questions.sh`) on its way
+to GitHub, as every other text an agent wrote does: tokens, private addresses
+and the host's own names are masked, a comment marker is escaped, and the body
+is cut at 60 000 characters. The issue is labelled `tehas:improvement` and
+nothing else -- never `tehas:ready`, since a finding starts no cycle until a
+person says so -- and its body ends with the line that asks for
+`tehas:refine`, the label that plans an issue into parts of one cycle each
+([Planning](/operating#planning)).
+
+While one of those issues is still open, the findings of a later run go into it
+as a comment rather than beside it, so a range nobody has read yet stays one
+issue. GitHub is asked for the open issue of the review, and a GitHub that will
+not answer is asked nothing: the findings are then filed as new, because a
+duplicate is read by a person and a lost finding is not.
+
+A run that exited 0 files nothing. A filing that the store or GitHub refused is
+said on standard error and changes nothing else: the record of the range is
+already written, so the next run reads the next commits whatever GitHub did,
+and the command still exits with the status the runner gave. A host with no
+`TEHAS_REVIEW_REPO`, or one whose document the store could not read, files
+nothing and says so.
+
 The container is the one `tehas plan` starts a planning turn in: the same
 image, the same limits in `tehas.slice`, the same mounts and variables from
 `lib/sandbox.sh`, and no Docker socket, SSH keys or `~/.config/tehas`. It
 differs in its name, in what it runs, and in having no token: a review reads
-code and writes nothing to the tracker, so no `-e` carries `GH_TOKEN`, and on a
-host with a GitHub App the directory of the app's token is not mounted. The names of a planning turn, which this run has none of, are
+code, and the container writes nothing to the tracker, so no `-e` carries
+`GH_TOKEN`, and on a host with a GitHub App the directory of the app's token is
+not mounted. The names of a planning turn, which this run has none of, are
 dropped the same way. It has no cid file, so a review left by a client that
-died is not named for a later run to remove.
+died is not named for a later run to remove. The one call the run makes to
+GitHub is the host's own, after the container ended, with the bot's credentials
+of `~/.config/tehas/env`: the issue, or the comment on the issue that is still
+open.
 
 The workspace is `~/tehas/work/<name>-review`, a clone made for every run and
 removed when the run is over; inside the container it is at the path every
@@ -2449,7 +2488,11 @@ the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
-refreshed at every poll and at the end of every cycle. The docs server
+refreshed at every poll and at the end of every cycle. The poll that runs it
+bounds it at 120 s, the same bound it gives the status and tidy, because health
+bounds its own store calls only one at a time; one cut off leaves the file as
+the last writer left it, and the poll says
+`WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 
@@ -2888,7 +2931,8 @@ call and runs `~/tehas/bin/gh`, so a command that runs for hours never holds an
 expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
 uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
 poll takes the token once at its start and gives it to every `gh` it runs that
-way, so twenty calls of a poll ask for one token and not twenty (#938). The
+way, and to `tidy`, `status` and `health` when it runs them, so twenty calls of
+a poll ask for one token and not twenty (#938, #965). The
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and

@@ -30,6 +30,28 @@ empty one above it.
   digits is not read as a label taken off. Nothing calls it yet: the
   next issues of #800 give bash a command for it and move
   `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
+- The Rust poll no longer takes an approval from a label timeline GitHub cut
+  short. A page asks for 100 open issues at a time and 100 label events per
+  issue, and GitHub answers a page over its budget for nested items with
+  timelines cut short and no error: on 2026-10-28 the page gave one issue its
+  oldest 49 label events and the issues after it none at all. The guard read
+  the timeline only for a label no event applied, so a cut one that still
+  held an older application of the label was taken for the whole story, and
+  the poll skipped the issue on every poll with the line that its earlier
+  approval had started a cycle already. An issue's events are now read from
+  the REST list when the newest event of a label the issue carries is not an
+  application or the label has no event, and the open issues are read in
+  pages of 25, which stays well under that budget. The page count, not the
+  points, is what the poll pays in for those pages: each one is a `gh`
+  process run before any decision. The bot's own
+  `tehas:running` mark is excepted from that comparison: it is applied by
+  the bot alone, so guarding it would spend a paginated read on every running
+  issue on every poll, and the park of a mark with no cycle behind it rests
+  on the lock file rather than the timeline. The exception is the queue's
+  own, not the guard's: the control issue is asked about with no label
+  exempt, so a page that cut its `tehas:pause` history short cannot leave the
+  factory running, and an issue the page gave no timeline at all is read
+  again whatever it carries. (#928)
 
 ### Adopter action
 
