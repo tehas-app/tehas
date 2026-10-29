@@ -1,6 +1,7 @@
 /* The business layout's front page (business.html): the factory as a quiet
-   dashboard. A page head, the live figures, the production line, the console,
-   the last ten days and the issue board, one panel each. Drawn for beesknees26; every
+   dashboard. A page head, the live figures, the production line, the last
+   ten days, the issue board with the open epics beside it and the console,
+   one panel each. Drawn for beesknees26; every
    colour, typeface, edge and shadow is the theme's token, from /fun/theme.css,
    which the page loads first. Sizes are the drawing's, raised to the theme's
    --type-small and --type-big where those are larger, so pixel keeps Topaz at
@@ -180,7 +181,10 @@ svg text { fill: var(--text-faint); font: max(var(--type-small), 11px) var(--fon
 .section-break p { margin: 0 0 6px; font-size: var(--type-small); font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-cool); }
 .section-break h2 { font-size: max(var(--type-big), 28px); line-height: 1.2; font-weight: 700; letter-spacing: -0.045em; }
 .section-break > span { font-size: max(var(--type-small), 12px); color: var(--text-faint); }
-.register { margin-top: -2px; }
+.work-split { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; align-items: start; margin-top: -2px; }
+.work-split > .register { grid-column: span 8; }
+.work-split > .epics { grid-column: span 4; }
+.work-split:has(> .epics[hidden]) > .register { grid-column: 1 / -1; }
 .register .panel-head { gap: 20px; }
 .filters { display: flex; gap: 5px; flex-wrap: wrap; background: var(--surface-quiet); padding: 4px; border: var(--edge) solid var(--rule); border-radius: calc(var(--radius) * 1.5); }
 .filters button { font: inherit; font-size: max(var(--type-small), 12px); font-weight: 500; color: var(--text-quiet); background: none; border: var(--edge) solid transparent; border-radius: var(--radius); padding: 7px 10px; cursor: pointer; }
@@ -232,6 +236,11 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .epic-foot { margin-top: 10px; font-size: max(var(--type-small), 12px); color: var(--text-faint); }
 .epic-link { color: var(--text-cool); font-weight: 600; text-decoration: none; }
 .epic-empty, .epic-none { padding: 14px 28px; color: var(--text-faint); }
+.work-split .epic-row { grid-template-columns: max-content minmax(0, 1fr); row-gap: 8px; }
+.work-split .epic-number { align-self: start; }
+.work-split .epic-bar { grid-column: 2; }
+.work-split .epic-count { grid-column: 2; text-align: left; }
+.work-split .epic-body { padding-left: 28px; }
 
 .foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; margin-top: 48px; padding-block: 34px 56px; border-top: var(--edge) solid var(--rule); color: var(--text-faint); font-size: max(var(--type-small), 12px); }
 .foot a { text-underline-offset: 3px; }
@@ -243,6 +252,7 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
   .power-chart + .power-chart { border-left: 0; border-top: var(--edge) solid var(--rule); }
   .period-body { grid-template-columns: minmax(0, 1fr); }
   .stations { border-left: 0; border-top: var(--edge) solid var(--rule); }
+  .work-split > .register, .work-split > .epics { grid-column: 1 / -1; }
 }
 @media (max-width: 800px) {
   .topbar .wrap { gap: 20px; }
