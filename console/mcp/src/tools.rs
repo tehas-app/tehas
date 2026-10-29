@@ -779,10 +779,12 @@ pub fn list() -> Value {
     ]);
     if let Value::Array(a) = &mut tools {
         a.extend(sessions::tools());
-        // factory_log goes before factory_failures, and factory_outcomes
-        // after it: the counts of the last 30 days first, then the longer
-        // view beside it.
+        // factory_log, then factory_search beside it - the reading of one log
+        // and the search over them - and factory_failures after the two, and
+        // factory_outcomes after it: the counts of the last 30 days first, then
+        // the longer view beside it.
         a.insert(a.len() - 1, logs::tool());
+        a.insert(a.len() - 1, logs::search_tool());
         a.push(outcomes_schema::tool());
     }
     tools
@@ -792,7 +794,7 @@ pub fn list() -> Value {
 /// `spec_of()` name the same tools in their own literals, and the test beside
 /// `call_held` compares the three, so the access log can name no name the
 /// server does not serve, and serves none it does not publish.
-const CALLED: [&str; 11] = [
+const CALLED: [&str; 12] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
@@ -802,6 +804,7 @@ const CALLED: [&str; 11] = [
     "factory_sessions",
     "factory_session",
     "factory_log",
+    "factory_search",
     "factory_failures",
     "factory_outcomes",
 ];
@@ -832,6 +835,9 @@ pub fn call_held(
     }
     if name == "factory_log" {
         return logs::call(dirs, args).map(|(out, place)| (out, Some(place)));
+    }
+    if name == "factory_search" {
+        return logs::search_call(dirs, args).map(|(out, place)| (out, Some(place)));
     }
     let live = dirs.live.as_path();
     let mut out = match name {
@@ -1333,8 +1339,9 @@ mod tests {
         // of `call_held` answers every name absent from this list, so a name
         // written here and not there, or there and not here, is the drift the
         // dispatch alone cannot show.
-        const ARMS: [&str; 11] = [
+        const ARMS: [&str; 12] = [
             "factory_log",
+            "factory_search",
             "factory_status",
             "factory_issues",
             "factory_endings",
