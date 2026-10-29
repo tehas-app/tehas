@@ -29,7 +29,10 @@
 //!     lib/planning.sh calls it as plan_finish begins, before the record is
 //!     rewritten. <rc> is how the turn's unit ended: its exit status, or
 //!     interrupted, not-started or not-readable. The commit, id and build
-//!     time are those of the sandbox image, read as for a work run. A turn recorded again keeps its first row.
+//!     time are those of the sandbox image as the dispatcher started the
+//!     turn. A turn started before it noted them has the commit of the image
+//!     as the turn ended, and no id. A turn recorded again keeps its first
+//!     row.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
 //!     awaiting a merge and stopped, the cycles allowed, the pause, the hold

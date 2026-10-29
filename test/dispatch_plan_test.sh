@@ -549,6 +549,14 @@ echo "abcdef1|1|sha256:$(printf 'e%.0s' {1..64})|2026-10-29T14:44:16.5Z" >"$fx/i
 plan_analytics
 t_run "$dispatch"
 t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1 --image sha256:$(printf 'e%.0s' {1..64}) --image-built 2026-10-29T14:44:16.5Z"
+t_case "the image is the one the turn started in, not the one the image name points at as it ends"
+to_plan
+echo "abcdef1|1|sha256:$(printf 'e%.0s' {1..64})|2026-10-29T14:44:16.5Z" >"$fx/image.label"
+echo "1234567|1|sha256:$(printf 'f%.0s' {1..64})|2026-10-29T15:00:00Z" >"$fx/image.during"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1 --image sha256:$(printf 'e%.0s' {1..64}) --image-built 2026-10-29T14:44:16.5Z"
+t_eq "$(find "$T/home/tehas/state" -name 'plan-7.json.image' | wc -l)" 0
 t_case "an image id of another shape is left out, and so is its time"
 to_plan
 echo "abcdef1|1|sha256:short|2026-10-29T14:44:16.5Z" >"$fx/image.label"

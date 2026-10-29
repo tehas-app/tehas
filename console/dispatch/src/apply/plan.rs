@@ -162,6 +162,7 @@ impl Writer {
     fn plan_files_rm(&self, n: u64) {
         let _ = std::fs::remove_file(self.st(n, ".out"));
         let _ = std::fs::remove_file(self.st(n, ".rc"));
+        let _ = std::fs::remove_file(self.st(n, ".image"));
         let _ = std::fs::remove_dir_all(self.keep(n));
         self.plan_brief_rm(n);
     }
@@ -285,7 +286,9 @@ impl Writer {
             return;
         }
         let facts = show.get("planning").map(plan_view).unwrap_or(Value::Null);
-        let image = image_facts(&self.image_line());
+        let at_start = std::fs::read_to_string(self.st(n, ".image")).ok();
+        let _ = std::fs::remove_file(self.st(n, ".image"));
+        let image = turn_image(at_start.as_deref(), &self.image_line());
         // A new file only the tehas user reads, as mktemp makes it.
         use std::io::Write as _;
         use std::os::unix::fs::OpenOptionsExt;
@@ -326,6 +329,16 @@ impl Writer {
         }
         self.analytics(&args, log);
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// The sandbox image as the turn starts, for its end to record: a
+    /// rebuild while the turn runs does not change what it ran.
+    pub(super) fn note_image(&self, n: u64) {
+        let path = self.st(n, ".image");
+        let _ = std::fs::remove_file(&path);
+        if self.host.analytics.is_some() {
+            let _ = std::fs::write(&path, self.image_line());
+        }
     }
 
     /// What docker says of the sandbox image, one line, or nothing.
@@ -968,6 +981,18 @@ fn image_facts(line: &str) -> ImageFacts {
     out
 }
 
+/// The image of a turn: as it started, or, for a turn started before that
+/// was noted, only the commit of the image as it ends, as before.
+fn turn_image(at_start: Option<&str>, at_end: &str) -> ImageFacts {
+    match at_start {
+        Some(line) => image_facts(line.lines().next().unwrap_or("")),
+        None => ImageFacts {
+            commit: image_facts(at_end).commit,
+            ..ImageFacts::default()
+        },
+    }
+}
+
 #[cfg(test)]
 mod image_tests {
     use super::*;
@@ -999,5 +1024,22 @@ mod image_tests {
         }
         assert_eq!(image_facts(&format!("xyz|1|{id}|-x")).built, "");
         assert_eq!(image_facts(""), ImageFacts::default());
+    }
+
+    #[test]
+    fn a_turn_names_the_image_it_started_in() {
+        let a = format!("abcdef1|1|sha256:{}|2026-10-29T14:44:16Z", "e".repeat(64));
+        let b = format!("1234567|1|sha256:{}|2026-10-29T15:00:00Z", "f".repeat(64));
+        assert_eq!(turn_image(Some(&format!("{a}\n")), &b), image_facts(&a));
+        // Noted, but docker did not answer: nothing, not the image as it ends.
+        assert_eq!(turn_image(Some(""), &b), ImageFacts::default());
+        // A turn started before the image was noted: the commit only.
+        assert_eq!(
+            turn_image(None, &b),
+            ImageFacts {
+                commit: "1234567".into(),
+                ..ImageFacts::default()
+            }
+        );
     }
 }
