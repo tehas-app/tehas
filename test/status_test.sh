@@ -179,18 +179,20 @@ t_run "$status"
 t_eq "$(jq -r '.running | length' "$live/status.json")" 1
 t_eq "$(jq -r '.stopped | length' "$live/status.json")" 0
 
-t_case "planning counts the open issues labelled tehas:plan or tehas:planning, from the same search"
+t_case "planning lists and counts the open issues labelled tehas:plan or tehas:planning, from the same search"
 reset
 echo "[$(issue 3 tehas:ready),$(issue 7 tehas:plan),$(issue 8 tehas:planning),$(issue 9 tehas:plan CLOSED),$(issue 1 tehas:planning),$(issue 10 tehas:question)]" >"$T/issues.json"
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.planning' "$live/status.json")" 2
+t_eq "$(jq -c '.planned | map(.number)' "$live/status.json")" '[7,8]' # 1 is the control issue
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 1
 t_eq "$(t_calls gh | grep -c -- '--search')" 1
 t_contains "$(t_calls gh | grep -- '--search')" 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" '
 reset
 t_run "$status"
 t_eq "$(jq -r '.planning' "$live/status.json")" 0
+t_eq "$(jq -c '.planned' "$live/status.json")" '[]'
 
 t_case "the breakroom's words are counted over every issue, labelled for the factory or not"
 reset

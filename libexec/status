@@ -36,8 +36,7 @@
 # answer from GitHub. `by`, the account that set the flag, stays out of the file:
 # the page that reads it can be public.
 #
-# `planning` is how many open issues carry tehas:plan or tehas:planning: the
-# work being planned, a count only. The same search as the lists finds them.
+# `planned` lists the open issues with tehas:plan or tehas:planning; `planning` counts them.
 #
 # `completedCount` is how many closed issues carry tehas:shipped, counted by a
 # search of its own, so it keeps rising past the hundred items the `completed`
@@ -420,6 +419,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
       queued: ($open | map(select(has("tehas:ready") and (has("tehas:running") | not)) | slim) | sort_by(.number)),
       awaiting: ($open | map(select(has("tehas:awaiting-merge")) | slim)),
       stopped: ($open | map(select(has("needs-human-attention") and (has("tehas:running") | not)) | slim)),
+      planned: ($open | map(select(has("tehas:plan") or has("tehas:planning")) | slim) | sort_by(.number)),
       planning: ($open | map(select(has("tehas:plan") or has("tehas:planning"))) | length),
       completed: ($shipped | map(slim) | sort_by(.closedAt) | reverse),
       completedCount: $completedCount,
