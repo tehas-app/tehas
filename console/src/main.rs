@@ -46,9 +46,19 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console flags limit show|set|clear|read ...
+//!
+//! The flags under state/ of one instance: the limit tehas limit sets, see
+//! src/flags.rs.
+//!
 //!   console export run ...
 //!
 //! What tehas export copies, see src/export.rs.
+//!
+//!   console protolab page|front|live|refs ...
+//!
+//! The pages of the Protolab and the links of a ticket, for libexec/protolab,
+//! see src/protolab.rs.
 //!
 //!   console setup files ...
 //!
@@ -65,9 +75,11 @@
 
 mod clean;
 mod export;
+mod flags;
 mod notice;
 mod plan;
 mod preview;
+mod protolab;
 mod render;
 mod review;
 mod setup;
@@ -251,11 +263,13 @@ fn main() -> ExitCode {
         match given.first().map(String::as_str) {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
+            Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
+            Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}
         }
