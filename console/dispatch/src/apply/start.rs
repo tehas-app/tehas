@@ -12,7 +12,7 @@
 use super::{text, word, Writer, Wrote};
 use crate::decide::iso;
 use crate::read::host::{epoch, held};
-use crate::read::run::run_quiet;
+use crate::read::run::{gh_env, run_grace_env, run_quiet};
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -39,6 +39,13 @@ pub struct Host {
     pub start_wait: Duration,
     /// TEHAS_STATUS_CMD, run once the starts are done.
     pub status_cmd: String,
+    /// TEHAS_HEALTH_CMD, run by the poll after it wrote the demand: a test's
+    /// name for it, as the status's is; the poll's own directory holds it
+    /// otherwise.
+    pub health_cmd: String,
+    /// TEHAS_TIDY_CMD, run by the end of every poll that got past the bot's
+    /// login; the poll's own libexec/tidy otherwise.
+    pub tidy_cmd: String,
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
     pub analytics: Option<String>,
     pub analytics_wait: Duration,
@@ -252,8 +259,29 @@ impl Writer {
         self.status_of(&cmd, &[], printed);
     }
 
-    /// A command of the host whose output the poll's log gets, as status's
-    /// and tidy's.
+    /// health, which the poll starts after it wrote the demand: its own bound,
+    /// as the bash's `timeout 2` of it is, and the same rule for its output and
+    /// the token. Its exit status, None when it outlived the bound.
+    pub fn health(&mut self, printed: &mut Vec<String>) -> Option<i32> {
+        let cmd = self.host.health_cmd.clone();
+        // As the bash's `timeout 2` of health, with the same grace -k gives.
+        self.status_of_grace(
+            &cmd,
+            &[],
+            printed,
+            Duration::from_secs(2),
+            Duration::from_secs(5),
+        )
+    }
+
+    /// The host's command `cmd` run under a bound, with the grace between
+    /// TERM and KILL its caller gives, and its output in a file the poll's log
+    /// then prints - as status's, tidy's and health's. The poll's token goes
+    /// with it as `TEHAS_GH_TOKEN`, the same value and the same rule as the
+    /// poll's own gh calls, so the shim of a gh the command runs asks for no
+    /// token of its own: `libexec/tidy` makes a search every poll. Nothing is
+    /// given when the poll has no token, and the token reaches no log, no file
+    /// and no argument of the command.
     /// Its exit status, None when it did not end in its bound.
     pub fn status_of(
         &mut self,
@@ -261,15 +289,35 @@ impl Writer {
         args: &[String],
         printed: &mut Vec<String>,
     ) -> Option<i32> {
+        // As the bash runs its host commands: timeout -k 5.
+        self.status_of_grace(
+            cmd,
+            args,
+            printed,
+            Duration::from_secs(120),
+            Duration::from_secs(5),
+        )
+    }
+
+    /// status_of with the bound and the grace a caller gives, as `timeout -k`.
+    fn status_of_grace(
+        &mut self,
+        cmd: &str,
+        args: &[String],
+        printed: &mut Vec<String>,
+        bound: Duration,
+        grace: Duration,
+    ) -> Option<i32> {
         // Its output through a file: a pipe would wait for whatever it left
         // running. With no file to write, it runs and its output is lost.
+        let token = gh_env(self.calls.gh_token.as_deref());
         let out = self
             .scratch("status")
             .and_then(|p| std::fs::File::create(&p).ok().map(|f| (p, f)));
         let Some((path, f)) = out else {
-            return run_quiet(cmd, args, None, Duration::from_secs(120));
+            return run_grace_env(cmd, args, None, bound, grace, &token);
         };
-        let rc = run_quiet(cmd, args, Some(f), Duration::from_secs(120));
+        let rc = run_grace_env(cmd, args, Some(f), bound, grace, &token);
         let said = std::fs::read_to_string(&path).unwrap_or_default();
         printed.extend(said.lines().map(str::to_string));
         let _ = std::fs::remove_file(&path);

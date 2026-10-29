@@ -18,6 +18,10 @@ printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
 if [ -f "$d/fail-$name" ]; then
   while IFS= read -r line; do
     p=${line%%|*} w=${line#*|}
+    # The one pattern no call holds: a line of it says that the process saw a
+    # token, which is how a test counts them without copying one anywhere.
+    [ "$p" != __token__ ] || { [ -n "${TEHAS_GH_TOKEN:-}" ] || continue
+      printf 'token\n' >>"$d/$w"; continue; }
     [ "$w" != "$line" ] || w=busy
     case "$* $input" in *"$p"*)
       case "$p" in slow*) sleep "$(cat "$d/slow" 2>/dev/null || echo 5)" ;; esac
@@ -37,7 +41,7 @@ case "$name $1" in
     while [ $# -gt 0 ]; do [ "$1" != --input-file ] || cp "$2" "$d/input.json"; shift; done
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
-  "status "*) echo "the status line" ;;
+  "status "* | "tidy "* | "health "*) echo "the status line" ;;
   "store journal-open") cat "$d/open" 2>/dev/null || echo '{"api":1,"verb":"journal-open","ok":true,"actions":[]}' ;;
   "store plan-begin")
     for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
@@ -91,6 +95,41 @@ struct World {
     w: Writer,
 }
 
+impl World {
+    /// The stub of a program of the world says one word on the named file of
+    /// the world when it ran with `TEHAS_GH_TOKEN` set to anything, and says
+    /// nothing when it did not. The word is the only thing written: the token
+    /// itself is never copied, so a test can see that a process was given one
+    /// without any part of it reaching a file, a log or an argument.
+    fn asks_for_token(&self, program: &str, file: &str) {
+        fs::write(
+            self.dir.join(format!("fail-{program}")),
+            format!("__token__|{file}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The word the stub said for the token, one line per process that was
+    /// given one.
+    fn token_said(&self, file: &str) -> Vec<String> {
+        fs::read_to_string(self.dir.join(file))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The poll's end running tidy and the status, and its start running
+    /// health, each the way the poll sends it, and each printing its line, so
+    /// the words say that all three ran.
+    fn runs_its_end(&mut self, printed: &mut Vec<String>) {
+        let tidy = self.w.host.tidy_cmd.clone();
+        self.w.status_of(&tidy, &["--dry-run".into()], printed);
+        self.w.status(printed);
+        self.w.health(printed);
+    }
+}
+
 fn world() -> World {
     static N: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
@@ -116,6 +155,8 @@ fn world() -> World {
         "docker",
         "start",
         "status",
+        "tidy",
+        "health",
         "analytics",
         "git",
         "systemctl",
@@ -151,6 +192,8 @@ fn world() -> World {
             stop_cmd: Some(s("start")),
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
+            health_cmd: s("health"),
+            tidy_cmd: s("tidy"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
@@ -251,6 +294,42 @@ fn a_failed_label_change_logs_its_line_and_says_nothing() {
         vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"]
     );
     assert!(!t.calls().iter().any(|c| c.contains("issue comment")));
+}
+
+#[test]
+fn the_commands_the_poll_starts_at_its_end_are_given_its_token() {
+    // tidy, the status and health are host commands the poll runs through
+    // status_of: each of them gets the poll's token as TEHAS_GH_TOKEN, the same
+    // value the poll's own gh calls get, so the shim of a gh they run asks for
+    // none. The stubs say one word when they saw a token, and the token itself
+    // is written nowhere.
+    let mut t = world();
+    t.asks_for_token("tidy", "given");
+    t.asks_for_token("status", "given");
+    t.asks_for_token("health", "given");
+    t.w.calls.gh_token = Some("ghs_poll".into());
+    let mut printed = Vec::new();
+    t.runs_its_end(&mut printed);
+    assert_eq!(t.token_said("given"), vec!["token"; 3]);
+    // Nothing of the token reached the calls the stubs logged, nor an argument.
+    assert_eq!(printed, vec!["the status line"; 3]);
+    assert!(!t.calls().iter().any(|c| c.contains("ghs_poll")));
+}
+
+#[test]
+fn with_no_token_the_poll_gives_its_host_commands_none() {
+    // The same rule as the poll's gh calls: with no app named, or no token it
+    // could take, nothing is given, and each gh of those commands pays for a
+    // token of its own.
+    let mut t = world();
+    t.asks_for_token("tidy", "given");
+    t.asks_for_token("status", "given");
+    t.asks_for_token("health", "given");
+    assert_eq!(t.w.calls.gh_token, None);
+    let mut printed = Vec::new();
+    t.runs_its_end(&mut printed);
+    assert_eq!(t.token_said("given"), Vec::<String>::new());
+    assert_eq!(printed, vec!["the status line"; 3]);
 }
 
 #[test]
