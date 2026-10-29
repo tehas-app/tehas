@@ -22,7 +22,7 @@ mod turn;
 
 use crate::read::run::{run, run_input_env, Calls};
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The calls of one poll's writes.
@@ -94,6 +94,15 @@ fn word(v: &Value) -> String {
         .to_string()
 }
 
+/// The longest key the reader of <n>.said compares: read/build.rs keeps the
+/// head of the file at this length, so a longer one is never recognised.
+pub const SAID_MAX: usize = 200;
+
+/// state/refresh/<n>.said: what says that an issue's hold was told.
+pub fn said_file(home: &Path, n: u64) -> PathBuf {
+    home.join(format!("state/refresh/{n}.said"))
+}
+
 fn text<'a>(a: &'a Value, k: &str) -> &'a str {
     a.get(k).and_then(Value::as_str).unwrap_or("")
 }
@@ -155,22 +164,12 @@ impl Writer {
         if let (Some(n), Some(_)) = (n, a.get("remove")) {
             self.label(n, a, log);
         } else if let (Some(n), Some(key)) = (n, a.get("refresh_said").and_then(Value::as_str)) {
-            // The record only after the comment: a failed one leaves nothing
-            // behind, so the next poll says it again.
-            if self.say(n, text(a, "say"), log) {
-                let path = self.home.join(format!("state/refresh/{n}.said"));
-                if std::fs::write(&path, key).is_err() {
-                    log.push(format!("WARN: could not write {}", path.display()));
-                }
+            if !key.is_empty() && self.say(n, text(a, "say"), log) {
+                self.record_said(n, key, log);
             }
         } else if let (Some(n), Some(_)) = (n, a.get("park_told")) {
             if self.say(n, text(a, "say"), log) {
-                if let Err(f) = self.calls.store(&["park-told", &n.to_string()]) {
-                    log.push(format!(
-                        "WARN: could not record the hold on the park of #{n} ({})",
-                        word(&f)
-                    ));
-                }
+                self.record_told(n, log);
             }
         } else if let (Some(n), Some(say)) = (n, a.get("say").and_then(Value::as_str)) {
             self.say(n, say, log);
@@ -181,7 +180,12 @@ impl Writer {
         } else if let Some(n) = a.get("plan_note").and_then(Value::as_u64) {
             self.plan_note(n, a, log);
         } else if let Some(n) = a.get("refresh_drop").and_then(Value::as_u64) {
-            let _ = std::fs::remove_file(self.home.join(format!("state/refresh/{n}.json")));
+            let path = self.home.join(format!("state/refresh/{n}.json"));
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    log.push(format!("WARN: could not remove {}", path.display()));
+                }
+            }
         } else if let Some(held) = a.get("refresh_held").and_then(Value::as_str) {
             let path = self.home.join("state/refresh/.held");
             if held.is_empty() {
@@ -377,8 +381,9 @@ impl Writer {
     }
 
     /// say: one comment, a warning when it fails, never the poll's end.
-    /// True when GitHub took it: the records of having said something are
-    /// made only after a comment that worked.
+    /// True when GitHub took it. Only the records of having said something
+    /// (record_said, record_told) read the answer; the rest of the comments
+    /// of a poll are said again by their own rule, so they drop it.
     fn say(&mut self, n: u64, body: &str, log: &mut Vec<String>) -> bool {
         let args = vec![
             "issue".into(),
@@ -559,6 +564,28 @@ impl Writer {
         }
     }
 
+    /// The record that this hold of a refresh was said, made only after a
+    /// comment that worked: a hold nobody was told about has not told.
+    fn record_said(&mut self, n: u64, key: &str, log: &mut Vec<String>) {
+        let path = said_file(&self.home, n);
+        // The reader compares the head of the file, so a key longer than that
+        // would never be recognised and the hold would be said again forever.
+        let key = &key[..key.len().min(SAID_MAX)];
+        if std::fs::write(&path, key).is_err() {
+            log.push(format!("WARN: could not write {}", path.display()));
+        }
+    }
+
+    /// The park's tell, made only after a comment that worked.
+    fn record_told(&mut self, n: u64, log: &mut Vec<String>) {
+        if let Err(f) = self.calls.store(&["park-told", &n.to_string()]) {
+            log.push(format!(
+                "WARN: could not record the hold on the park of #{n} ({})",
+                word(&f)
+            ));
+        }
+    }
+
     /// A note of a planning session, said once: the store answers whether
     /// this is the first time.
     fn plan_note(&mut self, n: u64, a: &Value, log: &mut Vec<String>) {
@@ -577,6 +604,8 @@ impl Writer {
         ]) {
             Ok(v) => {
                 if v.get("said") == Some(&json!(true)) {
+                    // Deliberate: the store's record comes first here, so a
+                    // comment this poll failed to post is never said again.
                     self.say(n, text(a, "say"), log);
                 }
             }
