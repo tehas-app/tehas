@@ -543,6 +543,20 @@ t_run "$dispatch"
 t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1"
 rm -f "$fx/image.label"
 
+t_case "with the image's id and when it was built"
+to_plan
+echo "abcdef1|1|sha256:$(printf 'e%.0s' {1..64})|2026-10-29T14:44:16.5Z" >"$fx/image.label"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1 --image sha256:$(printf 'e%.0s' {1..64}) --image-built 2026-10-29T14:44:16.5Z"
+t_case "an image id of another shape is left out, and so is its time"
+to_plan
+echo "abcdef1|1|sha256:short|2026-10-29T14:44:16.5Z" >"$fx/image.label"
+plan_analytics
+t_run "$dispatch"
+t_eq "$(plan_analytics_calls)" "plan 7 --rc 0 --rukas-image abcdef1"
+rm -f "$fx/image.label"
+
 t_case "a turn that fails and a turn cut off are recorded with how they ended"
 to_plan
 : >"$fx/plan-fails"

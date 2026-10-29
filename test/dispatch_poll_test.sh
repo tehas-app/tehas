@@ -10,11 +10,13 @@
 . "$(dirname "$0")/dispatch_lib.sh" || exit 1
 
 t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_health || t_bad "no console: $t_console_why"
 
 home=$T/home/tehas
 # The bash poll runs health from beside it; the binary is built elsewhere, so
 # it is named.
-rpoll=". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_HEALTH_CMD=\"$T_ROOT/libexec/health\" \"$T_DISPATCH\" poll"
+rpoll=". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
 untimed() { sed -E 's/^[0-9T:-]+Z //' <<<"$1"; }
 
 t_case "a poll that finds the lock held changes nothing"

@@ -643,6 +643,19 @@ t_console() {
   fi
   cp "$target/debug/console" "$T_CONSOLE"
 }
+# t_health: libexec/health as a host has it, beside the console that builds
+# its report (console/src/health.rs), in $T_HEALTH. A command whose settings
+# were loaded has no TEHAS_CONSOLE, so the console has to be beside it. The
+# command is a copy, not a symlink, so it finds its siblings beside itself.
+T_HEALTH=$T/health-tree/libexec/health
+t_health() {
+  [ -x "$T_HEALTH" ] && return 0
+  t_console || return 1
+  mkdir -p "$T/health-tree/libexec"
+  ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
+  cp "$T_ROOT/libexec/health" "$T_HEALTH"
+  cp "$T_CONSOLE" "$T/health-tree/libexec/console"
+}
 # t_attach_home <home>: the attachment checker where a command runs it.
 t_attach_home() {
   if ! t_attach; then

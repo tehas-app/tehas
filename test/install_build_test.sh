@@ -123,6 +123,8 @@ t_contains "$t_out" "Installed:    OK"
 t_lacks "$t_out" "version.txt"
 for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
   t_contains "$(cat "$page")" 'readFile "/version.txt"'
+  # The word before the version is lower case, like pi-rukas beside it.
+  t_contains "$(cat "$page")" 'tehas {{ readFile "/version.txt" | trim | html }}'
 done
 # The pi-rukas version beside the pages is the image build's, not install.sh's:
 # an install neither removes it nor names it stale, and the front pages show it.

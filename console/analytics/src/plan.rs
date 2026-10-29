@@ -24,11 +24,13 @@ use std::path::{Path, PathBuf};
 
 /// What lib/planning.sh passes: how the turn's unit ended, as plan_finish
 /// has it (its exit status, interrupted, not-started or not-readable), the
-/// pi-rukas commit of the sandbox image's label, and the facts file.
+/// sandbox image's id, build time and pi-rukas commit, and the facts file.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Given {
     pub rc: String,
     pub rukas_image: Option<String>,
+    pub image: Option<String>,
+    pub image_built: Option<i64>,
     pub facts: Option<PathBuf>,
 }
 
@@ -86,6 +88,8 @@ pub fn read(home: &Path, issue: i64, given: &Given, now: i64) -> Result<Run, Str
         turns: Some(turn),
         exit_code: code,
         rukas_commit: given.rukas_image.clone(),
+        image: given.image.clone(),
+        image_built: given.image_built,
         ..Run::default()
     };
     run.how = Some(how(rec, turn).to_string());
@@ -156,8 +160,8 @@ fn outcome(code: Option<i64>, rc: &str, lost: bool, session: bool) -> &'static s
 pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
     conn.execute(
         "INSERT OR IGNORE INTO runs (id, kind, issue, how, started, ended, seconds, outcome,
-           status, exit_code, turns, tehas_version, tehas_commit, rukas_commit)
-         VALUES (?1, 'plan', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+           status, exit_code, turns, tehas_version, tehas_commit, rukas_commit, image)
+         VALUES (?1, 'plan', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             run.id,
             run.issue,
@@ -172,7 +176,8 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.tehas_version,
             run.tehas_commit,
             run.rukas_commit,
+            run.image,
         ],
     )?;
-    Ok(())
+    crate::db::image_built(conn, run.image.as_deref(), run.image_built)
 }
