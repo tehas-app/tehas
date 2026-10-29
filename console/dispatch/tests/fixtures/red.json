@@ -238,12 +238,17 @@
     "exit": 0,
     "picked": [],
     "log": [
-     "holding: the check verify on main finished without saying it passed"
+     "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
     ],
     "report": {
-     "why": "red",
-     "hold": "holding: the check verify on main finished without saying it passed"
+     "why": "unknown-gate",
+     "hold": "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
     },
+    "actions": [
+     {
+      "branch_note": "the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+     }
+    ],
     "no_actions": [
      {
       "start": 7
@@ -279,10 +284,10 @@
     "exit": 0,
     "picked": [],
     "log": [
-     "holding: the check verify on main finished without saying it passed"
+     "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
     ],
     "report": {
-     "why": "red"
+     "why": "unknown-gate"
     },
     "no_actions": [
      {
@@ -295,7 +300,7 @@
    "case": "red: a run whose conclusion is no conclusion GitHub answers is not read as green",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,
-    "TEHAS_BRANCH_CHECK": "verify"
+    "TEHAS_BRANCH_CHECK": "build / verify (linux)"
    },
    "ready_n": [
     7,
@@ -316,7 +321,7 @@
     "exit": 0,
     "picked": [],
     "log": [
-     "holding: the check verify on main finished without saying it passed"
+     "holding: the check \"build / verify (linux)\" on main at 0123456789ab finished without saying it passed: cycles start"
     ],
     "no_actions": [
      {
@@ -431,7 +436,8 @@
     "TEHAS_BRANCH_CHECK": "verify"
    },
    "snapshot": {
-    "last_why": "red",
+    "last_why": "unknown-gate",
+    "branch_note": "the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start",
     "checks": {
      "check_runs": [
       {
@@ -446,7 +452,12 @@
     "exit": 0,
     "picked": [],
     "log": [
-     "holding: the check verify on main finished without saying it passed"
+     "holding: the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+    ],
+    "no_actions": [
+     {
+      "branch_note": "the check \"verify\" on main at 0123456789ab finished without saying it passed: cycles start"
+     }
     ]
    }
   },
