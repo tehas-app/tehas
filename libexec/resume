@@ -14,9 +14,15 @@
 # It calls GitHub to read the control issue, and only after it has removed the
 # flag: the host's own switch comes off whatever GitHub then says.
 #
-# Exit: 0 the flag is gone (removed, or there was none), whatever the label says;
-# 64 an argument, this command takes none; 78 the instance settings are missing
-# or malformed, which writes nothing.
+# The argument is checked here, the settings are loaded here, and the flag is
+# removed and reported by the console (console/src/flags.rs); the label of the
+# control issue stays here, because only gh reads it. A name of the flag is
+# removed only when it holds a regular file of this account, never a symlink.
+#
+# Exit: 0 the flag is gone (removed, or there was none), whatever the label
+# says; 64 an argument, this command takes none; 78 missing or malformed
+# settings, or no console to run, which write nothing; 1 when a name of the flag
+# could not be removed, or is not this account's to remove.
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_CONTROL_ISSUE and
 # TEHAS_ALLOWED_LABELERS, which this reads the control issue with.
@@ -36,27 +42,21 @@ case "${1-}" in
 esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+console=${TEHAS_CONSOLE:-$here/console}
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
-# shellcheck source=lib/status.sh
-. "$here/../lib/status.sh"
+[ -x "$console" ] || { echo "tehas resume: no console at $console: run install.sh" >&2; exit 78; }
+
+# The host's own switch comes off first, whatever GitHub then says. The console
+# says whether there was a flag to take off, and 1 when one could not be.
+"$console" flags pause clear || exit 1
 
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
-flag=$TEHAS_HOME/state/pause.json
-
-if [ -e "$flag" ] || [ -e "$flag.new" ]; then
-  rm -f "$flag" || { echo "tehas resume: could not remove $flag" >&2; exit 1; }
-  # The name pause writes through. A leftover of it must not outlive the flag.
-  rm -f "$flag.new" || echo "tehas resume: could not remove $flag.new" >&2
-  echo "resumed: the pause flag is gone"
-else
-  echo "no pause flag on this host"
-fi
 
 # The other switch. The host's own is off, so what GitHub says decides whether
 # work can start again.

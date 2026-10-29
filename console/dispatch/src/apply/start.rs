@@ -67,6 +67,9 @@ pub struct Host {
     pub plan_cmd: String,
     /// TEHAS_PLAN_START_CMD, which a test sets in place of systemd-run.
     pub plan_start_cmd: Option<String>,
+    /// libexec/tehas-cycle, when the turn runs the install's libexec/plan:
+    /// the turn then runs from its own copy of the code (`tehas-cycle pin`).
+    pub pin_cmd: Option<String>,
     /// TEHAS_PLAN_TIMEOUT, in seconds: the turn's own limit.
     pub plan_timeout: u64,
     /// TEHAS_PLAN_MAX_TURNS.

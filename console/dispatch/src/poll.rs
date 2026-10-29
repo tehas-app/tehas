@@ -226,6 +226,9 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             image: env("PI_ENSEMBLE_IMAGE"),
             plan_cmd: or("TEHAS_PLAN_CMD", "plan"),
             plan_start_cmd: opt("TEHAS_PLAN_START_CMD"),
+            pin_cmd: Some(here.join("tehas-cycle"))
+                .filter(|p| opt("TEHAS_PLAN_CMD").is_none() && p.is_file())
+                .map(|p| p.to_string_lossy().into_owned()),
             plan_timeout: env("TEHAS_PLAN_TIMEOUT").parse().unwrap_or(3600),
             plan_max_turns: env("TEHAS_PLAN_MAX_TURNS").parse().unwrap_or(20),
             systemd_run: "systemd-run".into(),
