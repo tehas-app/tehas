@@ -2505,6 +2505,80 @@ fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
 }
 
 #[test]
+fn a_malformed_open_action_is_left_open_and_reads_nothing() {
+    // None of the three fields may be stood in for by 0: it would settle an
+    // unknown row, read issue 0 for ever, or open the comment window at the
+    // epoch and call an old comment of the same text the evidence.
+    let mut t = world();
+    let ok = |id: u64| {
+        json!({"id": id, "kind": "label-add", "issue": 7, "state": "attempted", "intended_at": 990, "attempted_at": 991,
+        "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}})
+    };
+    let mut no_issue = ok(4);
+    no_issue.as_object_mut().unwrap().remove("issue");
+    let mut no_time = ok(5);
+    no_time
+        .as_object_mut()
+        .unwrap()
+        .insert("attempted_at".into(), Value::Null);
+    let mut string_id = ok(6);
+    string_id
+        .as_object_mut()
+        .unwrap()
+        .insert("id".into(), json!("6"));
+    left_open(&t, json!([no_issue, no_time, string_id]));
+    // The stub answers a read of issue 0, so a read would be answered: the
+    // action must not be read at all.
+    fs::write(
+        t.dir.join("issue-0"),
+        r#"{"labels":[{"name":"tehas:running"}]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's attempted action label-add is malformed (issue is not a positive integer); it is left open for a person",
+        "WARN: the journal's attempted action label-add is malformed (attempted_at is not a positive integer); it is left open for a person",
+        "WARN: the journal's attempted action label-add is malformed (id is not a positive integer); it is left open for a person",
+    ]);
+    assert!(settled(&t).is_empty());
+    assert!(!t
+        .calls()
+        .into_iter()
+        .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/0")));
+}
+
+#[test]
+fn an_intended_action_needs_no_time_and_a_well_formed_one_is_still_settled() {
+    let mut t = world();
+    // The intended action has no attempted_at at all and settles as before;
+    // the attempted one beside it is settled by the read of its issue.
+    left_open(
+        &t,
+        json!([
+            {"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
+             "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}},
+            {"id": 4, "kind": "label-add", "issue": 8, "state": "attempted", "intended_at": 990, "attempted_at": 991,
+             "args": {"gh": ["issue", "edit", "8", "--repo", "r", "--add-label", "tehas:running"]}},
+        ]),
+    );
+    fs::write(
+        t.dir.join("issue-8"),
+        r#"{"labels":[{"name":"tehas:running"}]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
+        "journal: action 4 (label-add on #8, 10s old) was done",
+    ]);
+    let s = settled(&t);
+    assert_eq!(s[0], "store journal-settle --action 3 --abandoned");
+    assert!(s[1].starts_with("store journal-settle --action 4 --result ok --evidence "));
+}
+
+#[test]
 fn an_action_a_read_cannot_settle_stays_open() {
     let mut t = world();
     left_open(
