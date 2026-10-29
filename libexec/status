@@ -37,6 +37,7 @@
 # the page that reads it can be public.
 #
 # `planned` lists the open issues with tehas:plan or tehas:planning; `planning` counts them.
+# It writes live/epics.json, the open epics and their sub-issues (console/src/epics.rs).
 #
 # `completedCount` is how many closed issues carry tehas:shipped, counted by a
 # search of its own, so it keeps rising past the hundred items the `completed`
@@ -439,11 +440,9 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
                   | group_by(.) | map({word: .[0], count: length})
                   | sort_by(-.count, .word) | .[:100])
     } end)' >"$live/status.json.$$.new" 2>"$live/status.json.$$.err.new" && mv "$live/status.json.$$.new" "$live/status.json" && written=1
-if [ "$written" = 0 ]; then
-  log "WARN status.json not written: $(head -n 1 "$live/status.json.$$.err.new")"
-  rm -f "$live/status.json.$$.new"
-fi
-rm -f "$live/status.json.$$.err.new"
+[ "$written" = 1 ] || log "WARN status.json not written: $(head -n 1 "$live/status.json.$$.err.new")"
+rm -f "$live/status.json.$$.new" "$live/status.json.$$.err.new"
+timeout -k 1 "$search_wait" "$console" epics "$repo" "$live/epics.json"
 
 # An issue this read finds shipped carries the label whatever the reason, and
 # the read names its labels, so an issue that already holds it is not asked for
