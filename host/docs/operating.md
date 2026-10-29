@@ -320,7 +320,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `tehas:ready`           | Queued                            | Wait, or remove the label to withdraw it |
 | `tehas:running`         | A cycle owns it                   | Leave the issue and its branch alone     |
 | `tehas:awaiting-merge`  | Pull request open, only the merge left | Review and merge                    |
-| `tehas:shipped`         | A merged pull request closed it   | Nothing; `tehas tidy` and `tehasbot status` give it |
+| `tehas:shipped`         | A merged pull request closed it, or GitHub lists one as closing it   | Nothing; `tehas tidy` and `tehasbot status` give it |
 | `needs-human-attention` | The cycle stopped                 | Read the comment; see below              |
 | `tehas:plan`            | A planning session is asked for   | Wait for the first comment               |
 | `tehas:refine`          | A refining session is asked for: planning with the refine brief | Wait for the first comment |
@@ -354,7 +354,9 @@ the settings, the two searches and the edits, and hands the answer of the search
 to the console.
 
 The same edit puts `tehas:shipped` on an issue that a merged pull request
-closed: `tehas tidy` reads what closed the issues it tidies and adds the label
+closed: from the close event's merged pull request, or, when that event names no
+pull request as its closer, from a merged pull request GitHub lists as closing
+the issue. `tehas tidy` reads what closed the issues it tidies and adds the label
 in the call that strips their state labels, so the label says one thing, that a
 merge closed the issue, whatever the queue's list happened to hold. Two commands
 put the label from a merged closer, and both read the one answer of
