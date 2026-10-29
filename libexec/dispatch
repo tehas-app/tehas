@@ -942,7 +942,7 @@ blocked_ok() {
       repository(owner: $owner, name: $name) { issue(number: $number) {
         comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login } } } } } }'
   # shellcheck disable=SC2016  # a jq program
-  got=$(jq -r --arg allowed "$TEHAS_ALLOWED_LABELERS" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" '
+  got=$(jq -r --arg allowed "$TEHAS_ALLOWED_LABELERS" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}" '
     .data.repository.issue.comments.nodes | if type == "array" then . else error("no comments") end
     | ($allowed | split(" ") + [$fixer] | map(select(. != ""))) as $list
     | map(select(type == "object" and (.body | type) == "string" and (.body | contains("<!-- tehas:blocked"))
@@ -1410,7 +1410,7 @@ approved_record() {
     rm -f "$input"
     return 1
   fi
-  args=("$n" --at "$at" --by "${starter[$n]}" --how "${given_how[$n]}" --body-sha "$sum" --input-file "$input")
+  args=("$n" --at "$at" --by "${starter[$n]%\[bot\]}" --how "${given_how[$n]}" --body-sha "$sum" --input-file "$input")
   case ${given_how[$n]} in label | millwright) args+=(--label tehas:ready) ;; esac
   [ -z "$tsum" ] || args+=(--title-sha "$tsum")
   [[ ${given_comment[$n]:-} =~ ^[1-9][0-9]{0,15}$ ]] && args+=(--comment-id "${given_comment[$n]}")
@@ -1489,10 +1489,10 @@ fixer_note() {
   local list since
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
   since=$(date -u -d "$2 - 10 minutes" +%FT%TZ 2>/dev/null) || return 1
-  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "$TEHAS_MILLWRIGHT_LOGIN" '
+  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}" '
     if any(.[]; type != "array") then error("not a list of comments") else . end
     | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
-        and (.user.login // "") == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
+        and (.user.login // "" | rtrimstr("[bot]")) == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
         and .created_at >= $since and .created_at <= $at and .updated_at <= $at
         and (.body | test("<!-- tehas:millwright issue=" + $n + " action=(retry|change) -->")))]
     | sort_by(.created_at, .id) | .[-1:]
@@ -3204,7 +3204,7 @@ for n in $asking; do
         rm -f "$pview"
         [ "$fixer_ok_rc" = 0 ] || continue
         speaker="The fixer"
-        by=$TEHAS_MILLWRIGHT_LOGIN
+        by=${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}
         if [ "$fixer_said" = reply ]; then
           reply=$(jq -r '.fixer_reply.text' <<<"$ans")
           reply_id=$(jq -r '.fixer_reply.id // "" | tostring' <<<"$ans")

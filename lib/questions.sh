@@ -138,7 +138,7 @@ q_render() {
 q_answer() {
   # GraphQL names a GitHub App without the [bot] its REST login carries.
   jq -c --arg bot "${1%\[bot\]}" --arg allowed "$2" --arg id "${3:-}" --arg fixer "${4:-}" '
-    ($allowed | split(" ")) as $list
+    ($allowed | split(" ")) as $list | ($fixer | rtrimstr("[bot]")) as $fixer
     | (.data.repository.issue.comments.nodes // []) as $c
     | "<!-- tehas:question kind=(?<kind>[a-z]+) issue=(?<issue>[0-9]+) turn=(?<turn>[0-9]+) -->" as $re
     | ($c | to_entries | map(select((.value.author.login // "") == $bot and (.value.body | test($re))

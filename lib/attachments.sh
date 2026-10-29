@@ -928,11 +928,11 @@ tehas_answer_images() { # <dir> <answer file> <comment id>
 tehas_retry_context() { # <record> [<comments: 0 or 1>]
   jq -r --argjson comments "${2:-1}" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" 'def ok($src): [(.retry_context // [])[] | select(type == "object" and (.text | type) == "string"
       and (.source | type) == "string" and (.source | test("^" + $src + ":[0-9]+$"))
-      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
+      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+(\\[bot\\])?$"))
       and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$")))];
     def quoted: map("\n## \(.source | sub(":"; " ")), by \(.by), \(.at)\n\n"
       + (.text | gsub("\r"; "") | .[0:4000] | split("\n") | map("> " + .) | join("\n")) + "\n") | join("");
-    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("fixer")[] | select($fixer != "" and .by == $fixer)][0:1] as $f
+    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("fixer")[] | select($fixer != "" and (.by | rtrimstr("[bot]")) == ($fixer | rtrimstr("[bot]")))][0:1] as $f
     | [select(.how == "refresh") | (.retry_context // [])[] | select(type == "object" and .source == "refresh" and (.text | type) == "string")
        | .text | gsub("\r"; "") | .[0:4000]][0:1] as $r
     | select(($c | length) + ($f | length) + ($r | length) > 0)

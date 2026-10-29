@@ -1607,11 +1607,17 @@ written as `how: "fixer"` still counts as the millwright's, and
 [`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
 the new names.
 
-- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It is never
-  the bot, because every agent posts as the bot: a poll stops with 78 when
-  the two are one. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the
-  settings stops with 78. Unset, there is no millwright, and the account's labels
-  count as any outsider's.
+- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It may
+  be a person's account or a GitHub App's. An App's login works in either
+  form, `tehas-millwright[bot]` or `tehas-millwright`: GitHub's REST API names
+  an App with `[bot]` and its GraphQL API without, so tehas takes the two as
+  one account, and no other. It is never the bot, because every agent posts
+  as the bot: loading the settings stops with 78 when it is
+  `TEHAS_BOT_LOGIN` in either form, and a poll stops with 78 when the bot's
+  own login is the millwright's. It is never one of `TEHAS_ALLOWED_LABELERS`:
+  loading the settings stops with 78. Unset, there is no millwright, and the
+  account's labels count as any outsider's. The approval record names an
+  App millwright without `[bot]`.
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,
