@@ -760,6 +760,36 @@ t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
+# A running cycle whose view has no startedAt is running now, so it is newer than
+# the last cycle that ended, whatever the missing figure would have read as. The
+# rule belongs to the jq of the report, so the case asks that rule directly and
+# the views it reads are written out: one last cycle that ended aborted, and the
+# cycles that run beside it. The two cases below cover the same readings through
+# the command, for the shapes the store can put on the disk.
+not_failed() { # <cycles> <last>: "true" when the report must not call it a failure
+  jq -rn --slurpfile running <(printf '%s' "$1") --slurpfile last <(printf '%s' "$2") '
+    $running[0] as $running | $last[0] as $last
+    | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
+       and ($running | map(select((.startedAt == null) or
+                                  (.startedAt >= ($last.updatedAt // 0)))) | length) == 0)
+      | not'
+}
+
+t_case "health: a cycle of no known start clears the failure of the last one"
+last_aborted='{"issue":12,"running":false,"status":"aborted","step":"develop",
+  "startedAt":1760000000,"updatedAt":1760000500}'
+running() { # <fields of one cycle>: the cycles of the view, that cycle alone
+  printf '[{"issue":14,"running":true,"status":"running","step":"plan",%s}]' "$1"
+}
+# Nothing runs: the failure stands. A cycle that started before the end stands
+# with it. A cycle that started after it clears it, and so does one whose start
+# the view does not carry, in either shape of the missing figure.
+t_eq "$(not_failed '[]' "$last_aborted")" "false"
+t_eq "$(not_failed "$(running '"startedAt":1760000200,"updatedAt":1760000700')" "$last_aborted")" "false"
+t_eq "$(not_failed "$(running '"startedAt":1760000600,"updatedAt":1760000700')" "$last_aborted")" "true"
+t_eq "$(not_failed "$(running '"updatedAt":1760000700')" "$last_aborted")" "true"
+t_eq "$(not_failed "$(running '"startedAt":null,"updatedAt":1760000700')" "$last_aborted")" "true"
+
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
 one 14 true running plan 600 5
