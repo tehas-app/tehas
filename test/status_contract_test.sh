@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the contract of tehas status --json. api/status.schema.json says
 # what the object holds. The samples beside it, api/status.busy.json and
-# api/status.quiet.json, are what tehas_status_json in lib/status.sh makes of
+# api/status.quiet.json, are what console status json (console/src/status.rs) makes of
 # the health files in test/fixtures/status-json/, at a fixed time. A program
 # that reads the object copies the samples into its own tests, so a change
 # here is a change for it: docs/specs/2026-10-24-status-json-contract.md.
@@ -10,8 +10,9 @@
 #   TEHAS_SAMPLES_WRITE=1 test/status_contract_test.sh
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-# shellcheck source=lib/status.sh
-. "$T_ROOT/lib/status.sh"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
 api=$T_ROOT/api
 schema=$api/status.schema.json
@@ -20,8 +21,8 @@ fixtures=$T_ROOT/test/fixtures/status-json
 now=1792245620
 samples=(busy quiet)
 
-sample() { # <name>: the sample as tehas_status_json makes it, as committed
-  tehas_status_json "$(jq -c . "$fixtures/$1.health.json")" "$now" false | jq .
+sample() { # <name>: the sample as the console makes it, as committed
+  "$T_CONSOLE" status json "$fixtures/$1.health.json" "$now" | jq .
 }
 
 check() { # <json file>: the lines test/schema.jq prints for it
@@ -42,7 +43,7 @@ if [ -n "${TEHAS_SAMPLES_WRITE:-}" ]; then
 fi
 
 for name in "${samples[@]}"; do
-  t_case "api/status.$name.json is what lib/status.sh makes of $name.health.json"
+  t_case "api/status.$name.json is what the console makes of $name.health.json"
   if ! changes=$(diff "$api/status.$name.json" <(sample "$name")); then
     t_bad "the code prints another object; check the change is only an addition, then write the samples again:
 $changes"

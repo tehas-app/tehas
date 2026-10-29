@@ -186,7 +186,8 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 # at the health file, or at what health prints, names the real command with
 # real_health.
 t_stub fake-health
-real_health() { T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_ROOT/libexec/health"); }
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+real_health() { t_health || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_HEALTH"); }
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
