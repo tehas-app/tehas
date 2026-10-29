@@ -1,0 +1,19 @@
+2026-10-20T08:40:12Z skip #316: its question is not among the last 100 comments
+2026-10-20T08:40:12Z wait #462: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers
+2026-10-20T08:40:13Z start #41 (labelled by alice)
+2026-10-20T08:40:20Z tehas-cycle: #41 runs from /home/tehas/tehas/run/cycle-41-1856126
+2026-10-20T08:42:14Z holding: the limit allows 0 cycles at once and 1 are running: draining
+2026-10-20T08:44:00Z the code index stays as it is: a cycle is running on #41
+2026-10-20T08:45:02Z start planning #44
+2026-10-20T08:45:03Z planning #44: turn 1 runs as tehas-plan-44.service
+2026-10-20T08:46:00Z WARN: the result of #40 holds nothing, so its step is read from its run log
+tehas: improve: no log of issue 40 since the cycle began, no record written
+2026-10-20T08:47:00Z ERROR: gh api graphql failed: password=hunter2hunter2
+2026-10-20T08:48:00Z drop the refresh of #39: pull request #43 moved since the request
+2026-10-20T08:49:00Z tidy #38: removed tehas:question
+2026-10-20T08:50:00Z removed what #37 left on this host: no cycle has run on it for 7 days
+2026-10-20T08:51:00Z done planning #44 turn=1 rc=0
+2026-10-20T08:52:00Z released: cycles may start again
+2026-10-20T09:19:38Z done #41 rc=21 status=merged step=lens-review minutes=39 pr=https://github.com/acme/widget/pull/45 oom_kills=0 forks_refused=0
+2026-10-20T09:20:00Z stop #46: its issue is closed
+2026-10-20T09:21:00Z model endpoint: provider fleet is on its backup, the main endpoint does not answer
