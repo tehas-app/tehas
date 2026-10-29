@@ -40,7 +40,7 @@ checkouts and tehas itself come after it, on the [new project page](/new-project
 git clone <the platform repository> ~/tehas/platform
 cd ~/tehas/platform
 sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; runs step 2 as boss too
-./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one for the slice
+./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one each for the slice, its rule and its reload unit
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
 ```
@@ -85,10 +85,10 @@ is. `--root-only` stops before step 2, for running it by hand later.
 sudo ./bootstrap.sh slice
 ```
 
-Installs one systemd unit, `/etc/systemd/system/tehas.slice`, from
-`host/slice/tehas.slice` in the checkout, reloads systemd and starts the slice.
-It takes no arguments and reads nothing from the instance, the user's home or
-the network. The file is the same on every host:
+Installs three files from `host/slice` in the checkout, reloads systemd and
+starts the slice. It takes no arguments and reads nothing from the instance, the
+user's home or the network. The first is the slice itself,
+`/etc/systemd/system/tehas.slice`, the same on every host:
 
 ```
 [Slice]
@@ -100,7 +100,22 @@ The slice is where every sandbox container runs, under one memory limit of
 three quarters of the host's memory. Without it no container starts and the
 dispatcher holds. [The host](/host#the-slice) says what it is for.
 
-Root is needed for exactly this: writing one system unit and reloading the
+`MemoryMax=75%` is a share of the memory the host had when systemd last read the
+unit, so memory added to a running host does not reach the slice by itself. The
+other two files make it follow:
+
+| File | What it is |
+| --- | --- |
+| `/etc/udev/rules.d/96-tehas-memory-online.rules` | `SUBSYSTEM=="memory", ACTION=="online"` asks systemd-udevd to start the unit below when a memory block comes online |
+| `/etc/systemd/system/tehas-slice-reload.service` | A `Type=oneshot` that runs `systemctl daemon-reload`, so systemd works the percentage out again |
+
+A oneshot unit and not `RUN+=` in the rule: udevd kills a `RUN` that runs too
+long, and many blocks come online at once. systemd coalesces the requests of one
+group of blocks into the one run of a oneshot that has not finished. Memory going
+offline needs nothing of its own: the slice shrinks at the next reload, and the
+dispatcher reads `MemoryMax` on every poll.
+
+Root is needed for exactly this: writing the files under `/etc` and reloading the
 system manager. Docker places containers under the system manager, so a slice
 of the tehas user cannot hold them. The step adds no sudo rule, no package and
 no Docker setting.
@@ -118,14 +133,14 @@ What it does, in order:
    `bootstrap: slice part already in place` and changes nothing. A reload
    that failed after an update leaves the old limit in force beside an equal
    file; that is not in place, and the step goes on to reload.
-4. Otherwise it writes the file, runs `systemctl daemon-reload` and
+4. Otherwise it writes the three files, runs `systemctl daemon-reload` and
    `systemctl start tehas.slice`, and stops with exit 1 if the slice has no
    memory limit after that.
 5. It prints one line with the file systemd loaded, the limit in bytes, and
    whether `systemd-oomd` is active. That last part is information: tehas
    neither uses nor needs systemd-oomd, and the step does not touch it.
 
-Run it again when an update of tehas changes the shipped file.
+Run it again when an update of tehas changes a shipped file.
 `./install.sh --check` says when: its `Slice:` line reads `DIFFERS`.
 `tehas update` cannot do it, because it runs as the tehas user.
 
@@ -217,9 +232,10 @@ lingering. Exit 1 if anything is missing, at another version, or an npm tool
 not on its pinned tree. `./install.sh --check` runs it as its `Dependencies`
 line.
 
-The last line is the slice: `tehas.slice: in place`, `missing` or `differs`,
-by comparing the file under `/etc/systemd/system` with the one in the checkout.
-It does not change the exit status.
+The last lines are the slice and the two files that keep its limit honest:
+`tehas.slice`, `tehas.slice's udev rule` and `tehas-slice-reload.service`, each
+`in place`, `missing` or `differs`, by comparing what is under `/etc` with the
+file in the checkout. They do not change the exit status.
 
 ## Running it again
 
