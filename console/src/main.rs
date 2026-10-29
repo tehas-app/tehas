@@ -37,6 +37,10 @@
 //! The snapshot behind tehas top, its host section and the frame drawn from
 //! it, see src/top.rs, src/snapshot.rs and src/frame.rs.
 //!
+//!   console health report ...
+//!
+//! The health file tehasbot health writes, see src/health.rs.
+//!
 //!   console status show|json ...
 //!
 //! The lines and the object of tehas status, see src/status.rs.
@@ -94,6 +98,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod health;
 mod jq;
 mod notice;
 mod plan;
@@ -289,6 +294,7 @@ fn main() -> ExitCode {
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),

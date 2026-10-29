@@ -17,6 +17,10 @@ empty one above it.
   frame of `tehas top` are drawn by the console. `console status show|json`
   and `console top frame` replace the jq of `lib/status.sh` and `lib/top.sh`,
   with the same words, the same object and the same exit statuses (#888).
+- Less bash: the health file is built by the console. `console health
+  report` replaces the jq of `tehasbot health`, with the same checks, the same
+  `output` and the same file; the command keeps the store calls, the failed
+  units and the publish (#889).
 ### Adopter action
 
 None.
