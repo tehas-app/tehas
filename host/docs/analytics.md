@@ -101,7 +101,8 @@ stored with tehas's status and its times. A planning turn takes its session
 on the state store as its facts, in the shape its record file had before the
 store (running, turns, `startedAt`, label, answers), read before the turn's
 end is recorded, and reads the turn's output `state/plan-<n>.json.out` from
-the host. Facts that are missing, a link, over
+the host. What docker said of the sandbox image as the dispatcher started the
+turn is in `state/plan-<n>.json.image` until the turn's end reads it. Facts that are missing, a link, over
 16 MiB or not JSON record nothing, as a run without a history line records
 nothing. The private file is `~/tehas/tmp/analytics-facts.*`, removed after the
 call; one that a caller killed during the call leaves is removed by
@@ -129,7 +130,7 @@ call; one that a caller killed during the call leaves is removed by
 | `pr` | The pull request's number, parsed from its URL; the URL is not kept | 1 |
 | `tehas_version`, `tehas_commit` | `~/tehas/docs/version.txt` as the run ended, `vX.Y.Z` and the seven-character commit | 1 |
 | `rukas_version`, `rukas_commit` | The result's `buildVersion` and `buildCommit`; else the commit of the sandbox image's `tehas.rukas` label | 1 |
-| `image` | The sandbox image's id, `sha256:<hex>`: for a work run the one its container started from, for a planning turn the one the image name pointed at as the turn ended | 1 |
+| `image` | The sandbox image's id, `sha256:<hex>`: for a work run the one its container started from, for a planning turn the one the image name pointed at as the dispatcher started the turn | 1 |
 | `input`, `output`, `cache_read`, `cache_write`, `turns`, `dispatches`, `cost` | The result's `usage`. For a planning turn `turns` is its turn in the session, and the rest is NULL | 1 |
 | `oom_kills`, `forks_refused` | Processes killed for memory and forks refused in the container, as `tehasbot cycle` reads them | 1 |
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
