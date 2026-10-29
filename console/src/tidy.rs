@@ -149,9 +149,7 @@ pub fn main(given: &[String]) -> u8 {
                         None => return usage(),
                     },
                     _ if page.is_none() => match number(arg) {
-                        Some(n) if n <= crate::shipped::PAGE as u64 => {
-                            page = Some(n as usize)
-                        }
+                        Some(n) if n <= crate::shipped::PAGE as u64 => page = Some(n as usize),
                         _ => return usage(),
                     },
                     _ => return usage(),
@@ -270,13 +268,15 @@ fn plan(items: &[Value], controls: &[u64], page: usize) -> Vec<String> {
         if ask {
             asked += 1;
         }
-        lines.push(Row {
-            number,
-            off,
-            carries,
-            ask,
-        }
-        .to_string());
+        lines.push(
+            Row {
+                number,
+                off,
+                carries,
+                ask,
+            }
+            .to_string(),
+        );
     }
     lines
 }
@@ -623,7 +623,15 @@ mod tests {
         // differently, in this one place: no JSON, an object, a bare word and an
         // array of things that are no issues are the failed search, and a list
         // of issues is the answer, however empty.
-        for answer in ["", "not json", "{}", "null", "{\"data\":{}}", "123", "[1,2]"] {
+        for answer in [
+            "",
+            "not json",
+            "{}",
+            "null",
+            "{\"data\":{}}",
+            "123",
+            "[1,2]",
+        ] {
             assert!(planned(answer, &[], 100).is_none(), "{answer} is no list");
         }
         assert!(planned("[]", &[], 100).unwrap().is_empty());
@@ -681,7 +689,17 @@ mod tests {
         // a caller that passed a word instead of a number would have the read
         // asked about nothing at all, and one that passed a page past the read's
         // own would have it asked about more issues than it answers for.
-        for bad in ["", "0", "001", "100.0", " 100", "-1", "1e2", "101", "200000000"] {
+        for bad in [
+            "",
+            "0",
+            "001",
+            "100.0",
+            " 100",
+            "-1",
+            "1e2",
+            "101",
+            "200000000",
+        ] {
             let given: Vec<String> = ["plan", bad].iter().map(|s| s.to_string()).collect();
             assert_eq!(main(&given), 2, "page \"{bad}\" is no page");
         }
