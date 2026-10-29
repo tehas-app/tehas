@@ -15,8 +15,7 @@ empty one above it.
 
 - An update needs no drain. Each cycle runs from its own copy of `bin/`,
   `libexec/` and `lib/` in `~/tehas/run`, made by `tehas-cycle run` when its
-  unit starts, and a planning turn the same way; its container runs the image
-  id on its record. Running cycles end on the version they began on, and the
+  unit starts, and a planning turn the same way. Running cycles end on the version they began on, and the
   slots stay full through an update (#988).
 
 ### Adopter action
