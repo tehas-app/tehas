@@ -1641,7 +1641,11 @@ hold is `limit`. With `--plan off` no new planning session starts, and
 still runs. One that expired or cannot be read holds every start, answers and
 retry ticks included, while the poll goes on cleaning up. See
 [Limit and drain](/operating#limit-and-drain) and
-[the factory API](/api#tehas-limit) for the JSON. Exit 0; 64 on a bad
+[the factory API](/api#tehas-limit) for the JSON. The reading, the checks of an
+argument that reaches it, the write and the words of the answer are the
+console's (`~/tehas/libexec/console flags limit`); the command checks the shape
+of its arguments, loads the settings, and stops with 78 without an instance or
+1 when the file could not be written. Exit 0; 64 on a bad
 argument, which writes nothing; 78 without an instance.
 
 ## tehas drain

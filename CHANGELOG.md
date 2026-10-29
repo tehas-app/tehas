@@ -13,6 +13,11 @@ empty one above it.
 
 ### Changes
 
+- The limit of the factory is read, checked, written and printed by the
+  console (`~/tehas/libexec/console flags limit`), not by bash
+  (`libexec/limit`, `lib/limit.sh`), which are thin callers of it now (#895).
+  `tehas limit` and the pages of `tehas status` say the same as they did.
+
 ### Adopter action
 
 None.
