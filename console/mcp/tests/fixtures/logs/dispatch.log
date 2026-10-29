@@ -1,0 +1,121 @@
+2026-10-20T10:00:00Z start #100 (labelled by alice)
+2026-10-20T10:00:00Z done #99 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/100
+2026-10-20T10:01:00Z skip #101: its question is not among the last 100 comments
+2026-10-20T10:02:00Z wait #102: tehas:blocked holds it: #101 is open
+2026-10-20T10:02:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:03:00Z skip #103: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:03:00Z start planning #103 (labelled by alice)
+2026-10-20T10:04:00Z drop #104: its request is older than the pull request
+2026-10-20T10:04:00Z drop the refresh of #104: pull request #9 moved since the request
+2026-10-20T10:05:00Z start #105 (retry ticked by alice)
+2026-10-20T10:05:00Z tidy #105: removed tehas:question
+2026-10-20T10:05:00Z stop #105: its issue is closed
+2026-10-20T10:06:00Z start #106 (labelled by alice)
+2026-10-20T10:06:00Z done #105 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/106
+2026-10-20T10:07:00Z skip #107: its question is not among the last 100 comments
+2026-10-20T10:08:00Z wait #108: tehas:blocked holds it: #107 is open
+2026-10-20T10:08:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:09:00Z skip #109: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:09:00Z start planning #109 (labelled by alice)
+2026-10-20T10:10:00Z drop #110: its request is older than the pull request
+2026-10-20T10:10:00Z drop the refresh of #110: pull request #9 moved since the request
+2026-10-20T10:11:00Z start #111 (retry ticked by alice)
+2026-10-20T10:11:00Z tidy #111: removed tehas:question
+2026-10-20T10:11:00Z stop #111: its issue is closed
+2026-10-20T10:12:00Z start #112 (labelled by alice)
+2026-10-20T10:12:00Z done #111 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/112
+2026-10-20T10:13:00Z skip #113: its question is not among the last 100 comments
+2026-10-20T10:14:00Z wait #114: tehas:blocked holds it: #113 is open
+2026-10-20T10:14:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:15:00Z skip #115: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:15:00Z start planning #115 (labelled by alice)
+2026-10-20T10:16:00Z drop #116: its request is older than the pull request
+2026-10-20T10:16:00Z drop the refresh of #116: pull request #9 moved since the request
+2026-10-20T10:17:00Z start #117 (retry ticked by alice)
+2026-10-20T10:17:00Z tidy #117: removed tehas:question
+2026-10-20T10:17:00Z stop #117: its issue is closed
+2026-10-20T10:18:00Z start #118 (labelled by alice)
+2026-10-20T10:18:00Z done #117 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/118
+2026-10-20T10:19:00Z skip #119: its question is not among the last 100 comments
+2026-10-20T10:20:00Z wait #120: tehas:blocked holds it: #119 is open
+2026-10-20T10:20:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:21:00Z skip #121: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:21:00Z start planning #121 (labelled by alice)
+2026-10-20T10:22:00Z drop #122: its request is older than the pull request
+2026-10-20T10:22:00Z drop the refresh of #122: pull request #9 moved since the request
+2026-10-20T10:23:00Z start #123 (retry ticked by alice)
+2026-10-20T10:23:00Z tidy #123: removed tehas:question
+2026-10-20T10:23:00Z stop #123: its issue is closed
+2026-10-20T10:24:00Z start #124 (labelled by alice)
+2026-10-20T10:24:00Z done #123 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/124
+2026-10-20T10:25:00Z skip #125: its question is not among the last 100 comments
+2026-10-20T10:26:00Z wait #126: tehas:blocked holds it: #125 is open
+2026-10-20T10:26:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:27:00Z skip #127: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:27:00Z start planning #127 (labelled by alice)
+2026-10-20T10:28:00Z drop #128: its request is older than the pull request
+2026-10-20T10:28:00Z drop the refresh of #128: pull request #9 moved since the request
+2026-10-20T10:29:00Z start #129 (retry ticked by alice)
+2026-10-20T10:29:00Z tidy #129: removed tehas:question
+2026-10-20T10:29:00Z stop #129: its issue is closed
+2026-10-20T10:30:00Z start #130 (labelled by alice)
+2026-10-20T10:30:00Z done #129 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/130
+2026-10-20T10:31:00Z skip #131: its question is not among the last 100 comments
+2026-10-20T10:32:00Z wait #132: tehas:blocked holds it: #131 is open
+2026-10-20T10:32:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:33:00Z skip #133: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:33:00Z start planning #133 (labelled by alice)
+2026-10-20T10:34:00Z drop #134: its request is older than the pull request
+2026-10-20T10:34:00Z drop the refresh of #134: pull request #9 moved since the request
+2026-10-20T10:35:00Z start #135 (retry ticked by alice)
+2026-10-20T10:35:00Z tidy #135: removed tehas:question
+2026-10-20T10:35:00Z stop #135: its issue is closed
+2026-10-20T10:36:00Z start #136 (labelled by alice)
+2026-10-20T10:36:00Z done #135 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/136
+2026-10-20T10:37:00Z skip #137: its question is not among the last 100 comments
+2026-10-20T10:38:00Z wait #138: tehas:blocked holds it: #137 is open
+2026-10-20T10:38:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:39:00Z skip #139: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:39:00Z start planning #139 (labelled by alice)
+2026-10-20T10:40:00Z drop #140: its request is older than the pull request
+2026-10-20T10:40:00Z drop the refresh of #140: pull request #9 moved since the request
+2026-10-20T10:41:00Z start #141 (retry ticked by alice)
+2026-10-20T10:41:00Z tidy #141: removed tehas:question
+2026-10-20T10:41:00Z stop #141: its issue is closed
+2026-10-20T10:42:00Z start #142 (labelled by alice)
+2026-10-20T10:42:00Z done #141 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/142
+2026-10-20T10:43:00Z skip #143: its question is not among the last 100 comments
+2026-10-20T10:44:00Z wait #144: tehas:blocked holds it: #143 is open
+2026-10-20T10:44:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:45:00Z skip #145: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:45:00Z start planning #145 (labelled by alice)
+2026-10-20T10:46:00Z drop #146: its request is older than the pull request
+2026-10-20T10:46:00Z drop the refresh of #146: pull request #9 moved since the request
+2026-10-20T10:47:00Z start #147 (retry ticked by alice)
+2026-10-20T10:47:00Z tidy #147: removed tehas:question
+2026-10-20T10:47:00Z stop #147: its issue is closed
+2026-10-20T10:48:00Z start #148 (labelled by alice)
+2026-10-20T10:48:00Z done #147 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/148
+2026-10-20T10:49:00Z skip #149: its question is not among the last 100 comments
+2026-10-20T10:50:00Z wait #150: tehas:blocked holds it: #149 is open
+2026-10-20T10:50:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:51:00Z skip #151: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:51:00Z start planning #151 (labelled by alice)
+2026-10-20T10:52:00Z drop #152: its request is older than the pull request
+2026-10-20T10:52:00Z drop the refresh of #152: pull request #9 moved since the request
+2026-10-20T10:53:00Z start #153 (retry ticked by alice)
+2026-10-20T10:53:00Z tidy #153: removed tehas:question
+2026-10-20T10:53:00Z stop #153: its issue is closed
+2026-10-20T10:54:00Z start #154 (labelled by alice)
+2026-10-20T10:54:00Z done #153 rc=0 status=merged step=review minutes=12 pr=https://github.com/example/product/pull/154
+2026-10-20T10:55:00Z skip #155: its question is not among the last 100 comments
+2026-10-20T10:56:00Z wait #156: tehas:blocked holds it: #155 is open
+2026-10-20T10:56:00Z holding: the limit allows 0 cycles at once and 2 are running: draining
+2026-10-20T10:57:00Z skip #157: tehas:ready was applied by 'mallory', not an allowed account
+2026-10-20T10:57:00Z start planning #157 (labelled by alice)
+2026-10-20T10:58:00Z drop #158: its request is older than the pull request
+2026-10-20T10:58:00Z drop the refresh of #158: pull request #9 moved since the request
+2026-10-20T10:59:00Z start #159 (retry ticked by alice)
+2026-10-20T10:59:00Z tidy #159: removed tehas:question
+2026-10-20T10:59:00Z stop #159: its issue is closed
+2026-10-20T11:00:00Z released: cycles may start again

@@ -924,3 +924,53 @@ fn served_sessions_name_their_image_and_failures_split_by_it() {
     let v = served_images("factory_failures", json!({"by": "day"}));
     assert_eq!(v["result"]["isError"], true, "{v}");
 }
+
+// factory_decisions through the server: the host's names given with
+// --private are hidden in a reason, as in a served log.
+#[test]
+fn served_decisions_mask_the_private_names_given() {
+    let root = std::env::temp_dir().join(format!("mcp-serve-decisions-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    for d in [&live, &snap, &logs] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(
+        logs.join("dispatch.log"),
+        "2026-10-20T10:00:00Z wait #7: MODELS.lan:8086 does not answer\n",
+    )
+    .unwrap();
+    let path = |p: &Path| p.display().to_string();
+    let s = Server::start_with(
+        &path(&live),
+        &path(&snap),
+        &path(&logs),
+        &["--private", "models.lan"],
+    );
+    let body = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "factory_decisions", "arguments": {},
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
+    .to_string();
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "factory_decisions"),
+        ("Connection", "close"),
+    ];
+    let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.write_all(&post_raw("POST", "/mcp", Some(&auth), &h, &body))
+        .unwrap();
+    let mut out = String::new();
+    let _ = c.read_to_string(&mut out);
+    s.stop();
+    let _ = std::fs::remove_dir_all(&root);
+    let (_, body) = out.split_once("\r\n\r\n").unwrap();
+    let v: serde_json::Value = serde_json::from_str(body).unwrap();
+    assert_eq!(
+        v["result"]["structuredContent"]["decisions"][0]["reason"],
+        "[private name]:8086 does not answer",
+        "{v}"
+    );
+}
