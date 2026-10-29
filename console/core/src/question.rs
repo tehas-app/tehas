@@ -18,6 +18,17 @@ pub const MAX_OPTIONS: usize = 20;
 pub const BOX_CLEAN: &str = "Retry from a clean start";
 pub const BOX_ALONE: &str = "Retry from the issue alone";
 
+/// The `sig` of a park marker: the hash of the park's fields, its free text
+/// in the hash only. The cycle writes it, the MCP server's `factory_park`
+/// gives it again from the fields the run recorded.
+pub fn park_sig(step: &str, cap: &str, park_reason: &str, kind: &str, cause: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(format!("{step}|{cap}|{park_reason}|{kind}|{cause}").as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// The line `q_render` prints for a box, and the line a fixture writes for a
 /// ticked one. Both polls take the text after the box as it stands, so the
 /// label of the answer parser and this line are the same text.
@@ -207,6 +218,29 @@ mod tests {
                 .collect();
             assert_eq!(labels, vec![BOX_CLEAN, BOX_ALONE, "Leave it parked"]);
         }
+    }
+
+    // The signatures of real park markers, from the fields the run recorded.
+    #[test]
+    fn a_park_signature_is_the_hash_of_its_fields() {
+        assert_eq!(
+            park_sig("develop", "verify-failed:develop", "", "verify", ""),
+            "a3e22363362fd7e9eaeee67a44164f72acc1065fd338f9ba93ed49e21dab554b"
+        );
+        assert_eq!(
+            park_sig(
+                "develop",
+                "child-timeout:develop",
+                "",
+                "timeout",
+                "self-killed:child-bound"
+            ),
+            "8812b904b6ac9626539ee62d3c9924899520b8721ebf2e0a859095d7c395ac78"
+        );
+        assert_eq!(
+            park_sig("-", "", "", "", ""),
+            "7e45afdeccfc3eb5505b1de691f6392e508199ca4275e92c42fdb17d51ad87ec"
+        );
     }
 
     #[test]

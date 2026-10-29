@@ -1,8 +1,8 @@
 # What the console, analytics, the MCP server and the store share: the mask,
 # the clock and civil dates, the read of a host file, the argument grammars
 # and the slow notices a cycle's record keeps. A library member of the
-# workspace in ../Cargo.toml. The mask is a feature, so the store, which masks
-# nothing, does not build regex.
+# workspace in ../Cargo.toml. The mask, and the questions with the park
+# signature, are a feature.
 [package]
 name = "tehas-core"
 version = "0.1.0"
@@ -16,8 +16,9 @@ name = "tehas_core"
 path = "src/lib.rs"
 
 [features]
-mask = ["dep:regex"]
+mask = ["dep:regex", "dep:sha2"]
 
 [dependencies]
 regex = { version = "1", optional = true }
 serde_json = "1"
+sha2 = { version = "0.10", optional = true }
