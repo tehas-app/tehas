@@ -16,35 +16,15 @@
 # logged, and the issues after it are still tidied); 64 an argument this
 # command does not know; 78 instance settings are missing or malformed.
 #
-# The state labels are those that say work is in progress or waiting:
-# tehas:running, tehas:awaiting-merge, tehas:question, tehas:planning,
-# tehas:refreshing, tehas:blocked, tehas:ready, tehas:plan and tehas:refine. Not
-# tehas:shipped, which tidy adds and never removes: it is the record of a
-# merge, not the labels a person chooses (tehas:urgent, tehas:next,
-# tehas:prototype and the like), and not needs-human-attention, which nothing
-# in tehas removes. tehasbot status gives the same label from the same read;
-# tidy is the one that logs it. A new state label is added to the list on
-# purpose, and test/tidy_test.sh pins it.
+# The console holds the rule (console/src/tidy.rs; the read's answer is
+# console/src/shipped.rs's): which names are state labels, which come off, and
+# whether the read of what closed them is asked about. This command checks the
+# settings, makes the two searches and makes the edits. tehas:shipped, the label
+# of a merge, needs-human-attention and the labels a person chooses never come
+# off. tehasbot status gives the same label from the same read, and tidy logs it.
 #
-# One search a poll: the closed issues that carry a state label, up to the page of
-# the read, the most recently updated first; the rest come on later polls. The
-# search may take TEHAS_TIDY_WAIT seconds [60, from the environment],
-# and each label change as long, so a poll never waits on one call for more than
-# that; no call is retried. A closed issue whose cycle still holds its lock on
-# this host waits for that cycle.
-# Whether a closed issue was closed by a merge comes from one further search a
-# poll, the read lib/shipped.sh holds for tehasbot status too, judged by the
-# console (console/src/shipped.rs). It is made only when a label is to be added,
-# and answers for every such issue at once. The label goes on only when that read
-# answers a merged pull request; nothing is ever added on a guess. A read that
-# named the issue and no merged closer leaves the state labels to come off and logs
-# one WARN for the issue; a read that failed or named no node logs one for the
-# whole poll instead, so a factory that shipped nothing reads differently from one
-# whose read could not be had. The control issue TEHAS_CONTROL_ISSUE names is not
-# work, so no label goes on it, the same rule tehasbot status follows. An issue
-# that already carries the label is not read again for it.
-#
-# Instance settings (lib/config.sh): TEHAS_REPO and TEHAS_CONTROL_ISSUE, required.
+# Instance settings (lib/config.sh): TEHAS_REPO, whose closed issues are tidied,
+# and TEHAS_CONTROL_ISSUE, which takes no label: it is not work.
 set -uo pipefail
 
 show_usage() {
@@ -79,7 +59,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/shipped.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE
-# The console decides what an answer of the read means (console/src/shipped.rs).
 console=$here/console
 [ -x "$console" ] || { printf 'tehas tidy: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
 repo=$TEHAS_REPO
@@ -87,83 +66,76 @@ wait=${TEHAS_TIDY_WAIT:-60}
 [[ $wait =~ ^[1-9][0-9]{0,4}$ ]] || { tehas_err "TEHAS_TIDY_WAIT is not a number of seconds: $wait"; exit 78; }
 control=$TEHAS_CONTROL_ISSUE
 
-states=(tehas:running tehas:awaiting-merge tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine)
-
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-# One search a poll, for the closed issues that carry a state label.
-# GitHub's search reads labels joined by commas as any of them.
-query="label:$(printf '"%s",' "${states[@]}")"
+# One search a poll, the most recently updated first: the closed issues that carry
+# a state label, up to the page of the read, the rest on later polls. The names and
+# the page come from the console that reads the plan below, so the three cannot drift
+# apart: `states` prints one name a line, the labels to take off and tehas:shipped
+# last of all, and the search is made for the names before it - a search for the
+# label of a merge alone would take it off the closed issues of a merge. A new state
+# label joins that list on purpose, and console/src/tidy.rs pins it. Each call of the
+# poll may take TEHAS_TIDY_WAIT seconds [60, from the environment] and none is retried.
+if ! all=$("$console" tidy states 2>/dev/null) || [ -z "$all" ]; then
+  printf 'tehas tidy: the console names no state labels, run install.sh\n' >&2
+  exit 78
+fi
+states=${all%$'\n'*}
+[ -n "$states" ] || { printf 'tehas tidy: the console names no state labels\n' >&2; exit 78; }
+# The ceiling of the list one read may name: the page of the query the console
+# prints is the same number, so the two cannot drift apart.
+page=$(tehas_shipped_page "$console" 2>/dev/null) || page=""
+[[ $page =~ ^[0-9]+$ ]] || { printf 'tehas tidy: the console gave no page\n' >&2; exit 78; }
+# GitHub reads labels joined by commas as any of them. The names are the
+# console's, one to a line, none of them holding a space, a star or a slash.
+# shellcheck disable=SC2086  # one term per state label
+query="label:$(printf '"%s",' $states)"
 query=${query%,}
-# An empty answer is a failure too, not a list of no issues: jq -e fails on it.
+
+# An empty answer is a poll with nothing to tidy; an answer that is no list of
+# issues at all is a failed search, which the console tells from the empty list.
 search_failed() { log "WARN: tidy: the search for closed issues with state labels failed"; exit 1; }
 found=$(timeout -k 1 "$wait" gh issue list --repo "$repo" --state closed --search "$query" \
-  --limit "$(tehas_shipped_page "$console")" --json number,state,labels 2>/dev/null) || search_failed
-# The state is checked again: an open issue is never touched. Each line is the
-# number, the state labels to take off and whether the issue already carries
-# tehas:shipped, tab separated so that the list of labels stays one field.
-todo=$(jq -er --args --arg shipped "$tehas_shipped_label" --arg control "$control" '
-  ($ARGS.positional) as $states
-  | if type != "array" then error("not a list") else . end
-  # The names to take off come from GitHub, so only the state labels above are
-  # ever taken from the answer: a name the search sent back that is not one of
-  # them is neither passed to the edit nor written to the log, where it could
-  # carry a line of its own.
-  | ([.[] | select(.state == "CLOSED")
-    | [(.labels // [])[].name] as $have
-    | [$states[] | select(. as $s | any($have[]; . == $s))] as $off
-    | select($off | length > 0)
-    | select((.number | tostring) != $control)
-    | [.number, ($off | join(" ")), (if ($have | index($shipped)) then "yes" else "no" end)]
-    | @tsv]
-    # Once for each number: a search that names an issue twice would have its
-    # labels taken off, its closer read and its edit made twice over.
-    | unique | join("\n"))' "${states[@]}" <<<"$found" 2>/dev/null) || search_failed
+  --limit "$page" --json number,state,labels 2>/dev/null) || search_failed
+printf '%s' "$found" | "$console" tidy issues >/dev/null 2>&1 || search_failed
+# One line per closed issue with a state label to take off, tab separated: the
+# number, its state labels joined by one space, whether it already carries
+# tehas:shipped, and whether the closer read is asked about it. Every name of the
+# second field is a state label of the console's and nothing else, so it is safe
+# to pass to the edit and to write to the log.
+plan=$(printf '%s' "$found" | "$console" tidy plan --control "$control" "$page" 2>/dev/null) || search_failed
 
-# Each issue is probed for its cycle once, here: the verdicts are kept in two
-# arrays of scratch and the two passes below read them instead of taking the
-# lock a second time. The number is digits by then, so it serves as the index.
-case_running=()
+# Each issue is probed for its cycle once, before the read is asked: the verdict
+# is kept and the two passes below read it instead of taking the lock a second
+# time. The number is digits by then, so it is the index.
+skip=()
 asked=()
-# The ceiling of the list one read may name, from the console and once: the page
-# of the query it prints is the same number, so the two cannot drift apart.
-page=$(tehas_shipped_page "$console") || page=""
-[[ $page =~ ^[0-9]+$ ]] || { printf 'tehas tidy: the console gave no page\n' >&2; exit 78; }
-
-# What closed them, for the whole list at once, the way tehasbot status asks: one
-# GraphQL search a poll, not one per issue, and only when a label may have to go
-# on - an issue that already carries it or waits for its cycle is not one that may.
-# GitHub's search takes whole numbers as terms and caps them, so the list is built
-# from the digit-gated numbers alone and stops at the page: past it the read would
-# answer nothing at all, and those issues are left to a later poll. `shipped`
-# holds the numbers the read names as shipped, one per line, and `close_read` the
-# verdict of the whole read: 0 answered and 1 no answer at all, whether the call
-# failed, timed out, carried errors or named no list of nodes - the console draws
-# that line, the way it draws every other one. Only 0 earns a label, and a read that
-# named no merged closer is a 0 with an empty list: the state labels still go,
-# each issue named below, unlike the one line of a failed read.
-shipped=""
-close_read=0
 numbers=""
 ask_count=0
-while IFS=$'\t' read -r n off have; do
+while IFS=$'\t' read -r n off have ask; do
   [[ $n =~ ^[0-9]+$ ]] || continue
-  tehas_cycle_running "$n" && { case_running["$n"]=1; continue; }
-  [ -n "$off" ] || continue
-  [ "$have" = no ] || continue
+  tehas_cycle_running "$n" && { skip["$n"]=1; continue; }
+  [ "$ask" = yes ] || continue
   asked["$n"]=1
-  [ "$ask_count" -lt "$page" ] || continue
   ask_count=$((ask_count + 1))
   numbers=$numbers" number:$n"
-done <<<"$todo"
+done <<<"$plan"
+
+# Whether a closed issue was closed by a merge comes from the read lib/shipped.sh
+# holds for tehasbot status too - one GraphQL search a poll, not one per issue,
+# and only for the issues the plan said may still earn the label: one that already
+# carries it is not read again, and one whose cycle holds its lock is not named.
+# GitHub caps the terms of a search, so past the page it would answer nothing at
+# all and those issues wait for a later poll. console/src/shipped.rs draws the
+# verdict of the whole read into `close_read`: 0 answered, 1 no answer at all, and
+# nothing is labelled on a guess.
+shipped=""
+close_read=0
 if [ -n "$numbers" ]; then
   # shellcheck disable=SC2016  # $q is a GraphQL variable
   if ! closers=$(timeout -k 1 "$wait" gh api graphql -f q="repo:$repo is:issue is:closed$numbers" \
     -f query="$(tehas_shipped_query "$console")" 2>/dev/null); then
     close_read=1
-  # What is no answer - errors beside the data, nodes that are no list, a closer
-  # that is no merge, a number the console will not read - is the console's, in the
-  # one call that speaks for the whole poll.
   elif ! shipped=$(printf '%s' "$closers" |
     tehas_shipped_numbers "$console" --control "$control" 2>/dev/null); then
     # An empty list of a whole answer is a poll that shipped nothing, which is no
@@ -176,26 +148,21 @@ if [ -n "$numbers" ]; then
 fi
 
 rc=0
-while IFS=$'\t' read -r n off have; do
+while IFS=$'\t' read -r n off have ask; do
   [[ $n =~ ^[0-9]+$ ]] || continue
-  [ "${case_running[$n]:-}" = 1 ] && continue
-  # A merge is what earns the label, and the label is earned once: an issue
-  # that already carries it is not read for it again. Of the issues that were
-  # asked about, the answer says which earned it; an issue past the page of the
-  # read was never asked, and is no more labelled than one it answered for.
+  [ "${skip[$n]:-}" = 1 ] && continue
+  # A merge is what earns the label. The answer says which of the issues the read
+  # was asked about earned it; one past the page was never asked, and is no more
+  # labelled than one it answered for. Only a read that answered for the whole
+  # poll says anything per issue: a failed read said so once, and repeats of it
+  # read as 100 issues a person closed by hand.
   ship=0
   if [ "$close_read" = 0 ] && [ "$have" = no ] && [ "${asked[$n]:-}" = 1 ]; then
-    # The list holds the issues whose closer was a merged pull request: a number
-    # asked for and not in it is one the read named without a merge. Only a read
-    # that answered for the whole poll says anything per issue - a failed read said
-    # so once, and repeats of it read as 100 issues a person closed by hand.
     if printf '%s\n' "$shipped" | grep -qxF -- "$n"; then
       ship=1
     else
       log "WARN: tidy #$n: no merged pull request was read as the closer, $tehas_shipped_label was not added"
     fi
-  elif [ "$have" != yes ] && [ "$have" != no ]; then
-    log "WARN: tidy #$n: unreadable state for the label, $tehas_shipped_label was not added"
   fi
   if [ "$dry" = 1 ]; then
     log "tidy #$n: would remove $off"
@@ -212,5 +179,5 @@ while IFS=$'\t' read -r n off have; do
     log "WARN: tidy #$n: could not remove $off"
     rc=1
   fi
-done <<<"$todo"
+done <<<"$plan"
 exit "$rc"
