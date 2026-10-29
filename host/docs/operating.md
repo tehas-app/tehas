@@ -353,9 +353,11 @@ The same edit puts `tehas:shipped` on an issue that a merged pull request
 closed: `tehas tidy` reads what closed the issues it tidies and adds the label
 in the call that strips their state labels, so the label says one thing, that a
 merge closed the issue, whatever the queue's list happened to hold. Two commands
-put the label from a merged closer, and both read the one answer from
-`lib/shipped.sh`: `tehas tidy` in the edit that takes the state labels off, and
-`tehasbot status` from its own read of the list for any issue missing it.
+put the label from a merged closer, and both read the one answer of
+`lib/shipped.sh` and hand it to the same console verb (`console shipped`,
+`console/src/shipped.rs`) that decides it: `tehas tidy` in the edit that takes the
+state labels off, and `tehasbot status` from its own read of the list for any
+issue missing it.
 `tehas tidy` is the one that says what it did in
 `~/tehas/logs/dispatch.log`. Neither gives it to the control issue. An issue
 that already carries the label is not

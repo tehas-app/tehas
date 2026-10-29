@@ -21,6 +21,7 @@ export const FLIP_EVERY = 7; // seconds between waves of the line's cards
 export const STAGES = [
   { key: "proto", label: "Prototypes", first: "Latest", later: "Prototype", none: "No prototypes." },
   { key: "line", label: "In line", from: "queued", first: "Next up", later: "In line", search: "is:open label:tehas:ready", none: "Nothing in line." },
+  { key: "plan", label: "Planning", from: "planned", total: "planning", first: "Being planned", later: "Being planned", search: "is:open label:tehas:plan,tehas:planning", none: "Nothing in planning." },
   { key: "build", label: "Building", from: "running", first: "In work", later: "In work", search: "is:open label:tehas:running", none: "Nothing building." },
   { key: "review", label: "Review", from: "awaiting", first: "Needs review", later: "Needs review", search: "is:open label:tehas:awaiting-merge", none: "Nothing to review." },
   { key: "stop", label: "Stopped", from: "stopped", first: "Needs a human", later: "Needs a human", search: "is:open label:needs-human-attention", none: "Nothing stopped." },
@@ -30,7 +31,7 @@ export const STAGES = [
 // its own and a whole number of issues above 0, as libexec/status publishes it.
 const countOf = (s, name) => (Object.prototype.hasOwnProperty.call(s, name)
   && Number.isSafeInteger(s[name]) && s[name] > 0 ? s[name] : 0);
-const MORE = { proto: "in Protolab", line: "in line", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
+const MORE = { proto: "in Protolab", line: "in line", plan: "in planning", build: "building", review: "in review", stop: "stopped", ship: "shipped" };
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
@@ -71,7 +72,8 @@ function fromSample(raw) {
       : labels.includes("needs-human-attention") ? "stop"
         : labels.includes("tehas:awaiting-merge") ? "review"
           : labels.includes("tehas:running") ? "build"
-            : labels.includes("tehas:ready") ? "line" : null;
+            : labels.includes("tehas:plan") || labels.includes("tehas:planning") ? "plan"
+              : labels.includes("tehas:ready") ? "line" : null;
     if (key) out[key].push(item);
   }
   for (const i of list(obj(raw).shippedIssues)) { const item = ticket(i); if (item) out.ship.push(item); }
@@ -93,7 +95,7 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
   // A ticket stands at one place on the line, as on the factory floor: a
   // stopped one is stopped wherever else the queue lists it.
   const seen = new Set();
-  for (const key of ["stop", "review", "build", "line"]) {
+  for (const key of ["stop", "review", "build", "plan", "line"]) {
     items[key] = items[key].filter((t) => !seen.has(t.number) && seen.add(t.number));
   }
   const stages = STAGES.map((st) => {
@@ -108,7 +110,7 @@ export function lineView({ status = null, lab = null, sample = null, nowMs = Dat
     const text = st.key === "stop" ? "See what stopped" : `All ${count} ${MORE[st.key]}`;
     return { key: st.key, label: st.label, count, items: these, first: st.first, later: st.later, none: st.none,
       more: (count || these.length) && href ? { text, href } : null };
-  });
+  }).filter((st) => st.key !== "plan" || st.count > 0);
   return {
     source,
     paused: Boolean(s && s.paused),
