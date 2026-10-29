@@ -427,7 +427,15 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/inst
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[0]"
 
-for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
+t_case "the review loop is off unless the instance turns it on"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_REVIEW]\""
+t_eq "$t_out" "[0]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REVIEW=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_REVIEW]\""
+t_eq "$t_out" "[1]"
+
+for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REVIEW=yes" "TEHAS_REVIEW=2" "TEHAS_REFRESH_MAX=0" "TEHAS_REFRESH_MAX=-1" "TEHAS_REFRESH_MAX=many" \
   "TEHAS_REFRESH_EVERY=0" "TEHAS_REFRESH_EVERY=1441" "TEHAS_REFRESH_EVERY=010" "TEHAS_REFRESH_EVERY=10m" \
   "TEHAS_REFRESH_SLOTS=9" "TEHAS_REFRESH_SLOTS=-1" "TEHAS_REFRESH_SLOTS=01" "TEHAS_REFRESH_SLOTS=one"; do
   t_case "loading rejects $bad"

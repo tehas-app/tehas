@@ -317,7 +317,7 @@ turn_doc='{"subcommand":"plan","mode":"turn","exitCode":12,"status":"draft",
 # $T/fx/gh-open.json, and makes $T/fx/gh-<what>.rc to refuse one call.
 findings_repo=acme/backlog
 findings_on() {
-  t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW_REPO="$findings_repo"
+  t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_REVIEW_REPO="$findings_repo"
   # The filing half asks the store to render the document, so the home has the
   # store of this checkout in its libexec, as a host's does.
   t_store_filing
@@ -402,6 +402,9 @@ reset() {
   # One directory for the calls of docker: the two commands of the case that
   # compares them write files named for themselves, every other run by the
   # process that made it.
+  # TEHAS_REVIEW=1 in the instance every case starts from: the command exits at
+  # once when the loop is off, and the cases below are of a review that ran.
+  # The one case of the gate itself writes the instance again without it.
   rm -rf "$T"/calls/* "$T/home/tehas" "$fx/doc.json" "$fx/doc.rc" \
     "$fx/doc_plan.json" "$fx/doc_plan.rc" "$fx/session" \
     "$T/caps.plan" "$T/container.sh" "$T"/caps.call.* "$T/caps.n" \
@@ -409,7 +412,7 @@ reset() {
   checkout_host
   docker_run
   caps_review
-  t_instance "${T_MINIMAL[@]}"
+  t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1
   T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP")
   slice_good
   console_on
@@ -484,11 +487,54 @@ done
 
 t_case "an invalid instance starts nothing"
 reset
-t_instance TEHAS_CONTROL_ISSUE=1
+# TEHAS_REVIEW=1 is part of the instance here: the gate below the load is the
+# reason a run stops at 0, and an instance whose settings are malformed is
+# refused 78 whatever the gate says.
+t_instance TEHAS_CONTROL_ISSUE=1 TEHAS_REVIEW=1
 t_run "$review"
 t_eq "$t_rc" 78
 t_eq "$(t_calls docker)" ""
 t_eq "$(find "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+
+t_case "with the loop off nothing is called"
+# TEHAS_REVIEW is the timer's gate: tehas-review.timer starts this command every
+# week, and a host that never turned the loop on pays nothing for it. The
+# instance is written without the name, which is how the loader leaves it.
+reset
+t_instance "${T_MINIMAL[@]}"
+t_run "$review"
+t_eq "$t_rc" 0
+t_eq "$t_out" ""
+t_eq "$(t_calls docker)" ""
+t_eq "$(t_calls gh)" ""
+t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+t_eq "$(find "$T" -maxdepth 1 -name 'caps.call.*' | wc -l)" 0
+t_eq "$(find "$T/home/tehas/work" "$T/home/tehas/logs" "$record" 2>/dev/null | wc -l)" 0
+
+t_case "with the loop on the same instance reviews"
+reset
+# The other side of the gate: the same instance, the one line added, and the
+# run goes on to the container.
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1
+t_run "$review"
+t_eq "$t_rc" 0
+t_eq "$(tail_of)" "$image $runner lens-review --since $c1 --json "
+
+t_case "with the loop off the settings the command needs are still checked"
+# The gate sits below tehas_require_instance_settings, so a host whose instance
+# could not run a review is told 78 by the weekly unit and not only by a command a
+# person typed. The name below is one the review requires, and invalid rather
+# than missing: tehas_require stops on the first name that is not set, so a
+# missing one would answer 78 wherever the gate sat.
+reset
+t_instance "${T_MINIMAL[@]}" TEHAS_CONTROL_ISSUE=abc
+t_run "$review"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_CONTROL_ISSUE is not valid"
+t_eq "$(t_calls docker)" ""
+t_run "'$review' --help"
+t_eq "$t_rc" 0
+t_contains "$t_out" "Review what the default branch gained"
 
 t_case "without Pi's settings.json nothing runs"
 reset
@@ -543,7 +589,7 @@ reset
 # An instance line, which is how a PI_ENSEMBLE_* reaches a container: settings
 # of the environment are dropped by tehas_load, so the line of the instance is
 # the adversary here - the same file a host edits to point at its model.
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PROTECTED_PATHS= PI_ENSEMBLE_POLICY_JUDGE=off
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 PI_ENSEMBLE_PROTECTED_PATHS= PI_ENSEMBLE_POLICY_JUDGE=off
 t_run "$review"
 t_eq "$t_rc" 78
 t_contains "$t_out" "does not take what this review would be given"
@@ -556,7 +602,7 @@ t_case "a PI_ENSEMBLE_* the image does list as an input a host may set reaches t
 reset
 jq '.inputs += [{name: "PI_ENSEMBLE_LENS_NOTE", scope: "cycle"}]' "$T/caps.json" >"$T/caps.new" &&
   mv "$T/caps.new" "$T/caps.json"
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_LENS_NOTE=short
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 PI_ENSEMBLE_LENS_NOTE=short
 t_run "$review"
 t_eq "$t_rc" 0
 t_contains "$(after -e)" "PI_ENSEMBLE_LENS_NOTE"
@@ -591,7 +637,7 @@ GIT_COMMITTER_DATE="$now" GIT_AUTHOR_DATE="$now" git -C "$up_young" \
   -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m only
 young=$(git -C "$up_young" rev-parse HEAD)
 git -C "$checkout" fetch -q "$up_young" '+refs/heads/main:refs/remotes/origin/young'
-t_instance "${T_MINIMAL[@]}" TEHAS_BRANCH=young
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_BRANCH=young
 t_run "$review"
 t_eq "$t_rc" 0
 t_eq "$(tail_of)" "$image $runner lens-review --since $young --json "
@@ -799,7 +845,7 @@ t_eq "$(env_names)" "$want"
 
 t_case "with a token in the environment and instance lines for a plan, the container gets neither"
 reset
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_PLAN_SESSION_DIR=/elsewhere PI_ENSEMBLE_PLAN_ISSUE=99 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 PI_ENSEMBLE_PLAN_SESSION_DIR=/elsewhere PI_ENSEMBLE_PLAN_ISSUE=99 "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=/elsewhere"
 T_ENV=(GH_TOKEN=test-token "TEHAS_CGROUP_ROOT=$T_CGROUP" PI_ENSEMBLE_PLAN_CACHE_TTL_MS=60000)
 t_run "$review"
 t_eq "$t_rc" 0
@@ -808,7 +854,7 @@ t_lacks "$(run_args)" "/elsewhere"
 
 t_case "the container has the slice, a cycle's limits, no privileges, the host aliases and no cid file"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=1g PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_CYCLE_RESERVE=1g PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 t_run "$review"
 t_eq "$t_rc" 0
 t_eq "$(after --cgroup-parent)" "tehas.slice"
@@ -948,7 +994,7 @@ reset
 mkdir -p "$T/home/tehas/state"
 jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
 cp "$record" "$T/record.before"
-t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_PLAN_TIMEOUT=1
 # The container lives until docker stop is called for it, as one does: it is
 # killed for the stop and ends as one does, with 137.
 cat >"$T/container.sh" <<'EOF'
@@ -976,7 +1022,7 @@ t_case "a docker stop that never ends is bounded, and the run still ends with 2"
 reset
 mkdir -p "$T/home/tehas/state"
 jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
-t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
 cat >"$T/container.sh" <<'EOF'
 nap=$(command -pv sleep)
 "$nap" 5 >/dev/null 2>&1 &
@@ -1001,7 +1047,7 @@ reset
 mkdir -p "$T/home/tehas/state"
 jq -n --arg c "$c2" '{commit: $c, at: "2026-10-01T00:00:00Z", exit: 10}' >"$record"
 cp "$record" "$T/record.before"
-t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_PLAN_TIMEOUT=1 TEHAS_STOP_WAIT=1
 cat >"$T/container.sh" <<'BODY'
 nap=$(command -pv sleep)
 # Bash runs the trap only once the sleep in front of it ends, so TERM does
@@ -1079,7 +1125,7 @@ done
 
 t_case "a reserve above the ceiling is refused"
 reset
-t_instance "${T_MINIMAL[@]}" TEHAS_CYCLE_RESERVE=3g
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_CYCLE_RESERVE=3g
 t_run "$review"
 t_eq "$t_rc" 78
 t_lacks "$(t_calls docker)" "run "
@@ -1109,7 +1155,7 @@ t_case "with a GitHub App the review is given neither the app's token nor its di
 reset
 # The git of the case that could not clone is still on PATH.
 rm -f "$T/bin/git"
-t_instance "${T_MINIMAL[@]}" TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
+t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089 "TEHAS_BOT_LOGIN=tehas-app-bot[bot]"
 mkdir -p "$state_dir/github"
 printf 'ghs_app\n' >"$state_dir/github/token"
 t_run "$review"
