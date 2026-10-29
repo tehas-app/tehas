@@ -97,6 +97,85 @@ fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
     }
 }
 
+/// The largest start this rule can put a date on, as the other rules that
+/// read a start from the store take it: 9999-12-31T23:59:59Z.
+const MAX_START: u64 = 99_999_999_999;
+
+/// The shape `iso` writes: 20 bytes of `%FT%TZ`, so that the park rule below
+/// may order a formatted start against the approval's stamp as text. An empty
+/// stamp is no instant, and an approval that names none is not held on it.
+fn is_instant(s: &str) -> bool {
+    let b = s.as_bytes();
+    let some = |from: usize, to: usize| b[from..to].iter().all(|c| c.is_ascii_digit());
+    b.len() == 20
+        && some(0, 4)
+        && b[4] == b'-'
+        && some(5, 7)
+        && b[7] == b'-'
+        && some(8, 10)
+        && b[10] == b'T'
+        && some(11, 13)
+        && b[13] == b':'
+        && some(14, 16)
+        && b[16] == b':'
+        && some(17, 19)
+        && b[19] == b'Z'
+}
+
+/// A cycle_history row: the parked start of a refresh since `at`, the approval
+/// its pull request rests on. Tells apart whether a park since `at` holds the
+/// refresh, and whether any park it held rests on a start the store did not
+/// give. `at` is the approval's `%FT%TZ` stamp, as
+/// `read::store::approval_shape` renders it: a start is ordered against it as
+/// text, so a stamp of any other shape holds rather than orders wrongly. A
+/// start the row does not give is one this rule cannot date, and a park of a
+/// row it cannot date is held: unknown is not old, and the second answer lets
+/// the poll say so instead of reading as a park it dated. A `parked` that is
+/// not JSON true is no park; the store answers that column as a bool or NULL,
+/// and the importer takes only a boolean for it. The bash copy of this rule,
+/// lib/refresh.sh, keeps its (.started // 0).
+fn parked(history: &[Value], at: &str) -> (bool, bool) {
+    // No instant on the record is no date to measure a park from; the rule of
+    // the approval itself has already said what to do with such a record.
+    if at.is_empty() {
+        return (false, false);
+    }
+    // A stamp that is not the shape of an instant orders nothing. A park is
+    // held on it: holding is the side this rule is for, and the row is not the
+    // unread part of it, so it is not named as one.
+    if !is_instant(at) {
+        return (true, false);
+    }
+    let mut held = false;
+    let mut unread = false;
+    for h in history {
+        if h.get("how").and_then(Value::as_str) != Some("refresh")
+            || h.get("parked") != Some(&json!(true))
+        {
+            continue;
+        }
+        match h.get("started") {
+            Some(v) => match v.as_u64().filter(|s| *s <= MAX_START) {
+                // A park from the approval's second on holds the refresh.
+                Some(started) => held |= iso(started).as_str() >= at,
+                // A start that is not a count of seconds this rule can date,
+                // or one past the last date it can write: held as the row with
+                // no start is, and named as one the store did not give.
+                None => {
+                    held = true;
+                    unread = true;
+                }
+            },
+            // No key at all: no start on record.
+            None => {
+                held = true;
+                unread = true;
+            }
+        }
+    }
+    (held, unread)
+}
+
 /// tehas_refresh_count: the refreshes a record counts on that approval.
 fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
     let same = |r: &Value| {
@@ -713,17 +792,16 @@ impl Poll<'_> {
             }
             Some(Ok(h)) => h,
         };
-        let parked = history.iter().any(|h| {
-            h.get("how").and_then(Value::as_str) == Some("refresh")
-                && h.get("parked") == Some(&json!(true))
-                && iso(h.get("started").and_then(Value::as_u64).unwrap_or(0)) >= at
-        });
+        // The last of the holds: a refresh that parked since the approval is
+        // not offered again. One whose history cannot be read waits, above.
+        let (parked, unread) = parked(&history, &at);
         if parked {
-            return self.refresh_say(
-                n,
-                &format!("park {at}"),
-                &format!("a refresh of it since {by} approved it parked"),
-            );
+            let why = if unread {
+                format!("a refresh of it since {by} approved it parked, its start unread, so it is held")
+            } else {
+                format!("a refresh of it since {by} approved it parked")
+            };
+            return self.refresh_say(n, &format!("park {at}"), &why);
         }
         if !self.image_ok(n)? || !self.image_missing_ok(n) {
             return Ok(None);
@@ -785,5 +863,83 @@ mod tests {
         assert_eq!(refresh_count(&other, &base), Some(0));
         let bad = json!({"how": "refresh", "refreshes": 0, "rests_on": base});
         assert_eq!(refresh_count(&bad, &base), None);
+    }
+
+    #[test]
+    fn a_park_holds_a_refresh_only_from_the_approval_on() {
+        let at = "2026-10-01T00:00:00Z";
+        let park = |started: Value| json!({"how": "refresh", "parked": true, "started": started});
+        // [why, row, holds]: one row, and whether it holds a refresh.
+        let cases: &[(&str, Value, bool)] = &[
+            (
+                "a park from the approval's second on",
+                park(json!(1790899201)),
+                true,
+            ),
+            (
+                "a park before the approval: of an older call",
+                park(json!(1790769600)),
+                false,
+            ),
+            ("a park with no start on record", park(Value::Null), true),
+            (
+                "a park whose row has no start at all",
+                json!({"how": "refresh", "parked": true}),
+                true,
+            ),
+            (
+                "a start that is not a count of seconds",
+                park(json!("1790899201")),
+                true,
+            ),
+            ("a start that is negative", park(json!(-1)), true),
+            (
+                "a start past the last date iso writes",
+                park(json!(100_000_000_000u64)),
+                true,
+            ),
+            (
+                "a park that is not JSON true",
+                json!({"how": "refresh", "parked": "true", "started": 1790899201}),
+                false,
+            ),
+            (
+                "a park that is not parked",
+                json!({"how": "refresh", "parked": false, "started": 1790899201}),
+                false,
+            ),
+            (
+                "the park of a cycle that was no refresh",
+                json!({"how": "label", "parked": true, "started": 1790899201}),
+                false,
+            ),
+        ];
+        for (why, row, holds) in cases {
+            // A park held on a start the rule cannot read is told apart from
+            // one it dated, so the poll can say which it answered: a row that
+            // gives no start, or one the bound has just struck out.
+            let readable = row
+                .get("started")
+                .and_then(Value::as_u64)
+                .is_some_and(|s| s <= MAX_START);
+            assert_eq!(
+                parked(std::slice::from_ref(row), at),
+                (*holds, *holds && !readable),
+                "{why}"
+            );
+        }
+        assert!(!parked(&[], at).0);
+    }
+
+    #[test]
+    fn an_approval_that_names_no_instant_orders_no_park() {
+        // The rule orders a park's start against the approval's stamp as text,
+        // so a stamp of any other shape holds, and none at all is no date to
+        // measure a park from.
+        let row = |started| json!({"how": "refresh", "parked": true, "started": started});
+        for at in ["2026-10-01Z", "2026-10-1", "Z", "2026-10-01T00:00:00"] {
+            assert!(parked(&[row(1790769600)], at).0, "{at}");
+        }
+        assert!(!parked(&[row(1790769600)], "").0);
     }
 }

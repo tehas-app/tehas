@@ -1,6 +1,17 @@
 //! An issue's label events, read as lib/labels.sh reads them.
+//!
+//! One rule for an event with no time, and it has two directions: an event
+//! with no `created_at` is older than any when it must not authorise something
+//! (`label_actor`, `label_state`, `pause_holds`: an unstamped application is
+//! not the latest one), and later than any when it must veto one
+//! (`first_unallowed_rename`: an unstamped rename is never the title an
+//! approval covered). Each direction holds the start, never lets it.
 
 use serde_json::Value;
+
+/// The account of an event that names nobody: tehas's word for it, the same
+/// one decide's `or_unknown` answers for an empty login.
+pub const UNKNOWN_ACTOR: &str = "unknown";
 
 /// One label event of an issue, as the REST events list gives it.
 #[derive(Clone, Debug, PartialEq)]
@@ -88,21 +99,63 @@ pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
     }
 }
 
-/// The latest labeled or unlabeled event of `label`: tehas_label_state. A
-/// removal sharing a stamp with an application comes after it.
-pub fn label_state(events: &[Event], label: &str) -> (String, String, String) {
+/// The newest labeled or unlabeled event of one label: tehas_label_state.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LabelState {
+    /// The page had no event of the label, so it says nothing about it.
+    Absent,
+    /// An application by `actor` at `at` (empty when the page gave no stamp).
+    Labeled { actor: String, at: String },
+    /// A removal by `actor` at `at`.
+    Unlabeled { actor: String, at: String },
+}
+
+impl LabelState {
+    /// The kind as the bash's rule compares it: `"labeled"`, `"unlabeled"` or
+    /// `""` for a label the timeline has no event of.
+    pub fn event(&self) -> &str {
+        match self {
+            LabelState::Absent => "",
+            LabelState::Labeled { .. } => "labeled",
+            LabelState::Unlabeled { .. } => "unlabeled",
+        }
+    }
+
+    /// Who applied or took off the label, "" when the timeline has no event
+    /// of it.
+    pub fn actor(&self) -> &str {
+        match self {
+            LabelState::Absent => "",
+            LabelState::Labeled { actor, .. } | LabelState::Unlabeled { actor, .. } => actor,
+        }
+    }
+}
+
+/// The latest labeled or unlabeled event of `label`. Of two events sharing a
+/// stamp the removal comes last; one with no stamp is older than any. A
+/// caller that reads the answer as a trust decision relies on that ordering:
+/// it is what settles the newest event at a one-second boundary and among
+/// unstamped events.
+pub fn label_state(events: &[Event], label: &str) -> LabelState {
     let mut v: Vec<&Event> = events
         .iter()
         .filter(|e| (e.event == "labeled" || e.event == "unlabeled") && e.label == label)
         .collect();
     v.sort_by_key(|e| (e.at.clone().unwrap_or_default(), e.event == "unlabeled"));
-    match v.last() {
-        Some(e) => (
-            e.event.clone(),
-            e.actor.clone(),
-            e.at.clone().unwrap_or_default(),
-        ),
-        None => (String::new(), String::new(), String::new()),
+    let Some(e) = v.last() else {
+        return LabelState::Absent;
+    };
+    let at = e.at.clone().unwrap_or_default();
+    if e.event == "labeled" {
+        LabelState::Labeled {
+            actor: e.actor.clone(),
+            at,
+        }
+    } else {
+        LabelState::Unlabeled {
+            actor: e.actor.clone(),
+            at,
+        }
     }
 }
 
@@ -122,20 +175,108 @@ pub fn pause_holds(events: &[Event], allowed: &dyn Fn(&str) -> bool) -> Option<(
     }
 }
 
-/// Logins named by `renamed` events after `since` (all of them when `since`
-/// is empty), "unknown" for one that names nobody.
-pub fn renamed_since(events: &[Event], since: &str) -> Vec<String> {
-    events
-        .iter()
-        .filter(|e| {
-            e.event == "renamed" && (since.is_empty() || e.at.as_deref().unwrap_or("") > since)
-        })
-        .map(|e| {
-            if e.actor.is_empty() {
-                "unknown".to_string()
-            } else {
-                e.actor.clone()
-            }
-        })
-        .collect()
+/// The first `renamed` event after `since` (any of them when `since` is
+/// empty) whose account is not allowed, or the veto of nobody: "unknown" for
+/// a rename that names no account. None when no rename holds the title back.
+/// One with no time is not old: it counts as after `since`, so an unstamped
+/// rename never reads as a title the approval covered - the opposite of the
+/// rule for the events that must authorise something, in the header. A stamp
+/// GitHub sent in a shape the poll cannot read is read the same way, as no
+/// stamp: it is GitHub's to send well, and the safe reading of one it did not
+/// is the one that holds the start. The events come in GitHub's order, so the
+/// newest of them answers first: the walk is from the back and stops at the
+/// first veto.
+pub fn first_unallowed_rename(
+    events: &[Event],
+    since: &str,
+    allowed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    events.iter().rev().find_map(|e| {
+        if e.event != "renamed"
+            || (!since.is_empty() && e.at.as_deref().is_some_and(|at| at <= since))
+        {
+            return None;
+        }
+        let who = if e.actor.is_empty() {
+            UNKNOWN_ACTOR.to_string()
+        } else {
+            e.actor.clone()
+        };
+        (!allowed(&who)).then_some(who)
+    })
+}
+
+#[cfg(test)]
+mod renamed_tests {
+    use super::{first_unallowed_rename, Event, UNKNOWN_ACTOR};
+
+    const SINCE: &str = "2026-01-02T10:00:00Z";
+
+    fn event(event: &str, actor: &str, at: Option<&str>) -> Event {
+        Event {
+            event: event.into(),
+            label: "tehas:ready".into(),
+            actor: actor.into(),
+            at: at.map(str::to_string),
+        }
+    }
+
+    fn vetoed(events: &[Event], since: &str) -> Option<String> {
+        first_unallowed_rename(events, since, &|w| w == "alice")
+    }
+
+    /// An event with no time is later than any when it must veto one, so an
+    /// unstamped rename holds the start whoever made it.
+    #[test]
+    fn a_rename_with_no_time_counts_as_after_the_approval() {
+        let by_other = [event("renamed", "mallory", None)];
+        assert_eq!(vetoed(&by_other, SINCE).as_deref(), Some("mallory"));
+        let by_nobody = [event("renamed", "", None)];
+        assert_eq!(vetoed(&by_nobody, SINCE).as_deref(), Some(UNKNOWN_ACTOR));
+    }
+
+    #[test]
+    fn a_rename_before_the_approval_is_the_title_it_covered() {
+        let before = [event("renamed", "mallory", Some("2026-01-02T09:59:00Z"))];
+        assert_eq!(vetoed(&before, SINCE), None);
+        // The second of the same stamp is not after it either.
+        let same = [event("renamed", "mallory", Some(SINCE))];
+        assert_eq!(vetoed(&same, SINCE), None);
+    }
+
+    /// The names of every rename after `since` are read, in GitHub's order,
+    /// and the first one outside the list holds the start: an allowed account
+    /// renaming later does not cover an earlier rename by anyone else. The
+    /// walk from the back answers the same way - it finds the last one that
+    /// does not belong here.
+    #[test]
+    fn a_rename_after_the_approval_by_an_allowed_account_vets_nothing() {
+        let mine = [
+            event("renamed", "mallory", Some("2026-01-02T10:01:00Z")),
+            event("renamed", "alice", Some("2026-01-02T10:02:00Z")),
+        ];
+        assert_eq!(vetoed(&mine, SINCE).as_deref(), Some("mallory"));
+        let theirs = [
+            event("renamed", "alice", Some("2026-01-02T10:01:00Z")),
+            event("renamed", "mallory", Some("2026-01-02T10:02:00Z")),
+        ];
+        assert_eq!(vetoed(&theirs, SINCE).as_deref(), Some("mallory"));
+        let all_mine = [
+            event("renamed", "alice", Some("2026-01-02T10:01:00Z")),
+            event("renamed", "alice", Some("2026-01-02T10:02:00Z")),
+        ];
+        assert_eq!(vetoed(&all_mine, SINCE), None);
+    }
+
+    #[test]
+    fn no_since_reads_every_rename_and_only_renames() {
+        let mixed = [
+            event("labeled", "mallory", Some(SINCE)),
+            event("renamed", "mallory", Some("2026-01-01T00:00:00Z")),
+        ];
+        assert_eq!(vetoed(&mixed, "").as_deref(), Some("mallory"));
+        let none = [event("labeled", "mallory", Some(SINCE))];
+        assert_eq!(vetoed(&none, ""), None);
+        assert_eq!(vetoed(&[], SINCE), None);
+    }
 }

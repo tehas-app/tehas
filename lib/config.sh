@@ -119,7 +119,7 @@ _tehas_valid() {
   local name=$1 v=$2 mb base clean_dir part
   local -a clean_dirs
   case "$name" in
-    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO)
+    TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO | TEHAS_REVIEW_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
@@ -518,6 +518,10 @@ tehas_load() {
   # issues may stay open in one repository before it files no more there.
   export TEHAS_IMPROVE_REPO=${TEHAS_IMPROVE_REPO:-} TEHAS_IMPROVE_RUKAS_REPO=${TEHAS_IMPROVE_RUKAS_REPO:-}
   export TEHAS_IMPROVE_RUKAS_SKIP=${TEHAS_IMPROVE_RUKAS_SKIP:-0} TEHAS_IMPROVE_MAX_OPEN=${TEHAS_IMPROVE_MAX_OPEN:-10}
+  # Where `tehasbot review` files the findings of a run: off until the instance
+  # names one, as the loop's two above are. Never TEHAS_REPO: the check below
+  # refuses it, since a person triages a model's findings into tickets first.
+  export TEHAS_REVIEW_REPO=${TEHAS_REVIEW_REPO:-}
   # The millwright: the account whose tehas:ready the dispatcher takes on its own
   # grant (unset, there is none), its ceiling of cycles on one issue since a
   # person last approved it, its ceiling of planning questions per session.
@@ -665,10 +669,15 @@ tehas_load() {
     tehas_err "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set: findings about pi-rukas are either filed there or not at all (see $file)"
     return 78
   fi
-  if [ -n "${TEHAS_REPO:-}" ] && { [ "${TEHAS_IMPROVE_REPO,,}" = "${TEHAS_REPO,,}" ] || [ "${TEHAS_IMPROVE_RUKAS_REPO,,}" = "${TEHAS_REPO,,}" ]; }; then
-    tehas_err "the improvement loop files in $TEHAS_REPO, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see $file)"
-    return 78
-  fi
+  # A model's findings go to a repository of their own, where a person triages
+  # them into tickets of the product: filing them in the product is the one
+  # setting that cannot be allowed, for the loop and for the review alike.
+  for v in "$TEHAS_IMPROVE_REPO" "$TEHAS_IMPROVE_RUKAS_REPO" "${TEHAS_REVIEW_REPO:-}"; do
+    [ -z "${TEHAS_REPO:-}" ] || [ "${v,,}" != "${TEHAS_REPO,,}" ] || {
+      tehas_err "the improvement loop files in $TEHAS_REPO, the product repository: a model writes its findings from what cycles saw, so they go to a repository of their own where a person triages them (see $file)"
+      return 78
+    }
+  done
   case " ${TEHAS_ALLOWED_LABELERS:-} " in
     *" ${TEHAS_MILLWRIGHT_LOGIN:-} "*)
       [ -z "$TEHAS_MILLWRIGHT_LOGIN" ] || {

@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Questions the factory asks on an issue, and the answers it accepts. Text in,
-# text out: nothing here calls GitHub, so every function can be tested with a
-# string. Sourced by libexec/dispatch and libexec/cycle.
+# text out: nothing here calls GitHub except q_file_findings, whose own comment
+# says so. Sourced by libexec/dispatch, libexec/cycle and libexec/review.
 #
 #   q_clean [max characters]         stdin to stdout: an agent's words, safe to
 #                                    post, cut at the limit [60000]
@@ -24,6 +24,13 @@
 #                                    the same text would likely stop again.
 #                                    Nothing for a count of 0 or an unreadable
 #                                    one
+#   q_file_findings                  the findings of one review run as one
+#                                    issue, in $TEHAS_REVIEW_REPO (never
+#                                    $TEHAS_REPO): an issue of
+#                                    tehas:improvement, or a comment on the one
+#                                    still open. Reads the run's doc, branch,
+#                                    head and the line q_file_ask holds; sets
+#                                    q_file_why; 0 when GitHub took it
 #   q_untick                         stdin to stdout: a body with every box empty
 #
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
@@ -195,4 +202,49 @@ q_park_repeat() { # <count> [step] [cap]
   [ -z "$cap" ] || line+=" on the cap ${tick}${cap}${tick}"
   printf '%s. A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with %stehas:plan%s.\n' \
     "$line" "$tick" "$tick"
+}
+
+# tehasbot review files one run's findings with this: the one function here
+# that calls GitHub. The store renders the findings and q_clean masks them, so
+# a model's words are made safe in the one place that does that. It reads the
+# caller's doc, branch and head, and files in $TEHAS_REVIEW_REPO.
+#
+# shellcheck disable=SC2154  # doc, branch, head and q_file_ask are the caller's
+# shellcheck disable=SC2034  # the caller reads q_file_why
+q_file_findings() {
+  local repo=${TEHAS_REVIEW_REPO:-} title text body n open
+  q_file_why='nothing'
+  [ -n "$repo" ] || { q_file_why="TEHAS_REVIEW_REPO is not set, so the findings of ${head:0:7} are nowhere"; return 1; }
+  # The store reads the run's document. A refusal leaves its answer empty, so
+  # the reads below give a body of nothing and the count comes to none: a run
+  # that filed nothing, not a filing that failed. GitHub is asked nothing then,
+  # and the run's own status stands.
+  tehas_store_try 3 review-issue "$doc" "$branch" "${head:0:7}" || tehas_store_rc=0
+  # The count the command says about is the body's finding lines; the store
+  # gives none.
+  title=$(tehas_store_get '.title // ""') || { q_file_why='the store answered no title'; return 1; }
+  text=$(tehas_store_get '.body // ""') || { q_file_why='the store answered no body'; return 1; }
+  n=$(grep -c '^- \[' <<<"$text") || n=0
+  [ "$n" != 0 ] || { echo "tehas review: nothing to file: ${head:0:7} left no findings"; return 0; }
+  # The tehas:refine line is this command's own, so it goes on after the masking
+  # and no finding can become it.
+  body=$(printf '%s' "$text" | q_clean)
+  body+=$'\n'"$q_file_ask"
+  # One issue per range: an open one gets a comment, not a copy beside it, so a
+  # range nobody has read stays one issue. A GitHub that will not answer is
+  # asked nothing and they are filed as new: a duplicate is read, a lost
+  # finding is not. Never tehas:ready - a person gives that label.
+  open=$(gh issue list --repo "$repo" --state open --label tehas:improvement \
+    --limit 100 --json number,title --jq \
+    '[.[] | select(.title | startswith("Six-lens review:"))] | .[0].number // ""' 2>/dev/null) || open=''
+  if [ -n "$open" ]; then
+    gh issue comment "$open" --repo "$repo" --body "$body" >/dev/null 2>&1 ||
+      { q_file_why="GitHub refused the comment on #$open of $repo"; return 1; }
+    echo "tehas review: $n findings are a comment on #$open of $repo"
+    return 0
+  fi
+  gh issue create --repo "$repo" --title "$title" --body "$body" \
+    --label tehas:improvement >/dev/null 2>&1 ||
+    { q_file_why="GitHub refused the issue in $repo"; return 1; }
+  echo "tehas review: $n findings are filed in $repo"
 }
