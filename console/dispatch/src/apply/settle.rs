@@ -3,10 +3,7 @@
 //! between two writes, is read again and settled from what GitHub says now.
 //! Never replayed: the poll that settles it decides afresh whether anything
 //! is still owed. A write never attempted made no call, and is abandoned.
-//! An action whose `id`, `issue` or (attempted only) `attempted_at` is absent
-//! or not a positive integer is left open with one WARN: substituting 0 for
-//! one of them would settle an unknown row, read issue 0 for ever, or take
-//! the epoch as the start of the window and call an old comment the evidence.
+//! A row that does not describe itself is left open with one WARN.
 
 use super::{text, word, Writer};
 use serde_json::{json, Value};
@@ -33,20 +30,54 @@ fn positive(a: &Value, k: &str) -> Option<u64> {
     a.get(k).and_then(Value::as_u64).filter(|n| *n > 0)
 }
 
-/// The field of an open action that a malformed row must be named by: the
-/// first of these that is not a positive integer, or None when the row is
-/// well formed. An intended action has no time yet, so none is asked of it.
-fn malformed(a: &Value) -> Option<&'static str> {
-    for (k, needed) in [
-        ("id", true),
-        ("issue", true),
-        ("attempted_at", text(a, "state") != "intended"),
-    ] {
-        if needed && positive(a, k).is_none() {
-            return Some(k);
-        }
+/// A word of a journal row for one log line: control characters become '?'
+/// and it is cut at 300, as `Calls::store` cuts a store's answer. `kind` and
+/// `state` have no CHECK of their own, so a hand-edited row could otherwise
+/// put arbitrary bytes into the log.
+fn word_of(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .take(300)
+        .collect()
+}
+
+/// One open action, read once: its number, its issue, and the time it was
+/// attempted (0 for an intended row, which has no time yet).
+struct Row {
+    id: u64,
+    issue: u64,
+    attempted_at: u64,
+}
+
+impl Row {
+    /// The numbers of an open action, or the field that fails to be one. The
+    /// store asks for these on the write side, so a row that fails here is a
+    /// corrupt one: substituting 0 would settle an unknown row, read issue 0
+    /// for ever, or take the epoch as the start of the window and call an old
+    /// comment the evidence. So the row is left open instead, and the caller
+    /// says so once. `attempted_at` is 0 for an intended row, which is never
+    /// read, and above 0 for an attempted one, so the window it opens cannot
+    /// be the epoch.
+    fn of(a: &Value) -> Result<Row, &'static str> {
+        let id = positive(a, "id").ok_or("id")?;
+        let issue = positive(a, "issue").ok_or("issue")?;
+        let attempted_at = if intended(a) {
+            0
+        } else {
+            positive(a, "attempted_at").ok_or("attempted_at")?
+        };
+        Ok(Row {
+            id,
+            issue,
+            attempted_at,
+        })
     }
-    None
+}
+
+/// The state the store gives a row whose write has not been answered: it has
+/// no time and no read to make. The other open state is 'attempted'.
+fn intended(a: &Value) -> bool {
+    text(a, "state") == "intended"
 }
 
 fn names(v: &Value) -> Vec<String> {
@@ -95,25 +126,33 @@ impl Writer {
     /// The read list of actions, each settled or said.
     pub(crate) fn settle_actions(&mut self, now: i64, open: Vec<Value>, log: &mut Vec<String>) {
         for a in open {
-            let kind = text(&a, "kind").to_string();
-            if let Some(field) = malformed(&a) {
-                // Named by what it has: the number that identifies it is the
-                // one that may be missing. It stays in the journal for a
-                // person to look at.
-                log.push(format!(
-                    "WARN: the journal's {} action {kind} is malformed ({field} is not a positive integer); it is left open for a person",
-                    text(&a, "state")
-                ));
-                continue;
-            }
-            let id = positive(&a, "id").unwrap().to_string();
-            let n = positive(&a, "issue").unwrap();
+            let state = word_of(text(&a, "state"));
+            let kind = word_of(text(&a, "kind"));
+            let row = match Row::of(&a) {
+                Ok(row) => row,
+                Err(field) => {
+                    // Named by the numbers it does have: any of them may be
+                    // the missing one. It stays in the journal for a person.
+                    let known = match (positive(&a, "id"), positive(&a, "issue")) {
+                        (Some(id), Some(issue)) => format!("id {id}, #{issue}"),
+                        (Some(id), None) => format!("id {id}"),
+                        (None, Some(issue)) => format!("#{issue}"),
+                        (None, None) => "no number".into(),
+                    };
+                    log.push(format!(
+                        "WARN: the journal's {state} action {kind} is malformed ({field} is not a positive integer; {known}); it is left open for a person to settle with store journal-settle --action N"
+                    ));
+                    continue;
+                }
+            };
+            let id = row.id.to_string();
+            let n = row.issue;
             let age = now - a.get("intended_at").and_then(Value::as_i64).unwrap_or(now);
             let what = format!("action {id} ({kind} on #{n}, {age}s old)");
-            let found = if text(&a, "state") == "intended" {
+            let found = if intended(&a) {
                 Found::Abandoned("it was never attempted")
             } else {
-                self.found(&a, &kind, n)
+                self.found(&a, &kind, n, row.attempted_at)
             };
             let settled = match &found {
                 Found::Done(evidence) => {
@@ -152,18 +191,19 @@ impl Writer {
     }
 
     /// What GitHub says now of one attempted write.
-    fn found(&mut self, a: &Value, kind: &str, n: u64) -> Found {
+    fn found(&mut self, a: &Value, kind: &str, n: u64, attempted: u64) -> Found {
         let repo = self.repo.clone();
         let gh: Vec<Value> = a
             .pointer("/args/gh")
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let attempted = positive(a, "attempted_at").unwrap_or(1) as i64;
-        let since = crate::decide::iso(attempted.max(0) as u64);
         // A minute of slack for the clocks of the host and GitHub: a post is
-        // also found by its sum.
-        let posted_since = crate::decide::iso((attempted - 60).max(0) as u64);
+        // also found by its sum. The time is above zero and the store's
+        // writers bound it to eleven digits, so neither window reaches the
+        // epoch: the guard proved the first, and the column's width the rest.
+        let since = tehas_core::time::iso(attempted as i64);
+        let posted_since = tehas_core::time::iso(attempted.saturating_sub(60) as i64);
         let read = |w: &mut Writer, path: String, page: bool| {
             let mut args = vec!["api".to_string(), path.clone()];
             if page {
