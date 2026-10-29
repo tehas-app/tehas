@@ -1,5 +1,6 @@
-//! Masks tokens, keys, passwords, the program's own secret settings and
-//! private network addresses.
+//! Masks tokens, keys, passwords, the program's own secret settings, the
+//! provider keys the host's models.json holds as literals, and private
+//! network addresses.
 //!
 //! An agent can print its environment and the console file is served by the
 //! dashboard, which may be on the internet. The mask is a net for accidents,
@@ -8,6 +9,7 @@
 
 use regex::{Captures, Regex};
 use std::cmp::Reverse;
+use std::path::PathBuf;
 use std::sync::{LazyLock, OnceLock};
 
 fn regex(pattern: &str) -> Regex {
@@ -110,15 +112,63 @@ pub fn mask(s: &str) -> String {
     hide(PRIVATE.get().and_then(Option::as_ref), &s)
 }
 
-// The values of this program's own settings whose names say they are secret:
-// the model keys, tokens and passwords it was started with. Each is hidden as
-// literal text wherever it appears, whatever surrounds it, so a value printed
-// without its name is hidden too.
-static ENV_SECRETS: LazyLock<Option<Regex>> = LazyLock::new(|| secret_values(std::env::vars()));
+// The literal values the mask hides: the values this program was started with
+// whose names say they are secret, and the provider keys the host's models.json
+// holds as literals. Each is hidden as literal text wherever it appears,
+// whatever surrounds it, so a value printed without its name is hidden too. A
+// literal key is in no setting, so it is read from the file, once for the run.
+static ENV_SECRETS: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    secret_values(std::env::vars(), model_key_values(&read_models_file()))
+});
+
+// lib/models.sh names the file, and the dispatcher's reader of it builds the
+// same path.
+fn models_file_path() -> std::path::PathBuf {
+    let home = std::env::var_os("HOME").unwrap_or_default();
+    PathBuf::from(home).join(".pi/agent/models.json")
+}
+
+// Once per run, with the mask: a missing or unreadable file holds nothing, and
+// that is no error.
+fn read_models_file() -> String {
+    std::fs::read_to_string(models_file_path()).unwrap_or_default()
+}
+
+/// The apiKey and backupApiKey written as literals in the models.json text:
+/// a value that starts with `$` names a variable, whose value the environment
+/// already gives. Text is the argument, so the rule is tested without a file.
+fn model_key_values(text: &str) -> Vec<String> {
+    let Ok(file) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(providers) = file.get("providers").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    for provider in providers.values() {
+        for name in ["apiKey", "backupApiKey"] {
+            if let Some(literal) = provider
+                .get(name)
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.starts_with('$'))
+                .map(str::trim)
+                .filter(|v| v.chars().count() >= SHORTEST_SECRET)
+                // A value of another provider that is the same key is kept once.
+                .filter(|literal| !values.iter().any(|kept| kept == literal))
+            {
+                values.push(literal.to_string());
+            }
+        }
+    }
+    values
+}
 
 // A shorter value would mask ordinary words.
 const SHORTEST_SECRET: usize = 8;
 
+// The words an environment setting's name must hold for its value to count as
+// a secret. models.json gives the names of its keys itself, so the rule is
+// only the environment's.
 fn secret_name(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
     ["TOKEN", "SECRET", "PASSWORD", "PASSWD", "KEY", "CREDENTIAL"]
@@ -126,14 +176,18 @@ fn secret_name(name: &str) -> bool {
         .any(|w| name.contains(w))
 }
 
-/// One pattern of the secret values among `vars`, the longest first. None
-/// when there is none.
-fn secret_values(vars: impl Iterator<Item = (String, String)>) -> Option<Regex> {
+/// One pattern of the secret values: those of the environment whose names say
+/// they are secret, and the literals of models.json, which name themselves.
+fn secret_values(
+    vars: impl Iterator<Item = (String, String)>,
+    models: Vec<String>,
+) -> Option<Regex> {
     let mut values: Vec<String> = vars
         .filter(|(name, _)| secret_name(name))
         .map(|(_, value)| value.trim().to_string())
         .filter(|v| v.chars().count() >= SHORTEST_SECRET)
         .collect();
+    values.extend(models);
     if values.is_empty() {
         return None;
     }
@@ -186,7 +240,8 @@ fn hide(names: Option<&Regex>, s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{mask, secret_values};
+    use super::{mask, model_key_values, secret_values};
+    use std::path::{Path, PathBuf};
 
     // Built here, not written out: scripts/check-generic.sh reads this file too.
     fn ip(parts: [u8; 4]) -> String {
@@ -331,11 +386,135 @@ mod tests {
             ("SOME_TOKEN".to_string(), "short".to_string()),
             ("PATH".to_string(), "/usr/bin:/bin".to_string()),
         ];
-        let values = secret_values(vars.into_iter()).expect("one value is kept");
+        let values = secret_values(vars.into_iter(), Vec::new()).expect("one value is kept");
         let out = values.replace_all("got Zq9xLm2Pw8Rt back, PATH=/usr/bin:/bin", "***");
         assert_eq!(out, "got *** back, PATH=/usr/bin:/bin");
         assert!(values.find("short").is_none());
-        assert!(secret_values(std::iter::empty()).is_none());
+        assert!(secret_values(std::iter::empty(), Vec::new()).is_none());
+    }
+
+    // models.json of the host that runs this test would join the mask, so a
+    // rule of it is tested on the text of a file and not on mask() itself,
+    // whose pattern a process builds once and cannot build twice. The reading
+    // of the host's file is the two steps below, tested as one would set HOME
+    // and the file of a host.
+    fn models_with(providers: &str) -> String {
+        format!("{{\"providers\": {providers}}}")
+    }
+
+    // The keys this mask hides, built here and not written out: a literal of
+    // one would name the very words it must leave alone.
+    fn key(n: usize) -> String {
+        "wY3tKp9mRx7Lq2Zb8Nd4Fc5Vg1"
+            .chars()
+            .cycle()
+            .take(n)
+            .collect()
+    }
+
+    // The reading of the host's file, as a host has it: HOME, the file under
+    // it, and the text the mask is given. The pattern itself is a LazyLock,
+    // so a test cannot point HOME at two hosts in one process.
+    fn models_file_of(home: &Path) -> String {
+        std::fs::read_to_string(home.join(".pi/agent/models.json")).unwrap_or_default()
+    }
+
+    fn home_of(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("tehas-core-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join(".pi/agent")).unwrap();
+        d
+    }
+
+    #[test]
+    fn a_literal_key_of_the_host_file_is_a_value_the_mask_hides() {
+        let home = home_of("host");
+        let (main, backup, kept) = (key(13), key(14), key(15));
+        std::fs::write(
+            home.join(".pi/agent/models.json"),
+            models_with(&format!(
+                "{{\"main\": {{\"apiKey\": \"{main}\", \"backupApiKey\": \"{backup}\"}}, \"fleet\": {{\"apiKey\": \"{kept}\"}}}}"
+            )),
+        )
+        .unwrap();
+        let values = model_key_values(&models_file_of(&home));
+        let pattern = secret_values(std::iter::empty(), values).expect("the keys are kept");
+        assert_eq!(
+            pattern.replace_all(&format!("printed: {main} {backup} {kept}"), "***"),
+            "printed: *** *** ***"
+        );
+        // No file at all is no error, and hides nothing beyond the environment.
+        let _ = std::fs::remove_dir_all(&home);
+        assert!(model_key_values(&models_file_of(&home)).is_empty());
+    }
+
+    #[test]
+    fn text_that_is_no_file_adds_nothing() {
+        // The reading of the host's file takes what it holds and nothing else:
+        // no file at all is empty text, and that is no error.
+        assert!(model_key_values("").is_empty());
+        assert!(model_key_values("   ").is_empty());
+    }
+
+    #[test]
+    fn a_literal_key_of_models_json_is_kept() {
+        // A reference and a short value join nothing, whatever provider they
+        // are in; the other cases here cover them.
+        let (main, backup, spare) = (key(12), key(13), key(14));
+        let text = models_with(&format!(
+            r#"{{"main": {{"apiKey": "{main}", "backupApiKey": "{backup}"}},
+                 "other": {{"apiKey": "{spare}", "backupApiKey": "$TEHAS_MODEL_KEY_FLEET"}},
+                 "spare": {{"apiKey": "unused"}}}}"#
+        ));
+        let values = model_key_values(&text);
+        assert_eq!(values, [main.clone(), backup.clone(), spare.clone()]);
+        let values = secret_values(std::iter::empty(), values).expect("a value is kept");
+        assert_eq!(
+            values.replace_all(&format!("got {main} and {backup} and {spare} back"), "***"),
+            "got *** and *** and *** back"
+        );
+    }
+
+    #[test]
+    fn a_reference_a_short_value_and_a_file_that_is_not_json_add_nothing() {
+        // A value that starts with $ names a variable: its value is in the
+        // environment, which the mask already reads.
+        let text = models_with(r#"{"main": {"apiKey": "$TEHAS_MODEL_KEY_MAIN"}}"#);
+        assert!(model_key_values(&text).is_empty());
+        // A shorter value would mask ordinary words: 7 characters are kept
+        // out, as for the environment.
+        let text = models_with(&format!(
+            "{{\"main\": {{\"apiKey\": \"{}\", \"backupApiKey\": \"{}\"}}}}",
+            key(7),
+            key(8)
+        ));
+        assert_eq!(model_key_values(&text), [key(8)]);
+        // The same key written for two providers is kept once, and one that
+        // only differs in white space counts as the same value.
+        let text = models_with(&format!(
+            "{{\"a\": {{\"apiKey\": \"{same}\"}}, \"b\": {{\"backupApiKey\": \" {same} \"}}}}",
+            same = key(9)
+        ));
+        assert_eq!(model_key_values(&text), [key(9)]);
+        assert!(model_key_values("not json at all").is_empty());
+        // Providers are not an object, and there is no providers at all.
+        assert!(model_key_values(r#"{"providers": []}"#).is_empty());
+        assert!(model_key_values(r#"{"models": []}"#).is_empty());
+        // A key that is not a string, and a provider that has no keys.
+        let text = models_with(r#"{"main": {"apiKey": 7}, "other": {}}"#);
+        assert!(model_key_values(&text).is_empty());
+    }
+
+    #[test]
+    fn the_longer_of_two_keys_of_models_json_is_masked_whole() {
+        let short = key(8);
+        let long = key(10);
+        let text = models_with(&format!(
+            r#"{{"a": {{"apiKey": "{short}"}}, "b": {{"backupApiKey": "{long}"}}}}"#
+        ));
+        let values = secret_values(std::iter::empty(), model_key_values(&text))
+            .expect("values are kept");
+        assert_eq!(values.replace_all(&long, "***"), "***");
     }
 
     #[test]

@@ -16,6 +16,12 @@ empty one above it.
 - A drafted plan in a `tehas:plan` session offers only **Update this
   issue** and **End this planning session**. **File as a new issue** stays
   for `tehas:refine` sessions, which exist to file one (#1010).
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: a provider key written as a literal `apiKey` or `backupApiKey`
+  in `$HOME/.pi/agent/models.json`, where before it hid only the value of a
+  `TEHAS_MODEL_KEY_<NAME>` setting. The file is read once per run; a missing,
+  unreadable or malformed one adds nothing, and so does a value that names a
+  variable or is under 8 characters (#986).
 
 ### Adopter action
 
@@ -103,6 +109,10 @@ copy of their own. Later updates need no drain.
   CREDENTIAL in it), as literal text wherever it appears; any upper-case
   assignment of such a name; and keys in the shape model providers give
   (`sk-` and a long run) (#984).
+- The same mask now hides a provider key written as a literal `apiKey` or
+  `backupApiKey` in `$HOME/.pi/agent/models.json`, not only the value of a
+  `TEHAS_MODEL_KEY_<NAME>` setting: the file is read once per run, and a
+  missing, unreadable or malformed one adds nothing (#986).
 - `console forge` gives bash one command over the forge interface: labels,
   label events, who approved, and putting a label on or off (#948).
 - The MCP server has a `factory_search` tool: a bounded search of a
