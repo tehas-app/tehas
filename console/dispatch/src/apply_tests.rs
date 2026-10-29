@@ -39,6 +39,7 @@ case "$name $1" in
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
   "store journal-open") cat "$d/open" 2>/dev/null || echo '{"api":1,"verb":"journal-open","ok":true,"actions":[]}' ;;
+  "store poll-begin") cat "$d/poll-begin" 2>/dev/null || echo '{"api":1,"verb":"poll-begin","ok":true,"at":2000}' ;;
   "store plan-begin")
     for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
     echo '{"api":1,"verb":"plan-begin","ok":true}' ;;
@@ -137,6 +138,7 @@ fn world() -> World {
             gh_token: None,
         },
         poll_at: 1000,
+        row_not_begun: false,
         before: 990,
         bound: Duration::from_secs(10),
         store_retry: Duration::from_secs(1),
@@ -2363,6 +2365,163 @@ fn settled(t: &World) -> Vec<String> {
         .into_iter()
         .filter(|c| c.starts_with("store journal-settle"))
         .collect()
+}
+
+#[test]
+fn a_poll_the_store_would_not_begin_still_settles_the_journal_it_holds() {
+    // The row names the writes a poll makes. Reading the journal, and
+    // settling what it holds, need no row: an answer with no time must not
+    // stop them, only the writes.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
+         "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}}]),
+    );
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again"]
+    );
+    assert_eq!(
+        settled(&t),
+        vec!["store journal-settle --action 3 --abandoned"]
+    );
+}
+
+#[test]
+fn a_poll_begin_answer_without_a_time_makes_no_write() {
+    // The row's time is what every record names. An answer without one is a
+    // store that cannot begin the row: the write is not made under 0.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // Neither the label nor the comment of the action: a gh call would be a
+    // write made under no row. The begin of the row is all it asked for.
+    assert_eq!(t.writes(), vec!["store poll-begin"], "{:#?}", t.writes());
+    // Once for the first write, and no more: poll_at stays 0, so a second
+    // begin would mean the poll went on writing.
+    let c = t.calls();
+    assert_eq!(
+        c.iter()
+            .filter(|l| l.starts_with("store poll-begin"))
+            .count(),
+        1
+    );
+    assert!(!c.iter().any(|l| l.contains("--poll 0")));
+}
+
+#[test]
+fn a_poll_begin_answer_with_a_time_that_is_not_a_number_makes_no_write() {
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true,"at":"x"}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // writes(): the gh and docker calls plus the row's begin, so this holds
+    // the write back and asks for the row once.
+    assert_eq!(t.writes(), vec!["store poll-begin"]);
+    assert!(!t.calls().iter().any(|l| l.contains("--poll 0")));
+}
+
+#[test]
+fn a_poll_begin_answer_with_a_time_of_zero_or_below_makes_no_write() {
+    for at in ["0", "-5"] {
+        let mut t = world();
+        t.w.poll_at = 0;
+        fs::write(
+            t.dir.join("poll-begin"),
+            format!(r#"{{"api":1,"verb":"poll-begin","ok":true,"at":{at}}}"#),
+        )
+        .unwrap();
+        let a = t.apply(json!([label()]));
+        assert_eq!(
+            a.log,
+            vec!["WARN: the state store began no poll row, so no write was made"],
+            "at {at}"
+        );
+        // The write refused before the row was begun: no gh call, and the
+        // begin of the row is the only store write of the poll.
+        assert_eq!(t.writes(), vec!["store poll-begin"], "at {at}");
+        assert!(!t.calls().iter().any(|l| l.contains("--poll 0")), "at {at}");
+    }
+}
+
+#[test]
+fn a_poll_whose_row_the_store_would_not_begin_says_it_once() {
+    // Two actions, each with a label and a comment: no write is made, and the
+    // poll logs the refusal once and not once per write or per action. The
+    // store is asked for the row once per action, since a refused answer
+    // leaves no row for the next write of the same action to name.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    let one = |n: u64| {
+        json!({"issue": n, "remove": ["tehas:ready"], "add": ["needs-human-attention"],
+            "fail": "WARN: label change failed",
+            "log": format!("clear #{n}: done"), "say": "Tehas took it off."})
+    };
+    let a = t.apply(json!([one(7), one(8)]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // Two asks, one per action: the label of each is refused and its comment
+    // never asked for. No record and no gh call anywhere.
+    assert_eq!(t.writes(), vec!["store poll-begin", "store poll-begin"]);
+    assert!(!t.calls().iter().any(|l| l.starts_with("store journal-")));
+    assert!(!t.calls().iter().any(|l| l.starts_with("gh ")));
+    assert_eq!(t.w.poll_at, 0);
+}
+
+#[test]
+fn the_first_write_begins_the_poll_row_once_and_records_under_it() {
+    let mut t = world();
+    t.w.poll_at = 0;
+    let a = t.apply(json!([label()]));
+    assert_eq!(a.log, vec!["clear #7: done"]);
+    let c = t.calls();
+    assert_eq!(
+        c.iter()
+            .filter(|l| l.starts_with("store poll-begin"))
+            .count(),
+        1
+    );
+    assert_eq!(t.w.poll_at, 2000);
+    // Both writes of the label: one row, named twice, never 0.
+    let polls: Vec<&String> = c
+        .iter()
+        .filter(|l| l.starts_with("store journal-record"))
+        .collect();
+    assert_eq!(polls.len(), 2);
+    assert!(polls.iter().all(|l| l.contains("--poll 2000")));
 }
 
 #[test]
