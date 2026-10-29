@@ -1,12 +1,18 @@
-//! The flags one instance keeps under `state/`: the limit `tehas limit` sets.
-//! Reading, validating, writing and printing them, for `libexec/limit`, so
-//! that every command which honours a flag reads it through one Rust function.
+//! The flags one instance keeps under `state/`: the limit `tehas limit` sets
+//! and the pause `tehas pause` sets. Reading, validating, writing and printing
+//! them, for `libexec/limit`, `libexec/pause` and `libexec/resume`, so that
+//! every command which honours a flag reads it through one Rust function.
 //!
 //!   console flags limit show [--json]
 //!   console flags limit set --cycles N [--plan on|off]
 //!       [--for SECONDS | --until TIME] [--reason TEXT] [--json]
 //!   console flags limit clear [--json]
 //!   console flags limit read [--now <epoch seconds>] [--line]
+//!
+//!   console flags pause show [--json]
+//!   console flags pause set [--reason TEXT]
+//!   console flags pause clear
+//!   console flags pause read [--line]
 //!
 //! The home is `TEHAS_HOME`, or `$HOME/tehas` with no `TEHAS_HOME`, as
 //! `lib/config.sh` resolves it. The file is `$TEHAS_HOME/state/limit.json`,
@@ -45,14 +51,46 @@
 //! `TEHAS_FLAGS_TEST_NOW` when that names one, which is how a shell test reads
 //! a limit at a moment of its own.
 //!
-//! Exit: 0 shown, set or cleared; 1 a file could not be written or removed;
-//! 64 a bad argument, which writes nothing.
+//! The pause flag is `$TEHAS_HOME/state/pause.json`, mode 0600, holding
+//! `{by, at, reason}` written whole - there is no version field, and the shape
+//! has been that since the flag was first written:
+//!
+//! - `by`: the account which wrote the flag, any JSON value; anything but a
+//!   string reads as nobody, and nothing which reaches a page publishes it
+//! - `at`: when it was written, `2026-10-17T14:05:00Z`, which must be a string
+//! - `reason`: one line of at most 200 characters, which must be a string
+//!
+//! `show` prints the flag as it then is, in the words `tehas status` prints,
+//! or with `--json` the object `tehas status --json` publishes for the switch:
+//!
+//!   pause     flag, written at 2026-10-17T14:05:00Z: waiting for the gate
+//!   {"api":1,"state":"ok","by":"boss","at":"...","reason":"..."}
+//!
+//! `read` prints the same reading as one object with no `api`, so the readers
+//! which share the file share this answer too; with `--line` it prints the
+//! words instead. `state` is `none` when no file is there and `ok` when one
+//! holds a flag, and `unreadable` when something is there which is no flag -
+//! a file no reader can make sense of, which every reader counts as paused.
+//! A command which is told the file is no flag says so in the words its
+//! readers have always used for one.
+//!
+//! `set` writes the flag with the account of this run and the moment of the
+//! write, and `clear` takes it off; `set` on a host already paused says what
+//! already is and leaves the flag alone. A flag is written through
+//! `pause.json.new`, mode 0600, and put in place by a rename, so what is there
+//! is always a whole flag; `clear` takes that name away too, and takes away
+//! either name only when it holds a regular file of this account, so it never
+//! follows a link someone left under one of them.
+//!
+//! Exit: 0 shown, set or cleared; 1 a file could not be written or removed, or
+//! a name of the flag is not this account's to remove; 64 a bad argument, which
+//! writes nothing.
 
 use serde_json::Value;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use tehas_core::time;
 
@@ -180,26 +218,54 @@ fn is_one(text: &str) -> bool {
     leading_number(text).is_some_and(|body| body.parse::<f64>() == Ok(1.0))
 }
 
-/// One reading of the flag: what the file said, in the words the commands
-/// print it. `state` is none, ok, expired or unreadable; the fields the file
-/// carries follow, the cycles as jq would print the number of the file.
-#[derive(Debug, PartialEq)]
+/// The reading of a flag: what the file said, the words which print it, and
+/// the heading those words stand under - `limit` or `pause`.
+#[derive(Debug, PartialEq, Clone)]
 pub struct Reading {
     state: String,
     /// The fields in the order they print, with the number already printed as
     /// jq prints it. `state` is not in here: it prints first, always.
     fields: Vec<(String, String)>,
+    /// The words of the reading, whole: the line of the flag as its command
+    /// and its readers print it, and the name of the flag in front of them.
+    line: String,
+    /// The name of the flag: the heading of the line, and the word the words
+    /// of a flag which is not one are about.
+    flag: &'static str,
 }
-
 impl Reading {
     fn of(state: &str) -> Reading {
         Reading {
             state: state.to_string(),
             fields: Vec::new(),
+            line: String::new(),
+            flag: "limit",
+        }
+    }
+
+    /// A reading of the pause flag: the same four states as the limit's, under
+    /// the name of this flag.
+    fn of_pause(state: &str) -> Reading {
+        Reading {
+            flag: "pause",
+            ..Reading::of(state)
         }
     }
 
     fn said(&self) -> String {
+        if !self.line.is_empty() {
+            return self.line.clone();
+        }
+        if self.flag == "pause" {
+            // A pause reading with no line of its own is a host with no flag, or
+            // a file which is no flag. The one word of the second is the words
+            // the dispatcher has always logged for it; the command which knows
+            // the name of the file says more, with not_a_flag.
+            return match self.state.as_str() {
+                "unreadable" => "pause.json is not a pause flag: taking it as paused".to_string(),
+                _ => format!("{}     none", self.flag),
+            };
+        }
         let field = |k: &str| self.field(k);
         let words = match self.state.as_str() {
             "none" => "none".to_string(),
@@ -263,14 +329,18 @@ impl Reading {
 pub fn main(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("limit") => limit(&given[1..]),
+        Some("pause") => pause(&given[1..]),
         Some(_) => usage("what is wanted of the flags"),
-        None => usage("a flag to work on: limit"),
+        None => usage("a flag to work on: limit or pause"),
     }
 }
 
 fn usage(why: &str) -> u8 {
     eprintln!("console flags: {why}");
     eprintln!("usage: console flags limit show [--json] | set --cycles N [--plan on|off] [--for SECONDS | --until TIME] [--reason TEXT] | clear | read [--now <epoch seconds>]");
+    eprintln!(
+        "       console flags pause show [--json] | set [--reason TEXT] | clear | read [--line]"
+    );
     64
 }
 
@@ -362,6 +432,322 @@ fn limit(given: &[String]) -> u8 {
         }
         _ => usage("show, set, clear or read, not a word this command knows"),
     }
+}
+
+/// The pause flag: the words of `tehas pause`, the reason of the flag it wrote
+/// and the name of the account which wrote it are decided here.
+fn pause(given: &[String]) -> u8 {
+    let here = match home() {
+        Some(h) => h,
+        None => {
+            eprintln!("console flags: neither TEHAS_HOME nor HOME is set");
+            return 64;
+        }
+    };
+    let (verb, rest) = match given.split_first() {
+        Some((verb, rest)) => (verb.as_str(), rest),
+        None => return usage("show, set, clear or read is wanted"),
+    };
+    let file = here.join("state/pause.json");
+    match verb {
+        // show prints the words tehas pause prints, or the object with api
+        // first when asked for --json.
+        "show" => {
+            let mut words = false;
+            for arg in rest {
+                if arg != "--json" || words {
+                    return usage("--json, once, after show");
+                }
+                words = true;
+            }
+            let out = read_pause(&file);
+            println!("{}", if words { api(out) } else { out.said() });
+            0
+        }
+        // read prints the object every command which honours the flag reads,
+        // with no api, and the words of the reading with --line.
+        "read" => {
+            let mut line = false;
+            for arg in rest {
+                if arg != "--line" || line {
+                    return usage("--line, once, after read");
+                }
+                line = true;
+            }
+            let out = read_pause(&file);
+            println!("{}", if line { out.said() } else { out.text() });
+            0
+        }
+        "set" => match pause_args(rest) {
+            Ok(reason) => pause_set(&file, &reason),
+            Err(bad) => usage(bad),
+        },
+        "clear" => {
+            // No --json here: the answer of a cleared host is the one line
+            // which says the flag is gone, and tehas resume prints it.
+            if !rest.is_empty() {
+                return usage("clear takes no argument");
+            }
+            pause_clear(&file)
+        }
+        _ => usage("show, set, clear or read, not a word this command knows"),
+    }
+}
+
+/// The reason of `tehas pause set`: one argument, given once.
+fn pause_args(rest: &[String]) -> Result<String, &'static str> {
+    let mut reason: Option<String> = None;
+    let mut i = 0;
+    while i < rest.len() {
+        let Some(value) = rest.get(i + 1) else {
+            return Err("an option without its value");
+        };
+        match rest[i].as_str() {
+            "--reason" if reason.is_none() => reason = Some(value.clone()),
+            _ => return Err("an option pause set does not know"),
+        }
+        i += 2;
+    }
+    Ok(reason.unwrap_or_default())
+}
+
+/// The account of this run: the real uid, and the name passwd gives for it.
+fn uid() -> u32 {
+    // SAFETY: getuid takes no argument and has no preconditions.
+    unsafe { libc::getuid() }
+}
+
+/// The account which wrote the flag, as `id -un` names it: the real uid, the
+/// name in passwd for it, and nothing for an account passwd does not name.
+fn account() -> String {
+    let entry = unsafe { libc::getpwuid(uid()) };
+    if entry.is_null() {
+        return String::new();
+    }
+    let name = unsafe { std::ffi::CStr::from_ptr((*entry).pw_name) };
+    name.to_string_lossy().into_owned()
+}
+
+/// `tehas pause`: the first pause wins. A host already paused says what already
+/// is and its flag is kept as it was; a file which is no flag holds no flag to
+/// keep, so it is replaced with one which can be read.
+fn pause_set(file: &Path, reason: &str) -> u8 {
+    match read_pause(file) {
+        Reading { state, fields, .. } if state == "ok" && !fields.is_empty() => {
+            // The field of the flag with its quotes off: what a reader of the
+            // object would take from it.
+            let of = |want: &str| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == want)
+                    .map(|(_, value)| value.trim_matches('"').to_string())
+                    .unwrap_or_default()
+            };
+            println!("{}", pause_kept(&of("at"), &of("by"), &of("reason"), file));
+            return 0;
+        }
+        Reading { state, fields, .. } => {
+            if state != "none" && (state != "ok" || fields.is_empty()) {
+                // The file in the way is named by this command, which is the
+                // one that knows its path, and says what it is not.
+                eprintln!("tehas pause: {}; writing a new one", not_a_flag(file));
+            }
+        }
+    }
+    if file.is_dir() {
+        eprintln!("tehas pause: {}", not_a_flag(file));
+        return 1;
+    }
+    let dir = match file.parent() {
+        Some(d) => d,
+        None => {
+            eprintln!("tehas pause: {} holds no directory", file.display());
+            return 1;
+        }
+    };
+    if let Err(e) = fs::create_dir_all(dir) {
+        eprintln!("tehas pause: could not create {}: {e}", dir.display());
+        return 1;
+    }
+    let said = oneline(reason);
+    let (by, at) = (account(), time::iso(now()));
+    let held = |text: &str| Value::String(text.to_string()).to_string();
+    let doc = format!(
+        "{{\"by\":{},\"at\":{},\"reason\":{}}}\n",
+        held(&by),
+        held(&at),
+        held(&said),
+    );
+    // The name is the one name, so a leftover of a run killed mid-write, or
+    // something planted in state/ under it, is removed first and the new file
+    // made from nothing at mode 0600: what lands is this document.
+    let tmp = file.with_extension("json.new");
+    let _ = fs::remove_file(&tmp);
+    let written = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(doc.as_bytes()))
+        .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600)))
+        .and_then(|()| fs::rename(&tmp, file));
+    if written.is_err() {
+        let _ = fs::remove_file(&tmp);
+        eprintln!("tehas pause: could not write {}", file.display());
+        return 1;
+    }
+    println!(
+        "{}\nno new cycle starts on this host: {}",
+        pause_written(&at, &by, &said),
+        file.display()
+    );
+    0
+}
+
+/// `tehas resume`: the flag is gone, whatever the other switch says. The name
+/// pause writes through goes too, so a leftover of it cannot outlive the flag.
+/// Each of the two names is ours only when we can take it: what is left of
+/// another uid's run, or planted under one of them, is reported and keeps the
+/// command from saying the host resumed.
+fn pause_clear(file: &Path) -> u8 {
+    let tmp = file.with_extension("json.new");
+    let there = file.symlink_metadata().is_ok() || tmp.symlink_metadata().is_ok();
+    // A name is ours to remove only when it holds a regular file of this run.
+    // A symlink is not: the command that follows it would be this one, and the
+    // link stays where whoever made it left it. The flag path reads through a
+    // symlink, so the same rule holds there.
+    for name in [file, &tmp] {
+        if name.symlink_metadata().is_ok() && !owned_regular(name) {
+            eprintln!("tehas resume: {} is not ours to remove", name.display());
+            return 1;
+        }
+    }
+    for name in [file, &tmp] {
+        match fs::remove_file(name) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                eprintln!("tehas resume: could not remove {}", name.display());
+                return 1;
+            }
+        }
+    }
+    println!(
+        "{}",
+        if there {
+            "resumed: the pause flag is gone"
+        } else {
+            "no pause flag on this host"
+        }
+    );
+    0
+}
+
+/// `tehas_pause_read`: the flag as every command which honours it reads it.
+/// A file which is not there is no flag, and anything else which is no flag is
+/// `unreadable`, never `none`, so a reader holds every start rather than
+/// finding no flag where a damaged file is. The reason comes back on one line,
+/// kept to the 200 characters tehas pause writes, whatever the file holds.
+/// The words of a reading are those of the pause line of `tehas status`; a
+/// file which is no flag has no line, and is named by the command which found
+/// it, because only there is the name of the file known.
+pub fn read_pause(file: &Path) -> Reading {
+    match fs::symlink_metadata(file) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Reading::of_pause("none"),
+        Err(_) => Reading::of_pause("unreadable"),
+        Ok(_) => match fs::read(file) {
+            Ok(bytes) => read_pause_bytes(&bytes),
+            // A directory has no bytes to read: it is no flag, and the command
+            // which asks says so.
+            Err(_) => Reading::of_pause("unreadable"),
+        },
+    }
+}
+
+/// The flag, its time and its reason, in the words the readers of the switch
+/// print it: tehas status for the pause line, and tehas pause for the flag it
+/// wrote. A flag with no time of its own was not written by tehas pause, so
+/// the time is not known. The heading is put on by the reading which prints
+/// the line, so that it is the name of the flag and not of the limit.
+fn pause_line(at: &str, reason: &str) -> String {
+    let at = if at.is_empty() { "an unknown time" } else { at };
+    if reason.is_empty() {
+        format!("flag, written {at}")
+    } else {
+        format!("flag, written {at}: {reason}")
+    }
+}
+
+/// The pause flag as the command which set it says it: `paused at <time> by
+/// <account>`, with the reason after a colon when the flag has one.
+fn pause_written(at: &str, by: &str, reason: &str) -> String {
+    if reason.is_empty() {
+        format!("paused at {at} by {by}")
+    } else {
+        format!("paused at {at} by {by}: {reason}")
+    }
+}
+
+/// The pause flag as the command which found it already there says it.
+fn pause_kept(at: &str, by: &str, reason: &str, file: &Path) -> String {
+    let said = if reason.is_empty() {
+        format!("already paused at {at} by {by}")
+    } else {
+        format!("already paused at {at} by {by}: {reason}")
+    };
+    format!("{said}\nthe flag is unchanged: {}", file.display())
+}
+
+/// The words a command says about a file which is no flag: the name of the
+/// file, and what it is not. A directory is named as one, because a flag which
+/// cannot be written over one is the case a person has to put right.
+fn not_a_flag(file: &Path) -> String {
+    if file.is_dir() {
+        return format!("{} is a directory, not a flag", file.display());
+    }
+    format!("{} is not a pause flag", file.display())
+}
+
+/// The reading of the bytes of a pause flag, from the text of the file: every
+/// check of tehas_pause_read, one for one. An object whose `at` and `reason`
+/// are strings is a flag; anything else is no flag. `by` may be anything and
+/// reads as nobody, and nothing which reaches a page publishes it.
+fn read_pause_bytes(bytes: &[u8]) -> Reading {
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(_) => return Reading::of_pause("unreadable"),
+    };
+    let keys = match Skip::new(bytes).object() {
+        Some(keys) => keys,
+        None => return Reading::of_pause("unreadable"),
+    };
+    let held = |want: &str| {
+        keys.iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, at)| &text[at.0..at.1])
+    };
+    // The checks of tehas_pause_read, one for one: an object whose at and
+    // reason are strings. by may be anything and reads as nobody.
+    let at = match held("at").and_then(quoted) {
+        Some(at) => at,
+        None => return Reading::of_pause("unreadable"),
+    };
+    let reason = match held("reason").and_then(quoted) {
+        Some(reason) => oneline(&reason),
+        None => return Reading::of_pause("unreadable"),
+    };
+    let by = held("by").and_then(quoted).unwrap_or_default();
+    let mut out = Reading::of_pause("ok");
+    out.line = format!("pause     {}", pause_line(&at, &reason));
+    out.fields
+        .push(("by".into(), Value::String(by).to_string()));
+    out.fields
+        .push(("at".into(), Value::String(at).to_string()));
+    if !reason.is_empty() {
+        out.fields
+            .push(("reason".into(), Value::String(reason).to_string()));
+    }
+    out
 }
 
 /// What `tehas limit set` was asked for, in the words it was asked in.
@@ -549,9 +935,9 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
         Ok(text) => text,
         Err(_) => return Reading::of("unreadable"),
     };
-    // jq's select, one check at a time, over the document it read. What an
-    // absent key reads as is part of the check: `.until == null` is true of a
-    // document with no until at all.
+    // The checks of tehas_limit_read, one jq select at a time, over the
+    // document it read. What an absent key reads as is part of the check:
+    // `.until == null` is true of a document with no until at all.
     let keys = match Skip::new(bytes).object() {
         Some(keys) => keys,
         // jq's reader is more forgiving than a strict one where a number is
@@ -562,8 +948,11 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
         // what is no document at all is no limit.
         None => return Reading::of("unreadable"),
     };
-    let field = |want: &str| keys.iter().find(|(name, _)| name == want).map(|(_, v)| *v);
-    let held = |want: &str| field(want).map(|(from, to)| &text[from..to]);
+    let held = |want: &str| {
+        keys.iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, at)| &text[at.0..at.1])
+    };
     match held("v") {
         Some(value) if leading_number(value).is_some_and(|n| n.parse::<f64>() == Ok(1.0)) => {}
         _ => return Reading::of("unreadable"),
@@ -617,6 +1006,16 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
             .push(("reason".into(), Value::String(reason).to_string()));
     }
     out
+}
+
+/// Whether a path is a regular file of this run. A symlink is never ours: the
+/// name is ours to remove only when it holds our own regular file, not one
+/// planted under it or left there by a container which ran as another account.
+fn owned_regular(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => meta.file_type().is_file() && meta.uid() == uid(),
+        Err(_) => false,
+    }
 }
 
 /// The text of a quoted string, with its escapes as they came. Only a reason
@@ -1331,5 +1730,332 @@ mod tests {
         assert_eq!(now(), 1_700_000_000);
         env::remove_var("TEHAS_FLAGS_TEST_NOW");
         assert!(now() > 1_791_942_400);
+    }
+
+    // The pause flag: the file tehas pause writes, read as every command which
+    // honours it reads it. `of_pause` reads bytes, so a case says what is at
+    // the path without needing the account of the run.
+    fn of_pause(doc: &str) -> String {
+        read_pause_bytes(doc.as_bytes()).text()
+    }
+
+    fn line_of_pause(doc: &str) -> String {
+        read_pause_bytes(doc.as_bytes()).said()
+    }
+
+    fn pause_file(d: &Dir) -> PathBuf {
+        fs::create_dir_all(d.0.join("state")).unwrap();
+        d.0.join("state/pause.json")
+    }
+
+    #[test]
+    fn a_flag_reads_as_the_object_the_readers_are_given() {
+        assert_eq!(
+            of_pause(
+                r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}"#
+            ),
+            r#"{"state":"ok","by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}"#
+        );
+        // A reason of no characters is a flag with no reason, and the field is
+        // left out of the reading as tehas_pause_read leaves it out.
+        assert_eq!(
+            of_pause(r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}"#),
+            r#"{"state":"ok","by":"boss","at":"2026-10-15T10:00:00Z"}"#
+        );
+        // by may be anything, and anything but a string reads as nobody.
+        assert_eq!(
+            of_pause(r#"{"by":7,"at":"2026-10-15T10:00:00Z","reason":"r"}"#),
+            r#"{"state":"ok","by":"","at":"2026-10-15T10:00:00Z","reason":"r"}"#
+        );
+        assert_eq!(
+            of_pause(r#"{"at":"2026-10-15T10:00:00Z","reason":"r"}"#),
+            r#"{"state":"ok","by":"","at":"2026-10-15T10:00:00Z","reason":"r"}"#
+        );
+    }
+
+    #[test]
+    fn the_words_of_a_flag_are_the_pause_line_of_tehas_status() {
+        assert_eq!(
+            line_of_pause(
+                r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"waiting for the gate"}"#
+            ),
+            "pause     flag, written 2026-10-15T10:00:00Z: waiting for the gate"
+        );
+        assert_eq!(
+            line_of_pause(r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":""}"#),
+            "pause     flag, written 2026-10-15T10:00:00Z"
+        );
+    }
+
+    #[test]
+    fn the_reason_of_a_flag_is_one_line_of_at_most_200_characters() {
+        // The rule of tehas_pause_read: the reader applies it, so a flag which
+        // reached the file some other way forges no line of tehas status.
+        assert_eq!(
+            of_pause(r#"{"by":"b","at":"2026-10-15T10:00:00Z","reason":"a\tb\nc\u0001d"}"#),
+            r#"{"state":"ok","by":"b","at":"2026-10-15T10:00:00Z","reason":"a b c d"}"#
+        );
+        let long = "x".repeat(300);
+        let doc = format!(r#"{{"by":"b","at":"2026-10-15T10:00:00Z","reason":"{long}"}}"#);
+        assert_eq!(
+            read_pause_bytes(doc.as_bytes())
+                .field("reason")
+                .chars()
+                .count(),
+            200
+        );
+    }
+
+    #[test]
+    fn what_is_no_flag_is_unreadable_never_none() {
+        // A damaged flag holds the factory paused, so it is never read as no
+        // flag: the same rule the limit reads by.
+        for bad in [
+            "not a flag at all",
+            "",
+            "[]",
+            "null",
+            "7",
+            r#"{"at": 7}"#,
+            r#"{"at":"2026-10-15T10:00:00Z"}"#,
+            r#"{"at":"2026-10-15T10:00:00Z","reason":7}"#,
+            r#"{"at":null,"reason":""}"#,
+            "{",
+        ] {
+            assert_eq!(of_pause(bad), r#"{"state":"unreadable"}"#, "{bad} was read");
+            // The words of such a reading are those the dispatcher has always
+            // logged, so a reader which prints the line says the same thing
+            // the reader which reads the file says today.
+            assert_eq!(
+                line_of_pause(bad),
+                "pause.json is not a pause flag: taking it as paused",
+                "{bad} was said"
+            );
+        }
+    }
+
+    #[test]
+    fn no_flag_is_none() {
+        let d = dir("pause-none");
+        let file = d.0.join("state/pause.json");
+        assert_eq!(read_pause(&file).text(), r#"{"state":"none"}"#);
+        assert_eq!(read_pause(&file).said(), "pause     none");
+    }
+
+    #[test]
+    fn a_flag_behind_a_link_is_the_file_it_points_at() {
+        let d = dir("pause-link");
+        let real = d.0.join("elsewhere.json");
+        fs::write(
+            &real,
+            r#"{"by":"boss","at":"2026-10-15T10:00:00Z","reason":"r"}"#,
+        )
+        .unwrap();
+        let file = pause_file(&d);
+        symlink(&real, &file).unwrap();
+        assert_eq!(
+            read_pause(&file).text(),
+            r#"{"state":"ok","by":"boss","at":"2026-10-15T10:00:00Z","reason":"r"}"#
+        );
+        fs::remove_file(&real).unwrap();
+        assert_eq!(read_pause(&file).text(), r#"{"state":"unreadable"}"#);
+    }
+
+    #[test]
+    fn a_pause_writes_the_flag_reads_back_and_keeps_the_first_one() {
+        let d = dir("pause-set");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, "waiting for the gate"), 0);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            format!(
+                "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"waiting for the gate\"}}\n",
+                account(),
+                time::iso(now()),
+            )
+        );
+        assert_eq!(
+            fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert!(!file.with_extension("json.new").exists());
+        // The first pause wins: the second says what already is and leaves the
+        // file alone, whatever it was asked for.
+        assert_eq!(pause_set(&file, "second"), 0);
+        assert!(fs::read_to_string(&file)
+            .unwrap()
+            .contains("waiting for the gate"));
+    }
+
+    #[test]
+    fn a_pause_with_nothing_to_say_writes_an_empty_reason() {
+        let d = dir("pause-bare");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, ""), 0);
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            format!(
+                "{{\"by\":\"{}\",\"at\":\"{}\",\"reason\":\"\"}}\n",
+                account(),
+                time::iso(now()),
+            )
+        );
+        // The reading of such a flag has no reason, and its line says none.
+        assert_eq!(
+            read_pause(&file).text(),
+            format!(
+                "{{\"state\":\"ok\",\"by\":\"{}\",\"at\":\"{}\"}}",
+                account(),
+                time::iso(now()),
+            )
+        );
+        assert_eq!(
+            read_pause(&file).said(),
+            format!("pause     flag, written {}", time::iso(now()))
+        );
+    }
+
+    #[test]
+    fn the_reason_of_a_pause_is_one_line_before_it_is_written() {
+        let d = dir("pause-reason");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, "\t a\u{1}b\n c \t"), 0);
+        assert_eq!(read_pause(&file).field("reason"), "a b  c");
+        // 200 characters of a multibyte reason, not 200 bytes.
+        assert_eq!(pause_set(&file, &"é".repeat(250)), 0);
+        // The first flag was kept, so the long reason was never written; set
+        // again with no flag there to keep.
+        fs::remove_file(&file).unwrap();
+        assert_eq!(pause_set(&file, &"é".repeat(250)), 0);
+        assert_eq!(read_pause(&file).field("reason"), "é".repeat(200));
+    }
+
+    #[test]
+    fn a_flag_that_is_no_flag_is_replaced_and_said() {
+        let d = dir("pause-bad");
+        let file = pause_file(&d);
+        fs::write(&file, "{\"at\": 7}").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(pause_set(&file, "fresh"), 0);
+        assert_eq!(read_pause(&file).field("reason"), "fresh");
+        // A directory in the way is reported and nothing is written: the one
+        // case where the command names the file rather than the flag in it.
+        let d = dir("pause-dir");
+        let file = d.0.join("state/pause.json");
+        fs::create_dir_all(&file).unwrap();
+        assert_eq!(pause_set(&file, "x"), 1);
+        assert!(file.is_dir());
+    }
+
+    #[test]
+    fn a_planted_temporary_does_not_become_the_flag() {
+        let d = dir("pause-planted");
+        let file = pause_file(&d);
+        fs::write(
+            file.with_extension("json.new"),
+            r#"{"by":"plant","at":"2026-10-15T10:00:00Z","reason":"planted"}"#,
+        )
+        .unwrap();
+        assert_eq!(pause_set(&file, "mine"), 0);
+        assert_eq!(read_pause(&file).field("reason"), "mine");
+        assert!(!file.with_extension("json.new").exists());
+    }
+
+    #[test]
+    fn resume_refuses_a_name_which_is_not_ours() {
+        // A symlink on either name is not a leftover of ours: the link stays
+        // where a person left it, its target is not touched, and the command
+        // does not report the flag as gone.
+        let d = dir("pause-clear-symlink");
+        let file = pause_file(&d);
+        let outside = d.0.join("victim");
+        fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, file.with_extension("json.new")).unwrap();
+        assert_eq!(pause_clear(&file), 1);
+        assert!(outside.is_dir());
+        assert!(file.with_extension("json.new").symlink_metadata().is_ok());
+        // The flag path reads through a symlink, so taking the link off would
+        // be following it: the same rule holds there.
+        let d = dir("pause-clear-flag-symlink");
+        let file = pause_file(&d);
+        let outside = d.0.join("keepme");
+        fs::write(&outside, "not a flag").unwrap();
+        symlink(&outside, &file).unwrap();
+        assert_eq!(pause_clear(&file), 1);
+        assert!(outside.exists());
+        assert!(file.symlink_metadata().is_ok());
+    }
+
+    #[test]
+    fn resume_says_so_when_a_name_cannot_be_removed() {
+        // Nothing may be written under a state directory which is not ours to
+        // write in, and the command does not print that the flag is gone when
+        // something still sits on one of its names.
+        let d = dir("pause-clear-readonly");
+        let file = pause_file(&d);
+        assert_eq!(pause_set(&file, "x"), 0);
+        fs::write(file.with_extension("json.new"), "half a flag").unwrap();
+        fs::set_permissions(d.0.join("state"), fs::Permissions::from_mode(0o500)).unwrap();
+        assert_eq!(pause_clear(&file), 1);
+        fs::set_permissions(d.0.join("state"), fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(file.exists() || file.with_extension("json.new").exists());
+    }
+
+    #[test]
+    fn resume_takes_the_flag_and_its_temporary_off() {
+        let d = dir("pause-clear");
+        let file = pause_file(&d);
+        assert_eq!(pause_clear(&file), 0);
+        assert_eq!(pause_set(&file, "x"), 0);
+        // A leftover of a run killed mid-write goes with the flag, so it
+        // cannot outlive it.
+        fs::write(
+            file.with_extension("json.new"),
+            r#"{"by":"b","at":"2026-10-15T10:00:00Z","reason":""}"#,
+        )
+        .unwrap();
+        assert_eq!(pause_clear(&file), 0);
+        assert!(!file.exists());
+        assert!(!file.with_extension("json.new").exists());
+        // Clearing a host which is not paused succeeds and says so.
+        assert_eq!(pause_clear(&file), 0);
+    }
+
+    #[test]
+    fn the_verbs_of_the_pause_flag_check_their_arguments() {
+        for bad in [
+            args(&[]),
+            args(&["bogus"]),
+            args(&["show", "--json", "--json"]),
+            args(&["show", "--json", "extra"]),
+            args(&["read", "--line", "--line"]),
+            args(&["read", "--json"]),
+            args(&["set", "--reason"]),
+            args(&["set", "--reason", "one", "--reason", "two"]),
+            args(&["set", "--cycles", "1"]),
+            args(&["set", "extra"]),
+            args(&["clear", "now"]),
+        ] {
+            env::set_var("TEHAS_HOME", "/nonexistent-tehas-home");
+            assert_eq!(pause(&bad), 64, "pause {bad:?} was taken");
+            env::remove_var("TEHAS_HOME");
+        }
+        // The reasons a set takes, including none at all.
+        assert_eq!(pause_args(&args(&[])).unwrap(), "");
+        assert_eq!(pause_args(&args(&["--reason", "one"])).unwrap(), "one");
+        assert_eq!(pause_args(&args(&["--reason", ""])).unwrap(), "");
+    }
+
+    #[test]
+    fn the_name_of_the_account_which_writes_the_flag_is_its_name() {
+        // The same name id -un prints: the real uid of the run, and the name
+        // passwd gives for it. An empty name would be a flag which says
+        // nothing about who wrote it.
+        assert!(!account().is_empty());
+        let out = std::process::Command::new("id")
+            .arg("-un")
+            .output()
+            .expect("id -un");
+        assert_eq!(account(), String::from_utf8_lossy(&out.stdout).trim());
     }
 }
