@@ -61,10 +61,12 @@ one. A request without a key gets 401.
 - `factory_log`: one log of a run, masked, plain in pieces or whole as gzip
 - `factory_failures`: the work runs of the last 30 days per tehas and pi-rukas version pair, with their most common causes; `by: image` splits a pair by the sandbox image build
 - `factory_outcomes`: how the factory has done further back than 30 days, as counts per tehas and pi-rukas version pair or per UTC week
+- `factory_park`: why an issue's last stopped run stopped: the step, the failure kind, the cap, the park signature and the failing check lines, masked
 
 To see what went wrong, call `factory_failures`, then `factory_sessions` with
 `outcome` set to `failed`, then `factory_session` for one of them, then
-`factory_log` for one of its logs. Sessions cover the last 30 days and logs are
+`factory_log` for one of its logs. For a parked issue, `factory_park` with the
+`issue` gives the step and the failing checks in one call. Sessions cover the last 30 days and logs are
 masked. Ask for `gzip: true` to get a transcript whole; read a plain log in
 pieces with `offset`. To ask how the factory has done over a year rather than a
 month, or whether a release changed the park or failure rates, call

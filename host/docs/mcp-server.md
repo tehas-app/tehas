@@ -9,7 +9,8 @@ Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
 a running cycle's console and the last ten days, as the dashboard shows them,
 one issue's story, and the sessions of the last 30 days and their logs, masked,
-and the lines of those logs that hold a string you give.
+the lines of those logs that hold a string you give, and why an issue's last
+stopped run stopped.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
@@ -197,6 +198,7 @@ the same JSON as text.
 | `factory_issue` | `issue`, a positive integer | One issue's story in one call: `issue`, `issueUrl`, `stage` (the first of `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` that lists it, left out when it is listed nowhere), `title` when the dashboard has it, `running` (`step`, `status`) while a cycle owns it — only a cycle that is running owns one, so a cycle the store has marked `lost`, or one that ended between publishes, puts nothing there and does not make the stage `running` — and `attempts`: every run of it of the last 30 days, oldest first, each with its `id` (the one to give `factory_session` or `factory_log`), `kind`, `attempt`, `how`, `started`, `ended`, `seconds`, `outcome`, `failedStep`, `failureKind`, `failureCause`, `parkReason` and `prUrl`. `firstSeen` and `lastSeen` are the started of the oldest and newest run, and `outcome` is the newest run's. An issue with no run in the window and no stage is a tool error that names it |
 | `factory_failures` | all optional: `by` (`version` or `image`), `rukasVersion` (also matches the commit) | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. With `by: image` each pair is split by the sandbox image its runs used, and an entry also has `image` and `imageBuilt`, so two builds of one pi-rukas version can be compared; runs with no image on record are an entry without them. Planning sessions are not counted |
 | `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
+| `factory_park` | `issue`, an integer from 1 to 999999999 | Why the issue's last stopped work run of the last 30 days stopped: a run whose outcome is `handoff`, `parked`, `failed` or `refused`. `id`, `started`, `ended`, `outcome`, `status`, `exitCode`, `latest` (no later work run of the issue in the window), and as the park comment's `tehas:park` marker has them `step`, `kind` (the failure kind), `cap`, `reason` (the park reason), `cause`, `provider` and `sig`. From the run's `result` log: `result` (`read`, `none`, `gone` or `unreadable`), `message`, `causeClass`, `causeReason`, `userAction` and `checks`, the failing check lines, masked, at most 20 of 400 characters each, with `checksCut` when there were more. `days` and `stale` as the session tools. An issue with no stopped run in the window is a tool error that names it |
 
 The links are built from the `repo` the dashboard publishes, and only when it
 is `owner/name`. Without a valid repo a session has no links and a cause has no
@@ -218,6 +220,18 @@ that asks for the other is a tool error that names the one it holds, rather than
 an answer of nothing. A week's entry stands for seven days and is kept when any
 of them falls in the window, because a count of a week cannot be split between
 its days.
+
+`factory_park` reads the same snapshot, then one file: the `result` log of
+the run it answers, by the name the snapshot gives and only when that name is
+the one pattern of a work run's result of that issue. A result over 1 MiB, a
+link, or one that is not JSON is not read, and the answer says `unreadable`.
+`sig` is the hash the cycle signs its park with, of the step, cap, park reason,
+failure kind and cause the run recorded, so it matches the marker on the
+issue's park comment without a call to GitHub. The check lines are the
+runner's own extract of the evidence, then the lines of its evidence that say
+`FAIL`, `FAILED`, `not ok` or `failed checks`, each once. Every text of the
+result is masked, then made one line, then cut. Nothing else of the result is
+served: not its handoff body, its paths of the work state or its usage.
 
 `factory_issue` reads the same snapshot for its attempts and the dashboard's own
 files for the rest: `status.json` for the stage and the title, `running.json`
