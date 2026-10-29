@@ -46,6 +46,11 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console epics <owner/name> <out>
+//!
+//! The open epics and their sub-issues, live/epics.json, for tehasbot status,
+//! see src/epics.rs.
+//!
 //!   console flags limit show|set|clear|read ...
 //!
 //! The flags under state/ of one instance: the limit tehas limit sets, see
@@ -80,6 +85,7 @@
 //! output cannot be written, 2 usage.
 
 mod clean;
+mod epics;
 mod export;
 mod flags;
 mod forge;
@@ -269,6 +275,7 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
+            Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
