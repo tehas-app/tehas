@@ -814,7 +814,7 @@ dispatcher's log says so.
    model endpoint does not list the model.
 5. The planner shows you a drafted plan before anything is written: the
    comment holds its title and spec, lists its open points with the
-   planner's proposals, and offers two boxes. Reply to change the plan, and
+   planner's proposals, and offers **Update this issue**. Reply to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -822,9 +822,9 @@ dispatcher's log says so.
      container runs for it. The bot's last comment says so and holds the
      text the plan replaced, folded. The plan is written with the bot's
      token.
-   - **File as a new issue** files the plan as shown as one new issue, as
-     before. A session files once. To finish, tick `End this planning
-     session`.
+   - A `tehas:refine` session also offers **File as a new issue**, which
+     files the plan as shown as one new issue that replaces this one. A
+     session files once.
 
    Nothing is started on its own: read the plan and apply `tehas:ready` to
    the issue you want built. The label approves the text as it is when you
