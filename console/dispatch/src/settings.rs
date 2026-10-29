@@ -12,7 +12,7 @@ pub struct Settings {
     pub allowed: Vec<String>,
     /// TEHAS_BOT_LOGIN: an app's login, which GET /user cannot answer.
     pub bot_login: String,
-    /// TEHAS_MILLWRIGHT_LOGIN: the millwright's account.
+    /// TEHAS_MILLWRIGHT_LOGIN: the millwright's account, as `account` has it.
     pub millwright: String,
     pub concurrency: i64,
     /// TEHAS_TICKET_CONCURRENCY as written: `auto` derives it in slots.rs.
@@ -84,7 +84,7 @@ impl Settings {
                 .map(str::to_string)
                 .collect(),
             bot_login: s("TEHAS_BOT_LOGIN", ""),
-            millwright: s("TEHAS_MILLWRIGHT_LOGIN", ""),
+            millwright: account(&s("TEHAS_MILLWRIGHT_LOGIN", "")).to_string(),
             concurrency,
             concurrency_written: written("TEHAS_TICKET_CONCURRENCY", 7),
             max_awaiting: n("TEHAS_MAX_AWAITING", concurrency + 2),
@@ -122,8 +122,14 @@ impl Settings {
 
     /// tehas_millwright_is.
     pub fn is_millwright(&self, login: &str) -> bool {
-        !self.millwright.is_empty() && login == self.millwright
+        !self.millwright.is_empty() && account(login) == self.millwright
     }
+}
+
+/// A login as GraphQL gives it: REST names a GitHub App `<slug>[bot]` and
+/// GraphQL `<slug>`, one account.
+pub fn account(login: &str) -> &str {
+    login.strip_suffix("[bot]").unwrap_or(login)
 }
 
 #[cfg(test)]
@@ -164,5 +170,33 @@ mod tests {
             (none.fixer_max_retries, none.fixer_max_plan_answers),
             (2, 3)
         );
+    }
+
+    #[test]
+    fn an_app_millwright_is_itself_in_both_forms_and_no_other_account() {
+        for setting in ["acme-millwright", "acme-millwright[bot]"] {
+            let c = Settings::parse(&json!({"TEHAS_MILLWRIGHT_LOGIN": setting}));
+            let is: Vec<bool> = [
+                "acme-millwright",
+                "acme-millwright[bot]",
+                "acme-millwright[bot][bot]",
+                "acme-millwright2",
+                "acme-millwright2[bot]",
+                "acme-millwrigh",
+                "[bot]",
+                "",
+            ]
+            .iter()
+            .map(|l| c.is_millwright(l))
+            .collect();
+            assert_eq!(
+                is,
+                [true, true, false, false, false, false, false, false],
+                "{setting}"
+            );
+            assert_eq!(c.millwright, "acme-millwright", "{setting}");
+        }
+        let none = Settings::parse(&json!({}));
+        assert!(!none.is_millwright("") && !none.is_millwright("[bot]"));
     }
 }

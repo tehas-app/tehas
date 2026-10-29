@@ -637,6 +637,22 @@ Written on the issue by the fixer, the account that decided to start this cycle 
 > Run the gate before review.
 > ## Not a section"
 
+# REST names an App <slug>[bot] and GraphQL <slug>: either form of the setting
+# takes the note of either form, and no other account's.
+for pair in 'acme-millwright acme-millwright[bot]' 'acme-millwright[bot] acme-millwright[bot]' 'acme-millwright[bot] acme-millwright'; do
+  t_case "an App millwright set as ${pair% *} has its note by ${pair#* } reach the retry"
+  images_on "TEHAS_MILLWRIGHT_LOGIN=${pair% *}"
+  issue_is "Words." NONE
+  record_is alice "Words."
+  fixer_record alice
+  record_edit --arg by "${pair#* }" '.by = "acme-millwright" | .retry_context = [{source: "fixer:82", by: "acme-millwright2[bot]", at: "2026-10-15T00:00:00Z", text: "Not the millwright."},
+    {source: "fixer:81", by: $by, at: "2026-10-15T00:00:00Z", text: "Run the gate before review."}]'
+  t_run "$work 7"
+  t_eq "$(manifest .retryContext)" '"retry-context.md"'
+  t_contains "$(cat "$imgs/retry-context.md")" "## fixer 81, by ${pair#* }, 2026-10-15T00:00:00Z"
+  t_lacks "$(cat "$imgs/retry-context.md")" "Not the millwright."
+done
+
 t_case "a refresh's task reaches retry-context.md as tehas wrote it, and only a refresh's"
 images_on
 caps_continue

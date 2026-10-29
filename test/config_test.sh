@@ -513,6 +513,43 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
 
+t_case "the millwright may be a GitHub App, named by its login with or without [bot]"
+for good in acme-millwright 'acme-millwright[bot]'; do
+  t_instance "${T_MINIMAL[@]}" "TEHAS_MILLWRIGHT_LOGIN=$good"
+  t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
+  t_eq "$t_out" "[$good]"
+done
+
+for bad in 'acme-millwright[bot][bot]' '[bot]' 'acme-millwright ' 'acme-millwright[bot] acme-other' 'acme-millwright[BOT]' 'acme-millwright[bot]x'; do
+  t_case "loading rejects a TEHAS_MILLWRIGHT_LOGIN of '$bad'"
+  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_MILLWRIGHT_LOGIN='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_MILLWRIGHT_LOGIN is not valid: expected one GitHub login"
+done
+
+t_case "an App's login is the same account as its name without [bot]: the millwright is still never an allowed labeller"
+t_instance "${T_MINIMAL[@]}" 'TEHAS_MILLWRIGHT_LOGIN=alice[bot]'
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice[bot]) is in TEHAS_ALLOWED_LABELERS"
+
+# The bot of a GitHub App as both forms name it: REST gives <slug>[bot],
+# GraphQL <slug>.
+app=(TEHAS_GITHUB_APP_ID=1 TEHAS_GITHUB_APP_INSTALLATION=2)
+for pair in 'acme-app[bot] acme-app[bot]' 'acme-app[bot] acme-app' 'acme-app acme-app[bot]'; do
+  t_case "the millwright is never the bot: bot ${pair% *}, millwright ${pair#* }"
+  t_instance "${T_MINIMAL[@]}" "${app[@]}" "TEHAS_BOT_LOGIN=${pair% *}" "TEHAS_MILLWRIGHT_LOGIN=${pair#* }"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (${pair#* }) is in TEHAS_ALLOWED_LABELERS or is TEHAS_BOT_LOGIN"
+done
+
+t_case "a millwright with a name like the bot's is an account of its own"
+t_instance "${T_MINIMAL[@]}" "${app[@]}" 'TEHAS_BOT_LOGIN=acme-app[bot]' 'TEHAS_MILLWRIGHT_LOGIN=acme-app-millwright[bot]'
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN]\""
+t_eq "$t_out" "[acme-app-millwright[bot]]"
+
 t_case "an old fixer name stops the load with 78 and names the new one"
 for old in TEHAS_FIXER_LOGIN=tehas-mill TEHAS_FIXER_MAX_RETRIES=3 TEHAS_FIXER_MAX_PLAN_ANSWERS=1 TEHAS_FIXER_LOGIN=; do
   t_case "loading rejects $old"
