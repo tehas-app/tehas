@@ -173,6 +173,14 @@ fn slice(live: &Path, now: i64) -> J {
             f.push((k.to_string(), d.get(k).clone()));
         }
     }
+    // What the two counts are when an instance says `auto`: the poll derived
+    // them from the host on this very poll, and the reason says which reading
+    // gave them. Left out, as every other optional field is, when the poll
+    // wrote none: a factory with numbers for both settings reports nothing
+    // new.
+    if !d.get("slots").is_null() {
+        f.push(("slots".to_string(), d.get("slots").clone()));
+    }
     J::Obj(f)
 }
 
@@ -788,6 +796,35 @@ mod tests {
         assert_eq!(
             h.report(&Given::default()).at(&["checks", "slice"]),
             &J::Null
+        );
+    }
+
+    #[test]
+    fn the_slots_a_poll_derived_are_kept_and_a_number_writes_none() {
+        let h = home("slots");
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
+                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
+                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}}"#,
+        );
+        assert_eq!(
+            h.report(&Given::default())
+                .at(&["checks", "slice", "slots", "cycle", "bound"])
+                .as_str(),
+            Some("cpu")
+        );
+        // A poll that sets numbers writes no slots object, and the check keeps
+        // the fields it always had: no key at all, not one that is null.
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":1,"free":1}"#,
+        );
+        let r = h.report(&Given::default());
+        assert!(r.at(&["checks", "slice"]).get("slots").is_null());
+        assert_eq!(
+            r.at(&["checks", "slice"]).dump(),
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":1,"committed":null,"max":null,"reserve":null,"free":1}"#
         );
     }
 
