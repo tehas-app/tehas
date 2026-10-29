@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- The limit of the factory is read, checked, written and printed by the
+  console (`~/tehas/libexec/console flags limit`), not by bash
+  (`libexec/limit`, `lib/limit.sh`), which are thin callers of it now (#895).
+  `tehas limit` and the pages of `tehas status` say the same as they did.
 - What closed an issue is now the console's to decide. `console shipped`
   (`console/src/shipped.rs`) holds the page of the read, its GraphQL query and the
   rule that reads its answer, and `lib/shipped.sh` is the names of those verbs and

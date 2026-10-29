@@ -20,19 +20,25 @@
 #                                  unreadable
 #   tehas_limit_line <limit json>  the line tehas limit and tehas status print
 #
-# Needs lib/status.sh for the one-line rule of a reason. Reads one file and
-# writes nothing.
+# The reading, the checks, the write and the words of the answer are the
+# console's, in console/src/flags.rs: this file is the shell's name for them.
+# Where no console can be run, tehas_limit_reading and lib/status.sh answer.
 
 tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_HOME"; }
 
-tehas_limit_read() { # [<now epoch seconds>]
-  local file now=${1:-} json
-  [ -n "$now" ] || now=$EPOCHSECONDS
-  file=$(tehas_limit_file)
-  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    echo '{"state":"none"}'
-    return 0
-  fi
+tehas_limit_console_of() { # the console of this run, or nothing when none can
+# be run: TEHAS_CONSOLE, or the one beside the commands which source this file.
+  local c=${TEHAS_CONSOLE:-${tehas_limit_home:-$(
+    cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/libexec/console}
+  [ -x "$c" ] && printf '%s\n' "$c"
+}
+
+tehas_limit_reading() { # <file> <now epoch seconds>: the shape of the
+# console's `flags limit read`, in jq alone. What cannot be read is never read
+# as no limit, so a reader holds every start rather than starting what a broken
+# file hides.
+  local file=$1 now=$2 json
+  { [ -e "$file" ] || [ -L "$file" ]; } || { printf '%s\n' '{"state":"none"}'; return; }
   # shellcheck disable=SC2154  # lib/status.sh, which every caller sources first
   json=$(jq -ce --argjson now "$now" '
     select(type == "object" and .v == 1
@@ -44,16 +50,30 @@ tehas_limit_read() { # [<now epoch seconds>]
     | ((.reason // "") | '"$tehas_pause_oneline"' | .[:200]) as $reason
     | {state: (if $u != null and $u <= $now then "expired" else "ok" end), cycles, plan}
       + (if .until == null then {} else {until} end)
-      + (if $reason == "" then {} else {reason: $reason} end)' "$file" 2>/dev/null) || json='{"state":"unreadable"}'
+    + (if $reason == "" then {} else {reason: $reason} end)' "$file" 2>/dev/null) || json='{"state":"unreadable"}'
   printf '%s\n' "$json"
+}
+
+tehas_limit_read() { # [<now epoch seconds>]: of the console when one can be
+# run, of the file when none can, which is a test and not a host.
+  local c now=${1:-$EPOCHSECONDS}
+  c=$(tehas_limit_console_of)
+  [ -n "$c" ] && { "$c" flags limit read --now "$now"; return; }
+  tehas_limit_reading "$(tehas_limit_file)" "$now"
 }
 
 tehas_limit_holds() { # <limit json>
   [ "$(jq -r .state <<<"$1")" != ok ] && [ "$(jq -r .state <<<"$1")" != none ]
 }
 
-# The words are lib/status.sh's, where tehas status and tehas top read them.
+# The words are lib/status.sh's, where tehas status and tehas top read them,
+# except for a limit in force with a console to ask, which prints its own.
 tehas_limit_line() { # <limit json>
+  local c
+  c=$(tehas_limit_console_of)
   # shellcheck disable=SC2154  # lib/status.sh, which every caller sources first
+  [ "$(jq -r '.state // "?"' <<<"$1" 2>/dev/null)" != ok ] || [ -z "$c" ] ||
+    { "$c" flags limit show; return; }
+  # shellcheck disable=SC2154
   jq -r "$tehas_state_defs"' limit_line' <<<"$1"
 }
