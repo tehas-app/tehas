@@ -85,6 +85,72 @@ reads() { t_calls gh | grep '^api graphql' || true; }
 tehas_page_count() {
   "$T_CONSOLE" shipped page
 }
+# The names a poll asks GitHub for, read out of the one search of the last run.
+# Parsed rather than retyped: a case that wrote the list out again would pass on
+# a search that named a label the console never printed. The last grep closes the
+# pipe early, so pipefail of the library is off for the read.
+search_labels() {
+  (
+    set +o pipefail
+    t_calls gh | grep '^issue list' | sed -n 's/.* --search label:\(.*\) --limit .*/\1/p' |
+      tr -d '"' | tr ',' '\n' | grep .
+  ) || true
+}
+# The console holds the rule of the poll, so a command of the platform reads it
+# before it calls GitHub, and a console of an older tehas that says nothing is said
+# then. The cases from here to "one search a poll" put the console beside the
+# command under test: the shapes of a bad one, and of none beside the command at
+# all. The next case brings the console of this checkout back, so every case after
+# it runs against the real program and no answer of a stub stands in for it.
+#
+# The answers of the stub are files under the scratch of the case, named by the
+# case, and not words of the environment: tehas_load of lib/config.sh drops every
+# TEHAS_* name it does not know, so a setting of a stub would be gone before the
+# first call of the poll.
+stub_console() { # [good|empty|one-state]: the console beside the command answers
+  # the four words a poll reads of it, each from a file of the case named below. The
+  # one argument names the shape of the list `tidy states` prints: `empty` is a console
+  # that prints no name at all, and `one-state` one that prints the nine state labels
+  # and no label of a merge after them. Anything else is the good console. The names
+  # are read out of the console of this checkout, so a case never writes them out and
+  # cannot drift from the rule. A reset of a case takes the files away, so every case
+  # calls this after its reset and the poll sees the console of that case alone.
+  local states_file=$T/fx/states.txt shape=${1-good} names
+  mkdir -p "$T/fx"
+  # The list is read whole into one name and written by one printf, so the file of the
+  # case is written once and by the one command that holds the list.
+  names=$("$T_CONSOLE" tidy states) || { t_bad "the console printed no state labels"; return 1; }
+  if [ "$shape" = empty ]; then
+    names=
+  elif [ "$shape" = one-state ]; then
+    # The nine state labels and no label of a merge after them. The caller reads the
+    # last name of the list as that label, so this console has lost the rule of what
+    # it may never take off: the poll spares the last name and searches for the rest.
+    names=${names%$'\n'*}
+  fi
+  printf '%s\n' "$names" >"$states_file"
+  cat >"$shim/libexec/console" <<STUB
+#!/usr/bin/env bash
+fx=\$T/fx
+case "\$1 \$2" in
+  "tidy states") [ -e "\$fx/states.txt" ] || exit 1
+    cat "\$fx/states.txt" ;;
+  "tidy issues") [ ! -e "\$fx/issues-fails" ] || exit 1 ;;
+  "tidy plan") cat "\$fx/plan.txt" ;;
+  "shipped page") cat "\$fx/page.txt" ;;
+esac
+exit 0
+STUB
+  chmod +x "$shim/libexec/console"
+  printf '100\n' >"$fx/page.txt"
+  : >"$fx/plan.txt"
+}
+# One line of a stubbed plan: the number, the state labels to take off, whether the
+# issue carries the label of a merge, and whether the closer read is asked about
+# it. These four words are the whole of what the console tells the poll.
+stub_plan() { # <number> <labels> <have> <ask>
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4"
+}
 # One issue's node of the closer answer, as the batched search returns it. The
 # closer is the only part a case chooses, so the shape of the timeline is
 # written once.
@@ -114,32 +180,145 @@ t_lacks "$t_out" "was not added"
 
 t_case "every state label comes off a closed issue in one edit, and the labels a person chose stay"
 reset
-echo '[{"number":5,"state":"CLOSED","labels":[{"name":"tehas:running"},{"name":"tehas:question"},{"name":"tehas:planning"},
-  {"name":"tehas:refreshing"},{"name":"tehas:blocked"},{"name":"tehas:ready"},{"name":"tehas:plan"},{"name":"tehas:urgent"},
+echo '[{"number":5,"state":"CLOSED","labels":[{"name":"tehas:running"},{"name":"tehas:awaiting-merge"},{"name":"tehas:question"},{"name":"tehas:planning"},
+  {"name":"tehas:refreshing"},{"name":"tehas:blocked"},{"name":"tehas:ready"},{"name":"tehas:plan"},{"name":"tehas:refine"},{"name":"tehas:urgent"},
   {"name":"tehas:next"},{"name":"tehas:prototype"},{"name":"cross-project"},{"name":"bug"}]}]' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 0
 t_eq "$(edits | wc -l)" 1
-for l in tehas:running tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan; do
+for l in tehas:running tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine; do
   t_contains "$(edits)" "--remove-label $l"
 done
 for l in tehas:urgent tehas:next tehas:prototype cross-project bug; do
   t_lacks "$(edits) " "--remove-label $l "
 done
-t_contains "$t_out" "tidy #5: removed tehas:running tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan"
+t_contains "$t_out" "tidy #5: removed tehas:running tehas:awaiting-merge tehas:question tehas:planning tehas:refreshing tehas:blocked tehas:ready tehas:plan tehas:refine"
 
 t_case "the search names only the state labels, never tehas:shipped or a person's labels"
 reset
 echo '[]' >"$fx/closed.json"
 t_run "$tidy"
 search=$(t_calls gh | grep '^issue list')
-t_contains "$search" '--search label:"tehas:running","tehas:awaiting-merge","tehas:question","tehas:planning","tehas:refreshing","tehas:blocked","tehas:ready","tehas:plan"'
+t_contains "$search" '--search label:"tehas:running","tehas:awaiting-merge","tehas:question","tehas:planning","tehas:refreshing","tehas:blocked","tehas:ready","tehas:plan","tehas:refine"'
 for l in tehas:shipped needs-human-attention tehas:urgent tehas:next tehas:prototype cross-project tehas:pause tehas:replaced tehas:refined; do
   t_lacks "$search" "\"$l\""
 done
 
+t_case "the console's own list of state labels is the list the search asks for"
+# The names live in the console now (console/src/tidy.rs), so this is the line
+# between them: the search is made for exactly the names `tidy states` prints, save
+# the label of a merge it ends with, and that label is named nowhere in the call. A
+# poll that asked for a name the console does not treat as a state label would list
+# an issue it then edits nothing about, and one that dropped a name would leave that
+# label on closed issues forever.
+reset
+echo '[]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+want=$("$T_CONSOLE" tidy states | grep -v '^tehas:shipped$' | paste -sd, -)
+t_eq "$(search_labels | paste -sd, -)" "$want"
+t_lacks "$(t_calls gh | grep '^issue list')" 'tehas:shipped'
+
+# The console holds the rule of the poll, so a command of the platform reads it
+# before it calls GitHub, and a console of an older tehas that says nothing is said
+# then. The cases from here to "one search a poll" put the console beside the
+# command under test: the shapes of a bad one, and of none beside the command at
+# all. Each of them installs its stub after the reset of its case, because reset
+# clears the scratch files a case drives, and that case brings the console of this
+# checkout back, so every case after it runs against the real program and no answer
+# of a stub stands in for it.
+
+t_case "a console that names no state labels stops the poll before the first call, exit 78"
+# The names of the search come from the console. Without them the command would ask
+# GitHub for nothing and tidy a repository it cannot describe, so the poll ends
+# before the search, as it does with no console beside it at all.
+reset
+stub_console empty
+t_run "$tidy"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the console names no state labels"
+t_eq "$(t_calls gh)" ""
+
+t_case "a console that lists the state labels but names no label of a merge still never asks the search for that label"
+# The shape of the list that has lost the label of a merge: the poll takes the last
+# name as that label and searches for the ones before it, so a list of the nine state
+# labels alone reads as eight to search for and the last of them to spare. What is
+# pinned here is the thing the command must never do, which is ask GitHub for the
+# issues of the label tidy itself gives - a search that named it would take that label
+# off the closed issues of a merge - so the run goes on and no call names it.
+reset
+stub_console one-state
+echo '[]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+search=$(t_calls gh | grep '^issue list')
+t_eq "$(printf '%s\n' "$search" | grep -c 'tehas:shipped')" 0
+t_contains "$search" '"tehas:running"'
+
+t_case "a console that gives no page stops the poll, exit 78"
+# The limit of the search and the ceiling of the closer read are the one number the
+# console prints for the query it prints; a poll that guessed its own could name
+# more issues than the read answers for, and label none of them.
+reset
+stub_console
+printf 'zero\n' >"$T/fx/page.txt"
+t_run "$tidy"
+t_eq "$t_rc" 78
+t_contains "$t_out" "the console gave no page"
+t_eq "$(t_calls gh)" ""
+
+t_case "an answer the console reads as no list of issues is the failed search, exit 1"
+# `tidy issues` is the console's own test of the answer: the command does not guess
+# at JSON, so an answer of GitHub that is no list is refused there and the poll
+# logs the search as failed instead of tidying a poll it never read.
+reset
+stub_console
+: >"$T/fx/issues-fails"
+t_run "$tidy"
+t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: tidy: the search for closed issues with state labels failed"
+t_eq "$(edits)" ""
+
+t_case "the plan the console gives is what the poll edits, and its ask says who is read"
+# The command holds no rule of its own: the numbers, the names and the issues the
+# closer read is asked about all come from `tidy plan`, and an ask of no means the
+# read is not made at all for that issue. The search of GitHub answers nothing here,
+# so a poll that decided for itself would find no issue to edit.
+reset
+stub_console
+stub_plan 7 tehas:running no yes >"$T/fx/plan.txt"
+stub_plan 8 tehas:question yes no >>"$T/fx/plan.txt"
+echo '[]' >"$fx/closed.json"
+t_run "$tidy"
+t_eq "$t_rc" 0
+t_eq "$(edits)" "issue edit 7 --repo acme/widget --remove-label tehas:running
+issue edit 8 --repo acme/widget --remove-label tehas:question"
+t_eq "$(reads | wc -l)" 1
+t_contains "$(reads)" "number:7"
+t_lacks "$(reads)" "number:8"
+
+t_case "no console beside the command is exit 78 and no call"
+# The header of this file names it: a tidy with no console is a host where
+# install.sh never finished. The command says so instead of tidying on the rule of
+# whatever console a PATH happened to hold.
+reset
+rm -f "$shim/libexec/console"
+t_run "$tidy"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+t_eq "$(t_calls gh)" ""
+cp "$T_CONSOLE" "$shim/libexec/console"
+
 t_case "one search a poll, for the closed issues of the repository"
-# The case above asked for no issue, so this reads what that run called.
+# The search is the one call of a poll that found nothing to tidy, and no poll that
+# found nothing makes a call about a closer. The case above took the console away,
+# so it comes back as the one of this checkout: every case from here reads the real
+# program, and no answer of a stub stands in for it.
+reset
+shim=$T/tree
+cp "$T_CONSOLE" "$shim/libexec/console"
+echo '[]' >"$fx/closed.json"
+t_run "$tidy"
 search=$(t_calls gh | grep '^issue list')
 t_eq "$(t_calls gh | grep -c '^issue list')" 1
 t_contains "$search" "--repo acme/widget --state closed"

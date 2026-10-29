@@ -13,6 +13,16 @@ empty one above it.
 
 ### Changes
 
+- `tehas tidy` decides its label changes in the console. The names it takes
+  off, the answer of the search and which issue the read of what closed them
+  is asked about are `console tidy`'s (`console/src/tidy.rs`, with its Rust
+  tests beside the source); the command keeps the settings, the two searches
+  and the label edits, and went from 216 lines of bash to 183. Nothing changes
+  for users: the same labels come off, and `tidy --dry-run` says what it said
+  before (#956). The shell test now pins all nine names end to end, so the list
+  the console holds is the list a poll searches for, takes off and logs; the
+  manual names `tehas:refine` among them.
+
 ### Adopter action
 
 None.
