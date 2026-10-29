@@ -28,6 +28,10 @@
 //!                                     copy the install's code for this
 //!                                     cycle and run tehasbot cycle from the
 //!                                     copy (src/pin.rs)
+//!   tehas-cycle pin plan <issue> <program> [args...]
+//!                                     what the dispatcher starts a planning
+//!                                     turn with: the same copy, and run
+//!                                     libexec/<program> of it with the args
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -40,7 +44,8 @@
 //! $TEHAS_HOME/run/cycle-<issue>-<pid>/, removes the copies of processes that
 //! are gone, and execs <copy>/bin/tehasbot cycle <issue> with TEHAS_CODE set to
 //! the copy. A copy it cannot make is said on standard error and the install's
-//! tehasbot runs instead. It returns only when neither could be run.
+//! tehasbot runs instead. It returns only when neither could be run. pin plan
+//! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
 //! read, said on standard error, or run could not exec; 64 an argument it
@@ -133,7 +138,23 @@ fn main() {
                 shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
             }
         }
-        ["run", n] => run(&home, issue(n, &args)),
+        ["run", n] => {
+            let n = issue(n, &args);
+            pinned(
+                &home,
+                "cycle",
+                n,
+                "bin/tehasbot",
+                &["cycle", &n.to_string()],
+            )
+        }
+        ["pin", "plan", n, program, rest @ ..] => {
+            let n = issue(n, &args);
+            if program.is_empty() || program.contains('/') || program.starts_with('.') {
+                wrong(&args);
+            }
+            pinned(&home, "plan", n, &format!("libexec/{program}"), rest)
+        }
         ["compare", n] => {
             let n = issue(n, &args);
             if on() {
@@ -146,7 +167,10 @@ fn main() {
     }
 }
 
-fn run(home: &Path, n: u64) {
+/// Runs `program` of the copy of the install made for this `kind` of `n`,
+/// or the install's own when the copy cannot be made: `bin/tehasbot` for a
+/// cycle, a program of libexec/ for a planning turn.
+fn pinned(home: &Path, kind: &str, n: u64, program: &str, args: &[&str]) -> ! {
     use std::os::unix::process::CommandExt;
     let say = |s: String| {
         eprintln!(
@@ -158,24 +182,29 @@ fn run(home: &Path, n: u64) {
         eprintln!("tehas-cycle: TEHAS_HOME is not an absolute path");
         std::process::exit(78);
     }
+    let what = if kind == "plan" {
+        "the planning turn of "
+    } else {
+        ""
+    };
     pin::sweep(home, pin::alive);
-    let root = match pin::make(home, n, std::process::id()) {
+    let root = match pin::make(home, kind, n, std::process::id()) {
         Ok(dir) => {
-            say(format!("#{n} runs from {}", dir.display()));
+            say(format!("{what}#{n} runs from {}", dir.display()));
             dir
         }
         Err(e) => {
             say(format!(
-                "#{n} runs from the install: its own copy could not be made ({e})"
+                "{what}#{n} runs from the install: its own copy could not be made ({e})"
             ));
             home.to_path_buf()
         }
     };
-    let e = std::process::Command::new(root.join("bin/tehasbot"))
-        .args(["cycle", &n.to_string()])
+    let e = std::process::Command::new(root.join(program))
+        .args(args)
         .env("TEHAS_CODE", &root)
         .exec();
-    fail(format!("{}: {e}", root.join("bin/tehasbot").display()));
+    fail(format!("{}: {e}", root.join(program).display()));
 }
 
 fn print_report(file: &str) {
