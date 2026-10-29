@@ -180,7 +180,7 @@ fn pattern(kind: &str, issue: u64, word: &str) -> Option<String> {
     Some(format!("{base}{suffix}$"))
 }
 
-fn name_ok(kind: &str, issue: u64, word: &str, name: &str) -> bool {
+pub(crate) fn name_ok(kind: &str, issue: u64, word: &str, name: &str) -> bool {
     pattern(kind, issue, word)
         .and_then(|p| Regex::new(&p).ok())
         .is_some_and(|re| re.is_match(name))
@@ -193,31 +193,51 @@ fn file_error(file: &str, why: &str) -> ToolError {
     }
 }
 
+/// Why a log was not opened.
+pub(crate) enum Unopened {
+    Gone,
+    Unreadable,
+    NotPlain,
+    TooLarge,
+}
+
+/// A plain file of at most `max` bytes, never one through a link, and its
+/// size.
+pub(crate) fn open_plain(path: &Path, max: u64) -> Result<(std::fs::File, u64), Unopened> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Unopened::Gone
+        } else {
+            Unopened::Unreadable
+        }
+    })?;
+    if !meta.file_type().is_file() {
+        return Err(Unopened::NotPlain);
+    }
+    if meta.len() > max {
+        return Err(Unopened::TooLarge);
+    }
+    let f = std::fs::File::open(path).map_err(|_| Unopened::Unreadable)?;
+    // The file opened is the one checked, not a link put in its place since.
+    let opened = f.metadata().map_err(|_| Unopened::Unreadable)?;
+    if opened.dev() != meta.dev() || opened.ino() != meta.ino() || !opened.is_file() {
+        return Err(Unopened::NotPlain);
+    }
+    Ok((f, meta.len()))
+}
+
 /// The file masked line by line, its newlines kept as they were. Only a plain
 /// file of at most `LOG_MAX` bytes is read, never one through a link.
 pub fn masked(path: &Path) -> Result<String, ToolError> {
     let err = |why: &str| file_error("log", why);
-    let meta = std::fs::symlink_metadata(path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            err("is gone")
-        } else {
-            err("could not be read")
-        }
+    let (f, len) = open_plain(path, LOG_MAX).map_err(|u| match u {
+        Unopened::Gone => err("is gone"),
+        Unopened::Unreadable => err("could not be read"),
+        Unopened::NotPlain => err("is not a plain file"),
+        Unopened::TooLarge => err("is over 16 MiB and is not served"),
     })?;
-    if !meta.file_type().is_file() {
-        return Err(err("is not a plain file"));
-    }
-    if meta.len() > LOG_MAX {
-        return Err(err("is over 16 MiB and is not served"));
-    }
-    let f = std::fs::File::open(path).map_err(|_| err("could not be read"))?;
-    // The file opened is the one checked, not a link put in its place since.
-    let opened = f.metadata().map_err(|_| err("could not be read"))?;
-    if opened.dev() != meta.dev() || opened.ino() != meta.ino() || !opened.is_file() {
-        return Err(err("is not a plain file"));
-    }
     let mut r = BufReader::new(f.take(LOG_MAX + 1));
-    let mut out = String::with_capacity(meta.len() as usize);
+    let mut out = String::with_capacity(len as usize);
     let (mut line, mut read) = (Vec::new(), 0u64);
     loop {
         line.clear();

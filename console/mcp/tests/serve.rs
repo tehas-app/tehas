@@ -821,6 +821,76 @@ fn a_served_log_masks_the_private_names_given() {
     );
 }
 
+// factory_park through the server: the bearer key, the snapshot and the
+// result log, and the private names given masked out of the check lines.
+fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
+    let root = std::env::temp_dir().join(format!("mcp-serve-park-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    for d in [&live, &snap, &logs] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let file = "work-7-261029-085206.jsonl.result.json";
+    std::fs::copy(Path::new(&fixture("park")).join(file), logs.join(file)).unwrap();
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        - 100;
+    let session = json!({"id": format!("work-7-{t}"), "kind": "work", "issue": 7,
+        "started": iso(t), "ended": iso(t + 60), "outcome": "handoff",
+        "lastStep": "develop", "cap": "verify-failed:develop", "failureKind": "verify",
+        "logs": [{"word": "result", "name": file, "bytes": 1}]});
+    let head = json!({"api": 1, "days": 30, "generatedAt": iso(t + 100), "sessions": 1});
+    std::fs::write(snap.join("sessions.jsonl"), format!("{head}\n{session}\n")).unwrap();
+    let path = |p: &Path| p.display().to_string();
+    let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), extra);
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "factory_park", "arguments": {"issue": issue},
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
+    .to_string();
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "factory_park"),
+        ("Connection", "close"),
+    ];
+    let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.write_all(&post_raw("POST", "/mcp", Some(&auth), &h, &body))
+        .unwrap();
+    let mut out = String::new();
+    let _ = c.read_to_string(&mut out);
+    s.stop();
+    let _ = std::fs::remove_dir_all(&root);
+    let (head, body) = out.split_once("\r\n\r\n").unwrap();
+    assert!(head.starts_with("HTTP/1.1 200"), "{out}");
+    serde_json::from_str::<Value>(body).unwrap()["result"].clone()
+}
+
+#[test]
+fn a_served_park_masks_the_private_names_given() {
+    let r = served_park("private", &["--private", "models.lan"], 7);
+    let park = &r["structuredContent"];
+    assert_eq!(park["step"], "develop", "{r}");
+    assert_eq!(park["kind"], "verify");
+    assert_eq!(
+        park["sig"],
+        tehas_core::question::park_sig("develop", "verify-failed:develop", "", "verify", "")
+    );
+    let checks = park["checks"].to_string();
+    assert!(checks.contains("asked [private name]:8086"), "{checks}");
+    assert!(!r.to_string().to_lowercase().contains("models.lan"), "{r}");
+
+    let r = served_park("nostop", &[], 8);
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(
+        r.to_string().contains("issue 8 has no stopped work run"),
+        "{r}"
+    );
+}
+
 #[test]
 fn private_needs_a_name() {
     let (rc, err) = run_once(
