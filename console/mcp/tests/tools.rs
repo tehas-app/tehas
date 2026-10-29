@@ -178,6 +178,7 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         "factory_failures",
         "factory_outcomes",
         "factory_park",
+        "factory_decisions",
     ]);
     assert_eq!(names, want);
     for t in tools.as_array().unwrap() {
