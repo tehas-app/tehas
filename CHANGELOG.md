@@ -13,13 +13,6 @@ empty one above it.
 
 ### Changes
 
-- The mask that the console, its live file and the MCP server's logs share
-  hides more: the value of every setting the program was started with whose
-  name says it is secret (a name with TOKEN, SECRET, PASSWORD, PASSWD, KEY or
-  CREDENTIAL in it), as literal text wherever it appears; any upper-case
-  assignment of such a name; and keys in the shape model providers give
-  (`sk-` and a long run).
-
 ### Adopter action
 
 None.
@@ -56,6 +49,12 @@ None.
   with a missing or malformed id, issue or time is left open with a warning,
   not settled as 0 (#967). A `poll-begin` answer with no time makes no write
   (#971). A hold whose comment failed is told again on the next poll (#959).
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: the value of every setting the program was started with whose
+  name says it is secret (a name with TOKEN, SECRET, PASSWORD, PASSWD, KEY or
+  CREDENTIAL in it), as literal text wherever it appears; any upper-case
+  assignment of such a name; and keys in the shape model providers give
+  (`sk-` and a long run) (#984).
 - `console forge` gives bash one command over the forge interface: labels,
   label events, who approved, and putting a label on or off (#948).
 - The MCP server has a `factory_search` tool: a bounded search of a
