@@ -250,6 +250,29 @@ pub fn park_marker(
 }
 
 /// The report of a cycle that ended.
+/// The image on the record of this attempt and the pi-rukas commit of its
+/// label, each empty when it is not there or of another shape.
+pub fn record_image(rec: &Value, attempt: u64) -> (String, String) {
+    let (mut id, mut rukas) = (String::new(), String::new());
+    if let Some(c) = rec.get("cycle").filter(|c| {
+        c.is_object()
+            && c.get("attempt").and_then(Value::as_u64) == Some(attempt)
+            && !c.get("image").is_none_or(Value::is_null)
+    }) {
+        let line = format!("{} {}", text(c, "image"), text(c, "rukas_commit"));
+        let ws = words(&line, None);
+        id = ws.first().cloned().unwrap_or_default();
+        rukas = ws.get(1).cloned().unwrap_or_default();
+    }
+    if !re(r"^sha256:[0-9a-f]{64}$", &id) {
+        id.clear();
+    }
+    if !re(r"^[0-9a-f]{7,40}$", &rukas) {
+        rukas.clear();
+    }
+    (id, rukas)
+}
+
 pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     let mut r = Report::default();
     let issue = f.issue;
@@ -481,27 +504,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         step = stop_step;
         step_from = "stalled";
     }
-    // The image on the record of this attempt.
     let (mut image_id, mut image_rukas) = (String::new(), String::new());
     match &f.record {
-        Ok(rec) => {
-            if let Some(c) = rec.get("cycle").filter(|c| {
-                c.is_object()
-                    && c.get("attempt").and_then(Value::as_u64) == Some(f.attempt)
-                    && !c.get("image").is_none_or(Value::is_null)
-            }) {
-                let line = format!("{} {}", text(c, "image"), text(c, "rukas_commit"));
-                let ws = words(&line, None);
-                image_id = ws.first().cloned().unwrap_or_default();
-                image_rukas = ws.get(1).cloned().unwrap_or_default();
-            }
-            if !re(r"^sha256:[0-9a-f]{64}$", &image_id) {
-                image_id.clear();
-            }
-            if !re(r"^[0-9a-f]{7,40}$", &image_rukas) {
-                image_rukas.clear();
-            }
-        }
+        Ok(rec) => (image_id, image_rukas) = record_image(rec, f.attempt),
         Err(word) => warn(
             &mut r,
             format!("the record of #{issue} could not be read for its image ({word})"),
@@ -1215,6 +1220,10 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     r.history = Value::Object(h);
     if !image_id.is_empty() {
         r.analytics.extend(["--image".into(), image_id.clone()]);
+        if !f.image_built.is_empty() {
+            r.analytics
+                .extend(["--image-built".into(), f.image_built.clone()]);
+        }
     }
     if !image_rukas.is_empty() {
         r.analytics
