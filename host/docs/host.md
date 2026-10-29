@@ -468,7 +468,10 @@ file it was copying as it was.
 One file is written, not copied: `version.txt`, beside the pages in
 `~/tehas/docs` and `~/tehas/fun`. It holds the newest tag of the checkout and
 the commit it was at when `install.sh` last ran, as `v0.1.1+11b669d`, and the
-footer of every page shows it. `--check` does not look at it.
+footer of every page shows it. `--check` does not look at it. Beside it in
+`~/tehas/fun`, `rukas-version.txt` holds the pi-rukas version of the sandbox
+image, as `v0.14.29`, which the footers of the front pages show too. The image
+build writes it, not `install.sh`, which leaves it where it is.
 
 Five installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server, the state store and the attachment
@@ -1402,7 +1405,9 @@ the image, and the dispatch log names each issue it holds.
 The build takes pi-rukas at the commit `PI_RUKAS_FOLLOW` names, as described
 under [pi-rukas comes from upstream](#pi-rukas-comes-from-upstream).
 `build.sh --if-moved` builds only when that is not the commit the current
-image was built on, and `build.sh --check` only says whether it moved. The
+image was built on, and `build.sh --check` only says whether it moved. A build,
+and a `--if-moved` that finds nothing to build, write the image's pi-rukas
+version to `~/tehas/fun/rukas-version.txt` for the footers of the front pages. The
 contract test proves the product's gates run inside the image, as the unprivileged user,
 with nothing mounted but a clone:
 

@@ -124,6 +124,17 @@ t_lacks "$t_out" "version.txt"
 for page in "$T_ROOT/host/docs/_layout.html" "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
   t_contains "$(cat "$page")" 'readFile "/version.txt"'
 done
+# The pi-rukas version beside the pages is the image build's, not install.sh's:
+# an install neither removes it nor names it stale, and the front pages show it.
+echo v0.14.29 >"$th/fun/rukas-version.txt"
+t_run "$tagged/install.sh --check"
+t_lacks "$t_out" "rukas-version.txt"
+t_run "$tagged/install.sh"
+t_eq "$t_rc" 0
+t_eq "$(cat "$th/fun/rukas-version.txt")" v0.14.29
+for page in "$T_ROOT/host/fun/index.html" "$T_ROOT/host/fun/business.html"; do
+  t_contains "$(cat "$page")" 'pi-rukas {{ readFile "/rukas-version.txt" | trim | html }}'
+done
 
 t_case "a checkout without the console's source installs nothing and exits 1"
 fresh

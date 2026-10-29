@@ -153,7 +153,8 @@
       <p>Tehas, a software factory. Powered by Pi and pi-rukas.</p>
       <p><a href="/floor">Factory floor</a> · <a href="/dashboard">Plain dashboard</a> · <a href="/overview">Manual</a> · <a href="/agents">Agents</a> · <a href="/llms.txt">llms.txt</a></p>
       {{- if fileExists "/version.txt" }}
-      <p>TEHAS {{ readFile "/version.txt" | trim | html }}</p>
+      <p>TEHAS {{ readFile "/version.txt" | trim | html }}
+        {{- if fileExists "/rukas-version.txt" }} · pi-rukas {{ readFile "/rukas-version.txt" | trim | html }}{{ end }}</p>
       {{- end }}
     </footer>
   </main>
