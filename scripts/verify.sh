@@ -60,7 +60,8 @@ mode=${mode:-plain}
 # changed during the run. TEHAS_VERIFY_FRESH=1 runs every step.
 tree_key() {
   local idx=$tmp/index t
-  cp "$(git rev-parse --git-path index 2>/dev/null)" "$idx" 2>/dev/null || return 1
+  # -p: git rechecks a file not older than the index, so the copy keeps its time.
+  cp -p "$(git rev-parse --git-path index 2>/dev/null)" "$idx" 2>/dev/null || return 1
   GIT_INDEX_FILE=$idx git add -A 2>/dev/null || return 1
   {
     echo "${1:-plain}"

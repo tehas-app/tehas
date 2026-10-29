@@ -52,6 +52,23 @@ echo two >"$tree/a.txt"
 t_run "$gate"
 t_eq "$(runs)" 2
 
+t_case "a same-size edit in the second of the last index write runs the gate again"
+fresh
+# git checks a file whose stat is unchanged only when it is not older than
+# the index. The times are pinned so the edit lands in the index's second;
+# ctime cannot be pinned, so it is not compared.
+g config core.trustctime false
+index=$tree/.git/index
+touch -d '2026-01-01 00:00:00' "$tree/a.txt"
+g update-index -q --refresh
+t_run "$gate"
+echo two >"$tree/a.txt"
+touch -d '2026-01-01 00:00:00' "$tree/a.txt" "$index"
+# The real index sees the edit; a status that wrote the index would hide it.
+t_eq "$(g --no-optional-locks status --porcelain a.txt)" " M a.txt"
+t_run "$gate"
+t_eq "$(runs)" 2
+
 t_case "a new untracked file runs the gate again"
 fresh
 t_run "$gate"
