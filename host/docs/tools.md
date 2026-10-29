@@ -378,7 +378,8 @@ ticked retry stays ticked. While the index runs, polls say `holding: the cycles
 wait for the code index`, and planning turns and sweeps go on. An index that
 could not be refreshed is a warning in the next poll's log; the cycles still
 start. It then marks each issue `tehas:running` and starts
-`tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle).
+`tehas-cycle@<issue>.service`, which runs [tehasbot cycle](#tehasbot-cycle)
+from the cycle's own copy of the code.
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
 remaining issues, and it ends with exit 1.
@@ -398,8 +399,9 @@ allowed account in the bot's comment on a stopped cycle can start a fresh
 cycle, and a reply or a ticked box on a planning question runs the next turn of
 that session. A retry waits for a free slot and for the cap, as any cycle does.
 A planning turn waits for neither. It runs as its own unit,
-`tehas-plan-<issue>.service`, started with `systemd-run`, and the poll does not
-wait for it: cycles start while it runs, and the first poll after it ends posts
+`tehas-plan-<issue>.service`, started with `systemd-run`, from its own copy of
+the code as a cycle runs (`tehas-cycle pin plan`, see
+[tehasbot cycle](#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
@@ -1785,6 +1787,12 @@ GitHub anything, so a host can be paused when GitHub cannot be reached. Pausing 
 paused host succeeds and keeps the first flag. The reason is one argument, kept
 to 200 characters, and it reaches pages that may be public.
 
+The reading, the checks of the reason, the write and the words of the answer are
+the console's (`~/tehas/libexec/console flags pause`); the command checks the
+number of its arguments, loads the settings, and stops with 78 without an
+instance or a console. A flag is written through `pause.json.new`, mode 600, and
+put in place by a rename, so what is there is always a whole flag.
+
 Exit 0 when the host is paused, 64 on more than one argument, 78 when the
 instance settings are missing or malformed, which writes nothing, 1 when the flag
 could not be written, a directory in its way among them.
@@ -1795,15 +1803,22 @@ could not be written, a directory in its way among them.
 tehas resume     # remove this host's pause flag
 ```
 
-Removes the flag, and succeeds when there is none. It then reports the other
-switch: `tehas:pause` on the control issue. Only an account in
+Removes the flag, and succeeds when there is none; the name the flag is written
+through goes with it, so a leftover of an interrupted `tehas pause` cannot
+outlive the flag. A name of the flag is taken away only when it holds a regular
+file of this account, so a symlink left on one of them is reported and stays
+where it is rather than being followed.
+Removing it is the console's (`console flags pause clear`);
+what is left here is the other switch, which only `gh` can read: `tehas:pause` on
+the control issue. Only an account in
 `TEHAS_ALLOWED_LABELERS` lifts that label, so when it is gone and its most recent
 `tehas:pause` event is a removal by anyone else, or is an application no event
 took back, this says so and that the factory stays paused. It never changes a
 label.
 
 Exit 0 when the flag is gone, whatever the label says, 64 on any argument, 78
-when the instance settings are missing or malformed.
+when the instance settings are missing or malformed, 1 when a name of the flag
+could not be removed, or is not this account's to remove.
 
 ## tehas stop
 
@@ -2133,6 +2148,18 @@ it is not typed in daily use.
 systemctl --user status 'tehas-cycle@*'    # the cycles that are running
 systemctl --user stop tehas-cycle@12       # end the cycle for issue 12
 ```
+
+The unit runs `tehas-cycle run <issue>`, which gives the cycle its own copy of
+the code: it hardlinks `~/tehas/bin`, `~/tehas/libexec` and `~/tehas/lib` into
+`~/tehas/run/cycle-<issue>-<pid>/` and runs `tehasbot cycle` from there. An
+update replaces each file by renaming a new one over it, so the copy keeps the
+files the cycle started with, and the cycle ends on the version it began on.
+The state store and the analytics program are the exception: the cycle calls
+the installed ones, because they own the databases. `dispatch.log` says
+`tehas-cycle: #N runs from <copy>` when the cycle starts. A copy that cannot be
+made is said there as `#N runs from the install: its own copy could not be made
+(<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
+copies whose process has ended.
 
 It runs [tehas work](#tehas-work) for the issue, reads the runner's result
 that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,

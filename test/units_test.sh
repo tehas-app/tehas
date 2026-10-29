@@ -50,6 +50,12 @@ for name in "${self_writing[@]}"; do
     "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot $name\""
 done
 
+t_case "a cycle's unit starts the cycle from its own copy of the code"
+# tehas-cycle run copies bin/, libexec/ and lib/ and execs tehasbot cycle from
+# the copy, so an update while the cycle runs does not change its code (#989).
+t_eq "$(sed -n 's/^ExecStart=//p' "$units/tehas-cycle@.service")" \
+  "/bin/bash -c \". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run %i >> %h/tehas/logs/dispatch.log 2>&1\""
+
 t_case "the poll's unit removes the file that starts it before the poll runs"
 # A poll that stops on its settings writes nothing, so the unit removes the
 # file: left in place, tehas-dispatch.path would start poll after poll until
