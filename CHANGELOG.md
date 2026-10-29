@@ -13,6 +13,9 @@ empty one above it.
 
 ### Changes
 
+- The gate's kept pass no longer misses a same-size edit made in the
+  second of the last index write: its copy of the index keeps the index's
+  time, so git checks that file again (#983).
 - Less bash: `tehas pause` and `tehas resume` hand the pause flag to the
   console. `console flags pause show|set|clear|read` reads, validates, writes
   and prints `~/tehas/state/pause.json`, the same file in the same shape with
