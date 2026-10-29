@@ -36,7 +36,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | `/live/epics.json`                      | The open epics, issues with sub-issues, newest first: each with its count of sub-issues and how many are closed, and its sub-issues in this repository with their state |
 | `/live/running.json`                    | The running cycles and the one that finished last              |
 | `/live/endings.json`                    | The last ten cycles that ended, oldest first                   |
-| `/live/console-<issue>.txt`             | That cycle's console, with tokens and passwords masked         |
+| `/live/console-<issue>.txt`             | That cycle's console, with tokens, keys, passwords and the host's secret settings masked         |
 
 All of it is read-only. Work is submitted and authorized in GitHub, as
 [Operating](/operating) describes.
