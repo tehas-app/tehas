@@ -1390,7 +1390,13 @@ fn a_log_the_cap_spends_before_it_keeps_a_line_leaves_no_next() {
     // `next` that goes nowhere: named alone, the session behind it answers the
     // line the stopped call never read. The cap costs the caller its reach, never
     // its matches.
-    let on = env.found(std::slice::from_ref(&b), "needle", None, MATCHES_MAX, SEARCH_BYTES_MAX);
+    let on = env.found(
+        std::slice::from_ref(&b),
+        "needle",
+        None,
+        MATCHES_MAX,
+        SEARCH_BYTES_MAX,
+    );
     let m = on["matches"].as_array().unwrap();
     assert_eq!(m.len(), 1, "{on}");
     assert_eq!(m[0]["id"], id_of(&b), "{on}");
