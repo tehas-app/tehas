@@ -259,6 +259,9 @@ while read -r name; do
   [ "$t_rc" = 0 ] || unknown="$unknown $name"
 done < <(grep -h -o 'bin/tehasbot [a-z]*' "$T_ROOT"/host/systemd/*.service | sed 's/.* //')
 t_eq "$unknown" ""
-t_eq "$(grep -L 'bin/tehasbot ' "$T_ROOT"/host/systemd/*.service)" ""
+# A cycle's unit starts tehasbot cycle through tehas-cycle run, which runs it
+# from the cycle's own copy of the code (#989).
+t_eq "$(grep -L 'bin/tehasbot ' "$T_ROOT"/host/systemd/*.service)" "$T_ROOT/host/systemd/tehas-cycle@.service"
+t_contains "$(grep -h -o 'libexec/tehas-cycle run %i' "$T_ROOT/host/systemd/tehas-cycle@.service")" "tehas-cycle run %i"
 
 t_done

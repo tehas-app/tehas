@@ -176,6 +176,7 @@ fn world() -> World {
             image: "tehas-sandbox:test".into(),
             plan_cmd: "/opt/plan".into(),
             plan_start_cmd: Some(s("start")),
+            pin_cmd: None,
             plan_timeout: 3600,
             plan_max_turns: 20,
             systemd_run: s("start"),
@@ -2228,6 +2229,20 @@ fn a_first_turns_brief_is_private_and_its_unit_goes_to_systemd_run() {
     );
     let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
     assert!(log.contains("start --user --quiet --collect --unit tehas-plan-7 -p RuntimeMaxSec=4500 /bin/bash -c [ ! -r \"$HOME/tehas/env.sh\" ] || . \"$HOME/tehas/env.sh\"; exec \"$@\" env-sh /bin/bash -c log=$1"));
+}
+
+#[test]
+fn a_turn_runs_from_its_own_copy_of_the_code_when_the_host_has_one() {
+    let mut t = world();
+    t.w.host.launch_poll = Duration::from_millis(1);
+    t.w.host.plan_start_cmd = None;
+    t.w.host.pin_cmd = Some("/opt/tehas-cycle".into());
+    t.apply(json!([first_turn(7)]));
+    let log = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(
+        log.contains(".lock /opt/tehas-cycle pin plan 7 plan 7 --out "),
+        "{log}"
+    );
 }
 
 #[test]

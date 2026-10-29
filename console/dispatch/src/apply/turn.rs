@@ -357,14 +357,25 @@ impl Writer {
         self.refresh_checkout(log);
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(self.st(n, ".rc"));
-        let mut cmd = vec![
-            self.host.plan_cmd.clone(),
+        // The install's libexec/plan is run from the turn's own copy of the
+        // code, so an update during the turn leaves its code as it started.
+        let mut cmd = match &self.host.pin_cmd {
+            Some(pin) => vec![
+                pin.clone(),
+                "pin".into(),
+                "plan".into(),
+                n.to_string(),
+                "plan".into(),
+            ],
+            None => vec![self.host.plan_cmd.clone()],
+        };
+        cmd.extend([
             n.to_string(),
             "--out".into(),
             out.to_string_lossy().into_owned(),
             "--keep".into(),
             keep.to_string_lossy().into_owned(),
-        ];
+        ]);
         cmd.append(&mut args);
         if !self.plan_launch(n, &cmd) {
             log.push(format!("ERROR: could not start the planning turn of #{n}"));
