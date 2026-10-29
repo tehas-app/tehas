@@ -315,7 +315,8 @@ accidents, not a wall: a log can hold a secret in a form the mask does not
 know.
 
 A file that is missing or half written gives a tool error that names it, and
-the server keeps answering.
+the server keeps answering. `factory_stats` with analytics off says that
+`analytics.json` is not published.
 
 ### Following the factory
 
@@ -333,13 +334,27 @@ tool error that names it.
 
 The cursor is opaque. It holds, for each log, the file it was read from, how far
 and a hash of the file's first 128 bytes up to there, and it is checked when it
-comes back: one of another shape is a tool error. When the log is no longer the
-file read, because it was renamed and a new one made, or copied and truncated,
-the rest is read from the `.1` copy when that copy is the file read, and then
-the new log from its start. When no copy is, the new log is read from its start
-and the answer names the log in `gaps`. A log rotated twice between two polls
-loses the older copy, so poll more often than the logs rotate. A line not yet
-ended by a newline waits for the next poll.
+comes back: one of another shape is a tool error. A cursor names a line's start,
+or a place inside a line longer than a read, from where the tool reads on at the
+next line. One that names any other place in a line is taken as a file it did
+not read, so no part of a line is ever answered without the rest of it to mask.
+
+When the log is no longer the file read, because it was copied and truncated or
+renamed and a new one made, the rest is read from the `.1` copy when that copy
+is the file read, and then the new log from its start. When no copy is, the new
+log is read from its start and the answer names the log in `gaps`. A log
+rotated twice between two polls loses the older copy, so poll more often than
+the logs rotate. A line not yet ended by a newline waits for the next poll. A
+line the copy cut is joined with its rest, the start of the new log.
+
+Rotate these logs by copy and truncate, such as logrotate's `copytruncate`. A
+cycle's unit and the dispatcher's keep `dispatch.log` open while they run, a
+cycle for hours, and go on writing to the renamed file after a rename. The tool
+reads the `.1` copy only until it reads on in the new log, so lines written to
+the copy after that are lost and no gap tells of them.
+
+Without `after`, the last events come from the end of the log, and from the end
+of its `.1` copy too when the log is shorter than a read.
 
 Each line gets the closest of these kinds, by its first words:
 
@@ -361,6 +376,6 @@ and is merged as if written with the line before it.
 
 Limits: a call reads at most 256 KiB of each log, its `.1` copy included, and
 returns at most `limit` events, so `more` is true and `next` points just past
-the last event returned when there is more. A line longer than 256 KiB comes in
-pieces. Each line is masked before it is answered, as the logs above are. `factory_stats` with analytics off says that
-`analytics.json` is not published.
+the last event returned when there is more. A line longer than 256 KiB gives
+one event of its start, and the rest of it is skipped. Each line is masked
+before it is answered, as the logs above are.

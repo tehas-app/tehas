@@ -124,7 +124,7 @@ fn drain(dirs: &Dirs, after: &mut String, limit: Option<u64>) -> Vec<(String, St
         let a = poll(dirs, Some(after), limit);
         assert!(a.gaps.is_empty(), "a gap: {}", a.raw);
         *after = a.next;
-        if a.events.is_empty() {
+        if a.events.is_empty() && a.raw["more"] == false {
             return all;
         }
         all.extend(a.events);
@@ -480,18 +480,160 @@ fn a_big_log_is_read_in_bounded_pieces_each_line_once() {
 }
 
 #[test]
-fn a_line_longer_than_a_read_comes_in_pieces_and_never_stalls() {
+fn a_line_longer_than_a_read_gives_its_start_and_never_stalls() {
     let env = Env::new("long");
     let mut after = poll(&env.dirs, None, None).next;
     let long = "y".repeat(READ_MAX as usize * 2 + 10);
     env.append("dispatch.log", &format!("{long}\n"));
     env.append("dispatch.log", &line(T0, "start #9"));
+    let got = drain(&env.dirs, &mut after, Some(1));
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got[0].1, "y".repeat(TEXT_CUT));
+    assert_eq!(got[1].1, "start #9");
+}
+
+#[test]
+fn a_secret_across_the_end_of_a_read_never_comes_out() {
+    let env = Env::new("long-secret");
+    let mut after = poll(&env.dirs, None, None).next;
+    let cut = READ_MAX as usize - 6;
+    env.append(
+        "dispatch.log",
+        &format!("{} {}\n", "y".repeat(cut), token()),
+    );
+    env.append("dispatch.log", &line(T0, "start #9"));
     let got = drain(&env.dirs, &mut after, None);
-    assert!(got.len() >= 3, "{}", got.len());
-    assert_eq!(got.last().unwrap().1, "start #9");
+    assert_eq!(texts(&got).last(), Some(&"start #9"));
     for (_, t) in &got {
-        assert!(t.chars().count() <= TEXT_CUT);
+        assert!(!t.contains("defghij"), "{t}");
     }
+}
+
+/// The cursor with one log's offset and skip flag changed, as a caller could.
+fn forge(next: &str, log: usize, off: u64, skip: bool) -> String {
+    let mut f: Vec<String> = next.split('.').map(String::from).collect();
+    f[2 + log * 4] = off.to_string();
+    f[3 + log * 4] = if skip { "1" } else { "0" }.into();
+    f.join(".")
+}
+
+#[test]
+fn a_forged_offset_inside_a_line_reads_no_part_of_it() {
+    let env = Env::new("forged");
+    let secret = format!("WARN: GH_TOKEN=supersecretvalue123456 {}", token());
+    env.append("dispatch.log", &line(T0, &"x".repeat(200)));
+    env.append("dispatch.log", &line(T0 + 1, &secret));
+    let honest = poll(&env.dirs, None, None);
+    assert!(!honest.raw.to_string().contains("supersecret"));
+    let data = std::fs::read_to_string(env.path("dispatch.log")).unwrap();
+    for word in ["hp_abc", "upersecret", "OKEN="] {
+        let off = data.find(word).unwrap() as u64;
+        for skip in [false, true] {
+            let a = events_call(
+                &env.dirs,
+                json!({"after": forge(&honest.next, 0, off, skip)}),
+            );
+            let text = format!("{a:?}");
+            assert!(!text.contains("abcdefghij"), "{word} {skip}: {text}");
+            assert!(!text.contains("upersecret"), "{word} {skip}: {text}");
+        }
+    }
+    // An honest offset at a line start still reads on from there.
+    let second = data.find("\n").unwrap() as u64 + 1;
+    let a = poll(
+        &env.dirs,
+        Some(&forge(&honest.next, 0, second, false)),
+        None,
+    );
+    assert!(a.gaps.is_empty(), "{}", a.raw);
+    assert_eq!(texts(&a.events), ["WARN: GH_TOKEN=*** ghp_***"]);
+}
+
+#[test]
+fn a_forged_skip_past_a_read_skips_to_the_next_line() {
+    let env = Env::new("forged-skip");
+    let mut after = poll(&env.dirs, None, None).next;
+    env.append("dispatch.log", &line(T0, &"x".repeat(READ_MAX as usize)));
+    env.append("dispatch.log", &line(T0 + 1, &format!("WARN: {}", token())));
+    env.append("dispatch.log", &line(T0 + 2, "start #9"));
+    let all = drain(&env.dirs, &mut after, None);
+    assert_eq!(all.len(), 3);
+    let data = std::fs::read_to_string(env.path("dispatch.log")).unwrap();
+    let off = data.find("hp_abc").unwrap() as u64;
+    let a = poll(&env.dirs, Some(&forge(&after, 0, off, true)), None);
+    assert_eq!(texts(&a.events), ["start #9"]);
+}
+
+#[test]
+fn a_copy_that_cuts_a_line_joins_it_with_its_rest() {
+    let env = Env::new("copy-cut");
+    let mut held = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(env.path("dispatch.log"))
+        .unwrap();
+    held.write_all(line(T0, "start #1").as_bytes()).unwrap();
+    let mut after = poll(&env.dirs, None, None).next;
+    held.write_all(format!("{} WARN: half", iso(T0 + 1)).as_bytes())
+        .unwrap();
+    std::fs::copy(env.path("dispatch.log"), env.path("dispatch.log.1")).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(env.path("dispatch.log"))
+        .unwrap();
+    assert!(drain(&env.dirs, &mut after, None).is_empty());
+    held.write_all(b" a line\n").unwrap();
+    held.write_all(line(T0 + 2, "done #1 rc=0 status=merged").as_bytes())
+        .unwrap();
+    let got = drain(&env.dirs, &mut after, None);
+    assert_eq!(
+        texts(&got),
+        ["WARN: half a line", "done #1 rc=0 status=merged"]
+    );
+}
+
+#[test]
+fn a_copy_that_cuts_a_long_line_skips_its_rest_in_the_new_log() {
+    let env = Env::new("copy-cut-long");
+    let mut held = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(env.path("dispatch.log"))
+        .unwrap();
+    let mut after = poll(&env.dirs, None, None).next;
+    held.write_all("y".repeat(READ_MAX as usize + 10).as_bytes())
+        .unwrap();
+    let mut got = drain(&env.dirs, &mut after, None);
+    std::fs::copy(env.path("dispatch.log"), env.path("dispatch.log.1")).unwrap();
+    std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(env.path("dispatch.log"))
+        .unwrap();
+    held.write_all(b"yy").unwrap();
+    got.extend(drain(&env.dirs, &mut after, None));
+    held.write_all(format!("y\n{}", line(T0, "start #9")).as_bytes())
+        .unwrap();
+    got.extend(drain(&env.dirs, &mut after, None));
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got[1].1, "start #9");
+}
+
+#[test]
+fn just_after_a_rotation_the_last_events_include_the_copy() {
+    let env = Env::new("tail-rotated");
+    env.append("dispatch.log", &line(T0, "start #1 (labelled by a)"));
+    env.append("dispatch.log", &line(T0 + 1, "wait #2: x"));
+    std::fs::rename(env.path("dispatch.log"), env.path("dispatch.log.1")).unwrap();
+    std::fs::write(env.path("dispatch.log"), "").unwrap();
+    let a = poll(&env.dirs, None, None);
+    assert_eq!(texts(&a.events), ["start #1 (labelled by a)", "wait #2: x"]);
+    let b = poll(&env.dirs, None, Some(1));
+    assert_eq!(texts(&b.events), ["wait #2: x"]);
+    let mut after = a.next;
+    env.append("dispatch.log", &line(T0 + 2, "wait #3: y"));
+    assert_eq!(texts(&drain(&env.dirs, &mut after, None)), ["wait #3: y"]);
 }
 
 #[test]
@@ -542,7 +684,7 @@ fn bad_arguments_are_a_tool_error() {
     }
     // An offset past 64 bits is refused, not wrapped.
     let huge = format!(
-        "1.1.{}.0000000000000000.0.0.0000000000000000",
+        "1.1.{}.0.0000000000000000.0.0.0.0000000000000000",
         "9".repeat(20)
     );
     assert!(matches!(
@@ -574,11 +716,18 @@ fn a_poller_sees_every_line_once_across_rotations() {
     // first drains it: with one rotated copy kept, as here, a poller must read
     // the old file before the next rotation takes it away.
     let mut rotated = [false; 2];
+    // The rest of a line written in two parts, so a rotation can cut it.
+    let mut rest: [Option<String>; 2] = [None, None];
     for step in 0..600 {
         let r = rnd(20);
         if r < 2 {
             let i = rnd(2) as usize;
             if rotated[i] {
+                for (j, r) in rest.iter_mut().enumerate() {
+                    if let Some(r) = r.take() {
+                        env.append(names[j], &r);
+                    }
+                }
                 for (log, text) in drain(&env.dirs, &mut after, Some(3)) {
                     got[usize::from(log == "refresh")].push(text);
                 }
@@ -612,11 +761,27 @@ fn a_poller_sees_every_line_once_across_rotations() {
             }
             _ => {
                 let i = rnd(2) as usize;
+                if let Some(r) = rest[i].take() {
+                    env.append(names[i], &r);
+                    continue;
+                }
                 t += rnd(3) as i64;
                 let text = format!("skip #{step}: line {step} of {}", names[i]);
-                env.append(names[i], &line(t, &text));
+                let l = line(t, &text);
+                if rnd(4) == 0 {
+                    let cut = 1 + rnd(l.len() as u64 - 1) as usize;
+                    env.append(names[i], &l[..cut]);
+                    rest[i] = Some(l[cut..].to_string());
+                } else {
+                    env.append(names[i], &l);
+                }
                 want[i].push(text);
             }
+        }
+    }
+    for (i, r) in rest.iter_mut().enumerate() {
+        if let Some(r) = r.take() {
+            env.append(names[i], &r);
         }
     }
     for (log, text) in drain(&env.dirs, &mut after, None) {
