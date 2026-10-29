@@ -5,7 +5,7 @@
 (() => {
   const amount = (v) => (Number.isSafeInteger(v) && v > 0 ? v : null);
 
-  // A Map from ticket number to { tokens, seconds }, either null when the file
+  // A Map from ticket number to { runs, tokens, seconds }, each null when the file
   // does not say. null when the file is not one.
   function figures(file) {
     if (file === null || typeof file !== "object" || file.orders !== 1) return null;
@@ -14,7 +14,7 @@
     const out = new Map();
     for (const [key, f] of Object.entries(issues)) {
       if (!/^[1-9][0-9]{0,8}$/.test(key) || f === null || typeof f !== "object") continue;
-      out.set(Number(key), { tokens: amount(f.tokens), seconds: amount(f.seconds) });
+      out.set(Number(key), { runs: amount(f.runs), tokens: amount(f.tokens), seconds: amount(f.seconds) });
     }
     return out;
   }

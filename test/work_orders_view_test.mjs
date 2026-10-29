@@ -16,10 +16,10 @@ test("no file, or not one, is no figures", () => {
   }
 });
 
-test("each issue gives its tokens and seconds", () => {
+test("each issue gives its runs, tokens and seconds", () => {
   const m = figures(file({ 962: { runs: 3, seconds: 5400, tokens: 60800000 }, 7: { runs: 1 } }));
-  assert.deepEqual(m.get(962), { tokens: 60800000, seconds: 5400 });
-  assert.deepEqual(m.get(7), { tokens: null, seconds: null });
+  assert.deepEqual(m.get(962), { runs: 3, tokens: 60800000, seconds: 5400 });
+  assert.deepEqual(m.get(7), { runs: 1, tokens: null, seconds: null });
   assert.equal(m.size, 2);
 });
 
@@ -27,5 +27,5 @@ test("a key that is no issue number, or a figure that is no count, says nothing"
   const m = figures(file({ "0": { seconds: 1 }, "-3": { seconds: 1 }, x: { seconds: 1 }, "05": { seconds: 1 },
     8: { seconds: -1, tokens: "9" }, 9: null }));
   assert.deepEqual([...m.keys()], [8]);
-  assert.deepEqual(m.get(8), { tokens: null, seconds: null });
+  assert.deepEqual(m.get(8), { runs: null, tokens: null, seconds: null });
 });

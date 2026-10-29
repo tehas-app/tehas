@@ -87,8 +87,9 @@ cycle's sandbox, on the factory's models, with their own name on the commits.
 ## See it run
 
 The [factory floor](/) shows the stages as stations: in line, building, review
-and shipped. Beside them are the selected work order with its dates, tokens,
-time and estimated energy (from `live/orders.json`), the issue board and the console of the running cycle. When
+and shipped. Beside them are the selected work order with its dates, runs, tokens,
+time and estimated energy (from `live/orders.json`), the issue board and the console of the running cycle. The
+work order leaves out a row it has no data for. When
 the live queue cannot be read the page loads sample tickets and says so.
 
 The [plain dashboard](/dashboard) has the same queue as lists.
