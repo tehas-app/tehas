@@ -138,7 +138,8 @@ fx=\$T/fx
 case "\$1 \$2" in
   "tidy states") [ -e "\$fx/states.txt" ] || exit 1
     cat "\$fx/states.txt" ;;
-  "tidy plan") cat "\$fx/plan.txt" ;;
+  "tidy plan") [ -e "\$fx/plan-real" ] && exec "$T_CONSOLE" "\$@"
+    cat "\$fx/plan.txt" ;;
   "shipped page") [ -e "\$fx/no-read" ] && exit 1
     cat "\$fx/page.txt" ;;
   "shipped label") [ -e "\$fx/no-read" ] && exit 1
@@ -286,6 +287,8 @@ t_case "an answer the console reads as no list of issues is the failed search, e
 # no issue is refused the same way: the search named nothing it can plan.
 reset
 stub_console
+# This case reads the console's own answer: the stub hands the plan to it.
+: >"$fx/plan-real"
 echo '{"data":{}}' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 1
