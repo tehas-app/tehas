@@ -75,6 +75,12 @@
 //! answer says, for tehas tidy and tehasbot status (lib/shipped.sh holds the names
 //! of these verbs and makes the call), see src/shipped.rs.
 //!
+//!   console tidy states|plan ...
+//!
+//! Which of tehas's state labels come off which closed issue, and which issue the
+//! read of what closed them is asked about, for tehas tidy (libexec/tidy makes the
+//! two searches and the edits), see src/tidy.rs.
+//!
 //!   console forge labels|label-state|approval|add-label|remove-label ...
 //!
 //! The forge as a command bash can call: an issue's labels, the newest event of
@@ -100,6 +106,7 @@ mod shipped;
 mod snapshot;
 mod store;
 mod tail;
+mod tidy;
 mod top;
 
 use render::Entry;
@@ -283,6 +290,7 @@ fn main() -> ExitCode {
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
+            Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
