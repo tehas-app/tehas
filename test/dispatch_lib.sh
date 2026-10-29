@@ -179,6 +179,14 @@ default_start
 t_stub fake-status
 # Stands in for libexec/tidy, and notes whether a cycle had started before it.
 t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
+# Stands in for libexec/health, as these two commands are stood in for: a call
+# of health is recorded and it answers 0. The poll runs health once at its
+# start, and the real one is about 45 processes - five calls of the store and
+# about eighteen of jq - which no case of these files reads. A case that looks
+# at the health file, or at what health prints, names the real command with
+# real_health.
+t_stub fake-health
+real_health() { T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_ROOT/libexec/health"); }
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
@@ -389,7 +397,13 @@ reset() {
   else
     # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
     t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
-    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD="$T_ROOT/libexec/health")
+    # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The Rust poll
+    # names its own health beside its own binary, as the bash poll names the one
+    # beside libexec/dispatch, so the bare word of a command on PATH is never
+    # asked for: the stub has to be named. It records its call and answers 0;
+    # the WARN of a health file that could not be written is read here as no
+    # command having been given to the poll at all.
+    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
   fi
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
@@ -731,17 +745,47 @@ WSUM=$(printf 'Words.' | sha256sum | cut -d' ' -f1)
 # <args> and a space, and runs the real store for every other call. Each call
 # is noted in t_calls store.
 store_refuses() {
-  local bin=$T/home/tehas/libexec/store
+  local bin=$T/home/tehas/libexec/store request_file=$T/store-batch-request.json
   rm -f "$bin"
   printf '%s\n' '#!/usr/bin/env bash' \
-    "printf '%s\\n' \"\$*\" >>$(t_q "$T/calls/store")" \
-    "a=\"\$*\" p=$(t_q "$1")" \
-    'if [ "$a" = "$p" ] || [ "${a#"$p "}" != "$a" ]; then' \
+    'a="$*"' \
+    'batch=0' \
+    'if [ "$a" = batch ]; then' \
+    '  # A batch carries its calls on standard input, one array of arguments' \
+    '  # apiece, so the line it is judged by is the request itself: one call per' \
+    '  # line, which the loop below reads whole. The request is kept in a file' \
+    '  # of the run, so the store can read it again when none of the calls is' \
+    '  # refused: a command substitution would empty the pipe before the store' \
+    '  # reads it, and the store would judge a request of nothing.' \
+    "  request_file=$(t_q "$request_file")" \
+    '  cat >"$request_file"' \
+    '  if [ ! -s "$request_file" ] || ! jq -e "type == \"array\"" "$request_file" >/dev/null 2>&1; then' \
+    '    echo "store: garbled: batch request is no JSON array" >&2' \
+    '    exit 78' \
+    '  fi' \
+    '  a="batch $(jq -r ".[] | join(\" \")" "$request_file")"' \
+    '  batch=1' \
+    'fi' \
+    "printf '%s\\n' \"\$a\" >>$(t_q "$T/calls/store")" \
+    "p=$(t_q "$1")" \
+    'found=0' \
+    'while IFS= read -r w; do' \
+    '  [ -n "$w" ] || continue' \
+    '  if [ "$w" = "$p" ] || [ "${w#"$p "}" != "$w" ]; then' \
+    '    found=1' \
+    '    break' \
+    '  fi' \
+    "done < <(printf '%s\\n' \"\${a#batch }\")" \
+    'if [ "$found" = 1 ]; then' \
     "  printf '%s\\n' $(t_q "$3") >&2; exit $(t_q "$2")" \
+    'fi' \
+    'if [ "$batch" = 1 ]; then' \
+    "  exec $(t_q "$T_STORE") \"\$@\" <\"$request_file\"" \
     'fi' \
     "exec $(t_q "$T_STORE") \"\$@\"" >"$bin"
   chmod 755 "$bin"
 }
+
 # open_read_fails_again: the open planning sessions are read once, and every
 # read of them after that answers busy, as after a planning write of the poll.
 # With a session on #9 whose issue no longer asks, the poll ends it, which is
