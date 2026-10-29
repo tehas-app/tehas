@@ -9,7 +9,22 @@
 t_console || t_bad "no console: $t_console_why"
 T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
-status="$T_ROOT/libexec/status"
+# The command as a host has it: beside the console, which decides what the read
+# of what closed an issue means (console/src/shipped.rs) and is this checkout's
+# own build. The copy is a real file and not a symlink, because the command finds
+# its siblings - health, analytics, store - beside itself by the directory it was
+# run from, and a symlink there would name the checkout instead.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+shim=$T/tree
+mkdir -p "$shim/libexec"
+cp "$T_ROOT/libexec/status" "$shim/libexec/status"
+ln -s "$T_ROOT/lib" "$shim/lib"
+cp "$T_CONSOLE" "$shim/libexec/console"
+for sibling in health summary analytics; do
+  ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
+done
+status=$shim/libexec/status
 health="$T_ROOT/libexec/health"
 summary="$T_ROOT/libexec/summary"
 live=$T/home/tehas/live
@@ -167,18 +182,20 @@ t_run "$status"
 t_eq "$(jq -r '.running | length' "$live/status.json")" 1
 t_eq "$(jq -r '.stopped | length' "$live/status.json")" 0
 
-t_case "planning counts the open issues labelled tehas:plan or tehas:planning, from the same search"
+t_case "planning lists and counts the open issues labelled tehas:plan or tehas:planning, from the same search"
 reset
 echo "[$(issue 3 tehas:ready),$(issue 7 tehas:plan),$(issue 8 tehas:planning),$(issue 9 tehas:plan CLOSED),$(issue 1 tehas:planning),$(issue 10 tehas:question)]" >"$T/issues.json"
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.planning' "$live/status.json")" 2
+t_eq "$(jq -c '.planned | map(.number)' "$live/status.json")" '[7,8]' # 1 is the control issue
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 1
 t_eq "$(t_calls gh | grep -c -- '--search')" 1
 t_contains "$(t_calls gh | grep -- '--search')" 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" '
 reset
 t_run "$status"
 t_eq "$(jq -r '.planning' "$live/status.json")" 0
+t_eq "$(jq -c '.planned' "$live/status.json")" '[]'
 
 t_case "the breakroom's words are counted over every issue, labelled for the factory or not"
 reset

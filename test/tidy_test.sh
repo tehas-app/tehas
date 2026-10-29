@@ -7,7 +7,17 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-tidy="$T_ROOT/libexec/tidy"
+# The command as a host has it: beside the console, which decides what the read
+# of what closed an issue means (console/src/shipped.rs) and is this checkout's
+# own build. A tidy with no console beside it is a different case, further down.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+shim=$T/tree
+mkdir -p "$shim/libexec"
+ln -s "$T_ROOT/libexec/tidy" "$shim/libexec/tidy"
+ln -s "$T_ROOT/lib" "$shim/lib"
+cp "$T_CONSOLE" "$shim/libexec/console"
+tidy=$shim/libexec/tidy
 # The line of a read that answered and named no merged closer, and the one of a
 # read that failed or timed out: the two must read differently, or a rate-limited
 # search looks like a factory that shipped nothing.
@@ -69,13 +79,11 @@ reset() {
 }
 edits() { t_calls gh | grep '^issue edit' || true; }
 reads() { t_calls gh | grep '^api graphql' || true; }
-# The ceiling of one closer read, read from the library so the case cannot ask
-# for a number the shared query would not answer for.
+# The ceiling of one closer read, from the console through the library, so the
+# case cannot ask for a number the query the same console prints would not answer
+# for.
 tehas_page_count() {
-  local page
-  # shellcheck source=lib/shipped.sh
-  page=$(bash -c ". '$T_ROOT/lib/shipped.sh'; printf '%s' \"\$tehas_shipped_page\"")
-  printf '%s' "$page"
+  "$T_CONSOLE" shipped page
 }
 # One issue's node of the closer answer, as the batched search returns it. The
 # closer is the only part a case chooses, so the shape of the timeline is
