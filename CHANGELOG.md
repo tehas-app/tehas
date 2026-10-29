@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.16.2 (2026-10-29)
+
+### Changes
+
 - The gate's kept pass no longer misses a same-size edit made in the
   second of the last index write: its copy of the index keeps the index's
   time, so git checks that file again (#983).
