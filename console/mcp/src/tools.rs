@@ -4,6 +4,7 @@
 //! its spec below names. A key the dashboard's files gain later is not served
 //! until it is named here. Null values are left out.
 
+use crate::events;
 use crate::logs::{self, LogGuard};
 use crate::outcomes;
 use crate::outcomes_schema;
@@ -781,11 +782,13 @@ pub fn list() -> Value {
     if let Value::Array(a) = &mut tools {
         a.extend(sessions::tools());
         // factory_log, then factory_search beside it - the reading of one log
-        // and the search over them - and factory_failures after the two, and
-        // factory_outcomes after it: the counts of the last 30 days first, then
-        // the longer view beside it, and factory_park last.
+        // and the search over them - then factory_events, the host's own two
+        // logs, and factory_failures after them, and factory_outcomes after
+        // it: the counts of the last 30 days first, then the longer view
+        // beside it, and factory_park last.
         a.insert(a.len() - 1, logs::tool());
         a.insert(a.len() - 1, logs::search_tool());
+        a.insert(a.len() - 1, events::tool());
         a.push(outcomes_schema::tool());
         a.push(park::tool());
     }
@@ -796,7 +799,7 @@ pub fn list() -> Value {
 /// `spec_of()` name the same tools in their own literals, and the test beside
 /// `call_held` compares the three, so the access log can name no name the
 /// server does not serve, and serves none it does not publish.
-const CALLED: [&str; 13] = [
+const CALLED: [&str; 14] = [
     "factory_status",
     "factory_issues",
     "factory_endings",
@@ -807,6 +810,7 @@ const CALLED: [&str; 13] = [
     "factory_session",
     "factory_log",
     "factory_search",
+    "factory_events",
     "factory_failures",
     "factory_outcomes",
     "factory_park",
@@ -853,6 +857,7 @@ pub fn call_held(
         "factory_sessions" => sessions::list(dirs, args)?,
         "factory_session" => sessions::one(dirs, args)?,
         "factory_failures" => sessions::failures(dirs, args)?,
+        "factory_events" => events::call(&dirs.logs, args)?,
         "factory_outcomes" => outcomes::call(dirs, args)?,
         "factory_park" => park::call(dirs, args)?,
         // The guard above admits only the names of `CALLED` and every one of
@@ -1308,7 +1313,7 @@ mod tests {
         // `spec_of` is the third list of the names, and the one the dispatch's
         // guard does not touch: the five tools whose answer is copied from a
         // live file name themselves there, so a name that drifts out of
-        // `CALLED` loses its allowlist here. The other six build their answer
+        // `CALLED` loses its allowlist here. The other nine build their answer
         // beside their own pick list, in their own module, and have none.
         for name in [
             "factory_status",
@@ -1343,7 +1348,7 @@ mod tests {
         // of `call_held` answers every name absent from this list, so a name
         // written here and not there, or there and not here, is the drift the
         // dispatch alone cannot show.
-        const ARMS: [&str; 13] = [
+        const ARMS: [&str; 14] = [
             "factory_log",
             "factory_search",
             "factory_status",
@@ -1355,6 +1360,7 @@ mod tests {
             "factory_sessions",
             "factory_session",
             "factory_failures",
+            "factory_events",
             "factory_outcomes",
             "factory_park",
         ];

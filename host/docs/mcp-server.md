@@ -9,8 +9,9 @@ Agents outside this host, such as Hermes or OpenClaw agents, can ask a factory
 how it is doing over MCP: whether it is working, what is in line, what ended,
 a running cycle's console and the last ten days, as the dashboard shows them,
 one issue's story, and the sessions of the last 30 days and their logs, masked,
-the lines of those logs that hold a string you give, and why an issue's last
-stopped run stopped.
+the lines of those logs that hold a string you give, the dispatcher's and
+refresh's events as they are written, and why an issue's last stopped run
+stopped.
 See
 [what it shows](#what-it-shows). The server is read only. No tool changes
 anything; pause, limit, drain, labels and retries stay with a person on the
@@ -32,7 +33,8 @@ each given to it read only:
 - `~/tehas/mcp/`, the two files `tehasbot status` writes on each poll: the
   sessions snapshot `sessions.jsonl` and the outcomes counts
   `outcomes.jsonl`. Both are private to the tehas user and never published;
-- `~/tehas/logs/`, where each cycle and planning turn leaves its logs.
+- `~/tehas/logs/`, where each cycle and planning turn leaves its logs, and
+  where the dispatcher and refresh write `dispatch.log` and `refresh.log`.
 
 It reads nothing else on the host and calls nothing: not GitHub, not Docker,
 not git, not a model. Each tool copies only the keys it names from those
@@ -196,6 +198,7 @@ the same JSON as text.
 | `factory_log` | `id`, `file` (a word below), optional `gzip` (false without it), and for a plain read `offset` (0 without it) and `bytes` from 1 to 1048576 (1 MiB without it) | One log file of the session, masked. Plain: `id`, `file`, `size`, `offset`, `text`, and `next`, the offset of the rest, when more remains. With `gzip: true`: the whole masked file compressed, as an embedded resource of type `application/gzip` at `tehas://sessions/<id>/<file>.gz`, and `id`, `file`, `size` and `gzipBytes` as the structured content |
 | `factory_search` | `text` (3 to 200 characters), one of `issue` or `ids` (at most 50 session ids), optional `files` (log words, all the session has without it) and `limit` from 1 to 200 matches (50 without it) | The masked lines of the last 30 days that hold `text`, a fixed string and not a pattern, of one issue's sessions or of the sessions named: `matches`, each with `id`, `file` (a word below), `offset` in masked bytes (one to give `factory_log`) and `line` cut to 400 characters, and `sessions`, how many were read. `days` and `stale` as the session tools. When the reading stops early it gives `next`: the `id`, the `file` and the `offset` of the rest, which is where that session's log is read on from. See [the logs](#logs) |
 | `factory_issue` | `issue`, a positive integer | One issue's story in one call: `issue`, `issueUrl`, `stage` (the first of `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` that lists it, left out when it is listed nowhere), `title` when the dashboard has it, `running` (`step`, `status`) while a cycle owns it — only a cycle that is running owns one, so a cycle the store has marked `lost`, or one that ended between publishes, puts nothing there and does not make the stage `running` — and `attempts`: every run of it of the last 30 days, oldest first, each with its `id` (the one to give `factory_session` or `factory_log`), `kind`, `attempt`, `how`, `started`, `ended`, `seconds`, `outcome`, `failedStep`, `failureKind`, `failureCause`, `parkReason` and `prUrl`. `firstSeen` and `lastSeen` are the started of the oldest and newest run, and `outcome` is the newest run's. An issue with no run in the window and no stage is a tool error that names it |
+| `factory_events` | all optional: `after`, the `next` of an earlier answer, and `limit` from 1 to 500 (100 without it) | The events of `dispatch.log` and `refresh.log`, masked, oldest first: `events`, each with `time`, `kind` (below), `issue` when the line names one among its first words, `log` (`dispatch` or `refresh`) and `text`, the line after its time cut to 1000 characters. `next` is the cursor to pass as `after`, just past the last event returned. `more` is true when the call stopped early and more can be read now. `gaps` names a log that was replaced or truncated with nothing left of what was read: events of it may be missing. Without `after`, the last events. See [following the factory](#following-the-factory) |
 | `factory_failures` | all optional: `by` (`version` or `image`), `rukasVersion` (also matches the commit) | The work runs of the last 30 days per tehas and pi-rukas version pair, the most runs first: `runs`, `outcomes` and `failureKinds` as counts, and `causes`, the five most common as cause, kind, count and up to ten issue links, newest first. With `by: image` each pair is split by the sandbox image its runs used, and an entry also has `image` and `imageBuilt`, so two builds of one pi-rukas version can be compared; runs with no image on record are an entry without them. Planning sessions are not counted |
 | `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
 | `factory_park` | `issue`, an integer from 1 to 999999999 | Why the issue's last stopped work run of the last 30 days stopped: a run whose outcome is `handoff`, `parked`, `failed` or `refused`. `id`, `started`, `ended`, `outcome`, `status`, `exitCode`, `latest` (no later work run of the issue in the window), and as the park comment's `tehas:park` marker has them `step`, `kind` (the failure kind), `cap`, `reason` (the park reason), `cause`, `provider` and `sig`, and `forksRefused` and `oomKills` when the container refused a start of a process or had one killed for memory. From the run's `result` log: `result` (`read`, `none`, `gone` or `unreadable`), `errorCode` and `error` when the runner itself stopped, such as a crash, `message`, `causeClass`, `causeReason`, `userAction` and `checks`, the failing check lines, masked, at most 20 of 400 characters each, with `checksCut` when there were more. `days` and `stale` as the session tools. An issue with no stopped run in the window is a tool error that names it |
@@ -269,7 +272,8 @@ ones it has; `factory_session` lists them with their sizes.
 
 The server opens only a file name the sessions snapshot gives for that
 session, and only when the name is the one pattern its word allows for the
-session's kind and issue. The logs directory also holds the host's own logs,
+session's kind and issue. The logs directory also holds the host's own logs:
+`factory_events` reads `dispatch.log` and `refresh.log` by their fixed names,
 and nothing else in it can be named. A file that is now a link, or is gone,
 is a tool error that names the word.
 
@@ -311,5 +315,52 @@ accidents, not a wall: a log can hold a secret in a form the mask does not
 know.
 
 A file that is missing or half written gives a tool error that names it, and
-the server keeps answering. `factory_stats` with analytics off says that
+the server keeps answering.
+
+### Following the factory
+
+`factory_events` is polled, not streamed. Call it once without `after` for the
+last events, then again every so often with the `next` it gave, and each line
+the two logs get comes back once, in its log's order. The two logs are merged
+by time, a tie going to `dispatch.log`. The dispatcher polls every two minutes
+and writes the same three or four `skip` and `holding` lines each time; they are
+events like the rest.
+
+The tool opens four names in the logs directory and no other: `dispatch.log`,
+`refresh.log` and their rotated copies `dispatch.log.1` and `refresh.log.1`.
+Neither log is rotated today. A link, or anything that is not a plain file, is a
+tool error that names it.
+
+The cursor is opaque. It holds, for each log, the file it was read from, how far
+and a hash of the file's first 128 bytes up to there, and it is checked when it
+comes back: one of another shape is a tool error. When the log is no longer the
+file read, because it was renamed and a new one made, or copied and truncated,
+the rest is read from the `.1` copy when that copy is the file read, and then
+the new log from its start. When no copy is, the new log is read from its start
+and the answer names the log in `gaps`. A log rotated twice between two polls
+loses the older copy, so poll more often than the logs rotate. A line not yet
+ended by a newline waits for the next poll.
+
+Each line gets the closest of these kinds, by its first words:
+
+| Kind | Lines |
+| --- | --- |
+| `start` | `start`, a planning turn that `runs as` a unit, `refining`, and the cycle's own `tehas-cycle:` line |
+| `done` | `done`, `stop` and a planning turn that `ended` |
+| `wait` | `wait`, `holding:`, `hold`, `released:`, `low issues`, a planning or refining turn that `waits`, `the code index stays`, `another poll` and `nothing to do` |
+| `skip` | `skip` and `ignore` |
+| `drop` | `drop` |
+| `tidy` | `tidy`, `removed`, `clear` and `park` |
+| `refresh` | each line of `refresh.log` but a `WARN` or an `ERROR` |
+| `warn` | `WARN`, and any line of no known shape, such as `model endpoint:` or a tool's own error output with no time |
+| `error` | `ERROR` and `refuse` |
+
+A line of no known shape is never left out: it is a `warn`, with its text. A
+line with no time, such as the output of a command the poll ran, has no `time`
+and is merged as if written with the line before it.
+
+Limits: a call reads at most 256 KiB of each log, its `.1` copy included, and
+returns at most `limit` events, so `more` is true and `next` points just past
+the last event returned when there is more. A line longer than 256 KiB comes in
+pieces. Each line is masked before it is answered, as the logs above are. `factory_stats` with analytics off says that
 `analytics.json` is not published.
