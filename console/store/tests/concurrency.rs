@@ -21,13 +21,26 @@ const STORE: &str = env!("CARGO_BIN_EXE_store");
 const WRITERS: u32 = 8;
 const READERS: u32 = 8;
 const LOAD: Duration = Duration::from_secs(2);
-/// A call that answered ok and took this long met the busy handler on the way:
-/// the store's own five seconds is what it would have waited, and the whole load
-/// of eight writers and eight readers costs a few tens of milliseconds. Under the
-/// installed bounds a waiter would still be caught, but only after ten seconds of
-/// the load, which is why the load is measured against this instead of against
-/// `db::BUSY_TIMEOUT`.
-const LEAST_BUSY: Duration = Duration::from_millis(1000);
+/// The store's notice of a wait on a lock: one line for the first look at it,
+/// on standard error, given to a build with debug assertions that was asked for
+/// it by the variable of `src/db.rs`. That line is what says a call sat on the
+/// store, and nothing else says it: a call that took a second because the rest
+/// of the gate had every CPU busy did not wait for anything, and no time
+/// measured around a child process tells the two apart. A call that met no lock
+/// prints nothing at all, so the healthy case costs no line and no wait. What
+/// `met_lock` counts is these lines.
+const RETRY: &str = "store debug: busy retry 0";
+/// The waits of one call that the load is allowed to cause. Eight writers
+/// opening one database at once do arrive at its lock together, and the one
+/// SQLite turns away is asked again a millisecond later: in load after load the
+/// most any call met was one such wait, and no wait of it came near the five
+/// seconds of a bound -- a hundred polls is one twentieth of that. What the
+/// store cannot be asked to sit out is another process's transaction, so the
+/// bound is roomy rather than tight: a writer past it, or a reader at one, met
+/// something the load does not explain, and that is the failure this test is for.
+/// `a_call_kept_out_by_a_held_lock_reports_its_wait` is the case that shows a
+/// wait held out of the store is reported at all.
+const LOAD_WAITS: usize = 100;
 const ROWS_PER_WRITE: u32 = 3;
 
 /// A home with a store `init` made, as install.sh will leave it.
@@ -55,8 +68,77 @@ fn home(name: &str) -> PathBuf {
 
 fn store(home: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new(STORE);
-    cmd.args(args).env_clear().env("TEHAS_HOME", home);
+    cmd.args(args)
+        .env_clear()
+        .env("TEHAS_HOME", home)
+        // One line per wait on a lock, counted by `met_lock`. The variable is
+        // read by a build with debug assertions only, and this file is not built
+        // for a release one, so the two are always a pair.
+        .env("TEHAS_STORE_TEST_BUSY_REPORT", "1");
     cmd
+}
+
+/// How many times a call of the store was kept waiting for a lock another
+/// process held: the store says so itself, and an elapsed time says nothing.
+fn met_lock(out: &Output) -> usize {
+    String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .filter(|line| *line == RETRY)
+        .count()
+}
+
+/// The lock of another connection, held until the returned guard is dropped:
+/// the one lock that keeps every other connection out, readers included. A
+/// writer's transaction does not: WAL lets a reader go on, so a holder of that
+/// alone would be waited for by a writer and not by a reader, and the two cases
+/// of this file would need two holders. `busy_timeout` is 0 so the holder itself
+/// never waits for anything.
+struct Holder {
+    conn: Connection,
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        // The transaction ends before the connection goes, and the -wal with
+        // it: a reader of the next case sees the store as it was before.
+        let _ = self
+            .conn
+            .execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);");
+    }
+}
+
+fn held_lock(home: &Path, name: &str) -> Holder {
+    let conn = Connection::open(db(home)).unwrap();
+    conn.busy_timeout(Duration::ZERO).unwrap();
+    conn.execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE;")
+        .unwrap();
+    conn.execute(
+        "INSERT INTO branch_checks (name, head_sha, at, state) VALUES (?1, '0', 1, 'pending')",
+        [name],
+    )
+    .unwrap();
+    Holder { conn }
+}
+
+/// What the store was kept out of, and by whom: the process that waited, how
+/// many waits it named, what it was asked for, and what it answered with. The
+/// last two are what tell a wait the load causes and is allowed from one that is
+/// the store's own trouble: see `load_allows`.
+#[derive(Clone)]
+struct Waited {
+    who: String,
+    waits: usize,
+    args: Vec<String>,
+    said: String,
+}
+
+/// Whether a wait that answered ok is the load's own doing rather than a
+/// finding. See `LOAD_WAITS` for the figure and what it leaves room for. A
+/// reader's waits are forbidden outright: WAL lets a reader go on while a writer
+/// holds its transaction, so a `check` that had to wait met the one lock that
+/// keeps the file itself away, which nothing of the load holds.
+fn load_allows(w: &Waited) -> bool {
+    w.args.first().is_some_and(|verb| verb == "test-write") && w.waits <= LOAD_WAITS
 }
 
 fn run(home: &Path, args: &[&str]) -> Output {
@@ -76,9 +158,12 @@ fn db(home: &Path) -> PathBuf {
     home.join("state").join("tehas.db")
 }
 
-/// The rows of branch_checks by name and head, read by this process.
+/// The rows of branch_checks by name and head, read by this process. The
+/// reader asks for nothing: by now nothing holds the file, and a helper that
+/// waited for a lock would hide the very failure a case is checking for.
 fn rows(home: &Path) -> BTreeSet<(String, String)> {
     let conn = Connection::open_with_flags(db(home), OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    conn.busy_timeout(Duration::ZERO).unwrap();
     let mut q = conn
         .prepare("SELECT name, head_sha FROM branch_checks")
         .unwrap();
@@ -98,12 +183,20 @@ fn expected(batch: u32, rows: u32) -> impl Iterator<Item = (String, String)> {
 fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     let home = home("load");
     let end = Instant::now() + LOAD;
-    // What any of the sixteen processes took long enough to be a wait rather
-    // than a call, named so a failure says who met the lock. The handles are
-    // collected before the join, so the closures are alive by the time their
-    // lifetimes are checked and a borrow of a local here cannot serve: the
-    // vector is leaked and shared by pointer, and dropped with the process.
-    let slowest: &'static Mutex<Vec<String>> = Box::leak(Box::new(Mutex::new(Vec::new())));
+    // What any of the sixteen processes was kept out of the store for, named so
+    // a failure says who and with what answer. The handles are collected before
+    // the join, so the closures are alive by the time their lifetimes are
+    // checked and a borrow of a local here cannot serve: the vector is leaked and
+    // shared by pointer, and dropped with the process.
+    let waited: &'static Mutex<Vec<Waited>> = Box::leak(Box::new(Mutex::new(Vec::new())));
+    let note = |who: String, waits: usize, args: &[&str], out: &Output| {
+        waited.lock().unwrap().push(Waited {
+            who,
+            waits,
+            args: args.iter().map(|a| a.to_string()).collect(),
+            said: said(out),
+        })
+    };
     let writers: Vec<_> = (0..WRITERS)
         .map(|w| {
             let home = home.clone();
@@ -113,24 +206,19 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
                 while Instant::now() < end {
                     let batch = w * 1_000_000 + n;
                     let asked = Instant::now();
-                    let out = run(
-                        &home,
-                        &[
-                            "test-write",
-                            "--batch",
-                            &batch.to_string(),
-                            "--rows",
-                            &ROWS_PER_WRITE.to_string(),
-                        ],
-                    );
+                    let args = [
+                        "test-write",
+                        "--batch",
+                        &batch.to_string(),
+                        "--rows",
+                        &ROWS_PER_WRITE.to_string(),
+                    ];
+                    let out = run(&home, &args);
                     if out.status.success() {
                         written.push(batch);
-                        let took = asked.elapsed();
-                        if took >= LEAST_BUSY {
-                            slowest
-                                .lock()
-                                .unwrap()
-                                .push(format!("writer {w}, batch {batch}: {took:?}"));
+                        let waits = met_lock(&out);
+                        if waits > 0 {
+                            note(format!("writer {w}, batch {batch}"), waits, &args, &out);
                         }
                     } else {
                         failed.push(format!(
@@ -151,16 +239,13 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
             thread::spawn(move || {
                 let (mut reads, mut failed) = (0, Vec::new());
                 while Instant::now() < end {
-                    let asked = Instant::now();
-                    let out = run(&home, &["check"]);
+                    let args = ["check"];
+                    let out = run(&home, &args);
                     if out.status.success() {
                         reads += 1;
-                        let took = asked.elapsed();
-                        if took >= LEAST_BUSY {
-                            slowest
-                                .lock()
-                                .unwrap()
-                                .push(format!("reader {r}: {took:?}"));
+                        let waits = met_lock(&out);
+                        if waits > 0 {
+                            note(format!("reader {r}"), waits, &args, &out);
                         }
                     } else {
                         failed.push(format!("reader {r}: {}", said(&out)));
@@ -191,26 +276,39 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     // SQLITE_BUSY to the end of its bound is a failed call here. Nothing is
     // allowed to have waited either: the store's handler is a five-second wait
     // even in this debug build -- the tests' short pair belongs to the unit
-    // tests, not to these child processes -- so a call that had to sit on a lock
-    // would reach `waited` or `failed`, and no healthy call comes near a second.
+    // tests, not to these child processes -- so a call that had to sit out
+    // another's transaction would reach `waited` or `failed`. What it does not
+    // need is a clock: the store named every wait itself, so a machine busy with
+    // the rest of the gate costs this test nothing it has to be forgiven for.
     assert!(failed.is_empty(), "{} calls failed:\n{}", failed.len(), {
         failed.truncate(10);
         failed.join("\n")
     });
-    let waited = slowest.lock().unwrap().clone();
+    let all = waited.lock().unwrap().clone();
+    let waited: Vec<&Waited> = all.iter().filter(|w| !load_allows(w)).collect();
     assert!(
         waited.is_empty(),
         "{} calls waited on the store:\n{}",
         waited.len(),
         {
-            let mut shown = waited.clone();
-            shown.truncate(10);
+            let shown: Vec<String> = waited
+                .iter()
+                .take(10)
+                .map(|w| {
+                    format!(
+                        "{}: {} waits, asked {:?}, answered {}",
+                        w.who, w.waits, w.args, w.said
+                    )
+                })
+                .collect();
             shown.join("\n")
         }
     );
     eprintln!(
-        "{} rows written; fewest writes, reads per process: {fewest:?}",
-        want.len()
+        "{} rows written; fewest writes, reads per process: {fewest:?}; {} calls of the load met the lock, at most {} waits in one of them",
+        want.len(),
+        all.len(),
+        all.iter().map(|w| w.waits).max().unwrap_or(0)
     );
     // Every writer and every reader had its turn many times over.
     assert!(
@@ -222,6 +320,75 @@ fn eight_writers_and_eight_readers_meet_no_busy_and_lose_no_write() {
     assert!(out.status.success(), "check: {}", said(&out));
     assert!(String::from_utf8_lossy(&out.stdout).contains("\"integrity\":\"ok\""));
     let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn a_call_kept_out_by_a_held_lock_reports_its_wait() {
+    // The other side of `met_lock`, and the reason the load test above can trust
+    // it: a call that really is kept out of the store says so. Without this case
+    // a notice that never prints -- a renamed word, a variable nobody reads --
+    // would make the load test pass on a store that was nothing but locks, which
+    // is the failure it exists to catch. Both kinds of call are asked: the writer
+    // for the load, the reader because `check` is what the load runs beside it.
+    let held = home("held-lock");
+    let out = run(&held, &["test-write", "--batch", "1", "--rows", "1"]);
+    assert!(out.status.success(), "{}", said(&out));
+    let holder = held_lock(&held, "held");
+    // The holder lets go two seconds after it is taken, and both calls below are
+    // already waiting by then, so each is a wait that was waited out rather than
+    // met to its end: the call writes, or reads, instead of answering the `busy`
+    // that says a bound ran out. Two seconds is well inside either bound and
+    // well outside the moment the calls take to start.
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(2));
+        drop(holder);
+    });
+    // The reader is asked of a lock of its own, in a home of its own: WAL lets a
+    // reader go on while a writer's transaction is open, so only the one lock
+    // that keeps the file itself away -- `locking_mode EXCLUSIVE`, which holds it
+    // after a write -- is what a `check` can be kept out of, and the writer's own
+    // wait would otherwise be over before the reader was asked. The unit case for
+    // the same fact is `verbs_tests::a_reader_waits_out_a_short_lock`.
+    let read_home = home("held-lock-read");
+    assert!(
+        run(&read_home, &["test-write", "--batch", "1", "--rows", "1"])
+            .status
+            .success()
+    );
+    let read_holder = held_lock(&read_home, "held");
+    let reader = std::thread::spawn(move || {
+        let out = run(&read_home, &["check"]);
+        (read_home, met_lock(&out), said(&out))
+    });
+    let waits = met_lock(&run(&held, &["test-write", "--batch", "2", "--rows", "1"]));
+    let (reader_home, read_waits, read_said) = reader.join().unwrap();
+    drop(read_holder);
+    assert!(
+        waits >= 1,
+        "a writer kept out of the store by a held lock said nothing"
+    );
+    assert!(
+        read_waits >= 1,
+        "a reader kept out of the store by a held lock said nothing: {read_said}"
+    );
+    // Both waits were waited out rather than met, so both calls did their work:
+    // the rows are there and the store still reads well.
+    let out = run(&held, &["test-write", "--batch", "3", "--rows", "1"]);
+    assert!(out.status.success(), "{}", said(&out));
+    assert_eq!(
+        rows(&held),
+        ["held", "test-write-1", "test-write-2", "test-write-3"]
+            .map(|name| (name.to_string(), "0".to_string()))
+            .into_iter()
+            .collect(),
+        "what the calls that waited wrote"
+    );
+    let out = run(&held, &["check"]);
+    assert!(out.status.success(), "check: {}", said(&out));
+    let out = run(&reader_home, &["check"]);
+    assert!(out.status.success(), "check: {}", said(&out));
+    let _ = std::fs::remove_dir_all(&reader_home);
+    let _ = std::fs::remove_dir_all(&held);
 }
 
 #[test]

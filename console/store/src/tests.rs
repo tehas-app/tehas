@@ -683,7 +683,7 @@ fn a_store_the_tests_did_not_shorten_waits_the_installed_bounds() {
 
 /// The store of this build, for the one test that must run the program rather
 /// than call into it. cargo names it for an integration test; the unit tests of
-/// the binary find it beside the test harness it was built with.
+/// the binary find it beside the harness it was built with.
 fn store_binary() -> PathBuf {
     let deps = std::env::current_exe()
         .unwrap()
@@ -819,6 +819,109 @@ fn the_busy_handler_polls_until_its_limit_and_restarts_with_each_wait() {
     // A new wait starts a new clock.
     assert!(db::busy_wait(0, limit));
     assert!(db::busy_wait(1, limit));
+}
+
+#[test]
+fn a_call_that_meets_no_lock_counts_no_retry() {
+    // The count the concurrency test reads is of waits on a lock, not of
+    // connections: `check` opens the store, reads it and closes it, and none of
+    // that is a wait, so the debug line it would print is no line at all.
+    crate::verbs_tests::short_bounds();
+    let home = scratch("busy-count-clean");
+    init(&home, false).unwrap();
+    check(&home).unwrap();
+    assert_eq!(db::busy_retries(), 0);
+}
+
+#[test]
+fn a_call_that_waits_on_a_lock_counts_the_wait_it_made() {
+    // The other half of the gate: the handler's counter is what the notice is
+    // judged against, so a wait that happened must be visible in it and a call
+    // that met nothing must leave it where it was. The holder asks for nothing,
+    // so the reader meets its bound and the count is not a race about whether
+    // the lock came free.
+    crate::verbs_tests::short_bounds();
+    let home = scratch("busy-count-held");
+    init(&home, false).unwrap();
+    let holder = crate::verbs_tests::exclusive_lock(&home);
+    let err = db::open_read_only(&db::path(&home)).unwrap_err();
+    drop(holder);
+    assert_eq!(err, db::DbError::Busy, "{err:?}");
+    assert!(
+        db::busy_retries() >= 1,
+        "a wait on a lock left no count behind"
+    );
+}
+
+#[test]
+fn the_busy_report_is_one_line_per_wait_and_says_nothing_by_default() {
+    // The variable is the whole of the gate: with no value, which is what every
+    // caller of the store gives it, a thread that waited on a lock prints
+    // nothing. The line is asked for by the test's own environment and read by
+    // no caller, so a host's store is silent whatever it holds.
+    let home = scratch("busy-report");
+    init(&home, false).unwrap();
+    let store = store_binary();
+    let held = |given: &str| {
+        let mut cmd = std::process::Command::new(&store);
+        cmd.args([crate::BOUND_CHECK, db::path(&home).to_str().unwrap()])
+            .env_clear()
+            .env("TEHAS_HOME", &home)
+            .env(db::TEST_BUSY_REPORT, given);
+        let out = cmd
+            .output()
+            .unwrap_or_else(|e| panic!("{}: {e}", store.display()));
+        assert_eq!(out.status.code(), Some(0), "{}: {given}", store.display());
+        let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        // The lock was really held: `--test-store-bound-check` answers whether
+        // it met `busy` on its way to the write lock. Without this the silence
+        // of no lock and the silence of the variable look the same.
+        assert_eq!(said["busy"], true, "{said}");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    // Nothing asked for: the store is silent, as it is on a host. The lock is
+    // held for this call too, so silence is the variable's doing and not the
+    // absence of a wait.
+    let holder = crate::verbs_tests::exclusive_lock(&home);
+    let quiet = held("0");
+    let said = held("1");
+    drop(holder);
+    assert!(
+        !said.is_empty(),
+        "a wait met printed nothing, though one line was asked for"
+    );
+    assert!(
+        quiet.is_empty(),
+        "a wait printed a line that was not asked for: {quiet:?}"
+    );
+    for line in said.lines() {
+        let seen = "store debug: busy retry ";
+        assert!(
+            line.strip_prefix(seen)
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+            "{line:?} is not the notice"
+        );
+    }
+    // A wait of the bound polls a thousand times, and a line per poll would be a
+    // thousand lines: a bound of 1 asks for the line of each wait and no more.
+    assert!(
+        said.lines().count() < 10,
+        "the notice is per poll, not per wait: {said:?}"
+    );
+    // A value that is no count is said so, and loudly: a test that mistyped the
+    // value would else read the silence of no wait as the silence of no lock.
+    let bad = std::process::Command::new(&store)
+        .args([crate::BOUND_CHECK, db::path(&home).to_str().unwrap()])
+        .env_clear()
+        .env("TEHAS_HOME", &home)
+        .env(db::TEST_BUSY_REPORT, "soon")
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(64));
+    assert_eq!(
+        String::from_utf8_lossy(&bad.stderr).trim_end(),
+        format!("store: {} is not a count: soon", db::TEST_BUSY_REPORT)
+    );
 }
 
 #[test]
