@@ -27,6 +27,10 @@ pub struct Record {
     pub comment_id: Option<i64>,
     pub refresh: Option<(i64, String)>,
     pub input: Option<PathBuf>,
+    /// A refresh start that ran as an easy merge (#1031). Only a `refresh` row
+    /// takes it, and one that says 1 has had the one easy merge its approval is
+    /// owed.
+    pub easy: bool,
 }
 
 /// The word a millwright's start is written as, whatever spelling it was given.
@@ -136,6 +140,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
             ("--refresh-pr", Kind::Value),
             ("--refresh-head", Kind::Value),
             ("--input-file", Kind::Value),
+            ("--easy", Kind::Switch),
             ("--undo", Kind::Switch),
         ],
         true,
@@ -157,6 +162,13 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
     let pr = a.strict("--refresh-pr", "a number", verbs::number)?;
     let head = a.strict("--refresh-head", "a head sha", verbs::head_sha)?;
     let input = a.path("--input-file")?;
+    // The mark of an easy merge belongs to a refresh and to nothing else: a
+    // row of another how is no approval that was owed one, and taking the flag
+    // for one would let a caller write a fact it cannot mean.
+    let easy = a.has("--easy");
+    if easy && how != "refresh" {
+        return Err(a.usage("--easy", "is given only with --how refresh"));
+    }
     let refresh = match (pr, head) {
         (Some(pr), Some(head)) => Some((pr, head)),
         (None, None) => None,
@@ -196,6 +208,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
         comment_id,
         refresh,
         input,
+        easy,
     })))
 }
 
@@ -235,7 +248,7 @@ pub fn run(home: &Path, call: &Call) -> Result<String, Fail> {
 }
 
 const COLUMNS: &str = "issue, at, by_account, how, label, body_sha256, title_sha256, comment_id,
-  refresh_pr, refresh_head, used_at, used_by, input_json";
+  refresh_pr, refresh_head, used_at, used_by, input_json, easy";
 const NAMES: [&str; 12] = [
     "issue",
     "at",
@@ -251,6 +264,11 @@ const NAMES: [&str; 12] = [
     "used_by",
 ];
 
+/// The 0/1 column of an approval's row, read apart from the names that are
+/// answered as they are stored: 1 becomes JSON true and 0 becomes false, as the
+/// other flags of a row are (#1031).
+const EASY: &str = "easy";
+
 fn approval_json(
     c: &Connection,
     filter: &str,
@@ -262,11 +280,15 @@ fn approval_json(
             Ok((
                 row_json(r, &NAMES)?,
                 r.get::<_, Option<String>>(NAMES.len())?,
+                // The flag is asked as a bool, not as the integer it is stored
+                // as: row_json answers what is in the column, and this one is
+                // a yes or a no.
+                r.get::<_, bool>(NAMES.len() + 1)?,
             ))
         })
         .optional()
         .q()?;
-    let Some((mut p, input)) = row else {
+    let Some((mut p, input, easy)) = row else {
         return Ok("null".to_string());
     };
     // Written by this store as JSON; one that does not parse is damage.
@@ -281,6 +303,7 @@ fn approval_json(
             .to_string(),
     };
     p.push(("input", input));
+    p.push((EASY, j(easy)));
     Ok(obj(&p))
 }
 
@@ -316,13 +339,14 @@ fn record(home: &Path, r: &Record) -> Result<String, Fail> {
         };
         c.execute(
             "INSERT INTO approvals (issue, at, by_account, how, label, body_sha256, title_sha256,
-               comment_id, refresh_pr, refresh_head, used_at, used_by, input_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11)
+               comment_id, refresh_pr, refresh_head, used_at, used_by, input_json, easy)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, NULL, ?11, ?12)
              ON CONFLICT (issue, at) DO UPDATE SET by_account = excluded.by_account,
                how = excluded.how, label = excluded.label, body_sha256 = excluded.body_sha256,
                title_sha256 = excluded.title_sha256, comment_id = excluded.comment_id,
                refresh_pr = excluded.refresh_pr, refresh_head = excluded.refresh_head,
-               used_at = NULL, used_by = NULL, input_json = excluded.input_json",
+               used_at = NULL, used_by = NULL, input_json = excluded.input_json,
+               easy = excluded.easy",
             params![
                 r.issue,
                 r.at,
@@ -334,7 +358,8 @@ fn record(home: &Path, r: &Record) -> Result<String, Fail> {
                 r.comment_id,
                 pr,
                 head,
-                input
+                input,
+                r.easy,
             ],
         )
         .q()?;
@@ -446,6 +471,20 @@ fn starts(c: &Connection, issue: i64, floor: i64) -> Result<(i64, i64), Fail> {
     Ok((millwright_starts, refreshes))
 }
 
+/// Whether the one easy merge this approval is owed has been had: 1 when a
+/// start on the base above `floor` was a refresh that ran as one (#1031). A
+/// refresh row of an older store keeps `easy` 0, which is the right answer for
+/// it: what it ran was a full cycle, so no easy merge was spent on it.
+fn easy_had(c: &Connection, issue: i64, floor: i64) -> Result<bool, Fail> {
+    c.query_row(
+        "SELECT count(*) > 0 FROM approvals
+         WHERE issue = ?1 AND used_by > ?2 AND how = 'refresh' AND easy = 1",
+        params![issue, floor],
+        |r| r.get::<_, bool>(0),
+    )
+    .q()
+}
+
 /// `approval-current <issue>`: the approval of the issue's latest start. Also
 /// the read `store batch` makes through `verbs::look_many`.
 pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
@@ -463,6 +502,7 @@ pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
         let base = rests_on(c, issue)?;
         let floor = base.as_ref().map_or(0, |b| b.4);
         let (millwright_starts, refreshes) = starts(c, issue, floor)?;
+        let easy = easy_had(c, issue, floor)?;
         let base = base.map_or("null".to_string(), |(at, by, how, sha, used_by)| {
             obj(&[
                 ("at", j(at)),
@@ -483,6 +523,10 @@ pub fn current(home: &Path, issue: i64) -> Result<String, Fail> {
                 // shell's readers to the new one.
                 ("fixer_starts", j(millwright_starts)),
                 ("refreshes", j(refreshes)),
+                // Whether the one easy merge of this approval has been had:
+                // 1 when a refresh start on it ran as one. The read the
+                // dispatcher asks before it starts a second easy merge.
+                ("easy", j(easy)),
             ],
         ))
     })
