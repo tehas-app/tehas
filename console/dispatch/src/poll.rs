@@ -180,6 +180,9 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             libexec.join("store").to_string_lossy().into_owned(),
         ),
         poll_at,
+        // The poll asked for its row, and said nothing of it: both are the
+        // state of one poll, made here and not by its parts.
+        row_not_begun: false,
         before,
         bound: Duration::from_secs(30),
         // The fixed retry and poll steps of apply, at the values the bash
