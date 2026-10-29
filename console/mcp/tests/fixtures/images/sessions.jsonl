@@ -1,0 +1,4 @@
+{"kind":"work","issue":11,"outcome":"failed","failureKind":"verify","failureCause":"the gate failed","tehasVersion":"v0.16.2","rukasVersion":"v0.14.41","image":"sha256:7ff950ca513e26b32291f7a27222005692c91369615920935f31deaffbbc1463","imageBuilt":"2026-10-29T14:44:16Z"}
+{"kind":"work","issue":12,"outcome":"merged","tehasVersion":"v0.16.2","rukasVersion":"v0.14.41","image":"sha256:7ff950ca513e26b32291f7a27222005692c91369615920935f31deaffbbc1463","imageBuilt":"2026-10-29T14:44:16Z"}
+{"kind":"work","issue":13,"outcome":"merged","tehasVersion":"v0.16.2","rukasVersion":"v0.14.41","image":"sha256:c8d6ef2db1a1be56545b4041bd6a8aa31c421600b23b9c9fe6f6214a45d559c1","imageBuilt":"2026-10-29T10:22:41Z"}
+{"kind":"plan","issue":14,"outcome":"handoff","tehasVersion":"v0.16.2"}
