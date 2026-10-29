@@ -408,7 +408,7 @@ t_lacks "$(rule '.doors {')" 'max-width'
 # would be dropped below the breakroom.
 t_case "every panel of the one-column stage names its row"
 medium_areas=$(awk '/^  \.stage \{/,/^  \}/' <<<"$medium" | grep -o '"[a-z ]*"' | tr '\n' ' ')
-t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "energy" "host" "break" '
+t_eq "$medium_areas" '"floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break" '
 t_lacks "$medium_body" 'grid-area: auto'
 
 # That list is only right while it matches the markup. These are the elements the
@@ -435,7 +435,7 @@ stage_children=$(awk '
     }
     if (first != "" && depth == before + 1 && depth == 1) print first
   }' "$page")
-t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk energy host break-room "
+t_eq "$(tr '\n' ' ' <<<"$stage_children")" "floor doors desk epics energy host break-room "
 t_case "every panel the markup puts in the stage has a row of its own"
 for panel in $stage_children; do
   t_contains "$medium_areas" "\"$(area_of "$panel")\""
@@ -624,10 +624,10 @@ t_eq "$(awk '/href="#host"/ { n++ } END { print n }' <<<"$page_text")" 2
 t_case "the panel takes a row of its own, between the energy and the breakroom"
 t_contains "$hostcss_text" 'grid-area: host;'
 t_lacks "$hostcss_text" 'grid-column:'
-t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "energy energy" "host host" "break break" '
+t_eq "$stage_areas" '"head head" "line monitor" "doors monitor" "board monitor" "lab monitor" "console monitor" "epics epics" "energy energy" "host host" "break break" '
 # The one-column stage names the row too, in its own order, at the stage's own
 # band.
-t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "energy" "host" "break";' "$game")" \
+t_eq "$(query_of 'grid-template-areas: "floor" "doors" "desk" "lab" "console" "epics" "energy" "host" "break";' "$game")" \
   "$stage_band"
 t_lacks "$game_text" '.host '
 t_lacks "$energy_text" '.host '
