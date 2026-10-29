@@ -33,9 +33,9 @@
 #                   run nor the sweep removes it: the branch is never closed.
 #                   A GitHub call that fails leaves what runs.
 #   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
-#                   All the open pull requests are read, in pages of 100; a
-#                   run that cannot finish reading them builds and removes
-#                   nothing.
+#                   All the open pull requests are read, in pages of 100; the
+#                   console chooses from them (console preview choose). A run
+#                   that cannot read the list builds and removes nothing.
 #   when it goes    At the next run after the pull request is merged or
 #                   closed: the container, the image, the fetched ref and
 #                   the state. Nothing is removed before GitHub is asked about
@@ -175,6 +175,25 @@ fi
 
 # --- The state of one pull request -------------------------------------------
 field() { jq -r --arg k "$2" '.[$k] // ""' "$root/$1/state.json" 2>/dev/null; }
+# said <word> <singular> <plural>: the console's rows that begin "skip <word>",
+# counted and said out loud when there is one of them or more.
+said() {
+  local n
+  n=$(grep -c "^skip $1 " "$choice_file")
+  [ "$n" = 0 ] || echo "$n $([ "$n" = 1 ] && printf %s "$2" || printf %s "$3"), not built"
+}
+# page_count <answer>: how many pull requests GitHub's answer holds, or it
+# fails. An answer that is not an array is no page: read as a page of none it
+# would make every preview look closed and build nothing of ours.
+page_count() { jq -e 'type == "array"' <<<"$1" >/dev/null 2>&1 && jq length <<<"$1"; }
+# over_limit <number> <commit>: the state of a pull request the console chose
+# past the limit. Said once, not at every run after that: nothing is done when
+# the state already says so and no container of the name is listed.
+over_limit() {
+  [ "$(field "$1" sha)" = "$2" ] && [ "$(field "$1" state)" = over-limit ] &&
+    [ -z "$(docker ps -a --quiet --filter "name=^tehas-preview-$1\$" 2>/dev/null)" ] || stop "$1"
+  mark "$1" "$2" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
+}
 # mark <number> <commit> <state> [reason]: written only when it differs, so
 # "time" is when the state began.
 mark() {
@@ -482,8 +501,8 @@ main_preview() {
 
 # --- The five minute run -----------------------------------------------------
 run() {
-  local page pr n sha seen i=0 open=" " wanted=() elsewhere=0 outside=0 have item fault
-  local pages count ours_file probe err verdict
+  local page n sha seen open=" " wanted=() have item fault
+  local pages count ours_file choice_file probe err verdict state
   # A run that stops here or at the network still writes the list. Its time
   # is what the dashboard shows and what tehasbot health goes by, and a list
   # that stopped changing would look like a timer that stopped. Without
@@ -516,15 +535,12 @@ run() {
   # the default branch from being served.
   main_preview
 
-  # All the open pull requests, in pages of 100, newest first. Only the newest
-  # page was asked for at first, which is a limit with teeth: a hundred newer
-  # pull requests from forks or from outsiders push every one of ours off that
-  # page, and the run then finds none of them open and removes every preview
-  # that serves until they close. The pages are read until one is short, which
-  # is where GitHub ends. Past pull_pages of them the list was not read, and a
-  # run does not build or remove on a list it did not read. Each page is an
-  # answer of its own, taken at its own moment: what is done with the merged
-  # list below takes that into account.
+  # All the open pull requests, in pages of 100, newest first, kept as GitHub
+  # answered them. Only the newest page was asked for at first: a hundred newer
+  # pull requests from forks push every one of ours off it, and the run then
+  # removes every preview that serves until they close. The pages are read
+  # until one is short, where GitHub ends; past pull_pages of them the list was
+  # not read, and a run does not build or remove on a list it did not read.
   if ! scratch ours; then
     echo "no scratch file for the list of open pull requests; nothing was built or removed"
     write_list
@@ -532,108 +548,86 @@ run() {
   fi
   ours_file=$scratch_file
   : >"$ours_file" || { write_list; return 0; }
-  # Ours: a number, a commit id, a head in this repository and no other, and
-  # opened by people of the repository: an owner, member or collaborator, as
-  # for the Protolab's attachments. The head alone is not enough. On a public
-  # repository anyone can open a pull request between two branches that are
-  # already there, and a handful of those would take every preview.
-  # shellcheck disable=SC2016  # a jq program: the variables are jq's
-  local parts='
-    def ours: IN("OWNER", "MEMBER", "COLLABORATOR");
-    def numbered: (.number | type) == "number" and (.number | tostring | test("^[1-9][0-9]{0,8}$"));
-    def committed: (.head.sha // "") | test("^[0-9a-f]{40}$");
-    def here: ((.head.repo.full_name // "") | ascii_downcase) == ($repo | ascii_downcase);
-    def by_us: .author_association | ours;'
+  # The console beside this command reads the pages and decides what is done
+  # with each of them (console/src/preview.rs): ours are a number, a commit
+  # id, a head in this repository and no other, and opened by an owner, member
+  # or collaborator. The head alone is not enough: anyone can open a pull
+  # request between two branches that are already there.
   pages=0
   while :; do
     page=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=$pull_page_size&page=$((pages + 1))" 2>/dev/null) ||
       { write_list; return 0; }
-    # An empty answer with exit 0 is no answer: jq would run its program on no
-    # input and say nothing, and every preview would look closed.
-    jq -e 'type == "array"' <<<"$page" >/dev/null 2>&1 || { write_list; return 0; }
-    count=$(jq 'length' <<<"$page") || { write_list; return 0; }
-    # A page that does not say who opened one of ours is not a clear answer.
-    # Reading it as "an outsider's" would remove a preview that serves, where
-    # the sweep keeps on the same answer.
-    if ! jq -e --arg repo "$repo" "$parts"'
-        all(.[]; (numbered and committed and here | not) or (.author_association | type) == "string")' \
-        <<<"$page" >/dev/null 2>&1; then
-      echo "the list of open pull requests does not say who opened each; nothing was built or removed"
-      write_list
-      return 0
-    fi
-    jq -c --arg repo "$repo" "$parts"'
-      if type != "array" then error("not a list") else . end
-      | map(select(numbered and committed and here and by_us)
-            | {number, sha: .head.sha, title: ((.title // "") | .[0:180]), url: (.html_url // null),
-               seen: (.updated_at | if type == "string" then . else "" end)})
-      | .[]' <<<"$page" >>"$ours_file" 2>/dev/null || { write_list; return 0; }
-    # Those whose head is elsewhere, and those that would have been built but
-    # for who opened them.
-    elsewhere=$((elsewhere + $(jq --arg repo "$repo" '
-      [.[] | select(((.head.repo.full_name // "") | ascii_downcase) != ($repo | ascii_downcase))] | length' \
-      <<<"$page" 2>/dev/null || echo 0)))
-    outside=$((outside + $(jq --arg repo "$repo" "$parts"'
-      [.[] | select(numbered and committed and here and (by_us | not))] | length' \
-      <<<"$page" 2>/dev/null || echo 0)))
+    count=$(page_count "$page") || { write_list; return 0; }
+    jq -c . <<<"$page" >>"$ours_file" || { write_list; return 0; }
     pages=$((pages + 1))
-    [ "$count" -lt "$pull_page_size" ] && break
-    if [ "$pages" -ge "$pull_pages" ]; then
-      # The last page this run may ask for came back full, so the list may end
-      # there or go past it. One more answer tells them apart: an empty one
-      # means every open pull request was read, and a thousand of them is a
-      # list that was read.
+    # The last page this run may ask for that comes back full is not proof the
+    # list ended there: one more answer tells them apart. Its bytes are kept
+    # too, so the console reads the whole list as GitHub gave it: an empty page
+    # means the list was read, and a full one is more than the run may build on.
+    if [ "$count" = "$pull_page_size" ] && [ "$pages" -ge "$pull_pages" ]; then
       probe=$(gh api "repos/$repo/pulls?state=open&sort=created&direction=desc&per_page=$pull_page_size&page=$((pages + 1))" 2>/dev/null) ||
         { write_list; return 0; }
-      jq -e 'type == "array"' <<<"$probe" >/dev/null 2>&1 || { write_list; return 0; }
-      count=$(jq 'length' <<<"$probe") || { write_list; return 0; }
-      if [ "$count" != 0 ]; then
+      count=$(page_count "$probe") || { write_list; return 0; }
+      jq -c . <<<"$probe" >>"$ours_file" || { write_list; return 0; }
+      [ "$count" = 0 ] || {
         echo "the open pull requests are more than $((pull_pages * pull_page_size)): the list was not read, nothing was built or removed"
         write_list
         return 0
-      fi
-      break
+      }
     fi
+    [ "$count" -lt "$pull_page_size" ] && break
   done
-  if [ "$elsewhere" = 1 ]; then
-    echo "1 pull request from elsewhere, not built"
-  elif [ "$elsewhere" != 0 ]; then
-    echo "$elsewhere pull requests from elsewhere, not built"
-  fi
-  if [ "$outside" = 1 ]; then
-    echo "1 pull request opened by someone outside the repository, not built"
-  elif [ "$outside" != 0 ]; then
-    echo "$outside pull requests opened by someone outside the repository, not built"
-  fi
 
-  while IFS= read -r pr; do
-    [ -n "$pr" ] || continue
-    n=$(jq -r .number <<<"$pr")
-    # The pages are asked for one at a time, and the list moves between them:
-    # a pull request opened while they are read comes back on two of them. It
-    # counts once, so that it does not take a preview from another.
-    case "$open" in *" $n "*) continue ;; esac
-    sha=$(jq -r .sha <<<"$pr")
-    seen=$(jq -r '.seen // ""' <<<"$pr")
+  # The choice, and the two counts of what was not chosen, on lines of the
+  # console's own. A list it cannot read, or one that does not say who opened
+  # one of ours, builds and removes nothing: reading an unclear answer as "an
+  # outsider's" would take a preview from a pull request that serves, where the
+  # sweep keeps.
+  if ! scratch choice; then
+    echo "the console chose no previews: the list was not read, nothing was built or removed"
+    write_list
+    return 0
+  fi
+  choice_file=$scratch_file
+  if ! "$console" preview choose "$repo" "$TEHAS_PREVIEW_MAX" <"$ours_file" >"$choice_file" ||
+    grep -q '^nothing read$' "$choice_file"; then
+    echo "the console chose no previews: the list was not read, nothing was built or removed"
+    write_list
+    return 0
+  fi
+  if grep -q '^the list of open pull requests does not say who opened each$' "$choice_file"; then
+    echo "the list of open pull requests does not say who opened each; nothing was built or removed"
+    write_list
+    return 0
+  fi
+  # The two counts of what was not chosen, from the rows the console wrote.
+  said elsewhere "pull request from elsewhere" "pull requests from elsewhere"
+  said outside "pull request opened by someone outside the repository" \
+    "pull requests opened by someone outside the repository"
+
+  # The rows the console chose, newest first: the decision, the number, the
+  # commit and the time, four words and no more. A row carries no title, so
+  # that comes from the pages, and no empty field, so the time reads as a word.
+  # These rows are the whole choice, so their numbers are what is not removed.
+  # shellcheck disable=SC2016  # a jq program: $n is jq's variable
+  while read -r state n sha seen; do
+    case "$state" in build | over-limit) ;; *) continue ;; esac
     open="$open$n "
-    mkdir -p "$root/$n" || return 1
-    edge_put "$root/$n/pull.json" jq -c '{title, url}' <<<"$pr" || return 1
+    mkdir -p "$root/$n" || { write_list; return 1; }
+    jq -c --argjson n "$n" -s '
+      [map(if type == "array" then .[] else . end) | .[]
+       | select(type == "object" and .number == $n)][0]
+      | {title: ((.title // "") | .[0:180]), url: (.html_url // null)}' \
+      "$ours_file" 2>/dev/null |
+      edge_put "$root/$n/pull.json" cat || { write_list; return 1; }
     retitle "$n"
-    i=$((i + 1))
-    if [ "$i" -gt "$TEHAS_PREVIEW_MAX" ]; then
-      # Stopped when it falls over the limit, not at every run after that:
-      # the state says so for this commit and Docker lists no container of
-      # the name. A stop that failed leaves one listed, and is tried again.
-      if [ "$(field "$n" sha)" != "$sha" ] || [ "$(field "$n" state)" != over-limit ] ||
-        [ -n "$(docker ps -a --quiet --filter "name=^tehas-preview-$n\$" 2>/dev/null)" ]; then
-        stop "$n"
-      fi
-      mark "$n" "$sha" over-limit "More than $TEHAS_PREVIEW_MAX pull requests are open."
+    if [ "$state" = over-limit ]; then
+      over_limit "$n" "$sha"
       tell "$n" "$seen"
       continue
     fi
-    wanted+=("$n $sha")
-  done <"$ours_file"
+    wanted+=("$n $sha $seen")
+  done <"$choice_file"
 
   # What is on the host and no longer open: by directory and by container.
   # Only a container whose label names this repository gives a number, in any
@@ -673,8 +667,13 @@ run() {
   done <<<"$have"
 
   for item in "${wanted[@]+"${wanted[@]}"}"; do
+    # "<number> <commit> <time>": the time this run read, which the notice of
+    # the preview is dated with. No third word says nothing about when.
     n=${item%% *}
-    sha=${item#* }
+    rest=${item#* }
+    sha=${rest%% *}
+    seen=${rest#* }
+    [ "$seen" = "$rest" ] && seen=""
     bring "$n" "$sha"
     tell "$n" "$seen"
   done

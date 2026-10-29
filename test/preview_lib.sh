@@ -8,7 +8,8 @@
 # The part has sourced test/lib.sh before this.
 
 # The command as a host has it: beside the console, which writes the notice in
-# a pull request's description (console/src/notice.rs). The library is the
+# a pull request's description and chooses which open pull requests get a
+# preview (console/src/notice.rs, console/src/preview.rs). The library is the
 # checkout's own.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
@@ -53,6 +54,9 @@ case "$1 $2" in
     # 1 answers the paging itself: a page it does not have is where GitHub ends.
     p=$(printf "%s" "$2" | sed -n "s/.*[&?]page=\([0-9][0-9]*\).*/\1/p")
     if [ -f "$T/fx/pulls-1.json" ]; then
+      # The call for a page is written down as the run makes it, so that a case
+      # counts the pages of the list the run read and not the files of fx.
+      echo "api repos/acme/widget/pulls?per_page=100&page=${p:-1}" >>"$T/calls/gh-page"
       cat "$T/fx/pulls-${p:-1}.json" 2>/dev/null || echo "[]"
       exit 0
     fi
@@ -259,6 +263,12 @@ page_of() {
 # page <number> <array>: that page of the open pull requests. Naming page 1
 # makes the gh stub answer the pages from these files; see its case.
 page() { printf '%s\n' "$2" >"$fx/pulls-$1.json"; }
+# pages_read: how many calls for a page of the open pull requests the run
+# made. The stub notes each one in calls/gh-page, which reset clears with the
+# other calls, so that a case counts the pages of the list the run read.
+pages_read() {
+  [ -s "$T/calls/gh-page" ] && wc -l <"$T/calls/gh-page" | tr -d ' ' || echo 0
+}
 # page_with <number> <array> [pull requests...]: that page, with these pull
 # requests at the end of it. A page of a hundred is a page that is full.
 page_with() {
