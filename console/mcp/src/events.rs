@@ -5,12 +5,17 @@
 //! logs and their rotated copies, `<log>.1`. A caller never names a file.
 //!
 //! The cursor holds, per log, the inode of the file it was read from, the byte
-//! offset read to, and a hash of the file's first bytes up to that offset. The
-//! hash tells a file that was replaced or truncated and written again from the
-//! one that was read, whatever its inode. When the file read is no longer the
-//! log, the rest is read from the rotated copy when that copy is the file read,
-//! and then the new log from its start. When neither is, the new log is read
-//! from its start and the answer names the log in `gaps`.
+//! offset read to, whether that offset is inside a line too long for one read,
+//! and a hash of the file's first bytes up to that offset. The hash tells a file
+//! that was replaced or truncated and written again from the one that was read,
+//! whatever its inode. When the file read is no longer the log, the rest is
+//! read from the rotated copy when that copy is the file read, and then the new
+//! log from its start. When neither is, the new log is read from its start and
+//! the answer names the log in `gaps`.
+//!
+//! A caller can forge a cursor, so no text is answered from the middle of a
+//! line, where the mask would miss a secret: an offset must be a line's start,
+//! and one inside a long line skips to the next.
 
 use crate::tools::{bad, epoch, ToolError};
 use regex::Regex;
@@ -40,14 +45,17 @@ pub const TEXT_CUT: usize = 1000;
 /// The bytes of a file's start the cursor's hash covers.
 const HEAD: u64 = 128;
 const CURSOR_MAX: usize = 128;
-/// A version, then per log: inode, offset, hash.
-static CURSOR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^1(?:\.[0-9]{1,20}\.[0-9]{1,20}\.[0-9a-f]{16}){2}$").unwrap());
+/// A version, then per log: inode, offset, skip, hash.
+static CURSOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^1(?:\.[0-9]{1,20}\.[0-9]{1,20}\.[01]\.[0-9a-f]{16}){2}$").unwrap()
+});
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Pos {
     ino: u64,
     off: u64,
+    /// Inside a line longer than a read: read on from the next line.
+    skip: bool,
     head: String,
 }
 
@@ -56,6 +64,7 @@ impl Pos {
         Pos {
             ino: 0,
             off: 0,
+            skip: false,
             head: hash(&[]),
         }
     }
@@ -75,11 +84,13 @@ fn parse_cursor(s: &str) -> Result<[Pos; 2], ToolError> {
     }
     let parts: Vec<&str> = s.split('.').skip(1).collect();
     let pos = |i: usize| -> Result<Pos, ToolError> {
-        Ok(Pos {
-            ino: parts[i * 3].parse().map_err(|_| refuse())?,
-            off: parts[i * 3 + 1].parse().map_err(|_| refuse())?,
-            head: parts[i * 3 + 2].to_string(),
-        })
+        let p = Pos {
+            ino: parts[i * 4].parse().map_err(|_| refuse())?,
+            off: parts[i * 4 + 1].parse().map_err(|_| refuse())?,
+            skip: parts[i * 4 + 2] == "1",
+            head: parts[i * 4 + 3].to_string(),
+        };
+        Ok(p)
     };
     Ok([pos(0)?, pos(1)?])
 }
@@ -87,7 +98,13 @@ fn parse_cursor(s: &str) -> Result<[Pos; 2], ToolError> {
 fn format_cursor(p: &[Pos; 2]) -> String {
     let mut s = "1".to_string();
     for p in p {
-        s.push_str(&format!(".{}.{}.{}", p.ino, p.off, p.head));
+        s.push_str(&format!(
+            ".{}.{}.{}.{}",
+            p.ino,
+            p.off,
+            u8::from(p.skip),
+            p.head
+        ));
     }
     s
 }
@@ -146,28 +163,56 @@ impl Opened {
         Ok(buf)
     }
 
-    fn pos(&self, off: u64) -> Result<Pos, ToolError> {
+    /// A skip hashes no bytes short of the full head, so a forged one cannot
+    /// test a guess of the bytes before it one at a time.
+    fn pos(&self, off: u64, skip: bool) -> Result<Pos, ToolError> {
+        let upto = if skip && off < HEAD { 0 } else { off };
         Ok(Pos {
             ino: self.ino,
             off,
-            head: hash(&self.read(0, off.min(HEAD))?),
+            skip,
+            head: hash(&self.read(0, upto.min(HEAD))?),
         })
     }
 
-    /// Whether this is the file the cursor read to `pos.off`.
+    /// Whether this is the file the cursor read to `pos.off`, and the offset
+    /// a line's start unless it skips to one.
     fn holds(&self, pos: &Pos) -> Result<bool, ToolError> {
-        Ok(self.len >= pos.off && self.pos(pos.off)?.head == pos.head)
+        if self.len < pos.off {
+            return Ok(false);
+        }
+        if !pos.skip && pos.off > 0 && self.read(pos.off - 1, 1)? != b"\n" {
+            return Ok(false);
+        }
+        Ok(self.pos(pos.off, pos.skip)?.head == pos.head)
     }
 }
 
 struct Seg {
     file: Opened,
     from: u64,
+    /// `from` is inside a line: read on from the next.
+    skip: bool,
     /// Read up to here: the end of the last whole line taken.
     end: u64,
-    /// A rotated copy: no writer adds to it, so a last line without its
-    /// newline is taken as it is.
+    /// `end` is inside a line too long for one read.
+    end_skip: bool,
+    /// A rotated copy: a last line without its newline was cut by the copy,
+    /// and its rest starts the next file.
     old: bool,
+}
+
+impl Seg {
+    fn new(file: Opened, from: u64, skip: bool, old: bool) -> Seg {
+        Seg {
+            file,
+            from,
+            skip,
+            end: from,
+            end_skip: skip,
+            old,
+        }
+    }
 }
 
 struct Line {
@@ -178,6 +223,8 @@ struct Line {
     text: String,
     seg: usize,
     end: u64,
+    /// The start of a line too long for one read: `end` is inside it.
+    skip: bool,
 }
 
 struct Stream {
@@ -195,7 +242,7 @@ struct Stream {
 impl Stream {
     fn new(log: &'static str, segs: Vec<Seg>, gap: bool) -> Result<Stream, ToolError> {
         let start = match segs.first() {
-            Some(s) => s.file.pos(s.from)?,
+            Some(s) => s.file.pos(s.from, s.skip)?,
             None => Pos::none(),
         };
         Ok(Stream {
@@ -211,54 +258,78 @@ impl Stream {
 
     /// Reads the segments in order, at most `READ_MAX` bytes in all, and
     /// keeps at most `keep` lines: the first, or in the tail of a log the
-    /// last. In a tail the first line, cut by the start of the read, is left.
+    /// last. A segment that starts inside a line reads on from the next.
     fn read(&mut self, tail: bool, keep: usize) -> Result<(), ToolError> {
         let mut budget = READ_MAX;
         let mut key = String::new();
+        let mut skip = false;
+        // The start of a line a rotated copy cut, and where it starts.
+        let mut carry: Vec<u8> = Vec::new();
+        let mut carry_at = None;
         for i in 0..self.segs.len() {
             let seg = &self.segs[i];
-            let n = seg.file.len.saturating_sub(seg.from).min(budget);
-            let buf = seg.file.read(seg.from, n)?;
-            budget -= n;
-            let mut at = 0usize;
-            if tail && seg.from > 0 {
-                at = buf
-                    .iter()
-                    .position(|b| *b == b'\n')
-                    .map_or(buf.len(), |p| p + 1);
-            }
             let (from, old, len) = (seg.from, seg.old, seg.file.len);
+            skip |= seg.skip;
+            let n = len.saturating_sub(from).min(budget);
+            let buf = seg.file.read(from, n)?;
+            budget -= n;
+            let eof = from + n == len;
+            let mut at = 0usize;
+            if skip {
+                match buf.iter().position(|b| *b == b'\n') {
+                    Some(p) => {
+                        at = p + 1;
+                        skip = false;
+                    }
+                    None => at = buf.len(),
+                }
+            }
+            let mut full = false;
             while let Some(p) = buf[at..].iter().position(|b| *b == b'\n') {
-                self.push(&buf[at..at + p], &mut key, i, from + (at + p + 1) as u64);
+                let mut raw = std::mem::take(&mut carry);
+                raw.extend_from_slice(&buf[at..at + p]);
+                carry_at = None;
+                self.push(&raw, &mut key, i, from + (at + p + 1) as u64, false);
                 at += p + 1;
                 if tail && self.lines.len() > keep {
                     self.lines.pop_front();
                 }
-                if !tail && self.lines.len() == keep {
-                    self.segs[i].end = from + at as u64;
-                    self.last = i;
-                    self.open = true;
-                    return Ok(());
+                if !tail && self.lines.len() >= keep {
+                    full = true;
+                    break;
                 }
             }
-            let eof = from + n == len;
-            // A line longer than a whole read is taken in pieces, so a poll
-            // never stalls on it.
-            if at < buf.len() && ((eof && old) || (!eof && at == 0 && n == READ_MAX)) {
-                self.push(&buf[at..], &mut key, i, from + n);
+            // A line longer than a whole read gives its start, and the rest
+            // is skipped, so a poll never stalls on it.
+            if !full && !eof && at == 0 && n == READ_MAX && !skip && carry.is_empty() {
+                self.push(&buf, &mut key, i, from + n, true);
+                at = buf.len();
+                skip = true;
+            }
+            if !full && eof && old && !skip && at < buf.len() && i + 1 < self.segs.len() {
+                carry = buf[at..].to_vec();
+                carry_at = Some((i, from + at as u64));
                 at = buf.len();
             }
             self.segs[i].end = from + at as u64;
+            self.segs[i].end_skip = skip;
             self.last = i;
-            if !eof {
+            if full || !eof {
                 self.open = true;
                 break;
             }
+            // Only a rotated copy's cut line goes on in the next file.
+            skip &= old;
+        }
+        if let Some((i, end)) = carry_at {
+            self.segs[i].end = end;
+            self.segs[i].end_skip = false;
+            self.last = i;
         }
         Ok(())
     }
 
-    fn push(&mut self, raw: &[u8], key: &mut String, seg: usize, end: u64) {
+    fn push(&mut self, raw: &[u8], key: &mut String, seg: usize, end: u64, skip: bool) {
         let s = String::from_utf8_lossy(raw);
         let s = s.strip_suffix('\r').unwrap_or(&s);
         let (time, text) = match (s.get(..20), s.get(20..21)) {
@@ -277,6 +348,7 @@ impl Stream {
             text: text.to_string(),
             seg,
             end,
+            skip,
         });
     }
 
@@ -287,11 +359,11 @@ impl Stream {
         }
         if k < self.lines.len() {
             let l = &self.lines[k - 1];
-            return self.segs[l.seg].file.pos(l.end);
+            return self.segs[l.seg].file.pos(l.end, l.skip);
         }
         // Every line was taken: past what was read, blank lines included.
         let s = &self.segs[self.last];
-        s.file.pos(s.end)
+        s.file.pos(s.end, s.end_skip)
     }
 }
 
@@ -305,12 +377,6 @@ fn follow(
 ) -> Result<Stream, ToolError> {
     let cur = open_plain(dir, name)?;
     let old = open_plain(dir, &format!("{name}{ROTATED}"))?;
-    let seg = |file, from, old| Seg {
-        file,
-        from,
-        end: from,
-        old,
-    };
     let mut segs = Vec::new();
     let mut gap = false;
     if pos.off == 0 {
@@ -320,10 +386,10 @@ fn follow(
             && old.as_ref().is_some_and(|o| o.ino == pos.ino)
             && cur.as_ref().is_none_or(|c| c.ino != pos.ino);
         if let (true, Some(o)) = (renamed, old) {
-            segs.push(seg(o, 0, true));
+            segs.push(Seg::new(o, 0, false, true));
         }
         if let Some(c) = cur {
-            segs.push(seg(c, 0, false));
+            segs.push(Seg::new(c, 0, false, false));
         }
     } else {
         let cur_holds = match &cur {
@@ -337,15 +403,15 @@ fn follow(
         let old_is_it = old.as_ref().is_some_and(|o| o.ino == pos.ino)
             && cur.as_ref().is_none_or(|c| c.ino != pos.ino);
         if cur_holds && !(old_holds && old_is_it) {
-            segs.push(seg(cur.expect("it holds"), pos.off, false));
+            segs.push(Seg::new(cur.expect("it holds"), pos.off, pos.skip, false));
         } else {
             if old_holds {
-                segs.push(seg(old.expect("it holds"), pos.off, true));
+                segs.push(Seg::new(old.expect("it holds"), pos.off, pos.skip, true));
             } else {
                 gap = true;
             }
             if let Some(c) = cur {
-                segs.push(seg(c, 0, false));
+                segs.push(Seg::new(c, 0, false, false));
             }
         }
     }
@@ -354,20 +420,24 @@ fn follow(
     Ok(s)
 }
 
-/// The stream of a log's last `READ_MAX` bytes.
+/// The stream of a log's last `READ_MAX` bytes, the end of its rotated copy
+/// first when the log is shorter.
 fn tail(dir: &Path, log: &'static str, name: &str, keep: usize) -> Result<Stream, ToolError> {
-    let segs = match open_plain(dir, name)? {
-        Some(c) => {
-            let from = c.len.saturating_sub(READ_MAX);
-            vec![Seg {
-                file: c,
-                from,
-                end: from,
-                old: false,
-            }]
+    let cur = open_plain(dir, name)?;
+    let short = READ_MAX - cur.as_ref().map_or(0, |c| c.len.min(READ_MAX));
+    let mut segs = Vec::new();
+    if short > 0 {
+        if let Some(o) = open_plain(dir, &format!("{name}{ROTATED}"))? {
+            if cur.as_ref().is_none_or(|c| c.ino != o.ino) {
+                let from = o.len.saturating_sub(short);
+                segs.push(Seg::new(o, from, from > 0, true));
+            }
         }
-        None => Vec::new(),
-    };
+    }
+    if let Some(c) = cur {
+        let from = c.len.saturating_sub(READ_MAX);
+        segs.push(Seg::new(c, from, from > 0, false));
+    }
     let mut s = Stream::new(log, segs, false)?;
     s.read(true, keep)?;
     s.open = false;
@@ -513,7 +583,7 @@ pub fn tool() -> Value {
     let text = |desc: &str| json!({"type": "string", "description": desc});
     json!({
         "name": "factory_events",
-        "description": "The dispatcher's and refresh's events, from dispatch.log and refresh.log, masked, oldest first: each with its time, kind, issue when the line names one, the log it is from and its text. Without after: the last 100 events. With after, the next of an earlier answer: the events written since, each once, across a rotation of either log. Polled, not streamed: call again with next. At most 256 KiB of each log is read and limit events returned in a call; more is true when there is more to read now.",
+        "description": "The dispatcher's and refresh's events, from dispatch.log and refresh.log, masked, oldest first: each with its time, kind, issue when the line names one, the log it is from and its text. Without after: the last 100 events. With after, the next of an earlier answer: the events written since, each once, across a copy-and-truncate rotation of either log. Polled, not streamed: call again with next. At most 256 KiB of each log is read and limit events returned in a call; more is true when there is more to read now.",
         "inputSchema": {"type": "object", "properties": {
             "after": {"type": "string", "maxLength": CURSOR_MAX, "pattern": CURSOR.as_str(), "description": "The next of an earlier answer. The last events without it."},
             "limit": {"type": "integer", "minimum": 1, "maximum": EVENTS_MAX, "description": "The most events to return, from 1 to 500. 100 without it."},
@@ -604,6 +674,27 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_cut_in_a_line_keeps_the_bound_of_lines() {
+        let dir = std::env::temp_dir().join(format!("mcp-events-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("dispatch.log");
+        std::fs::write(&log, "2026-10-29T10:00:00Z start #1\n").unwrap();
+        let o = open_plain(&dir, "dispatch.log").unwrap().unwrap();
+        let pos = o.pos(o.len, false).unwrap();
+        let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+        std::io::Write::write_all(&mut f, b"2026-10-29T10:00:01Z WARN: half").unwrap();
+        std::fs::copy(&log, dir.join("dispatch.log.1")).unwrap();
+        let lines: String = (0..50)
+            .map(|i| format!("2026-10-29T10:01:00Z wait #{i}: x\n"))
+            .collect();
+        std::fs::write(&log, lines).unwrap();
+        let s = follow(&dir, "dispatch", "dispatch.log", &pos, 1).unwrap();
+        assert_eq!(s.lines.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_issue_is_among_the_first_words() {
         assert_eq!(issue_of("start #1022 (labelled by alice)"), Some(1022));
         assert_eq!(issue_of("skip #316: its question"), Some(316));
@@ -627,6 +718,7 @@ mod tests {
             Pos {
                 ino: 18446744073709551615,
                 off: 7,
+                skip: false,
                 head: "0123456789abcdef".into(),
             },
             Pos::none(),
@@ -634,16 +726,26 @@ mod tests {
         let s = format_cursor(&p);
         assert!(s.len() <= CURSOR_MAX);
         assert_eq!(parse_cursor(&s).unwrap(), p);
+        let mut q = p.clone();
+        q[1] = Pos {
+            ino: 3,
+            off: READ_MAX,
+            skip: true,
+            head: "0123456789abcdef".into(),
+        };
+        assert_eq!(parse_cursor(&format_cursor(&q)).unwrap(), q);
         for bad in [
             "",
             "1",
-            "2.1.1.0123456789abcdef.1.1.0123456789abcdef",
-            "1.1.1.0123456789abcdef",
-            "1.1.1.0123456789ABCDEF.1.1.0123456789abcdef",
-            "1.1.1.0123456789abcdef.1.1.0123456789abcdef.",
-            "1.18446744073709551616.1.0123456789abcdef.1.1.0123456789abcdef",
-            "1.-1.1.0123456789abcdef.1.1.0123456789abcdef",
-            "1.1.1.0123456789abcdef.1.1.0123456789abcdef\n",
+            "2.1.1.0.0123456789abcdef.1.1.0.0123456789abcdef",
+            "1.1.1.0.0123456789abcdef",
+            "1.1.1.0123456789abcdef.1.1.0123456789abcdef",
+            "1.1.1.0.0123456789ABCDEF.1.1.0.0123456789abcdef",
+            "1.1.1.0.0123456789abcdef.1.1.0.0123456789abcdef.",
+            "1.18446744073709551616.1.0.0123456789abcdef.1.1.0.0123456789abcdef",
+            "1.-1.1.0.0123456789abcdef.1.1.0.0123456789abcdef",
+            "1.1.1.2.0123456789abcdef.1.1.0.0123456789abcdef",
+            "1.1.1.0.0123456789abcdef.1.1.0.0123456789abcdef\n",
         ] {
             assert!(parse_cursor(bad).is_err(), "{bad:?}");
         }
@@ -657,6 +759,7 @@ mod tests {
             text: "x".into(),
             seg: 0,
             end: 0,
+            skip: false,
         };
         let stream = |keys: &[&str], open| Stream {
             log: "dispatch",
