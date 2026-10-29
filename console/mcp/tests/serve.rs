@@ -842,3 +842,85 @@ fn private_needs_a_name() {
     assert_eq!(rc, 78);
     assert!(err.contains("--private needs a name"), "{err}");
 }
+
+// The answer of one tool over HTTP with a key, from a snapshot of the rows of
+// fixtures/images, each started a minute apart before now.
+fn served_images(tool: &str, args: Value) -> Value {
+    let root = std::env::temp_dir().join(format!(
+        "mcp-serve-images-{tool}-{}-{}",
+        args.to_string().len(),
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
+    for d in [&live, &snap, &logs] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let rows = std::fs::read_to_string(fixture("images/sessions.jsonl")).unwrap();
+    let mut text =
+        json!({"api": 1, "days": 30, "generatedAt": iso(now), "sessions": 1}).to_string();
+    for (i, line) in rows.lines().enumerate() {
+        let mut s: Value = serde_json::from_str(line).unwrap();
+        let t = now - 60 * (i as i64 + 1);
+        s["id"] = json!(format!(
+            "{}-{}-{t}",
+            s["kind"].as_str().unwrap(),
+            s["issue"]
+        ));
+        s["started"] = json!(iso(t));
+        s["ended"] = json!(iso(t + 30));
+        text.push('\n');
+        text.push_str(&s.to_string());
+    }
+    std::fs::write(snap.join("sessions.jsonl"), text + "\n").unwrap();
+    let path = |p: &Path| p.display().to_string();
+    let s = Server::start_with(&path(&live), &path(&snap), &path(&logs), &[]);
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": tool, "arguments": args,
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}})
+    .to_string();
+    let auth = format!("Bearer {K1}");
+    let h = [
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", tool),
+        ("Connection", "close"),
+    ];
+    let mut c = TcpStream::connect(("127.0.0.1", s.port)).unwrap();
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    c.write_all(&post_raw("POST", "/mcp", Some(&auth), &h, &body))
+        .unwrap();
+    let mut out = String::new();
+    let _ = c.read_to_string(&mut out);
+    s.stop();
+    let _ = std::fs::remove_dir_all(&root);
+    let (_, body) = out.split_once("\r\n\r\n").unwrap();
+    serde_json::from_str(body).unwrap()
+}
+
+#[test]
+fn served_sessions_name_their_image_and_failures_split_by_it() {
+    let v = served_images("factory_sessions", json!({"image": "sha256:7ff950ca513e"}));
+    let s = v["result"]["structuredContent"]["sessions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{v}"));
+    assert_eq!(s.len(), 2);
+    assert_eq!(s[0]["imageBuilt"], "2026-10-29T14:44:16Z");
+
+    let v = served_images("factory_failures", json!({"by": "image"}));
+    let p = v["result"]["structuredContent"]["versions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{v}"));
+    assert_eq!(p.len(), 2);
+    assert_eq!(p[0]["rukasVersion"], "v0.14.41");
+    assert_eq!(p[0]["runs"], 2);
+    assert_eq!(p[0]["failureKinds"], json!({"verify": 1}));
+    assert_eq!(p[1]["imageBuilt"], "2026-10-29T10:22:41Z");
+
+    let v = served_images("factory_failures", json!({"by": "day"}));
+    assert_eq!(v["result"]["isError"], true, "{v}");
+}
