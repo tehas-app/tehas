@@ -137,7 +137,7 @@ fi
 declare -A skip asked
 numbers=""
 ask_count=0
-while IFS=$'\t' read -r n off carries ask; do
+while IFS=$'\t' read -r n off _ ask; do
   [[ $n =~ ^[0-9]+$ ]] || continue
   tehas_cycle_running "$n" && { skip["$n"]=1; continue; }
   [ "$ask" = yes ] || continue
@@ -172,7 +172,7 @@ if [ -n "$numbers" ]; then
 fi
 
 rc=0
-while IFS=$'\t' read -r n off carries ask; do
+while IFS=$'\t' read -r n off _ ask; do
   [[ $n =~ ^[0-9]+$ ]] || continue
   [ "${skip["$n"]:-}" = 1 ] && continue
   # A merge is what earns the label. The answer says which of the issues the read
