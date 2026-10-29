@@ -474,6 +474,7 @@ fn a_run_with_no_result_is_stored_with_tehas_s_status_and_times() {
         let given = Given {
             image: Some(format!("sha256:{}", "a".repeat(64))),
             rukas_image: Some("abc1234".into()),
+            image_built: None,
             oom: Some(4),
             forks: Some(2),
             facts: Some(facts_path(&home, 12)),
@@ -1687,6 +1688,7 @@ fn the_arguments_are_checked() {
             Given {
                 image: Some(image.clone()),
                 rukas_image: Some("1234abc".into()),
+                image_built: None,
                 oom: Some(0),
                 forks: Some(3),
                 facts: facts(),
@@ -2045,6 +2047,8 @@ fn plan_cmd(home: &Path, rc: &str) -> Cmd {
         crate::plan::Given {
             rc: rc.into(),
             rukas_image: Some("abcdef1".into()),
+            image: None,
+            image_built: None,
             facts: Some(facts_path(home, 7)),
         },
     )
@@ -2794,6 +2798,8 @@ fn plan_s_arguments_are_checked() {
             crate::plan::Given {
                 rc: "0".into(),
                 rukas_image: None,
+                image: None,
+                image_built: None,
                 facts: Some("/f.json".into()),
             }
         ))
@@ -2807,6 +2813,8 @@ fn plan_s_arguments_are_checked() {
             crate::plan::Given {
                 rc: "not-started".into(),
                 rukas_image: Some("abcdef1".into()),
+                image: None,
+                image_built: None,
                 facts: Some("/f.json".into()),
             }
         ))
@@ -4509,4 +4517,218 @@ fn outcomes_out_is_a_directory_written_by_the_program_alone() {
     let printed = parse(&["outcomes".to_string()]).unwrap();
     execute(&home, &printed, now).unwrap();
     assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+}
+
+// The build time of an image is kept once per image id, so every run of that
+// image carries it, also one recorded before the time was known.
+#[test]
+fn a_build_time_reaches_every_run_of_its_image() {
+    let home = scratch("image-built");
+    let started = secs("2026-10-18T10:16:39Z");
+    let now = started + 3700;
+    let image = format!("sha256:{}", "a".repeat(64));
+    let other = format!("sha256:{}", "b".repeat(64));
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    add_run(&conn, "work-1-old", 1, started - 7200);
+    add_run(&conn, "work-2-other", 2, started - 3600);
+    conn.execute(
+        "UPDATE runs SET image = ?1 WHERE id = 'work-1-old'",
+        [&image],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE runs SET image = ?1 WHERE id = 'work-2-other'",
+        [&other],
+    )
+    .unwrap();
+    drop(conn);
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff"}),
+    );
+    let built = secs("2026-10-17T08:00:00Z");
+    let given = Given {
+        image: Some(image.clone()),
+        image_built: Some(built),
+        facts: Some(facts_path(&home, 7)),
+        ..Given::default()
+    };
+    execute(&home, &Cmd::Run(7, given), now).unwrap();
+    let out = sessions_output(&home, now);
+    assert_eq!(out.len(), 4);
+    let by_id = |id: &str| out.iter().find(|s| s["id"] == id).unwrap().clone();
+    let new = out.iter().find(|s| s["issue"] == 7).unwrap();
+    for s in [new.clone(), by_id("work-1-old")] {
+        assert_eq!(s["image"], image.as_str());
+        assert_eq!(s["imageBuilt"], "2026-10-17T08:00:00Z");
+    }
+    let o = by_id("work-2-other");
+    assert_eq!(o["image"], other.as_str());
+    assert!(o.get("imageBuilt").is_none());
+
+    // The first time recorded for an id stands.
+    let again = Given {
+        image: Some(image.clone()),
+        image_built: Some(built + 99),
+        facts: Some(facts_path(&home, 7)),
+        ..Given::default()
+    };
+    execute(&home, &Cmd::Run(7, again), now).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            &format!("SELECT value FROM meta WHERE key = 'image:{image}'")
+        ),
+        built.to_string()
+    );
+}
+
+#[test]
+fn a_build_time_without_an_image_is_not_kept() {
+    let home = scratch("image-built-alone");
+    let started = secs("2026-10-18T10:16:39Z");
+    cycle(
+        &home,
+        "headless-316134e",
+        started,
+        json!({"at": iso(started + 30), "started": started, "rc": 10, "status": "handoff"}),
+    );
+    let given = Given {
+        image_built: Some(started - 60),
+        facts: Some(facts_path(&home, 7)),
+        ..Given::default()
+    };
+    execute(&home, &Cmd::Run(7, given), started + 3700).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        one::<i64>(&conn, "SELECT count(*) FROM meta WHERE key LIKE 'image:%'"),
+        0
+    );
+}
+
+#[test]
+fn prune_drops_the_build_time_of_an_image_no_run_names() {
+    let home = scratch("image-built-prune");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    let kept = format!("sha256:{}", "c".repeat(64));
+    let gone = format!("sha256:{}", "d".repeat(64));
+    add_run(&conn, "work-1-a", 1, now - DAY);
+    conn.execute("UPDATE runs SET image = ?1", [&kept]).unwrap();
+    for i in [&kept, &gone] {
+        db::image_built(&conn, Some(i), Some(now - 2 * DAY)).unwrap();
+    }
+    db::prune(&conn, now).unwrap();
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(key, ' ') FROM meta WHERE key LIKE 'image:%'"
+        ),
+        format!("image:{kept}")
+    );
+    assert_eq!(
+        one::<i64>(
+            &conn,
+            "SELECT count(*) FROM meta WHERE key NOT LIKE 'image:%'"
+        ),
+        3
+    );
+}
+
+#[test]
+fn plan_records_its_image_and_build_time() {
+    let home = scratch("plan-image");
+    let now = 1_792_000_000;
+    let started = now - 300;
+    turn(
+        &home,
+        json!({"session": "s1", "turns": 0, "running": true, "startedAt": iso(started)}),
+        Some(json!({"session": "s1"})),
+    );
+    let image = format!("sha256:{}", "e".repeat(64));
+    let cmd = Cmd::Plan(
+        7,
+        crate::plan::Given {
+            rc: "0".into(),
+            rukas_image: Some("abcdef1".into()),
+            image: Some(image.clone()),
+            image_built: Some(now - DAY),
+            facts: Some(facts_path(&home, 7)),
+        },
+    );
+    execute(&home, &cmd, now).unwrap();
+    let out = sessions_output(&home, now);
+    assert_eq!(out[1]["kind"], "plan");
+    assert_eq!(out[1]["image"], image.as_str());
+    assert_eq!(out[1]["imageBuilt"], iso(now - DAY));
+}
+
+#[test]
+fn the_build_time_options_are_read() {
+    let args = |s: &str| s.split(' ').map(str::to_string).collect::<Vec<_>>();
+    let image = format!("sha256:{}", "0f".repeat(32));
+    let facts = || Some(PathBuf::from("/f.json"));
+    assert_eq!(
+        parse(&args(&format!(
+            "run 12 --facts /f.json --image {image} --image-built 2026-10-29T14:44:16.123456789Z"
+        ))),
+        Some(Cmd::Run(
+            12,
+            Given {
+                image: Some(image.clone()),
+                image_built: Some(secs("2026-10-29T14:44:16Z")),
+                facts: facts(),
+                ..Given::default()
+            }
+        ))
+    );
+    // A time docker might print that cannot be read is left out: the run is
+    // still recorded.
+    for odd in [
+        "yesterday",
+        "2026-10-29T14:44:16+00:00",
+        &format!("2026-10-29T14:44:16.{}Z", "1".repeat(40)),
+    ] {
+        assert_eq!(
+            parse(&args(&format!(
+                "run 12 --facts /f.json --image-built {odd}"
+            ))),
+            Some(Cmd::Run(
+                12,
+                Given {
+                    facts: facts(),
+                    ..Given::default()
+                }
+            )),
+            "{odd}"
+        );
+    }
+    assert_eq!(
+        parse(&args(&format!(
+            "plan 7 --rc 0 --facts /f.json --image {image} --image-built 2026-10-29T14:44:16Z"
+        ))),
+        Some(Cmd::Plan(
+            7,
+            crate::plan::Given {
+                rc: "0".into(),
+                rukas_image: None,
+                image: Some(image.clone()),
+                image_built: Some(secs("2026-10-29T14:44:16Z")),
+                facts: facts(),
+            }
+        ))
+    );
+    for bad in [
+        "run 12 --facts /f.json --image-built 2026-10-29T14:44:16Z --image-built 2026-10-29T14:44:16Z"
+            .to_string(),
+        "run 12 --facts /f.json --image-built".into(),
+        "plan 7 --rc 0 --facts /f.json --image sha256:abc".into(),
+        format!("plan 7 --rc 0 --facts /f.json --image {image} --image {image}"),
+        "plan 7 --rc 0 --facts /f.json --image-built x --image-built y".into(),
+    ] {
+        assert_eq!(parse(&args(&bad)), None, "{bad}");
+    }
 }

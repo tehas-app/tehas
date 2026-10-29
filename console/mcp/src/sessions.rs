@@ -52,11 +52,15 @@ pub(crate) static ID: LazyLock<Regex> =
 // The word of a version, a failure kind or a park reason: the one rule of the
 // crate, from tools, which the schemas below name as their pattern.
 pub use tools::WORD;
+// An image id, or its first 12 hex or more, with or without `sha256:`.
+static IMAGE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(sha256:)?[0-9a-f]{12,64}$").unwrap());
+const GROUPS: [&str; 2] = ["version", "image"];
 static REPO: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$").unwrap());
 
 /// The snapshot's scalar fields: key, JSON type, what it is.
-const FIELDS: [(&str, &str, &str); 38] = [
+const FIELDS: [(&str, &str, &str); 39] = [
     ("id", "string", "The session id, like work-12-1792485967."),
     ("kind", "string", "work or plan."),
     ("issue", "integer", "The issue number."),
@@ -111,7 +115,16 @@ const FIELDS: [(&str, &str, &str); 38] = [
     ("tehasCommit", "string", "The tehas commit it ran."),
     ("rukasVersion", "string", "The pi-rukas version it ran."),
     ("rukasCommit", "string", "The pi-rukas commit it ran."),
-    ("image", "string", "The sandbox image it ran in."),
+    (
+        "image",
+        "string",
+        "The sandbox image it ran in, by its id sha256:<hex>. The id names one build.",
+    ),
+    (
+        "imageBuilt",
+        "string",
+        "When that image was built, UTC. Left out when unknown.",
+    ),
     ("resultSchema", "integer", "The schema of the result file."),
     ("input", "integer", "Input tokens."),
     ("output", "integer", "Output tokens."),
@@ -133,7 +146,7 @@ const CONCURRENT: (&str, &str, &str) = (
     "integer",
     "Cycles running at the same time when it started.",
 );
-const SUMMARY: [&str; 15] = [
+const SUMMARY: [&str; 17] = [
     "id",
     "kind",
     "issue",
@@ -149,6 +162,8 @@ const SUMMARY: [&str; 15] = [
     "parkReason",
     "tehasVersion",
     "rukasVersion",
+    "image",
+    "imageBuilt",
 ];
 const STEP: [(&str, &str, &str); 5] = [
     ("step", "string", "The step name."),
@@ -266,6 +281,8 @@ fn failures_schema() -> Value {
     let pair = json!({"type": "object", "properties": {
         "tehasVersion": text("The tehas version. Left out when unknown."),
         "rukasVersion": text("The pi-rukas version, or its commit. Left out when unknown."),
+        "image": text("With by image: the sandbox image's id. Left out when the runs recorded none."),
+        "imageBuilt": text("With by image: when that image was built, UTC. Left out when unknown."),
         "runs": count("Work sessions on this pair."),
         "outcomes": outcome_counts("Sessions per outcome."),
         "failureKinds": outcome_counts("Sessions per failure kind."),
@@ -280,7 +297,7 @@ fn failures_schema() -> Value {
         ),
         (
             "versions",
-            array_of(pair, "One entry per version pair, the most runs first."),
+            array_of(pair, "One entry per version pair, or per pair and image with by image, the most runs first."),
         ),
     ])
 }
@@ -325,6 +342,14 @@ pub fn tools() -> Vec<Value> {
             "Only sessions that ran this pi-rukas version or commit, matched exactly.",
         ),
         json!({"pattern": WORD.as_str()}),
+    );
+    with(
+        arg(
+            "image",
+            "string",
+            "Only sessions that ran this sandbox image: its id sha256:<hex>, or the first 12 hex or more of it.",
+        ),
+        json!({"pattern": IMAGE.as_str()}),
     );
     with(
         arg("kind", "string", "Only work or plan sessions."),
@@ -385,7 +410,7 @@ pub fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "factory_sessions",
-            "description": "The runs of the last 30 days, newest first, with their outcome, failure and versions. Filter by outcome, failure kind, version, kind, how it started or issue, and page with limit and before.",
+            "description": "The runs of the last 30 days, newest first, with their outcome, failure, versions and sandbox image. Filter by outcome, failure kind, version, image, kind, how it started or issue, and page with limit and before.",
             "inputSchema": {"type": "object", "properties": props, "additionalProperties": false},
             "outputSchema": list_out,
         }),
@@ -399,8 +424,11 @@ pub fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "factory_failures",
-            "description": "Work runs of the last 30 days per tehas and pi-rukas version pair: runs, outcomes, failure kinds and the five most common causes with links to the issues. Most runs first.",
-            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false},
+            "description": "Work runs of the last 30 days per tehas and pi-rukas version pair: runs, outcomes, failure kinds and the five most common causes with links to the issues. Most runs first. With by image, per pair and sandbox image, so two builds of one pi-rukas version can be compared; rukasVersion keeps one version.",
+            "inputSchema": {"type": "object", "properties": {
+                "by": {"type": "string", "enum": GROUPS, "description": "version (the default) or image: also split each pair by the image its runs used."},
+                "rukasVersion": {"type": "string", "pattern": WORD.as_str(), "description": "Only runs of this pi-rukas version or commit, matched exactly."},
+            }, "additionalProperties": false},
             "outputSchema": failures_schema(),
         }),
     ]
@@ -477,6 +505,17 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
     let failure_kind = word(args, "failureKind")?;
     let tehas = word(args, "tehasVersion")?;
     let rukas = word(args, "rukasVersion")?;
+    let image = match &args["image"] {
+        Value::Null => None,
+        Value::String(s) if IMAGE.is_match(s) => {
+            Some(s.strip_prefix("sha256:").unwrap_or(s).to_string())
+        }
+        _ => {
+            return Err(bad(
+                "image is an image id sha256:<hex>, or 12 to 64 of its hex",
+            ))
+        }
+    };
     let issue = match &args["issue"] {
         Value::Null => None,
         v => Some(
@@ -526,6 +565,12 @@ pub(crate) fn list(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
             && eq(&s, "tehasVersion", &tehas)
             && rukas.as_deref().is_none_or(|w| {
                 s["rukasVersion"].as_str() == Some(w) || s["rukasCommit"].as_str() == Some(w)
+            })
+            && image.as_deref().is_none_or(|w| {
+                s["image"]
+                    .as_str()
+                    .and_then(|i| i.strip_prefix("sha256:"))
+                    .is_some_and(|i| i.starts_with(w))
             })
             && issue.is_none_or(|n| s["issue"].as_i64() == Some(n));
         if keep {
@@ -637,6 +682,7 @@ fn spec_of(fields: &[(&str, &str, &str)]) -> Value {
 
 #[derive(Default)]
 struct Pair {
+    built: Option<String>,
     runs: u64,
     outcomes: BTreeMap<String, u64>,
     kinds: BTreeMap<String, u64>,
@@ -649,17 +695,31 @@ struct Cause {
     issues: Vec<i64>,
 }
 
-pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
+pub(crate) fn failures(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, ToolError> {
+    let by_image = one_of(args, "by", &GROUPS)?.as_deref() == Some("image");
+    let only = word(args, "rukasVersion")?;
     let snap = open(dirs)?;
     let repo = repo(dirs);
-    let mut pairs: BTreeMap<(String, String), Pair> = BTreeMap::new();
+    let mut pairs: BTreeMap<(String, String, String), Pair> = BTreeMap::new();
     for s in snap.sessions().filter(|s| s["kind"] == "work") {
         let text = |k: &str| s[k].as_str().map(str::to_string);
+        if only.as_deref().is_some_and(|w| {
+            text("rukasVersion").as_deref() != Some(w) && text("rukasCommit").as_deref() != Some(w)
+        }) {
+            continue;
+        }
         let tehas = text("tehasVersion").unwrap_or_default();
         let rukas = text("rukasVersion")
             .or_else(|| text("rukasCommit"))
             .unwrap_or_default();
-        let p = pairs.entry((tehas, rukas)).or_default();
+        let image = match by_image {
+            true => text("image").unwrap_or_default(),
+            false => String::new(),
+        };
+        let p = pairs.entry((tehas, rukas, image)).or_default();
+        if by_image && p.built.is_none() {
+            p.built = text("imageBuilt");
+        }
         p.runs += 1;
         *p.outcomes
             .entry(text("outcome").unwrap_or_else(|| "unknown".into()))
@@ -682,7 +742,7 @@ pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
     ordered.sort_by_key(|(_, p)| std::cmp::Reverse(p.runs));
     let versions: Vec<Value> = ordered
         .into_iter()
-        .map(|((tehas, rukas), p)| {
+        .map(|((tehas, rukas, image), p)| {
             let mut causes: Vec<_> = p.causes.into_iter().collect();
             causes.sort_by_key(|a| std::cmp::Reverse(a.1.n));
             let causes: Vec<Value> = causes
@@ -708,6 +768,10 @@ pub(crate) fn failures(dirs: &Dirs) -> Result<Map<String, Value>, ToolError> {
             }
             if !rukas.is_empty() {
                 o.insert("rukasVersion".into(), json!(rukas));
+            }
+            if !image.is_empty() {
+                o.insert("image".into(), json!(image));
+                insert_opt(&mut o, "imageBuilt", p.built);
             }
             o.insert("runs".into(), json!(p.runs));
             o.insert("outcomes".into(), json!(p.outcomes));
