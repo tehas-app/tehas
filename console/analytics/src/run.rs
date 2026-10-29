@@ -108,6 +108,8 @@ pub struct Run {
     pub rukas_version: Option<String>,
     pub rukas_commit: Option<String>,
     pub image: Option<String>,
+    /// When the image was built, from `image:<id>` in meta, not a column.
+    pub image_built: Option<i64>,
     pub input: Option<i64>,
     pub output: Option<i64>,
     pub cache_read: Option<i64>,
@@ -181,11 +183,12 @@ pub struct Role {
 const RESULT_SCHEMAS: [i64; 2] = [3, 4];
 
 /// What libexec/cycle passes on: the facts file, the image the container
-/// started from, the pi-rukas commit of its label, and its counts of kills and
-/// refused forks.
+/// started from and when it was built, the pi-rukas commit of its label, and
+/// its counts of kills and refused forks.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Given {
     pub image: Option<String>,
+    pub image_built: Option<i64>,
     pub rukas_image: Option<String>,
     pub oom: Option<i64>,
     pub forks: Option<i64>,
@@ -351,6 +354,7 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
         });
     }
     run.image = given.image.clone();
+    run.image_built = given.image_built;
     run.oom_kills = given.oom;
     run.forks_refused = given.forks;
 
@@ -581,6 +585,7 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.gate_ms,
         ],
     )?;
+    crate::db::image_built(&tx, run.image.as_deref(), run.image_built)?;
     for s in &run.steps {
         tx.execute(
             "INSERT OR REPLACE INTO run_steps (run_id, step, round, started, ended, seconds)
