@@ -35,6 +35,7 @@ t_stub gh '
 # test is never the thing that routes the answer.
 gh_graphql() {
   case "$1" in
+    *subIssues*) [ ! -e "$T/epics-down" ] || exit 1; cat "$T/epics-page.json" ;;
     *"first: 0) { issueCount }"*) [ ! -e "$T/count-down" ] || exit 1
       cat "$T/count.json" ;;
     *) cat "$T/shipped.json" ;;
@@ -76,6 +77,10 @@ shipped() { # closed issues, as the GraphQL answer
   local IFS=,
   printf '{"data":{"search":{"nodes":[%s]}}}' "$*" >"$T/shipped.json"
 }
+epics_page() { # issue nodes: the one page of open issues the read of the epics answers
+  local IFS=,
+  printf '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[%s]}}}}' "$*" >"$T/epics-page.json"
+}
 shipped_count() { # total of the closed issues labelled tehas:shipped, as GraphQL answers it
   printf '{"data":{"search":{"issueCount":%s}}}' "$1" >"$T/count.json"
 }
@@ -89,9 +94,10 @@ issue() { # number label state
   printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
-  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$live" \
+  rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
     "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
   echo "[]" >"$T/all.json"
+  epics_page
   shipped
   shipped_count 0
   T_ENV=()
@@ -119,6 +125,29 @@ t_eq "$t_out" ""
 t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
+
+t_case "status writes the open epics and their sub-issues, and not an issue without any"
+reset
+epics_page '{"number":7,"title":"An epic","url":"u7","subIssuesSummary":{"total":2,"completed":1},
+  "subIssues":{"nodes":[{"number":8,"title":"Done","url":"u8","state":"CLOSED","repository":{"nameWithOwner":"acme/widget"}},
+  {"number":9,"title":"To do","url":"u9","state":"OPEN","repository":{"nameWithOwner":"acme/widget"}}]}}' \
+  '{"number":3,"title":"Plain","url":"u3","subIssuesSummary":{"total":0,"completed":0},"subIssues":{"nodes":[]}}'
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.repo, (.epics | map(.number))]' "$live/epics.json")" '["acme/widget",[7]]'
+t_eq "$(jq -c '.epics[0].subIssues | map([.number, .state])' "$live/epics.json")" '[[8,"closed"],[9,"open"]]'
+t_eq "$(jq -c '.epics[0] | [.total, .completed, .more]' "$live/epics.json")" '[2,1,0]'
+
+t_case "a read of the epics that fails leaves the file as it was and the snapshot is still written"
+reset
+mkdir -p "$live"
+echo '{"epics":"before"}' >"$live/epics.json"
+touch "$T/epics-down"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c .epics "$live/epics.json")" '"before"'
+t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
+t_eq "$(find "$live" -name 'epics.json.*' | wc -l)" 0
 
 t_case "no failed tehas unit is no warning"
 reset
@@ -284,7 +313,9 @@ t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.completed | length' "$live/status.json")" 50
 t_eq "$(jq -r .completedCount "$live/status.json")" 138
-t_eq "$(t_calls gh | grep -c 'api graphql')" 2
+# The two reads of shipped work, and the read of the epics beside them.
+t_eq "$(t_calls gh | grep -c 'api graphql -f q=')" 2
+t_eq "$(t_calls gh | grep -c 'api graphql')" 3
 
 # The figure is published as a whole number of issues, or no key at all: an
 # answer that is not one is dropped rather than published for a reader to judge,

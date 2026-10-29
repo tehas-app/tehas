@@ -2368,6 +2368,16 @@ lists the same issues, and `tehas tidy` gives it too, from the same read; run `t
 issue, the one `TEHAS_CONTROL_ISSUE` names, is left out of every list and every
 count: it holds the pause label and is not work, whatever label it carries.
 
+`tehasbot status` also writes `~/tehas/live/epics.json`, the epics panel of
+both front pages: every open issue with sub-issues, GitHub's own links, newest
+first, with GitHub's count of its sub-issues and how many are closed, and its
+sub-issues in their order with their state. Only sub-issues of the instance's
+repository are named; one elsewhere is counted in `more` and not named. A closed
+epic is not read, so it leaves the file at the next poll. The console makes the
+read and writes the file (`console epics`, `console/src/epics.rs`): one GraphQL
+call for each hundred open issues, under the same 60 seconds. A read that fails
+writes nothing and the file of the run before stays.
+
 `tehasbot status` also records issue events in the factory's analytics,
 `~/tehas/state/analytics.db`, by comparing the snapshot it writes with the one
 it replaces: `awaiting` and `stopped` for an issue new in that list, at the

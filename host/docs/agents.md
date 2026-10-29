@@ -33,6 +33,7 @@ to look at is the public dashboard at <https://tehas.app/>.
 | `/<page>.md`                            | Any manual page as Markdown, for example `/new-project.md`     |
 | `/health`                               | Factory health as JSON; 503 when unhealthy                     |
 | `/live/status.json`                     | The queue snapshot: repository, issues by state, how many are in planning, how many closed issues carry `tehas:shipped`, paused or not, and the most used words of all its issues |
+| `/live/epics.json`                      | The open epics, issues with sub-issues, newest first: each with its count of sub-issues and how many are closed, and its sub-issues in this repository with their state |
 | `/live/running.json`                    | The running cycles and the one that finished last              |
 | `/live/endings.json`                    | The last ten cycles that ended, oldest first                   |
 | `/live/console-<issue>.txt`             | That cycle's console, with tokens and passwords masked         |
