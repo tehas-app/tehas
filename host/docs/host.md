@@ -1675,7 +1675,7 @@ shadows, and the colours the canvases paint with. `TEHAS_THEME` in
 | Layout     | Front page                                                                          |
 | ---------- | ----------------------------------------------------------------------------------- |
 | `floor`    | The default: the factory floor, the game view                                       |
-| `business` | The business page: live power and tokens, the production line from prototypes to shipped, the console of the running cycles, the last 10 days and the issue board |
+| `business` | The business page: live power and tokens, the production line from prototypes to shipped on one row, with a Planning stage while work is being planned, the console of the running cycles, the last 10 days and the issue board |
 
 Both pages are always there, at `/floor` and `/business`, in whatever theme
 the instance has; the setting only picks the one at `/`. The business page was
