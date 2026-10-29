@@ -21,8 +21,8 @@
 //!
 //!   console shipped query
 //!     The query: the last closed event of each issue the search $q names,
-//!     whether its closer was a merged pull request, the pull requests GitHub
-//!     lists as closing the issue and whether each was merged, and the names of
+//!     whether its closer was a merged pull request, whether any of the pull
+//!     requests GitHub lists as closing the issue was merged, and the names of
 //!     the labels the issue holds. $q must name every issue asked for, and no
 //!     more than `page` of them.
 //!
@@ -30,10 +30,9 @@
 //!     Prints what the answer says of <issue> and answers for it:
 //!       merged   a whole answer named the issue and a merged pull request
 //!                closed it - the label is earned;
-//!       closed   it named the issue and named no merged pull request as its
-//!                closer - a closed issue, not
-//!                a read that failed, so nothing is added and the state labels
-//!                still go;
+//!       closed   it named the issue and a merged pull request neither closed it
+//!                nor is listed as closing it - a closed issue, not a read that
+//!                failed, so nothing is added and the state labels still go;
 //!       nothing  it did not answer, or answered and said nothing of that issue,
 //!                which is no answer and not a negative one;
 //!       invalid  <issue> is not digits and nothing else, so the question was
@@ -69,15 +68,26 @@
 //!     It is `list`'s own test of the answer, so a caller reads the rule once and
 //!     not twice.
 //!
-//! A merge is a `merged` GitHub says is the boolean true, and nothing else: a
-//! string, a number or an object is no answer and is never taken for one, of a
-//! closer or of a reference. A closer that is a pull request - one whose
-//! `merged` the read read - speaks for itself, so `merged` false is no merge
-//! even when a reference says otherwise. Only when the closer is no answer
-//! about a pull request - a commit, a null, a closer the read did not name - do
-//! the references GitHub lists as closing the issue decide. The
-//! name of a label reaches this program as one argument and is compared as text,
-//! so one of "*" is no pattern and one with a space is no two names.
+//! One answer, one rule: a merged pull request closed the issue, or none did.
+//! The closer of the last closed event is the authoritative field - it is what
+//! GitHub recorded at the close - and the references are the fallback that
+//! speaks only when the closer names no pull request. A merge is a `merged`
+//! GitHub says is the boolean true, and nothing else: a string, a number or an
+//! object is no answer and is never taken for one, of a closer or of a
+//! reference, and neither is a reference the read did not resolve as a pull
+//! request. A closer that is a pull request, one whose `merged` the read read,
+//! speaks for itself, so `merged` false is no merge even when a reference says
+//! otherwise.
+//!
+//! The rule is one answer for one node. The callers do make two reads of it -
+//! `tehas tidy` builds its search from the plan and `tehasbot status` from its
+//! own search, at different instants of the same poll - so a poll can still
+//! disagree with a poll, and each caller logs what its own read said. When the
+//! two sources disagree for one issue it is because they were read at two
+//! instants, not because the rule has two answers.
+//!
+//! The name of a label reaches this program as one argument and is compared as
+//! text, so one of "*" is no pattern and one with a space is no two names.
 //!
 //! Exit: 0 an answer, and what was asked of it printed; 1 no answer; 2 usage.
 
@@ -87,6 +97,13 @@ use std::io::Read;
 // How many issues one read of the search names: the page of the query and the
 // ceiling of the list a caller builds, in the one number.
 pub const PAGE: usize = 100;
+
+// How many of the pull requests GitHub lists as closing an issue one read
+// names: the page of that connection and the most the rule scans, in the one
+// number, so the rule cannot read past what the read asks for. An issue closed
+// by more than that is rare, and one merge among them is the answer the rule
+// needs.
+pub const REFERENCES: usize = 20;
 
 // The label of a merge: the name tehas tidy puts on in the edit that takes the
 // state labels off, and the name tehasbot status gives from its own read. It is
@@ -99,15 +116,14 @@ pub const SHIPPED: &str = "tehas:shipped";
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
 // variable and reaches gh as the caller's -f q= argument. The braces are the
 // document's own and are pinned against the text by a test below: the page of
-// the search is the constant above, written into it once. tehasbot status
-// lists each node it keeps, so the fields the list shows are asked here too.
-const QUERY: &str = concat!(
-    "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue {\n",
-    "    number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent {\n",
-    "      closer { ... on PullRequest { merged } } }\n",
-    "    closedByPullRequestsReferences(first: 20) { nodes { merged } }\n",
-    "    } } } } } }"
-);
+// the search and the page of the references are `PAGE` and `REFERENCES` of the
+// constants above, each written into it once and pinned by its name there, so
+// the bound a read asks for and the bound the rule scans cannot drift apart.
+// tehasbot status lists each node it keeps, so the fields the list shows are
+// asked here too. The references are read for the one boolean the rule needs,
+// and each node names its type, so a reference the read did not resolve as a
+// pull request is no merge.
+const QUERY: &str = "query($q: String!) { search(type: ISSUE, query: $q, first: 100) { nodes { ... on Issue { number title url createdAt updatedAt closedAt labels(first: 100) { nodes { name } } closedByPullRequestsReferences(first: 20) { nodes { __typename merged } } timelineItems(itemTypes: [CLOSED_EVENT], last: 1) { nodes { ... on ClosedEvent { closer { ... on PullRequest { merged } } } } } } } } }";
 
 pub fn main(given: &[String]) -> u8 {
     let Some(verb) = given.first().map(String::as_str) else {
@@ -281,32 +297,47 @@ fn last_closer(node: &Value) -> Option<&Value> {
         .get("closer")
 }
 
-/// The pull requests GitHub lists as closing the issue hold a merged one. The
-/// read asks for twenty; an issue closed by more than that is rare, and one
-/// merge among the first twenty is the answer the rule needs.
-fn a_reference_merged(node: &Value) -> bool {
+/// The pull requests GitHub lists as closing the issue hold a merged one, of
+/// the first `within` the read named. A reference the read did not resolve as a
+/// pull request - no `__typename` of `PullRequest` - is no merge: the fallback
+/// trusts only what the read proved about the node, as the closer must be a
+/// pull request to speak at all. `within` is the page of the query, so the scan
+/// never reads past what the read asks for.
+fn a_reference_merged(node: &Value, within: usize) -> bool {
     node.get("closedByPullRequestsReferences")
         .and_then(|r| r.get("nodes"))
         .and_then(Value::as_array)
         .is_some_and(|a| {
             a.iter()
+                .take(within)
+                .filter(|r| r.get("__typename").and_then(Value::as_str) == Some("PullRequest"))
                 .any(|r| r.get("merged").and_then(Value::as_bool) == Some(true))
         })
 }
 
-/// Whether a merged pull request closed the issue. A closer that is a pull
-/// request - one whose `merged` the read read - speaks for itself, so `merged`
-/// false stays no merge. A closer that is no answer about a pull request, a
-/// commit object, a null or a closer the read did not name, is decided by the
-/// references GitHub lists on the issue: it sometimes records the close event
-/// with a commit as the closer while those references name the merged pull
-/// request. A node that names neither is an issue the read spoke of and whose
-/// closer it did not see: a closed issue, and so not a merge, which is an answer
-/// and not a failure to answer.
+/// Whether a merged pull request closed the issue. The closer of the last closed
+/// event is the authoritative read: a pull request speaks for itself, so
+/// `merged` false stays no merge, and `merged` of any other shape is a closer
+/// that spoke without being read - no merge, and the references stay silent.
+/// Only a closer that names no pull request at all - a commit, a null, a closer
+/// the read did not name - lets the references GitHub lists on the issue
+/// decide: it sometimes records the close event with a commit as the closer
+/// while those references name the merged pull request. A node that names
+/// neither is an issue the read spoke of and whose closer it did not see: a
+/// closed issue, and so not a merge, which is an answer and not a failure to
+/// answer.
 fn shipped(node: &Value) -> bool {
-    match last_closer(node).and_then(|c| c.get("merged")) {
-        Some(Value::Bool(merged)) => *merged,
-        _ => a_reference_merged(node),
+    match last_closer(node) {
+        Some(closer @ Value::Object(_)) => match closer.get("merged") {
+            Some(Value::Bool(merged)) => *merged,
+            // A closer that named `merged` gave an answer the read cannot use:
+            // a closed issue, not a merge, and no reference overrules it.
+            Some(_) => false,
+            None => a_reference_merged(node, REFERENCES),
+        },
+        // A null closer is a close by a person, and no closer at all is one the
+        // read did not name: neither speaks about a pull request.
+        _ => a_reference_merged(node, REFERENCES),
     }
 }
 
@@ -470,11 +501,17 @@ mod tests {
     /// The shape of #947: a last closed event whose closer is `closer`, with the
     /// pull requests GitHub lists as closing the issue beside it. A closer the
     /// read gave no `merged` for is no answer about a pull request, so those
-    /// references decide the label.
+    /// references decide the label. `merged` is what each reference holds, as the
+    /// read gives it, and each is named a pull request as the read names one.
     fn refs(n: u64, closer: Value, refs: Vec<Value>) -> Value {
         let mut node = event(n, json!({"closer": closer}));
         node["closedByPullRequestsReferences"] = json!({"nodes": refs});
         node
+    }
+
+    /// One reference of a merged pull request, as the read gives it.
+    fn merged_ref(merged: Value) -> Value {
+        json!({"__typename": "PullRequest", "merged": merged})
     }
 
     /// The numbers of a list, in its order, as `--numbers` prints them.
@@ -498,9 +535,6 @@ mod tests {
             .collect()
     }
 
-    /// The shape of #947: a last closed event whose closer is a commit, with the
-    /// pull requests GitHub lists as closing the issue beside it. `merged` is
-    /// what each reference holds, as the read gives it.
     #[test]
     fn a_merged_closer_is_merged_and_nothing_else_is_closed() {
         for merged in [
@@ -739,7 +773,7 @@ mod tests {
         let shipped = refs(
             7,
             json!({"__typename": "Commit"}),
-            vec![json!({"merged": true})],
+            vec![merged_ref(json!(true))],
         );
         assert_eq!(
             ask("7", std::slice::from_ref(&shipped)),
@@ -750,7 +784,7 @@ mod tests {
         let not_shipped = refs(
             7,
             json!({"__typename": "Commit"}),
-            vec![json!({"merged": false}), json!({"merged": false})],
+            vec![merged_ref(json!(false)), merged_ref(json!(false))],
         );
         assert_eq!(
             ask("7", std::slice::from_ref(&not_shipped)),
@@ -760,19 +794,137 @@ mod tests {
     }
 
     #[test]
+    fn a_reference_the_read_did_not_name_as_a_pull_request_is_no_merge() {
+        // The read asks for pull requests and asks each to name its type, so a
+        // node that does not name one is no proof of a merge, whatever it holds
+        // for `merged`.
+        for shape in [
+            json!({"merged": true}),
+            json!({"__typename": "Commit", "merged": true}),
+            json!({"__typename": "Issue", "merged": true}),
+            json!({"__typename": "pullrequest", "merged": true}),
+            json!({"__typename": null, "merged": true}),
+            json!("merged"),
+            json!([[{"merged": true}]]),
+        ] {
+            let node = refs(7, json!({"__typename": "Commit"}), vec![shape.clone()]);
+            assert_eq!(
+                ask("7", std::slice::from_ref(&node)),
+                ("closed".to_string(), false),
+                "a reference of {shape} is no merge"
+            );
+            assert_eq!(listed(&node), Vec::<String>::new());
+        }
+        // A pull request among them still decides when the others are noise.
+        let mixed = refs(
+            7,
+            json!({"__typename": "Commit"}),
+            vec![json!({"merged": true}), merged_ref(json!(true))],
+        );
+        assert_eq!(
+            ask("7", std::slice::from_ref(&mixed)),
+            ("merged".to_string(), true)
+        );
+    }
+
+    #[test]
+    fn the_rule_scans_no_more_than_the_read_asks_for() {
+        // The bound the query writes and the bound the rule scans are the one
+        // constant, so an answer that names more references than the read asked
+        // for is not read past its page.
+        assert!(QUERY.contains(&format!(
+            "closedByPullRequestsReferences(first: {REFERENCES})"
+        )));
+        let past = |merged: Value| {
+            let mut list = (0..REFERENCES)
+                .map(|_| merged_ref(json!(false)))
+                .collect::<Vec<_>>();
+            list.push(merged_ref(merged));
+            refs(7, json!({"__typename": "Commit"}), list)
+        };
+        // The one merged reference sits past the page the read answers.
+        let beyond = past(json!(true));
+        assert_eq!(
+            ask("7", std::slice::from_ref(&beyond)),
+            ("closed".to_string(), false),
+            "a merge past the page of the references is no answer"
+        );
+        // The same node with the merge inside the page is shipped work.
+        let mut within = past(json!(false));
+        within["closedByPullRequestsReferences"]["nodes"][REFERENCES - 1]["merged"] = json!(true);
+        assert_eq!(
+            ask("7", std::slice::from_ref(&within)),
+            ("merged".to_string(), true)
+        );
+    }
+
+    #[test]
     fn an_unmerged_closer_stays_unmerged_whatever_the_references_say() {
         // A closer that is a pull request speaks for itself: GitHub's own answer
         // about the close event outranks a reference that claims a merge.
         let node = refs(
             7,
             json!({"merged": false}),
-            vec![json!({"merged": true}), json!({"merged": true})],
+            vec![merged_ref(json!(true)), merged_ref(json!(true))],
         );
         assert_eq!(
             ask("7", std::slice::from_ref(&node)),
             ("closed".to_string(), false)
         );
         assert_eq!(listed(&node), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_closer_that_spoke_without_a_boolean_merged_is_overruled_by_nothing() {
+        // A closer that named `merged` spoke: an answer the read cannot use is
+        // no merge and the references stay silent, so a corrupt closer field can
+        // neither be ignored nor be overruled into a label.
+        for merged in [
+            json!("false"),
+            json!("true"),
+            json!(1),
+            json!(null),
+            json!({"state": "merged"}),
+            json!([true]),
+            json!([]),
+            json!({}),
+        ] {
+            let closer = json!({"__typename": "PullRequest", "merged": merged});
+            let node = refs(7, closer, vec![merged_ref(json!(true))]);
+            assert_eq!(
+                ask("7", std::slice::from_ref(&node)),
+                ("closed".to_string(), false),
+                "a closer merged of {merged} is no merge"
+            );
+            assert_eq!(listed(&node), Vec::<String>::new());
+        }
+        // A commit closer that carries `merged` is the same: it spoke, and the
+        // boolean it gave is the answer, whatever the references say.
+        let commit = refs(
+            7,
+            json!({"__typename": "Commit", "merged": true}),
+            vec![merged_ref(json!(false))],
+        );
+        assert_eq!(
+            ask("7", std::slice::from_ref(&commit)),
+            ("merged".to_string(), true)
+        );
+        let closed_commit = refs(
+            7,
+            json!({"__typename": "Commit", "merged": false}),
+            vec![merged_ref(json!(true))],
+        );
+        assert_eq!(
+            ask("7", std::slice::from_ref(&closed_commit)),
+            ("closed".to_string(), false)
+        );
+        // A closer the read gave as no object at all is no closer that spoke, so
+        // the references still decide.
+        let string = refs(7, json!("merged"), vec![merged_ref(json!(true))]);
+        assert_eq!(
+            ask("7", std::slice::from_ref(&string)),
+            ("merged".to_string(), true)
+        );
     }
 
     #[test]
@@ -792,7 +944,7 @@ mod tests {
             let node = refs(
                 7,
                 json!({"__typename": "Commit"}),
-                vec![json!({"merged": merged.clone()})],
+                vec![merged_ref(merged.clone())],
             );
             assert_eq!(
                 ask("7", std::slice::from_ref(&node)),
@@ -808,7 +960,7 @@ mod tests {
         // A closer the read gave as null (a close by a person) is no pull request
         // either, so the references still speak: the shape the read gives for a
         // commit-shaped closer it could not resolve.
-        let hand = refs(7, Value::Null, vec![json!({"merged": true})]);
+        let hand = refs(7, Value::Null, vec![merged_ref(json!(true))]);
         assert_eq!(ask("7", &[hand]), ("merged".to_string(), true));
     }
 
@@ -930,10 +1082,9 @@ mod tests {
         assert!(
             QUERY.starts_with("query($q: String!) { search(type: ISSUE, query: $q, first: 100) {")
         );
-        assert!(QUERY.ends_with(
-            "closer { ... on PullRequest { merged } } }\n    closedByPullRequestsReferences(first: 20) { nodes { merged } }\n    } } } } } }"
-        ));
-        assert!(QUERY.contains("closedByPullRequestsReferences(first: 20) { nodes { merged } }"));
+        assert!(QUERY.ends_with("closer { ... on PullRequest { merged } } } } } } } } }"));
+        assert!(QUERY
+            .contains("closedByPullRequestsReferences(first: 20) { nodes { __typename merged } }"));
     }
 
     #[test]
@@ -950,6 +1101,15 @@ mod tests {
             "a search holds no more terms than that"
         );
         assert!(QUERY.contains(&format!("first: {PAGE}")));
+        // The page of the references is the one number the rule scans, said once
+        // in the document and once in the constant, as the page of the search is.
+        assert!(
+            (1..=256).contains(&REFERENCES),
+            "the connection holds no more nodes than that"
+        );
+        assert!(QUERY.contains(&format!(
+            "closedByPullRequestsReferences(first: {REFERENCES})"
+        )));
     }
 
     #[test]
