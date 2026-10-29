@@ -152,6 +152,7 @@ STUB
   # The library's own name for the label of a merge, which the console of this
   # checkout prints too: the case reads it out of lib/shipped.sh rather than
   # writing the word out again.
+  # shellcheck source=lib/shipped.sh
   printf '%s\n' "$(. "$T_ROOT/lib/shipped.sh" && printf '%s' "$tehas_shipped_label")" >"$fx/label.txt"
   : >"$fx/plan.txt"
   [ "$shape" = no-read ] && : >"$fx/no-read"
