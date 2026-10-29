@@ -32,6 +32,7 @@ case "$*" in
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac'
 
@@ -138,6 +139,7 @@ case "$*" in
   "issue list"*) echo "[]" ;;
   "issue view"*) echo "" ;;
   "api repos/"*) echo "[]" ;;
+  "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
   "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
 esac'
 rm -f "$T/calls/analytics"
