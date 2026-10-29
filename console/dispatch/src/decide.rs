@@ -2,7 +2,9 @@
 //! it logs and every text it writes on an issue is the bash's, word for word,
 //! so the two can be compared line by line.
 
-use crate::events::{label_actor, label_state, pause_holds, renamed_since, Event, Events};
+use crate::events::{
+    first_unallowed_rename, label_actor, label_state, pause_holds, Event, Events, UNKNOWN_ACTOR,
+};
 use crate::settings::Settings;
 use crate::slice::{self, gib};
 use crate::snapshot::{Issues, Listed, Snapshot};
@@ -148,7 +150,7 @@ fn has(labels: &[String], l: &str) -> bool {
 
 fn or_unknown(who: &str) -> &str {
     if who.is_empty() {
-        "unknown"
+        UNKNOWN_ACTOR
     } else {
         who
     }
@@ -652,9 +654,9 @@ impl<'a> Poll<'a> {
                 if count == 1 { "is" } else { "are" },
                 with_reason(&limit_reason)
             );
-        } else if let Some(red) = self.branch_check() {
-            why = "red".into();
-            hold = red;
+        } else if let Some((word, hold_of)) = self.branch_check() {
+            why = word.into();
+            hold = hold_of;
         } else if free <= 0 {
             why = "count".into();
             hold = format!(
@@ -829,11 +831,12 @@ impl<'a> Poll<'a> {
             .count() as i64)
     }
 
-    /// branch_check: the hold of a red branch, when TEHAS_BRANCH_CHECK names
-    /// a check that failed on the branch's head commit, and the hold of one
-    /// that finished without saying it passed. Anything else holds nothing,
-    /// and says why it could not tell once.
-    fn branch_check(&mut self) -> Option<String> {
+    /// The hold of the branch's check, with the one word for its reason:
+    /// `red` when TEHAS_BRANCH_CHECK names a check that failed on the
+    /// branch's head commit, and `unknown-gate` when its runs finished and
+    /// none of them says it passed. Anything else holds nothing, and says why
+    /// it could not tell once.
+    fn branch_check(&mut self) -> Option<(&'static str, String)> {
         let c = self.c;
         if c.branch_check.is_empty() {
             return None;
@@ -846,33 +849,42 @@ impl<'a> Poll<'a> {
             }
         };
         let state = answer.as_ref().and_then(check_state);
+        // None stands for the answer the poll could not read: the arm below
+        // that holds nothing, so it is named here rather than left to a
+        // catch-all.
+        let state = state.or(Some(Check::Unreadable));
         let (name, branch) = (&c.branch_check, &c.branch);
-        let (red, note) = match state.as_deref() {
-            Some(s) if s.starts_with("red ") => (
-                Some(format!("holding: {branch} is red at {}", &s[4..])),
+        // Exhaustive: a new state is a compile error here, never a fall
+        // through to the arm that starts cycles.
+        let (red, note) = match state {
+            Some(Check::Red(sha)) => (
+                Some(("red", format!("holding: {branch} is red at {sha}"))),
                 String::new(),
             ),
-            Some(s) if s.starts_with("done ") => (None, String::new()),
-            Some(s) if s.starts_with("pending ") => (
+            Some(Check::Done(_)) => (None, String::new()),
+            Some(Check::Pending(sha)) => (
                 None,
-                format!(
-                    "the check {name} on {branch} at {} has not finished: cycles start",
-                    &s[8..]
-                ),
+                format!("the check {name} on {branch} at {sha} has not finished: cycles start"),
             ),
-            Some("none") => (
+            Some(Check::None) => (
                 None,
                 format!("{branch} has no check named {name} on its head commit: cycles start"),
             ),
-            // Its runs finished and none says it passed: the poll does not
-            // know what ended the gate, so nothing starts on it unsaid.
-            Some("unknown") => (
-                Some(format!(
-                    "holding: the check {name} on {branch} finished without saying it passed"
-                )),
-                String::new(),
-            ),
-            _ => (
+            // The runs finished and none says it passed: the poll does not
+            // know what ended the gate, so nothing starts on it unsaid. The
+            // note of the same words goes to state/branch-check, where the
+            // manual sends a person for the branch's condition. The name is
+            // quoted: an instance may set one with spaces in it.
+            Some(Check::Unknown(sha)) => {
+                let said = format!(
+                    "the check {name:?} on {branch} at {sha} finished without saying it passed: cycles start"
+                );
+                // The hold's own word, not `red`: a person fixes a red gate on
+                // the branch, and an outcome the poll cannot read by naming
+                // the check that answers it. The hold itself is the same hold.
+                (Some(("unknown-gate", format!("holding: {said}"))), said)
+            }
+            Some(Check::Unreadable) | None => (
                 None,
                 format!("the check {name} on {branch} could not be read: cycles start"),
             ),
@@ -891,11 +903,40 @@ impl<'a> Poll<'a> {
     }
 }
 
-/// The state of a branch's check runs, as libexec/dispatch reads them.
-fn check_state(a: &Value) -> Option<String> {
+/// What the poll reads of a check's runs on the branch's head. The words are
+/// the set the store pins in console/store/src/schema.sql
+/// (`red`|`done`|`pending`|`none`|`unreadable`), so this enum is the contract
+/// in both places; `libexec/dispatch`'s jq of the same answer keeps its own
+/// copies until its own issue ports them.
+#[derive(Debug, PartialEq, Eq)]
+enum Check {
+    /// A run says it failed, timed out or could not start.
+    Red(String),
+    /// Every run says it passed.
+    Done(String),
+    /// A run has not finished.
+    Pending(String),
+    /// The branch's head has no run of that check at all.
+    None,
+    /// Every run finished and none says it passed: the poll cannot tell what
+    /// ended the gate, so nothing starts on it unsaid. Its sha is the head the
+    /// hold names.
+    Unknown(String),
+    /// The answer is no answer: no list of runs, or a head sha that is not one.
+    Unreadable,
+}
+
+/// The state of a branch's check runs, as libexec/dispatch reads them. Of the
+/// conclusions GitHub answers, these three pass: `success`, `neutral` and
+/// `skipped`; these three are red: `failure`, `timed_out` and
+/// `startup_failure`. Every other conclusion, and a finished run that names
+/// none, is unknown: the gate holds. A conclusion GitHub adds later is a
+/// deliberate edit to one of the three lists beside this function, never a
+/// run that reads as green.
+fn check_state(a: &Value) -> Option<Check> {
     let runs = a.get("check_runs")?.as_array()?;
     if runs.is_empty() {
-        return Some("none".into());
+        return Some(Check::None);
     }
     let sha_ok = |r: &Value| {
         r.get("head_sha").and_then(Value::as_str).is_some_and(|s| {
@@ -906,31 +947,32 @@ fn check_state(a: &Value) -> Option<String> {
         return None;
     }
     let sha = &runs[0]["head_sha"].as_str()?[..12];
-    let done = |r: &Value| r.get("status").and_then(Value::as_str) == Some("completed");
-    let passed = |r: &Value| {
-        done(r)
+    // One walk of the runs: which of the four readings hold.
+    let mut any_red = false;
+    let mut all_done = true;
+    let mut all_passed = true;
+    for r in runs {
+        let finished = r.get("status").and_then(Value::as_str) == Some("completed");
+        let conclusion = r.get("conclusion").and_then(Value::as_str);
+        all_done &= finished;
+        if finished
             && matches!(
-                r.get("conclusion").and_then(Value::as_str),
-                Some("success" | "neutral" | "skipped")
-            )
-    };
-    if runs.iter().any(|r| {
-        done(r)
-            && matches!(
-                r.get("conclusion").and_then(Value::as_str),
+                conclusion,
                 Some("failure" | "timed_out" | "startup_failure")
             )
-    }) {
-        Some(format!("red {sha}"))
-    } else if runs.iter().all(passed) {
-        Some(format!("done {sha}"))
-    } else if runs.iter().all(done) && !runs.iter().any(passed) {
-        // Every run finished and none says it passed: a cancelled run, one with
-        // no conclusion, or one whose conclusion is no conclusion GitHub
-        // answers. Nothing starts on a gate that did not pass.
-        Some("unknown".into())
+        {
+            any_red = true;
+        }
+        all_passed &= finished && matches!(conclusion, Some("success" | "neutral" | "skipped"));
+    }
+    if any_red {
+        Some(Check::Red(sha.into()))
+    } else if all_passed {
+        Some(Check::Done(sha.into()))
+    } else if all_done {
+        Some(Check::Unknown(sha.into()))
     } else {
-        Some(format!("pending {sha}"))
+        Some(Check::Pending(sha.into()))
     }
 }
 
@@ -963,26 +1005,39 @@ impl<'a> Poll<'a> {
     }
 
     /// unchanged_since: the title and body are what the approval at `since`
-    /// covered, changed since by nobody outside the list.
+    /// covered, changed since by nobody outside the list. The two reads of a
+    /// change rank a missing time in opposite directions on purpose: an
+    /// unstamped rename counts as after the approval and holds the start (see
+    /// `first_unallowed_rename`), and an unstamped edit is no edit at all, as
+    /// the bash poll's `[ -n "$edited_at" ]` reads it.
     fn unchanged_since(&mut self, n: u64, since: &str, what: &str, again: &str) -> Step<bool> {
         let ev = self.events(n)?;
-        let mut editors = renamed_since(&ev, since);
-        let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
-            return Err(self.fail("ERROR: gh api graphql failed", 1));
+        let c = self.c;
+        // The rename is asked first and answers first: it is the one change of
+        // the two GitHub stamps least often.
+        let stale = match first_unallowed_rename(&ev, since, &|w| c.allowed(w)) {
+            Some(who) => Some(who),
+            None => {
+                let Some(edit) = self.s.issues.get(&n).and_then(|i| i.edit.clone()) else {
+                    return Err(self.fail("ERROR: gh api graphql failed", 1));
+                };
+                let at = edit
+                    .get("lastEditedAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let by = edit
+                    .get("editor")
+                    .and_then(|e| e.get("login"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if !at.is_empty() && (since.is_empty() || at > since) {
+                    let who = or_unknown(by).to_string();
+                    (!self.c.allowed(&who)).then_some(who)
+                } else {
+                    None
+                }
+            }
         };
-        let at = edit
-            .get("lastEditedAt")
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let by = edit
-            .get("editor")
-            .and_then(|e| e.get("login"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        if !at.is_empty() && (since.is_empty() || at > since) {
-            editors.push(or_unknown(by).to_string());
-        }
-        let stale = editors.iter().rev().find(|e| !self.c.allowed(e)).cloned();
         if let Some(stale) = stale {
             self.log(format!(
                 "skip #{n}: its text was changed by '{stale}' after {what}; {again} to approve it"
@@ -1919,4 +1974,84 @@ fn blockers(body: &str) -> Option<Vec<u64>> {
         return Some(out);
     }
     None
+}
+
+#[cfg(test)]
+mod check_state_tests {
+    use super::{check_state, Check};
+    use serde_json::{json, Value};
+
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    const HEAD: &str = "0123456789ab";
+
+    fn answer(runs: Vec<Value>) -> Value {
+        json!({"check_runs": runs})
+    }
+
+    fn run(status: &str, conclusion: Option<&str>) -> Value {
+        json!({"head_sha": SHA, "status": status, "conclusion": conclusion})
+    }
+
+    /// Every conclusion GitHub answers is classified: the three that pass, the
+    /// three that are red, and the rest that leave the gate's outcome unknown
+    /// and hold the start.
+    #[test]
+    fn every_finished_conclusion_is_classified() {
+        for c in ["success", "neutral", "skipped"] {
+            let a = answer(vec![run("completed", Some(c))]);
+            assert_eq!(check_state(&a), Some(Check::Done(HEAD.into())), "{c}");
+        }
+        for c in ["failure", "timed_out", "startup_failure"] {
+            let a = answer(vec![run("completed", Some(c))]);
+            assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())), "{c}");
+        }
+        for c in ["cancelled", "action_required", "stale", "wontfix"] {
+            let a = answer(vec![run("completed", Some(c))]);
+            assert_eq!(
+                check_state(&a),
+                Some(Check::Unknown(HEAD.into())),
+                "{c} must hold"
+            );
+        }
+        // A finished run that names no conclusion at all is unknown too.
+        let a = answer(vec![run("completed", None)]);
+        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
+        let a = json!({"check_runs": [{"head_sha": SHA, "status": "completed"}]});
+        assert_eq!(check_state(&a), Some(Check::Unknown(HEAD.into())));
+    }
+
+    #[test]
+    fn a_run_that_has_not_finished_is_pending() {
+        for st in ["queued", "in_progress"] {
+            let a = answer(vec![run(st, None)]);
+            assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())), "{st}");
+        }
+        // One run of two that has not finished is enough: nothing is known of
+        // the gate until all of them answer.
+        let a = answer(vec![
+            run("completed", Some("cancelled")),
+            run("in_progress", None),
+        ]);
+        assert_eq!(check_state(&a), Some(Check::Pending(HEAD.into())));
+    }
+
+    #[test]
+    fn a_red_run_outweighs_every_other_reading() {
+        let a = answer(vec![
+            run("completed", Some("success")),
+            run("completed", Some("failure")),
+        ]);
+        assert_eq!(check_state(&a), Some(Check::Red(HEAD.into())));
+    }
+
+    #[test]
+    fn no_runs_and_an_answer_that_is_not_runs() {
+        assert_eq!(check_state(&answer(vec![])), Some(Check::None));
+        assert_eq!(check_state(&json!({})), None);
+        assert_eq!(check_state(&json!({"check_runs": {}})), None);
+        // A head sha the poll cannot name is an answer it cannot read.
+        let a = json!({"check_runs": [{"head_sha": "<b>", "status": "completed",
+                                       "conclusion": "success"}]});
+        assert_eq!(check_state(&a), None);
+    }
 }
