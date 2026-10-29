@@ -100,9 +100,15 @@ use tehas_core::time;
 /// number stops here rather than being read as now, as the store does with its
 /// own.
 fn now() -> i64 {
-    match env::var("TEHAS_FLAGS_TEST_NOW") {
-        Ok(s) => s.parse().expect("TEHAS_FLAGS_TEST_NOW is not a Unix time"),
-        Err(_) => tehas_core::time::now(),
+    clock(env::var("TEHAS_FLAGS_TEST_NOW").ok())
+}
+
+// Apart from `now` so a test reads it without setting the variable that every
+// other test of the process reads too.
+fn clock(given: Option<String>) -> i64 {
+    match given {
+        Some(s) => s.parse().expect("TEHAS_FLAGS_TEST_NOW is not a Unix time"),
+        None => tehas_core::time::now(),
     }
 }
 
@@ -1744,10 +1750,8 @@ mod tests {
 
     #[test]
     fn the_clock_reads_the_test_variable_when_it_names_a_time() {
-        env::set_var("TEHAS_FLAGS_TEST_NOW", "1700000000");
-        assert_eq!(now(), 1_700_000_000);
-        env::remove_var("TEHAS_FLAGS_TEST_NOW");
-        assert!(now() > 1_791_942_400);
+        assert_eq!(clock(Some("1700000000".into())), 1_700_000_000);
+        assert!(clock(None) > 1_791_942_400);
     }
 
     // The pause flag: the file tehas pause writes, read as every command which
