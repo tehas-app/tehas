@@ -1682,11 +1682,15 @@ Both pages are always there, at `/floor` and `/business`, in whatever theme
 the instance has; the setting only picks the one at `/`. The business page was
 drawn for beesknees, and the floor for pixel. The business page reads the
 same files as the floor: `live/status.json`, `live/running.json` and the
-cycles' consoles, `live/protolab.json`, `live/analytics.json` and
-`live/energy.json`. Its console follows the running cycle's output, with a tab
+cycles' consoles, `live/protolab.json`, `live/analytics.json`,
+`live/epics.json` and `live/energy.json`. Its console follows the running cycle's output, with a tab
 for each cycle when there are several, as on the floor. Its live strip shows
 only where the host publishes power, and its 10 days only once there is a
 report. With no queue file it shows the floor's sample tickets and says so.
+Both pages list the open epics from `live/epics.json`, one row each with a
+block per sub-issue, filled when it is closed; a row opens to list the
+sub-issues, open or closed, each linked, and a link to the epic. The panel
+shows only where the file is there.
 Its live charts cover the last 30 minutes, which is what `energy.json` holds.
 
 A page asks for `/fun/theme.css`, and the docs server and the edge router
