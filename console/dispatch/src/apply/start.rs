@@ -13,6 +13,7 @@ use super::{text, word, Writer, Wrote};
 use crate::decide::iso;
 use crate::read::host::{epoch, held};
 use crate::read::run::{gh_env, run_grace_env, run_quiet};
+use crate::settings::account;
 use serde_json::{json, Map, Value};
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -27,7 +28,7 @@ pub struct Host {
     pub comments: bool,
     /// TEHAS_ALLOWED_LABELERS.
     pub allowed: Vec<String>,
-    /// TEHAS_MILLWRIGHT_LOGIN.
+    /// TEHAS_MILLWRIGHT_LOGIN, as `settings::account` has it.
     pub millwright: String,
     /// The bot's login, whose pull requests a retry's comments are read on.
     pub bot: String,
@@ -635,7 +636,8 @@ impl Writer {
             "--at".into(),
             at.to_string(),
             "--by".into(),
-            text(a, "by").into(),
+            // The store keeps one form of an App's login.
+            account(text(a, "by")).into(),
             "--how".into(),
             given.clone(),
             "--body-sha".into(),
@@ -794,7 +796,7 @@ impl Writer {
         ))
         .ok()?;
         let fixer = self.host.millwright.clone();
-        let who = |l: &str| l == fixer;
+        let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
         let w = window(&list, &since, at, &who)?;
         let last: Vec<Value> = w
             .iter()

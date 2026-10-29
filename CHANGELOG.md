@@ -21,10 +21,19 @@ empty one above it.
   A missing, unreadable or malformed one adds nothing, and so does a value
   that names a variable, holds white space, is under 8 or over 512 characters,
   or is past the first 64 of the file (#986).
+- `TEHAS_MILLWRIGHT_LOGIN` takes a GitHub App's login, `<slug>[bot]`, as
+  `TEHAS_BOT_LOGIN` does. Before, the setting refused it with 78, and since an
+  invalid setting stops every command, the dispatcher stopped too. The
+  millwright's labels, comments, ticks and replies count whether GitHub names
+  the App `<slug>[bot]` (REST) or `<slug>` (GraphQL), and no other account
+  does. The approval record and the planning record name an App millwright
+  without `[bot]`. Loading the settings now also stops with 78 when the
+  millwright is `TEHAS_BOT_LOGIN`, in either form (#1051).
 
 ### Adopter action
 
-None.
+None. A factory whose `TEHAS_MILLWRIGHT_LOGIN` line was commented out because
+it held a `[bot]` login can have it back.
 
 ## v0.16.2 (2026-10-29)
 

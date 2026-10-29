@@ -70,7 +70,7 @@
 
 tehas_millwright_on() { [ -n "${TEHAS_MILLWRIGHT_LOGIN:-}" ]; }
 
-tehas_millwright_is() { tehas_millwright_on && [ "${1:-}" = "$TEHAS_MILLWRIGHT_LOGIN" ]; }
+tehas_millwright_is() { local l=${1:-}; tehas_millwright_on && [ "${l%\[bot\]}" = "${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}" ]; }
 
 tehas_millwright_base() { # <record>
   local base by
