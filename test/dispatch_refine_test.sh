@@ -42,6 +42,7 @@ refine_park
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$(plan_calls)" "7 --out $record.out --keep $keep --brief $home/tmp/plan-7.brief."
+t_contains "$(plan_calls)" " --kind refine"
 t_eq "$(rec_brief | head -n 3)" '# Faster search
 
 Make it good.'

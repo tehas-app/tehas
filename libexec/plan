@@ -9,13 +9,13 @@
 # the turn said and asked to a file and stops. The dispatcher posts it on the
 # issue and, when an answer has come, runs the next turn in the same session.
 # After a drafted plan, a tick on "Update this issue" makes it the issue's
-# text, and one on "File as a new issue" files it.
+# text. A refine session also offers "File as a new issue", which files it.
 #
 # Usage:
-#   tehas plan <issue-number> --out <file> --keep <dir> --brief <file>
+#   tehas plan <issue-number> --out <file> --keep <dir> --brief <file> [--kind refine]
 #       First turn. <file> holds the approved title and body of the issue.
-#   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file> [--comment <id>]
-#       A later turn. <file> holds the operator's answer. --comment names the
+#   tehas plan <issue-number> --out <file> --keep <dir> --session <id> --answer <file> [--comment <id>] [--kind refine]
+#       A later turn. --kind refine: the session is a tehas:refine one. <file> holds the operator's answer. --comment names the
 #       reply it came from, whose attachments the turn is given.
 #
 # <dir> is what the session carries from one turn to the next. The dispatcher
@@ -71,8 +71,8 @@
 #                     more as one numbered text. Answered by a reply.
 #   12 shown          the drafted plan, its title and spec, after the turn's
 #                     text; its open points with the planner's proposed
-#                     resolutions; the options "Update this issue" and
-#                     "File as a new issue".
+#                     resolutions; the option "Update this issue", and
+#                     "File as a new issue" with --kind refine.
 #   10 duplicate-risk the turn's text; answered by a reply.
 #    0 filed          the issue the confirm filed, under "filed".
 # "filed" holds the issues this session filed; with none there is no such key.
@@ -119,19 +119,14 @@
 set -uo pipefail
 
 usage() {
-  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>])" >&2
+  echo "usage: tehas plan <issue-number> --out <file> --keep <dir> (--brief <file> | --session <id> --answer <file> [--comment <id>]) [--kind refine]" >&2
   exit 64
 }
 
 issue=${1:-}
 case "$issue" in '' | *[!0-9]*) usage ;; esac
 shift
-out=""
-keep=""
-brief=""
-answer=""
-session=""
-comment=""
+out="" keep="" brief="" answer="" session="" comment="" kind=""
 while [ "$#" -gt 0 ]; do
   [ "$#" -ge 2 ] || usage
   case "$1" in
@@ -141,6 +136,7 @@ while [ "$#" -gt 0 ]; do
     --answer) answer=$2 ;;
     --session) session=$2 ;;
     --comment) comment=$2 ;;
+    --kind) [ "$2" = refine ] || usage; kind=$2 ;;
     *) usage ;;
   esac
   shift 2
@@ -509,7 +505,7 @@ case "$rc" in
 esac
 [ -n "$sid" ] || give_up "the session id is unknown"
 
-if ! why=$("$console" plan outcome "$rc" "$sid" "$keep" <<<"$answer_doc" 2>&1 >"$out.new") || ! mv "$out.new" "$out"; then
+if ! why=$("$console" plan outcome "$rc" "$sid" "$keep" ${kind:+"$kind"} <<<"$answer_doc" 2>&1 >"$out.new") || ! mv "$out.new" "$out"; then
   rm -f "$out.new"
   why=${why#console plan: }
   give_up "${why:-could not write $out}"

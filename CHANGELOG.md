@@ -22,6 +22,9 @@ empty one above it.
   before (#956). The shell test now pins all nine names end to end, so the list
   the console holds is the list a poll searches for, takes off and logs; the
   manual names `tehas:refine` among them.
+- A drafted plan in a `tehas:plan` session offers only **Update this
+  issue** and **End this planning session**. **File as a new issue** stays
+  for `tehas:refine` sessions, which exist to file one (#1010).
 
 ### Adopter action
 
