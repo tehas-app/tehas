@@ -3166,7 +3166,8 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    and the one Docker keeps its images on. This is done once Docker has
    answered, before the network is checked.
 3. It asks GitHub for the open pull requests, all of them, in pages of 100,
-   newest first. It stops when a page is short, which is where GitHub ends.
+   newest first, and keeps the bytes of each page. It stops when a page is
+   short, which is where GitHub ends.
    When the tenth page comes back full it asks for one more: an empty answer
    means the list ended there, so a thousand open pull requests is a list it
    has read. Anything in that answer means it stopped before the end, and it
@@ -3180,13 +3181,18 @@ are enabled. Both write to `~/tehas/logs/preview.log`.
    who opened each; nothing was built or removed`. Each page is an answer of
    its own, taken at its own moment, so the list can move while it is read: a
    pull request that comes back on two pages counts once.
-4. A pull request whose head is in another repository is counted in the log
-   and never built: `<k> pull requests from elsewhere, not built`. Nor is
-   one whose head is in the repository and that was opened by anyone but an
-   owner, member or collaborator of it: `<k> pull requests opened by someone
-   outside the repository, not built`. On a public repository anyone can
-   open a pull request between two branches that are already there. Of the
-   rest, the newest `TEHAS_PREVIEW_MAX` get a preview.
+4. The console reads those pages and chooses what is done with each of them
+   (`console preview choose`, `~/tehas/libexec/console`). A pull request is
+   built when its head is in the product repository itself and an owner,
+   member or collaborator of the repository opened it; the newest
+   `TEHAS_PREVIEW_MAX` of those are built and the rest say `over-limit`. A
+   head in another repository is counted in the log and never built: `<k> pull
+   requests from elsewhere, not built`, nor one opened by anyone else: `<k>
+   pull requests opened by someone outside the repository, not built`. On a
+   public repository anyone can open a pull request between two branches that
+   are already there. The console reads a list it cannot read, or one that
+   does not say who opened one of the repository's own pull requests, as no
+   choice at all, and the run builds and removes nothing on it.
 5. What is on the host for a pull request the list does not have is removed:
    the container, the image, the fetched commit, the state and the build log.
    Membership in that list is not enough on its own, because a pull request can

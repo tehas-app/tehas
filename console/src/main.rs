@@ -22,9 +22,11 @@
 //! line on the dashboard, so that the mask is written in one place.
 //!
 //!   console preview tell ...
+//!   console preview choose <repo> [max] <pull requests
 //!
 //! The notice tehasbot preview keeps in a pull request's description, see
-//! src/notice.rs.
+//! src/notice.rs, and which open pull requests get a preview, see
+//! src/preview.rs.
 //!
 //!   console plan outcome|update ...
 //!
@@ -76,6 +78,7 @@ mod export;
 mod flags;
 mod notice;
 mod plan;
+mod preview;
 mod protolab;
 mod render;
 mod review;
@@ -262,7 +265,7 @@ fn main() -> ExitCode {
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
-            Some("preview") => return ExitCode::from(notice::main(&given[1..])),
+            Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
