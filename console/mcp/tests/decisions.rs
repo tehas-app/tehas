@@ -1,5 +1,6 @@
 // factory_decisions: the dispatcher's last decisions from the end of
-// dispatch.log, as `grep -E ' (start|skip|wait|drop) #' | tail -n N` shows.
+// dispatch.log, as `grep -E ' (start|skip|wait|drop the refresh of) #' | tail -n N`
+// shows.
 
 use mcp::tools::{list, Dirs, Output, ToolError};
 use regex::Regex;
@@ -49,13 +50,14 @@ impl Drop for Logs {
 
 // What the issue's grep and tail show of the fixture, as the four fields.
 fn grep_tail(text: &str, n: usize) -> Vec<Value> {
-    let re = Regex::new(r" (start|skip|wait|drop) #").unwrap();
+    let re = Regex::new(r" (start|skip|wait|drop the refresh of) #").unwrap();
     let hits: Vec<&str> = text.lines().filter(|l| re.is_match(l)).collect();
     hits[hits.len().saturating_sub(n)..]
         .iter()
         .map(|l| {
             let (time, rest) = l.split_once(' ').unwrap();
             let (word, rest) = rest.split_once(" #").unwrap();
+            let word = word.strip_suffix(" the refresh of").unwrap_or(word);
             let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
             let tail = &rest[digits..];
             let reason = tail
@@ -91,7 +93,7 @@ fn the_answer_is_what_grep_and_tail_show() {
             {"time": "2026-10-20T10:57:00Z", "decision": "skip", "issue": 157,
              "reason": "tehas:ready was applied by 'mallory', not an allowed account"},
             {"time": "2026-10-20T10:58:00Z", "decision": "drop", "issue": 158,
-             "reason": "its request is older than the pull request"},
+             "reason": "pull request #9 moved since the request"},
             {"time": "2026-10-20T10:59:00Z", "decision": "start", "issue": 159,
              "reason": "retry ticked by alice"},
         ])
@@ -103,7 +105,7 @@ fn other_lines_are_not_decisions() {
     let l = Logs::with(
         "other",
         "2026-10-20T10:00:00Z start planning #9 (labelled by alice)\n\
-         2026-10-20T10:00:01Z drop the refresh of #8: pull request #9 moved since the request\n\
+         2026-10-20T10:00:01Z drop #8: no writer logs this shape\n\
          2026-10-20T10:00:02Z holding: the limit allows 0 cycles at once and 2 are running: draining\n\
          2026-10-20T10:00:03Z done #7 rc=0 status=merged\n\
          /home/x/libexec/dispatch: line 197: no such file\n\

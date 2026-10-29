@@ -1,5 +1,5 @@
 //! `factory_decisions`: the dispatcher's last decisions, start, skip, wait
-//! and drop, read from the end of `dispatch.log`.
+//! and drop (of a refresh request), read from the end of `dispatch.log`.
 //!
 //! The log is opened by its one fixed name in the logs directory; a caller
 //! gives no path. Only its last `TAIL_BYTES` are read. A decision's time, word
@@ -24,7 +24,8 @@ const REASON_MAX: usize = 400;
 pub const WORDS: [&str; 4] = ["start", "skip", "wait", "drop"];
 
 /// One decision line, as the dispatcher writes it:
-/// `<time> start #<n> (<reason>)` or `<time> skip|wait|drop #<n>: <reason>`.
+/// `<time> start #<n> (<reason>)`, `<time> skip|wait #<n>: <reason>` or
+/// `<time> drop the refresh of #<n>: <reason>`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Decision<'a> {
     pub time: &'a str,
@@ -40,9 +41,12 @@ pub fn parse(line: &str) -> Option<Decision<'_>> {
     let (time, rest) = line.split_once(' ')?;
     crate::tools::epoch(time)?;
     let (word, rest) = rest.split_once(" #")?;
-    if !WORDS.contains(&word) {
-        return None;
-    }
+    // The dispatcher drops only refresh requests, and logs them so.
+    let word = match word {
+        "start" | "skip" | "wait" => word,
+        "drop the refresh of" => "drop",
+        _ => return None,
+    };
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
     let issue = rest[..digits].parse::<u64>().ok().filter(|n| *n > 0)?;
     let tail = &rest[digits..];
@@ -63,7 +67,7 @@ pub fn tool() -> Value {
     let text = |desc: &str| json!({"type": "string", "description": desc});
     json!({
         "name": "factory_decisions",
-        "description": "The dispatcher's last decisions, newest last: each start, skip, wait and drop with its time, issue and reason as the dispatcher logs it. Read from the last 1 MiB of the dispatch log, masked; a reason is cut to 400 characters.",
+        "description": "The dispatcher's last decisions, newest last: each start, skip, wait and drop with its time, issue and reason as the dispatcher logs it. A drop is a refresh request the dispatcher dropped. Read from the last 1 MiB of the dispatch log, masked; a reason is cut to 400 characters.",
         "inputSchema": {"type": "object", "properties": {
             "limit": {"type": "integer", "minimum": 1, "maximum": LIMIT_MAX, "description": "How many decisions, from 1 to 200. 50 without it."},
         }, "additionalProperties": false},
@@ -72,7 +76,7 @@ pub fn tool() -> Value {
             "decisions": {"type": "array", "description": "The last decisions, oldest first.", "items": {
                 "type": "object", "description": "One decision.", "properties": {
                     "time": text("When it was made, UTC."),
-                    "decision": {"type": "string", "enum": WORDS, "description": "start, skip, wait or drop."},
+                    "decision": {"type": "string", "enum": WORDS, "description": "start, skip, wait or drop (of a refresh request)."},
                     "issue": {"type": "integer", "description": "The issue number."},
                     "reason": text("Why, as the dispatcher logs it, masked and cut to 400 characters. For a start, who started it and how."),
                 }}},
@@ -209,8 +213,10 @@ mod tests {
             d(t, "wait", 5, "tehas:blocked holds it: #4 is open")
         );
         assert_eq!(
-            parse(&format!("{t} drop #9: gone\r")),
-            d(t, "drop", 9, "gone")
+            parse(&format!(
+                "{t} drop the refresh of #8: pull request #9 moved since the request\r"
+            )),
+            d(t, "drop", 8, "pull request #9 moved since the request")
         );
         assert_eq!(parse(&format!("{t} skip #9")), d(t, "skip", 9, ""));
     }
@@ -221,7 +227,8 @@ mod tests {
         for line in [
             format!("{t} holding: the limit allows 0 cycles at once and 5 are running: draining"),
             format!("{t} start planning #7 (labelled by alice)"),
-            format!("{t} drop the refresh of #8: moved"),
+            format!("{t} drop #9: no writer logs this shape"),
+            format!("{t} drop the refresh #8: no of"),
             format!("{t} done #7 rc=0 status=merged"),
             format!("{t} skip #0: zero"),
             format!("{t} skip #: none"),
