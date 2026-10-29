@@ -107,14 +107,17 @@ search_labels() {
 # case, and not words of the environment: tehas_load of lib/config.sh drops every
 # TEHAS_* name it does not know, so a setting of a stub would be gone before the
 # first call of the poll.
-stub_console() { # [good|empty|one-state]: the console beside the command answers
-  # the four words a poll reads of it, each from a file of the case named below. The
-  # one argument names the shape of the list `tidy states` prints: `empty` is a console
-  # that prints no name at all, and `one-state` one that prints the nine state labels
-  # and no label of a merge after them. Anything else is the good console. The names
-  # are read out of the console of this checkout, so a case never writes them out and
-  # cannot drift from the rule. A reset of a case takes the files away, so every case
-  # calls this after its reset and the poll sees the console of that case alone.
+stub_console() { # [good|empty|one-state|no-read]: the console beside the command
+  # answers the words a poll reads of it, each from a file of the case named below.
+  # The one argument names the shape of the list `tidy states` prints and of the
+  # two words the read of a merge is asked for: `empty` is a console that prints no
+  # name at all, `one-state` one that prints the nine state labels and no label of
+  # a merge after them, and `no-read` one that gives no page and no label of a
+  # merge, as a console of an older tehas does. Anything else is the good console.
+  # The names are read out of the console of this checkout, so a case never writes
+  # them out and cannot drift from the rule. A reset of a case takes the files
+  # away, so every case calls this after its reset and the poll sees the console of
+  # that case alone.
   local states_file=$T/fx/states.txt shape=${1-good} names
   mkdir -p "$T/fx"
   # The list is read whole into one name and written by one printf, so the file of the
@@ -135,15 +138,23 @@ fx=\$T/fx
 case "\$1 \$2" in
   "tidy states") [ -e "\$fx/states.txt" ] || exit 1
     cat "\$fx/states.txt" ;;
-  "tidy issues") [ ! -e "\$fx/issues-fails" ] || exit 1 ;;
   "tidy plan") cat "\$fx/plan.txt" ;;
-  "shipped page") cat "\$fx/page.txt" ;;
+  "shipped page") [ -e "\$fx/no-read" ] && exit 1
+    cat "\$fx/page.txt" ;;
+  "shipped label") [ -e "\$fx/no-read" ] && exit 1
+    cat "\$fx/label.txt" ;;
 esac
 exit 0
 STUB
   chmod +x "$shim/libexec/console"
   printf '100\n' >"$fx/page.txt"
+  # The library's own name for the label of a merge, which the console of this
+  # checkout prints too: the case reads it out of lib/shipped.sh rather than
+  # writing the word out again.
+  printf '%s\n' "$(. "$T_ROOT/lib/shipped.sh" && printf '%s' "$tehas_shipped_label")" >"$fx/label.txt"
   : >"$fx/plan.txt"
+  [ "$shape" = no-read ] && : >"$fx/no-read"
+  return 0
 }
 # One line of a stubbed plan: the number, the state labels to take off, whether the
 # issue carries the label of a merge, and whether the closer read is asked about
@@ -268,15 +279,17 @@ t_contains "$t_out" "the console gave no page"
 t_eq "$(t_calls gh)" ""
 
 t_case "an answer the console reads as no list of issues is the failed search, exit 1"
-# `tidy issues` is the console's own test of the answer: the command does not guess
-# at JSON, so an answer of GitHub that is no list is refused there and the poll
-# logs the search as failed instead of tidying a poll it never read.
+# `console tidy plan` is the console's own test of the answer: the command does
+# not guess at JSON, so an answer of GitHub that is no list - no JSON, an object,
+# a bare number - is refused there and the poll logs it as the failed search, and
+# not as the empty list of a poll with nothing to tidy. A list of things that name
+# no issue is refused the same way: the search named nothing it can plan.
 reset
 stub_console
-: >"$T/fx/issues-fails"
+echo '{"data":{}}' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: tidy: the search for closed issues with state labels failed"
+t_contains "$t_out" "WARN: tidy: the console could not read the answer of the search"
 t_eq "$(edits)" ""
 
 t_case "the plan the console gives is what the poll edits, and its ask says who is read"
@@ -284,6 +297,8 @@ t_case "the plan the console gives is what the poll edits, and its ask says who 
 # closer read is asked about all come from `tidy plan`, and an ask of no means the
 # read is not made at all for that issue. The search of GitHub answers nothing here,
 # so a poll that decided for itself would find no issue to edit.
+reset
+stub_console
 reset
 stub_console
 stub_plan 7 tehas:running no yes >"$T/fx/plan.txt"
@@ -432,11 +447,13 @@ t_contains "$t_out" "WARN: tidy: the search for closed issues with state labels 
 t_eq "$(edits)" ""
 
 t_case "an answer that cannot be read is logged, exit 1"
+# The word a poll gets for bytes that hold no JSON at all, named as itself: the
+# search of GitHub answered, so the line is the console's and not gh's.
 reset
 echo 'not json' >"$fx/closed.json"
 t_run "$tidy"
 t_eq "$t_rc" 1
-t_contains "$t_out" "WARN: tidy: the search for closed issues with state labels failed"
+t_contains "$t_out" "WARN: tidy: the console could not read the answer of the search"
 
 t_case "a search that hangs is cut off at TEHAS_TIDY_WAIT seconds"
 reset
