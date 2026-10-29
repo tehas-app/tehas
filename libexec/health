@@ -187,7 +187,7 @@ jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "
   | ($v.cycles // []) as $running
   | $v.last as $last
   | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
-     and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
+     and ($running | map(select((.startedAt == null) or (.startedAt >= ($last.updatedAt // 0)))) | length) == 0) as $failed
   # A fix merged for the factory runs only after tehas update, and a day behind
   # is news. The three holds that stop every start are named here: an unreadable
   # slice, a disk under the bound or unreadable, and no resources; the other

@@ -2583,7 +2583,7 @@ file is served.
 | -------- | ---------------------------------------------------------------------------------------- | ---- |
 | `pass`   | Taking work, idle or in a cycle                                                          | 200  |
 | `warn`   | The queue snapshot is more than ten minutes old: GitHub did not answer the last polls, and `output` says how old. Or paused (the pause flag on this host, `tehas:pause` on the control issue, or a pause no allowed account took off), or the dispatcher holds everything because the slice is missing or cannot be read, or there are no resources (the model endpoint does not answer or does not offer the model), or too low on disk to build previews, or the free space could not be read, or the platform checkout has been behind origin's default branch for more than a day (`output` says how many commits; run `tehas update`), or the state store has no daily backup or the newest is more than two days old, or an idle poll cost more than its budget (`TEHAS_POLL_BUDGET`, `checks.poll_cost`), or systemd gave up on a tehas unit (`checks.units`) | 200  |
-| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since, or there is no queue snapshot | 503  |
+| `fail`   | The last cycle ended as anything but `merged` or `handoff` and no cycle has started since (a running cycle with no `startedAt` counts as started since), or there is no queue snapshot | 503  |
 
 `output` says the same in a sentence. `checks.queue` has the snapshot time and
 the counts in line, building, in review and stopped. `checks.cycles` has the
@@ -2597,7 +2597,9 @@ when it is not installed or cannot be used.
 
 `fail` is about the cycle that finished most recently. It lasts until a cycle
 starts after that one ended. A cycle that was already running when the other
-one failed does not clear it. A cycle that has written nothing for two
+one failed does not clear it. A running cycle whose `startedAt` is missing reads
+as started after it, because a cycle with no known start is running now.
+A cycle that has written nothing for two
 minutes and whose issue's lock (`state/cycles/<issue>.lock`) nobody holds is
 recorded as ended with the status `lost`, which is a failure. While
 `tehasbot cycle` still holds the lock, the cycle stays running.
