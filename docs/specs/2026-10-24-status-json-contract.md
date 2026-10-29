@@ -19,8 +19,8 @@ describes it. Three files in `api/` pin it down:
 - `api/status.quiet.json`, a sample of an idle factory: the fields that can be
   left out are left out, and the ones that can be null are null.
 
-The samples are not written by hand. They are what `tehas_status_json` in
-`lib/status.sh` makes of two health files in `test/fixtures/status-json/`, at a
+The samples are not written by hand. They are what `console status json`
+(`console/src/status.rs`) makes of two health files in `test/fixtures/status-json/`, at a
 fixed time. The schema is plain JSON Schema and does not depend on jq, so a
 port of `status` to Rust can be checked against the same schema and samples.
 
