@@ -2488,7 +2488,11 @@ the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
-refreshed at every poll and at the end of every cycle. The docs server
+refreshed at every poll and at the end of every cycle. The poll that runs it
+bounds it at 120 s, the same bound it gives the status and tidy, because health
+bounds its own store calls only one at a time; one cut off leaves the file as
+the last writer left it, and the poll says
+`WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 
@@ -2927,7 +2931,8 @@ call and runs `~/tehas/bin/gh`, so a command that runs for hours never holds an
 expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
 uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
 poll takes the token once at its start and gives it to every `gh` it runs that
-way, so twenty calls of a poll ask for one token and not twenty (#938). The
+way, and to `tidy`, `status` and `health` when it runs them, so twenty calls of
+a poll ask for one token and not twenty (#938, #965). The
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and
