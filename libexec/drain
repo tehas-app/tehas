@@ -7,7 +7,7 @@
 # that many seconds for them to end. Drained means no poll can start a cycle
 # either: the poll's lock is taken before the count, so a poll already past its
 # read of the limit is waited for and its cycles counted. For a reboot or a disk
-# change, or a program before an upgrade or a move.
+# change, or before an upgrade or a move. TEHAS_CONSOLE is passed on to limit.
 #
 # Usage: tehas drain [--wait SECONDS] [--json], which prints one object: api 1,
 # drained, running (the issues whose cycles still run) and limit as tehas limit
@@ -31,14 +31,14 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) console=${TEHAS_CONSOLE:-}
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 tehas_load || exit 78
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
 
-said=$("$here/limit" set --cycles 0 --plan off --reason draining) || exit $?
+said=$(TEHAS_CONSOLE=$console "$here/limit" set --cycles 0 --plan off --reason draining) || exit $?
 # The limit holds only a poll that has yet to read it: one past that read starts
 # its cycles whatever the file says. So the poll's lock is taken and released
 # before the count, and its cycles are in it: --wait bounds it, or 600.
@@ -54,7 +54,7 @@ while :; do
 done
 
 if [ "$json" = 1 ]; then
-  jq -nc --arg running "$running" --argjson limit "$("$here/limit" --json)" '
+  jq -nc --arg running "$running" --argjson limit "$(TEHAS_CONSOLE=$console "$here/limit" --json)" '
     ($running | split(" ") | map(select(. != "") | tonumber)) as $r
     | {api: 1, drained: ($r == []), running: $r, limit: ($limit | del(.api))}'
 elif [ -z "$running" ]; then
