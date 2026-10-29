@@ -12,7 +12,8 @@
 #                                     the slice, then the user part as <user>
 #                                     in the same run, unless --root-only
 #   sudo ./bootstrap.sh slice         the systemd slice the sandbox containers
-#                                     run in, /etc/systemd/system/tehas.slice
+#                                     run in, its unit and the udev rule that
+#                                     reloads systemd when memory is added
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
 #   sudo ./bootstrap.sh dev <user> [<login>...]
@@ -20,7 +21,8 @@
 #                                     session with "tehas dev", run as <user>
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected,
-#                                     and one for the slice
+#                                     and one each for the slice, its rule and
+#                                     its reload unit
 #
 # It does not create credentials, clone the product or install tehas itself:
 # see the manual's bootstrap page for the steps around it.
@@ -129,12 +131,23 @@ docker_systemd_driver() {
 }
 
 # --- slice --------------------------------------------------------------------
-# One system unit, host/slice/tehas.slice, copied to /etc/systemd/system. Root
-# is needed for exactly this: rootful Docker places containers under PID 1, so
-# a slice of the tehas user cannot hold them. It reads nothing from the
-# instance, the user's home or the network.
+# Three files, all from host/slice: tehas.slice copied to /etc/systemd/system,
+# the udev rule under /etc/udev/rules.d, and the oneshot that rule starts.
+# tehas.slice.d/override.conf is not among them: tehas reads that file and never
+# writes it. Root is needed for exactly this: rootful Docker places containers
+# under PID 1, so a slice of the tehas user cannot hold them. Nothing here reads
+# the instance, the user's home or the network.
 slice_file=$root/host/slice/tehas.slice
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
+# Memory added to a running host: systemd works a percentage MemoryMax out only
+# when it loads the unit, so the slice keeps the size the host had at boot until
+# someone reloads systemd by hand. A udev rule asks for that reload when a memory
+# block comes online; a oneshot unit does the reload, because udevd kills a long
+# RUN+= and blocks come online in a group.
+rule_file=$root/host/slice/96-tehas-memory-online.rules
+rule_to=${BOOTSTRAP_ETC:-/etc}/udev/rules.d/96-tehas-memory-online.rules
+reload_file=$root/host/slice/tehas-slice-reload.service
+reload_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas-slice-reload.service
 
 # The slice as systemd has it: sets slice_path and slice_max. True when it is
 # loaded from a file, has a memory limit, and the file has not changed since
@@ -153,8 +166,10 @@ slice_loaded() {
 # was written), 1 when a step failed. Every step is checked by hand: do_root
 # calls this where set -e does not reach.
 slice_install() {
-  local answer driver version oomd
-  [ -f "$slice_file" ] || { echo "bootstrap: $slice_file is missing from this checkout" >&2; return 1; }
+  local answer driver version oomd f
+  for f in "$slice_file" "$rule_file" "$reload_file"; do
+    [ -f "$f" ] || { echo "bootstrap: $f is missing from this checkout" >&2; return 1; }
+  done
   answer=$(docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null) || answer=""
   if [ "$answer" != "systemd 2" ]; then
     read -r driver version _ <<<"$answer" || true
@@ -171,6 +186,13 @@ slice_install() {
     echo "bootstrap: slice part already in place"
     return 0
   fi
+  # The unit the rule names is written before the rule and before the slice, so
+  # one daemon-reload reads all three: the manager that sees the rule has the
+  # unit to start, and the slice has it beside its own file.
+  install -D -m 644 "$reload_file" "$reload_to" ||
+    { echo "bootstrap: could not write $reload_to" >&2; return 1; }
+  install -D -m 644 "$rule_file" "$rule_to" ||
+    { echo "bootstrap: could not write $rule_to" >&2; return 1; }
   install -D -m 644 "$slice_file" "$slice_to" ||
     { echo "bootstrap: could not write $slice_to" >&2; return 1; }
   systemctl daemon-reload || { echo "bootstrap: systemctl daemon-reload failed" >&2; return 1; }
@@ -182,7 +204,7 @@ slice_install() {
   # Information only: tehas neither uses nor needs systemd-oomd.
   oomd=inactive
   [ "$(systemctl is-active systemd-oomd 2>/dev/null || true)" != active ] || oomd=active
-  echo "bootstrap: slice part done. tehas.slice is loaded from $slice_path, MemoryMax $slice_max bytes. systemd-oomd: $oomd"
+  echo "bootstrap: slice part done. tehas.slice is loaded from $slice_path, MemoryMax $slice_max bytes and follows memory added to the host. systemd-oomd: $oomd"
 }
 
 do_slice() {
@@ -352,6 +374,21 @@ EOF
   else
     echo "tehas.slice: differs (sudo ./bootstrap.sh slice)"
   fi
+  # The rule and the reload unit belong to the slice, so they are reported with
+  # it, and as it is, they do not change the exit status. The shipped file and
+  # the installed one are given apart: the checkout and $BOOTSTRAP_ETC are not
+  # the same pair of directories twice.
+  check_part() { # <name> <shipped> <installed>
+    if [ ! -f "$3" ]; then
+      echo "$1: missing (sudo ./bootstrap.sh slice)"
+    elif cmp -s "$2" "$3"; then
+      echo "$1: in place"
+    else
+      echo "$1: differs (sudo ./bootstrap.sh slice)"
+    fi
+  }
+  check_part "tehas.slice's udev rule" "$rule_file" "$rule_to"
+  check_part "tehas-slice-reload.service" "$reload_file" "$reload_to"
   return "$rc"
 }
 

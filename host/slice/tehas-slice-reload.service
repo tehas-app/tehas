@@ -1,0 +1,15 @@
+# Installed by "sudo ./bootstrap.sh slice" to /etc/systemd/system, and started
+# by 96-tehas-memory-online.rules when memory comes online. One reload of the
+# system manager, so tehas.slice takes its MemoryMax from the memory the host
+# has now. Nothing else is re-read: a running container keeps the limit it
+# started with. Started by udevd, never by hand and never at boot.
+[Unit]
+Description=Tehas: reload systemd so tehas.slice follows memory added to the host
+# udevd pulls this in for each block that comes online; systemd coalesces the
+# requests into the one run of a oneshot that has not finished.
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl daemon-reload

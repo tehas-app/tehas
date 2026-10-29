@@ -778,7 +778,11 @@ T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 # systemctl answers as a host does: an unloaded slice has no file and no
 # limit, and it is loaded from the file once it has been started.
 shipped=$T_ROOT/host/slice/tehas.slice
+rule_shipped=$T_ROOT/host/slice/96-tehas-memory-online.rules
+reload_shipped=$T_ROOT/host/slice/tehas-slice-reload.service
 slice=$etc/systemd/system/tehas.slice
+rule=$etc/udev/rules.d/96-tehas-memory-online.rules
+reload=$etc/systemd/system/tehas-slice-reload.service
 slice_stubs() { # <uid the caller has> [<what docker info answers>] [<systemd-oomd's state>]
   t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
   t_stub docker "case \"\$1\" in info) echo '${2-systemd 2}' ;; *) echo 'Docker version 29.1.3' ;; esac"
@@ -808,6 +812,21 @@ t_eq "$(t_calls systemctl | grep -v -e '^show ' -e '^is-active ')" "daemon-reloa
 start tehas.slice"
 t_contains "$t_out" "bootstrap: slice part done"
 t_contains "$t_out" "21990232555"
+
+# systemd reads a percentage MemoryMax when it loads the unit, so memory added
+# to a running host reaches the slice only through a reload: the rule asks
+# systemd-udevd for one, and the oneshot does it.
+t_case "slice installs the memory-online rule and the reload unit beside it"
+t_eq "$(cmp -s "$rule" "$rule_shipped" && echo same)" same
+t_eq "$(cmp -s "$reload" "$reload_shipped" && echo same)" same
+t_eq "$(stat -c %a "$rule")$(stat -c %a "$reload")" "644644"
+# The rule names the unit and nothing else does the reload: RUN+= is killed when
+# it runs too long, and many blocks come online at once.
+t_contains "$(grep -v '^#' "$rule")" 'SUBSYSTEM=="memory", ACTION=="online", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tehas-slice-reload.service"'
+t_lacks "$(grep -v '^#' "$rule")" 'ACTION=="offline"'
+t_lacks "$rule" "RUN+="
+t_contains "$(cat "$reload")" "Type=oneshot"
+t_contains "$(cat "$reload")" "ExecStart=/usr/bin/systemctl daemon-reload"
 
 t_case "the shipped slice has one memory limit, a CPU weight and nothing else"
 t_eq "$(grep -v -e '^#' -e '^$' "$shipped")" "[Unit]
@@ -1060,7 +1079,21 @@ echo "MemoryMax=10%" >>"$slice"
 t_run "$bootstrap check"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tehas.slice: differs (sudo ./bootstrap.sh slice)"
-t_eq "$(find "$etc" -type f | wc -l)" 1
+t_lacks "$t_out" "tehas.slice: in place"
+t_contains "$t_out" "tehas.slice's udev rule: missing (sudo ./bootstrap.sh slice)"
+t_contains "$t_out" "tehas-slice-reload.service: missing (sudo ./bootstrap.sh slice)"
+install -D -m 644 "$rule_shipped" "$rule"
+install -D -m 644 "$reload_shipped" "$reload"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas.slice: differs"
+t_contains "$t_out" "tehas.slice's udev rule: in place"
+t_contains "$t_out" "tehas-slice-reload.service: in place"
+echo "SUBSYSTEM==\"memory\", ACTION==\"offline\"" >>"$rule"
+t_run "$bootstrap check"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas.slice's udev rule: differs (sudo ./bootstrap.sh slice)"
+t_eq "$(find "$etc" -type f | wc -l)" 3
 T_ENV=(BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
 t_case "no arguments prints the usage"
