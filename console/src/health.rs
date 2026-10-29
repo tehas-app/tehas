@@ -359,10 +359,11 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     let failed = !last.is_null()
         && !ended_well(&last)
         && !running.items().iter().any(|c| {
-            c.get("startedAt")
-                .or(&zero)
-                .cmp(last.get("updatedAt").or(&zero))
-                .is_ge()
+            // A cycle of no known start is running now.
+            c.get("startedAt").is_null()
+                || c.get("startedAt")
+                    .cmp(last.get("updatedAt").or(&zero))
+                    .is_ge()
         });
     let behind = !platform.is_null()
         && platform.get("behind").above_zero()
@@ -682,6 +683,25 @@ mod tests {
             r.at(&["checks", "cycle", "startedAt"]).text(),
             "1970-01-01T00:05:00Z"
         );
+    }
+
+    #[test]
+    fn a_running_cycle_of_no_known_start_clears_the_failure() {
+        let h = home("nostart");
+        let last = r#""last":{"issue":12,"status":"aborted","startedAt":100,"updatedAt":500}"#;
+        for (cycle, failed) in [
+            (r#"{"issue":14,"running":true,"startedAt":200}"#, true),
+            (r#"{"issue":14,"running":true,"startedAt":600}"#, false),
+            (r#"{"issue":14,"running":true,"updatedAt":700}"#, false),
+            (r#"{"issue":14,"running":true,"startedAt":null}"#, false),
+        ] {
+            h.write(
+                "live/running.json",
+                &format!(r#"{{"cycles":[{cycle}],{last}}}"#),
+            );
+            let r = h.report(&Given::default());
+            assert_eq!(r.get("status").text() == "fail", failed, "{cycle}");
+        }
     }
 
     #[test]
