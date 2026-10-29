@@ -477,10 +477,7 @@ mod tests {
 
     #[test]
     fn a_label_no_event_applied_was_left_out() {
-        assert!(dropped_events(
-            &open(&["tehas:ready"], &[]),
-            EVERYTHING
-        ));
+        assert!(dropped_events(&open(&["tehas:ready"], &[]), EVERYTHING));
         assert!(dropped_events(
             &open(&["tehas:ready", "bug"], &["bug"]),
             EVERYTHING
@@ -574,10 +571,7 @@ mod tests {
         ));
         // A timeline of other labels' events says nothing of this one.
         assert!(dropped_events(
-            &stamped(
-                &["tehas:ready", "bug"],
-                &[(Kind::Labeled, "bug", None)]
-            ),
+            &stamped(&["tehas:ready", "bug"], &[(Kind::Labeled, "bug", None)]),
             EVERYTHING
         ));
     }
@@ -678,7 +672,10 @@ mod tests {
             q.contains(&format!("first: {ISSUE_PAGE}, after: $cursor")),
             "the queue's page does not ask for ISSUE_PAGE: {q}"
         );
-        assert!(!q.contains("{ISSUE_PAGE}"), "the page size was not filled in");
+        assert!(
+            !q.contains("{ISSUE_PAGE}"),
+            "the page size was not filled in"
+        );
     }
 
     #[test]

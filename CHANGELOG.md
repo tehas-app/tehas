@@ -13,9 +13,16 @@ empty one above it.
 
 ### Changes
 
+- An update needs no drain. Each cycle runs from its own copy of `bin/`,
+  `libexec/` and `lib/` in `~/tehas/run`, made by `tehas-cycle run` when its
+  unit starts, and a planning turn the same way. Running cycles end on the version they began on, and the
+  slots stay full through an update (#988).
+
 ### Adopter action
 
-None.
+Drain once more for the update to this release (`tehas drain --wait 3600`,
+update, `tehas limit clear`): the cycles running now started before they had a
+copy of their own. Later updates need no drain.
 
 ## v0.16.0 (2026-10-29)
 

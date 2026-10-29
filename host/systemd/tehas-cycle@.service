@@ -5,7 +5,10 @@ Description=Tehas: the work cycle for issue %i
 Type=exec
 # The cycle is the unit's: its start needs the approval the dispatcher recorded.
 Environment=TEHAS_CYCLE_FROM=unit
-ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot cycle %i >> %h/tehas/logs/dispatch.log 2>&1"
+# tehas-cycle run copies bin/, libexec/ and lib/ into ~/tehas/run and runs
+# tehasbot cycle from the copy, so an update while the cycle runs leaves its
+# code as it started.
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/libexec/tehas-cycle run %i >> %h/tehas/logs/dispatch.log 2>&1"
 # A stop reaches the command only. It passes it on to the cycle's container
 # and then reports on the issue, which takes a few calls to GitHub. The worst
 # stop: docker stop and docker kill at their bounds, 130 s, then five calls

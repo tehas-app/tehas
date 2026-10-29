@@ -24,6 +24,14 @@
 //!                                     "body": <the body to write>,
 //!                                     "say": <a repeat's words for the park>}
 //!                                     (src/last_attempt.rs)
+//!   tehas-cycle run <issue>           what tehas-cycle@.service starts:
+//!                                     copy the install's code for this
+//!                                     cycle and run tehasbot cycle from the
+//!                                     copy (src/pin.rs)
+//!   tehas-cycle pin plan <issue> <program> [args...]
+//!                                     what the dispatcher starts a planning
+//!                                     turn with: the same copy, and run
+//!                                     libexec/<program> of it with the args
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -32,15 +40,23 @@
 //!
 //! last-attempt reads what it is given and changes nothing.
 //!
+//! run hardlinks $TEHAS_HOME's bin/, libexec/ and lib/ into
+//! $TEHAS_HOME/run/cycle-<issue>-<pid>/, removes the copies of processes that
+//! are gone, and execs <copy>/bin/tehasbot cycle <issue> with TEHAS_CODE set to
+//! the copy. A copy it cannot make is said on standard error and the install's
+//! tehasbot runs instead. It returns only when neither could be run. pin plan
+//! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
+//!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
-//! read, said on standard error; 64 an argument it does not know.
+//! read, said on standard error, or run could not exec; 64 an argument it
+//! does not know; 78 run without an absolute TEHAS_HOME.
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
-use tehas_cycle::{report, shadow, Facts};
+use tehas_cycle::{pin, report, shadow, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -122,6 +138,23 @@ fn main() {
                 shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
             }
         }
+        ["run", n] => {
+            let n = issue(n, &args);
+            pinned(
+                &home,
+                "cycle",
+                n,
+                "bin/tehasbot",
+                &["cycle", &n.to_string()],
+            )
+        }
+        ["pin", "plan", n, program, rest @ ..] => {
+            let n = issue(n, &args);
+            if program.is_empty() || program.contains('/') || program.starts_with('.') {
+                wrong(&args);
+            }
+            pinned(&home, "plan", n, &format!("libexec/{program}"), rest)
+        }
         ["compare", n] => {
             let n = issue(n, &args);
             if on() {
@@ -132,6 +165,46 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// Runs `program` of the copy of the install made for this `kind` of `n`,
+/// or the install's own when the copy cannot be made: `bin/tehasbot` for a
+/// cycle, a program of libexec/ for a planning turn.
+fn pinned(home: &Path, kind: &str, n: u64, program: &str, args: &[&str]) -> ! {
+    use std::os::unix::process::CommandExt;
+    let say = |s: String| {
+        eprintln!(
+            "{} tehas-cycle: {s}",
+            tehas_core::time::iso(tehas_core::time::now())
+        )
+    };
+    if !home.is_absolute() {
+        eprintln!("tehas-cycle: TEHAS_HOME is not an absolute path");
+        std::process::exit(78);
+    }
+    let what = if kind == "plan" {
+        "the planning turn of "
+    } else {
+        ""
+    };
+    pin::sweep(home, pin::alive);
+    let root = match pin::make(home, kind, n, std::process::id()) {
+        Ok(dir) => {
+            say(format!("{what}#{n} runs from {}", dir.display()));
+            dir
+        }
+        Err(e) => {
+            say(format!(
+                "{what}#{n} runs from the install: its own copy could not be made ({e})"
+            ));
+            home.to_path_buf()
+        }
+    };
+    let e = std::process::Command::new(root.join(program))
+        .args(args)
+        .env("TEHAS_CODE", &root)
+        .exec();
+    fail(format!("{}: {e}", root.join(program).display()));
 }
 
 fn print_report(file: &str) {
