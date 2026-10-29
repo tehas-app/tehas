@@ -1,6 +1,6 @@
 // The business layout's front page (TEHAS_LAYOUT=business, host/fun/business.html):
-// the live strip, the production line, the console of the running cycles, the
-// last ten days and the issue board, from the files the dispatcher writes under
+// the live strip, the production line, the last ten days, the issue board and
+// the console of the running cycles, from the files the dispatcher writes under
 // /live/. See host/docs/host.md, "Layouts".
 //
 // lineView(), liveView(), consoleView() and boardRows() turn files into what

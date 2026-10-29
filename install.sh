@@ -298,11 +298,12 @@ home_marker=.tehas-home
 # The top-level directories of a home tehas makes: the ones install.sh puts
 # there, the ones bootstrap.sh user makes (tools/, repos/ and tmp/, the tools
 # under tools/node and tools/npm/<name>), and .cargo, which bootstrap.sh leaves
-# for cargo but does not make. docs and fun are not among them: a home that has
+# for cargo but does not make, and run, where each cycle keeps its copy of the
+# code (tehas-cycle run). docs and fun are not among them: a home that has
 # them without the marker is not known to be tehas's, and this run would remove
 # the pages of someone else from them.
 home_dirs=(bin libexec lib live logs mcp platform preview protolab repos sandbox
-  state tmp tools work target .cargo versions current)
+  state tmp tools work target .cargo versions current run)
 
 home_refusal() { # the reason $TEHAS_HOME is not provably tehas's, or nothing
   local path=${TEHAS_HOME:-} entry part rest

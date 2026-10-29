@@ -6,6 +6,12 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
+# The flag is read, written and printed by the console (console/src/flags.rs).
+# A command looks for it beside itself, where install.sh puts it, which a test
+# has none of: TEHAS_CONSOLE names the console of this checkout instead.
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+
 pause="$T_ROOT/libexec/pause"
 resume="$T_ROOT/libexec/resume"
 flag=$T/home/tehas/state/pause.json
@@ -87,6 +93,28 @@ t_eq "$([ -e "$flag" ] && echo there)" ""
 
 t_case "resume with no flag succeeds"
 reset
+t_run "$resume"
+t_eq "$t_rc" 0
+t_contains "$t_out" "no pause flag on this host"
+
+t_case "resume leaves a symlinked name alone rather than following it"
+reset
+mkdir -p "${flag%/*}"
+t_run "ln -s '$T/victim' '$flag'"
+t_eq "$([ -L "$flag" ] && echo link)" "link"
+t_run "$resume"
+t_eq "$t_rc" 1
+t_lacks "$t_out" "the pause flag is gone"
+t_contains "$t_out" "$flag is not ours to remove"
+t_eq "$([ -L "$flag" ] && echo link)" "link"
+t_eq "$([ -e "$T/victim" ] && echo there)" ""
+t_run "rm '$flag'"
+t_run "ln -s '$T/victim' '${flag}.new'"
+t_run "$resume"
+t_eq "$t_rc" 1
+t_contains "$t_out" "${flag}.new is not ours to remove"
+t_eq "$([ -L "${flag}.new" ] && echo link)" "link"
+t_run "rm '${flag}.new'"
 t_run "$resume"
 t_eq "$t_rc" 0
 t_contains "$t_out" "no pause flag on this host"
