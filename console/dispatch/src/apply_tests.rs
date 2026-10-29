@@ -405,15 +405,9 @@ fn an_untick_logs_the_line_its_site_gave() {
 #[test]
 fn the_said_and_told_records_follow_a_comment_that_worked() {
     let mut t = world();
-    let a = t.apply(json!([
-        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
-        {"issue": 4, "park_told": true, "say": "Not started."},
-    ]));
+    let a = t.apply(said_and_told());
     assert!(a.log.is_empty());
-    assert_eq!(
-        fs::read_to_string(t.w.home.join("state/refresh/3.said")).unwrap(),
-        "conflict:abc"
-    );
+    assert_eq!(fs::read_to_string(said_file(&t)).unwrap(), "conflict:abc");
     assert!(t.calls().contains(&"store park-told 4".to_string()));
 }
 
@@ -421,29 +415,19 @@ fn the_said_and_told_records_follow_a_comment_that_worked() {
 fn a_failed_comment_leaves_the_said_and_told_records_unwritten() {
     let mut t = world();
     t.fail("gh", "issue comment");
-    let a = t.apply(json!([
-        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
-        {"issue": 4, "park_told": true, "say": "Not started."},
-    ]));
+    let a = t.apply(said_and_told());
     assert_eq!(
         a.log,
         vec!["WARN: comment on #3 failed", "WARN: comment on #4 failed"]
     );
-    assert!(!t.w.home.join("state/refresh/3.said").exists());
-    assert!(!t
-        .calls()
-        .iter()
-        .any(|c| c.starts_with("store park-told")));
+    no_record_was_made(&t);
 }
 
 #[test]
 fn a_comment_the_journal_could_not_record_leaves_the_records_unwritten() {
     let mut t = world();
     t.fail("store", "journal-record");
-    let a = t.apply(json!([
-        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
-        {"issue": 4, "park_told": true, "say": "Not started."},
-    ]));
+    let a = t.apply(said_and_told());
     assert_eq!(
         a.log,
         vec![
@@ -451,11 +435,56 @@ fn a_comment_the_journal_could_not_record_leaves_the_records_unwritten() {
             "WARN: the journal could not record a write on #4, so it was not made",
         ]
     );
-    assert!(!t.w.home.join("state/refresh/3.said").exists());
-    assert!(!t
-        .calls()
-        .iter()
-        .any(|c| c.starts_with("store park-told")));
+    no_record_was_made(&t);
+}
+
+#[test]
+fn a_record_that_failed_after_a_good_comment_is_said_in_the_log() {
+    // The comment is public and the record is not: each of the two records
+    // says so its own way, and neither ends the poll.
+    let mut t = world();
+    // Order matters: the stub fails a store call on the first pattern of
+    // fail-store that matches, so the tell's own refusal comes first and the
+    // journal's verbs below it stay ok. The write's parent is gone, so the
+    // record of #3 cannot be made; the tell's call answers 1 with no word of
+    // its own, as a store that cannot parse its issue number does.
+    t.fail("store", "park-told|");
+    fs::remove_dir_all(t.w.home.join("state/refresh")).unwrap();
+    let a = t.apply(said_and_told());
+    assert_eq!(a.log.len(), 2, "{:?}", a.log);
+    assert_eq!(
+        a.log[0],
+        format!("WARN: could not write {}", said_file(&t).display())
+    );
+    // The tell's call was made and refused, so its record is not there.
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
+    let told = a.log[1].trim_start_matches("WARN: ");
+    let head = "could not record the hold on the park of #4 (";
+    assert!(told.starts_with(head), "{told}");
+    let reason = &told[head.len()..];
+    assert!(
+        !reason.starts_with(")"),
+        "the WARN of the tell named no word: {told}"
+    );
+}
+
+/// The queue of the two records of having said something: #3 the refresh
+/// hold, #4 the park's tell.
+fn said_and_told() -> Value {
+    json!([
+        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
+        {"issue": 4, "park_told": true, "say": "Not started."},
+    ])
+}
+
+fn said_file(t: &World) -> PathBuf {
+    crate::apply::said_file(&t.w.home, 3)
+}
+
+/// Neither record was made: no file, no store verb.
+fn no_record_was_made(t: &World) {
+    assert!(!said_file(t).exists());
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
 }
 
 #[test]
