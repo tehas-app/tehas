@@ -11,7 +11,7 @@
 t_case "the changed sources ask for the steps, systemd first"
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/dispatch)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate"
@@ -58,7 +58,7 @@ t_eq "$(tehas_steps_for libexec/labels libexec/dispatch)" "labels"
 t_eq "$(tehas_steps_for libexec/labels-test libexec/labels_helper)" ""
 t_eq "$(tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
   edge/docs.compose.yaml edge/router.compose.yaml libexec/labels)" \
-  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-clean.timer
+  "units tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer
 sandbox
 docs --force-recreate
 edge --force-recreate

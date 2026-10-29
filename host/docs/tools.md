@@ -79,6 +79,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_IMPROVE_RUKAS_SKIP`      | `0`                                      | `1`: the loop files no finding about pi-rukas anywhere. Not with `TEHAS_IMPROVE_RUKAS_REPO` |
 | `TEHAS_IMPROVE_MAX_OPEN`        | `10`                                     | How many issues labelled `tehas:improvement` may be open in one repository before the loop files no more there |
 | `TEHAS_REVIEW_REPO`             | empty                                    | Optional. `owner/name` of the repository [tehasbot review](#tehasbot-review) files the findings of a run in, as one issue a person triages. Empty: a run that found something says it filed nothing. Never `TEHAS_REPO`: the findings are a model's, and a person triages them into tickets of the product first, so loading refuses it with exit 78 |
+| `TEHAS_REVIEW`                  | `0`                                      | `1` lets [tehasbot review](#tehasbot-review) review anything: `tehas-review.timer` starts it once a week and a run that is off exits 0 at once and calls nothing. Anything but `0` or `1` stops every command with 78 (see [the review loop](/operating#the-review-loop)) |
 | `TEHAS_MILLWRIGHT_LOGIN`        | empty                                    | Optional. The account whose `tehas:ready`, and whose answer to a planning question, the dispatcher takes on [the millwright's grant](/operating#the-millwrights-grant). Never the bot and never one of `TEHAS_ALLOWED_LABELERS`. Empty: no millwright |
 | `TEHAS_GITHUB_APP_ID`           | empty                                    | Optional. The ID of the GitHub App the factory acts as ([tehasbot github-token](#tehasbot-github-token)). Set with `TEHAS_GITHUB_APP_INSTALLATION` and `TEHAS_BOT_LOGIN`, or none of the three |
 | `TEHAS_GITHUB_APP_INSTALLATION` | empty                                    | Optional. The ID of the app's installation that reaches `TEHAS_REPO`: the number at the end of the installation's settings page |
@@ -1154,8 +1155,11 @@ a turn whose client died, is removed before the turn starts.
 
 Reviews what the default branch gained since the last reviewed commit, with
 pi-rukas's lens reviewer running headless in the sandbox image. It is the
-review step of the review loop; no unit runs it on a timer yet, and it files
-its findings only where `TEHAS_REVIEW_REPO` names a repository.
+review step of the review loop: `tehas-review.timer` starts it once a week
+where a person has enabled it, and it files its findings only where
+`TEHAS_REVIEW_REPO` names a repository. With `TEHAS_REVIEW` other than `1` --
+the default -- it exits 0 at once and calls nothing, so an enabled timer costs
+such a host nothing.
 
 ```
 tehasbot review
@@ -1282,6 +1286,22 @@ anything is cloned. A `PI_ENSEMBLE_*` name that the environment would carry
 into the container is given only when the image's `--capabilities` says a host
 may set it; one it does not name stops the run before anything is cloned, as it
 does for a cycle.
+
+`tehas-review.timer` starts `tehas-review.service` on Monday morning once a
+week, `Persistent=true` so a host that was down when it was due runs it when it
+comes back. `install.sh` and `tehas update` copy both units and restart the
+timer where it was already running; enabling it is a person's action:
+
+```
+systemctl --user enable --now tehas-review.timer
+```
+
+The unit keeps its own lines in `~/tehas/logs/review-timer.log`, beside the
+`review-<time>` files of the runs; `journalctl --user -u tehas-review` holds
+what a run printed before it could open that file. `TimeoutStartSec` of the
+service is 3 hours, above the 2 hours `TEHAS_PLAN_TIMEOUT` gives the container,
+so systemd is the last bound and not the first. With `TEHAS_REVIEW` other than
+`1` a run exits at once and all of this costs the host one short process a week.
 
 ## tehas dev
 
@@ -2081,6 +2101,7 @@ tehasbot preview              # keep the previews; what tehas-preview.timer runs
 tehasbot preview --sweep      # the second check; what tehas-preview-sweep.timer runs
 tehasbot improve              # one run of the improvement loop; what tehas-improve.timer runs
 tehasbot refresh              # ask for refreshes of conflicting pull requests; what tehas-refresh.timer runs
+tehasbot review               # one review of the branch; what tehas-review.timer runs
 tehasbot clean                # remove what the host can make again; what tehas-clean.timer runs
 tehasbot github-token [--check]  # the GitHub App's token, or a check of it
 ```
@@ -2089,7 +2110,8 @@ The units are `tehas-dispatch.timer`, `tehas-dispatch.path` (a poll as soon
 as a cycle ends), `tehas-energy.service`, `tehas-top.service`,
 `tehas-protolab.timer`, the previews' `tehas-preview.timer` and
 `tehas-preview-sweep.timer`, the improvement loop's `tehas-improve.timer`, the refreshes'
-`tehas-refresh.timer`, the cleaner's `tehas-clean.timer` (installed, and enabled
+`tehas-refresh.timer`, the review loop's `tehas-review.timer` (weekly, and a
+run does nothing unless `TEHAS_REVIEW=1`), the cleaner's `tehas-clean.timer` (installed, and enabled
 by a person), and one `tehas-cycle@<issue>.service` per running
 cycle. A cycle's container is `tehas-work-<issue>`.
 
