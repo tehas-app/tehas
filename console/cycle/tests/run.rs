@@ -85,3 +85,41 @@ fn a_home_that_is_not_absolute_is_refused() {
         .unwrap();
     assert_eq!(out.status.code(), Some(78));
 }
+
+#[test]
+fn a_planning_turn_runs_its_program_from_its_copy() {
+    let h = home("plan");
+    let plan = h.join("libexec/plan");
+    fs::write(&plan, "#!/bin/sh\necho \"$0 $* code=$TEHAS_CODE pid=$$\"\n").unwrap();
+    fs::set_permissions(&plan, fs::Permissions::from_mode(0o755)).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
+        .args(["pin", "plan", "7", "plan", "7", "--out", "o"])
+        .env("TEHAS_HOME", &h)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let out = String::from_utf8(out.stdout).unwrap();
+    let pid = out.trim().rsplit("pid=").next().unwrap();
+    let dir = h.join(format!("run/plan-7-{pid}"));
+    assert_eq!(
+        out.trim(),
+        format!(
+            "{}/libexec/plan 7 --out o code={} pid={pid}",
+            dir.display(),
+            dir.display()
+        )
+    );
+    fs::remove_dir_all(&h).unwrap();
+}
+
+#[test]
+fn a_planning_turn_names_a_program_of_libexec_only() {
+    for program in ["../bin/tehasbot", "", ".hidden"] {
+        let out = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
+            .args(["pin", "plan", "7", program])
+            .env("TEHAS_HOME", "/nonexistent")
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(64), "{program}");
+    }
+}

@@ -399,8 +399,9 @@ allowed account in the bot's comment on a stopped cycle can start a fresh
 cycle, and a reply or a ticked box on a planning question runs the next turn of
 that session. A retry waits for a free slot and for the cap, as any cycle does.
 A planning turn waits for neither. It runs as its own unit,
-`tehas-plan-<issue>.service`, started with `systemd-run`, and the poll does not
-wait for it: cycles start while it runs, and the first poll after it ends posts
+`tehas-plan-<issue>.service`, started with `systemd-run`, from its own copy of
+the code as a cycle runs (`tehas-cycle pin plan`, see
+[tehasbot cycle](#tehasbot-cycle)), and the poll does not wait for it: cycles start while it runs, and the first poll after it ends posts
 its outcome from the exit status it left in `~/tehas/state/plan-<issue>.json.rc`.
 While the turn runs its unit holds `~/tehas/state/plan-<issue>.json.lock`, as a
 cycle holds `state/cycles/<issue>.lock`; a poll that finds it held starts no
