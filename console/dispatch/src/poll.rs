@@ -264,7 +264,7 @@ struct Changed {
 
 /// The poll's end, run however it ended once it held the lock: tidy once
 /// past the bot's checks, then, unless dry, its cost and the analytics.
-struct End<'a> {
+pub struct End<'a> {
     home: &'a Path,
     dry: bool,
     tidy: bool,
@@ -275,15 +275,48 @@ struct End<'a> {
 }
 
 impl End<'_> {
+    /// tidy, as this end sends it: with `--dry-run` only of a dry poll, which
+    /// is how the bash's trap sends it too.
+    fn runs_tidy(&self, w: &mut Writer, printed: &mut Vec<String>) {
+        let args: Vec<String> = if self.dry {
+            vec!["--dry-run".into()]
+        } else {
+            Vec::new()
+        };
+        w.status_of(&w.host.tidy_cmd.clone(), &args, printed);
+    }
+
+    /// An end of a poll that got past the bot's login, for a test of the host
+    /// commands below: `dry` is all any of them reads, so the rest are an idle
+    /// poll's, and a test of these three runs neither the cost nor the status
+    /// of a real end, which need the home and the tally.
+    #[cfg(test)]
+    pub fn host_of(dry: bool) -> End<'static> {
+        End {
+            home: Path::new(""),
+            dry,
+            tidy: true,
+            started: 0.0,
+            gh: 0,
+            starts: 0,
+            changed: Changed::default(),
+        }
+    }
+
+    /// The three host commands of a poll, each the way the poll sends it: tidy
+    /// as this end sends it, the status, and health as `demand_health` sends
+    /// it. Reached through `End`, so the arguments are the ones a poll gives.
+    #[cfg(test)]
+    pub fn runs_host_commands(&self, w: &mut Writer, printed: &mut Vec<String>) {
+        self.runs_tidy(w, printed);
+        w.status(printed);
+        w.health(printed, &mut Vec::new());
+    }
+
     fn run(&self, w: &mut Writer) {
         if self.tidy {
-            let args: Vec<String> = if self.dry {
-                vec!["--dry-run".into()]
-            } else {
-                Vec::new()
-            };
             let mut printed = Vec::new();
-            w.status_of(&w.host.tidy_cmd.clone(), &args, &mut printed);
+            self.runs_tidy(w, &mut printed);
             pass(&printed);
         }
         if self.dry {
@@ -622,8 +655,12 @@ fn demand_health(home: &Path, w: &mut Writer, d: &crate::Decision) {
         // are: TEHAS_HEALTH_CMD is a test's name for it, as TEHAS_STATUS_CMD
         // is, and nothing of the token travels in the name.
         let mut printed = Vec::new();
-        let rc = w.health(&mut printed);
+        let mut log = Vec::new();
+        let rc = w.health(&mut printed, &mut log);
         pass(&printed);
+        for l in &log {
+            say(l);
+        }
         if rc != Some(0) {
             say("WARN: the health file could not be written");
         }

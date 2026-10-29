@@ -2449,7 +2449,11 @@ the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
-refreshed at every poll and at the end of every cycle. The docs server
+refreshed at every poll and at the end of every cycle. The poll that runs it
+bounds it at 120 s, the same bound it gives the status and tidy, because health
+bounds its own store calls only one at a time; one cut off leaves the file as
+the last writer left it, and the poll says
+`WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
 `tehas status` prints the same file for a person.
 

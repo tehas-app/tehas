@@ -39,12 +39,9 @@ pub struct Host {
     pub start_wait: Duration,
     /// TEHAS_STATUS_CMD, run once the starts are done.
     pub status_cmd: String,
-    /// TEHAS_HEALTH_CMD, run by the poll after it wrote the demand: a test's
-    /// name for it, as the status's is; the poll's own directory holds it
-    /// otherwise.
+    /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
-    /// TEHAS_TIDY_CMD, run by the end of every poll that got past the bot's
-    /// login; the poll's own libexec/tidy otherwise.
+    /// TEHAS_TIDY_CMD, run by the end of every poll past the bot's login.
     pub tidy_cmd: String,
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
     pub analytics: Option<String>,
@@ -81,6 +78,28 @@ pub struct Host {
     /// How often the wait for a launched turn's unit looks for its lock or
     /// its rc. Production: 500 ms, as the bash plan polls.
     pub launch_poll: Duration,
+}
+
+/// The two time limits of a run of a host command, as `timeout -k` gives
+/// them: how long it has to end, and how long it then has after TERM before
+/// it is killed. The poll holds `state/dispatch.lock` while it runs a host
+/// command, and the commands bound themselves only one call at a time -
+/// `libexec/tidy` each gh by `TEHAS_TIDY_WAIT`, `libexec/health` each call of
+/// the store by `tehas_store_bound` - so the poll bounds the whole run. The
+/// bound is the status's, and not a short one: a health file the poll cut off
+/// at two seconds is a worse report than one written late, which is what the
+/// bash did with a bound of nothing at all.
+struct Term {
+    bound: Duration,
+    grace: Duration,
+}
+
+impl Term {
+    /// A host command of the poll: the same bound the status is run under.
+    const HOST: Term = Term {
+        bound: Duration::from_secs(120),
+        grace: Duration::from_secs(5),
+    };
 }
 
 /// How one start ended.
@@ -254,34 +273,34 @@ impl Writer {
     }
 
     /// The status command, once the poll's work is done; what it printed.
+    /// The token, when the poll holds one, goes to it in its environment
+    /// alone: never an argument, never written, and the poll's log holds only
+    /// what the command itself prints.
     pub fn status(&mut self, printed: &mut Vec<String>) {
         let cmd = self.host.status_cmd.clone();
         self.status_of(&cmd, &[], printed);
     }
 
-    /// health, which the poll starts after it wrote the demand: its own bound,
-    /// as the bash's `timeout 2` of it is, and the same rule for its output and
-    /// the token. Its exit status, None when it outlived the bound.
-    pub fn health(&mut self, printed: &mut Vec<String>) -> Option<i32> {
+    /// The health command, run by the poll after it wrote the demand, under
+    /// the same bound as the status's: the poll holds its lock while health
+    /// reads the store. What it printed goes in `printed` and the poll's log,
+    /// so a run that could not be given a file to write says so there too.
+    /// Its exit status, None when it did not end in its bound.
+    pub fn health(&mut self, printed: &mut Vec<String>, log: &mut Vec<String>) -> Option<i32> {
         let cmd = self.host.health_cmd.clone();
-        // As the bash's `timeout 2` of health, with the same grace -k gives.
-        self.status_of_grace(
-            &cmd,
-            &[],
-            printed,
-            Duration::from_secs(2),
-            Duration::from_secs(5),
-        )
+        self.status_of_grace(&cmd, &[], printed, log, &Term::HOST)
     }
 
     /// The host's command `cmd` run under a bound, with the grace between
     /// TERM and KILL its caller gives, and its output in a file the poll's log
     /// then prints - as status's, tidy's and health's. The poll's token goes
-    /// with it as `TEHAS_GH_TOKEN`, the same value and the same rule as the
-    /// poll's own gh calls, so the shim of a gh the command runs asks for no
-    /// token of its own: `libexec/tidy` makes a search every poll. Nothing is
-    /// given when the poll has no token, and the token reaches no log, no file
-    /// and no argument of the command.
+    /// with it as `TEHAS_GH_TOKEN`, the one name the poll adds: the grant is
+    /// the poll's own environment plus that name, since `Command::env` does not
+    /// clear what the poll holds. The token is never an argument of the command
+    /// and the poll never writes it anywhere; what the command prints is its
+    /// stdout, which the poll's log prints as the bash's did, so a host command
+    /// the poll runs must print no secret of its own.
+    ///
     /// Its exit status, None when it did not end in its bound.
     pub fn status_of(
         &mut self,
@@ -289,35 +308,32 @@ impl Writer {
         args: &[String],
         printed: &mut Vec<String>,
     ) -> Option<i32> {
-        // As the bash runs its host commands: timeout -k 5.
-        self.status_of_grace(
-            cmd,
-            args,
-            printed,
-            Duration::from_secs(120),
-            Duration::from_secs(5),
-        )
+        self.status_of_grace(cmd, args, printed, &mut Vec::new(), &Term::HOST)
     }
 
-    /// status_of with the bound and the grace a caller gives, as `timeout -k`.
+    /// status_of under the bound and the TERM-to-KILL grace of `term`: the
+    /// pair a `timeout -k` of those two durations would give.
     fn status_of_grace(
         &mut self,
         cmd: &str,
         args: &[String],
         printed: &mut Vec<String>,
-        bound: Duration,
-        grace: Duration,
+        log: &mut Vec<String>,
+        term: &Term,
     ) -> Option<i32> {
         // Its output through a file: a pipe would wait for whatever it left
-        // running. With no file to write, it runs and its output is lost.
+        // running. With no file to write it still runs, and the line says so:
+        // the caller cannot tell a command that printed nothing from one whose
+        // output the poll could not keep.
         let token = gh_env(self.calls.gh_token.as_deref());
         let out = self
             .scratch("status")
             .and_then(|p| std::fs::File::create(&p).ok().map(|f| (p, f)));
         let Some((path, f)) = out else {
-            return run_grace_env(cmd, args, None, bound, grace, &token);
+            log.push(format!("WARN: no file to write in for {cmd}"));
+            return run_grace_env(cmd, args, None, term.bound, term.grace, &token);
         };
-        let rc = run_grace_env(cmd, args, Some(f), bound, grace, &token);
+        let rc = run_grace_env(cmd, args, Some(f), term.bound, term.grace, &token);
         let said = std::fs::read_to_string(&path).unwrap_or_default();
         printed.extend(said.lines().map(str::to_string));
         let _ = std::fs::remove_file(&path);
