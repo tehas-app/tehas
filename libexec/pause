@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # tehas pause: stop this factory from starting new work, from this host.
 #
+# Usage: tehas pause [reason]
+#        tehas pause -h|--help   print this text and exit 0
+#
 # The pause flag is one file, $TEHAS_HOME/state/pause.json, holding who set it,
 # when and why. While it is there the dispatcher does its housekeeping and
 # starts no cycle: a cycle already running finishes. The flag needs no call to
@@ -12,18 +15,18 @@
 # TEHAS_ALLOWED_LABELERS lifts it. Both switches are reported by tehas status
 # and on the dashboard.
 #
-# Usage: tehas pause [reason]
-#        tehas pause -h|--help   print this text and exit 0
-#
 # The reason is one argument, kept to 200 characters on one line: a control
 # character in it becomes a space, because tehas status prints one fact per line
 # and a newline in the reason would print a line that is not there. It is written
 # to the flag and shown by tehas status and on the dashboard, which may be
 # public: write nothing in it that should not be read in public.
 #
+# The argument is checked here, the settings are loaded here, and the reading,
+# the writing and the printing are the console's (console/src/flags.rs).
+#
 # Exit: 0 the host is paused (this command wrote the flag, or it was already
 # there and is kept as it was); 64 more than one argument; 78 the instance
-# settings are missing or malformed, which writes nothing.
+# settings are missing or malformed, or no console to run, which write nothing.
 #
 # Instance settings (lib/config.sh): none beyond a valid instance. The flag is
 # mode 600, so only the account that runs this command reads it.
@@ -43,59 +46,20 @@ esac
 [ "$#" -le 1 ] || { echo "usage: tehas pause [reason]" >&2; exit 64; }
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The console is named before the settings are loaded: tehas_load clears the
+# TEHAS_* of the host from a command, and TEHAS_CONSOLE is not a setting, as
+# lib/limit.sh has always found.
+console=${TEHAS_CONSOLE:-$here/console}
+# The reason goes to the console as one argument, and the console makes it one
+# line of at most 200 characters before it reaches the flag: tehas status and
+# the health file are line oriented, so a reason carrying a newline would
+# forge a line of its own.
+reason=${1-}
+
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 tehas_load || exit 78
-# shellcheck source=lib/status.sh
-. "$here/../lib/status.sh"
+[ -x "$console" ] || { echo "tehas pause: no console at $console: run install.sh" >&2; exit 78; }
 
-flag=$TEHAS_HOME/state/pause.json
-reason=${1-}
-# One line before one length: tehas status and the health file are line oriented,
-# so a reason carrying a newline would forge a line of its own. LC_ALL=C keeps
-# tr on bytes, which leaves every byte of a UTF-8 character alone.
-reason=$(printf '%s' "$reason" | LC_ALL=C tr '\001-\037\177' '   ')
-reason=$(printf '%s' "$reason" | LC_ALL=C tr -s ' ')
-reason=${reason# }
-reason=${reason:0:200}
-
-# The first pause wins: pausing a paused factory says what is already the case
-# and leaves the flag alone. A file that is not a pause flag holds no flag to
-# keep, so it is replaced with one that can be read.
-have=$(tehas_pause_read "$flag")
-case $? in
-  0)
-    printf 'already paused at %s by %s' "$(jq -r .at <<<"$have")" "$(jq -r .by <<<"$have")"
-    [ -z "$(jq -r .reason <<<"$have")" ] || printf ': %s' "$(jq -r .reason <<<"$have")"
-    printf '\nthe flag is unchanged: %s\n' "$flag"
-    exit 0
-    ;;
-  2) echo "tehas pause: $flag is not a pause flag; writing a new one" >&2 ;;
-esac
-if [ -d "$flag" ]; then
-  echo "tehas pause: $flag is a directory, not a flag" >&2
-  exit 1
-fi
-
-mkdir -p "${flag%/*}" || { echo "tehas pause: could not create ${flag%/*}" >&2; exit 1; }
-now=$(date -u +%FT%TZ)
-by=$(id -un)
-tmp=$flag.new
-# The name is fixed, so clear it first: a leftover from a crash, or something
-# planted in state/, would otherwise be truncated in place with its old mode, or
-# followed as a symlink, or fail as a directory.
-rm -f "$tmp" || { echo "tehas pause: could not remove $tmp" >&2; exit 1; }
-if ! (umask 077; jq -nc --arg by "$by" --arg at "$now" --arg reason "$reason" '{by: $by, at: $at, reason: $reason}' >"$tmp"); then
-  rm -f "$tmp"
-  echo "tehas pause: could not write $tmp" >&2
-  exit 1
-fi
-if ! mv "$tmp" "$flag"; then
-  rm -f "$tmp"
-  echo "tehas pause: could not put $tmp in place as $flag" >&2
-  exit 1
-fi
-
-printf 'paused at %s by %s' "$now" "$by"
-[ -z "$reason" ] || printf ': %s' "$reason"
-printf '\nno new cycle starts on this host: %s\n' "$flag"
+[ -n "$reason" ] || exec "$console" flags pause set
+exec "$console" flags pause set --reason "$reason"
