@@ -180,7 +180,9 @@ t_live "$sample" "$(jq .last.issue "$T_ROOT/preview/live/running.json")" false \
   "$(jq -r .last.status "$T_ROOT/preview/live/running.json")" review
 # The sample health file was written when its snapshot was: a fresh one.
 jq '.generatedAt = (now | todate)' "$T_ROOT/preview/live/status.json" >"$sample/live/status.json"
-t_run "TEHAS_HOME='$sample' '$T_ROOT/libexec/health'; echo rc=\$?"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_health || t_bad "no console: $t_console_why"
+t_run "TEHAS_HOME='$sample' '$T_HEALTH'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 shape='[paths | map(tostring) | join(".")] | sort | join(" ")'
 t_eq "$(jq -r "$shape" "$T_ROOT/preview/live/health.json")" "$(jq -r "$shape" "$sample/live/health.json")"

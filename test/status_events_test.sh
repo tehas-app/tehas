@@ -67,7 +67,7 @@ reset() {
 # sessions and the outcomes (status_analytics_test.sh).
 # The two mcp/ files are asked for with --out and its directory, whose name
 # holds this run's scratch directory: cut the line, not the whole call.
-events() { t_calls analytics | grep -Ev '^(report --json|(sessions|outcomes) --out )' || true; }
+events() { t_calls analytics | grep -Ev '^(orders$|report --json|(sessions|outcomes) --out )' || true; }
 # The snapshot of the run before, written by status itself, then the calls
 # of the next run only.
 again() { rm -f "$T/calls/analytics"; t_run "$status"; }

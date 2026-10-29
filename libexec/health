@@ -14,7 +14,7 @@
 #
 # The file follows the health check response format (draft-inadarei-api-health-check):
 #   status "pass"  the factory is taking work
-#   status "warn"  one of the holds the jq below names in `output`: a queue
+#   status "warn"  one of the holds the console names in `output`: a queue
 #                  snapshot older than ten minutes, a pause, a hold the
 #                  dispatcher put on every start, a tehas unit systemd gave up
 #                  on, too little disk for previews, a platform a day behind, a
@@ -37,6 +37,8 @@ set -uo pipefail
 : "${TEHAS_HOME:=$HOME/tehas}"
 live=$TEHAS_HOME/live
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# The console beside the commands builds the report (console/src/health.rs).
+console=${TEHAS_CONSOLE:-$here/console}
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 if ! tehas_store_ready; then
@@ -52,10 +54,6 @@ sessions=$tehas_store_out
 mkdir -p "$live"
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
-# shellcheck source=lib/status.sh
-. "$here/../lib/status.sh"
-# shellcheck source=lib/limit.sh
-. "$here/../lib/limit.sh"
 # The cycle views fresh from the store: a cycle that died without a word stops
 # being shown as running here. One try: when the store is busy the views read
 # below are a tick old, and the report is still written.
@@ -64,213 +62,21 @@ if ! tehas_store publish && [ "$tehas_store_rc" != 1 ]; then
   exit 78
 fi
 
-# The last ten endings, which the store publishes. The status is still decided by
-# the last one alone (one aborted cycle beside three working ones is a failure
-# until a cycle starts after it); checks.failed lists the failed ones of the ten,
-# so a failure a later success overtook is still there for a monitor that polls
-# less often than cycles end. The snapshots and the endings are read whole or not
-# at all: a file that is not there, or not one, is null.
-endings=$(jq -c 'if type == "array" then . else [] end' "$live/endings.json" 2>/dev/null) || endings='[]'
-[ -n "$endings" ] || endings='[]'
-queue=null
-view=null
-[ -s "$live/status.json" ] && queue=$(jq -c . "$live/status.json" 2>/dev/null || echo null)
-[ -s "$live/running.json" ] && view=$(jq -c . "$live/running.json" 2>/dev/null || echo null)
-
-# The free space of the host as tehasbot preview measured it (a host without
-# previews has no such file, and a figure no longer written is not believed after
-# half an hour), and the platform checkout against origin as status read it.
-previews_file=$live/previews.json
-disk=$(jq -c '
-  select((.disk | type) == "object" and (now - (.generatedAt | fromdateiso8601)) < 1800)
-  | .disk + {time: .generatedAt}' "$previews_file" 2>/dev/null)
-[ -n "$disk" ] || disk=null
-
-# The platform checkout against origin, as tehasbot status last read it.
-platform=$(jq -c 'select(type == "object" and (.behind | type) == "number")' "$live/platform.json" 2>/dev/null)
-[ -n "$platform" ] || platform=null
-
-# What the last poll said about the slice and the demand: the poll before this
-# one wrote them, or this one when a cycle or a planning turn started, and a file
-# older than ten minutes is from a dispatcher that no longer gets that far. Each
-# is read whole or not at all, so a file that is not one object cannot break the
-# write.
-dispatch_file=$live/dispatch.json
-slice=null
-[ -s "$dispatch_file" ] && slice=$(jq -cs '
-  select(length == 1) | .[0]
-  | select(type == "object" and (.why | type) == "string" and (now - (.time | fromdateiso8601)) < 600)
-  | {time, why, hold, count, room, committed, max, reserve} + ({free, awaitRoom, limitRoom, refreshRoom} | with_entries(select(.value != null)))' "$dispatch_file" 2>/dev/null)
-[ -n "$slice" ] || slice=null
-demand=null
-[ -s "$live/demand.json" ] && demand=$(jq -cs '
-  select(length == 1) | .[0]
-  | select(type == "object" and (.waiting | type) == "number" and (now - (.time | fromdateiso8601)) < 600)
-  | {time, waiting} + (if (.oldest | type) == "string" then {oldest} else {} end)
-    + (if (.refreshHold | type) == "string" then {refreshHold: (.refreshHold | .[0:300])} else {} end)' "$live/demand.json" 2>/dev/null)
-[ -n "$demand" ] || demand=null
-
-# The planning turns in flight, each {issue, turn, startedAt}: the sessions
-# the store has running, read above. A turn holds its lock while it runs
-# (lib/planning.sh); one that left its exit status has ended and waits for the
-# next poll to post it.
-plans='[]'
-while read -r n turn; do
-  [[ $n =~ ^[1-9][0-9]{0,9}$ ]] || continue
-  lock=$TEHAS_HOME/state/plan-$n.json.lock
-  [ -f "$lock" ] && [ ! -e "$TEHAS_HOME/state/plan-$n.json.rc" ] || continue
-  ! flock -n "$lock" true 2>/dev/null || continue
-  plans=$(jq -c --argjson t "$turn" '. + [$t]' <<<"$plans")
-done < <(jq -r '.sessions[] | select(.running == true and (.issue | type) == "number")
-  | "\(.issue) \({issue, turn: ((if (.turns | type) == "number" then .turns else 0 end) + 1),
-     startedAt: (if (.started_at | type) == "number" then (.started_at | todate) else null end)} | tojson)"' \
-  <<<"$sessions" 2>/dev/null)
-
-# A snapshot GitHub did not refresh for longer than this is not news, and the
-# limit tehas limit sets is read here as the dispatcher reads it.
-queue_max_age=600 limit=$(tehas_limit_read)
-
-# The two pause switches. The flag is this host's own file, so a host paused
-# while GitHub did not answer still reports itself paused. The label and
-# `lifted` (a pause a stranger lifted still holds) mean what they mean in the
-# snapshot. `by` is not carried: the health file is served.
-pause_flag=$(tehas_pause_read "$TEHAS_HOME/state/pause.json")
-case $? in
-  0) pause_flag=$(jq -c '{at, reason}' <<<"$pause_flag") ;;
-  1) pause_flag=null ;;
-  2) pause_flag='{"at":null,"reason":null}' ;;
-esac
-# Both switches come from one jq over the snapshot, read into the shell as two
-# words of one line: a value that is not true reads as false, so a snapshot the
-# read could not make sense of says the factory is not held.
-label_paused=false lifted=false
-IFS=$'\t' read -r label_paused lifted < <(jq -cr '[(if (.pause.label | type) == "boolean" then .pause.label
-    elif (.paused | type) == "boolean" then .paused else false end),
-    (.pause.lifted | if type == "boolean" then . else false end)] | map(tostring) | @tsv' <<<"${queue:-null}" 2>/dev/null)
-pause=$(jq -nc --argjson flag "$pause_flag" --argjson label "$label_paused" --argjson lifted "$lifted" \
-  '{flag: $flag, label: $label, lifted: $lifted}')
-
-# The tehas units systemd gave up on, such as tehas-dispatch.path at its start
-# limit (it stays failed, and a cycle that ends no longer starts a poll), and the
-# newest daily copy of the store; a store that cannot answer warns about nothing.
-units=$(timeout 10 systemctl --user --failed --plain --no-legend 'tehas-*' 2>/dev/null |
-  jq -Rsc '[splits("\n") | (split(" ")[0] // "") | select(startswith("tehas-"))]') || units='[]'
-backup=null backup_known=false
-tehas_store backup --show && backup=$(jq -c '.newest | if . == null then null else {at, ageSeconds: .age_seconds} end' <<<"$tehas_store_out") && backup_known=true || backup=null
-# The polls of the last hour that started no cycle, measured against the budget
-# of lib/config.sh; null when the store refused, so the file carries no check of
-# it rather than a passed one. The snapshots then go in as files: one argument is
-# at most 128 KiB on Linux, and status.json lists every open issue the factory
-# was given; the report goes to a private file of this run, and from there to
-# live/ through the store.
-poll_cost=null
-tehas_store poll-idle --since 3600 --budget "${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}" &&
-  poll_cost=$(jq -cn --argjson over "$(tehas_store_get .over)" \
-    --arg budget "${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}" '{over: ($over // []), budget: $budget}')
+# The failed tehas units, such as tehas-dispatch.path at its start limit (it
+# stays failed, and a cycle that ends no longer starts a poll), the newest daily
+# copy of the store, and the polls of the last hour that started no cycle against
+# the budget of lib/config.sh. What the store did not answer is left out, so the
+# file carries no check of it rather than a passed one.
+units=$(timeout 10 systemctl --user --failed --plain --no-legend 'tehas-*' 2>/dev/null) || units=''
+args=(--sessions "$sessions" --units "$units")
+! tehas_store backup --show || args+=(--backup "$tehas_store_out")
+budget=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
+! tehas_store poll-idle --since 3600 --budget "$budget" ||
+  args+=(--poll-over "$(tehas_store_get .over)" --poll-budget "$budget")
 mkdir -p "$TEHAS_HOME/tmp" && chmod 700 "$TEHAS_HOME/tmp" || exit 1
 report=$(mktemp "$TEHAS_HOME/tmp/health.XXXXXX") || exit 1
 trap 'rm -f "$report"' EXIT
-jq -n --slurpfile queue <(printf '%s' "$queue") --slurpfile view <(printf '%s' "$view") --argjson disk "$disk" --argjson slice "$slice" --argjson demand "$demand" --argjson limit "$limit" --argjson plans "$plans" --arg now "$(date -u +%FT%TZ)" \
-  --argjson queueMaxAge "$queue_max_age" --argjson endings "$endings" --argjson platform "$platform" --argjson pause "$pause" --argjson backup "$backup" --argjson backupKnown "$backup_known" --argjson units "$units" --argjson pollCost "${poll_cost:-null}" '
-  def iso: if type == "number" then todate else null end;
-  def ago: if . < 120 then "\(.) s" elif . < 7200 then "\(. / 60 | floor) min" else "\(. / 3600 | floor) h" end;
-  def brief: {
-    issue, running: (.running // false), status, step,
-    startedAt: (.startedAt | iso), time: (.updatedAt | iso)
-  };
-  $queue[0] as $queue | $view[0] as $view
-  # The view tehas work writes, or the one object an earlier version wrote.
-  | (if ($view | type) != "object" then {cycles: [], last: null}
-   elif ($view | has("cycles")) then $view
-   elif $view.running == true then {cycles: [$view], last: null}
-   else {cycles: [], last: $view} end) as $v
-  | ($v.cycles // []) as $running
-  | $v.last as $last
-  | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
-     and ($running | map(select((.startedAt // 0) >= ($last.updatedAt // 0))) | length) == 0) as $failed
-  # A fix merged for the factory runs only after tehas update, and a day behind
-  # is news. The three holds that stop every start are named here: an unreadable
-  # slice, a disk under the bound or unreadable, and no resources; the other
-  # holds pass by themselves, and a time that cannot be read is old.
-  | ($platform != null and $platform.behind > 0
-     and (($now | fromdateiso8601) - ($platform.behindSince | try fromdateiso8601 catch 0)) > 86400) as $behind
-  | (if $queue == null then null
-     else ($now | fromdateiso8601) - ($queue.generatedAt | try fromdateiso8601 catch 0) end) as $queue_age
-  | ($slice != null and ($slice.why | IN("slice", "disk", "unreadable"))) as $no_start
-  | ($slice != null and $slice.why == "resources") as $no_resources
-  | ($queue_age != null and $queue_age > $queueMaxAge) as $old_queue
-  | ($pause.flag != null or $pause.label == true or $pause.lifted == true) as $paused
-  # A limit that expired or cannot be read holds every start.
-  | ($limit.state | IN("expired", "unreadable")) as $limit_holds
-  | ($pollCost != null and ($pollCost.over | length) > 0) as $over_budget
-  | ($backupKnown and ($backup == null or $backup.ageSeconds > 172800)) as $old_backup
-  | (if $queue == null then "fail"
-     elif $failed then "fail"
-     elif $old_queue then "warn"
-     elif $paused then "warn"
-     elif $limit_holds then "warn"
-     elif $no_start or $no_resources then "warn"
-     elif ($units | length) > 0 then "warn"
-     elif $disk != null and $disk.low then "warn"
-     elif $behind then "warn"
-     elif $old_backup or $over_budget then "warn"
-     else "pass" end) as $status
-  | {
-      status: $status,
-      time: $now,
-      output: (if $queue == null then "No queue snapshot yet: the dispatcher has not written one."
-               elif $failed then "The last cycle failed: #\($last.issue) ended as \($last.status)."
-               elif $old_queue then
-                 "The queue snapshot is \($queue_age | ago) old: GitHub did not answer the last polls."
-               elif $paused then "The factory is paused."
-               elif $limit_holds then
-                 (if $limit.state == "expired" then "Nothing starts: the limit expired at \($limit.until). Set it again or clear it (tehas limit)."
-                  else "Nothing starts: the limit cannot be read. Set it again or clear it (tehas limit)." end)
-               elif $no_start or $no_resources then
-                 (if $no_resources then (($slice.hold // "") | sub("^holding: no resources: "; "No resources: ") + ".")
-                  else ($slice.hold // "holding") end)
-               elif ($units | length) > 0 then
-                 "systemd gave up on \($units | join(", ")): run systemctl --user reset-failed and start it again."
-               elif $disk != null and $disk.low then
-                 (if $disk.freeBytes == null then "The host\u0027s free disk space could not be read: previews are not being built."
-                  else "The host is low on disk: previews are not being built." end)
-               elif $behind then
-                 "The platform is \($platform.behind) commits behind \($platform.upstream) since \($platform.behindSince // "" | .[:10]): run tehas update."
-               elif $old_backup and $backup == null then "There is no backup of the state store: tehasbot clean makes one a day."
-               elif $old_backup then "The newest backup of the state store is \($backup.ageSeconds | ago) old."
-               elif $over_budget then "An idle poll is over its budget on \($pollCost.over | join(", ")) (TEHAS_POLL_BUDGET=\($pollCost.budget))."
-               elif ($running | length) > 0 then "Working on \($running | map("#\(.issue)") | join(", "))."
-               else "Idle, taking work." end),
-      checks: {
-        queue: (if $queue == null then null else {
-          time: $queue.generatedAt,
-          paused: $paused,
-          inLine: ($queue.queued | length),
-          building: ($queue.running | length),
-          review: ($queue.awaiting | length),
-          stopped: ($queue.stopped | length)
-        } end),
-        cycle: (($running[0] // $last) | if . == null then null else brief end),
-        cycles: ($running | map(brief)),
-        plans: $plans,
-        failed: ($endings + (if $last == null then [] else [$last] end)
-                 | map(objects | select((.status // "") | IN("merged", "handoff") | not))
-                 | unique_by([.issue, .startedAt]) | sort_by(.updatedAt) | reverse
-                 | map({issue, status, step, startedAt: (.startedAt | iso), time: (.updatedAt | iso)})),
-        disk: (if $disk == null then null else ($disk | {time, freeBytes, minFreeBytes, low}) end),
-        slice: $slice,
-        demand: $demand,
-        limit: $limit,
-        # tehas:all-hands, from a snapshot young enough to be news; null when
-        # it is not, or the snapshot could not read it.
-        allHands: (if $queue == null or $old_queue then null else $queue.allHands end),
-        pause: $pause,
-        platform: $platform,
-        units: $units,
-        backup: (if $backup == null then null else {time: ($backup.at | iso), ageSeconds: $backup.ageSeconds} end),
-        poll_cost: $pollCost
-      }
-    }' >"$report" 2>/dev/null || exit 1
+"$console" health report "$TEHAS_HOME" "${args[@]}" >"$report" || exit 1
 if ! tehas_live_publish --health "$report"; then
   echo "ERROR: the health file could not be published: $tehas_store_line" >&2
   [ "$tehas_store_rc" = 1 ] && exit 1

@@ -22,7 +22,7 @@
 #
 # The reading, the checks, the write and the words of the answer are the
 # console's, in console/src/flags.rs: this file is the shell's name for them.
-# Where no console can be run, tehas_limit_reading and lib/status.sh answer.
+# Where no console can be run, tehas_limit_reading and tehas_limit_line answer.
 
 tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_HOME"; }
 
@@ -66,14 +66,20 @@ tehas_limit_holds() { # <limit json>
   [ "$(jq -r .state <<<"$1")" != ok ] && [ "$(jq -r .state <<<"$1")" != none ]
 }
 
-# The words are lib/status.sh's, where tehas status and tehas top read them,
-# except for a limit in force with a console to ask, which prints its own.
+# The words of tehas status (console/src/status.rs), except for a limit in
+# force with a console to ask, which prints its own.
 tehas_limit_line() { # <limit json>
   local c
   c=$(tehas_limit_console_of)
-  # shellcheck disable=SC2154  # lib/status.sh, which every caller sources first
   [ "$(jq -r '.state // "?"' <<<"$1" 2>/dev/null)" != ok ] || [ -z "$c" ] ||
     { "$c" flags limit show; return; }
-  # shellcheck disable=SC2154
-  jq -r "$tehas_state_defs"' limit_line' <<<"$1"
+  # shellcheck disable=SC2154  # lib/status.sh, which every caller sources first
+  jq -r '"limit     " + (
+      if .state == "none" then "none"
+      elif .state == "unreadable" then "unreadable: nothing starts until it is set again or cleared"
+      elif .state == "expired" then "expired at \(.until): nothing starts until it is set again or cleared"
+      else "\(.cycles) cycle\(if .cycles == 1 then "" else "s" end) at once, planning \(if .plan then "on" else "off" end), "
+        + (if .until == null then "until cleared" else "until \(.until)" end)
+        + (if .reason == null then "" else ": \(.reason | '"$tehas_pause_oneline"')" end)
+      end)' <<<"$1"
 }

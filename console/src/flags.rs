@@ -313,6 +313,24 @@ impl Reading {
 }
 
 impl Reading {
+    /// none, ok, expired or unreadable.
+    pub fn state(&self) -> &str {
+        &self.state
+    }
+
+    /// The value of one field as JSON text, when the reading has it.
+    pub fn json_of(&self, want: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// The reading as `flags limit read` prints it.
+    pub fn json(&self) -> String {
+        self.text()
+    }
+
     /// The printed value of one field, with a quoted string unquoted: what a
     /// reader of the object would take from it.
     fn field(&self, want: &str) -> String {
@@ -796,7 +814,7 @@ fn set_args(rest: &[String]) -> Result<Wanted, &'static str> {
             }
             "--until" => {
                 take(&mut want.until, value)?;
-                if !epoch(value).is_some_and(|at| at > now()) {
+                if epoch(value).is_none_or(|at| at <= now()) {
                     return Err(
                         "--until wants a time of the form 2026-10-17T14:05:00Z, later than now",
                     );

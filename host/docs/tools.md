@@ -295,13 +295,19 @@ Every poll that gets past the bot's login ends by running `libexec/tidy`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
-`tehas:ready` and `tehas:plan`. Not `tehas:shipped`, not
+`tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:prototype`). It makes one search, for the closed issues
+`tehas:next`, `tehas:prototype`). The list is the console's
+(`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
+comes off which issue and which issue the read below is asked about
+(`console tidy plan`): the command keeps the settings, the two searches and the
+edits, and hands the answer of the first to the console. It makes one search,
+for the closed issues
 that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
 one edit and logs `tidy #N: removed <labels>`. The names it takes off are the
-state labels above and no others, whatever the search sent back. An open issue is
+state labels above and no others, whatever the search sent back: the console
+drops every other name before the plan reaches the edit or the log. An open issue is
 never touched, and a closed one whose cycle still holds its lock on this host
 waits for that cycle. The control issue `TEHAS_CONTROL_ISSUE` names is left out
 of every edit: it is not work, whatever label it carries. To the issues it tidies
@@ -2033,7 +2039,8 @@ snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
 the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
-prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
+prints: both commands take them from the console (`console/src/status.rs`), so
+they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
 changing.
 
@@ -2385,6 +2392,8 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
 changed the queue, and a cycle when it ends.
+Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
+and `closedAt`.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
 (`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
@@ -2446,6 +2455,17 @@ than ten minutes old, so one poll that meets a locked database does not empty
 the dashboard's section, and is removed after that, so a database that keeps
 failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
 program is not installed, there is no file.
+
+Just before the report, `~/tehas/libexec/analytics orders` writes
+`~/tehas/live/orders.json`, what the runs of each issue in `status.json` spent,
+for the work order of the [factory floor](/):
+`{"orders": 1, "generatedAt": ..., "issues": {"962": {"runs": 3, "seconds": 5400, "tokens": 60800000}}}`.
+It counts work runs and planning turns for as far back as the database holds.
+`seconds` is the runs' own time and `tokens` their input, output and cache
+reads; either is left out when no run recorded it, and an issue with no run is
+not in the file. It names only issues `status.json` lists already. A call that
+fails is a line `WARN analytics orders: exit N` and leaves the file as it was.
+With `TEHAS_ANALYTICS=off` there is no file.
 
 The file is public, as `status.json` is. It holds counts, durations, token
 sums, version strings and the words of stop reasons and steps: no issue
@@ -2570,7 +2590,10 @@ bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
-`tehas status` prints the same file for a person.
+`tehas status` prints the same file for a person. The report is built by the
+console beside the command (`console health report`, `console/src/health.rs`);
+the command keeps the calls of the state store, the `systemctl --user --failed`
+call and the publish.
 
 `checks.pause` names the switches: `{flag: {at, reason}, label, lifted}`, with
 `flag` null when no flag is set, `label` whether `tehas:pause` is on the control
