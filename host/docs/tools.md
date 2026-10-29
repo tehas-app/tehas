@@ -2039,7 +2039,8 @@ snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
 the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
-prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
+prints: both commands take them from the console (`console/src/status.rs`), so
+they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
 changing.
 

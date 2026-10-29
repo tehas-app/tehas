@@ -25,6 +25,10 @@ empty one above it.
 - A drafted plan in a `tehas:plan` session offers only **Update this
   issue** and **End this planning session**. **File as a new issue** stays
   for `tehas:refine` sessions, which exist to file one (#1010).
+- Less bash: the lines and the `--json` object of `tehas status` and the
+  frame of `tehas top` are drawn by the console. `console status show|json`
+  and `console top frame` replace the jq of `lib/status.sh` and `lib/top.sh`,
+  with the same words, the same object and the same exit statuses (#888).
 
 ### Adopter action
 
