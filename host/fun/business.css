@@ -98,11 +98,12 @@ svg .base { stroke: var(--line); }
 svg text { fill: var(--text-faint); font: max(var(--type-small), 11px) var(--font); font-variant-numeric: tabular-nums; }
 .power.is-stale svg .bar { fill: var(--text-faint); }
 
-/* Production line: a box a stage, in the stage's colour */
-.pipeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); perspective: 900px; }
-.stage { --c: var(--text); --c-soft: var(--surface-quiet); padding: 23px 24px 20px; min-height: 218px; display: grid; grid-template-rows: auto auto 1fr; align-content: start; gap: 17px; border-right: var(--edge) solid var(--rule); min-width: 0; }
-.stage:nth-child(3n) { border-right: 0; }
-.stage:nth-child(-n + 3) { border-bottom: var(--edge) solid var(--rule); }
+/* Production line: a box a stage, in the stage's colour, on one row while
+   they fit. Each stage draws the rule on its left and top outside itself, and
+   the panel clips the ones at its edge, so the rules hold however they wrap. */
+.pipeline { display: flex; flex-wrap: wrap; perspective: 900px; }
+.stage { --c: var(--text); --c-soft: var(--surface-quiet); flex: 1 1 150px; padding: 23px 18px 20px; min-height: 218px; display: grid; grid-template-rows: auto auto 1fr; align-content: start; gap: 17px; box-shadow: calc(-1 * var(--edge)) 0 0 var(--rule), 0 calc(-1 * var(--edge)) 0 var(--rule); min-width: 0; }
+.s-plan { --c: var(--stage-proto); --c-soft: var(--stage-proto-soft); }
 .s-proto { --c: var(--stage-proto); --c-soft: var(--stage-proto-soft); }
 .s-line { --c: var(--stage-line); --c-soft: var(--stage-line-soft); }
 .s-build { --c: var(--stage-build); --c-soft: var(--stage-build-soft); }
@@ -212,10 +213,6 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 @media (max-width: 800px) {
   .topbar .wrap { gap: 20px; }
-  .pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stage:nth-child(3n) { border-right: var(--edge) solid var(--rule); }
-  .stage:nth-child(2n) { border-right: 0; }
-  .stage:nth-child(-n + 4) { border-bottom: var(--edge) solid var(--rule); }
   .head-aside { display: none; }
 }
 @media (max-width: 600px) {
@@ -230,9 +227,7 @@ td a:hover { text-decoration: underline; text-underline-offset: 3px; }
   h1 { font-size: max(var(--type-big), 36px); }
   .lede { font-size: var(--type-body); }
   .panel-head { padding: 20px; align-items: start; }
-  .pipeline { grid-template-columns: minmax(0, 1fr); }
-  .stage { border-right: 0 !important; border-bottom: var(--edge) solid var(--rule); min-height: 0; padding: 20px; }
-  .stage:last-child { border-bottom: 0; }
+  .stage { flex-basis: 100%; min-height: 0; padding: 20px; }
   .tile { padding: 18px; }
   .chart, .stations { padding: 20px; }
   .console-body { padding: 16px 20px; }
