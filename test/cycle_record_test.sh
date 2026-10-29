@@ -684,6 +684,18 @@ analytics_stub() { # [<bash body>]
 # The calls, without the facts file's name, which is new each time.
 analytics_calls() { t_calls analytics | sed 's/ --facts [^ ]*//'; }
 
+t_case "the run in analytics carries when its image was built, as docker says of the id on record"
+reset
+analytics_stub
+image_id=sha256:$(printf 'e%.0s' {1..64})
+echo 2026-10-29T14:44:16.123456789Z >"$fx/image.label"
+echo '"$T/store-bin" cycle-image 7 --attempt "$TEHAS_CYCLE_ATTEMPT" --image '"$image_id"' >/dev/null; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(analytics_calls | head -n 1)" "run 7 --image $image_id --image-built 2026-10-29T14:44:16.123456789Z --oom 0 --forks 0"
+t_contains "$(t_calls docker)" "image inspect --format {{.Created}} $image_id"
+rm -f "$fx/image.label"
+
 t_case "the cycle records its run and its end in analytics after the history line, with what it read and removed"
 reset
 analytics_stub

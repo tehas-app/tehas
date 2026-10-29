@@ -849,7 +849,7 @@ pub fn call_held(
         "factory_issue" => sessions::issue(dirs, args)?,
         "factory_sessions" => sessions::list(dirs, args)?,
         "factory_session" => sessions::one(dirs, args)?,
-        "factory_failures" => sessions::failures(dirs)?,
+        "factory_failures" => sessions::failures(dirs, args)?,
         "factory_outcomes" => outcomes::call(dirs, args)?,
         // The guard above admits only the names of `CALLED` and every one of
         // them has an arm, which the test beside it proves name by name.

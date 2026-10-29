@@ -36,7 +36,7 @@ enum Kind {
 }
 use Kind::{Bool, Int, Real, Text, Time};
 
-const RUN: [(&str, &str, Kind); 38] = [
+const RUN: [(&str, &str, Kind); 39] = [
     ("id", "id", Text),
     ("kind", "kind", Text),
     ("issue", "issue", Int),
@@ -64,6 +64,11 @@ const RUN: [(&str, &str, Kind); 38] = [
     ("rukas_version", "rukasVersion", Text),
     ("rukas_commit", "rukasCommit", Text),
     ("image", "image", Text),
+    (
+        "(SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'image:' || runs.image)",
+        "imageBuilt",
+        Time,
+    ),
     ("result_schema", "resultSchema", Int),
     ("input", "input", Int),
     ("output", "output", Int),
