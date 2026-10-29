@@ -46,9 +46,9 @@
 # one statement of the bound is the select below; host/docs/tools.md names the
 # same contract for a reader outside this repository.
 #
-# It writes live/analytics.json, the ten-day report of the factory's
-# analytics (analytics_report below), at every run, the runs that end early
-# when GitHub does not answer too. TEHAS_ANALYTICS=off removes it.
+# It writes live/analytics.json, the ten-day report of the factory's analytics,
+# and live/orders.json, what each listed issue's runs spent (analytics_report),
+# at every run, early ends included. TEHAS_ANALYTICS=off removes both.
 #
 # Unless TEHAS_ANALYTICS=off, it records the issue events awaiting, stopped,
 # merged and closed in the factory's analytics, state/analytics.db, by
@@ -110,6 +110,7 @@ analytics_report() {
   # edge serves no *.new, so the unfiltered report is never public.
   local file=$live/analytics.json rc written
   local raw=$file.$$.raw.new new=$file.$$.new
+  tehas_analytics_to /dev/null orders
   tehas_analytics_to "$raw" report --json
   rc=$?
   if [ "$rc" = 0 ] && jq -ce --argjson keys "$analytics_keys" '
@@ -120,7 +121,7 @@ analytics_report() {
   fi
   rm -f "$raw" "$new"
   if [ "$rc" = 2 ]; then
-    rm -f "$file"
+    rm -f "$file" "$live/orders.json"
     return 0
   fi
   [ "$rc" = 1 ] || log "WARN analytics report: not a report"
@@ -274,13 +275,12 @@ platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" sort:updated-desc' \
-  --json number,title,url,state,labels,updatedAt,closedAt 2>/dev/null) || exit 0
+  --json number,title,url,state,labels,createdAt,updatedAt,closedAt 2>/dev/null) || exit 0
 everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
 jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 # The closing pull request is only in the issue's closed event, so this one is
 # GraphQL: the query and the acceptance rule are lib/shipped.sh's, the same ones
 # tehas tidy reads, so the two commands cannot disagree on what a merge closed.
-# shellcheck disable=SC2016  # $q is a GraphQL variable
 search_wait=$fetch_limit
 # The list of shipped work goes under the same bound as the count below it: a
 # read that hangs costs the run this many seconds and is then no snapshot at all.
@@ -403,7 +403,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
   --arg repo "$repo" --arg now "$(date -u +%FT%TZ)" '
   $issues[0] as $issues | $shipped[0] as $shipped | $everything[0] as $everything
   | def has($l): (.labels | map(.name) | index($l)) != null;
-  def slim: {number, title, url, updatedAt, closedAt};
+  def slim: {number, title, url, createdAt, updatedAt, closedAt};
   def listurl($q): "https://github.com/\($repo)/issues?q=" + ($q | @uri);
   # The control issue holds the pause label and no outcome. It is not work, so
   # it is never counted in line, being worked on, waiting for a human or waiting
