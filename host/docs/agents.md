@@ -59,6 +59,7 @@ one. A request without a key gets 401.
 - `factory_sessions`: the runs of the last 30 days, newest first, with filters such as `outcome`
 - `factory_session`: one run in full: steps, roles, logs and links
 - `factory_log`: one log of a run, masked, plain in pieces or whole as gzip
+- `factory_events`: the dispatcher's and refresh's events after a cursor, to follow the factory by polling
 - `factory_failures`: the work runs of the last 30 days per tehas and pi-rukas version pair, with their most common causes; `by: image` splits a pair by the sandbox image build
 - `factory_outcomes`: how the factory has done further back than 30 days, as counts per tehas and pi-rukas version pair or per UTC week
 - `factory_park`: why an issue's last stopped run stopped: the step, the failure kind, the cap, the park signature, the runner's error and the failing check lines, masked
