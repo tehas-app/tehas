@@ -1209,22 +1209,28 @@ named in the line that says so.
 
 A run that exited 10 or 20 files its findings as one issue in
 `TEHAS_REVIEW_REPO` for a person to triage; loading refuses a
-`TEHAS_REVIEW_REPO` equal to `TEHAS_REPO`, the product. The rule of what the
-issue says is
+`TEHAS_REVIEW_REPO` equal to `TEHAS_REPO`, the product. The filing is the
+store's: `store review-file --repo <owner/name> --doc <document> --branch <b>
+--commit <sha> [--ask <line>] [--private <name>]...`
+(`console/store/src/review_issue.rs`) reads the document of the run, decides
+what to file, and makes the calls of GitHub. The command asks for the filing
+and says what the store answered; it puts no part of an issue together itself.
+The rule of what the issue says is
 `tehas_core::review` (`console/core/src/review.rs`): the findings of the six
 lenses, `CRITICAL`, `HIGH` and `MEDIUM` one to a line and the rest counted, the
-title naming the count, the branch and the commit the range starts at. The
-shell asks the store for the two values with `store review-issue <document>
-<branch> <commit>` and puts neither of them together itself.
+title naming the count, the branch and the commit the range starts at.
 
-What comes out of a model goes through `q_clean` (`lib/questions.sh`) on its way
-to GitHub, as every other text an agent wrote does: tokens, private addresses
-and the host's own names are masked, a comment marker is escaped, and the body
-is cut at 60 000 characters. The issue is labelled `tehas:improvement` and
-nothing else -- never `tehas:ready`, since a finding starts no cycle until a
-person says so -- and its body ends with the line that asks for
-`tehas:refine`, the label that plans an issue into parts of one cycle each
-([Planning](/operating#planning)).
+What comes out of a model is made safe on the way out by the two functions the
+console's log of the same run goes through (`tehas_core::mask` and
+`tehas_core::question::q_clean`): tokens, passwords, private addresses and the
+host's own names (the same list the console is given, with `--private`) are
+masked or hidden, a comment marker is escaped, and the body is cut at 60 000
+characters. The line that asks for `tehas:refine`, the label that plans an
+issue into parts of one cycle each
+([Planning](/operating#planning)), is the command's own text and is put on
+after the masking, so no finding can become it. The issue is labelled
+`tehas:improvement` and nothing else -- never `tehas:ready`, since a finding
+starts no cycle until a person says so.
 
 While one of those issues is still open, the findings of a later run go into it
 as a comment rather than beside it, so a range nobody has read yet stays one
@@ -1232,12 +1238,15 @@ issue. GitHub is asked for the open issue of the review, and a GitHub that will
 not answer is asked nothing: the findings are then filed as new, because a
 duplicate is read by a person and a lost finding is not.
 
-A run that exited 0 files nothing. A filing that the store or GitHub refused is
-said on standard error and changes nothing else: the record of the range is
-already written, so the next run reads the next commits whatever GitHub did,
-and the command still exits with the status the runner gave. A host with no
-`TEHAS_REVIEW_REPO`, or one whose document the store could not read, files
-nothing and says so.
+A run that exited 0 files nothing, and a run whose container wrote no document
+is a run that left no findings: the store renders its empty document as one and
+asks GitHub nothing. A filing that GitHub refused is an answered filing: the
+line says what did not happen, the record of the range is already written, so
+the next run reads the next commits whatever GitHub did, and the command still
+exits with the status the runner gave. A host with no `TEHAS_REVIEW_REPO` files
+nothing and says so. The body GitHub is given is written to
+`state/review.body`, mode 0600, while the calls are made, and taken away as the
+verb ends.
 
 The container is the one `tehas plan` starts a planning turn in: the same
 image, the same limits in `tehas.slice`, the same mounts and variables from
