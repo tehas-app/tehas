@@ -13,6 +13,13 @@ empty one above it.
 
 ### Changes
 
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: the value of every setting the program was started with whose
+  name says it is secret (a name with TOKEN, SECRET, PASSWORD, PASSWD, KEY or
+  CREDENTIAL in it), as literal text wherever it appears; any upper-case
+  assignment of such a name; and keys in the shape model providers give
+  (`sk-` and a long run).
+
 ### Adopter action
 
 None.
