@@ -20,8 +20,10 @@ Each action `decide()` emits was traced to the code of `libexec/dispatch` and
   `plan_collect` is two paths, chosen by whether the turn's `.rc` file exists.
 - **What follows a write depends on whether it worked.** A label change's
   comment and log line come only after it worked; an untick's note only after
-  the PATCH worked. The records of `refresh_said` and `park_told` are written
-  whether or not their comment worked, because `say` never fails the poll.
+  the PATCH worked. The records of `refresh_said` and `park_told` were written
+  whether or not their comment worked, because `say` never fails the poll;
+  #959 made them follow a comment that worked, so a failed comment is said
+  again on the next poll.
 - **Some of the poll is no action.** `units_ok`, `index_gate` and
   `refresh_checkout` before a start, `sweep-locks`, the live files, health,
   the status command and the EXIT trap (tidy, `poll-record`, analytics) are the

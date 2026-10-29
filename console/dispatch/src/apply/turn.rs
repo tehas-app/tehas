@@ -330,9 +330,10 @@ impl Writer {
         let path = input.to_string_lossy().into_owned();
         let mut args: Vec<String>;
         if first {
-            match a.get("auto").and_then(Value::as_str).filter(|x| !x.is_empty()) {
-                Some(auto) => self.say(n, &format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take `tehas:question` off while a question waits, or close the issue."), log),
-                None => self.say(n, &format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."), log),
+            if let Some(auto) = a.get("auto").and_then(Value::as_str).filter(|x| !x.is_empty()) {
+                self.say(n, &format!("Tehas planning session started on `{host}` at {when} UTC to refine this issue: its cycle parked as `{auto}`, and the start of that cycle by @{by} authorizes one refine. Each turn ends in a comment here. Answer by ticking a box or by replying. To stop it, take `tehas:question` off while a question waits, or close the issue."), log);
+            } else {
+                self.say(n, &format!("Tehas planning session started on `{host}` at {when} UTC (authorized by @{by}'s `{label}` label). Each turn ends in a comment here. Answer by ticking a box or by replying."), log);
             }
             args = vec!["--brief".into(), path];
         } else {
