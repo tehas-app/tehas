@@ -308,7 +308,8 @@ that do not carry `tehas:shipped` it adds the label, in the same edit, when the
 last closed event of the issue is a merged pull request: one further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
-[tehasbot status](#tehasbot-status-and-the-console) makes (`lib/shipped.sh`).
+[tehasbot status](#tehasbot-status-and-the-console) makes, and the same console
+verb decides its answer (`lib/shipped.sh`, `console/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person, an unmerged pull request, or nothing at
@@ -2320,9 +2321,9 @@ Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot sta
 `~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
 changed the queue, and a cycle when it ends.
 Completed means closed by a merged pull request, whatever labels the issue was
-left with: the query and the acceptance rule are `lib/shipped.sh`'s, the ones
-`tehas tidy` reads too, so the two commands cannot disagree on what a merge
-closed. `tehasbot status` gives each issue its read finds shipped the label;
+left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
+(`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
+the two commands cannot disagree on what a merge closed. `tehasbot status` gives each issue its read finds shipped the label;
 `tehas tidy` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the

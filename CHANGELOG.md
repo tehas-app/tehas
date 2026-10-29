@@ -13,6 +13,17 @@ empty one above it.
 
 ### Changes
 
+- What closed an issue is now the console's to decide. `console shipped`
+  (`console/src/shipped.rs`) holds the page of the read, its GraphQL query and the
+  rule that reads its answer, and `lib/shipped.sh` is the names of those verbs and
+  the call of them: `tehas tidy` and `tehasbot status` ask the same verb the same
+  question, so the label one gives and the list the other shows cannot drift.
+  Neither command runs without the console beside it, as `tehasbot clean` already
+  requires, and says to run `install.sh` when it is not there. The whole-answer test
+  is a verb of its own (`console shipped whole`) rather than a jq program in the
+  library, and `tehas tidy` no longer reads the errors key before asking the
+  console: the one rule is read once. Nothing a host
+  configures changed (#893).
 - The forge interface, and its GitHub adapter, as a library: `tehas_core::forge`
   (#947). One trait in tehas terms - an issue's labels, the newest event of a
   label, who applied the label that approves work, and a label put on or taken
@@ -55,7 +66,9 @@ empty one above it.
 
 ### Adopter action
 
-None.
+None. `tehas tidy` and `tehasbot status` now ask the console what an answer of the
+closer read means, so where the two sit beside an old `libexec/console` that has no
+shipped verb they exit 78 and say to run `install.sh`.
 
 ## v0.15.2 (2026-10-28)
 

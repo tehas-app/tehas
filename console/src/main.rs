@@ -52,6 +52,12 @@
 //!
 //! The settings, the checks and the files of tehas setup, see src/setup.rs.
 //!
+//!   console shipped page|query|answer|list|has|whole ...
+//!
+//! What closed an issue: the page and the GraphQL query of the read, and what its
+//! answer says, for tehas tidy and tehasbot status (lib/shipped.sh holds the names
+//! of these verbs and makes the call), see src/shipped.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
@@ -62,6 +68,7 @@ mod plan;
 mod render;
 mod review;
 mod setup;
+mod shipped;
 mod snapshot;
 mod store;
 mod tail;
@@ -244,6 +251,7 @@ fn main() -> ExitCode {
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(notice::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}

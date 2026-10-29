@@ -82,6 +82,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/update-release.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
+# The console decides what the read of what closed an issue means
+# (console/src/shipped.rs): no shipped list and no label without it.
+console=$here/console
+[ -x "$console" ] || { printf 'tehasbot status: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
 repo=$TEHAS_REPO
 control=$TEHAS_CONTROL_ISSUE
 live=$TEHAS_HOME/live
@@ -278,29 +282,25 @@ jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 # shellcheck disable=SC2016  # $q is a GraphQL variable
 search_wait=$fetch_limit
 # The list of shipped work goes under the same bound as the count below it: a
-# read that hangs costs the run this many seconds and is then no snapshot at
-# all, as a read that answered nothing is. It is timed out with the call, not
-# read from a file: the answer is one argument to jq and no file holds it. The
-# whole answer is kept as shipped_raw for the loop that gives the label below.
+# read that hangs costs the run this many seconds and is then no snapshot at all.
 # shellcheck disable=SC2016  # $q is a GraphQL variable
-shipped=$(timeout -k 1 "$search_wait" gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" \
-  -f query="$(tehas_shipped_query)" 2>/dev/null) || {
+if ! closers=$(timeout -k 1 "$search_wait" gh api graphql -f q="repo:$repo is:issue is:closed linked:pr sort:updated-desc" \
+  -f query="$(tehas_shipped_query "$console")" 2>/dev/null); then
   log "WARN status: the read of what closed these issues could not be read, no snapshot was written"
   exit 0
-}
-shipped_raw=$shipped
-# The answer is the one lib/shipped.sh accepts: no top-level errors, a list of
-# nodes, and a node whose closer is a merged pull request. `shipped` is the
-# library's rule, so the list and the label tehas tidy gives cannot disagree.
-shipped=$(jq -ce --arg control "$control" "$(tehas_shipped_rule)
-  # The whole answer is judged the way lib/shipped.sh judges it: an errors key
-  # that holds nothing is no refusal, gh answers one for a read that went well.
-  if ((.errors // []) | length) > 0 then error(\"declined\")
-  elif (.data.search.nodes | type) != \"array\" then error(\"no list\")
-  else . end
-  | .data.search.nodes
-  | map(select(.number != null and (.number | tostring) != \$control and shipped)
-  | {number, title, url, updatedAt, closedAt})" <<<"$shipped" 2>/dev/null) || exit 0
+fi
+# The console alone judges the answer, the way tehas tidy judges it, so the list
+# here and the label there cannot disagree: the nodes it keeps are the ones whose
+# closer was a merged pull request, in the order of their close, and each whole
+# node is kept so the loop below reads its labels instead of asking the read again.
+# A read that named issues and found no merged closer is a whole answer and a
+# snapshot of no completed work; only a reply with no list of nodes in it is no
+# snapshot, which is the case its 1 and the line above cover.
+shipped=$(printf '%s' "$closers" | tehas_shipped_list "$console" --control "$control" 2>/dev/null) ||
+  tehas_shipped_whole "$console" "$closers" || exit 0
+# One object on a line is no list for jq, which wants one value: made one here,
+# once, with the control issue already out of it.
+shipped=$(jq -sc '.' <<<"$shipped") || exit 0
 # The figure of the Shipped stage: every closed issue with the label, not the
 # page this script reads. The query is written once here and shared with
 # links.completed below, so the figure and the list's "all" link cannot drift
@@ -451,9 +451,9 @@ rm -f "$live/status.json.$$.err.new"
 # of them one poll made cost that poll a minute. Labels the read did not answer
 # are taken for missing and the edit goes, as before the query read them.
 for n in $(jq -r '.[].number' <<<"$shipped"); do
-  node=$(jq -ce --argjson n "$n" '.data.search.nodes[] | select(.number == $n)' \
-    <<<"$shipped_raw" 2>/dev/null) || node=""
-  tehas_shipped_has "$node" "$tehas_shipped_label" && continue
+  # Its own node of the same list, so the labels read are that issue's and no other.
+  node=$(jq -ce --argjson n "$n" '.[] | select(.number == $n)' <<<"$shipped" 2>/dev/null) || node=""
+  tehas_shipped_has "$console" "$node" "$tehas_shipped_label" && continue
   gh issue edit "$n" --repo "$repo" --add-label "$tehas_shipped_label" >/dev/null 2>&1 || true
 done
 
