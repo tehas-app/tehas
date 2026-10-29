@@ -8,6 +8,7 @@ use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Mutex, MutexGuard};
 use tehas_core::time::{iso, now};
 
@@ -28,6 +29,17 @@ fn token() -> String {
 }
 
 const STAMP: &str = "261021-100000";
+
+// The one instant the session fixtures of this process are stamped at. `now()`
+// moves between two calls of it, so the id a record holds and the id a test asks
+// the tool with are one id only when every record comes of one instant, taken
+// once. Ten digits, which is what `ID` allows an id's last part to be, and a
+// hundred seconds before the run, so a record is inside the window of a snapshot
+// written at the instant the environment is made.
+fn start() -> i64 {
+    static START: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *START.get_or_init(|| now() - 100)
+}
 
 struct Env {
     root: PathBuf,
@@ -54,7 +66,7 @@ impl Env {
                 json!({"word": w, "name": n, "bytes": c.len()})
             })
             .collect();
-        let t = now() - 100;
+        let t = start();
         let s = json!({
             "id": format!("{kind}-{issue}-{t}"), "kind": kind, "issue": issue,
             "started": iso(t), "ended": iso(t + 60), "logs": listed,
@@ -116,8 +128,30 @@ struct Search {
 }
 
 impl Search {
+    // The environment of a test: a snapshot of `sessions`, and a logs directory
+    // holding `logs` by name. The records a test hands to `ask` are the snapshot
+    // own lines, as the caller of a tool holds them, and the tool reads the
+    // sessions of `issue` or `ids` out of that same snapshot.
     fn new(name: &str, sessions: &[Value], logs: &[(&str, &[u8])]) -> Search {
-        let root = std::env::temp_dir().join(format!("mcp-search-{name}-{}", std::process::id()));
+        Self::built(name, sessions, logs)
+    }
+
+    // As `new`, for a test of a tool that names sessions by id: the lines of the
+    // snapshot it reads are given back with it, so the test asks with the ids the
+    // tool can find and not with the ids of records it wrote for itself.
+    fn with(name: &str, sessions: &[Value], logs: &[(&str, &[u8])]) -> (Search, Vec<Value>) {
+        let env = Self::built(name, sessions, logs);
+        (env, sessions.to_vec())
+    }
+
+    fn built(name: &str, served: &[Value], logs: &[(&str, &[u8])]) -> Search {
+        // The number of the environment is taken by the one call that gives it,
+        // so two environments built in parallel cannot read the same one and
+        // share a directory: the process id alone would let them, and the name
+        // of the test is unique only among the tests.
+        let n = SEARCH_NO.fetch_add(1, Ordering::SeqCst).to_string();
+        let root =
+            std::env::temp_dir().join(format!("mcp-search-{name}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (live, snap, dir) = (root.join("live"), root.join("mcp"), root.join("logs"));
         for d in [&live, &snap, &dir] {
@@ -126,9 +160,8 @@ impl Search {
         for (n, c) in logs {
             std::fs::write(dir.join(n), c).unwrap();
         }
-        let mut text =
-            json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": 1}).to_string();
-        for s in sessions {
+        let mut text = header(served.len()).to_string();
+        for s in served {
             text.push('\n');
             text.push_str(&s.to_string());
         }
@@ -145,10 +178,27 @@ impl Search {
 
     fn records(&self) -> Vec<Value> {
         let text = std::fs::read_to_string(self.dirs.sessions.join("sessions.jsonl")).unwrap();
+
         text.lines()
             .skip(1)
             .map(|l| serde_json::from_str(l).unwrap())
             .collect()
+    }
+
+    // The snapshot the tools read, with these records. The search of the rest
+    // reads the record of the session it stopped in as its caller holds it, with
+    // the `next` of the answer put on it as its `searchResume`, so a test of the
+    // way on gives the tool that record and not the one the snapshot held before.
+    fn wrote(&self, records: &[Value]) {
+        let path = self.dirs.sessions.join("sessions.jsonl");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let header = text.lines().next().unwrap();
+        let mut out = format!("{header}\n");
+        for r in records {
+            out.push_str(&r.to_string());
+            out.push('\n');
+        }
+        std::fs::write(&path, out).unwrap();
     }
 
     // The answer of a search: `Found` as JSON, with the id of the session the
@@ -166,7 +216,11 @@ impl Search {
         // `Found` is a line of one log of one session. The id of the session it
         // came from is put back by the line's own words: the caller of the tool
         // has the snapshot records, so it names them as `next` does.
-        let id_of_found = |word: &str, line: &str| {
+        // Of a resumed record the log the `searchResume` names is the one that
+        // was stopped before it kept a line: no line of it is in the answer, so
+        // of a search that reads it again the caller holds nothing, and a `next`
+        // naming the offset it resumed from would be a way on that is no way on.
+        let id_of_found = |word: &str, line: &str, from: u64| {
             records
                 .iter()
                 .find(|r| {
@@ -178,7 +232,15 @@ impl Search {
                             })
                     })
                 })
-                .and_then(|r| r["id"].as_str())
+                .and_then(|r| {
+                    let resume = &r["searchResume"];
+                    if resume["word"].as_str() == Some(word)
+                        && resume["offset"].as_u64() != Some(from)
+                    {
+                        return None;
+                    }
+                    r["id"].as_str()
+                })
                 .unwrap_or("")
                 .to_string()
         };
@@ -188,7 +250,7 @@ impl Search {
                     .iter()
                     .map(|f| {
                         json!({
-                            "id": id_of_found(f.word, &f.line),
+                            "id": id_of_found(f.word, &f.line, f.offset),
                             "file": f.word,
                             "offset": f.offset,
                             "line": f.line,
@@ -278,7 +340,73 @@ impl Search {
             other => panic!("not plain: {other:?}"),
         }
     }
+
+    // `factory_search` over the whole snapshot: the same reading as `ask`, told
+    // by the arguments of the tool rather than by records handed to it. A test
+    // of the tool asserts its answer with `searched` or `refused`, so one of
+    // those fails when the answer is not the kind it asks for.
+    fn asked(&self, args: Value) -> Result<Value, String> {
+        match call(&self.dirs, "factory_search", &args) {
+            Ok(Output::Json(v)) => Ok(v),
+            Ok(other) => panic!("not JSON: {other:?}"),
+            Err(ToolError::BadArgs(why)) => Err(why),
+            Err(ToolError::File { file, why }) => Err(format!("{file} {why}")),
+            Err(other) => panic!("not a tool error: {other:?}"),
+        }
+    }
+
+    fn searched(&self, args: Value) -> Value {
+        match self.asked(args) {
+            Ok(v) => v,
+            Err(why) => panic!("no answer: {why}"),
+        }
+    }
+
+    // The words a call that must be refused gives back. The argument it names
+    // are kept as the caller wrote them, so the `ids` of the refusal are the
+    // caller's and not the snapshot's.
+    fn refused(&self, want: Value) -> String {
+        let args = want.clone();
+        match self.asked(args) {
+            Err(why) => why,
+            Ok(v) => panic!("{want} answered: {v}"),
+        }
+    }
+
+    // The words of a call whose arguments are not an object of arguments at all:
+    // `refused` reads them as the caller wrote them, which for these is no
+    // member of an object, so they go to the call directly.
+    fn refused_at(&self, args: Value) -> String {
+        match self.asked(args) {
+            Err(why) => why,
+            Ok(v) => panic!("answered: {v}"),
+        }
+    }
+
+    // The way on of the tool's own answer, as a caller takes it: the same call
+    // with the session it stopped in named alone, and the answer's `file` and
+    // `offset` put back on that session's record as its `searchResume`, which is
+    // all the reading of the rest needs. The other sessions keep their records.
+    fn on(&self, args: Value, records: &[Value], next: &Value) -> Value {
+        let mut a = args;
+        a["ids"] = json!([next["id"]]);
+        a["files"] = json!([next["file"]]);
+        let lines: Vec<Value> = records
+            .iter()
+            .map(|r| {
+                if r["id"] == next["id"] {
+                    resumed(r, next)
+                } else {
+                    r.clone()
+                }
+            })
+            .collect();
+        self.wrote(&lines);
+        self.searched(a)
+    }
 }
+
+static SEARCH_NO: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 impl Drop for Search {
     fn drop(&mut self) {
@@ -286,16 +414,38 @@ impl Drop for Search {
     }
 }
 
+fn header(served: usize) -> Value {
+    json!({"api": 1, "days": 30, "generatedAt": iso(now()), "sessions": served})
+}
+
 // One session's snapshot record, with the logs of `logs` - and nothing else,
-// which is what makes the host's own logs unreachable to a search.
-fn record(kind: &str, issue: i64, logs: &[(&str, &str)]) -> Value {
-    let t = now() - 100;
+// which is what makes the host's own logs unreachable to a search. `started` is
+// the instant of its id, so the order of the snapshot is a test's to choose, and
+// a test that asks the tools for a session by id holds the record whose id it is.
+fn record_at(kind: &str, issue: i64, started: i64, logs: &[(&str, &str)]) -> Value {
     json!({
-        "id": format!("{kind}-{issue}-{t}"), "kind": kind, "issue": issue,
-        "started": iso(t), "ended": iso(t + 60),
+        "id": format!("{kind}-{issue}-{started}"), "kind": kind, "issue": issue,
+        "started": iso(started), "ended": iso(started + 60),
         "logs": logs.iter().map(|(w, n)| json!({"word": w, "name": n, "bytes": 1}))
                     .collect::<Vec<Value>>(),
     })
+}
+
+// One session's snapshot record, with the logs of `logs` - and nothing else,
+// which is what makes the host's own logs unreachable to a search. Every record
+// of one test is stamped at the same instant, so the ids a test reads out of the
+// snapshot are the ids its records hold: `now()` moves between two calls of it.
+fn record(kind: &str, issue: i64, logs: &[(&str, &str)]) -> Value {
+    record_at(kind, issue, start(), logs)
+}
+
+// The record of a search that stopped, as its caller gives it back: the place
+// `next` names, put on the session it stopped in as that session's
+// `searchResume`, which is all the reading of the rest needs.
+fn resumed(s: &Value, next: &Value) -> Value {
+    let mut s = s.clone();
+    s["searchResume"] = json!({"word": next["file"], "offset": next["offset"]});
+    s
 }
 
 fn id_of(s: &Value) -> String {
@@ -1194,6 +1344,71 @@ fn a_search_spans_the_sessions_it_is_given() {
 }
 
 #[test]
+fn a_log_the_cap_spends_before_it_keeps_a_line_leaves_no_next() {
+    let _t = turn();
+    // Two sessions, each with one transcript. The first is 1000 filler bytes and
+    // no match in any of its lines; the second holds the match. The cap of 100
+    // bytes is spent inside the first log, whose reading therefore keeps lines
+    // but answers none of them, so the call has nothing to say of it: `next`
+    // names the place past the last byte the answer answered, as `factory_log`'s
+    // `next` does, and a `next` naming bytes the answer holds nothing of is a way
+    // on that is no way on - a caller that follows it is answered the same `next`
+    // again, call after call, and the sessions behind it are never read. So the
+    // reading moves on with what the cap has left, which is none, and the rest of
+    // the search waits for a call of its own, as the manual says. The filler is
+    // letters, never a form the mask knows: the mask shortens what it masks, and
+    // the offsets of an answer count the masked text.
+    let (a, b) = (
+        record("work", 7, &[("transcript", &transcript(7))]),
+        record("work", 8, &[("transcript", &transcript(8))]),
+    );
+    let big = "xxxxxxxxxx\n".repeat(100);
+    let env = Search::new(
+        "spent_log",
+        &[a.clone(), b.clone()],
+        &[
+            (&transcript(7), big.as_bytes()),
+            (&transcript(8), b"a needle of another session\n"),
+        ],
+    );
+    let r = env.records();
+    // The cap is spent inside the first log, which holds no match. The answer
+    // holds no line, and the `next` it gives is a step forward - past the bytes
+    // the reading really read, never the start of the log it read them from, and
+    // never the offset a caller resumed from, which is a way on that is no way
+    // on. The search does not stop there as though it had answered the log: the
+    // session behind it, named alone, gives the line the stopped call never read.
+    let out = env.found(&r, "needle", None, MATCHES_MAX, 100);
+    assert_eq!(out["matches"], json!([]), "{out}");
+    assert_eq!(out["next"]["id"], id_of(&a), "{out}");
+    assert_eq!(out["next"]["file"], "transcript", "{out}");
+    assert!(
+        out["next"]["offset"].as_u64().is_some_and(|o| o > 0),
+        "{out} says nothing was read"
+    );
+    // The log that spent the cap does not end the search as an error or as a
+    // `next` that goes nowhere: named alone, the session behind it answers the
+    // line the stopped call never read. The cap costs the caller its reach, never
+    // its matches.
+    let on = env.found(std::slice::from_ref(&b), "needle", None, MATCHES_MAX, SEARCH_BYTES_MAX);
+    let m = on["matches"].as_array().unwrap();
+    assert_eq!(m.len(), 1, "{on}");
+    assert_eq!(m[0]["id"], id_of(&b), "{on}");
+    assert_eq!(m[0]["offset"], 0, "{on}");
+    // The way on of that answer, taken as a caller takes it, is not the same
+    // place again: a reading that kept no line of the log it resumed in has no
+    // way on left, and the log is done. What lies past it is answered by a call
+    // of the sessions behind it, as the one above shows.
+    let on = env.rest_of(&r, "needle", &out["next"], 100);
+    assert_eq!(on["matches"], json!([]), "{on}");
+    assert!(on.get("next").is_none(), "{on}");
+    // The same call again asks the same question and is answered the same way:
+    // no `next` that leads a caller in a circle.
+    let again = env.found(&r, "needle", None, MATCHES_MAX, 100);
+    assert_eq!(again, out, "{again} vs {out}");
+}
+
+#[test]
 fn a_line_is_cut_to_four_hundred_characters() {
     let _t = turn();
     let long = format!("hit {} tail", "äx".repeat(500));
@@ -1279,4 +1494,331 @@ fn a_record_without_a_kind_or_issue_is_a_file_error() {
     let r = vec![bad];
     let e = env.error(&r, "hit", None);
     assert_eq!(e, "id is like work-12-1792485967");
+}
+
+// `factory_search`: the tool over the two arguments that say what to search,
+// `issue` and `ids`, and the two that say how far to read, `files` and `limit`.
+// It resolves its sessions as `factory_log` does, holds the same two places,
+// and answers the matches of the search beside it and, when the reading stops,
+// the place it stopped at.
+
+// The arguments of a call by issue, which `ids` of a test replace.
+fn by_issue(text: &str) -> Value {
+    json!({"text": text, "issue": 7})
+}
+
+#[test]
+fn the_tool_searches_the_sessions_of_an_issue() {
+    let _t = turn();
+    let (a, b, other) = (
+        record("work", 7, &[("transcript", &transcript(7))]),
+        record("work", 7, &[("err", &format!("{}.err", transcript(7)))]),
+        record("work", 8, &[("transcript", &transcript(8))]),
+    );
+    let env = Search::new(
+        "tool_issue",
+        &[a.clone(), b.clone(), other.clone()],
+        &[
+            (&transcript(7), b"the pids limit was hit here\n"),
+            (
+                &format!("{}.err", transcript(7)),
+                b"a second hit in the error output\n",
+            ),
+            (&transcript(8), b"a hit on another issue\n"),
+        ],
+    );
+    let out = env.searched(by_issue("hit"));
+    assert_eq!(out["api"], 1);
+    assert_eq!(out["days"], 30);
+    assert_eq!(out["stale"], false);
+    assert_eq!(out["sessions"], 2, "{out}");
+    let m = out["matches"].as_array().unwrap();
+    assert_eq!(m.len(), 2, "{out}");
+    assert_eq!(m[0]["id"], id_of(&a));
+    assert_eq!(m[0]["file"], "transcript");
+    assert_eq!(m[0]["line"], "the pids limit was hit here\n");
+    assert_eq!(m[1]["id"], id_of(&b));
+    assert_eq!(m[1]["file"], "err");
+    assert!(out.get("next").is_none(), "{out}");
+    // Nothing of the issue the call did not name is in the answer.
+    assert!(!text_of(&out).contains(&id_of(&other)), "{out}");
+    // The offset of a match is one to give `factory_log` for that log.
+    let at = m[0]["offset"].as_u64().unwrap();
+    let piece = env.plain(&id_of(&a), json!({"file": "transcript", "offset": at}));
+    assert_eq!(piece["text"], "the pids limit was hit here\n");
+}
+
+#[test]
+fn the_tool_searches_the_sessions_it_is_given_by_id() {
+    let _t = turn();
+    // The snapshot answers newest first, so the three records are stamped a
+    // thousand seconds apart from the one instant of the run.
+    let (env, recs) = Search::with(
+        "tool_ids",
+        &[
+            record_at("work", 7, start(), &[("transcript", &transcript(7))]),
+            record_at(
+                "plan",
+                7,
+                start() - 1000,
+                &[("progress", &format!("plan-7-{STAMP}.jsonl"))],
+            ),
+            record_at("work", 9, start() - 2000, &[("transcript", &transcript(9))]),
+        ],
+        &[
+            (
+                &transcript(7),
+                b"the plan of the run hit one step\nanother hit of the run\n",
+            ),
+            (
+                &format!("plan-7-{STAMP}.jsonl"),
+                b"the plan hit its second step\n",
+            ),
+            (&transcript(9), b"a hit of a session no id named\n"),
+        ],
+    );
+    let (a, b, other) = (recs[0].clone(), recs[1].clone(), recs[2].clone());
+    let out = env.searched(json!({
+        "text": "hit",
+        "ids": [id_of(&b), id_of(&a)],
+    }));
+    assert_eq!(out["sessions"], 2, "{out}");
+    let m = out["matches"].as_array().unwrap();
+    // The snapshot's own order, not the order of the ids: the work session's two
+    // lines first, then the planning session's one.
+    assert_eq!(m.len(), 3, "{out}");
+    assert_eq!(m[0]["id"], id_of(&a));
+    assert_eq!(m[1]["id"], id_of(&a));
+    assert_eq!(m[2]["id"], id_of(&b));
+    assert!(!text_of(&out).contains(&id_of(&other)), "{out}");
+    // One session of the two, named alone, and a name given twice is one
+    // reading: the matches of a session are answered once, however often its
+    // id is given - the two lines of its transcript, and not two of each.
+    let once = env.searched(json!({
+        "text": "hit",
+        "ids": [id_of(&a), id_of(&a)],
+        "files": ["transcript"],
+    }));
+    assert_eq!(once["sessions"], 1, "{once}");
+    assert_eq!(once["matches"].as_array().unwrap().len(), 2, "{once}");
+    // `files` narrows the search to the words it names: of the three matches
+    // above, the one read from the planning session's progress log.
+    let one = env.searched(json!({
+        "text": "hit",
+        "ids": [id_of(&a), id_of(&b)],
+        "files": ["progress"],
+    }));
+    let m = one["matches"].as_array().unwrap();
+    assert_eq!(m.len(), 1, "{one}");
+    assert_eq!(m[0]["file"], "progress");
+    assert_eq!(m[0]["id"], id_of(&b), "{one}");
+    // `limit` says how many matches come back - one here, of the three - and
+    // the rest of the sessions follows from the `next` the answer gives.
+    let few = env.searched(json!({
+        "text": "hit",
+        "ids": [id_of(&a), id_of(&b)],
+        "limit": 1,
+    }));
+    assert_eq!(few["matches"].as_array().unwrap().len(), 1, "{few}");
+    assert_eq!(few["next"]["id"], few["matches"][0]["id"], "{few}");
+    assert_eq!(few["next"]["file"], "transcript", "{few}");
+    assert_eq!(few["next"]["offset"], 33, "{few}");
+    // The way on reads the log the stop named, from its offset, and holds the
+    // line that follows the one the answer above holds: no line of the log is
+    // in both answers.
+    let on = env.on(
+        json!({"text": "hit", "ids": [id_of(&a), id_of(&b)]}),
+        &recs,
+        &few["next"],
+    );
+    assert_eq!(on["matches"].as_array().unwrap().len(), 1, "{on}");
+    assert_eq!(on["matches"][0]["id"], id_of(&a), "{on}");
+    assert_eq!(on["matches"][0]["offset"], 33, "{on}");
+    assert_eq!(on["matches"][0]["line"], "another hit of the run\n", "{on}");
+    assert!(on.get("next").is_none(), "{on}");
+    let offs = few["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(on["matches"].as_array().unwrap())
+        .map(|m| m["offset"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(offs, vec![0, 33], "{few} {on}");
+}
+
+#[test]
+fn issue_and_ids_together_or_neither_are_tool_errors() {
+    let _t = turn();
+    // A session of the issue the calls name, and one of another, so an answer of
+    // nothing for 42 is the answer of an issue with no session and not the answer
+    // of a search that read nothing at all.
+    let env = Search::new(
+        "tool_args",
+        &[
+            record("work", 7, &[("transcript", &transcript(7))]),
+            record("work", 8, &[("transcript", &transcript(8))]),
+        ],
+        &[
+            (&transcript(7), b"the pids limit was hit here\n"),
+            (&transcript(8), b"a hit of another issue\n"),
+        ],
+    );
+    // The id of the session the snapshot holds, read back as its caller has it:
+    // `now()` moves between two calls of `record`, so the id a test names is one
+    // it read out of the snapshot and not one it wrote itself.
+    let id = env.records()[0]["id"].as_str().unwrap().to_string();
+    for args in [
+        // Both of the two that say what to search, and neither of them.
+        json!({"text": "hit", "issue": 7, "ids": [id.clone()]}),
+        json!({"text": "hit"}),
+        // The words of the other arguments, in the shapes that are not theirs.
+        json!({"issue": 7}),
+        json!({"text": "hi", "issue": 7}),
+        json!({"text": "x".repeat(201), "issue": 7}),
+        json!({"text": "hit", "issue": 0}),
+        json!({"text": "hit", "issue": "7"}),
+        json!({"text": "hit", "ids": ["../x"]}),
+        json!({"text": "hit", "ids": [12]}),
+        json!({"text": "hit", "ids": "work-7-1792485967"}),
+        json!({"text": "hit", "ids": ["work-7-261021100000"]}),
+        json!({"text": "hit", "issue": 7, "files": ["nope"]}),
+        json!({"text": "hit", "issue": 7, "files": "transcript"}),
+        json!({"text": "hit", "issue": 7, "limit": 0}),
+        json!({"text": "hit", "issue": 7, "limit": 201}),
+        json!({"text": "hit", "issue": 7, "bytes": 1024}),
+    ] {
+        let why = env.refused(args.clone());
+        assert!(!why.is_empty(), "{args} was refused by nothing");
+    }
+    // The two that say what to search are refused whichever way they are put
+    // together, and the answer of a good call is an answer of matches, so the
+    // refusals above are not the shape of every answer.
+    assert!(env
+        .refused(json!({"text": "hit", "issue": 7, "ids": [id.clone()]}))
+        .starts_with("give issue or ids, not both"));
+    assert!(env
+        .refused(json!({"text": "hit"}))
+        .starts_with("give issue or ids"));
+    // Bytes that are not an object at all are a refusal of the arguments, not a
+    // panic: `factory_log` refuses them by indexing, which reads no member of
+    // them, and a client that sends `"arguments": null` gets a tool error.
+    for args in [
+        json!("hit"),
+        json!(42),
+        json!(true),
+        json!(["text"]),
+        json!(null),
+    ] {
+        let why = env.refused_at(args.clone());
+        assert!(
+            why.starts_with("arguments are an object"),
+            "{args} answered: {why}"
+        );
+    }
+    // An id of no session of the window names the id it could not find, as the
+    // other session tools do.
+    let why = env.refused(json!({"text": "hit", "ids": ["plan-42-1792485967"]}));
+    assert!(
+        why.starts_with("no session plan-42-1792485967 in the last 30 days"),
+        "{why}"
+    );
+    // Of an issue with no session in the window, an answer of nothing: there is
+    // no file to read, and the tool has no reason to refuse.
+    let out = env.searched(json!({"text": "hit", "issue": 42}));
+    assert_eq!(out["matches"], json!([]), "{out}");
+    assert_eq!(out["sessions"], 0, "{out}");
+}
+
+// The tool takes `factory_log`'s two places at a time, and holds the one it
+// took until its answer is dropped. A third call meanwhile is the error the
+// log reader gives.
+#[test]
+fn a_third_search_waits_as_a_third_log_does() {
+    let _t = turn();
+    let s = record("work", 7, &[("transcript", &transcript(7))]);
+    let env = Search::new(
+        "tool_two",
+        &[s],
+        &[(&transcript(7), b"the pids limit was hit here\n")],
+    );
+    let (a, b) = (acquire().unwrap(), acquire().unwrap());
+    assert_eq!(
+        env.refused(by_issue("hit")),
+        "two logs are being sent; try again in a few seconds"
+    );
+    drop(a);
+    drop(b);
+    assert_eq!(
+        env.searched(by_issue("hit"))["matches"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // Through the protocol, as a client asks it: the answer keeps its place
+    // until it is written, so a search that holds one leaves one for the next.
+    let k = "abcdefghijklmnopqrstuvwxyz012345";
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "factory_search",
+        "arguments": {"text": "hit", "issue": 7},
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+    }})
+    .to_string();
+    let auth = format!("Bearer {k}");
+    let headers = [
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", "2026-07-28"),
+        ("Mcp-Method", "tools/call"),
+        ("Mcp-Name", "factory_search"),
+    ];
+    let req = Request {
+        method: "POST",
+        headers: headers
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect(),
+        body: body.as_bytes(),
+    };
+    let r = handle(&req, &parse_keys(k).unwrap(), &env.dirs, "v9.9.9");
+    let v: Value = serde_json::from_slice(&r.body).unwrap();
+    assert_eq!(v["result"]["structuredContent"]["api"], 1);
+    assert_eq!(
+        v["result"]["structuredContent"]["matches"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let other = acquire().expect("one place left");
+    assert!(acquire().is_none(), "the answer gave up its place");
+    drop(other);
+    drop(r);
+    let (a, b) = (acquire(), acquire());
+    assert!(a.is_some() && b.is_some(), "the place was not freed");
+}
+
+// The text a search serves is masked as the log reader masks it, so a secret
+// the mask takes out is in no answer of the tool either.
+#[test]
+fn a_search_of_the_tool_masks_what_the_log_reader_masks() {
+    let _t = turn();
+    let secret = token();
+    let log = format!(
+        "pushed with {secret}\nPASSWORD=hunter2\nread at {}:8086\nthe pids limit was hit\n",
+        ip([10, 1, 2, 3])
+    );
+    let s = record("work", 7, &[("transcript", &transcript(7))]);
+    let env = Search::new("tool_mask", &[s], &[(&transcript(7), log.as_bytes())]);
+    for want in ["hit", "pushed with"] {
+        let out = env.searched(json!({"text": want, "issue": 7}));
+        assert_eq!(out["matches"].as_array().unwrap().len(), 1, "{out}");
+        for s in secrets() {
+            assert!(!text_of(&out).contains(&s), "{s} in {out}");
+        }
+    }
+    for want in [&secret, "hunter2", "u:pw@", &ip([10, 1, 2, 3])] {
+        let out = env.searched(json!({"text": want, "issue": 7}));
+        assert_eq!(out["matches"], json!([]), "{want} found in {log}");
+    }
 }

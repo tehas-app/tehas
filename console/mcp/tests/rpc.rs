@@ -156,7 +156,7 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["ttlMs"], 30000);
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
-    assert_eq!(res["tools"].as_array().unwrap().len(), 11);
+    assert_eq!(res["tools"].as_array().unwrap().len(), 12);
 }
 
 #[test]
@@ -188,6 +188,33 @@ fn a_tool_error_is_a_result_that_names_the_problem() {
         .as_str()
         .unwrap()
         .contains("stage"));
+}
+
+// A `tools/call` whose arguments are not an object of arguments at all: the
+// server answers a tool error, as it does for a bad argument of a tool, and
+// does not unwind the request. `factory_log` indexes its arguments, which reads
+// nothing of a string or a number, and `factory_search` checks their shape.
+#[test]
+fn arguments_that_are_not_an_object_are_a_tool_error_not_a_crash() {
+    for arguments in [json!("hit"), json!(42), json!(true), json!(""), json!(null)] {
+        for name in ["factory_search", "factory_log"] {
+            let r = modern("tools/call", json!({"name": name, "arguments": arguments}));
+            assert_eq!(r.status, 200, "{name} {arguments}");
+            let res = &json_of(&r)["result"];
+            assert_eq!(res["isError"], true, "{name} {arguments}: {res}");
+            assert!(!res["content"][0]["text"].as_str().unwrap().is_empty());
+        }
+    }
+    // The legacy handshake, whose body is the only one whose name reaches the
+    // log, answers the same way.
+    let r = legacy(
+        Some(1),
+        "tools/call",
+        json!({"name": "factory_search", "arguments": "hit"}),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(json_of(&r)["result"]["isError"], true);
+    assert_eq!(r.tool.as_deref(), Some("factory_search"));
 }
 
 #[test]
@@ -419,7 +446,7 @@ fn a_legacy_client_initializes_and_calls_tools() {
         json!({})
     );
     let list = json_of(&legacy(Some(3), "tools/list", json!({})));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 11);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 12);
     let call = json_of(&legacy(
         Some(4),
         "tools/call",
