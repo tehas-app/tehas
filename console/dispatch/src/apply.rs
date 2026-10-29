@@ -33,8 +33,12 @@ pub struct Writer {
     pub docker: String,
     /// The store's calls, journal and records.
     pub calls: Calls,
-    /// The poll's row, from poll-begin: what each action names.
+    /// The poll's row, from poll-begin: what each action names. 0 until the
+    /// first write begins it.
     pub poll_at: i64,
+    /// The store was asked for the poll's row and gave no time for it: the
+    /// poll says so once, in the line its whole owes, where apply() ends.
+    pub row_not_begun: bool,
     /// The read the actions rest on.
     pub before: i64,
     pub bound: Duration,
@@ -145,6 +149,16 @@ impl Writer {
                 out.exit = Some(rc);
                 return out;
             }
+        }
+        // The store was asked for the poll's row and gave no time for it, so
+        // no write of it was made: the poll says that once, and the lines the
+        // refused writes left name the journal's verb, which is not what
+        // happened. They go, and this one stands.
+        if self.row_not_begun {
+            let refused = "the journal could not record a write on #";
+            out.log.retain(|l| !l.contains(refused));
+            out.log
+                .push("WARN: the state store began no poll row, so no write was made".to_string());
         }
         out
     }
@@ -272,11 +286,19 @@ impl Writer {
             json!({"sha256": sum, "bytes": b.len()})
         });
         let call = json!({"repo": self.repo, "gh": args, "input": input});
-        // The poll's row, begun with its first write: a store that cannot
-        // begin it records, and so makes, no write this poll.
+        // The first write asks for the poll's row. A store that cannot begin
+        // it records, and so makes, no write this poll: an answer with no time
+        // of its own is refused the same way, since 0 is no row. Every write
+        // asks again while no row stands, and the poll says it once: apply().
         if self.poll_at == 0 {
             match self.calls.store(&["poll-begin"]) {
-                Ok(v) => self.poll_at = v.get("at").and_then(Value::as_i64).unwrap_or(0),
+                Ok(v) => match v.get("at").and_then(Value::as_i64) {
+                    Some(at) if at > 0 => self.poll_at = at,
+                    _ => {
+                        self.row_not_begun = true;
+                        return Wrote::Unrecorded;
+                    }
+                },
                 Err(_) => return Wrote::Unrecorded,
             }
         }
