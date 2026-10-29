@@ -215,9 +215,26 @@ if ! target=$(tehas_rukas_target); then
 fi
 head=${target%% *} what=${target#* }
 
+# The pi-rukas version beside the pages, as v<version> in fun/rukas-version.txt,
+# for their footers. Only on a host, where fun/ is beside sandbox/: a build run
+# from the checkout writes nothing. An answer with no version removes the file.
+rukas_version() { # <capabilities answer>
+  local to=$here/../fun/rukas-version.txt v
+  [ "$lib" = "$here/../lib" ] && [ -d "$here/../fun" ] || return 0
+  v=$(jq -r '.version | strings' 2>/dev/null <<<"$1") || v=""
+  if [[ ! $v =~ ^[0-9]{1,6}(\.[0-9]{1,6}){1,3}$ ]]; then
+    rm -f "$to"
+  elif [ "$(cat "$to" 2>/dev/null)" != "v$v" ]; then
+    { echo "v$v" >"$to.new" && mv -f "$to.new" "$to"; } || rm -f "$to.new"
+  fi
+}
+
 if [ "$mode" != build ]; then
   have=$(docker image inspect --format '{{index .Config.Labels "tehas.rukas"}}' "$current" 2>/dev/null) || have=""
   if [ "$have" = "$head" ]; then
+    if [ "$mode" = if-moved ]; then
+      rukas_version "$(docker run --rm --init "$current" /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null)"
+    fi
     echo "pi-rukas: $current is on $head, $what"
     exit 0
   fi
@@ -347,6 +364,7 @@ docker build \
   -t "$image:$stamp" \
   -f "$uid_recipe" "$here"
 docker tag "$image:$stamp" "$current"
+rukas_version "$caps"
 # The uid tag names the image cycles run, so the instance's own layer above
 # moves it onto itself when there is one, and a layer that does not build or does
 # not stand on this build's image leaves the tag where this line put it: the host
