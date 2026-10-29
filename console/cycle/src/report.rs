@@ -231,7 +231,6 @@ pub fn park_marker(
     cause: &str,
     provider: bool,
 ) -> String {
-    use sha2::{Digest, Sha256};
     let low = |s: &str| {
         cut(
             &kept(s, |c| {
@@ -241,8 +240,7 @@ pub fn park_marker(
         )
     };
     let s = if step == "-" { "" } else { step };
-    let sig = Sha256::digest(format!("{step}|{cap}|{park_reason}|{kind}|{cause}").as_bytes());
-    let sig: String = sig.iter().map(|b| format!("{b:02x}")).collect();
+    let sig = tehas_core::question::park_sig(step, cap, park_reason, kind, cause);
     format!(
         "<!-- tehas:park issue={issue} step={} kind={} provider={} sig={sig} -->",
         low(s),
