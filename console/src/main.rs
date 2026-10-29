@@ -70,12 +70,19 @@
 //! answer says, for tehas tidy and tehasbot status (lib/shipped.sh holds the names
 //! of these verbs and makes the call), see src/shipped.rs.
 //!
+//!   console forge labels|label-state|approval|add-label|remove-label ...
+//!
+//! The forge as a command bash can call: an issue's labels, the newest event of
+//! one label, who applied the label that lets a cycle start, and a label put on
+//! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
 mod clean;
 mod export;
 mod flags;
+mod forge;
 mod notice;
 mod plan;
 mod preview;
@@ -264,6 +271,7 @@ fn main() -> ExitCode {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
+            Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
