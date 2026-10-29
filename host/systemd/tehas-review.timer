@@ -1,0 +1,10 @@
+[Unit]
+Description=Tehas: run the review loop once a week
+
+[Timer]
+# By the clock, so that restarting the timer does not start a run.
+OnCalendar=Mon *-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

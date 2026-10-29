@@ -1,0 +1,9 @@
+[Unit]
+Description=Tehas: one run of the review loop, reads the branch since the last review
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c ". %h/tehas/env.sh && exec %h/tehas/bin/tehasbot review >> %h/tehas/logs/review-timer.log 2>&1"
+# A review is one headless turn: TEHAS_PLAN_TIMEOUT bounds it (7200 s by
+# default), and the hour after that is for the clone, the mask and the filing.
+TimeoutStartSec=3h
