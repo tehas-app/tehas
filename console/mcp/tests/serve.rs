@@ -824,6 +824,10 @@ fn a_served_log_masks_the_private_names_given() {
 // factory_park through the server: the bearer key, the snapshot and the
 // result log, and the private names given masked out of the check lines.
 fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
+    served_park_of(name, extra, issue, None)
+}
+
+fn served_park_of(name: &str, extra: &[&str], issue: u64, result: Option<&str>) -> Value {
     let root = std::env::temp_dir().join(format!("mcp-serve-park-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let (live, snap, logs) = (root.join("live"), root.join("mcp"), root.join("logs"));
@@ -831,7 +835,12 @@ fn served_park(name: &str, extra: &[&str], issue: u64) -> Value {
         std::fs::create_dir_all(d).unwrap();
     }
     let file = "work-7-261029-085206.jsonl.result.json";
-    std::fs::copy(Path::new(&fixture("park")).join(file), logs.join(file)).unwrap();
+    match result {
+        Some(text) => std::fs::write(logs.join(file), text).unwrap(),
+        None => {
+            std::fs::copy(Path::new(&fixture("park")).join(file), logs.join(file)).unwrap();
+        }
+    }
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -889,6 +898,23 @@ fn a_served_park_masks_the_private_names_given() {
         r.to_string().contains("issue 8 has no stopped work run"),
         "{r}"
     );
+}
+
+// causeClass is one word of the runner's, and a private name is one word too.
+#[test]
+fn a_served_park_masks_a_private_name_in_every_text() {
+    let result = json!({"issues": [{"issue": 7, "causeClass": "lab-box",
+        "causeReason": "ran on lab-box"},], "error": {"code": "lab-box",
+        "message": "died on lab-box"}})
+    .to_string();
+    let r = served_park_of("private-word", &["--private", "lab-box"], 7, Some(&result));
+    let park = &r["structuredContent"];
+    assert_eq!(park["result"], "read", "{r}");
+    assert_eq!(park["causeReason"], "ran on [private name]", "{r}");
+    assert_eq!(park["error"], "died on [private name]", "{r}");
+    assert!(park.get("causeClass").is_none(), "{r}");
+    assert!(park.get("errorCode").is_none(), "{r}");
+    assert!(!r.to_string().contains("lab-box"), "{r}");
 }
 
 #[test]

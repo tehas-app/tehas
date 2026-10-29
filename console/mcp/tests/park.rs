@@ -416,11 +416,142 @@ fn the_answer_is_its_schema() {
     s["parkReason"] = json!("x-y");
     s["failureCause"] = json!("self-killed:timeout");
     s["failedStep"] = json!("develop");
+    s["forksRefused"] = json!(5);
+    s["oomKills"] = json!(1);
     let env = Env::new("schema", &[s]);
+    let mut result: Value =
+        serde_json::from_str(&std::fs::read_to_string(env.dirs.logs.join(RESULT)).unwrap())
+            .unwrap();
+    result["error"] = json!({"code": "crash", "message": "the runner process died"});
+    env.write_log(RESULT, &result.to_string());
     let out = env.call(json!({"issue": 7})).unwrap();
     let got: BTreeSet<String> = out.as_object().unwrap().keys().cloned().collect();
     // checksCut needs more than 20 lines; the bound test shows it.
     let mut all = got.clone();
     all.insert("checksCut".into());
     assert_eq!(all, want);
+}
+
+const CRASH: &str = "work-7-261029-102603.jsonl.result.json";
+
+// The run of #943 on a host: the runner died, so its reason is the result's
+// own error and not an issue's failure, and the snapshot counted the refused
+// starts of a process its park comment states.
+fn crashed(started: i64) -> Value {
+    json!({
+        "id": format!("work-7-{started}"), "kind": "work", "issue": 7,
+        "started": iso(started), "ended": iso(started + 5185),
+        "outcome": "parked", "status": "running", "exitCode": 30,
+        "lastStep": "develop", "forksRefused": 5, "oomKills": 0,
+        "providerOutage": false,
+        "logs": [{"word": "result", "name": CRASH, "bytes": 1838}],
+    })
+}
+
+#[test]
+fn a_crashed_run_answers_the_runners_error_and_the_refused_starts() {
+    let env = Env::new("crash", &[crashed(now() - 7200)]);
+    env.write_log(
+        CRASH,
+        &std::fs::read_to_string(fixture().join(CRASH)).unwrap(),
+    );
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["result"], "read");
+    assert_eq!(out["outcome"], "parked");
+    assert_eq!(out["status"], "running");
+    assert_eq!(out["errorCode"], "crash");
+    assert_eq!(
+        out["error"],
+        "the runner process died with SIGABRT; each issue is projected from its state file"
+    );
+    assert_eq!(out["forksRefused"], 5);
+    assert!(out.get("oomKills").is_none(), "{out}");
+    let text = out.to_string();
+    for bad in ["stateFile", "work-state", "pidsMax", "/home/x"] {
+        assert!(!text.contains(bad), "{bad} in {text}");
+    }
+}
+
+#[test]
+fn the_runners_error_is_bounded_and_belongs_to_the_result_of_the_entry() {
+    let t = now() - 3600;
+    let mut s = crashed(t);
+    s["oomKills"] = json!(2);
+    s["forksRefused"] = json!("5");
+    let env = Env::new("crash-bounded", &[s]);
+    let long = format!(
+        "driver state and state file disagree\n{} token ghp_{}",
+        "x".repeat(5000),
+        "a".repeat(30)
+    );
+    env.write_log(
+        CRASH,
+        &json!({"issues": [{"issue": 7}], "error": {"code": "state-diverged", "message": long}})
+            .to_string(),
+    );
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["errorCode"], "state-diverged");
+    let e = out["error"].as_str().unwrap();
+    assert!(
+        e.starts_with("driver state and state file disagree x"),
+        "{e}"
+    );
+    assert_eq!(e.chars().count(), 400);
+    assert_eq!(out["oomKills"], 2);
+    assert!(out.get("forksRefused").is_none(), "{out}");
+
+    // A code that is not one word, or an error that is not an object.
+    for error in [
+        json!({"code": "Two Words", "message": 7}),
+        json!({"code": 7, "message": ["x"]}),
+        json!("crash"),
+    ] {
+        env.write_log(
+            CRASH,
+            &json!({"issues": [{"issue": 7}], "error": error}).to_string(),
+        );
+        let out = env.call(json!({"issue": 7})).unwrap();
+        assert_eq!(out["result"], "read");
+        assert!(out.get("errorCode").is_none(), "{out}");
+        assert!(out.get("error").is_none(), "{out}");
+    }
+
+    // A file of two results: the error of the first is not the last run's.
+    env.write_log(
+        CRASH,
+        &format!(
+            "{}\n{}\n",
+            json!({"issues": [{"issue": 7}], "error": {"code": "crash", "message": "OLD"}}),
+            json!({"issues": [{"issue": 7, "causeReason": "NEW"}]})
+        ),
+    );
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(out["causeReason"], "NEW");
+    assert!(out.get("error").is_none(), "{out}");
+}
+
+#[test]
+fn a_check_line_the_runner_cut_or_quoted_is_given_once() {
+    let t = now() - 3600;
+    let env = Env::new("dedupe", &[parked(t)]);
+    // As #959 and #895 have them on a host: the runner's extract cuts the
+    // evidence line, or quotes it after a prefix of its own.
+    let full = "verify command failed: FAIL  shellcheck and the shell tests | test.sh: failed checks (1), not run (0) and no specific failing line could be extracted, see the raw output";
+    let drain = "FAILED: test/drain_test.sh: nothing running: expected '0', got '78'";
+    env.write_log(
+        RESULT,
+        &json!({"issues": [{"issue": 7,
+            "causeEvidence": [&full[..120], format!("verify command failed in the tree: {drain}")],
+            "failure": {"evidence": format!("{full}\n{drain}\nFAIL: another")}}]})
+        .to_string(),
+    );
+    let out = env.call(json!({"issue": 7})).unwrap();
+    assert_eq!(
+        out["checks"],
+        json!([
+            full,
+            format!("verify command failed in the tree: {drain}"),
+            "FAIL: another"
+        ])
+    );
 }
