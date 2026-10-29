@@ -2,7 +2,7 @@
 //! versions, for the dashboard's report and for a program that fetches the
 //! database. All of tehas's SQL is here; the bash commands only call this.
 //!
-//!   analytics run <issue> --facts <file> [--image <id>]
+//!   analytics run <issue> --facts <file> [--image <id>] [--image-built <time>]
 //!                 [--rukas-image <commit>] [--oom <n>] [--forks <n>]
 //!     Records the run of the issue that ended last: its row in runs, its
 //!     steps and its roles, from the facts its caller wrote to <file> (the
@@ -13,7 +13,8 @@
 //!     image the container started from (sha256:<64 hex>), the pi-rukas
 //!     commit of its label (7 to 40 hex), and how many processes were killed
 //!     for memory and how many forks were refused. A value of another shape
-//!     is a usage error.
+//!     is a usage error. --image-built is when the image was built, as docker
+//!     prints .Created; one that cannot be read is left out.
 //!   analytics event <issue> <event> [--at <epoch seconds>]
 //!     Records an event of the issue, the first time only. The events are
 //!     ready, started, ended, awaiting, merged, closed and stopped. --at is
@@ -21,13 +22,14 @@
 //!     the start, with the time tehas:ready was accepted. A time more than a
 //!     minute ahead of now is a usage error.
 //!   analytics plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>]
+//!                  [--image <id>] [--image-built <time>]
 //!     Records the planning turn of the issue that ended: its row in runs,
 //!     kind plan, from its record, which its caller wrote to <file>, and the
 //!     turn's output (plan.rs lists both), with no usage.
 //!     lib/planning.sh calls it as plan_finish begins, before the record is
 //!     rewritten. <rc> is how the turn's unit ended: its exit status, or
-//!     interrupted, not-started or not-readable. The commit is that of the
-//!     sandbox image's label. A turn recorded again keeps its first row.
+//!     interrupted, not-started or not-readable. The commit, id and build
+//!     time are those of the sandbox image, read as for a work run. A turn recorded again keeps its first row.
 //!   analytics sample
 //!     Records one sample of the factory: the issues in line, running,
 //!     awaiting a merge and stopped, the cycles allowed, the pause, the hold
@@ -44,6 +46,11 @@
 //!     live/analytics.json. Among the figures, `gate`: report.rs's `gate`
 //!     says what it holds, and libexec/status publishes no key it does not
 //!     name, which `gate` is not.
+//!   analytics orders
+//!     Writes live/orders.json: the runs, seconds and tokens of each issue
+//!     live/status.json lists, for the front page's work order (orders.rs
+//!     says what is in it). libexec/status asks for it after it writes the
+//!     snapshot.
 //!   analytics sessions [--out <directory>]
 //!     Prints the runs of the last 30 days as JSON Lines, for the MCP server
 //!     (sessions.rs lists the keys): a header line, then one session per
@@ -90,6 +97,7 @@
 //! exists or cannot be made; 78 TEHAS_HOME is unset or not a directory.
 
 mod db;
+mod orders;
 mod outcomes;
 mod plan;
 mod publish;
@@ -115,7 +123,7 @@ use tehas_core::time::now;
 pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
 pub const LEDGER_MAX_LINE: usize = 100_000;
 
-const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
+const USAGE: &str = "usage: analytics run <issue> --facts <file> [--image <id>] [--image-built <time>] [--rukas-image <commit>] [--oom <n>] [--forks <n>] | plan <issue> --rc <rc> --facts <file> [--rukas-image <commit>] [--image <id>] [--image-built <time>] | event <issue> <event> [--at <epoch seconds>] | sample | prune | report [--json] | orders | sessions [--out <directory>] | outcomes [--tehas <version>] [--rukas <version>] [--since <day or time>] [--until <day or time>] [--by version|week] [--out <directory>] | export <file> [--json]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -148,6 +156,7 @@ pub enum Cmd {
     Prune,
     Report,
     ReportText,
+    Orders,
     Sessions(Option<PathBuf>),
     Outcomes(outcomes::Filter, Option<PathBuf>),
     Export(PathBuf, bool),
@@ -174,6 +183,7 @@ fn parse(args: &[String]) -> Option<Cmd> {
         [c] if c == "prune" => Some(Cmd::Prune),
         [c, f] if c == "report" && f == "--json" => Some(Cmd::Report),
         [c] if c == "report" => Some(Cmd::ReportText),
+        [c] if c == "orders" => Some(Cmd::Orders),
         [c, rest @ ..] if c == "sessions" => sessions_command(rest),
         [c, rest @ ..] if c == "outcomes" => outcome_command(rest),
         [c, f, rest @ ..] if c == "export" && !f.is_empty() && !f.starts_with('-') => {
@@ -274,6 +284,7 @@ fn facts(v: &str) -> Option<PathBuf> {
 // The options of run, each at most once, --facts required.
 fn given(args: &[String]) -> Option<run::Given> {
     let mut g = run::Given::default();
+    let mut built_seen = false;
     for pair in args.chunks(2) {
         let [flag, value] = pair else { return None };
         let v = value.as_str();
@@ -286,6 +297,10 @@ fn given(args: &[String]) -> Option<run::Given> {
                 is_hex(v, 7, 40).then_some(())?;
                 g.rukas_image = Some(v.to_string());
             }
+            "--image-built" if !built_seen => {
+                built_seen = true;
+                g.image_built = built(v);
+            }
             "--oom" if g.oom.is_none() => g.oom = Some(count(v)?),
             "--forks" if g.forks.is_none() => g.forks = Some(count(v)?),
             "--facts" if g.facts.is_none() => g.facts = Some(facts(v)?),
@@ -296,11 +311,21 @@ fn given(args: &[String]) -> Option<run::Given> {
     Some(g)
 }
 
-// The options of plan: --rc and --facts once and required, --rukas-image at
-// most once.
+// The image's build time as docker prints it (.Created). One that cannot be
+// read is left out, not refused: the run is recorded without it.
+fn built(v: &str) -> Option<i64> {
+    (v.len() <= 40)
+        .then(|| run::iso_ms(v))
+        .flatten()
+        .map(|ms| ms / 1000)
+}
+
+// The options of plan: --rc and --facts once and required, the others at most
+// once.
 fn plan_given(args: &[String]) -> Option<plan::Given> {
     let mut rc: Option<String> = None;
     let mut g = plan::Given::default();
+    let mut built_seen = false;
     for pair in args.chunks(2) {
         let [flag, value] = pair else { return None };
         let v = value.as_str();
@@ -316,6 +341,14 @@ fn plan_given(args: &[String]) -> Option<plan::Given> {
             "--rukas-image" if g.rukas_image.is_none() => {
                 is_hex(v, 7, 40).then_some(())?;
                 g.rukas_image = Some(v.to_string());
+            }
+            "--image" if g.image.is_none() => {
+                is_image(v).then_some(())?;
+                g.image = Some(v.to_string());
+            }
+            "--image-built" if !built_seen => {
+                built_seen = true;
+                g.image_built = built(v);
             }
             "--facts" if g.facts.is_none() => g.facts = Some(facts(v)?),
             _ => return None,
@@ -393,6 +426,7 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
             }
             Ok(())
         }
+        Cmd::Orders => orders::write(&home.join("live"), &conn, now),
         Cmd::Sessions(to) => {
             let lines = sessions::lines(&conn, home, now)
                 .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;

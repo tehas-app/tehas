@@ -66,7 +66,7 @@ t_stub systemctl 'cat "$T/failed-units" 2>/dev/null'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
-  printf '{"number":%s,"title":"t","url":"u","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
+  printf '{"number":%s,"title":"t","url":"u","createdAt":"2025-12-01T00:00:00Z","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
     "$1" "$2" "$2" "$label" "$3"
 }
 no_labels() { # number closedAt closer: as closed, with no labels field at all - a read that said nothing of them
@@ -91,7 +91,7 @@ one_shipped() {
   shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
 }
 issue() { # number label state
-  printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
+  printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"createdAt":"2025-12-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
   rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
@@ -295,7 +295,11 @@ shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')" \
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[21,20]"
-t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","number","title","updatedAt","url"]'
+t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","createdAt","number","title","updatedAt","url"]'
+t_eq "$(jq -c '.completed[0] | [.title, .url, .createdAt]' "$live/status.json")" '["t","u","2025-12-01T00:00:00Z"]'
+# The stub answers whatever it is asked, so the fields must be asked for.
+t_contains "$(t_calls gh)" "number title url createdAt updatedAt closedAt labels("
+t_contains "$(t_calls gh)" "--json number,title,url,state,labels,createdAt,updatedAt,closedAt"
 t_contains "$(jq -r .links.completed "$live/status.json")" "label%3Atehas%3Ashipped"
 t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc"
 # The count comes from the search for the label, whose answer says 0 here.
@@ -759,36 +763,6 @@ rm -f "$T/home/tehas/libexec/store"
 t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
-
-# A running cycle whose view has no startedAt is running now, so it is newer than
-# the last cycle that ended, whatever the missing figure would have read as. The
-# rule belongs to the jq of the report, so the case asks that rule directly and
-# the views it reads are written out: one last cycle that ended aborted, and the
-# cycles that run beside it. The two cases below cover the same readings through
-# the command, for the shapes the store can put on the disk.
-not_failed() { # <cycles> <last>: "true" when the report must not call it a failure
-  jq -rn --slurpfile running <(printf '%s' "$1") --slurpfile last <(printf '%s' "$2") '
-    $running[0] as $running | $last[0] as $last
-    | ($last != null and (($last.status // "") | IN("merged", "handoff") | not)
-       and ($running | map(select((.startedAt == null) or
-                                  (.startedAt >= ($last.updatedAt // 0)))) | length) == 0)
-      | not'
-}
-
-t_case "health: a cycle of no known start clears the failure of the last one"
-last_aborted='{"issue":12,"running":false,"status":"aborted","step":"develop",
-  "startedAt":1760000000,"updatedAt":1760000500}'
-running() { # <fields of one cycle>: the cycles of the view, that cycle alone
-  printf '[{"issue":14,"running":true,"status":"running","step":"plan",%s}]' "$1"
-}
-# Nothing runs: the failure stands. A cycle that started before the end stands
-# with it. A cycle that started after it clears it, and so does one whose start
-# the view does not carry, in either shape of the missing figure.
-t_eq "$(not_failed '[]' "$last_aborted")" "false"
-t_eq "$(not_failed "$(running '"startedAt":1760000200,"updatedAt":1760000700')" "$last_aborted")" "false"
-t_eq "$(not_failed "$(running '"startedAt":1760000600,"updatedAt":1760000700')" "$last_aborted")" "true"
-t_eq "$(not_failed "$(running '"updatedAt":1760000700')" "$last_aborted")" "true"
-t_eq "$(not_failed "$(running '"startedAt":null,"updatedAt":1760000700')" "$last_aborted")" "true"
 
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset

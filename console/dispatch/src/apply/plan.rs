@@ -285,7 +285,7 @@ impl Writer {
             return;
         }
         let facts = show.get("planning").map(plan_view).unwrap_or(Value::Null);
-        let commit = self.image_commit();
+        let image = image_facts(&self.image_line());
         // A new file only the tehas user reads, as mktemp makes it.
         use std::io::Write as _;
         use std::os::unix::fs::OpenOptionsExt;
@@ -315,37 +315,36 @@ impl Writer {
             "--rc".into(),
             rc.replace(' ', "-"),
         ];
-        if !commit.is_empty() {
-            args.extend(["--rukas-image".into(), commit]);
+        for (flag, v) in [
+            ("--rukas-image", image.commit),
+            ("--image", image.id),
+            ("--image-built", image.built),
+        ] {
+            if !v.is_empty() {
+                args.extend([flag.into(), v]);
+            }
         }
         self.analytics(&args, log);
         let _ = std::fs::remove_file(&path);
     }
 
-    /// tehas_rukas_commit: the sandbox image's pi-rukas commit, or nothing.
-    fn image_commit(&self) -> String {
+    /// What docker says of the sandbox image, one line, or nothing.
+    fn image_line(&self) -> String {
         let r = crate::read::run::run(
             &self.docker,
             &[
                 "image".into(),
                 "inspect".into(),
                 "--format".into(),
-                "{{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}}"
+                "{{index .Config.Labels \"tehas.rukas\"}}|{{index .Config.Labels \"tehas.rukas.images\"}}|{{.Id}}|{{.Created}}"
                     .into(),
                 self.host.image.clone(),
             ],
             std::time::Duration::from_secs(30),
         );
-        // As tehas_rukas_ask asks it: the commit, then whether it reads images.
-        let line = r.out.lines().next().unwrap_or("");
-        let c = line.split('|').next().unwrap_or("").to_string();
-        if r.ok()
-            && (7..=40).contains(&c.len())
-            && c.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            c
-        } else {
-            String::new()
+        match r.ok() {
+            true => r.out.lines().next().unwrap_or("").to_string(),
+            false => String::new(),
         }
     }
 
@@ -932,5 +931,73 @@ impl Writer {
         }
         self.plan_files_rm(n);
         true
+    }
+}
+
+/// The sandbox image as a planning turn's record names it.
+#[derive(Debug, Default, PartialEq)]
+struct ImageFacts {
+    commit: String,
+    id: String,
+    built: String,
+}
+
+/// Reads `<tehas.rukas>|<tehas.rukas.images>|<id>|<created>`. A commit or id
+/// of another shape is left out, and the time goes with the id; the
+/// analytics program reads the time and leaves out one it cannot read.
+fn image_facts(line: &str) -> ImageFacts {
+    let hex = |s: &str| s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    let mut f = line.split('|');
+    let commit = f.next().unwrap_or("");
+    let _images = f.next();
+    let id = f.next().unwrap_or("");
+    let built = f.next().unwrap_or("");
+    let mut out = ImageFacts::default();
+    if (7..=40).contains(&commit.len()) && hex(commit) {
+        out.commit = commit.to_string();
+    }
+    if id
+        .strip_prefix("sha256:")
+        .is_some_and(|h| h.len() == 64 && hex(h))
+    {
+        out.id = id.to_string();
+        if built.len() <= 40 && !built.is_empty() && !built.starts_with('-') {
+            out.built = built.to_string();
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::*;
+
+    #[test]
+    fn the_image_line_gives_commit_id_and_build_time() {
+        let id = format!("sha256:{}", "e".repeat(64));
+        assert_eq!(
+            image_facts(&format!("abcdef1|1|{id}|2026-10-29T14:44:16.5Z")),
+            ImageFacts {
+                commit: "abcdef1".into(),
+                id: id.clone(),
+                built: "2026-10-29T14:44:16.5Z".into(),
+            }
+        );
+        // An image built before the labels: no commit, still an id.
+        assert_eq!(image_facts(&format!("||{id}|2026-10-29T14:44:16Z")).id, id);
+        // The old two-field answer, and an id of another shape, give no id
+        // and so no time.
+        for line in [
+            "abcdef1|1".to_string(),
+            "abcdef1|1|sha256:short|2026-10-29T14:44:16Z".into(),
+            format!("abcdef1|1|{}|2026-10-29T14:44:16Z", "e".repeat(64)),
+            format!("abcdef1|1|sha256:{}|2026-10-29T14:44:16Z", "E".repeat(64)),
+        ] {
+            let f = image_facts(&line);
+            assert_eq!(f.commit, "abcdef1", "{line}");
+            assert!(f.id.is_empty() && f.built.is_empty(), "{line}");
+        }
+        assert_eq!(image_facts(&format!("xyz|1|{id}|-x")).built, "");
+        assert_eq!(image_facts(""), ImageFacts::default());
     }
 }

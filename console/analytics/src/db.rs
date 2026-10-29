@@ -250,6 +250,24 @@ pub fn event(conn: &Connection, issue: i64, event: &str, at: i64) -> rusqlite::R
     Ok(n == 1)
 }
 
+/// Keeps when an image was built, as `image:<id>` in meta rather than a
+/// column of runs, so the schema stays 2. An id names one build: the first
+/// time recorded stands, and every run of the image reads it, also one
+/// recorded before it was known.
+pub fn image_built(
+    conn: &Connection,
+    image: Option<&str>,
+    built: Option<i64>,
+) -> rusqlite::Result<()> {
+    if let (Some(image), Some(built)) = (image, built) {
+        conn.execute(
+            "INSERT OR IGNORE INTO meta (key, value) VALUES ('image:' || ?1, ?2)",
+            params![image, built.to_string()],
+        )?;
+    }
+    Ok(())
+}
+
 /// Deletes what is older than 365 days. A run is as old as its end. The
 /// events of an issue that started and has not ended stay past the cutoff
 /// while the start is less than a day older than it: no cycle runs a day, so
@@ -268,6 +286,11 @@ pub fn prune(conn: &Connection, now: i64) -> rusqlite::Result<()> {
         [cutoff, cutoff - DAY],
     )?;
     tx.execute("DELETE FROM samples WHERE at < ?1", [cutoff])?;
+    tx.execute(
+        "DELETE FROM meta WHERE key LIKE 'image:%'
+           AND substr(key, 7) NOT IN (SELECT image FROM runs WHERE image IS NOT NULL)",
+        [],
+    )?;
     // A database made when retention was shorter says what it is now.
     tx.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'retention_days' AND value <> ?1",

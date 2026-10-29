@@ -13,9 +13,14 @@ empty one above it.
 
 ### Changes
 
-- A drafted plan in a `tehas:plan` session offers only **Update this
-  issue** and **End this planning session**. **File as a new issue** stays
-  for `tehas:refine` sessions, which exist to file one (#1010).
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: a provider key written as a literal `apiKey` or `backupApiKey`
+  in `$HOME/.pi/agent/models.json`, where before it hid only the value of a
+  `TEHAS_MODEL_KEY_<NAME>` setting. The file is read once per run, as a host
+  file is read elsewhere: no link is followed, and over 1 MiB it is refused.
+  A missing, unreadable or malformed one adds nothing, and so does a value
+  that names a variable, holds white space, is under 8 or over 512 characters,
+  or is past the first 64 of the file (#986).
 
 ### Adopter action
 
@@ -24,6 +29,34 @@ None.
 ## v0.16.2 (2026-10-29)
 
 ### Changes
+
+- `tehas tidy` decides its label changes in the console. The names it takes
+  off, the answer of the search and which issue the read of what closed them
+  is asked about are `console tidy`'s (`console/src/tidy.rs`, with its Rust
+  tests beside the source); the command keeps the settings, the two searches
+  and the label edits, and went from 216 lines of bash to 183. Nothing changes
+  for users: the same labels come off, and `tidy --dry-run` says what it said
+  before (#956). The shell test now pins all nine names end to end, so the list
+  the console holds is the list a poll searches for, takes off and logs; the
+  manual names `tehas:refine` among them.
+- A drafted plan in a `tehas:plan` session offers only **Update this
+  issue** and **End this planning session**. **File as a new issue** stays
+  for `tehas:refine` sessions, which exist to file one (#1010).
+- Less bash: the lines and the `--json` object of `tehas status` and the
+  frame of `tehas top` are drawn by the console. `console status show|json`
+  and `console top frame` replace the jq of `lib/status.sh` and `lib/top.sh`,
+  with the same words, the same object and the same exit statuses (#888).
+- Less bash: the health file is built by the console. `console health
+  report` replaces the jq of `tehasbot health`, with the same checks, the same
+  `output` and the same file; the command keeps the store calls, the failed
+  units and the publish (#889).
+- The work order on the dashboard shows CREATED, CHANGED, CLOSED, RUNS,
+  TOKENS, TIME and ENERGY for each issue the snapshot lists, and leaves out a
+  figure it does not have instead of showing `-`. `analytics orders` writes
+  `live/orders.json` (runs, seconds and tokens per issue), which `tehasbot
+  status` runs before its report and removes when analytics is off; the
+  shipped list's query asks for title, URL and dates again (#994, #995, #996,
+  #997).
 
 - The gate's kept pass no longer misses a same-size edit made in the
   second of the last index write: its copy of the index keeps the index's

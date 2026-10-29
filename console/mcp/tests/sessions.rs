@@ -535,6 +535,7 @@ fn full_session(kind: &str, issue: i64, ago: i64) -> Value {
         ("tehasCommit", json!("abc")),
         ("rukasCommit", json!("def")),
         ("image", json!("i")),
+        ("imageBuilt", json!("2026-10-19T08:00:00Z")),
         ("resultSchema", json!(4)),
         ("input", json!(1)),
         ("output", json!(2)),
@@ -615,7 +616,7 @@ fn schema_matches_output() {
     let cases = [
         ("factory_sessions", json!({"limit": 1})),
         ("factory_session", json!({"id": a["id"]})),
-        ("factory_failures", json!({})),
+        ("factory_failures", json!({"by": "image"})),
     ];
     for (name, args) in cases {
         let out = env.call(name, args).unwrap();
@@ -1286,4 +1287,153 @@ fn the_storys_schema_names_every_field_of_an_answer() {
         panic!("{name}: {p} is in its schema and never comes out");
     }
     assert!(out["attempts"].is_array());
+}
+
+const IMG_A: &str = "sha256:aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111";
+const IMG_B: &str = "sha256:bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222";
+
+fn imaged(issue: i64, ago: i64, image: &str, extra: Value) -> Value {
+    let built = if image == IMG_A {
+        "2026-10-20T10:00:00Z"
+    } else {
+        "2026-10-25T10:00:00Z"
+    };
+    let mut s = sess("work", issue, ago, extra);
+    s["image"] = json!(image);
+    s["imageBuilt"] = json!(built);
+    s
+}
+
+#[test]
+fn a_summary_names_the_image_and_when_it_was_built() {
+    let env = Env::new(
+        "img-summary",
+        Some("a/b"),
+        &[
+            imaged(1, 10, IMG_A, json!({})),
+            sess("plan", 2, 20, json!({})),
+        ],
+    );
+    let out = env.call("factory_sessions", json!({})).unwrap();
+    let s = &out["sessions"];
+    assert_eq!(s[0]["image"], IMG_A);
+    assert_eq!(s[0]["imageBuilt"], "2026-10-20T10:00:00Z");
+    // A run of before images were recorded has neither.
+    assert!(s[1].get("image").is_none() && s[1].get("imageBuilt").is_none());
+}
+
+#[test]
+fn the_image_filter_matches_an_id_or_its_start() {
+    let all = [
+        imaged(1, 10, IMG_A, json!({})),
+        imaged(2, 20, IMG_B, json!({})),
+        imaged(3, 30, IMG_A, json!({})),
+        sess("work", 4, 40, json!({})),
+    ];
+    let env = Env::new("img-filter", Some("a/b"), &all);
+    let want = [
+        all[0]["id"].as_str().unwrap(),
+        all[2]["id"].as_str().unwrap(),
+    ];
+    for image in [IMG_A, &IMG_A[7..], &IMG_A[..19], &IMG_A[7..19]] {
+        let out = env
+            .call("factory_sessions", json!({"image": image}))
+            .unwrap();
+        assert_eq!(ids(&out), want, "{image}");
+    }
+    for bad in [
+        json!("sha256:"),
+        json!("aaaaaaaaaaa"),
+        json!("sha256:AAAAAAAAAAAA"),
+        json!(format!("{IMG_A}0")),
+        json!("sha256:aaaaaaaaaaaz"),
+        json!("../aaaaaaaaaaaa"),
+        json!(12),
+    ] {
+        assert!(
+            matches!(
+                env.call("factory_sessions", json!({"image": bad})),
+                Err(ToolError::BadArgs(_))
+            ),
+            "{bad}"
+        );
+    }
+}
+
+// Two builds of the same pi-rukas version, told apart by their image.
+#[test]
+fn failures_compare_two_builds_of_one_version() {
+    let rows = [
+        imaged(
+            1,
+            10,
+            IMG_B,
+            json!({"outcome": "failed", "failureKind": "verify", "failureCause": "c1"}),
+        ),
+        imaged(2, 20, IMG_B, json!({"outcome": "merged"})),
+        imaged(3, 30, IMG_B, json!({"outcome": "merged"})),
+        imaged(
+            4,
+            40,
+            IMG_A,
+            json!({"outcome": "failed", "failureKind": "cap", "failureCause": "c2"}),
+        ),
+        sess(
+            "work",
+            5,
+            50,
+            json!({"outcome": "failed", "rukasVersion": "v0.13.0"}),
+        ),
+    ];
+    let env = Env::new("img-failures", Some("a/b"), &rows);
+
+    let by_version = env.call("factory_failures", json!({})).unwrap();
+    let v = by_version["versions"].as_array().unwrap();
+    assert_eq!(v[0]["runs"], 4);
+    assert!(v[0].get("image").is_none());
+
+    let out = env
+        .call("factory_failures", json!({"by": "image"}))
+        .unwrap();
+    let v = out["versions"].as_array().unwrap();
+    assert_eq!(v.len(), 3);
+    assert_eq!(v[0]["rukasVersion"], "v0.14.0");
+    assert_eq!(v[0]["image"], IMG_B);
+    assert_eq!(v[0]["imageBuilt"], "2026-10-25T10:00:00Z");
+    assert_eq!(v[0]["runs"], 3);
+    assert_eq!(v[0]["outcomes"], json!({"failed": 1, "merged": 2}));
+    let a = v.iter().find(|p| p["image"] == IMG_A).unwrap();
+    assert_eq!(a["rukasVersion"], "v0.14.0");
+    assert_eq!(a["imageBuilt"], "2026-10-20T10:00:00Z");
+    assert_eq!(a["failureKinds"], json!({"cap": 1}));
+    // A run with no image on record is a group of its own, without one.
+    let none = v.iter().find(|p| p["rukasVersion"] == "v0.13.0").unwrap();
+    assert!(none.get("image").is_none() && none.get("imageBuilt").is_none());
+
+    let one = env
+        .call(
+            "factory_failures",
+            json!({"by": "image", "rukasVersion": "v0.14.0"}),
+        )
+        .unwrap();
+    assert_eq!(one["versions"].as_array().unwrap().len(), 2);
+    let commit = env
+        .call("factory_failures", json!({"rukasVersion": "v0.13.0"}))
+        .unwrap();
+    assert_eq!(commit["versions"][0]["runs"], 1);
+
+    for bad in [
+        json!({"by": "week"}),
+        json!({"by": 1}),
+        json!({"rukasVersion": ""}),
+        json!({"rukasVersion": "x".repeat(65)}),
+    ] {
+        assert!(
+            matches!(
+                env.call("factory_failures", bad.clone()),
+                Err(ToolError::BadArgs(_))
+            ),
+            "{bad}"
+        );
+    }
 }

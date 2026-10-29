@@ -295,28 +295,41 @@ Every poll that gets past the bot's login ends by running `libexec/tidy`,
 however the poll ends; the poll's exit status stays its own. It takes tehas's
 state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
-`tehas:ready` and `tehas:plan`. Not `tehas:shipped`, not
+`tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:prototype`). It makes one search, for the closed issues
+`tehas:next`, `tehas:prototype`). The list is the console's
+(`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
+comes off which issue and which issue the read below is asked about
+(`console tidy plan`): the command keeps the settings, the two searches and the
+edits, and hands the answer of the first to the console. It makes one search,
+for the closed issues
 that carry one of those labels, up to a hundred a poll, the most recently updated
 first, and gives it 60 seconds. It takes all of an issue's state labels off in
 one edit and logs `tidy #N: removed <labels>`. The names it takes off are the
-state labels above and no others, whatever the search sent back. An open issue is
+state labels above and no others, whatever the search sent back: the console
+drops every other name before the plan reaches the edit or the log. An open issue is
 never touched, and a closed one whose cycle still holds its lock on this host
 waits for that cycle. The control issue `TEHAS_CONTROL_ISSUE` names is left out
 of every edit: it is not work, whatever label it carries. To the issues it tidies
 that do not carry `tehas:shipped` it adds the label, in the same edit, when the
-last closed event of the issue is a merged pull request: one further GraphQL
+last closed event of the issue is a merged pull request, or, when that event
+names no pull request as its closer, when GitHub lists a merged pull request as
+closing the issue. That list is what GitHub derives from the text and the links
+of the issue, not what the close event recorded, so a pull request that merely
+names the issue in its text is on it. One further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
 [tehasbot status](#tehasbot-status-and-the-console) makes, and the same console
 verb decides its answer (`lib/shipped.sh`, `console/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
-closer the read answered as a person, an unmerged pull request, or nothing at
-all, keeps no label: the state labels still come off and the line says
+closer the read answered as a person or an unmerged pull request, and which
+GitHub lists no merged pull request as closing, keeps no label: the state labels
+still come off and the line says
 `WARN: tidy #N: no merged pull request was read as the closer, tehas:shipped was
-not added`. When the read itself failed or timed out, that line is said once for
+not added`, which covers both the closer that was read as unmerged and the
+closer the read could not name as a pull request. When the read itself failed or
+timed out, that line is said once for
 the whole poll as `WARN: tidy: the read of what closed these issues failed,
 tehas:shipped was not added for N issues`, so a search GitHub refused reads
 differently from a factory that shipped nothing. A dry run passes `--dry-run` and
@@ -2033,7 +2046,8 @@ snapshot: `generatedAt`, one key per section (`factory`, `queue`, `cycle`,
 the host section was computed from. A section whose source is missing,
 unreadable or too old to believe is `null`; the frame says so in one line and
 draws the rest. The factory line and the queue counts are the ones `tehas status`
-prints: both commands take them from `lib/status.sh`, so they cannot drift apart.
+prints: both commands take them from the console (`console/src/status.rs`), so
+they cannot drift apart.
 A section added to the snapshot appears in `--json` without anything else
 changing.
 
@@ -2385,8 +2399,13 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
 changed the queue, and a cycle when it ends.
-Completed means closed by a merged pull request, whatever labels the issue was
-left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
+Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
+and `closedAt`.
+Completed means closed by a merged pull request, by the close event's closer or
+by a merged pull request GitHub lists as closing the issue when the close event
+names none. That list is what GitHub derives from the text and the links of the
+issue, not what the close event recorded. Whatever labels the issue was left
+with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
 (`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` gives each issue its read finds shipped the label;
 `tehas tidy` is the one that logs the read, and both leave the control issue
@@ -2446,6 +2465,17 @@ than ten minutes old, so one poll that meets a locked database does not empty
 the dashboard's section, and is removed after that, so a database that keeps
 failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
 program is not installed, there is no file.
+
+Just before the report, `~/tehas/libexec/analytics orders` writes
+`~/tehas/live/orders.json`, what the runs of each issue in `status.json` spent,
+for the work order of the [factory floor](/):
+`{"orders": 1, "generatedAt": ..., "issues": {"962": {"runs": 3, "seconds": 5400, "tokens": 60800000}}}`.
+It counts work runs and planning turns for as far back as the database holds.
+`seconds` is the runs' own time and `tokens` their input, output and cache
+reads; either is left out when no run recorded it, and an issue with no run is
+not in the file. It names only issues `status.json` lists already. A call that
+fails is a line `WARN analytics orders: exit N` and leaves the file as it was.
+With `TEHAS_ANALYTICS=off` there is no file.
 
 The file is public, as `status.json` is. It holds counts, durations, token
 sums, version strings and the words of stop reasons and steps: no issue
@@ -2570,7 +2600,10 @@ bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
-`tehas status` prints the same file for a person.
+`tehas status` prints the same file for a person. The report is built by the
+console beside the command (`console health report`, `console/src/health.rs`);
+the command keeps the calls of the state store, the `systemctl --user --failed`
+call and the publish.
 
 `checks.pause` names the switches: `{flag: {at, reason}, label, lifted}`, with
 `flag` null when no flag is set, `label` whether `tehas:pause` is on the control
