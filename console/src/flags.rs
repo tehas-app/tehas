@@ -313,6 +313,24 @@ impl Reading {
 }
 
 impl Reading {
+    /// none, ok, expired or unreadable.
+    pub fn state(&self) -> &str {
+        &self.state
+    }
+
+    /// The value of one field as JSON text, when the reading has it.
+    pub fn json_of(&self, want: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == want)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// The reading as `flags limit read` prints it.
+    pub fn json(&self) -> String {
+        self.text()
+    }
+
     /// The printed value of one field, with a quoted string unquoted: what a
     /// reader of the object would take from it.
     fn field(&self, want: &str) -> String {

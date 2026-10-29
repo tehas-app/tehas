@@ -3,6 +3,7 @@
 //! written in, and a number keeps the text it was written with, so 0.10 is
 //! printed 0.10. serde_json does neither, and those lines were written in jq.
 
+use std::cmp::Ordering;
 use std::fmt::Write;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -171,6 +172,89 @@ impl J {
                 }
                 out.push('}');
             }
+        }
+    }
+}
+
+impl J {
+    fn rank(&self) -> u8 {
+        match self {
+            J::Null => 0,
+            J::Bool(false) => 1,
+            J::Bool(true) => 2,
+            J::Num(_) => 3,
+            J::Str(_) => 4,
+            J::Arr(_) => 5,
+            J::Obj(_) => 6,
+        }
+    }
+
+    /// jq's order of values: null, false, true, numbers, strings, arrays,
+    /// objects; an object by its sorted keys first, then by their values.
+    pub fn cmp(&self, other: &J) -> Ordering {
+        match (self, other) {
+            (J::Num(_), J::Num(_)) => {
+                let (a, b) = (self.as_f64().unwrap_or(0.0), other.as_f64().unwrap_or(0.0));
+                a.partial_cmp(&b).unwrap_or(Ordering::Equal)
+            }
+            (J::Str(a), J::Str(b)) => a.cmp(b),
+            (J::Arr(a), J::Arr(b)) => a
+                .iter()
+                .zip(b)
+                .map(|(x, y)| x.cmp(y))
+                .find(|o| o.is_ne())
+                .unwrap_or_else(|| a.len().cmp(&b.len())),
+            (J::Obj(a), J::Obj(b)) => {
+                let (mut ka, mut kb): (Vec<&String>, Vec<&String>) = (
+                    a.iter().map(|(k, _)| k).collect(),
+                    b.iter().map(|(k, _)| k).collect(),
+                );
+                ka.sort();
+                kb.sort();
+                ka.cmp(&kb).then_with(|| {
+                    ka.iter()
+                        .map(|k| self.get(k).cmp(other.get(k)))
+                        .find(|o| o.is_ne())
+                        .unwrap_or(Ordering::Equal)
+                })
+            }
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
+
+    /// The value as `jq` prints it without -c: two spaces a level.
+    pub fn pretty(&self) -> String {
+        let mut out = String::new();
+        self.pretty_into(&mut out, 0);
+        out
+    }
+
+    fn pretty_into(&self, out: &mut String, level: usize) {
+        let pad = |out: &mut String, n: usize| out.push_str(&"  ".repeat(n));
+        match self {
+            J::Arr(a) if !a.is_empty() => {
+                out.push_str("[\n");
+                for (i, v) in a.iter().enumerate() {
+                    pad(out, level + 1);
+                    v.pretty_into(out, level + 1);
+                    out.push_str(if i + 1 < a.len() { ",\n" } else { "\n" });
+                }
+                pad(out, level);
+                out.push(']');
+            }
+            J::Obj(o) if !o.is_empty() => {
+                out.push_str("{\n");
+                for (i, (k, v)) in o.iter().enumerate() {
+                    pad(out, level + 1);
+                    quote(k, out);
+                    out.push_str(": ");
+                    v.pretty_into(out, level + 1);
+                    out.push_str(if i + 1 < o.len() { ",\n" } else { "\n" });
+                }
+                pad(out, level);
+                out.push('}');
+            }
+            other => other.dump_into(out),
         }
     }
 }
@@ -422,6 +506,23 @@ mod tests {
         let v = J::parse(r#""😀\u0001\u007f""#).unwrap();
         assert_eq!(v.text(), "😀\u{1}\u{7f}");
         assert_eq!(v.dump(), r#""😀\u0001\u007f""#);
+    }
+
+    #[test]
+    fn pretty_as_jq_prints_it() {
+        let v = J::parse(r#"{"a":[1,{"b":[]}],"c":{}}"#).unwrap();
+        assert_eq!(
+            v.pretty(),
+            "{\n  \"a\": [\n    1,\n    {\n      \"b\": []\n    }\n  ],\n  \"c\": {}\n}"
+        );
+    }
+
+    #[test]
+    fn jq_sort_order() {
+        let v = |t: &str| J::parse(t).unwrap();
+        assert!(v("null").cmp(&v("false")).is_lt() && v("true").cmp(&v("0")).is_lt());
+        assert!(v("10").cmp(&v("9")).is_gt() && v("\"a\"").cmp(&v("[]")).is_lt());
+        assert!(v("[1,2]").cmp(&v("[1,3]")).is_lt() && v("[1]").cmp(&v("[1,0]")).is_lt());
     }
 
     #[test]
