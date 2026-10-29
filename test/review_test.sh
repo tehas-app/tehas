@@ -311,15 +311,18 @@ turn_doc='{"subcommand":"plan","mode":"turn","exitCode":12,"status":"draft",
 # review reads doc and the planning turn reads doc_plan, since the two
 # documents differ.
 #
-# The bot's calls of the filing half. gh records every call (t_stub gh) and
-# answers the three this command makes: the list of open issues of the label, a
-# comment, and an issue. A case puts the list GitHub answers in
-# $T/fx/gh-open.json, and makes $T/fx/gh-<what>.rc to refuse one call.
+# The bot's calls of the filing half. The store makes them (`store
+# review-file`), and gh records every call (t_stub gh) and answers the three
+# the filing makes: the list of open issues of the review's label, a comment,
+# and an issue. A case puts the list GitHub answers in $T/fx/gh-open.json, and
+# makes $T/fx/gh-<what>.rc to refuse one call.
 findings_repo=acme/backlog
 findings_on() {
   t_instance "${T_MINIMAL[@]}" TEHAS_REVIEW=1 TEHAS_REVIEW_REPO="$findings_repo"
-  # The filing half asks the store to render the document, so the home has the
-  # store of this checkout in its libexec, as a host's does.
+  # The filing asks the store to render a document, mask it and file it, so the
+  # home has the store of this checkout in its libexec, as a host's does. The
+  # filing renders a document and touches no row, so the home needs no
+  # database, and none is made.
   t_store_filing
 }
 open_issues() { # <json>: what `gh issue list` answers for the review's label
@@ -334,31 +337,23 @@ github_verbs() {
   awk '$0 !~ /^[#-]/ && $1 == "issue" { print $2 }' "$T/calls/gh" |
     LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ $//'
 }
-# The stub of GitHub for the filing half: the three calls the command makes,
-# each recorded for a case to read, each refused by a file of the case.
+# The stub of GitHub for the filing: the three calls the store makes, each
+# recorded for a case to read, each refused by a file of the case.
 t_stub_gh_filing() {
   t_stub gh 'case "$1 $2" in
   "issue list")
     [ -f "$T/fx/gh-list.rc" ] && exit 1
-    # The filter the command asks for is applied here: the stub is GitHub, and
-    # GitHub is the one that reads --jq. With no list of the label open, the
-    # answer is the empty string the command reads as none.
-    if [ -f "$T/fx/gh-open.json" ]; then
-      filter=""
-      while [ $# -gt 0 ]; do
-        [ "$1" = --jq ] && filter=$2
-        shift
-      done
-      jq -r "$filter" "$T/fx/gh-open.json"
-    else
-      echo ""
-    fi ;;
+    # The list of the open issues of the label, as GitHub answers it: number
+    # and title, which is all the filing reads. With no file of the case the
+    # answer is the empty list, which is no open issue of the review.
+    [ -f "$T/fx/gh-open.json" ] || echo "[]"
+    [ ! -f "$T/fx/gh-open.json" ] || cat "$T/fx/gh-open.json" ;;
   "issue create")
     [ -f "$T/fx/gh-create.rc" ] && exit 1
     while [ $# -gt 0 ]; do
       case "$1" in
         --title) printf "%s\n" "$2" >"$T/calls/issue.title" ;;
-        --body) printf "%s\n" "$2" >"$T/calls/issue.body" ;;
+        --body-file) printf "%s\n" "$(cat "$2")" >"$T/calls/issue.body" ;;
         --label) printf "%s\n" "$2" >>"$T/calls/issue.labels" ;;
       esac
       shift
@@ -368,7 +363,7 @@ t_stub_gh_filing() {
     [ -f "$T/fx/gh-comment.rc" ] && exit 1
     printf "%s\n" "$3" >"$T/calls/comment.number"
     while [ $# -gt 0 ]; do
-      [ "$1" = --body ] && printf "%s\n" "$2" >"$T/calls/comment.body"
+      [ "$1" = --body-file ] && printf "%s\n" "$(cat "$2")" >"$T/calls/comment.body"
       shift
     done ;;
 esac'
@@ -1191,10 +1186,12 @@ t_eq "$([ -e "$tree" ] && echo made)" ""
 
 # --- The findings of a run, filed for a person to triage ----------------------
 #
-# The issue of one run is the store's work (`store review-issue`, whose rule is
-# tehas_core::review) and the masking is lib/questions.sh's. What is tested
-# here is the glue: that a run that ended with findings asks the store and
-# files what it answered, that a run that ended without any files nothing, that
+# The filing of one run is the store's work whole (`store review-file`, whose
+# rule of the issue is tehas_core::review and whose masking is the pair of
+# functions in tehas_core that the console's log of the same run goes through).
+# What is tested here is the glue: that a run that ended with findings asks the
+# store and files what it answered, that a run that ended without any files
+# nothing, that
 # an open issue of findings is commented on rather than copied, and that the
 # words of a finding are masked on the way out.
 t_case "a run that exited 10 files one issue with the line that asks for tehas:refine"
@@ -1284,10 +1281,10 @@ t_run "$review"
 t_eq "$t_rc" 10
 body=$(cat "$T/calls/issue.body")
 t_lacks "$body" "<!-- sly -->"
-# The marker left as the escaper of lib/questions.sh leaves it, with its two
-# backslashes. The expected line is a file the case made, so the shape of the
-# answer is compared rather than its escaping: the masking of a token-shaped
-# string below is the one that proves the text went through q_clean.
+# The marker left as q_clean leaves it, with its two backslashes. The expected
+# line is a file the case made, so the shape of the answer is compared rather
+# than its escaping: the masking of a token-shaped string below is the one that
+# proves the text went through the mask of tehas_core.
 t_contains "$body" sly
 t_lacks "$body" "ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 t_contains "$body" "ghp_***"

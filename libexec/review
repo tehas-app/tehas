@@ -6,14 +6,17 @@
 # fresh clone of the default branch. TEHAS_REVIEW other than 1 exits 0 at once
 # and calls nothing, so the weekly tehas-review.timer costs a host that left the
 # loop off nothing. A run that ended with findings files them as one issue in
-# TEHAS_REVIEW_REPO, or nowhere until the instance names one. The store renders
-# their words (`store review-issue`) and q_clean masks them on their way out
-# (lib/questions.sh). The start is the commit in $TEHAS_HOME/state/review.json,
-# else the commit 7 days back, else the root. Only exits 0, 10 and 20 move the
-# record on, so a failed run leaves it and the next one reads the same range.
-# What the container is given and where the logs go are in host/docs/tools.md.
-# This prepares the sandbox; the console beside it (console/src/review.rs) reads
-# the range, checks what the image is given, and runs and bounds the container.
+# TEHAS_REVIEW_REPO, or nowhere until the instance names one. The store does
+# the filing whole -- the rule of the issue, the masking of the model's words,
+# the open issue of the range and the GitHub calls (`store review-file`,
+# console/store/src/review_issue.rs) -- so this command asks for the filing and
+# says what it answered, and nothing else. The start is the commit in
+# $TEHAS_HOME/state/review.json, else the commit 7 days back, else the root.
+# Only exits 0, 10 and 20 move the record on, so a failed run leaves it and the
+# next one reads the same range. What the container is given and where the logs
+# go are in host/docs/tools.md. This prepares the sandbox; the console beside it
+# (console/src/review.rs) reads the range, checks what the image is given, and
+# runs and bounds the container.
 #
 # Usage:
 #   tehasbot review             one review
@@ -68,8 +71,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
-# shellcheck source=lib/questions.sh
-. "$here/../lib/questions.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 tehas_load || exit 78
@@ -119,6 +120,9 @@ bot_email=$(git config --global user.email || true)
 # The names the console hides (lib/private.sh) in the two files this run
 # leaves in logs/. The host's aliases, the model endpoints and the bot's email:
 # what a review agent could print that belongs to the host and nobody else.
+# The filing is given the same list: a run's findings are read out of the same
+# document, and the store masks them with these names as the console masks the
+# file itself (store review-file --private).
 # shellcheck source=lib/private.sh
 . "$here/../lib/private.sh"
 private=()
@@ -141,11 +145,44 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
 tehas_sandbox_security_take "tehas review" "a review" || exit 78
 
-# The findings of a run are filed by the questions library, which owns the
-# agent's words on their way to a public issue. Its last line is this command's
-# own, so no finding can become it; the backquotes are GitHub's (SC2016).
-# shellcheck disable=SC2016  # the backquotes are literal, by intent
-q_file_ask='Apply `tehas:refine` to plan this into parts sized for one cycle.'
+# The findings of a run are filed by the store: `store review-file` reads the
+# document, masks the model's words, looks for the open issue of the range and
+# makes the calls of GitHub (console/store/src/review_issue.rs). This command
+# asks for the filing and says what it answered, and nothing else. The line
+# that asks for tehas:refine is its own text, given to the verb; the backquotes
+# are GitHub's, not the shell's (SC2016).
+# shellcheck disable=SC2154  # branch and head are the run's, set where it is
+# shellcheck disable=SC2016  # the backquotes are GitHub's, literal by intent
+review_filed() { # <document of the run>
+  local line doc=$1 args=()
+  [ -n "${TEHAS_REVIEW_REPO:-}" ] || {
+    echo "tehas review: TEHAS_REVIEW_REPO is not set, so the findings of ${head:0:7} are nowhere"
+    return 0
+  }
+  # One list of names for the two masks of a run, the console's and the
+  # store's: the pairs the console was given are passed to the store as they
+  # are, one flag and its name each.
+  local at=0
+  while [ "$at" -lt "${#private[@]}" ]; do
+    args+=("${private[$at]}" "${private[$((at + 1))]}")
+    at=$((at + 2))
+  done
+  tehas_store_try 3 review-file --repo "$TEHAS_REVIEW_REPO" --doc "$doc" \
+    --branch "$branch" --commit "$head" \
+    --ask 'Apply `tehas:refine` to plan this into parts sized for one cycle.' \
+    "${args[@]}" || tehas_store_rc=0
+  # One run of the store says all of a filing, so one line is read from it:
+  # what it did, or why it did not. A store that did not answer says its own
+  # word: the findings are nowhere, and the record of the range still stands.
+  if [ "$tehas_store_rc" = 0 ]; then
+    line=$(tehas_store_get 'if .said != "" then .said else
+        (.why // "" | if . == "" then "" else "the findings were not filed: " + . end) end') ||
+      line='the findings were not filed: the store answered no line'
+  else
+    line="the findings were not filed: the store said $tehas_store_word"
+  fi
+  [ -z "$line" ] || echo "tehas review: $line"
+}
 
 # A docker that does not answer is said apart from an image with no lens-review
 # verb, so nobody rebuilds an image that is fine.
@@ -236,5 +273,5 @@ set -- docker run --rm --init --name "$name" \
   --name "$name" --doc "$doc" --log "$log" --remove "$tree" --remove "$container" -- "$@"
 rc=$?
 [ "$rc" = 10 ] || [ "$rc" = 20 ] || exit "$rc"
-q_file_findings || echo "tehas review: the findings were not filed: $q_file_why" >&2
+review_filed "$doc"
 exit "$rc"
