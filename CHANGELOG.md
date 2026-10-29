@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- A drafted plan in a `tehas:plan` session offers only **Update this
+  issue** and **End this planning session**. **File as a new issue** stays
+  for `tehas:refine` sessions, which exist to file one (#1010).
+
 ### Adopter action
 
 None.

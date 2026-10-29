@@ -1035,13 +1035,16 @@ tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --brief brief.md
 tehas plan 12 --out /tmp/turn.json --keep /tmp/turn.keep --session <id> --answer answer.md [--comment <id>]
 ```
 
+The dispatcher adds `--kind refine` to every turn of a `tehas:refine`
+session.
+
 The first form starts a session from a file with the issue's title and body.
 The second goes on with the session and gives the file's content as the
 operator's answer. Each turn is one run of pi-rukas's headless runner,
 `pi-rukas-headless plan`, as the container's command. It exits when the
 planner has questions (11), has drafted a plan to confirm (12), or thinks the
-plan duplicates open work (10). After a drafted plan, an answer that ticked
-**File as a new issue** runs `plan --resume <id> --confirm`, which files the
+plan duplicates open work (10). After a drafted plan in a refine session, an
+answer that ticked **File as a new issue** runs `plan --resume <id> --confirm`, which files the
 plan as it was shown and nothing else. One that ticked **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
@@ -1120,8 +1123,8 @@ turn: exit 4, said on the issue, and the directory stays as it was; a reply
 runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
-the planner's proposals and offers two options, **Update this issue** and
-**File as a new issue**. The `console` beside the command shapes it, and
+the planner's proposals and offers **Update this issue**. A refine session
+also offers **File as a new issue**, since it exists to file one. The `console` beside the command shapes it, and
 without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the

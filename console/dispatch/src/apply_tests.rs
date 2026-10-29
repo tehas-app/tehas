@@ -2026,6 +2026,7 @@ fn a_first_turn_writes_its_brief_begins_marks_says_and_starts_its_unit() {
     assert!(unit.contains("/state/plan-7.json.rc "));
     assert!(unit.contains("/state/plan-7.json.lock /opt/plan 7 --out "));
     assert!(unit.contains("-plan-7.keep --brief "));
+    assert!(!unit.contains("--kind refine"));
 }
 
 #[test]
@@ -2054,6 +2055,9 @@ fn a_refine_spends_its_park_once_its_brief_is_written_and_says_why() {
     assert!(spend < begin);
     assert!(w[begin].ends_with(" --auto"));
     assert!(w.iter().any(|c| c.contains("to refine this issue: its cycle parked as `too-big`, and the start of that cycle by @alice authorizes one refine.")));
+    // Only a refine session's turn offers to file its plan as a new issue.
+    let unit = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(unit.contains("-plan-7.keep --brief ") && unit.contains(" --kind refine"));
     // A spend the store refuses ends the poll with its brief gone.
     let mut t = world();
     t.fail("store", "park-retry|conflict");
@@ -2197,6 +2201,30 @@ fn a_next_turn_is_given_the_answer_on_record_with_what_was_filed() {
     )));
     // No comment on a next turn.
     assert!(!w.iter().any(|c| c.starts_with("gh issue comment")));
+    assert!(!unit.contains("--kind refine"));
+}
+
+#[test]
+fn a_next_turn_of_a_refine_session_says_so() {
+    let mut t = world();
+    plan_row(
+        &t,
+        json!({"turns": 1, "session": "s-1", "label": "tehas:refine"}),
+    );
+    fs::write(
+        t.dir.join("answered"),
+        json!({"api": 1, "verb": "plan-answer", "ok": true, "planning": {"answer": "Do A.\n"}})
+            .to_string(),
+    )
+    .unwrap();
+    fs::create_dir_all(t.dir.join("works")).unwrap();
+    fs::write(t.dir.join("works/.tehas-workspaces"), "").unwrap();
+    t.apply(
+        json!([{"plan_turn": 7, "kind": "next", "answer": "Do A.", "by": "alice",
+        "log": "planning #7 continues (answer from alice)"}]),
+    );
+    let unit = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(unit.contains("/answer.md --kind refine"));
 }
 
 #[test]
