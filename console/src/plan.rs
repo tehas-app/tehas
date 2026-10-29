@@ -2,9 +2,10 @@
 //! as the dispatcher posts it, and a drafted plan the operator chose to make
 //! the issue's own text.
 //!
-//!   console plan outcome <runner exit> <session> <keep>
+//!   console plan outcome <runner exit> <session> <keep> [refine]
 //!       the runner's JSON document on standard input. A drafted plan (exit
-//!       12) is kept in <keep>/draft.json for update.
+//!       12) is kept in <keep>/draft.json for update. Only a refine session
+//!       offers to file it as a new issue.
 //!   console plan update <session> <keep>
 //!       the issue's {title, body} on standard input, as gh issue view gives
 //!       them, and the draft in <keep>/draft.json.
@@ -33,18 +34,24 @@ const MIN_WORDS: usize = 6;
 const MAX_SUFFIX: usize = 13;
 /// What a turn is asked to plan when the brief holds no title at all.
 const NO_TITLE: &str = "the work in .tehas/brief.md";
-const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
+const DRAFTED: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, or reply to change it.";
+const DRAFTED_REFINE: &str = "Tick Update this issue to make the plan, proposals included, this issue's text, File as a new issue to file it as its own issue, or reply to change it.";
 const DUPLICATE: &str = "pi-rukas thinks this plan duplicates open work. Reply to say why it does not, or end the session.";
 
 pub fn main(given: &[String]) -> u8 {
     let mut input = String::new();
     let done = match given {
-        [verb, rc, session, keep] if verb == "outcome" => {
+        [verb, rc, session, keep, kind @ ..] if verb == "outcome" => {
+            let refine = match kind {
+                [] => false,
+                [k] if k == "refine" => true,
+                _ => return usage(),
+            };
             let _ = std::io::stdin().read_to_string(&mut input);
             let Ok(rc) = rc.parse::<i64>() else {
                 return usage();
             };
-            outcome(rc, session, Path::new(keep), &input)
+            outcome(rc, session, Path::new(keep), &input, refine)
         }
         [verb, session, keep] if verb == "update" => {
             let _ = std::io::stdin().read_to_string(&mut input);
@@ -75,7 +82,7 @@ pub fn main(given: &[String]) -> u8 {
 
 fn usage() -> u8 {
     eprintln!(
-        "console plan: usage: outcome <runner exit> <session> <keep> | update <session> <keep> | descriptor <brief> <issue>"
+        "console plan: usage: outcome <runner exit> <session> <keep> [refine] | update <session> <keep> | descriptor <brief> <issue>"
     );
     2
 }
@@ -130,7 +137,13 @@ fn document(session: &str, text: &str, question: &Value, filed: &[String], more:
     out + more + "}"
 }
 
-pub fn outcome(rc: i64, session: &str, keep: &Path, doc: &str) -> Result<String, String> {
+pub fn outcome(
+    rc: i64,
+    session: &str,
+    keep: &Path,
+    doc: &str,
+    refine: bool,
+) -> Result<String, String> {
     let d: Value = serde_json::from_str(doc)
         .map_err(|_| "the runner's answer could not be read".to_string())?;
     if !d.is_object() {
@@ -191,11 +204,18 @@ pub fn outcome(rc: i64, session: &str, keep: &Path, doc: &str) -> Result<String,
             } else {
                 format!("Open points, with the planner's proposals:\n\n{numbered}\n\n")
             };
+            let mut options = vec![
+                json!({"label": "Update this issue", "description": "make the plan above the text of this issue"}),
+            ];
+            let tick = if refine {
+                options.push(json!({"label": "File as a new issue", "description": "file the plan above as one new issue"}));
+                DRAFTED_REFINE
+            } else {
+                DRAFTED
+            };
             (
                 format!("{said}\n\n### {title}\n\n{}", clip(&spec, "the plan")),
-                json!({"question": open + DRAFTED, "options": [
-                    {"label": "Update this issue", "description": "make the plan above the text of this issue"},
-                    {"label": "File as a new issue", "description": "file the plan above as one new issue"}]}),
+                json!({"question": open + tick, "options": options}),
             )
         }
         11 if qs.len() == 1 => (said, ask(asked[0].clone())),
@@ -324,29 +344,44 @@ mod tests {
         serde_json::from_str(s).unwrap()
     }
 
+    const DRAFT: &str = r#"{"text":"Drafted.","title":"Fast","spec":"Do it.","questions":[{"question":"Both?","resolution":"Yes"}]}"#;
+
     #[test]
-    fn a_draft_offers_both_boxes_and_is_kept() {
+    fn a_draft_offers_to_update_the_issue_and_is_kept() {
         let k = keep();
-        let out = outcome(
-            12,
-            "abc",
-            &k,
-            r#"{"text":"Drafted.","title":"Fast","spec":"Do it.","questions":[{"question":"Both?","resolution":"Yes"}]}"#,
-        )
-        .unwrap();
+        let out = outcome(12, "abc", &k, DRAFT, false).unwrap();
         let v = parsed(&out);
         assert_eq!(v["text"], "Drafted.\n\n### Fast\n\nDo it.");
         assert_eq!(
             v["question"]["question"],
             format!("Open points, with the planner's proposals:\n\n1. Both?\n   Proposed: Yes\n\n{DRAFTED}")
         );
-        assert_eq!(v["question"]["options"][0]["label"], "Update this issue");
-        assert_eq!(v["question"]["options"][1]["label"], "File as a new issue");
+        assert_eq!(
+            v["question"]["options"],
+            json!([{"label": "Update this issue", "description": "make the plan above the text of this issue"}])
+        );
         assert_eq!(
             std::fs::read_to_string(k.join("draft.json")).unwrap(),
             "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
         assert!(out.starts_with("{\"session\":\"abc\",\"text\":"));
+    }
+
+    #[test]
+    fn a_refine_draft_also_offers_to_file_a_new_issue() {
+        let k = keep();
+        let v = parsed(&outcome(12, "abc", &k, DRAFT, true).unwrap());
+        assert!(v["question"]["question"]
+            .as_str()
+            .unwrap()
+            .ends_with(DRAFTED_REFINE));
+        let labels: Vec<&str> = v["question"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| o["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(labels, ["Update this issue", "File as a new issue"]);
     }
 
     #[test]
@@ -357,6 +392,7 @@ mod tests {
             "abc",
             &k,
             r#"{"title":"Fast","url":"https://github.com/a/b/issues/4"}"#,
+            false,
         )
         .unwrap();
         assert_eq!(
@@ -369,7 +405,9 @@ mod tests {
             "https://example.com/a/b/issues/4",
         ] {
             let doc = json!({"url": bad}).to_string();
-            assert!(!outcome(0, "abc", &k, &doc).unwrap().contains("\"filed\""));
+            assert!(!outcome(0, "abc", &k, &doc, false)
+                .unwrap()
+                .contains("\"filed\""));
         }
     }
 
@@ -382,6 +420,7 @@ mod tests {
                 "s",
                 &k,
                 r#"{"text":"Q.","questions":[{"question":"Which?","resolution":"A"}]}"#,
+                false,
             )
             .unwrap(),
         );
@@ -395,11 +434,12 @@ mod tests {
                 "s",
                 &k,
                 r#"{"questions":[{"question":"A?"},{"question":"B?"}]}"#,
+                false,
             )
             .unwrap(),
         );
         assert_eq!(two["question"]["question"], "The planner asked 2 questions. Answer each by its number in a reply.\n\n1. A?\n\n2. B?");
-        let dup = parsed(&outcome(10, "s", &k, r#"{"text":"Like #3."}"#).unwrap());
+        let dup = parsed(&outcome(10, "s", &k, r#"{"text":"Like #3."}"#, false).unwrap());
         assert_eq!(dup["question"]["question"], DUPLICATE);
     }
 
@@ -407,11 +447,11 @@ mod tests {
     fn a_turn_that_says_nothing_or_cannot_be_read_prints_nothing() {
         let k = keep();
         assert_eq!(
-            outcome(11, "s", &k, "{}"),
+            outcome(11, "s", &k, "{}", false),
             Err("the turn said and asked nothing".into())
         );
         assert_eq!(
-            outcome(11, "s", &k, "not json"),
+            outcome(11, "s", &k, "not json", false),
             Err("the runner's answer could not be read".into())
         );
     }
@@ -420,7 +460,7 @@ mod tests {
     fn a_long_plan_is_cut_and_says_so() {
         let k = keep();
         let doc = json!({"title": "Big", "spec": "x".repeat(50_000)}).to_string();
-        let v = parsed(&outcome(12, "s", &k, &doc).unwrap());
+        let v = parsed(&outcome(12, "s", &k, &doc, false).unwrap());
         let t = v["text"].as_str().unwrap();
         assert!(t.ends_with("(cut: the plan is longer than a comment holds)"));
         assert!(t.chars().count() < 41_000);
