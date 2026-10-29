@@ -66,7 +66,7 @@ t_stub systemctl 'cat "$T/failed-units" 2>/dev/null'
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
-  printf '{"number":%s,"title":"t","url":"u","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
+  printf '{"number":%s,"title":"t","url":"u","createdAt":"2025-12-01T00:00:00Z","updatedAt":"%s","closedAt":"%s","labels":{"nodes":[%s]},"timelineItems":{"nodes":[{"closer":%s}]}}' \
     "$1" "$2" "$2" "$label" "$3"
 }
 no_labels() { # number closedAt closer: as closed, with no labels field at all - a read that said nothing of them
@@ -91,7 +91,7 @@ one_shipped() {
   shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')"
 }
 issue() { # number label state
-  printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
+  printf '{"number":%s,"title":"t","url":"u","state":"%s","labels":[{"name":"%s"}],"createdAt":"2025-12-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","closedAt":null}' "$1" "${3:-OPEN}" "$2"
 }
 reset() {
   rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
@@ -295,7 +295,11 @@ shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}')" \
 t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(jq -c '[.completed[].number]' "$live/status.json")" "[21,20]"
-t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","number","title","updatedAt","url"]'
+t_eq "$(jq -c '.completed[0] | keys' "$live/status.json")" '["closedAt","createdAt","number","title","updatedAt","url"]'
+t_eq "$(jq -c '.completed[0] | [.title, .url, .createdAt]' "$live/status.json")" '["t","u","2025-12-01T00:00:00Z"]'
+# The stub answers whatever it is asked, so the fields must be asked for.
+t_contains "$(t_calls gh)" "number title url createdAt updatedAt closedAt labels("
+t_contains "$(t_calls gh)" "--json number,title,url,state,labels,createdAt,updatedAt,closedAt"
 t_contains "$(jq -r .links.completed "$live/status.json")" "label%3Atehas%3Ashipped"
 t_contains "$(t_calls gh)" "q=repo:acme/widget is:issue is:closed linked:pr sort:updated-desc"
 # The count comes from the search for the label, whose answer says 0 here.

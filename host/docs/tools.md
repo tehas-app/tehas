@@ -2385,6 +2385,8 @@ call.
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
 `~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
 changed the queue, and a cycle when it ends.
+Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
+and `closedAt`.
 Completed means closed by a merged pull request, whatever labels the issue was
 left with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
 (`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
@@ -2446,6 +2448,17 @@ than ten minutes old, so one poll that meets a locked database does not empty
 the dashboard's section, and is removed after that, so a database that keeps
 failing does not show old figures. With `TEHAS_ANALYTICS=off`, or where the
 program is not installed, there is no file.
+
+Just before the report, `~/tehas/libexec/analytics orders` writes
+`~/tehas/live/orders.json`, what the runs of each issue in `status.json` spent,
+for the work order of the [factory floor](/):
+`{"orders": 1, "generatedAt": ..., "issues": {"962": {"runs": 3, "seconds": 5400, "tokens": 60800000}}}`.
+It counts work runs and planning turns for as far back as the database holds.
+`seconds` is the runs' own time and `tokens` their input, output and cache
+reads; either is left out when no run recorded it, and an issue with no run is
+not in the file. It names only issues `status.json` lists already. A call that
+fails is a line `WARN analytics orders: exit N` and leaves the file as it was.
+With `TEHAS_ANALYTICS=off` there is no file.
 
 The file is public, as `status.json` is. It holds counts, durations, token
 sums, version strings and the words of stop reasons and steps: no issue
