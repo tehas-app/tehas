@@ -2,19 +2,27 @@
 //! call and fail the ones a test names.
 
 use super::*;
+use crate::poll::End;
 use crate::read::run::Calls;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// A stub answers each call, writes `<name> <args>` and its standard input
-/// to calls.log, and exits 1 when a line of fail-<name> is in its args.
+/// to calls.log, and exits 1 when a line of fail-<name> is in its args. When
+/// want-token-<name> names a file, the stub says one word on that file of the
+/// world if it ran with a token; the word is the only thing it writes, so a
+/// test can count the processes that were given one without any part of a
+/// token reaching a file, a log or an argument.
 const STUB: &str = r#"#!/bin/bash
 d=$(dirname "$0")
 name=$(basename "$0")
 input=""
 case $name in gh) input=$(cat) ;; esac
 printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
+if [ -f "$d/want-token-$name" ] && [ -n "${TEHAS_GH_TOKEN:-}" ]; then
+  printf 'token\n' >>"$d/$(cat "$d/want-token-$name")"
+fi
 if [ -f "$d/fail-$name" ]; then
   while IFS= read -r line; do
     p=${line%%|*} w=${line#*|}
@@ -38,7 +46,10 @@ case "$name $1" in
     echo '{"api":1,"verb":"approval-record","ok":true}' ;;
   "start "*) : >"$d/started" ;;
   "status "*) echo "the status line" ;;
+  "tidy "*) echo "the tidy line" ;;
+  "health "*) echo "the health line" ;;
   "store journal-open") cat "$d/open" 2>/dev/null || echo '{"api":1,"verb":"journal-open","ok":true,"actions":[]}' ;;
+  "store poll-begin") cat "$d/poll-begin" 2>/dev/null || echo '{"api":1,"verb":"poll-begin","ok":true,"at":2000}' ;;
   "store plan-begin")
     for a; do [ "${prev:-}" != --brief-file ] || { cp "$a" "$d/brief"; stat -c %a "$a" >"$d/brief.mode"; }; prev=$a; done
     echo '{"api":1,"verb":"plan-begin","ok":true}' ;;
@@ -116,6 +127,8 @@ fn world() -> World {
         "docker",
         "start",
         "status",
+        "tidy",
+        "health",
         "analytics",
         "git",
         "systemctl",
@@ -129,6 +142,7 @@ fn world() -> World {
         gh: s("gh"),
         docker: s("docker"),
         calls: Calls {
+            home: None,
             bound: Duration::from_secs(10),
             store_bound: Duration::from_secs(10),
             gh: s("gh"),
@@ -137,6 +151,7 @@ fn world() -> World {
             gh_token: None,
         },
         poll_at: 1000,
+        row_not_begun: false,
         before: 990,
         bound: Duration::from_secs(10),
         store_retry: Duration::from_secs(1),
@@ -151,6 +166,8 @@ fn world() -> World {
             stop_cmd: Some(s("start")),
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
+            health_cmd: s("health"),
+            tidy_cmd: s("tidy"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
             work_dir: dir.join("works/tehas-work").to_string_lossy().into_owned(),
@@ -199,12 +216,41 @@ impl World {
         fs::write(p, s).unwrap();
     }
 
-    fn calls(&self) -> Vec<String> {
-        fs::read_to_string(self.dir.join("calls.log"))
+    /// The lines of a file the stub wrote, one per call that wrote it.
+    fn lines_of(&self, file: &str) -> Vec<String> {
+        fs::read_to_string(self.dir.join(file))
             .unwrap_or_default()
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    /// Make <program>'s stub record a line in <file> of the world when it ran
+    /// with `TEHAS_GH_TOKEN` set. One line per process that saw a token.
+    fn asks_for_token(&self, program: &str, file: &str) {
+        fs::write(
+            self.dir.join(format!("want-token-{program}")),
+            format!("{file}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The three host commands of a poll - tidy, the status and health - each
+    /// recording its word in <file> when it was given a token.
+    fn expects_a_token_on_its_host_commands(&self, file: &str) {
+        for program in ["tidy", "status", "health"] {
+            self.asks_for_token(program, file);
+        }
+    }
+
+    /// The words the stubs said for the token, one line per process that was
+    /// given one.
+    fn token_said(&self, file: &str) -> Vec<String> {
+        self.lines_of(file)
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.lines_of("calls.log")
     }
 
     /// The gh and docker calls, without the journal's.
@@ -218,6 +264,14 @@ impl World {
     fn apply(&mut self, actions: Value) -> Applied {
         self.w.apply(actions.as_array().unwrap())
     }
+}
+
+/// The three host commands of a poll: tidy as the end of a poll of `dry`
+/// sends it, the status, and health as the poll's start sends it. Each prints
+/// its own word, so `printed` says which of them answered, and the arguments
+/// come from `End`, the code that really starts them.
+fn runs_host_commands(w: &mut Writer, dry: bool, printed: &mut Vec<String>) {
+    End::host_of(dry).runs_host_commands(w, printed);
 }
 
 fn label() -> Value {
@@ -251,6 +305,60 @@ fn a_failed_label_change_logs_its_line_and_says_nothing() {
         vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"]
     );
     assert!(!t.calls().iter().any(|c| c.contains("issue comment")));
+}
+
+/// The token both token tests give the poll, and the file their stubs say
+/// their word on.
+const TOKEN: &str = "ghs_poll";
+const GIVEN: &str = "given";
+
+#[test]
+fn the_poll_gives_its_host_commands_its_token() {
+    // tidy, the status and health are host commands the poll runs through
+    // status_of: each of them gets the poll's token as TEHAS_GH_TOKEN, the same
+    // value the poll's own gh calls get, so the shim of a gh they run asks for
+    // none. The stubs say one word when they saw a token; the poll's taking of
+    // it is the case of the same name in read/run.rs, so here the poll starts
+    // out holding one.
+    let mut t = world();
+    t.expects_a_token_on_its_host_commands(GIVEN);
+    t.w.calls.gh_token = Some(TOKEN.into());
+    let mut printed = Vec::new();
+    runs_host_commands(&mut t.w, true, &mut printed);
+    assert_eq!(t.token_said(GIVEN), vec!["token"; 3]);
+    // The three lines are the three commands' own words, so neither of them
+    // stands in for another: the token reaches no output of any of them.
+    assert_eq!(
+        printed,
+        vec!["the tidy line", "the status line", "the health line"]
+    );
+    // The issue's rule: the token is in no log line and no argument.
+    assert!(!t.calls().iter().any(|c| c.contains(TOKEN)));
+    // The end's own arguments: a dry poll's tidy is asked for a dry run, the
+    // way End sends it and no other way. The name is a path, so the call is
+    // named by the word after its last slash.
+    let tidy = t.w.host.tidy_cmd.rsplit('/').next().unwrap().to_string();
+    assert!(t
+        .calls()
+        .iter()
+        .any(|c| c.starts_with(&format!("{tidy} --dry-run"))));
+}
+
+#[test]
+fn host_commands_get_none_without_a_token() {
+    // With no app named, or no token the poll could take, nothing is given. The
+    // gh side of the rule is `a_token_that_could_not_be_had_leaves_the_calls_as_they_were`
+    // in read/run.rs.
+    let mut t = world();
+    t.expects_a_token_on_its_host_commands(GIVEN);
+    assert_eq!(t.w.calls.gh_token, None);
+    let mut printed = Vec::new();
+    runs_host_commands(&mut t.w, true, &mut printed);
+    assert_eq!(t.token_said(GIVEN), Vec::<String>::new());
+    assert_eq!(
+        printed,
+        vec!["the tidy line", "the status line", "the health line"]
+    );
 }
 
 #[test]
@@ -403,22 +511,88 @@ fn an_untick_logs_the_line_its_site_gave() {
 }
 
 #[test]
-fn the_said_and_told_records_are_written_whatever_the_comment_did() {
+fn the_said_and_told_records_follow_a_comment_that_worked() {
+    let mut t = world();
+    let a = t.apply(said_and_told());
+    assert!(a.log.is_empty());
+    assert_eq!(fs::read_to_string(said_file(&t)).unwrap(), "conflict:abc");
+    assert!(t.calls().contains(&"store park-told 4".to_string()));
+}
+
+#[test]
+fn a_failed_comment_leaves_the_said_and_told_records_unwritten() {
     let mut t = world();
     t.fail("gh", "issue comment");
-    let a = t.apply(json!([
-        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
-        {"issue": 4, "park_told": true, "say": "Not started."},
-    ]));
+    let a = t.apply(said_and_told());
     assert_eq!(
         a.log,
         vec!["WARN: comment on #3 failed", "WARN: comment on #4 failed"]
     );
+    no_record_was_made(&t);
+}
+
+#[test]
+fn a_comment_the_journal_could_not_record_leaves_the_records_unwritten() {
+    let mut t = world();
+    t.fail("store", "journal-record");
+    let a = t.apply(said_and_told());
     assert_eq!(
-        fs::read_to_string(t.w.home.join("state/refresh/3.said")).unwrap(),
-        "conflict:abc"
+        a.log,
+        vec![
+            "WARN: the journal could not record a write on #3, so it was not made",
+            "WARN: the journal could not record a write on #4, so it was not made",
+        ]
     );
-    assert!(t.calls().contains(&"store park-told 4".to_string()));
+    no_record_was_made(&t);
+}
+
+#[test]
+fn a_record_that_failed_after_a_good_comment_is_said_in_the_log() {
+    // The comment is public and the record is not: each of the two records
+    // says so its own way, and neither ends the poll.
+    let mut t = world();
+    // Order matters: the stub fails a store call on the first pattern of
+    // fail-store that matches, so the tell's own refusal comes first and the
+    // journal's verbs below it stay ok. The write's parent is gone, so the
+    // record of #3 cannot be made; the tell's call answers 1 with no word of
+    // its own, as a store that cannot parse its issue number does.
+    t.fail("store", "park-told|");
+    fs::remove_dir_all(t.w.home.join("state/refresh")).unwrap();
+    let a = t.apply(said_and_told());
+    assert_eq!(a.log.len(), 2, "{:?}", a.log);
+    assert_eq!(
+        a.log[0],
+        format!("WARN: could not write {}", said_file(&t).display())
+    );
+    // The tell's call was made and refused, so its record is not there.
+    assert!(t.calls().iter().any(|c| c.starts_with("store park-told 4")));
+    let told = a.log[1].trim_start_matches("WARN: ");
+    let head = "could not record the hold on the park of #4 (";
+    assert!(told.starts_with(head), "{told}");
+    let reason = &told[head.len()..];
+    assert!(
+        !reason.starts_with(")"),
+        "the WARN of the tell named no word: {told}"
+    );
+}
+
+/// The queue of the two records of having said something: #3 the refresh
+/// hold, #4 the park's tell.
+fn said_and_told() -> Value {
+    json!([
+        {"issue": 3, "refresh_said": "conflict:abc", "say": "Not refreshed."},
+        {"issue": 4, "park_told": true, "say": "Not started."},
+    ])
+}
+
+fn said_file(t: &World) -> PathBuf {
+    crate::apply::said_file(&t.w.home, 3)
+}
+
+/// Neither record was made: no file, no store verb.
+fn no_record_was_made(t: &World) {
+    assert!(!said_file(t).exists());
+    assert!(!t.calls().iter().any(|c| c.starts_with("store park-told")));
 }
 
 #[test]
@@ -2365,6 +2539,193 @@ fn settled(t: &World) -> Vec<String> {
         .collect()
 }
 
+/// An open label-add row of the journal, aimed at its issue and asking its
+/// label: `state` 'intended' carries no attempted time, as the store leaves it.
+fn open_label_add(id: u64, issue: u64, state: &str) -> Value {
+    let mut row = json!({"id": id, "kind": "label-add", "issue": issue, "state": state,
+        "intended_at": 990,
+        "args": {"gh": ["issue", "edit", issue.to_string(), "--repo", "r", "--add-label", "tehas:running"]}});
+    if state != "intended" {
+        row["attempted_at"] = json!(991);
+    }
+    row
+}
+
+/// The same row aimed at its issue and taking its label off: the pair the
+/// settling of a running cycle looks for.
+fn open_label_swap(id: u64, issue: u64) -> Value {
+    let mut row = open_label_add(id, issue, "attempted");
+    row["args"]["gh"] = json!([
+        "issue",
+        "edit",
+        issue.to_string(),
+        "--repo",
+        "r",
+        "--remove-label",
+        "tehas:ready",
+        "--add-label",
+        "tehas:running"
+    ]);
+    row
+}
+
+#[test]
+fn a_poll_the_store_would_not_begin_still_settles_the_journal_it_holds() {
+    // The row names the writes a poll makes. Reading the journal, and
+    // settling what it holds, need no row: an answer with no time must not
+    // stop them, only the writes.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    left_open(
+        &t,
+        json!([{"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
+         "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}}]),
+    );
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log,
+        vec!["journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again"]
+    );
+    assert_eq!(
+        settled(&t),
+        vec!["store journal-settle --action 3 --abandoned"]
+    );
+}
+
+#[test]
+fn a_poll_begin_answer_without_a_time_makes_no_write() {
+    // The row's time is what every record names. An answer without one is a
+    // store that cannot begin the row: the write is not made under 0.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // Neither the label nor the comment of the action: a gh call would be a
+    // write made under no row. The begin of the row is all it asked for.
+    assert_eq!(t.writes(), vec!["store poll-begin"], "{:#?}", t.writes());
+    // Once for the first write, and no more: poll_at stays 0, so a second
+    // begin would mean the poll went on writing.
+    let c = t.calls();
+    assert_eq!(
+        c.iter()
+            .filter(|l| l.starts_with("store poll-begin"))
+            .count(),
+        1
+    );
+    assert!(!c.iter().any(|l| l.contains("--poll 0")));
+}
+
+#[test]
+fn a_poll_begin_answer_with_a_time_that_is_not_a_number_makes_no_write() {
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true,"at":"x"}"#,
+    )
+    .unwrap();
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // writes(): the gh and docker calls plus the row's begin, so this holds
+    // the write back and asks for the row once.
+    assert_eq!(t.writes(), vec!["store poll-begin"]);
+    assert!(!t.calls().iter().any(|l| l.contains("--poll 0")));
+}
+
+#[test]
+fn a_poll_begin_answer_with_a_time_of_zero_or_below_makes_no_write() {
+    for at in ["0", "-5"] {
+        let mut t = world();
+        t.w.poll_at = 0;
+        fs::write(
+            t.dir.join("poll-begin"),
+            format!(r#"{{"api":1,"verb":"poll-begin","ok":true,"at":{at}}}"#),
+        )
+        .unwrap();
+        let a = t.apply(json!([label()]));
+        assert_eq!(
+            a.log,
+            vec!["WARN: the state store began no poll row, so no write was made"],
+            "at {at}"
+        );
+        // The write refused before the row was begun: no gh call, and the
+        // begin of the row is the only store write of the poll.
+        assert_eq!(t.writes(), vec!["store poll-begin"], "at {at}");
+        assert!(!t.calls().iter().any(|l| l.contains("--poll 0")), "at {at}");
+    }
+}
+
+#[test]
+fn a_poll_whose_row_the_store_would_not_begin_says_it_once() {
+    // Two actions, each with a label and a comment: no write is made, and the
+    // poll logs the refusal once and not once per write or per action. The
+    // store is asked for the row once per action, since a refused answer
+    // leaves no row for the next write of the same action to name.
+    let mut t = world();
+    t.w.poll_at = 0;
+    fs::write(
+        t.dir.join("poll-begin"),
+        r#"{"api":1,"verb":"poll-begin","ok":true}"#,
+    )
+    .unwrap();
+    let one = |n: u64| {
+        json!({"issue": n, "remove": ["tehas:ready"], "add": ["needs-human-attention"],
+            "fail": "WARN: label change failed",
+            "log": format!("clear #{n}: done"), "say": "Tehas took it off."})
+    };
+    let a = t.apply(json!([one(7), one(8)]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the state store began no poll row, so no write was made"]
+    );
+    // Two asks, one per action: the label of each is refused and its comment
+    // never asked for. No record and no gh call anywhere.
+    assert_eq!(t.writes(), vec!["store poll-begin", "store poll-begin"]);
+    assert!(!t.calls().iter().any(|l| l.starts_with("store journal-")));
+    assert!(!t.calls().iter().any(|l| l.starts_with("gh ")));
+    assert_eq!(t.w.poll_at, 0);
+}
+
+#[test]
+fn the_first_write_begins_the_poll_row_once_and_records_under_it() {
+    let mut t = world();
+    t.w.poll_at = 0;
+    let a = t.apply(json!([label()]));
+    assert_eq!(a.log, vec!["clear #7: done"]);
+    let c = t.calls();
+    assert_eq!(
+        c.iter()
+            .filter(|l| l.starts_with("store poll-begin"))
+            .count(),
+        1
+    );
+    assert_eq!(t.w.poll_at, 2000);
+    // Both writes of the label: one row, named twice, never 0.
+    let polls: Vec<&String> = c
+        .iter()
+        .filter(|l| l.starts_with("store journal-record"))
+        .collect();
+    assert_eq!(polls.len(), 2);
+    assert!(polls.iter().all(|l| l.contains("--poll 2000")));
+}
+
 #[test]
 fn a_journal_the_store_would_not_answer_is_not_read_as_an_empty_one() {
     // journal_open says None, not an empty list: a poll that skips the work of
@@ -2387,12 +2748,9 @@ fn a_write_never_attempted_is_abandoned_and_one_that_landed_is_done() {
     left_open(
         &t,
         json!([
-            {"id": 3, "kind": "label-add", "issue": 7, "state": "intended", "intended_at": 990,
-             "args": {"gh": ["issue", "edit", "7", "--repo", "r", "--add-label", "tehas:running"]}},
-            {"id": 4, "kind": "label-add", "issue": 8, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-             "args": {"gh": ["issue", "edit", "8", "--repo", "r", "--remove-label", "tehas:ready", "--add-label", "tehas:running"]}},
-            {"id": 5, "kind": "label-add", "issue": 9, "state": "attempted", "intended_at": 990, "attempted_at": 991,
-             "args": {"gh": ["issue", "edit", "9", "--repo", "r", "--add-label", "tehas:running"]}},
+            open_label_add(3, 7, "intended"),
+            open_label_swap(4, 8),
+            open_label_add(5, 9, "attempted"),
         ]),
     );
     fs::write(
@@ -2501,6 +2859,126 @@ fn a_question_posted_as_json_is_found_by_the_sum_of_its_body() {
     assert_eq!(
         log,
         vec!["journal: action 6 (comment-post on #7, 10s old) was done"]
+    );
+}
+
+#[test]
+fn a_malformed_open_action_is_left_open_and_reads_nothing() {
+    // None of the three fields may be stood in for by 0: it would settle an
+    // unknown row, read issue 0 for ever, or open the comment window at the
+    // epoch and call an old comment of the same text the evidence.
+    let mut t = world();
+    let mut no_issue = open_label_add(4, 7, "attempted");
+    no_issue.as_object_mut().unwrap().remove("issue");
+    let mut no_time = open_label_add(5, 7, "attempted");
+    no_time
+        .as_object_mut()
+        .unwrap()
+        .insert("attempted_at".into(), Value::Null);
+    let mut string_id = open_label_add(6, 7, "attempted");
+    string_id
+        .as_object_mut()
+        .unwrap()
+        .insert("id".into(), json!("6"));
+    // A row whose kind is not text names no kind at all: the line says so
+    // with an empty one, and the row is held to have no time until it says
+    // it was attempted. 'intended' stands in for the state it should have.
+    let mut numeric_kind = open_label_add(8, 7, "intended");
+    numeric_kind
+        .as_object_mut()
+        .unwrap()
+        .insert("kind".into(), json!(12));
+    // A row whose state is not text is not 'intended', so a time is asked of
+    // it: the WARN says so, and the row is left open with no read made of it
+    // at all. Its issue is answered by the stub, so were the guard to let it
+    // through it would be settled from that read.
+    let mut numeric_state = open_label_add(10, 7, "intended");
+    numeric_state
+        .as_object_mut()
+        .unwrap()
+        .insert("state".into(), json!(7));
+    // A state that is a number is held to the same rule, and the line names
+    // neither its state nor anything else of it.
+    let mut numeric_state_and_time = open_label_add(11, 7, "intended");
+    numeric_state_and_time
+        .as_object_mut()
+        .unwrap()
+        .insert("state".into(), json!(10));
+    left_open(
+        &t,
+        json!([
+            no_issue,
+            no_time,
+            string_id,
+            numeric_kind,
+            numeric_state,
+            numeric_state_and_time
+        ]),
+    );
+    // The stub answers a read of issue 0 with the label the rows want, so a
+    // row that fell through the guard would be settled from it.
+    fs::write(
+        t.dir.join("issue-0"),
+        r#"{"labels":[{"name":"tehas:running"}]}"#,
+    )
+    .unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "WARN: the journal's attempted action label-add is malformed (issue is not a positive integer; id 4); it is left open for a person to settle with store journal-settle --action N",
+        "WARN: the journal's attempted action label-add is malformed (attempted_at is not a positive integer; id 5, #7); it is left open for a person to settle with store journal-settle --action N",
+        "WARN: the journal's attempted action label-add is malformed (id is not a positive integer; #7); it is left open for a person to settle with store journal-settle --action N",
+        // A kind that is not text names nothing in the line, and a state of
+        // 'intended' is still asked for no time, so the row is well formed
+        // and abandoned by the read it does not make.
+        "journal: action 8 ( on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
+        // A state that is not text is not 'intended', so the row is malformed
+        // without a time: a text 'intended' beside it would have been settled
+        // with none.
+        "WARN: the journal's  action label-add is malformed (attempted_at is not a positive integer; id 10, #7); it is left open for a person to settle with store journal-settle --action N",
+        // A state that is a number is held to the same rule, and is named by
+        // nothing at all in the line.
+        "WARN: the journal's  action label-add is malformed (attempted_at is not a positive integer; id 11, #7); it is left open for a person to settle with store journal-settle --action N",
+    ]);
+    // Nothing of a malformed row was read or settled: an arm of the guard
+    // that let one through would have read its issue, and the stub answers
+    // issues 0 and 7 with the labels these rows want, so a read of either
+    // would settle it. The only row settled is the intended one whose kind is
+    // not text: it is well formed.
+    assert_eq!(settled(&t), ["store journal-settle --action 8 --abandoned"]);
+    assert!(
+        !t.calls()
+            .iter()
+            .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/0")),
+        "a malformed action was read: {:?}",
+        t.calls()
+    );
+    assert!(
+        !t.calls()
+            .iter()
+            .any(|c| c.starts_with("gh api repos/example-owner/example-product/issues/7")),
+        "a malformed action was read: {:?}",
+        t.calls()
+    );
+}
+
+#[test]
+fn an_intended_action_is_asked_for_no_time() {
+    // What only this says: the guard must let an intended row with no time
+    // through, and not ask it for one. The rows of the two states, and the
+    // reads each one makes, are the ones the older test settles.
+    let mut t = world();
+    left_open(&t, json!([open_label_add(3, 7, "intended")]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(log, vec![
+        "journal: action 3 (label-add on #7, 10s old) did not happen (it was never attempted); this poll decides it again",
+    ]);
+    assert_eq!(settled(&t), ["store journal-settle --action 3 --abandoned"]);
+    assert!(
+        !t.calls().iter().any(|c| c.starts_with("gh api")),
+        "an intended action was read: {:?}",
+        t.calls()
     );
 }
 

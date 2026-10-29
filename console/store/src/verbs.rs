@@ -512,6 +512,12 @@ pub fn write<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> 
 /// A read with a bounded wait and no write, in one transaction so that every
 /// query of the verb sees the same snapshot.
 pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> Result<T, Fail> {
+    // Inside a batch the store is open already, in the transaction that gives
+    // every call of the batch one snapshot; the batch's reads run their queries
+    // on it and ask for no transaction of their own.
+    if let Some(conn) = reading() {
+        return schema(conn).and_then(|()| f(conn));
+    }
     let file = db::path(home);
     not_empty(&file)?;
     let conn = db::open_look(&file).map_err(crate::line)?;
@@ -527,6 +533,202 @@ pub fn look<T>(home: &Path, f: impl FnOnce(&Connection) -> Result<T, Fail>) -> R
             Err(e)
         }
     }
+}
+
+/// Several reads of `store batch`, read from one opening of the store and one
+/// transaction, so all of them see the same snapshot (src/batch.rs).
+///
+/// The calls arrive parsed by `parse_read`, which answers only `READS`, so
+/// nothing this function runs can be a write: it holds no `Call` of the
+/// argument grammar at all. Each read is run by the same verb the single call
+/// runs, with one difference: the `look` of that verb finds this thread inside
+/// a read and answers from this connection instead of opening the file again.
+/// A call that fails is answered with its own exit and its own line and the
+/// batch goes on, because one issue whose row is damaged is no reason for a
+/// poll to lose the other reads.
+pub fn look_many(home: &Path, calls: &[ReadCall]) -> Result<Vec<(i64, String)>, Fail> {
+    let file = db::path(home);
+    not_empty(&file)?;
+    let conn = db::open_look(&file).map_err(crate::line)?;
+    conn.execute_batch("BEGIN").q()?;
+    // The schema first, as `look` reads it: one answer of a store nobody
+    // migrated, not one per call. The window in which `look` answers from this
+    // connection is the scope of the `Reading` made below: whatever the reads
+    // do, and however they leave it, the thread is outside a read again once
+    // that value is gone.
+    let started = schema(&conn).map(|()| {
+        let reading = Reading::new(&conn);
+        let answers = calls
+            .iter()
+            .map(|call| match call {
+                ReadCall::PlanShow(n) => plan::show(home, Some(*n)),
+                ReadCall::ParkShow(n) => park::show(home, Some(*n), false),
+                ReadCall::QuestionKnown(n, id) => park::known(home, *n, *id),
+                ReadCall::ApprovalCurrent(n) => approval::current(home, *n),
+            })
+            .map(|r: Result<String, Fail>| match r {
+                Ok(line) => (0i64, line),
+                Err((rc, why)) => (i64::from(rc), why),
+            })
+            .collect::<Vec<_>>();
+        // Given up before the transaction closes: no verb is left holding a
+        // connection that has been committed.
+        drop(reading);
+        answers
+    });
+    let done = started.and_then(|answers| conn.execute_batch("COMMIT").q().map(|()| answers));
+    match done {
+        Ok(answers) => Ok(answers),
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+/// The four reads `store batch` answers, named by the verbs of `batch::READS`:
+/// the four arms are the whole of the type, so an element of a request reaches a
+/// verb through this type or not at all. A write is not expressible as a
+/// `ReadCall`, so `look_many` cannot be handed one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReadCall {
+    PlanShow(i64),
+    ParkShow(i64),
+    QuestionKnown(i64, i64),
+    ApprovalCurrent(i64),
+}
+
+/// The read grammar of `store batch`: the four verbs of `batch::READS` and
+/// nothing else, taken from the same `READS` the batch checks. A name outside
+/// the four is refused by its first argument alone -- the line of the verb it
+/// is, or `usage <verb>: unknown verb` for a name the store does not have --
+/// before its other arguments are asked anything, so a write can never be run
+/// from a batch. A name inside them is parsed by that verb's own grammar, so
+/// the 64 usage line of a call that stops at its arguments is the line the
+/// single call prints, and only the four arms above can reach `look_many`.
+pub fn parse_read(args: &[String]) -> Result<ReadCall, (u8, String)> {
+    let name = args
+        .first()
+        .map(String::as_str)
+        .ok_or((64u8, "batch: a call holds no verb".to_string()))?;
+    // The name decides first: outside the four, nothing else of the call is
+    // read, and the refusal is the line the single command gives for it.
+    if !crate::batch::is_read(name) {
+        return Err(refusal_of(name, args));
+    }
+    let rest = &args[1..];
+    // Each verb's own grammar answers for it; `said` gives the unknown name the
+    // line the single command gives it, and `usage_rc` the 64 or the 1.
+    match name {
+        "plan-show" => said(plan::read_plan_show(rest), name).map(ReadCall::PlanShow),
+        "park-show" => said(park::read_park_show(rest), name).map(ReadCall::ParkShow),
+        "question-known" => said(park::read_question_known(rest), name)
+            .map(|(n, id)| ReadCall::QuestionKnown(n, id)),
+        "approval-current" => {
+            said(approval::read_approval_current(rest), name).map(ReadCall::ApprovalCurrent)
+        }
+        // `is_read` holds four names and the four are matched above.
+        _ => Err((64u8, format!("usage {name}: unknown verb"))),
+    }
+}
+
+/// The answer of a verb's own grammar to a call of the batch: its value, the
+/// line of a call that stops at its arguments, or the line of a name that verb
+/// does not have.
+fn said<T>(given: Option<Result<T, String>>, name: &str) -> Result<T, (u8, String)> {
+    given
+        .ok_or_else(|| (64u8, format!("usage {name}: unknown verb")))
+        .and_then(|r| r.map_err(usage_rc))
+}
+
+/// The refusal of a call whose verb is none of the four reads: the exit of a
+/// read of the store and the line naming the verb and the issue it was asked
+/// about, which is the shape a caller that logs failures sorts on.
+fn refusal_of(name: &str, args: &[String]) -> (u8, String) {
+    // A verb outside the four is refused by its name alone, without its other
+    // arguments being asked anything of the store: the line names the verb and
+    // the issue it was asked about, and the exit is that of a read of the store
+    // -- 1 -- for a verb of the store, and the 64 of a name the store does not
+    // have at all. Whether a name belongs to the store is answered by the one
+    // grammar of `parse`, so a call is judged by the same rules here as alone.
+    match parse(args) {
+        Some(_) if !crate::batch::is_read(name) => (
+            1u8,
+            format!("{name} #{}: not a read of a batch", args_issue(args)),
+        ),
+        None => (64u8, format!("usage {name}: unknown verb")),
+        // One of the four, reached by a path the parser above does not take.
+        Some(Ok(_)) => (
+            1u8,
+            format!("{name} #{}: not a read of a batch", args_issue(args)),
+        ),
+        // The name is one of the four and the arguments do not parse, so the
+        // call stops at them: the usage line and the 64 of the single command.
+        Some(Err(why)) => usage_rc(why),
+    }
+}
+
+/// The exit of a line the store's own grammar refused: 64 for a call that stops
+/// at its arguments, and 1 for the verb's own refusal of the row it was asked
+/// about, which is the exit of the read made alone. A caller that reads the word
+/// of a failure reads the same word, and the same exit, either way.
+fn usage_rc(why: String) -> (u8, String) {
+    if why.starts_with("usage ") {
+        (64u8, why)
+    } else {
+        (1u8, why)
+    }
+}
+
+/// The issue a call names for the line of a refusal: the digits of its second
+/// argument, or 0 for a call that names none, as the store's own refusals of a
+/// call without an issue read.
+fn args_issue(args: &[String]) -> i64 {
+    args.get(1)
+        .filter(|a| a.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|a| a.parse().ok())
+        .unwrap_or(0)
+}
+
+// The connection of the read this thread is inside, held by the `Reading` of
+// the batch that set it. A thread with no `Reading` reads the store the way it
+// always did, by opening it.
+thread_local! {
+    static READING: std::cell::Cell<Option<*const Connection>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+/// The window in which `look` answers from a connection that is open already.
+/// Setting is done by `new` and clearing by `Drop`, so the window is the scope
+/// of the value and a read that leaves it early -- by a `?` or a panic -- still
+/// leaves the thread outside a read.
+struct Reading<'a> {
+    _bound: std::marker::PhantomData<&'a Connection>,
+}
+
+impl<'a> Reading<'a> {
+    fn new(conn: &'a Connection) -> Reading<'a> {
+        // The borrow checker keeps `conn` alive for as long as the value does,
+        // which is the whole of the window; the cell holds the address rather
+        // than the reference because a thread-local cannot own one.
+        READING.with(|cell| cell.set(Some(conn as *const Connection)));
+        Reading {
+            _bound: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for Reading<'_> {
+    fn drop(&mut self) {
+        READING.with(|cell| cell.set(None));
+    }
+}
+
+/// Whether this thread is inside a batch's read, and so whether `look` must
+/// open the store again or has it already.
+fn reading() -> Option<&'static Connection> {
+    READING.with(|cell| cell.get().map(|p| unsafe { &*p }))
 }
 
 /// The row every record table references, made when the issue has none. An
