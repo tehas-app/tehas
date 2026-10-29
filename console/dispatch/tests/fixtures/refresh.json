@@ -5132,6 +5132,459 @@
    }
   },
   {
+   "case": "a parked refresh with no start counts as a park since the approval",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [
+       {
+        "how": "refresh",
+        "parked": true,
+        "started": null
+       }
+      ],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "a refresh of it since alice approved it parked, its start unread, so it is held"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "refresh_said": "park 2026-10-01T00:00:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a parked refresh whose start the poll cannot read counts as a park",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [
+       {
+        "how": "refresh",
+        "parked": true,
+        "started": "1790899201"
+       }
+      ],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "a refresh of it since alice approved it parked, its start unread, so it is held"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "refresh_said": "park 2026-10-01T00:00:00Z"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a refresh that was not parked is offered though its start is unread",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [
+       {
+        "how": "refresh",
+        "parked": false,
+        "started": null
+       }
+      ],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "picked": [
+     7
+    ],
+    "log_lacks": [
+     "a refresh of it since alice approved it parked"
+    ]
+   }
+  },
+  {
+   "case": "a parked refresh that started before the approval does not hold one",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [
+       {
+        "how": "refresh",
+        "parked": true,
+        "started": 1790769600
+       }
+      ],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "picked": [
+     7
+    ]
+   }
+  },
+  {
    "case": "a park of a cycle that was no refresh does not hold one",
    "settings": {
     "TEHAS_TICKET_CONCURRENCY": 2,

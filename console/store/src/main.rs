@@ -114,6 +114,18 @@
 //!                [--evidence <json>]
 //!   store journal-open
 //!                (the action journal: src/journal.rs)
+//!   store batch  (reads a JSON array of calls on standard input, one element
+//!                per call, each an array of arguments -- ["plan-show","12"] --
+//!                and answers a JSON array in the same order, one
+//!                {"rc": <exit>, "out": <what the verb prints>} per call. It
+//!                opens the database once, in one transaction, so the calls
+//!                read one snapshot. It answers the four reads a poll asks of
+//!                each issue -- plan-show, park-show, question-known and
+//!                approval-current; any other verb in the list gets 64 and
+//!                nothing is written, and none of the four writes. The calls
+//!                are given on standard input because one argument would be
+//!                shell data: the poll of read/store.rs is its only caller
+//!                (src/batch.rs).
 //!
 //! Each answers one line, {"api":1,"verb":"<verb>","ok":true,...}. A record
 //! verb that refuses says `store: usage <verb>: ...` (64) or
@@ -151,6 +163,7 @@
 //! past the busy timeout, which says `busy`.
 
 mod approval;
+mod batch;
 mod cycle;
 mod db;
 #[cfg(debug_assertions)]
@@ -219,7 +232,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | review-issue <path> <branch> <commit> | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | review-issue <path> <branch> <commit> | batch | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
@@ -254,23 +267,53 @@ fn main() -> ExitCode {
         eprintln!("store: {why}");
         return ExitCode::from(64);
     }
+    // `batch` is the one verb whose request is on standard input rather than in
+    // its arguments. Its home is asked for first, before a byte of the request
+    // is read, so a call with no usable home stops at 78 without holding the
+    // pipe open or taking the request into memory: every verb passes the same
+    // guard before it reads anything.
+    if args.first().is_some_and(|a| a == "batch") {
+        let rest = &args[1..];
+        if rest.iter().any(|a| a != "--json") {
+            eprintln!("{USAGE}");
+            return ExitCode::from(64);
+        }
+        let Some(home) = home_of_call() else {
+            return ExitCode::from(78);
+        };
+        let now = match now_or_78() {
+            Ok(t) => t,
+            Err(code) => return code,
+        };
+        let asked = match batch::Request::read() {
+            Ok(a) => a,
+            Err(why) => {
+                eprintln!("store: {why}");
+                return ExitCode::from(64);
+            }
+        };
+        return match execute(&home, &Verb::Batch(asked), now) {
+            Ok(line) => {
+                println!("{line}");
+                ExitCode::SUCCESS
+            }
+            Err((code, why)) => {
+                eprintln!("store: {why}");
+                ExitCode::from(code)
+            }
+        };
+    }
     let Some(verb) = parse(&args) else {
         eprintln!("{USAGE}");
         return ExitCode::from(64);
     };
-    let home = match std::env::var_os("TEHAS_HOME").map(PathBuf::from) {
-        Some(h) if h.is_absolute() && h.is_dir() => h,
-        _ => {
-            eprintln!("store: TEHAS_HOME is not set to a directory");
-            return ExitCode::from(78);
-        }
+    let home = match home_of_call() {
+        Some(h) => h,
+        None => return ExitCode::from(78),
     };
-    let now = match now() {
+    let now = match now_or_78() {
         Ok(t) => t,
-        Err(why) => {
-            eprintln!("store: {why}");
-            return ExitCode::from(78);
-        }
+        Err(code) => return code,
     };
     match execute(&home, &verb, now) {
         Ok(line) => {
@@ -282,6 +325,26 @@ fn main() -> ExitCode {
             ExitCode::from(code)
         }
     }
+}
+
+/// The home the command was given, or nothing to say: the same rule for every
+/// verb, read once.
+fn home_of_call() -> Option<PathBuf> {
+    match std::env::var_os("TEHAS_HOME").map(PathBuf::from) {
+        Some(h) if h.is_absolute() && h.is_dir() => Some(h),
+        _ => {
+            eprintln!("store: TEHAS_HOME is not set to a directory");
+            None
+        }
+    }
+}
+
+/// The `now` of a call, or the 78 the command prints when it cannot name one.
+fn now_or_78() -> Result<i64, ExitCode> {
+    now().map_err(|why| {
+        eprintln!("store: {why}");
+        ExitCode::from(78)
+    })
 }
 
 /// What the review verb was given: the document of one run, and the two names
@@ -319,6 +382,10 @@ pub enum Verb {
         out: PathBuf,
     },
     ReviewIssue(ReviewIssue),
+    /// The calls of one `store batch`, already read from standard input and
+    /// judged by `batch::parse`: built by `batch::Request::of` and by nothing
+    /// else, so a caller of `execute` cannot name a verb the batch would run.
+    Batch(batch::Request),
     Record(verbs::Call),
 }
 
@@ -615,6 +682,7 @@ pub fn execute(home: &Path, verb: &Verb, now: i64) -> Result<String, (u8, String
         Verb::TestWrite(w) => exercise::write(&file, w, now),
         Verb::Slow { file, out } => slow::run(file, out),
         Verb::ReviewIssue(r) => review_issue::run(&r.path, &r.branch, &r.commit),
+        Verb::Batch(asked) => batch::run(home, asked),
         Verb::Record(call) => verbs::run(home, call, now),
     }
 }

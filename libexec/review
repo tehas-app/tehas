@@ -3,20 +3,24 @@
 # pi-rukas's lens reviewer running headless in the sandbox image.
 #
 # One turn of `pi-rukas-headless lens-review --since <commit> --json` over a
-# fresh clone of the default branch. It files nothing. The start is the commit
-# recorded in $TEHAS_HOME/state/review.json, else the commit 7 days back, else
-# the root. Only exits 0, 10 and 20 move the record on; a failed run leaves it,
-# so the next one reads the same range. What the container is given and where
-# the logs go are in host/docs/tools.md. This prepares the sandbox; the
-# console beside it (console/src/review.rs) reads the range, checks what the
-# image is given, and runs and bounds the container.
+# fresh clone of the default branch. A run that ended with findings files them
+# as one issue in TEHAS_REVIEW_REPO, or nowhere until the instance names one.
+# The store renders their words (`store review-issue`) and q_clean masks them
+# on their way out (lib/questions.sh). The start is the commit in
+# $TEHAS_HOME/state/review.json, else the commit 7 days back, else the root.
+# Only exits 0, 10 and 20 move the record on, so a failed run leaves it and the
+# next one reads the same range. What the container is given and where the logs
+# go are in host/docs/tools.md. This prepares the sandbox; the console beside it
+# (console/src/review.rs) reads the range, checks what the image is given, and
+# runs and bounds the container.
 #
 # Usage:
 #   tehasbot review             one review
 #   tehasbot review -h|--help   print this text and exit 0
 #
 # Exit status: 0 the review answered with no findings, 10, or 20 - the status
-#              the runner gave,
+#              the runner gave, which no filing changes (a filing that failed
+#              is said on standard error and the record still moves on),
 #             2 the runner failed, ran out of time, or its record could not be
 #               written down,
 #            64 an argument this command does not know, or no git identity for
@@ -31,7 +35,10 @@
 #   TEHAS_PLAN_TIMEOUT  seconds before a review is given up [7200, the ceiling
 #                       TEHAS_PLAN_TIMEOUT_MAX in lib/config.sh]: the bound of
 #                       one headless turn, which is what this is too
-#   and those of tehas work for the checkout and the container's limits.
+#   TEHAS_REVIEW_REPO   owner/name the findings are filed in [unset: nothing is
+#                       filed]. lib/config.sh refuses it equal to TEHAS_REPO,
+#                       the product, whose issues a person writes
+#   and those of tehas work for the checkout, the container and its limits.
 set -uo pipefail
 
 show_usage() {
@@ -64,11 +71,12 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
+# shellcheck source=lib/questions.sh
+. "$here/../lib/questions.sh"
+# shellcheck source=lib/store.sh
+. "$here/../lib/store.sh"
 tehas_load || exit 78
-# A review runs an agent on a timer with no person in front of it, so it asks
-# for the whole instance and not the three settings of a planning turn: the
-# command that decides who may start work on this host is the one whose
-# settings are checked here, and a host that lost one of them reviews nothing.
+# A review runs an agent on a timer with no person in front of it.
 tehas_require_instance_settings
 tehas_sandbox_settings_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
@@ -133,22 +141,28 @@ mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
 tehas_sandbox_security_take "tehas review" "a review" || exit 78
 
-# A docker that does not answer is said apart from an image with no
-# lens-review verb, so nobody rebuilds an image that is fine.
+# The findings of a run are filed by the questions library, which owns the
+# agent's words on their way to a public issue. Its last line is this command's
+# own, so no finding can become it; the backquotes are GitHub's, not the shell's
+# shellcheck disable=SC2016  # the backquotes are literal, by intent
+q_file_ask='Apply `tehas:refine` to plan this into parts sized for one cycle.'
+
+# A docker that does not answer is said apart from an image with no lens-review
+# verb, so nobody rebuilds an image that is fine.
 caps=$(tehas_headless_caps "$image" "$runner") || caps_rc=$?
 caps_rc=${caps_rc:-0}
 if [ "$caps_rc" != 0 ]; then
   echo "tehas review: $image gave no --capabilities answer (exit $caps_rc), not starting" >&2
   exit 78
 fi
-if ! tehas_headless_verb "$caps" lens-review "--since --json"; then
+tehas_headless_verb "$caps" lens-review "--since --json" || {
   echo "tehas review: $image runs no review (its --capabilities has no verbs lens-review), not starting" >&2
   exit 78
-fi
-# Which PI_ENSEMBLE_* the image does not list for a host to set: a lever of the
-# runner this run was never vetted for.
+}
 [ -x "$console" ] ||
   { echo "tehas review: no console beside this command ($console), run install.sh" >&2; exit 78; }
+# Which PI_ENSEMBLE_* the image does not list for a host to set, and so a lever
+# of the runner this run was never vetted for.
 refused=$("$console" review refused "${envs[@]%%=*}" <<<"$caps")
 if [ -n "$refused" ]; then
   echo "tehas review: $image does not take what this review would be given, not starting:" >&2
@@ -164,9 +178,8 @@ case $? in
   *) exit 2 ;;
 esac
 
-# One review at a time: the container, the workspace and the record are one
-# per host. The home's directories are made only now, so a run that stopped
-# earlier leaves nothing behind.
+# One review at a time: the container, the workspace and the record are one per
+# host; the home's directories are made only now.
 mkdir -p "$(dirname "$record")" ||
   { echo "tehas review: could not make the directories under $TEHAS_HOME, nothing was reviewed" >&2; exit 78; }
 exec 9>"$TEHAS_HOME/state/review.lock" ||
@@ -192,8 +205,8 @@ fi
 # From here a step that fails removes the run's two directories.
 trap 'rm -rf "$tree" "$container"' EXIT
 
-# The run's own copy of the host's code index. An index of another commit is
-# said, since the search then falls back to reading files.
+# The run's own copy of the host's code index, and a word when it is not of
+# this commit: the search then falls back to reading files.
 if [ "$(jq -r '.commit // ""' "$TEHAS_HOME/state/index.json" 2>/dev/null)" != "$head" ]; then
   echo "tehas review: the host's code index is not of ${head:0:12}, so this run may search an older one"
 fi
@@ -205,18 +218,23 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
 
 user="$(id -u):$(id -g)"
-# The log's directory is made by the run that writes a log.
+# The log's directory is made here; the document beside it by the console.
 mkdir -p "$(dirname "$log")" ||
   { echo "tehas review: could not make $(dirname "$log"), not starting a review" >&2; exit 78; }
 echo "tehas review: $branch from ${since:0:12} ($from), log $log"
 # The console removes the two directories when the run is over, and holds the
 # lock while it goes. TEHAS_PLAN_TIMEOUT bounds the run, as it bounds one
-# headless turn; TEHAS_STOP_WAIT bounds each docker call and the client.
+# headless turn; TEHAS_STOP_WAIT bounds each docker call and the client. The
+# document it writes beside the log is the one the store renders into the issue.
 set -- docker run --rm --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$user" \
   -w "$repo" "${mounts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" lens-review --since "$since" --json
-exec "$console" review run "${private[@]}" --branch "$branch" --head "$head" \
+"$console" review run "${private[@]}" --branch "$branch" --head "$head" \
   --since "$since" --record "$record" --limit "$limit" --stop-wait "${TEHAS_STOP_WAIT:-60}" \
   --name "$name" --doc "$doc" --log "$log" --remove "$tree" --remove "$container" -- "$@"
+rc=$?
+[ "$rc" = 10 ] || [ "$rc" = 20 ] || exit "$rc"
+q_file_findings || echo "tehas review: the findings were not filed: $q_file_why" >&2
+exit "$rc"
