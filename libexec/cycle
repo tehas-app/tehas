@@ -782,16 +782,16 @@ rm -f "$stall_file"
 # it was written by tehas work, which watched this cycle, so it is tehas work's
 # own word for what it saw in flight.
 [ "$step" != - ] || [ -z "$stop_step" ] || { step=$stop_step; step_from=stalled; }
-# The image the container started from, as tehas work put it on this
-# attempt's record, and the pi-rukas commit of its label. None when the record
-# cannot be read: the report goes on without them.
-image_id="" image_rukas=""
+# The image the container started from, as tehas work put it on this attempt's
+# record, its pi-rukas label and when that id was built. None without a record.
+image_id="" image_rukas="" image_built=""
 if tehas_store cycle-show "$issue"; then
   read -r image_id image_rukas < <(jq -r --argjson a "$attempt" \
     '.cycle | select(. != null and .attempt == $a and .image != null) | "\(.image) \(.rukas_commit // "")"' \
     <<<"$tehas_store_out" 2>/dev/null)
   [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || image_id=""
   [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
+  [ -z "$image_id" ] || image_built=$(timeout -k 5 30 docker image inspect --format '{{.Created}}' "$image_id" 2>/dev/null)
 else
   log "WARN: the record of #$issue could not be read for its image ($tehas_store_word)"
 fi
@@ -1438,8 +1438,8 @@ line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" 
   --arg by "$start_by" --arg how "$start_how" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
    | with_entries(select(.value != ""))') || line=null
-tehas_analytics_run "$issue" "$attempt" "$line" ${image_id:+--image "$image_id"} ${image_rukas:+--rukas-image "$image_rukas"} \
-  ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
+tehas_analytics_run "$issue" "$attempt" "$line" ${image_id:+--image "$image_id"} ${image_built:+--image-built "$image_built"} \
+  ${image_rukas:+--rukas-image "$image_rukas"} ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
 tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported
 # by now, and a record that cannot be written is the loop's loss only.

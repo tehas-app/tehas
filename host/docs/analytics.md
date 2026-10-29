@@ -129,7 +129,7 @@ call; one that a caller killed during the call leaves is removed by
 | `pr` | The pull request's number, parsed from its URL; the URL is not kept | 1 |
 | `tehas_version`, `tehas_commit` | `~/tehas/docs/version.txt` as the run ended, `vX.Y.Z` and the seven-character commit | 1 |
 | `rukas_version`, `rukas_commit` | The result's `buildVersion` and `buildCommit`; else the commit of the sandbox image's `tehas.rukas` label | 1 |
-| `image` | The sandbox image's id, `sha256:<hex>` | 1 |
+| `image` | The sandbox image's id, `sha256:<hex>`: for a work run the one its container started from, for a planning turn the one the image name pointed at as the turn ended | 1 |
 | `input`, `output`, `cache_read`, `cache_write`, `turns`, `dispatches`, `cost` | The result's `usage`. For a planning turn `turns` is its turn in the session, and the rest is NULL | 1 |
 | `oom_kills`, `forks_refused` | Processes killed for memory and forks refused in the container, as `tehasbot cycle` reads them | 1 |
 | `concurrent` | How many other cycles ran when it started, from `settings` | 1 |
@@ -239,8 +239,12 @@ than its poll gives NULL.
 
 ### meta
 
-`key` and `value`: `schema`, `retention_days` (365) and `created`. No host
-name, address or token. Since schema 1.
+`key` and `value`: `schema`, `retention_days` (365) and `created`, and
+`image:<id>` for each image a run used: when it was built, Unix seconds, as
+docker says of the id as the run ends. An id names one build, so the first time
+recorded stands and every run of the image reads it, also one recorded before
+it. A prune drops the key of an image no run names. No host name, address or
+token. Since schema 1; the image keys add no column, so the schema stays 2.
 
 ## The views
 
