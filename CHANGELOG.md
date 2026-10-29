@@ -13,6 +13,15 @@ empty one above it.
 
 ### Changes
 
+
+### Adopter action
+
+None.
+
+## v0.16.2 (2026-10-29)
+
+### Changes
+
 - `tehas tidy` decides its label changes in the console. The names it takes
   off, the answer of the search and which issue the read of what closed them
   is asked about are `console tidy`'s (`console/src/tidy.rs`, with its Rust
@@ -33,14 +42,13 @@ empty one above it.
   report` replaces the jq of `tehasbot health`, with the same checks, the same
   `output` and the same file; the command keeps the store calls, the failed
   units and the publish (#889).
-
-### Adopter action
-
-None.
-
-## v0.16.2 (2026-10-29)
-
-### Changes
+- The work order on the dashboard shows CREATED, CHANGED, CLOSED, RUNS,
+  TOKENS, TIME and ENERGY for each issue the snapshot lists, and leaves out a
+  figure it does not have instead of showing `-`. `analytics orders` writes
+  `live/orders.json` (runs, seconds and tokens per issue), which `tehasbot
+  status` runs before its report and removes when analytics is off; the
+  shipped list's query asks for title, URL and dates again (#994, #995, #996,
+  #997).
 
 - The gate's kept pass no longer misses a same-size edit made in the
   second of the last index write: its copy of the index keeps the index's
