@@ -124,8 +124,18 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO | TEHAS_REVIEW_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+    # The counts. `auto` is the poll's word for the two counts it works out of the
+    # host (console/dispatch/src/slots.rs); the three it reads for them are checked
+    # nowhere here, since its Rust holds each rule and default with the arithmetic.
+    # The four lines refuse auto and keep the containers' floor of 2: a slice of
+    # one container would give it the whole slice.
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
+      case "$name:$v" in
+        TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) return 0 ;;
+        TEHAS_SLICE_CONTAINERS:*) [[ $v =~ ^([2-9]|1[0-6])$ ]] ||
+            { echo "expected auto or a whole number from 2 to 16"; return 1; } ;;
+      esac
       [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
       _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
@@ -184,7 +194,9 @@ _tehas_valid() {
     TEHAS_ANALYTICS_SITE)
       [[ $v =~ ^[A-Za-z0-9._-]+$ ]] || { echo "expected one word of letters, digits, dots and dashes"; return 1; }
       ;;
-    TEHAS_CYCLE_RESERVE)
+    # TEHAS_CYCLE_RESERVE, and TEHAS_CONTAINER_MEMORY, the size the poll
+    # divides the slice by for its containers: the one size Docker takes.
+    TEHAS_CYCLE_RESERVE | TEHAS_CONTAINER_MEMORY)
       # The shape lib/slice.sh reads at every start: no leading zero, at most
       # twelve digits of bytes or nine with a unit, and a size Docker takes: it
       # refuses a memory value under 6m.
@@ -224,9 +236,6 @@ _tehas_valid() {
     # between two runs of tehasbot refresh are at most a day.
     TEHAS_REFRESH_SLOTS)
       [[ $v =~ ^[0-8]$ ]] || { echo "expected a whole number from 0 to 8"; return 1; }
-      ;;
-    TEHAS_SLICE_CONTAINERS)
-      [[ $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected a whole number from 2 to 16"; return 1; }
       ;;
     TEHAS_REFRESH_EVERY)
       [[ $v =~ ^[1-9][0-9]{0,3}$ ]] && [ "$v" -le 1440 ] ||
@@ -483,13 +492,14 @@ tehas_load() {
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
   # The most issues worked on side by side, each in a cycle of its own. A
   # ceiling: the dispatcher starts fewer while the slice has no room. By
-  # default one per CPU, less one for the host. The only thing read of the
-  # host here.
+  # default one per CPU, less one for the host; `auto` is kept as written and
+  # answered by the poll (console/dispatch/src/slots.rs). The only host read here.
   v=$(_tehas_host_cpus)
   export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-$((v > 1 ? v - 1 : 1))}
   # The memory one container is given as its floor, what the dispatcher counts
   # it at, and how many containers tehas.slice holds: each may use 1/n of it.
-  # Whether they fit this host is lib/slice.sh's question.
+  # Whether they fit this host is lib/slice.sh's question; the three the poll
+  # reads for `auto` are not exported, since it defaults them.
   export TEHAS_CYCLE_RESERVE=${TEHAS_CYCLE_RESERVE:-2g} TEHAS_SLICE_CONTAINERS=${TEHAS_SLICE_CONTAINERS:-4}
   # Whether search engines may index the dashboard and the manual, and whether
   # the host's load and processes are published for the dashboard by `tehasbot
@@ -552,9 +562,11 @@ tehas_load() {
   export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-} TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review: a fixed
   # number would leave slots that can never be used. A concurrency that is not a
-  # number is refused below and leaves the floor of three.
+  # number is refused below and leaves the floor of three; `auto` takes the
+  # ceiling a number would have had, the count being the poll's.
   v=3
-  ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
+  [ "$TEHAS_TICKET_CONCURRENCY" != auto ] &&
+    _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" && v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
   # logs before it is stopped as stalled, longer than a run of the gate, which
   # may print nothing. These and the child bound below are the chain of time
@@ -699,8 +711,10 @@ tehas_load() {
     return 78
   fi
   # One axis of parallelism: several cycles of one workstream, or one cycle of
-  # several. Both would multiply the agents and the gates on the same CPUs.
-  if [ "$TEHAS_CONCURRENCY" -gt 1 ] && [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; then
+  # several. Both would multiply the agents and the gates on the same CPUs, and
+  # `auto` asks for more than one cycle on any host with room: one refusal.
+  if [ "$TEHAS_CONCURRENCY" -gt 1 ] &&
+    { [ "$TEHAS_TICKET_CONCURRENCY" = auto ] || [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; }; then
     tehas_err "TEHAS_CONCURRENCY ($TEHAS_CONCURRENCY) and TEHAS_TICKET_CONCURRENCY ($TEHAS_TICKET_CONCURRENCY) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see $file)"
     return 78
   fi
