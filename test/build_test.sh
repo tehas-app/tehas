@@ -93,9 +93,10 @@ t_stub docker 'case "$1" in
   tag) echo "${3#*:} sha256:new" >>"$T/images" ;;
   ps) [ -z "${PS_RC:-}" ] || exit "$PS_RC"; cut -d" " -f1 "$T/containers" ;;
   inspect) shift 3; for c in "$@"; do awk -v c="$c" "\$1 == c { print \$2 }" "$T/containers"; done ;;
-  image) awk "!seen[\$1]++" "$T/images" ;;
+  image)
+    if [ "$2" = inspect ] && [ -n "${LABEL:-}" ]; then echo "$LABEL"; else awk "!seen[\$1]++" "$T/images"; fi ;;
   rmi) [ "$2" != "${RMI_FAILS:-}" ] || exit 1 ;;
-  run) cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json" ;;
+  run) if [ -n "${CAPS:-}" ]; then echo "$CAPS"; else cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi ;;
 esac'
 # Six builds before this one, the oldest first, each its own image. The last
 # also carried the uid tag, which the build moves to the new image.
@@ -699,5 +700,48 @@ t_eq "$build_shared" "$tracked_shared"
 tracked_rest=$(image_steps "$dockerfile" | awk -F '\t' '$1 == "comment" || $1 == "boundary" { next } { print $2 }')
 build_rest=$(image_steps "$T/docker-build-recipe" | awk -F '\t' '$1 == "comment" || $1 == "boundary" { next } { print $2 }')
 t_eq "$build_rest" "$tracked_rest"
+
+# The footers of the front pages show the pi-rukas version of the image, from a
+# file beside the pages the build writes on a host and never in the checkout.
+t_case "a build on a host writes the pi-rukas version beside the pages"
+setup
+install_host_toolchain
+mkdir -p "$T/home/tehas/fun"
+rm -f "$T/home/tehas/fun/rukas-version.txt"
+t_run "\"$home/build.sh\""
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.14.0
+
+t_case "an --if-moved with nothing to build writes the version of the current image"
+setup
+install_host_toolchain
+mkdir -p "$T/home/tehas/fun"
+echo v0.13.9 >"$T/home/tehas/fun/rukas-version.txt"
+T_ENV=(LABEL=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+t_run "\"$home/build.sh\" --if-moved"
+t_eq "$t_rc" 0
+t_contains "$t_out" "is on aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+t_lacks "$(t_calls docker)" "build "
+t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.14.0
+
+t_case "an image that names no version takes the file away, and --check writes nothing"
+setup
+install_host_toolchain
+mkdir -p "$T/home/tehas/fun"
+echo v0.13.9 >"$T/home/tehas/fun/rukas-version.txt"
+T_ENV=(LABEL=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa CAPS='{}')
+t_run "\"$home/build.sh\" --check"
+t_eq "$t_rc" 0
+t_eq "$(cat "$T/home/tehas/fun/rukas-version.txt")" v0.13.9
+t_run "\"$home/build.sh\" --if-moved"
+t_eq "$t_rc" 0
+t_eq "$(test -e "$T/home/tehas/fun/rukas-version.txt" && echo there)" ""
+T_ENV=()
+
+t_case "a build from the checkout writes no version file"
+setup
+t_run "$build"
+t_eq "$t_rc" 0
+t_eq "$(test -e "$T_ROOT/host/fun/rukas-version.txt" && echo there)" ""
 
 t_done

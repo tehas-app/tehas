@@ -1119,7 +1119,7 @@ sync_dir() { # name: host/<name>/* -> $TEHAS_HOME/<name>/
         continue
         ;;
     esac
-    case "$to" in *.prev | */version.txt) continue ;; esac
+    case "$to" in *.prev | */version.txt | */rukas-version.txt) continue ;; esac
     [ -e "$host/$name/${to##*/}" ] && continue
     changed+=("$name/${to##*/}")
     if [ "$check" = 1 ]; then note "stale: $to"; else rm -f "$to" "$to.prev" && echo "removed: $to"; fi
