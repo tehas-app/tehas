@@ -28,7 +28,8 @@ pub const TEXT_MAX: usize = 400;
 /// A line of the runner's evidence that names a failing check.
 static CHECK: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bFAIL(ED)?\b|^\s*not ok\b|\bfailed checks\b").unwrap());
-static CAUSE_CLASS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z-]{1,40}$").unwrap());
+/// One word of the runner's own: a cause class or an error code.
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z-]{1,40}$").unwrap());
 
 pub fn tool() -> Value {
     let int = |d: &str| json!({"type": "integer", "description": d});
@@ -59,9 +60,13 @@ pub fn tool() -> Value {
             "reason": text("The park reason."),
             "cause": text("The cause of the failure."),
             "provider": flag("True when a model provider outage stopped it."),
+            "forksRefused": int("Starts of a process its container refused at its limit. Left out when none."),
+            "oomKills": int("Processes killed for memory. Left out when none."),
             "sig": text("The signature of the park: sha256 of step, cap, reason, kind and cause, as the tehas:park marker of its park comment carries it."),
             "result": {"type": "string", "enum": ["read", "none", "gone", "unreadable"], "description": "Its result log: read, none listed, gone, or unreadable (not a plain file, over 1 MiB, not JSON, or no entry of this issue)."},
             "message": text("The runner's failure message, one line, masked."),
+            "errorCode": text("The runner's error code when the runner itself stopped, such as crash."),
+            "error": text("The runner's error message when the runner itself stopped, one line, masked."),
             "causeClass": text("What the runner blamed: change, environment or another word of its own."),
             "causeReason": text("The runner's reason for the cause, one line, masked."),
             "userAction": text("What the runner says to do, one line, masked."),
@@ -102,8 +107,9 @@ fn text_of(v: &Value) -> Option<String> {
     v.as_str().map(line).filter(|s| !s.is_empty())
 }
 
-/// The issue's entry of the result log, or the word to say why there is none.
-fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<Value, &'static str> {
+/// The issue's entry of the result log and the error of the result that
+/// holds it, or the word to say why there is none.
+fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<(Value, Value), &'static str> {
     let listed = s["logs"].as_array().into_iter().flatten();
     let names: Vec<&str> = listed
         .filter(|l| l["word"] == "result")
@@ -142,14 +148,20 @@ fn entry(dirs: &Dirs, s: &Value, issue: u64) -> Result<Value, &'static str> {
             .rev()
             .find(|e| e["issue"].as_u64() == Some(issue))
         {
-            found = Some(e.clone());
+            found = Some((e.clone(), v["error"].clone()));
         }
     }
-    found.filter(Value::is_object).ok_or("unreadable")
+    found.filter(|(e, _)| e.is_object()).ok_or("unreadable")
+}
+
+/// One word of the runner's, masked first: a private name fails the pattern.
+fn word_of(v: &Value) -> Option<String> {
+    v.as_str().map(mask).filter(|w| WORD.is_match(w))
 }
 
 /// The runner's own extract first, then the lines of its evidence that name
-/// a failing check, each once.
+/// a failing check. A line held in another, as the runner cuts or quotes
+/// one, is given once, the longer kept.
 fn checks(e: &Value) -> (Vec<String>, bool) {
     let mut out: Vec<String> = Vec::new();
     let mut cut = false;
@@ -160,7 +172,12 @@ fn checks(e: &Value) -> (Vec<String>, bool) {
         .map(line)
         .chain(evidence.lines().filter(|l| CHECK.is_match(l)).map(line));
     for l in found {
-        if l.is_empty() || out.contains(&l) {
+        if l.is_empty() || out.iter().any(|o| o.contains(l.as_str())) {
+            continue;
+        }
+        if let Some(i) = out.iter().position(|o| l.contains(o.as_str())) {
+            out.retain(|o| !l.contains(o.as_str()));
+            out.insert(i, l);
             continue;
         }
         if out.len() == CHECKS_MAX {
@@ -236,14 +253,26 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
             out.insert(to.into(), v);
         }
     }
+    // What the park comment states of the container, when it happened.
+    for k in ["forksRefused", "oomKills"] {
+        if let Some(n) = s[k].as_u64().filter(|n| *n > 0) {
+            out.insert(k.into(), json!(n));
+        }
+    }
     out.insert("sig".into(), json!(sig));
 
     match entry(dirs, &s, issue) {
         Err(why) => {
             out.insert("result".into(), json!(why));
         }
-        Ok(e) => {
+        Ok((e, error)) => {
             out.insert("result".into(), json!("read"));
+            if let Some(c) = word_of(&error["code"]) {
+                out.insert("errorCode".into(), json!(c));
+            }
+            if let Some(t) = text_of(&error["message"]) {
+                out.insert("error".into(), json!(t));
+            }
             for (k, v) in [
                 ("message", &e["failure"]["message"]),
                 ("causeReason", &e["causeReason"]),
@@ -253,7 +282,7 @@ pub(crate) fn call(dirs: &Dirs, args: &Value) -> Result<Map<String, Value>, Tool
                     out.insert(k.into(), json!(t));
                 }
             }
-            if let Some(c) = e["causeClass"].as_str().filter(|c| CAUSE_CLASS.is_match(c)) {
+            if let Some(c) = word_of(&e["causeClass"]) {
                 out.insert("causeClass".into(), json!(c));
             }
             let (lines, cut) = checks(&e);
