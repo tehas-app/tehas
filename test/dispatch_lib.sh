@@ -179,6 +179,14 @@ default_start
 t_stub fake-status
 # Stands in for libexec/tidy, and notes whether a cycle had started before it.
 t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-start"'
+# Stands in for libexec/health, as these two commands are stood in for: a call
+# of health is recorded and it answers 0. The poll runs health once at its
+# start, and the real one is about 45 processes - five calls of the store and
+# about eighteen of jq - which no case of these files reads. A case that looks
+# at the health file, or at what health prints, names the real command with
+# real_health.
+t_stub fake-health
+real_health() { T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_ROOT/libexec/health"); }
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
@@ -389,7 +397,13 @@ reset() {
   else
     # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
     t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
-    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD="$T_ROOT/libexec/health")
+    # No TEHAS_HEALTH_CMD: health is the stub t_stub made above. The Rust poll
+    # names its own health beside its own binary, as the bash poll names the one
+    # beside libexec/dispatch, so the bare word of a command on PATH is never
+    # asked for: the stub has to be named. It records its call and answers 0;
+    # the WARN of a health file that could not be written is read here as no
+    # command having been given to the poll at all.
+    T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T_DISPATCH" TEHAS_HEALTH_CMD=fake-health)
   fi
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 }
