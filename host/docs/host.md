@@ -545,6 +545,16 @@ unpacked beside the others in `~/tehas/versions/<version>`, and
 `TEHAS_UPDATE_FROM=git` and updates from its platform checkout. See
 [tehas update](/tools#tehas-update).
 
+An update does not wait for the running cycles. Each cycle and planning turn
+runs from its own copy of the code in `~/tehas/run`, made when it started, and
+`install.sh` replaces each file by renaming a new one over it, so what runs
+ends on the version it began on while the next cycle starts on the new one. An
+update restarts the services and timers of tehas that were running, never a
+cycle's or a planning turn's unit. The one part a running cycle shares with the
+new version is the state store and the analytics program, which are called
+where they are installed: a store verb a released version calls stays for a
+release after the one that stops calling it.
+
 ### Move a checkout host to releases
 
 A host installed before releases has a platform checkout at `~/tehas/platform`
@@ -556,10 +566,8 @@ it to releases, once a signed release is published:
    there since the key was added; run `tehas update` once from the checkout if
    it is missing.
 3. Set `TEHAS_UPDATE_FROM=release` in `instance.env`.
-4. Pause and let running cycles end (`tehas pause`), since an update that
-   changes a unit restarts the units that run.
-5. Run `tehas update --check`, read the Adopter action of each release it
-   lists, then run `tehas update`, then `tehas resume`.
+4. Run `tehas update --check`, read the Adopter action of each release it
+   lists, then run `tehas update`.
 
 The checkout stays where it is and is no longer read. To go back to it, set
 `TEHAS_UPDATE_FROM=git` and run `./install.sh` from the checkout.

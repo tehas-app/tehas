@@ -1820,12 +1820,14 @@ An update is a person's choice: nothing updates tehas on its own. Run
 `tehas update --check` to see the version installed, the newest release and
 the `Adopter action` of each release between, do what they ask, then run
 `tehas update`. `tehas update --to <version>` goes back (see
-[Rolling back tehas](/host#rolling-back-tehas)). An update that changes a unit
-restarts the units that run, and that can end a running cycle: pause and let
-the cycles finish first (see [Pause and resume](#pause-and-resume)). An update
-that moves records into the state store refuses while a cycle or a planning turn
-runs and records of the older tehas are there, and installs nothing: drain first
-with `tehas drain --wait 3600`, let planning turns end, update, then
+[Rolling back tehas](/host#rolling-back-tehas)). An update does not wait for
+the running cycles and needs no drain: each cycle and planning turn runs from
+its own copy of the code, so it ends on the version it began on, and the next
+one starts on the new version (see [Updating tehas](/host#updating-tehas)). The
+one exception is a host that still has record files of a tehas from before the
+state store: that update moves them into the store, refuses while a cycle or a
+planning turn runs, and installs nothing. Drain it first with
+`tehas drain --wait 3600`, let planning turns end, update, then
 `tehas limit clear` (see [tehas drain](/tools#tehas-drain), and `install.sh` in
 [the tools](/tools)). The update moves each old record file it imported to
 `~/tehas/state/imported-<YYYYMMDD>/`; remove that directory once satisfied.
