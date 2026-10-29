@@ -97,6 +97,22 @@ fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
     }
 }
 
+/// A cycle_history row: the parked start of a refresh since `at`, the approval
+/// its pull request rests on. A row with no start is one the store could not
+/// read: cycle_history.started_at is nullable, and the importer writes none for
+/// a start it cannot parse. Unknown is not old, so it counts as a park. The
+/// bash copy of this rule, lib/refresh.sh, keeps its (.started // 0).
+fn parked_refresh_since(history: &[Value], at: &str) -> bool {
+    history.iter().any(|h| {
+        h.get("how").and_then(Value::as_str) == Some("refresh")
+            && h.get("parked") == Some(&json!(true))
+            && match h.get("started").and_then(Value::as_u64) {
+                Some(started) => iso(started).as_str() >= at,
+                None => true,
+            }
+    })
+}
+
 /// tehas_refresh_count: the refreshes a record counts on that approval.
 fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
     let same = |r: &Value| {
@@ -713,12 +729,7 @@ impl Poll<'_> {
             }
             Some(Ok(h)) => h,
         };
-        let parked = history.iter().any(|h| {
-            h.get("how").and_then(Value::as_str) == Some("refresh")
-                && h.get("parked") == Some(&json!(true))
-                && iso(h.get("started").and_then(Value::as_u64).unwrap_or(0)) >= at
-        });
-        if parked {
+        if parked_refresh_since(&history, &at) {
             return self.refresh_say(
                 n,
                 &format!("park {at}"),
@@ -785,5 +796,42 @@ mod tests {
         assert_eq!(refresh_count(&other, &base), Some(0));
         let bad = json!({"how": "refresh", "refreshes": 0, "rests_on": base});
         assert_eq!(refresh_count(&bad, &base), None);
+    }
+
+    #[test]
+    fn a_park_holds_a_refresh_only_from_the_approval_on() {
+        let at = "2026-10-01T00:00:00Z";
+        // A park of a refresh that started on the approval's second holds it.
+        let after = json!([{"how": "refresh", "parked": true, "started": 1790899201}]);
+        assert!(parked_refresh_since(after.as_array().unwrap(), at));
+        // One from before the approval does not: that park is of an older call.
+        let before = json!([{"how": "refresh", "parked": true, "started": 1790769600}]);
+        assert!(!parked_refresh_since(before.as_array().unwrap(), at));
+        // A park with no start, or one that is not a count of seconds, is one
+        // the store could not read, so it counts.
+        let unknown = json!(
+            [
+                {"how": "refresh", "parked": true, "started": null},
+                {"how": "refresh", "parked": true},
+                {"how": "refresh", "parked": true, "started": "1790899201"},
+                {"how": "refresh", "parked": true, "started": -1}
+            ]
+        );
+        for row in unknown.as_array().unwrap() {
+            assert!(parked_refresh_since(std::slice::from_ref(row), at));
+        }
+        // None of these holds one: not parked, not a refresh, or parked before
+        // the approval.
+        let no = json!([
+            {"how": "refresh", "parked": false, "started": 1790899201},
+            {"how": "label", "parked": true, "started": 1790899201},
+            {"how": "refresh", "parked": "true", "started": 1790899201},
+            {"how": "refresh", "parked": true, "started": 1790769600},
+            {"how": "refresh", "parked": "true"}
+        ]);
+        for row in no.as_array().unwrap() {
+            assert!(!parked_refresh_since(std::slice::from_ref(row), at));
+        }
+        assert!(!parked_refresh_since(&[], at));
     }
 }
