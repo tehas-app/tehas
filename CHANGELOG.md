@@ -13,6 +13,14 @@ empty one above it.
 
 ### Changes
 
+- The mask that the console, its live file and the MCP server's logs share
+  hides more: a provider key written as a literal `apiKey` or `backupApiKey`
+  in `$HOME/.pi/agent/models.json`, where before it hid only the value of a
+  `TEHAS_MODEL_KEY_<NAME>` setting. The file is read once per run, as a host
+  file is read elsewhere: no link is followed, and over 1 MiB it is refused.
+  A missing, unreadable or malformed one adds nothing, and so does a value
+  that names a variable, holds white space, is under 8 or over 512 characters,
+  or is past the first 64 of the file (#986).
 
 ### Adopter action
 
