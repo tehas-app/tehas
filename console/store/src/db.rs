@@ -194,8 +194,10 @@ const BUSY_POLL: Duration = Duration::from_millis(1);
 /// A busy handler: true to try again. `tries` is 0 at the start of each wait,
 /// which is when the clock starts. A process of the store waits on one
 /// connection at a time, so the start is kept per thread. The count is part of
-/// SQLite's handler signature and is not read: the limit is a duration, so only
-/// the clock says when a wait has run out.
+/// SQLite's handler signature and is read for one thing only: it is 0 on the
+/// first look at a lock, which is the one call `counted` speaks of, so a wait of
+/// a hundred polls costs one line and not a hundred. The limit is a duration,
+/// so only the clock says when a wait has run out.
 pub(crate) fn busy_wait(tries: i32, limit: Duration) -> bool {
     thread_local! {
         static SINCE: Cell<Option<Instant>> = const { Cell::new(None) };
@@ -209,6 +211,118 @@ pub(crate) fn busy_wait(tries: i32, limit: Duration) -> bool {
     }
     std::thread::sleep(BUSY_POLL);
     true
+}
+
+/// The name of the variable that asks for the notice of a wait: a build with
+/// debug assertions reads it and nothing else does. Its value is how many
+/// attempts of one wait to name, so 1 prints the line of every wait and none of
+/// the polling within it, and 0 or no value prints nothing at all -- which is
+/// what every caller of the store gives it. A word that is no count stops the
+/// command. `tests/concurrency.rs` asks for 1 and counts the lines instead of
+/// timing the call that took them; a call that meets no lock prints nothing.
+#[cfg(debug_assertions)]
+pub const TEST_BUSY_REPORT: &str = "TEHAS_STORE_TEST_BUSY_REPORT";
+
+// How many waits this thread's busy handler has met, and the try its last wait
+// reached. A process of the store waits on one connection at a time, so one
+// counter per thread is the whole of it. The try is what the notice is judged
+// against; the count of waits is kept beside it because a wait of a thousand
+// polls and a thousand waits of one poll each are not the same thing to whoever
+// reads the count.
+#[cfg(debug_assertions)]
+thread_local! {
+    static BUSY: std::cell::Cell<(u64, i32)> = const { std::cell::Cell::new((0, -1)) };
+
+    // How many attempts of one wait to name, read once by the first handler
+    // call and kept: the wait must not ask the environment on every poll, and
+    // one read per process is what makes two waits of one call answer the same.
+    static REPORT: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The handler of a connection that writes. `counted` keeps the count of the
+/// thread and gives the notice, because the handler is the only code that ever
+/// sees SQLite's try: at process start nothing is known about a wait that has
+/// not happened yet. The wait itself is `write_wait`, shared with the build a
+/// host runs, so counting changes nothing about what is waited.
+#[cfg(debug_assertions)]
+fn counted_write_wait(tries: i32) -> bool {
+    counted(tries);
+    write_wait(tries)
+}
+
+/// The handler of a connection that reads. See `counted_write_wait`.
+#[cfg(debug_assertions)]
+fn counted_read_wait(tries: i32) -> bool {
+    counted(tries);
+    read_wait(tries)
+}
+
+/// What the handler of each `purpose` is given to SQLite: the plain pair in a
+/// build a host runs, and the counting pair in a debug build, which is the only
+/// one with a notice to give.
+fn handler(purpose: Purpose) -> fn(i32) -> bool {
+    #[cfg(debug_assertions)]
+    return match purpose {
+        Purpose::Write => counted_write_wait,
+        Purpose::Read => counted_read_wait,
+    };
+    #[cfg(not(debug_assertions))]
+    return match purpose {
+        Purpose::Write => write_wait,
+        Purpose::Read => read_wait,
+    };
+}
+
+/// One handler call: the count is kept, and the line is said when this try is
+/// the one asked for. A new wait arrives with try 0 and opens the count; every
+/// call leaves its try where `busy_retries` reads it.
+#[cfg(debug_assertions)]
+fn counted(tries: i32) {
+    BUSY.with(|busy| {
+        let (waits, _) = busy.get();
+        busy.set((waits + u64::from(tries == 0), tries));
+    });
+    // SQLite counts attempts from 0, so a name for the first `n` of them is a
+    // try below n. No value, or 0, asks for no line at all, which is what the
+    // handler of a call that met no lock prints too.
+    if tries >= 0 && i64::from(tries) < busy_report_bound().unwrap_or(0) {
+        // The line is written and flushed here: it is the answer a test reads,
+        // and a process that went quiet afterwards would keep it in a buffer
+        // nobody drains. It is not the grammar of a failure, which `main` prints
+        // alone as `store: <word> <name>: <detail>`: this is neither a class of
+        // failure nor a line any caller acts on.
+        use std::io::Write as _;
+        let mut err = std::io::stderr();
+        let _ = writeln!(err, "store debug: busy retry {tries}");
+        let _ = err.flush();
+    }
+}
+
+/// The number of times this thread's busy handler was asked to try again, for
+/// the unit test that would rather ask than read a line on standard error: the
+/// program a host runs has no reason to count what nothing reads. Zero means no
+/// connection of this thread was kept waiting, which is not the same as a wait
+/// that printed no line -- that is what the variable decides.
+#[cfg(all(test, debug_assertions))]
+pub fn busy_retries() -> u64 {
+    BUSY.with(|busy| busy.get().0)
+}
+
+/// What the variable asked for, read once per thread and kept: a wait that
+/// polls a thousand times would otherwise ask the environment a thousand times
+/// for the one answer. None is no value, and no value asks for no line.
+#[cfg(debug_assertions)]
+fn busy_report_bound() -> Option<i64> {
+    REPORT.with(|given| {
+        given.get().or_else(|| {
+            let read = std::env::var_os(TEST_BUSY_REPORT)
+                .as_deref()
+                .and_then(|v| v.to_str())
+                .and_then(tehas_core::grammar::count);
+            given.set(read);
+            read
+        })
+    })
 }
 
 fn write_wait(tries: i32) -> bool {
@@ -744,11 +858,8 @@ pub fn create(file: &Path) -> Result<Connection, DbError> {
 /// READ_WAIT (1 s) on one that reads, then the word `busy`. It replaces
 /// SQLite's busy_timeout, which then reads 0.
 fn prepare(conn: &Connection, purpose: Purpose) -> Result<(), DbError> {
-    match purpose {
-        Purpose::Write => conn.busy_handler(Some(write_wait)),
-        Purpose::Read => conn.busy_handler(Some(read_wait)),
-    }
-    .map_err(classify)?;
+    conn.busy_handler(Some(handler(purpose)))
+        .map_err(classify)?;
     let mode: String = conn
         .query_row("PRAGMA journal_mode", [], |r| r.get(0))
         .map_err(classify)?;

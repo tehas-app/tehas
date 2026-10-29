@@ -138,7 +138,14 @@
 //! state-audit are later parts of epic #244; an argument this command does
 //! not know is exit 64. A build with debug assertions also has `test-write`,
 //! the writer its own tests run (src/exercise.rs), and reads its clock from
-//! TEHAS_STORE_TEST_NOW when that is set; a release build has neither. The busy
+//! TEHAS_STORE_TEST_NOW when that is set; a release build has neither. The same
+//! build names every wait on a lock it survived, one line to standard error for
+//! each -- `store debug: busy retry <try>` -- when TEHAS_STORE_TEST_BUSY_REPORT
+//! holds how many attempts of one wait to name: tests/concurrency.rs counts
+//! those lines to tell a wait on the store apart from a slow machine. No value,
+//! or 0, prints nothing, which is what every caller of the store gives it, and a
+//! release build never reads the variable. A value that is no count is 64.
+//! The busy
 //! and lock bounds are not a setting at all: no variable and no instance setting
 //! reaches them, and the waits are the constants of `src/db.rs` and `src/live.rs`
 //! until the unit tests shorten them for their own thread. A debug build also
@@ -224,7 +231,8 @@ mod verbs_tests;
 #[cfg(test)]
 /// The tests call what main() calls: the verbs, the classification of an error,
 /// and the line and exit each failure becomes. Nothing about a failure is
-/// tested by watching a process, so these are the seams the tests are given.
+/// tested by watching a process, so these are the seams the tests are given:
+/// the four classes of failure and the word of each.
 pub use db::{classify, classify_io};
 
 /// The home of a database the store named itself: `db::path` joins state/ and
@@ -253,6 +261,19 @@ const MAX_COMMIT: usize = 40;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // The one setting of this build that is read from the environment at all,
+    // and the only thing it buys is the line of a wait on a lock. It is judged
+    // before anything is run -- the bound check included, which is the very
+    // argument the test of the notice uses -- so a caller that asked for the
+    // count badly is told at once rather than left reading the silence of a call
+    // that waited for nothing: a value of `x` and a value of 0 would otherwise
+    // answer the same. A release build compiles this away, so the store a host
+    // runs neither reads the variable nor prints the notice.
+    #[cfg(debug_assertions)]
+    if let Some(bad) = bad_busy_report() {
+        eprintln!("store: {TEST_BUSY_REPORT} is not a count: {bad}");
+        return ExitCode::from(64);
+    }
     #[cfg(debug_assertions)]
     if args.first().is_some_and(|a| a == BOUND_CHECK) {
         let Some(file) = args.get(1) else {
@@ -761,6 +782,24 @@ fn bound_check(file: &Path) -> Result<String, (u8, String)> {
         Err(db::DbError::Busy) => Ok(said(true)),
         Err(e) => Err(line(e)),
     }
+}
+
+/// The name of the variable of the busy notice, spelled once in `src/db.rs`.
+#[cfg(debug_assertions)]
+use db::TEST_BUSY_REPORT;
+
+/// What the variable of the busy notice holds, when it holds anything at all
+/// that is neither a count nor empty: the text of the 64 line. An unset variable
+/// is no value and no line, which is what every caller of the store gives it; so
+/// is 0, which asks for no line of any wait.
+#[cfg(debug_assertions)]
+fn bad_busy_report() -> Option<String> {
+    let given = std::env::var_os(TEST_BUSY_REPORT)?;
+    let text = given.to_str().map(str::to_string).unwrap_or_default();
+    if text.is_empty() || tehas_core::grammar::count(&text).is_some() {
+        return None;
+    }
+    Some(text)
 }
 
 /// The time the variable gives, None when it is not set. A value that is not
