@@ -90,6 +90,36 @@ t_lacks "$t_out" "'unknown'"
 t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
 rm -f "$fx/page-drops-events"
 
+t_case "the queue's page asks for the size the dropped-page guard rests on"
+# `first:` is not a tuning number: a page over GitHub's budget for nested
+# items comes back with its timelines cut short and no error, which is the
+# failure #928 was. The number lives in a query string no fixture reads, so
+# the words of the call are what pin it. The page's variable is named in
+# single quotes: it is GraphQL's, not the case's.
+reset
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" 'issues(states: OPEN, first: 25, after: $cursor)'
+
+t_case "the page gave no timelines, and the issue a cycle holds is not re-read"
+# The world above re-read every issue whose labels and timeline disagree. A
+# running cycle's issue carries the bot's own tehas:running on every poll, and
+# nothing of the rules reads that mark's timeline - the park of a mark whose
+# cycle is gone reads the lock file and a fresh label read - so guarding it
+# would spend one paginated read per running issue per poll. This is the other
+# direction of the case above: here the poll must NOT make that call. #7 keeps
+# its approval's timeline, so the issue named is one carrying the mark alone.
+reset
+: >"$fx/page-drops-events"
+echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"alice"}}]' >"$fx/events-7.json"
+hold 9
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issues/7/events?per_page=100 --paginate"
+t_lacks "$(t_calls gh)" "issues/9/events?per_page=100 --paginate"
+release
+rm -f "$fx/page-drops-events"
+
 t_case "a poll that starts a cycle logs what the bash poll logs, line for line"
 reset
 t_run "$dispatch"
