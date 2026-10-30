@@ -46,7 +46,7 @@
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="A pixel art factory with a wind turbine beside the word TEHAS">
+    <meta property="og:image:alt" content="{{ if eq (env "TEHAS_THEME") "pixel" }}A pixel art factory with a wind turbine{{ else }}The tehas logo, a white factory on a green square,{{ end }} beside the word TEHAS">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
     <link rel="stylesheet" href="/fun/theme.css">

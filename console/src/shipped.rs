@@ -1,5 +1,6 @@
 //! What closed an issue: the test that a merged pull request did, for
-//! lib/shipped.sh. The GraphQL read stays bash - `console shipped query` prints
+//! `libexec/tidy` and `libexec/status`. The GraphQL read stays bash -
+//! `console shipped query` prints
 //! the document and the caller makes the call with gh - and the answer is
 //! handed here, so the acceptance rule has one statement. Two commands act on
 //! it: tehas tidy (libexec/tidy) puts tehas:shipped on in the edit that takes
@@ -41,15 +42,20 @@
 //!     others, so a caller may branch on either. A response that carries
 //!     top-level errors is never a whole answer, even when it holds data.
 //!
-//!   console shipped list [--control <number>]... [--numbers] <answer
+//!   console shipped list [--control <number>]... [--numbers] [--lacking
+//!   <label>] <answer
 //!     The nodes of the answer that a merged pull request closed, one JSON
 //!     object on a line, most recently closed first, which is the order tehasbot
 //!     status lists them in. Each <number> given with --control is not work and is
 //!     left out, as both commands leave the control issue out of every list and
 //!     every count. `--numbers` prints the number of each node alone, which is
-//!     all tehas tidy asks and the cheaper line to read. The answer is read from
-//!     standard input, so one read of a whole poll is asked once and not once per
-//!     issue. Nothing is printed and the exit is 1 when the answer is no answer at
+//!     all tehas tidy asks and the cheaper line to read. `--lacking <label>`
+//!     keeps only the nodes that do not carry <label>, read as `has` reads it,
+//!     so labels the answer did not answer for count as lacking it; with
+//!     `--numbers` it prints the number of each of them, in the order above,
+//!     which is what tehasbot status asks for to know what to label. The answer
+//!     is read from standard input, so one read of a whole poll is asked once and
+//!     not once per issue. Nothing is printed and the exit is 1 when the answer is no answer at
 //!     all: it carries errors, or its nodes are no list. A read that named issues
 //!     and found no merged closer among them answers the empty list, which is a
 //!     whole answer that earns no label: 0 and no lines, the case tehas tidy logs
@@ -109,8 +115,8 @@ pub const REFERENCES: usize = 20;
 // state labels off, and the name tehasbot status gives from its own read. It is
 // named here because both the comparison that earns it and the edit that writes
 // it read this one word - `console shipped label` prints it for the bash that
-// edits, and `lib/shipped.sh` holds the name only as a fallback for a host
-// whose console is older than this verb.
+// edits, and each of the two commands holds the name only as a fallback for a
+// host whose console is older than this verb.
 pub const SHIPPED: &str = "tehas:shipped";
 
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
@@ -161,12 +167,19 @@ pub fn main(given: &[String]) -> u8 {
         ("list", rest) => {
             let mut controls = Vec::new();
             let mut numbers_only = false;
+            let mut lacking: Option<String> = None;
             let mut rest = rest.iter();
             while let Some(flag) = rest.next() {
                 match flag.as_str() {
                     "--numbers" => numbers_only = true,
                     "--control" => match rest.next() {
                         Some(n) if digits(n) => controls.push(n.clone()),
+                        _ => return usage(),
+                    },
+                    "--lacking" => match rest.next() {
+                        Some(name) if !name.is_empty() && lacking.is_none() => {
+                            lacking = Some(name.clone());
+                        }
                         _ => return usage(),
                     },
                     _ => return usage(),
@@ -180,7 +193,7 @@ pub fn main(given: &[String]) -> u8 {
                 eprintln!("console shipped: the answer could not be read");
                 return 1;
             }
-            match list(&answer, &controls) {
+            match shipped_listed(&answer, &controls, lacking.as_deref()) {
                 Some(nodes) if !nodes.is_empty() => {
                     for node in nodes {
                         println!(
@@ -220,7 +233,8 @@ pub fn main(given: &[String]) -> u8 {
 fn usage() -> u8 {
     eprintln!(
         "console shipped: usage: page | label | query | answer <issue> <answer> \
-         | list [--control <number>]... | has <label> <node> | whole"
+         | list [--control <number>]... [--numbers] [--lacking <label>] \
+         | has <label> <node> | whole"
     );
     2
 }
@@ -432,11 +446,27 @@ fn number_line(node: &Value) -> String {
     number(node).map(|n| n.to_string()).unwrap_or_default()
 }
 
-/// The names the node holds, or nothing when the read named no list of them:
-/// no answer, and not the empty list of an issue that carries none.
-fn names(node: &str) -> Option<Vec<String>> {
-    let doc = serde_json::from_str::<Value>(node).ok()?;
-    let list = doc.get("labels")?.as_object()?.get("nodes")?.as_array()?;
+/// The shipped nodes of the answer that the caller is to act on: those the read
+/// keeps, of which only the ones that do not carry `lacking` when the caller
+/// named a label. One answer, one rule, so `--lacking` cannot disagree with the
+/// list it narrows.
+pub fn shipped_listed(
+    answer: &str,
+    controls: &[String],
+    lacking: Option<&str>,
+) -> Option<Vec<Value>> {
+    let nodes = list(answer, controls)?;
+    Some(match lacking {
+        Some(label) => nodes.into_iter().filter(|n| lacks(n, label)).collect(),
+        None => nodes,
+    })
+}
+
+/// The names a read gave under `labels`, or nothing when it named no list of
+/// them: no answer, and not the empty list of an issue that carries none. The
+/// one rule the node of `has` and the node of `list --lacking` read.
+fn names_of(labels: &Value) -> Option<Vec<String>> {
+    let list = labels.as_object()?.get("nodes")?.as_array()?;
     Some(
         list.iter()
             .map(|n| match n.get("name") {
@@ -448,11 +478,29 @@ fn names(node: &str) -> Option<Vec<String>> {
     )
 }
 
+/// The names the node holds, or nothing when the read named no list of them:
+/// no answer, and not the empty list of an issue that carries none.
+fn names(node: &str) -> Option<Vec<String>> {
+    let doc = serde_json::from_str::<Value>(node).ok()?;
+    names_of(doc.get("labels")?)
+}
+
 fn has(label: &str, node: &str) -> (&'static str, u8) {
     match names(node) {
         None => ("unreadable", 2),
         Some(names) if names.iter().any(|n| n == label) => ("yes", 0),
         Some(_) => ("no", 1),
+    }
+}
+
+/// Whether the node of the read does not carry `label`: `has` answers `no` or
+/// `unreadable` for it. A node whose labels the read did not answer lacks the
+/// label, as a caller has always edited on that answer, so a poll that could
+/// not read them still asks for it.
+fn lacks(node: &Value, label: &str) -> bool {
+    match names_of(node.get("labels").unwrap_or(&Value::Null)) {
+        None => true,
+        Some(held) => !held.iter().any(|n| n == label),
     }
 }
 
@@ -1028,6 +1076,117 @@ mod tests {
         );
     }
 
+    /// One shipped node closed at `at` that carries `names` as its labels.
+    fn labelled(n: u64, at: &str, names: Value) -> Value {
+        let mut node = by(n, json!(true));
+        {
+            let fields = node.as_object_mut().unwrap();
+            fields.insert("closedAt".into(), json!(at));
+            fields.insert("labels".into(), json!({ "nodes": names }));
+        }
+        node
+    }
+
+    /// The numbers `--lacking <label>` keeps of the nodes, in the order of the
+    /// list: the same path the verb takes between `list` and `--numbers`.
+    fn lacking(nodes: &[Value], label: &str, controls: &[String]) -> Vec<String> {
+        shipped_listed(&answer(nodes), controls, Some(label))
+            .unwrap()
+            .iter()
+            .map(number_line)
+            .collect()
+    }
+
+    #[test]
+    fn the_list_lacking_a_label_leaves_out_the_node_that_carries_it() {
+        let holds = labelled(
+            20,
+            "2026-01-02T00:00:00Z",
+            json!([{"name": "tehas:shipped"}, {"name": "bug"}]),
+        );
+        assert_eq!(
+            lacking(std::slice::from_ref(&holds), "tehas:shipped", &[]),
+            Vec::<String>::new()
+        );
+        // A node that carries other labels lacks the one asked for, and one that
+        // carries none lacks it too.
+        let other = labelled(21, "2026-01-03T00:00:00Z", json!([{"name": "bug"}]));
+        assert_eq!(lacking(&[other], "tehas:shipped", &[]), ["21"]);
+        let none = labelled(22, "2026-01-04T00:00:00Z", json!([]));
+        assert_eq!(lacking(&[none], "tehas:shipped", &[]), ["22"]);
+        // Labels the read did not answer are taken for missing, as `has` answers
+        // `unreadable` and every caller has edited on that answer.
+        let no_labels = json!({"number": 23, "closedAt": "2026-01-05T00:00:00Z",
+          "timelineItems": {"nodes": [{"closer": {"merged": true}}]}});
+        assert_eq!(lacking(&[no_labels], "tehas:shipped", &[]), ["23"]);
+        for shape in [json!([]), json!(null), json!({"nodes": null})] {
+            let mut odd = labelled(24, "2026-01-06T00:00:00Z", json!([]));
+            odd.as_object_mut()
+                .unwrap()
+                .insert("labels".into(), shape.clone());
+            assert_eq!(
+                lacking(&[odd], "tehas:shipped", &[]),
+                ["24"],
+                "labels of {shape} name no list"
+            );
+        }
+        // The name is text and no pattern, so "*" is the name "*" and the node
+        // that carries tehas:shipped lacks it.
+        assert_eq!(lacking(&[holds], "*", &[]), ["20"]);
+    }
+
+    #[test]
+    fn the_list_lacking_a_label_keeps_the_order_and_the_control_rule() {
+        let nodes = [
+            labelled(
+                20,
+                "2026-01-02T00:00:00Z",
+                json!([{"name": "tehas:shipped"}]),
+            ),
+            labelled(21, "2026-01-04T00:00:00Z", json!([])),
+            labelled(22, "2026-01-03T00:00:00Z", json!([{"name": "bug"}])),
+        ];
+        // Most recently closed first, of the ones that lack the label.
+        assert_eq!(lacking(&nodes, "tehas:shipped", &[]), ["21", "22"]);
+        // The control issue is never printed, whether or not it carries it: the
+        // two commands leave it out of every list.
+        assert_eq!(lacking(&nodes, "tehas:shipped", &["21".into()]), ["22"]);
+        assert_eq!(
+            lacking(
+                &[
+                    labelled(1, "2026-01-05T00:00:00Z", json!([])),
+                    nodes[1].clone()
+                ],
+                "tehas:shipped",
+                &["1".into()]
+            ),
+            ["21"]
+        );
+        // Without the flag nothing changes: every shipped node is listed, the
+        // one that carries the label among them.
+        assert_eq!(
+            numbers(&list(&answer(&nodes), &[]).unwrap()),
+            ["21", "22", "20"]
+        );
+        assert_eq!(
+            numbers(&shipped_listed(&answer(&nodes), &[], None).unwrap()),
+            ["21", "22", "20"]
+        );
+    }
+
+    #[test]
+    fn a_lacking_flag_without_one_name_is_a_usage_error() {
+        for given in [
+            vec!["list", "--lacking"],
+            vec!["list", "--lacking", ""],
+            vec!["list", "--lacking", "a", "--lacking", "b"],
+            vec!["list", "--lacking", "a", "extra"],
+        ] {
+            let given: Vec<String> = given.iter().map(|s| s.to_string()).collect();
+            assert_eq!(main(&given), 2, "--lacking of {:?}", &given[1..]);
+        }
+    }
+
     #[test]
     fn a_label_of_the_node_is_carried_and_another_is_not() {
         let node =
@@ -1114,7 +1273,7 @@ mod tests {
 
     #[test]
     fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
-        // lib/shipped.sh holds the name too, for a host whose console is older
+        // Each caller holds the name too, for a host whose console is older
         // than this verb: the two must say the same word, which is what the
         // shell test of libexec/tidy reads out of the console.
         assert_eq!(SHIPPED, "tehas:shipped");

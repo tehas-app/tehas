@@ -193,7 +193,7 @@ t_contains "$body" "body=<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop
 Tehas cycle stopped without a pull request"
 t_contains "$body" "The handoff of pi-rukas follows."
 t_contains "$body" "## Cap hit"
-t_contains "$body" '- \[x] Retry from a clean start'
+t_contains "$body" '- ☑ Retry from a clean start'
 t_contains "$body" '<\!-- tehas:question kind=park issue=7 turn=1 -->'
 t_lacks "$body" "@someone"
 t_eq "$(grep -c 'pi-rukas:handoff' <<<"$body")" 1

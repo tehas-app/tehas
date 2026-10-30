@@ -206,13 +206,18 @@ with both:
   is kept as `tehas.conf.prev`. Then it restarts chrony, because the drop-in is
   read only at its start.
 
-Only chrony is stepped. The step asks `timedatectl show -p NTP --value` which
-unit systemd runs as its time service, and writes nothing unless the answer is
-`chrony`: a host on `systemd-timesyncd`, on none, or with no answer at all is
-reported as it is and left alone. The status line names both halves, so a host
-that needs one of them and got the other says so on one line. A guest agent
-that will not start, or a chrony that will not restart, is reported and the step
-ends 1; the other half is still done.
+Only chrony is stepped. The step asks `systemctl is-active --quiet` after the
+units `chrony` and `chronyd`, in that order, and writes nothing unless one of
+them is active: Ubuntu names its unit `chrony`, other distributions `chronyd`.
+A host where neither is active is reported as it is and left alone, and the step
+ends 0 because that is an answer. A host where systemd cannot be asked at all
+fails with 1 and says so, rather than reporting a step it did not do. The status
+line names both halves, so a host that needs one of them and got the other says
+so on one line. A guest agent that will not start, or a chrony that will not
+restart, is reported and the step ends 1; the other half is still done. The copy
+that keeps the old drop-in as `tehas.conf.prev` is a step of its own: when it
+fails, the step stops there and says what it could not keep, so the file it was
+meant to save is never written over with nothing kept.
 
 `check` does not report this step: nothing about the clock stops an install, and
 what is wrong shows up as a refused JWT instead. The step is not run by `root`

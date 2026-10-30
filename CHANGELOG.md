@@ -13,6 +13,53 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.19.0 (2026-10-30)
+
+### Changes
+
+- `TEHAS_SCRATCH_DIR` is a new optional setting. Set, a cycle's `/tmp` is
+  `<dir>/<name>-<issue>` on that disk in place of the tmpfs in its memory. It
+  needs a file system of its own, because nothing limits a cycle's size inside
+  it. Unset, nothing changes.
+- A cycle removes the build output of its workspace as it ends, where the
+  hourly cleaner took it after 24 hours or under 30 GB free. Sources, `.git`
+  and sessions stay.
+- A planning question's boxes get a comment of their own: the plan text, then
+  the question, so ticks land on the right box (#1118).
+- `bootstrap.sh clock` writes the chrony drop-in on a host that runs chrony. It
+  asked `timedatectl` and wrote nothing on a real host (#1106).
+- `tehasbot status` finds the shipped issues that lack `tehas:shipped` with one
+  call to the console, where it took two processes (#1083).
+- `lib/shipped.sh` is gone. `tidy` and `status` call the console directly
+  (#1076).
+- A new logo. It is the favicon in every theme. The paper, beesknees and
+  beesknees26 themes also show it in the header and on the share card. The
+  pixel theme keeps its animated factory and its share card.
+- The edge router answers `/fun/theme.css`. It rewrote the path before it
+  stripped `/fun`, so the rewrite never matched and the Protolab got a 404 for
+  its theme.
+- `tehas state pack -` and `tehas state unpack -` move a stopped factory's
+  `state/`, `repos/`, `live/` and `mcp/` to another machine as one tar, and
+  `tehas api` lists the feature `state-move`. The live token is not moved.
+  See the factory API.
+- The state store has a read-only verb `store copy --to <file>`: a consistent
+  copy of the store at a name the caller gives.
+- `tehas limit set` leaves the checking of its arguments to the console. A bad
+  argument with missing instance settings is now exit 78, not 64, and
+  `tehas limit set --json ...` is accepted.
+
+### Adopter action
+
+None.
+
+## v0.18.0 (2026-10-30)
+
+### Changes
+
 - The counts of cycles and containers can follow the host: `auto` for
   `TEHAS_TICKET_CONCURRENCY` and for `TEHAS_SLICE_CONTAINERS`. A number keeps
   working exactly as it did, so no instance changes unless it chooses to. With
@@ -33,17 +80,46 @@ empty one above it.
   labeller wrote, its text unchanged since, at most
   `TEHAS_MILLWRIGHT_MAX_FEEDS` (2) at once. The Rust dispatcher only. The
   queue's page now asks GitHub for each issue's author and creation time.
-
 - A health file that could not read the failed units says so. When the
   `systemctl --user --failed 'tehas-*'` read does not answer, `libexec/health`
   leaves `--units` out and the console writes `checks.units` as `null` instead
   of `[]`, so the file carries no units check rather than a passed one, and
   raises no warning from a list it never read. An empty read is still `[]`
   (#1055).
+- `tehas.slice` follows memory added to a running host: `bootstrap.sh slice`
+  also installs a udev rule and `tehas-slice-reload.service`, a rate-limited
+  oneshot that reloads systemd when a memory block comes online, so the
+  slice's `MemoryMax=75%` is worked out against the memory the host has now.
+  `bootstrap.sh check` reports the rule and the unit beside the slice (#1040).
+- `bootstrap.sh clock` sets a VM up so its clock is right within seconds of a
+  restore: qemu-guest-agent, and chrony allowed to step the clock at any time
+  (#1044). `tehas-cycle clock` measures a cycle's running time on a clock that
+  stops while the VM is saved (#1042, part 1).
+- The manual: [Resize or restart the host](/resize), a host's CPUs and memory
+  changed live, and a hypervisor restart that saves the VM with its cycles
+  running, without a drain (#1045).
+- The easy merge in Rust: the crate `tehas-merge` and the store's easy mark,
+  part 1 of #1031. The store moves to schema 9 and migrates in place.
+- `tehas update`'s edge step no longer takes over the Protolab server of before
+  v0.3.0 (#1064).
+- `tehasbot status` logs a WARN line whenever it writes no snapshot (#1056).
+- The approval record's shape checks refuse a value with a newline on the end
+  (#1029).
+- Smaller bash: retired settings are refused by one loop (#1068), the dead
+  `tehas_top_host` and `console top host` go (#1071), and the cycle's end drops
+  the fallback for runner images without a schema 5 result (#1065). The
+  ceiling is lower.
 
 ### Adopter action
 
-None.
+- Run `sudo ./bootstrap.sh slice` on each host to install the memory-online
+  rule and its reload unit. Without it the slice keeps working as before, and
+  memory added to a running host reaches it only at the next daemon-reload.
+- On a host that is a VM, run `sudo ./bootstrap.sh clock` once, so the clock
+  is right soon after a restore.
+- The store migrates to schema 9 on its own at the update: no drain is needed.
+- The millwright's feed and `auto` slot counts are off until an instance sets
+  them.
 
 ## v0.17.0 (2026-10-29)
 

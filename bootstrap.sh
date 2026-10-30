@@ -298,6 +298,57 @@ RULE
 # offers, and the drop-in is three lines of configuration.
 clock_conf=${BOOTSTRAP_ETC:-/etc}/chrony/conf.d/tehas.conf
 
+# The units that mean "this host's time service is chrony", in the order the
+# probe asks them: Ubuntu's package names its unit chrony, the distributions that
+# took the name from RHEL name it chronyd. A unit is asked with "systemctl
+# is-active --quiet", which ends 0 when the unit is active and non-zero
+# otherwise, so the answer needs no parsing.
+clock_units=(chrony chronyd)
+
+# Ask systemd whether one unit is active. Three answers kept apart, because the
+# part must not guess its way past the third:
+#   yes  systemd says the unit is active
+#   no   systemd answered that it is not
+#   ''   systemd could not be asked at all. The quiet probe prints nothing
+#        itself, so three things look alike: a unit that is not active, a
+#        systemctl that is not on the PATH, and a systemctl that is not an
+#        ordinary program. The first ends 3, the second ends 127 with the words of
+#        the shell that could not run it, and the third ends 126, so the status
+#        carries the difference and the part stops on the last two.
+# The part writes no drop-in on no and stops on ''.
+clock_unit_active() { # <unit> -> yes | no | ''
+  local rc
+  # The status is the whole answer: the quiet probe prints nothing on stdout, and
+  # what systemctl prints on stderr is its own words for the unit, not a status.
+  systemctl is-active --quiet "$1" >/dev/null 2>&1
+  rc=$?
+  # 126 is the status of the shell that could not run the file it was told to, and
+  # 127 that of the shell that found no such command: a host with no systemctl to
+  # ask answers the probe twice with the second. A systemctl that ended 126 or 127
+  # itself reads the same way, which is what the part does for a probe it cannot
+  # trust. Every other non-zero status is systemd's own answer of a unit it does
+  # not have active, whatever it printed on its stderr.
+  case $rc in
+    0) echo yes ;;
+    126 | 127) echo '' ;;
+    *) echo no ;;
+  esac
+  return 0
+}
+
+# Which unit of clock_units systemd has active, or nothing when none has. A
+# non-empty answer is always a unit of that list. Ends 1 when systemd could not
+# be asked at all, which is not the same as a host that runs no chrony.
+clock_active_unit() {
+  local unit answer
+  for unit in "${clock_units[@]}"; do
+    answer=$(clock_unit_active "$unit")
+    [ "$answer" = yes ] && { echo "$unit"; return 0; }
+    [ -n "$answer" ] || return 1
+  done
+  echo ''
+}
+
 do_clock() {
   local virtual machine agent ntpd_unit rc=0
   virtual=""
@@ -306,11 +357,13 @@ do_clock() {
   [ "$#" = 0 ] || { echo "usage: sudo ./bootstrap.sh clock" >&2; exit 64; }
   [ "$(id -u)" = 0 ] || die "the clock part must run as root: sudo ./bootstrap.sh clock"
   supported
-  # The time service systemd has: one word for the unit it runs ("chrony"), or
-  # another answer ("systemd-timesyncd", "none", "" when timedatectl does not
-  # answer). A host that runs ntpd under another name is reported as that name
-  # and gets no drop-in. The probe is read once, before anything is changed.
-  ntpd_unit=$(timedatectl show -p NTP --value 2>/dev/null) || ntpd_unit=""
+  # The time service systemd runs, read from the unit it has active. timedatectl's
+  # NTP property is the switch that turns time synchronisation on or off: it
+  # answers yes or no and never a unit name, so it cannot single chrony out.
+  # No unit active is an answer and writes nothing; not being able to ask systemd
+  # at all is no answer, and the part stops rather than say "done".
+  ntpd_unit=$(clock_active_unit) ||
+    die "could not ask systemd whether chrony or chronyd is active: nothing was written"
   # systemd-detect-virt ends 1 on bare metal, where it prints nothing; that is
   # an answer, not a failure of this part. A host that is not a VM has no
   # hypervisor to set its clock, so the agent is not installed and the step of
@@ -332,8 +385,8 @@ do_clock() {
       rc=1
     fi
   fi
-  if [ "$ntpd_unit" != chrony ]; then
-    echo "bootstrap: clock part done. qemu-guest-agent: $agent on $machine. No drop-in was written: the time service is ${ntpd_unit:-unknown}, not chrony"
+  if [ -z "$ntpd_unit" ]; then
+    echo "bootstrap: clock part done. qemu-guest-agent: $agent on $machine. No drop-in was written: neither chrony nor chronyd is active, so the time service is not chrony"
     return "$rc"
   fi
   # Three separate steps, each checked: the directory made at 755, the three
@@ -343,8 +396,12 @@ do_clock() {
   # file, and nothing else under /etc is touched.
   install -d -m 755 "${clock_conf%/*}" || die "could not make ${clock_conf%/*}"
   # -1: step whenever the offset is over a second, at any point after boot.
-  # An earlier file of the same name is kept beside the new one.
-  [ ! -e "$clock_conf" ] || cp -p "$clock_conf" "$clock_conf.prev"
+  # The file of an earlier run is kept beside the new one, and the part stops if
+  # it cannot be: the manual says the old drop-in is kept, so writing over it
+  # after a failed copy would lose the host's own configuration with nothing kept.
+  if [ -e "$clock_conf" ] && ! cp -p "$clock_conf" "$clock_conf.prev"; then
+    die "could not keep $clock_conf as $clock_conf.prev: $clock_conf was left as it is"
+  fi
   {
     echo '# Written by bootstrap.sh clock. A restored VM starts with the clock'
     echo '# of the moment it was saved; stepping is the only way back within seconds.'

@@ -222,6 +222,8 @@ tokens below are the ones the interface uses; the sprites draw on the rest.
 ### Named Rules
 **The Twelve Bit Rule.** Every colour, in the stylesheet, the canvas and the
 sprites, is written as three hex digits (`#RGB`). A six-digit colour is a bug.
+The logo, `host/fun/favicon.svg`, is the one exception to this rule and the
+Thirty-Two Rule: it keeps its own colours and rounded corners.
 
 **The Flat Fill Rule.** Every fill is one solid colour. Gradients are
 prohibited, including on backgrounds and inside sprites.
@@ -406,7 +408,8 @@ A Steel band that stays at the top of the window: the factory sprite and
 wordmark, the data source tag (Brass for sample data or a stale queue, Bone
 for a loaded export, absent while the page shows the fresh live queue), the
 section menu ending in an underlined link to the project on GitHub, over a
-Brass stripe. Below 1280px the
+Brass stripe. Every theme but pixel shows the logo in place of the sprite.
+Below 1280px the
 menu takes a row of its own: on the factory floor its links wrap into as many
 rows as they need, where the manual and Protolab headers, which hold four
 links, keep one row that scrolls sideways; on phones the wordmark gives way

@@ -68,6 +68,10 @@
 //!
 //! What tehas export copies, see src/export.rs.
 //!
+//!   console state pack|unpack ...
+//!
+//! A stopped factory's state as one tar, see src/state.rs.
+//!
 //!   console protolab page|front|live|refs ...
 //!
 //! The pages of the Protolab and the links of a ticket, for libexec/protolab,
@@ -80,8 +84,8 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehas tidy and tehasbot status (lib/shipped.sh holds the names
-//! of these verbs and makes the call), see src/shipped.rs.
+//! answer says, for tehas tidy and tehasbot status (each command makes the call
+//! to these verbs itself), see src/shipped.rs.
 //!
 //!   console tidy states|plan ...
 //!
@@ -115,6 +119,7 @@ mod review;
 mod setup;
 mod shipped;
 mod snapshot;
+mod state;
 mod status;
 mod store;
 mod tail;
@@ -302,6 +307,7 @@ fn main() -> ExitCode {
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
+            Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
