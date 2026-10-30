@@ -325,19 +325,21 @@ record is classic. Each object gives:
 | `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
 | `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
 | `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
-| `minutes` | `n` runs with a length, their `total` and `median`, whole minutes |
+| `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
 
 A figure with nothing to work from is left out. An empty token column is not a
 zero: lean reports no usage yet, so its `tokens` is `{"n": 0}` and the terminal
-prints `-`. Where some runs reported usage the terminal adds their count.
+prints `- (n=0)`. Where the count is short of the runs the terminal adds it after
+the total.
 
 The comparison is on pull requests, not on merges by the driver, because lean
 does not merge. A pull request counts once per issue, however many runs followed
-it up, since a merge is on record per issue. It counts as merged when the issue
-has a `merged` event, or a work run that ended merged, at or after the first run
-of that driver that reached it, and at or before the report's `to`. Events stay
+it up, since a merge is on record per issue. A merge is a `merged` event, or a
+work run that ended merged, at or before the report's `to`. It goes to one
+driver: the one whose run last reached a pull request before it. So when lean's
+pull request is closed and classic's merges, the merge is classic's. Events stay
 once per issue, so the second merge of a reopened issue has no event: a pull
 request lean left there reads as not merged, though a classic run that ended
 merged would count.

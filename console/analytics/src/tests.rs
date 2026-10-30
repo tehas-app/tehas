@@ -3502,7 +3502,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         ],
         "drivers": {
             "classic": {"n": 6, "ran": 5, "prShare": 0.4, "parkedShare": 0.2,
-                        "minutes": {"n": 6, "total": 80, "median": 13},
+                        "minutes": {"n": 5, "total": 80, "median": 15},
                         "tokens": {"n": 4, "total": 6650, "median": 1750},
                         "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
             "lean": {"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
@@ -3748,6 +3748,48 @@ fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
     assert_eq!(
         crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["pullRequests"],
         json!({"n": 3, "merged": 1, "share": 0.333})
+    );
+}
+
+#[test]
+fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
+    let home = scratch("report-pulls-driver");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    // Lean's pull request was closed, classic's merged.
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, None);
+    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
+    // The other way round, and a classic run after the merge changes nothing.
+    driver_run(&conn, "c", 2, day0, "pr", None, None);
+    driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
+    db::event(&conn, 2, "merged", day0 + 2000).unwrap();
+    driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
+    let report = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        report["drivers"]["lean"]["pullRequests"],
+        json!({"n": 2, "merged": 1, "share": 0.5})
+    );
+    assert_eq!(
+        report["drivers"]["classic"]["pullRequests"],
+        json!({"n": 2, "merged": 1, "share": 0.5})
+    );
+}
+
+#[test]
+fn a_refused_run_is_in_no_minutes_of_its_driver() {
+    let home = scratch("report-minutes-ran");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
+    let report = crate::report::build(&conn, day0 + DAY).unwrap();
+    assert_eq!(report["drivers"]["lean"]["n"], json!(3));
+    assert_eq!(
+        report["drivers"]["lean"]["minutes"],
+        json!({"n": 1, "total": 10, "median": 10})
     );
 }
 
