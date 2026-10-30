@@ -127,16 +127,10 @@ with a token; remove the token from `~/.config/tehas/env` after.
   poll's record.
 - A cycle's container is given `~/tehas/state/github` read-only, never the key.
   The image's own `gh` reads the token there at every call, and `tehas work`
-  renews it every 5 minutes while the cycle runs. The renewer is
-  `tehas-cycle renew --cmd <path> --every <s> --retry <s>`
-  (`console/cycle/src/renew.rs`), started by `tehas_github_renew` in
-  `lib/github-app.sh` with no streams of its own: what it says is what
-  `tehas work` gives it, so a failed renewal is one line in the cycle's work
-  log and never a token. The next ask comes `--retry` seconds after a failure
-  and the whole of `--every` after a success, so two failures in a row no
-  longer let the token run out. `TEHAS_GITHUB_RENEW_RETRY` [30] is the wait
-  after a failure and `TEHAS_GITHUB_RENEW_CMD` [libexec/github-token] the
-  command it asks.
+  renews it every 5 minutes while the cycle runs. A failed renewal is one line
+  in the cycle's work log, never a token, and is tried again after 30 seconds,
+  so two failures in a row no longer let the token run out. The renewer is
+  `tehas-cycle renew` (`console/cycle/src/renew.rs`).
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `TEHAS_BOT_LOGIN`, because an installation token cannot ask GitHub who it is.
 

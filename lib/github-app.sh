@@ -146,11 +146,7 @@ tehas_github_env() {
 
 tehas_github_renew() {
   tehas_github_app || return 0
-  local cmd=${TEHAS_GITHUB_RENEW_CMD:-$TEHAS_HOME/libexec/github-token} cycle=${TEHAS_CYCLE:-$TEHAS_HOME/libexec/tehas-cycle}
-  # With no streams of its own, what the renewer says is what this function's
-  # caller has - a cycle gives it its work log - and the token command's own
-  # output is thrown away, so no token is.
-  "$cycle" renew --cmd "$cmd" --every "${TEHAS_GITHUB_RENEW_EVERY:-300}" \
-    --retry "${TEHAS_GITHUB_RENEW_RETRY:-30}" </dev/null &
+  "$TEHAS_HOME/libexec/tehas-cycle" renew --cmd "$TEHAS_HOME/libexec/github-token" \
+    --every "${TEHAS_GITHUB_RENEW_EVERY:-300}" --retry 30 </dev/null >/dev/null &
   printf '%s\n' "$!"
 }
