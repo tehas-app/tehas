@@ -451,18 +451,12 @@ timeout -k 1 "$search_wait" "$console" epics "$repo" "$live/epics.json"
 # An issue this read finds shipped carries the label whatever the reason, and
 # the read names its labels, so an issue that already holds it is not asked for
 # it: `gh issue edit` reads the issue and sends a mutation every time, and the 45
-# of them one poll made cost that poll a minute. Labels the read did not answer
-# are taken for missing and the edit goes, as before the query read them.
-for n in $(jq -r '.[].number' <<<"$shipped"); do
-  # Its own node of the same list, so the labels read are that issue's and no
-  # other.
-  node=$(jq -ce --argjson n "$n" '.[] | select(.number == $n)' <<<"$shipped" 2>/dev/null) || node=""
-  # The console reads the names off the node and answers 0 when they name
-  # the label of a merge, 1 when it named its labels and the label is none of
-  # them, and 2 when it named no list of them; a caller edits on the 2 as on the
-  # 1, so it never guesses that an issue it cannot read lacks the label. Only
-  # the status is read: the word the console prints with it is its own.
-  "$console" shipped has "$shipped_label" "$node" >/dev/null 2>&1 && continue
+# of them one poll made cost that poll a minute. The console answers which of
+# the shipped issues lack the label, in one call for the poll and no question
+# per issue, and the labels the read did not answer count as missing, as before
+# it read them.
+for n in $(printf '%s' "$closers" | "$console" shipped list --numbers \
+  --lacking "$shipped_label" --control "$control" 2>/dev/null); do
   gh issue edit "$n" --repo "$repo" --add-label "$shipped_label" >/dev/null 2>&1 || true
 done
 

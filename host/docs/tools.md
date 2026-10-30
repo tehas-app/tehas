@@ -2429,7 +2429,10 @@ names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's (`console shipped`,
 `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
-the two commands cannot disagree on what a merge closed. `tehasbot status` gives each issue its read finds shipped the label;
+the two commands cannot disagree on what a merge closed. `tehasbot status` asks the console which shipped
+issues lack the label (`console shipped list --numbers --lacking <label>`),
+which names those whose labels do not hold it or could not be read, and gives
+each of them the label;
 `tehas tidy` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the
