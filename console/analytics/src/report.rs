@@ -1177,38 +1177,43 @@ fn tally(sorted: &[i64], per: i64) -> Value {
 /// not in the shares: neither tells of the driver, as `stations` has it. Parked is
 /// what `handoffRate` counts, since a run tehas parks with its pull request open is
 /// outcome handoff. A run that reported no usage is in no token figure and one of
-/// no length in no minutes figure. A pull request counts
-/// once per issue, because a merge is on record per issue and the runs that
-/// follow up one pull request are many, and as merged when the issue's last
-/// merge is at or after the first run of the driver that reached it.
+/// no length in no minutes figure. A pull request counts once per issue, because
+/// a merge is on record per issue and the runs that follow up one pull request
+/// are many. A merge is of one driver: the one whose run last reached a pull
+/// request before it, since an earlier pull request of the issue may be closed.
 fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Value> {
     let merges = last_merges(conn, to)?;
+    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
+    let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
+    let mut merged_by: BTreeMap<i64, (i64, &str)> = BTreeMap::new();
+    for r in runs.iter().filter(|r| reaches(r)) {
+        if merges.get(&r.issue).is_some_and(|m| *m >= r.started) {
+            let last = merged_by.entry(r.issue).or_insert((r.started, &r.driver));
+            if r.started >= last.0 {
+                *last = (r.started, &r.driver);
+            }
+        }
+    }
     let mut out = Map::new();
     for driver in DRIVERS {
         let of: Vec<&WorkRun> = runs.iter().filter(|r| r.driver == driver).collect();
         let n = of.len();
-        let ran = of
-            .iter()
-            .filter(|r| !matches!(r.outcome.as_str(), "refused" | "stopped"))
-            .count();
-        let reached: Vec<&&WorkRun> = of
-            .iter()
-            .filter(|r| matches!(r.outcome.as_str(), "pr" | "merged"))
-            .collect();
-        let mut pulls: BTreeMap<i64, i64> = BTreeMap::new();
-        for r in &reached {
-            let first = pulls.entry(r.issue).or_insert(r.started);
-            *first = (*first).min(r.started);
-        }
+        let ran = of.iter().filter(|r| ran_at_all(r)).count();
+        let reached: Vec<&&WorkRun> = of.iter().filter(|r| reaches(r)).collect();
+        let pulls: BTreeSet<i64> = reached.iter().map(|r| r.issue).collect();
         let merged = pulls
             .iter()
-            .filter(|(issue, first)| merges.get(issue).is_some_and(|m| m >= first))
+            .filter(|issue| merged_by.get(issue).is_some_and(|m| m.1 == driver))
             .count();
         let parked = of
             .iter()
             .filter(|r| matches!(r.outcome.as_str(), "handoff" | "parked"))
             .count();
-        let mut secs: Vec<i64> = of.iter().filter_map(|r| r.seconds).collect();
+        let mut secs: Vec<i64> = of
+            .iter()
+            .filter(|r| ran_at_all(r))
+            .filter_map(|r| r.seconds)
+            .collect();
         secs.sort_unstable();
         let mut tokens = used_tokens(&of);
         tokens.sort_unstable();
