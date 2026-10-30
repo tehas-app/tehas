@@ -2178,6 +2178,23 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
+**The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
+monotonic clock: the seconds since boot, read from the first number of
+`/proc/uptime`. The wall clock is not read at all, so the time a VM was saved
+counts against nothing. `tehas-cycle clock now` prints those seconds;
+`tehas-cycle clock mark <file>` writes them into a file, which is how a cycle
+marks its start and the last growth of its logs; `tehas-cycle clock check
+<file> --limit <s> --stall <s> --since <s>` reads the mark of the start in
+`<file>` and the mark of the last log growth in `--since` (a number `clock now`
+printed), prints `ok`, `stalled` or `over` and exits 0, 1 or 2, counting the
+limit before the stall. A mark that is missing or is not one number, or a time
+that would run backwards (a mark ahead of the clock, as after the boot was
+redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
+seconds are whole seconds since boot truncated down, and one mark file holds
+one number; a mark file of more than 32 bytes, or one that is not a regular
+file, is no mark. The glue that calls it from `tehas work` is a later change;
+on a host today these three verbs are the whole of it.
+
 It runs [tehas work](#tehas-work) for the issue, reads the runner's result
 that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,
 the step it stopped in, cap, branch, token usage), finds the pull request the
