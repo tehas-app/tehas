@@ -4,9 +4,8 @@
 # ~/tehas/tmp.
 #
 # A full disk stops previews and fails clones. A kept workspace is never built
-# in again, since every cycle clones fresh, so its build output is dead weight
-# until the 7-day sweep takes the workspace (libexec/dispatch). The cleaner
-# takes the weight first and leaves the workspace for a person to read.
+# in again, since every cycle clones fresh. A cycle takes its build output as it
+# ends (libexec/cycle); this takes what a killed cycle left.
 #
 # Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
 # goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
