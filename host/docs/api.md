@@ -21,6 +21,7 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehas status --json`](#tehas-status---json), [`tehas limit`](#tehas-limit),
 [`tehas drain`](#tehas-drain), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
+[`tehas state`](#tehas-state),
 [`tehas analytics export`](#tehas-analytics-export) and
 [`tehas:all-hands`](/operating#all-hands). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
@@ -100,7 +101,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -125,7 +126,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)) and `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) and `state-move` ([`tehas state`](#tehas-state)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -402,6 +403,86 @@ argument, an export into the factory's home, or a directory it cannot make,
 which copies nothing; 78 without an instance or when the state store is not
 installed or cannot be used, which copies nothing; 1 with no console to mask
 with, or when the store stayed busy for the history, which copies nothing.
+
+## tehas state
+
+```
+tehas state pack [--rehearse] -
+tehas state unpack [--rehearse] -
+```
+
+Moves a stopped factory's state to another machine. `pack` writes one tar to
+standard output; `unpack` reads it from standard input, so a program pipes the
+one into the other:
+
+```
+set -o pipefail
+ssh <source> '. ~/tehas/env.sh && tehas state pack -' |
+  ssh <target> '. ~/tehas/env.sh && tehas state unpack -'
+```
+
+The tar holds `tehas-state.json` first,
+`{"api": 1, "tag": "v0.17.0", "schema": 9}`, then `state/`, `repos/`, `live/`
+and `mcp/` of the home. The tag is the release in use, read as `tehas api`
+reads it, and the schema is the state store's. The store is not copied as a
+file: `state/tehas.db` in the tar is a copy the store made of itself, so what
+is still in its write-ahead log is in it, and neither `tehas.db-wal` nor
+`tehas.db-shm` is packed. Nothing from `logs/`, `work/` or `~/.config/tehas`
+is, and neither is `state/github`, the live token: the target mints its own,
+and `unpack` keeps the one it has.
+
+`pack` refuses, with exit 1 and nothing on standard output, while a cycle or a
+planning turn runs (it names the issue, read from the state store), when the
+store cannot say whether a cycle runs, or while any `tehas-*` unit that
+`systemctl --user` reports as active, activating, deactivating or reloading
+is there (it names the unit). `--rehearse` skips those refusals, to size or
+try a pack on a running factory, and carries on past files that change or
+cannot be read while tar reads them. It changes nothing in the factory, but
+its tar is not a consistent copy of one, so its manifest says
+`"rehearsal": true` and `unpack` refuses it (exit 1, nothing written) unless
+given `--rehearse`. `unpack --rehearse` replaces the target's state exactly as
+`unpack` does: the old state is gone afterwards, so use it only on a machine
+that will be rebuilt. On an unmarked tar it is a normal unpack.
+
+`unpack` refuses, with exit 1 and nothing written, while a `tehas-*` unit is
+active (asked again just before the swap); when the tar's release or schema is
+not this host's (it names both); when `tehas-state.json` is missing, is not
+the first entry or has an `api` it does not know; when tar itself will not
+extract the archive (a `..` in a name, for one); when anything but the
+manifest and the four directories comes out, or one of them is a link; when a
+link inside them has an absolute target or one that leaves its directory (a
+relative link that stays in its directory, as a git checkout has, is kept);
+when a link has a `..` after a name (`..` may only lead a target); when a
+device, pipe or socket comes out, or a setuid, setgid or world-writable entry;
+and when the unpacked store is missing or does not pass `store check`. It reads the tar into a directory
+beside the home, extracts and checks it there, and only then replaces the
+four directories, so a refused or broken tar leaves the factory as it was. If
+a move of the swap fails, what moved is put back; if a put-back fails the
+directory holding the rest is kept and the error names it. It starts no unit.
+SIGTERM, SIGHUP or SIGINT removes the directory it made, except once the
+swap has begun.
+
+`live/` is a bind mount of the docs container, so after `unpack` restart it:
+`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`.
+
+`unpack` needs room beside the home for the archive and for the extracted tree
+at once, which is about twice the size of the state.
+
+`pack` finishes the tar in a scratch directory and sends it only when tar has
+ended well (under `--rehearse`, also when tar only saw files change), so a
+`pack` that fails sends nothing and `unpack` has nothing to replace the state
+with. Run the pipe with `set -o pipefail`, or the pipe's status is `unpack`'s
+alone. After a failed pipe the source's files are untouched; run it again. Its
+units stay as they were, which is down: `pack` needs them stopped, and nothing
+here starts them. Stop and start a factory with the steps of
+[Backups and restore](/operating#backups-and-restore) (drain, stop the
+`tehas-*` timers and paths, and start them again afterwards). The scratch tar
+needs room for the whole of it in the source's temporary directory, which
+under `ssh` is `~/tehas/tmp` when `.bashrc` is read and `/tmp` when it is not.
+
+Neither makes a call to GitHub, Docker or the network. Exit 0 when done; 1 on a
+refusal or a failure, said on standard error; 64 on a bad argument; 78 without
+an instance, a release or a state store that can be used.
 
 ## tehas analytics export
 
