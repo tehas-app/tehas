@@ -1077,7 +1077,8 @@ fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite
 
 // One row per tehas and pi-rukas version pair, the pair that ran last
 // first. A pair with VERSION_FLOOR runs or more also has the share that
-// reached a pull request and the median seconds and tokens.
+// reached a pull request and the median seconds, and the median tokens of the
+// runs that reported usage.
 fn versions(runs: &[WorkRun]) -> Value {
     let mut pairs: Vec<((String, String), Vec<&WorkRun>)> = Vec::new();
     for r in runs {
@@ -1102,7 +1103,7 @@ fn versions(runs: &[WorkRun]) -> Value {
                     .count();
                 let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
                 secs.sort_unstable();
-                let mut tokens: Vec<i64> = v.iter().map(|r| r.tokens()).collect();
+                let mut tokens = used_tokens(&v);
                 tokens.sort_unstable();
                 let pick = |o: Option<Value>| if enough { o } else { None };
                 obj(vec![
@@ -1131,6 +1132,14 @@ fn last_merges(conn: &Connection, to: i64) -> rusqlite::Result<BTreeMap<i64, i64
     )?;
     let rows = q.query_map(params![to], |r| Ok((r.get(0)?, r.get(1)?)))?;
     rows.collect()
+}
+
+/// The tokens of the runs that reported usage: the rest have no figure, not 0.
+fn used_tokens(runs: &[&WorkRun]) -> Vec<i64> {
+    runs.iter()
+        .filter(|r| r.tokens.is_some())
+        .map(|r| r.tokens())
+        .collect()
 }
 
 /// `n`, the sum and the median of sorted values in units of `per`, the last two
@@ -1174,11 +1183,7 @@ fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Val
         let parked = of.iter().filter(|r| r.outcome == "parked").count();
         let mut secs: Vec<i64> = of.iter().filter_map(|r| r.seconds).collect();
         secs.sort_unstable();
-        let mut tokens: Vec<i64> = of
-            .iter()
-            .filter(|r| r.tokens.is_some())
-            .map(|r| r.tokens())
-            .collect();
+        let mut tokens = used_tokens(&of);
         tokens.sort_unstable();
         out.insert(
             driver.to_string(),
