@@ -446,3 +446,16 @@ CREATE TABLE journal (
   detail TEXT
 );
 CREATE INDEX journal_action ON journal (action, at);
+
+-- 9. the clock sample of #1043: the newest (wall, monotonic) pair the store
+-- read, one row. A rule that judges an age reads it: when the wall clock has
+-- moved against the monotonic clock since this pair, the host was restored
+-- from a save and the age is not trusted. mono is a reading of the process's
+-- own instant clock and means nothing across processes: only the difference
+-- between two of the store's own readings is used.
+CREATE TABLE clock_sample (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  wall INTEGER NOT NULL,
+  mono INTEGER NOT NULL,
+  taken_at INTEGER NOT NULL
+);
