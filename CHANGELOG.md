@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- The shell tests build their binaries with no debug info
+  (`CARGO_PROFILE_DEV_DEBUG=0` on that one cargo command), which is most of
+  the size of `console/target/shell`. The gate's own `cargo test` keeps its
+  debug info (#1115).
 - The dispatcher chooses an easy merge or the full refresh for each refresh
   start, behind `TEHAS_EASY_MERGE` (off). With it on, a pull request whose
   approval has had no easy merge yet starts as one, its approval record is
