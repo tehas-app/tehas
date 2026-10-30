@@ -2,7 +2,7 @@
 # The measure of one issue body: four counts, read off its own text. Sourced,
 # not run: the measure is one jq program over the body and asks nothing outside
 # it. tehas work measures the body of an approved start and keeps the answer in
-# state/sizes.jsonl; nothing reads that ledger yet.
+# state/sizes.jsonl; console analytics report reads that ledger.
 #
 #   tehas_issue_size    stdin: one issue body as text. stdout: one compact
 #                       JSON object, one line, keys always in this order:
@@ -123,9 +123,9 @@ tehas_issue_size() {
 }
 
 # The ledger of what an approved start measured: state/sizes.jsonl, one line
-# per start that had an approval to measure,
-# {at, issue, files, tests, deliverables, done_when}. tehas work is the only
-# writer; nothing reads it yet, so a line is kept for the reader that comes.
+# per start that had an approval to measure, {at, issue, files, tests,
+# deliverables, done_when}. tehas work is the only writer; console analytics
+# report reads it in its sizes section, so every line earns its keep.
 #
 # tehas_size_record <issue> <body> <file>: the measure of <body>, keyed with
 # the time and the issue number, appended to <file>. The line is built in one
