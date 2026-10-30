@@ -74,15 +74,15 @@
 # there is what a later container reads.
 tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
 
-# Where a manual session has its cargo build output: the path inside the
-# container CARGO_TARGET_DIR names. It is not mounted or named here, because
-# only tehas dev gives a container a build output of its own: a cycle's and a
-# planning turn's stay in the container's own layer and go with it. libexec/dev
-# makes the host directory beside <state> and prints the -v and -e pair from
-# this function, so the mount, the variable, the manual and the tests name one
-# path. A container path that did not match the image's home directory would
-# send the build into the container's layer and the session would exit 0 with
-# the cache discarded, so it is named once, as the code index's path is.
+# Where a manual session has its cargo build output: the container path that
+# CARGO_TARGET_DIR names. libexec/dev alone sets that variable; it makes the host
+# directory beside <state> and prints the -v and -e pair from here, so the mount,
+# the variable, the manual and the tests name one path. A path off the image's
+# home would build into the container's layer, which the session throws away. A
+# cycle and a planning turn get no CARGO_TARGET_DIR: cargo builds in the workspace,
+# the read-write mount, so on the host's disk. A cycle's output stays until it ends,
+# if libexec/cycle's console clean ended takes it, else the hourly tehasbot clean
+# (libexec/clean); a turn's goes when libexec/plan rm -rfs its fresh workspace.
 tehas_sandbox_target_dir() { printf '%s\n' /home/vscode/.tehas-target; }
 
 # Where the host keeps the code index it gives to containers: the one directory
