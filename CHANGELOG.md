@@ -65,10 +65,16 @@ None.
 - `tehas limit set` leaves the checking of its arguments to the console. A bad
   argument with missing instance settings is now exit 78, not 64, and
   `tehas limit set --json ...` is accepted.
+- `tehas:lean` chooses the lean driver for one issue and its approval record
+  binds the choice. Lean cannot run yet: it needs pi-rukas#1920, so `tehas work`
+  refuses such a start with 78, and the issue is parked with what to do. Classic
+  never runs in its place. An issue without the label runs as it did. Only the
+  Rust poll reads the label: the bash poll starts nothing on an issue that
+  carries it.
 
 ### Adopter action
 
-None.
+Run `tehas labels` to make `tehas:lean`.
 
 ## v0.18.0 (2026-10-30)
 

@@ -448,6 +448,9 @@ fn approval_shape(v: &Value) -> Option<Value> {
     if let Some(l) = input.get("comment_links") {
         out["comment_links"] = l.clone();
     }
+    if let Some(d) = input.get("driver").filter(|d| !d.is_null()) {
+        out["driver"] = d.clone();
+    }
     if input
         .get("retry_context")
         .and_then(Value::as_array)
@@ -582,6 +585,35 @@ pub fn question(asked: &Asked, n: u64) -> Value {
         }
     }
     json!({"plan": plan, "id": qid, "kind": kind})
+}
+
+#[cfg(test)]
+mod approval_shape_tests {
+    use serde_json::{json, Value};
+
+    fn shaped(how: &str, input: Value) -> Value {
+        let base = json!({"at": 1, "by": "alice", "how": "label", "body_sha256": "a"});
+        super::approval_shape(&json!({"rests_on": base, "current": {"at": 2, "by": "bot",
+            "how": how, "body_sha256": "a", "input": input}}))
+        .unwrap()
+    }
+
+    /// Every shape of a start names the driver of its own row, and a record
+    /// with none, as every record before the driver is, names none.
+    #[test]
+    fn the_driver_of_a_start_is_read_off_its_own_record() {
+        for how in [
+            "label",
+            "retry-tick",
+            "outage-retry",
+            "millwright",
+            "refresh",
+        ] {
+            assert_eq!(shaped(how, json!({"driver": "lean"}))["driver"], "lean");
+            assert_eq!(shaped(how, json!({})).get("driver"), None);
+            assert_eq!(shaped(how, Value::Null).get("driver"), None);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next` and `tehas:blocked` for the dispatcher, `tehas:prototype` for the Protolab |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -303,7 +303,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:prototype`). The list is the console's
+`tehas:next`, `tehas:lean`, `tehas:prototype`). The list is the console's
 (`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
 comes off which issue and which issue the read below is asked about
 (`console tidy plan`): the command keeps the settings, the two searches and the
@@ -599,7 +599,9 @@ state store (`~/tehas/state/tehas.db`, through `libexec/store`
 after a provider outage), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
-inputs `links`, the links to GitHub's attachment storage in that body. `at` is
+inputs `links`, the links to GitHub's attachment storage in that body, and
+`driver` when the start [chose lean](/operating#choosing-the-driver). A record
+with no `driver` is classic. `at` is
 the time GitHub gave the label or the tick; a refresh and the retry after an
 outage rest on an approval that started a cycle already, and are on record at
 the time the poll decided them. The body, the title and the record of who last
@@ -660,6 +662,13 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset.
+
+A start whose approval says driver `lean` stops first, with exit 78, the note
+`state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
+the lean driver yet and to take `tehas:lean` off. It starts no container, moves
+nothing and does not run classic in its place. `tehasbot cycle` reads the note
+and parks the issue as a start that never ran: its approval goes with the
+report, so nothing starts it again on its own. Any other 78 is a stopped cycle.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
@@ -1651,12 +1660,13 @@ build one from.
 tehas labels        # one line per label
 ```
 
-Creates the eighteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the nineteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
-pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
+pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands` and
+`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
@@ -1894,7 +1904,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
+`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.

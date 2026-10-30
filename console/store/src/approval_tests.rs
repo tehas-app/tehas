@@ -551,6 +551,14 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             write_file(&home, "of.json", br#"{"refresh_of":[]}"#),
             "holds refresh_of of another type",
         ),
+        (
+            write_file(&home, "driver.json", br#"{"driver":"classic"}"#),
+            "holds driver of another type",
+        ),
+        (
+            write_file(&home, "number.json", br#"{"driver":1}"#),
+            "holds driver of another type",
+        ),
     ];
     for (file, says) in cases {
         let (code, line) = record_with(&home, 41, 5, &file).unwrap_err();
@@ -600,6 +608,21 @@ fn approval_record_input_file_usage() {
         "/a"
     ])
     .contains("--input-file is not taken with --undo"));
+}
+
+/// The driver lives in the inputs, so no schema changes: a record with none is
+/// classic and the store answers it as it always has.
+#[test]
+fn the_driver_is_kept_with_the_inputs_and_a_record_without_one_names_none() {
+    let home = home("approval-driver");
+    let lean = write_file(&home, "lean.json", br#"{"links":[],"driver":"lean"}"#);
+    record_with(&home, 43, 5, &lean).unwrap();
+    assert_eq!(current(&home, 43)["approval"]["input"]["driver"], "lean");
+    let classic = write_file(&home, "classic.json", br#"{"links":[]}"#);
+    record_with(&home, 44, 5, &classic).unwrap();
+    assert_eq!(current(&home, 44)["approval"]["input"].get("driver"), None);
+    record(&home, 45, 5, "alice", "label");
+    assert_eq!(current(&home, 45)["approval"]["input"], Value::Null);
 }
 
 #[test]
