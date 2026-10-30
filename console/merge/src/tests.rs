@@ -107,7 +107,8 @@ impl Fake {
     /// the answer of the command itself. `named` is the call as a case names
     /// it, the program without its path, so `pi -p ...` is scripted by
     /// `pi -p` however the plan spells the program's name.
-    fn reply(&self, named: &str) -> Reply {        // The scripted answers win, in the order a case wrote them, so the
+    fn reply(&self, named: &str) -> Reply {
+        // The scripted answers win, in the order a case wrote them, so the
         // narrower name is written first: `pi -p` before `pi`.
         // The scripted answers win, and the broadest name wins among them: a
         // case that means the model to fail writes `pi -p` alone, and the
@@ -130,10 +131,7 @@ impl Fake {
             // The second read of HEAD is the merge commit's, which is the sha
             // the merge pushes: the first is the pull request's head the tree
             // must stand on, and the commit is written between them.
-            let after = self
-                .calls
-                .iter()
-                .any(|c| c.contains("commit --no-edit"));
+            let after = self.calls.iter().any(|c| c.contains("commit --no-edit"));
             return Reply::yes(&format!("{}\n", if after { MERGE } else { HEAD }));
         }
         if named.starts_with("grep ") {
@@ -194,7 +192,27 @@ impl Runner for Fake {
     }
 }
 
+/// A runner that records nothing: what `Real` is on a host, where the calls
+/// are said to the log and never kept. A case uses it to show the answer does
+/// not depend on a call list.
+struct Silent {
+    inner: Fake,
+}
+
+impl Runner for Silent {
+    fn run(&mut self, program: &str, args: &[String], tree: &Path) -> Done {
+        self.inner.run(program, args, tree)
+    }
+
+    fn calls(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 const HEAD: &str = "1111111111111111111111111111111111111111";
+/// A head spelled in upper case and the answer git gives for the same commit.
+const HEAD_UPPER: &str = "ABCDEF11111111111111111111111111111111111111";
+const HEAD_LOWER: &str = "abcdef11111111111111111111111111111111111111";
 const MERGE: &str = "9999999999999999999999999999999999999999";
 const BASE: &str = "2222222222222222222222222222222222222222";
 
@@ -422,7 +440,11 @@ fn a_model_that_does_not_finish_refuses_the_merge() {
         out.why
     );
     assert!(out.model, "the model was asked all the same");
-    assert!(!f.scripted("grep"), "the marker check ran too: {:?}", f.calls);
+    assert!(
+        !f.scripted("grep"),
+        "the marker check ran too: {:?}",
+        f.calls
+    );
 }
 
 #[test]
@@ -474,6 +496,63 @@ fn the_rules_are_exactly_the_files_the_issue_names() {
     assert_eq!(rule_of("src/bash-lines.max.rs"), None);
     assert_eq!(rule_of("src/main.rs"), None);
     assert_eq!(rule_of("Cargo.toml"), None);
+}
+
+#[test]
+fn a_runner_that_records_no_calls_still_says_the_model_ran() {
+    // The host's runner keeps no call list, so `model` must come from the
+    // merge itself and not from the calls it holds.
+    let (_p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    let mut silent = Silent { inner: f };
+    let mut p = plan();
+    let r = report(&mut p, &mut silent);
+    assert!(r.outcome.ok(), "{}", r.outcome.why);
+    assert!(
+        r.outcome.model,
+        "a session ran and the answer said it did not"
+    );
+    assert!(
+        r.calls.is_empty(),
+        "the runner was asked to record nothing: {:?}",
+        r.calls
+    );
+    assert_eq!(r.json()["model"], serde_json::json!(true));
+    f = silent.inner;
+    assert_eq!(f.of("pi").len(), 1, "no session ran: {:?}", f.asked);
+}
+
+#[test]
+fn a_merge_with_no_conflict_says_no_model_ran() {
+    let (mut p, mut f) = merged(&["src/app.rs"], &[]);
+    f.answers("git merge", 0, "");
+    let out = outcome(&mut p, &mut f);
+    assert!(!out.ok(), "a clean merge is not an easy merge: {}", out.why);
+    assert!(
+        !out.model,
+        "nothing was left to resolve, so nothing was asked"
+    );
+    assert!(f.of("pi").is_empty(), "a model turn ran: {:?}", f.of("pi"));
+}
+
+#[test]
+fn an_upper_case_head_is_the_same_commit_as_git_names_it() {
+    // git's `rev-parse` answers in lower case and the plan holds the
+    // upper-case spelling of the same commit, as the command leaves it after
+    // reading the argument: the tree is the pull request's head and the merge
+    // goes through rather than refusing on the spelling.
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    // git's answer for the commit the plan's upper-case head names.
+    f.answers("git rev-parse HEAD", 0, &format!("{HEAD_LOWER}\n"));
+    p.head = HEAD_UPPER;
+    let out = outcome(&mut p, &mut f);
+    assert!(
+        out.ok(),
+        "the head was refused: {}; {:?}",
+        out.why,
+        f.of("git")
+    );
+    assert!(out.model);
+    assert!(f.did("merge --no-ff"), "no merge ran: {:?}", f.calls);
 }
 
 #[test]
