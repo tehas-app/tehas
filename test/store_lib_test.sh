@@ -290,6 +290,14 @@ t_eq "$(sed '1,2d' <<<"$t_out" | head -n -2)" "$(jq -S . <<<'{"at":"2026-10-20T1
   "comment_links":[{"link":"https://github.com/user-attachments/assets/2","source":"comment:5","by":"alice"}]}')"
 t_eq "$(tail -n 2 <<<"$t_out" | tr '\n' ' ')" "600 700 "
 
+t_case "tehas_approval_view: a driver on the record is in the view, and none is no key"
+lib 'f=$(tehas_approval_view 7); jq -c "has(\"driver\")" "$f"'
+t_eq "$t_out" false
+t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":1792497600,"by":"alice","how":"label","body_sha256":"x","input":{"driver":"lean"}}}'
+lib 'f=$(tehas_approval_view 7); jq -r .driver "$f"'
+t_eq "$t_out" lean
+cp -f --remove-destination "$T_STORE" "$home/libexec/store"
+
 t_case "tehas_approval_view with an attempt: the approval of that start, and no other"
 lib 'tehas_approval_view 7 1 >/dev/null; echo "rc=$?"; tehas_approval_view 7 2; echo "rc=$?"'
 t_eq "$t_out" "rc=0

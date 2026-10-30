@@ -10,8 +10,9 @@
 //!   tehas's own view of the run: its status says killed, stalled or timeout
 //!   where tehas stopped it. The run is not recorded without it.
 //! - attempt: how many runs of the issue there have been, this one with them.
-//! - approval: {at, how} of the approval the run started on, or null: how,
-//!   and at, when tehas:ready was accepted (ISO 8601).
+//! - approval: {at, how, driver} of the approval the run started on, or null:
+//!   how, at, when tehas:ready was accepted (ISO 8601), and the driver it bound,
+//!   absent or null on a classic start.
 //! - settings: {container: {PI_ENSEMBLE_*: value}, host: {TEHAS_*: value},
 //!   concurrentCycles} as libexec/work snapshot them for this run, values
 //!   already reduced to safe words, or null. The model and provider of each
@@ -79,6 +80,9 @@ pub(crate) const MAX_GATE_RUNS: usize = 500;
 // typed somewhere at the read boundary rather than trusted from the stream.
 pub(crate) const MAX_GATE_MS: i64 = 5_400_000;
 const CAUSE_CHARS: usize = 200;
+/// The words of `runs.driver`, in the order the report lists them. A run with
+/// no driver on record is classic.
+pub(crate) const DRIVERS: [&str; 2] = ["classic", "lean"];
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Run {
@@ -124,6 +128,7 @@ pub struct Run {
     pub result_schema: Option<i64>,
     pub gate_runs: Option<i64>,
     pub gate_ms: Option<i64>,
+    pub driver: Option<String>,
     pub steps: Vec<Step>,
     pub roles: Vec<Role>,
     pub gates: Vec<GateRun>,
@@ -257,6 +262,12 @@ pub fn read(home: &Path, issue: i64, given: &Given) -> Result<Run, String> {
             let wait = started - at / 1000;
             run.queue_wait = (wait >= 0).then_some(wait);
         }
+        // The whole value, not `word`: that strips "le an" down to a driver.
+        run.driver = approved
+            .get("driver")
+            .and_then(Value::as_str)
+            .filter(|d| DRIVERS.contains(d))
+            .map(str::to_string);
     }
 
     let result = read_json(&note("result.json"));
@@ -538,10 +549,10 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
            failure_kind, failure_cause, provider_outage, endpoint, pr, tehas_version,
            tehas_commit, rukas_version, rukas_commit, image, input, output, cache_read,
            cache_write, turns, dispatches, cost, oom_kills, forks_refused, concurrent,
-           runner_ms, result_schema, gate_runs, gate_ms)
+           runner_ms, result_schema, gate_runs, gate_ms, driver)
          VALUES (?1, 'work', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
            ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32,
-           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
+           ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41)",
         params![
             run.id,
             run.issue,
@@ -583,6 +594,7 @@ pub fn insert(conn: &Connection, run: &Run) -> rusqlite::Result<()> {
             run.result_schema,
             run.gate_runs,
             run.gate_ms,
+            run.driver,
         ],
     )?;
     crate::db::image_built(&tx, run.image.as_deref(), run.image_built)?;

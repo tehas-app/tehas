@@ -1379,8 +1379,9 @@ done
 [ -z "$failure_cause" ] || end_args+=(--failure-cause "$failure_cause")
 [ "$provider" != 1 ] || end_args+=(--provider)
 [ "$parked_now" != true ] || end_args+=(--parked)
-# A start that never ran takes its approval with it: the fixer, a refresh and
-# a later start each read an approval as one whose cycle happened.
+# A start that never ran takes its approval with it, once analytics has read it:
+# the fixer, a refresh and a later start read an approval as one whose cycle happened.
+approved=$(tehas_analytics_approval "$issue" "$attempt")
 [ "$never_ran" != 1 ] || end_args+=(--never-ran)
 [ -z "$shadow" ] || printf '%s\0' "${end_args[@]}" >"$shadow.end"
 if tehas_store_try 5 cycle-end "${end_args[@]}"; then
@@ -1398,8 +1399,7 @@ tehas_store_try 3 publish ||
   log "WARN: the live view is not published after the end of #$issue ($tehas_store_word: $tehas_store_line)"
 # The run and its end in the factory's analytics, from the line of history as
 # the cycle saw it and what the cycle's record holds (lib/analytics.sh); the
-# image and the counts were read above, so they are passed. A failure is a
-# warning.
+# image, the counts and the approval were read above. A failure is a warning.
 TZ=UTC0 printf -v now '%(%FT%TZ)T' -1
 line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" \
   --arg status "$status" --arg step "$step" --arg cap "$cap" --arg park_reason "$park_reason" \
@@ -1408,7 +1408,7 @@ line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" 
   --arg by "$start_by" --arg how "$start_how" \
   '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
    | with_entries(select(.value != ""))') || line=null
-tehas_analytics_run "$issue" "$attempt" "$line" ${image_id:+--image "$image_id"} ${image_built:+--image-built "$image_built"} \
+tehas_analytics_run "$issue" "$attempt" "$line" "$approved" ${image_id:+--image "$image_id"} ${image_built:+--image-built "$image_built"} \
   ${image_rukas:+--rukas-image "$image_rukas"} ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
 tehas_analytics event "$issue" ended
 # For the improvement loop, where the instance has one. The cycle is reported

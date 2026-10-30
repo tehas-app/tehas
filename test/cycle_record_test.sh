@@ -741,6 +741,17 @@ t_eq "$t_rc" 0
 t_eq "$(analytics_calls)" "run 7 --oom 0 --forks 0
 event 7 ended"
 
+t_case "a start that never ran gives analytics the approval it used, though the record goes with the report"
+reset
+T_ENV+=(TEHAS_CYCLE_FROM=unit)
+analytics_stub
+t_approve "$T/home/tehas" 7 alice label "$(date -u -d 2026-01-01T00:00:00Z +%s)"
+echo 'exit 4' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.approval.at, .approval.how]' "$T/calls/analytics.facts")" '["2026-01-01T00:00:00Z","label"]'
+t_eq "$(t_row approval-current 7 -- '.current | tostring')" null
+
 t_case "with TEHAS_ANALYTICS off the cycle calls no analytics"
 reset
 analytics_stub
