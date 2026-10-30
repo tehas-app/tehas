@@ -84,10 +84,10 @@
 //!     its runs, both left out when it has none.
 //!
 //! The database is $TEHAS_HOME/state/analytics.db, mode 0600, in WAL mode,
-//! its schema version in PRAGMA user_version (schema.sql). A file that is
-//! not a database is moved to analytics.db.broken, a database of another
-//! schema version to analytics.db.schema-<version>, and a new one is made,
-//! said on standard error. prune deletes a schema-<version> file 365 days
+//! its schema version in PRAGMA user_version (schema.sql). A database of
+//! schema 2 is migrated in place. A file that is not a database is moved to
+//! analytics.db.broken, a database of another schema version to
+//! analytics.db.schema-<version>, and a new one is made, said on standard error. prune deletes a schema-<version> file 365 days
 //! after its last write. Any other failure leaves the file
 //! as it is. TEHAS_HOME comes from the
 //! environment and has no default.
