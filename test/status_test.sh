@@ -846,6 +846,27 @@ t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
+t_case "health: no console beside the command is 78 and says to install"
+# The wrapper's own answer, as its siblings give it: the file would otherwise
+# age in silence, which is the failure the manual names for a stopped
+# dispatcher.
+reset
+# The host where install.sh put no console beside the command: no console in
+# the directory of the copy, and no name in the environment. The console every
+# other run of this file is given is named by the file's T_ENV_ALWAYS, which
+# the case cannot empty, so the wrapper of this case is given the empty name by
+# its own command line and the run is called with env -i through t_run's PATH.
+mkdir -p "$T/no-console"
+cp "$T_ROOT/libexec/health" "$T/no-console/health"
+mkdir -p "$T/lib"
+cp "$T_ROOT/lib/config.sh" "$T/lib/config.sh"
+rm -f "$T/bin/console"
+T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
+t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/health"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehasbot health: no console at $T/no-console/console: run install.sh"
+t_eq "$([ -e "$live/health.json" ] && echo written)" ""
+
 t_case "summary: the last cycle failed and the cycle beside it started earlier: still failed"
 reset
 one 14 true running plan 600 5
