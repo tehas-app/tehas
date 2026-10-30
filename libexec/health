@@ -31,7 +31,7 @@
 # Usage: tehasbot health (prints nothing). Exit: 0 written; 1 the file could not
 # be written, or the store did not answer (busy); 78 the store is not installed
 # or cannot be used, which writes nothing: a health file without the planning
-# turns would say none run.
+# turns would say none run. A read that did not answer is left out of checks.
 set -uo pipefail
 
 : "${TEHAS_HOME:=$HOME/tehas}"
@@ -65,10 +65,10 @@ fi
 # The failed tehas units, such as tehas-dispatch.path at its start limit (it
 # stays failed, and a cycle that ends no longer starts a poll), the newest daily
 # copy of the store, and the polls of the last hour that started no cycle against
-# the budget of lib/config.sh. What the store did not answer is left out, so the
-# file carries no check of it rather than a passed one.
-units=$(timeout 10 systemctl --user --failed --plain --no-legend 'tehas-*' 2>/dev/null) || units=''
-args=(--sessions "$sessions" --units "$units")
+# the budget of lib/config.sh. A units read that did not answer is left out.
+units=$(timeout 10 systemctl --user --failed --plain --no-legend 'tehas-*' 2>/dev/null) || units='no-answer'
+args=(--sessions "$sessions")
+[ "$units" = no-answer ] || args+=(--units "$units")
 ! tehas_store backup --show || args+=(--backup "$tehas_store_out")
 budget=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
 ! tehas_store poll-idle --since 3600 --budget "$budget" ||
