@@ -2568,7 +2568,7 @@ turns are only counted.
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
 | `stopReasons` | `top`: the five most common `{reason, n}` among the `n` runs that ended without a pull request, not counting those a person stopped. The reason is the failure kind, the cap for a failure that is a cap, else the park reason, else how the run ended |
 | `stations` | `steps`: per step, in the order runs reach it, the `n` runs that reached it, how many `passed` and the `share`. A run that reached a pull request passed every step it ran; one handed off, parked or failed stopped in its failed step, else its last. `n` is the runs counted: refused and stopped runs are not |
-| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read). A version that is not known is left out |
+| `versions` | One `{tehas, rukas, n}` per version pair, the pair that ran last first, at most ten. With three runs or more also `prShare` (reached a pull request), `medianSeconds` and `medianTokens` (input, output and cache read, of the runs that reported usage, left out where none did). A version that is not known is left out |
 
 `tehasbot status` also writes `~/tehas/live/platform.json`: what platform the
 host runs. On a host with the platform checkout `~/tehas/platform` that is the
