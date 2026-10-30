@@ -438,6 +438,9 @@ choice.
   `tehas:ready` off and says why once. `tehas:lean` stays on: an allowed account
   applies it again, or takes it off for classic, and then applies `tehas:ready`.
   A retry over such a label starts nothing either and says why.
+- The same holds when another account takes an allowed account's `tehas:lean`
+  off: the choice stands and nothing starts. An allowed account applies the
+  label again, and for classic takes it off itself.
 - The start binds the choice in its approval record. A retry (a ticked box, the
   retry after a provider outage, the millwright's `tehas:ready` or a refresh)
   runs the driver of the start it follows, so a label added since changes
