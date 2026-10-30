@@ -1,24 +1,18 @@
 //! The factory's health file, live/health.json: pass, warn or fail, the one
 //! line that says why, and every check under `checks`. `tehasbot health` is
-//! `console health run`, so one run starts about fourteen processes and not
-//! twenty-seven (libexec/health is the wrapper of that one command).
+//! `console health run` (libexec/health is the wrapper of that one command).
 //!
 //!   console health run <home>
-//!     The whole run, in the order libexec/health had it: the store-ready
-//!     test, `store plan-show --open`, `store publish`, `systemctl --user
-//!     --failed --plain --no-legend 'tehas-*'` under a 10 s bound, `store
-//!     backup --show`, `store poll-idle --since 3600 --budget <spec>`, the
-//!     report, and `store publish --health <file>` three times a second apart
-//!     while the store is busy or timed out. Every store call goes through
-//!     store::call; the report file is written here, so the run needs no
-//!     mktemp, no jq and no mkdir. The budget is TEHAS_POLL_BUDGET, the value
-//!     lib/config.sh exports.
+//!     The whole run, in the order libexec/health had it: the store's answers,
+//!     the units read, the report, and the publish of the report. Each verb is
+//!     documented beside the function that makes it; the flags of `report`
+//!     below are the usage `main` prints.
 //!     Exit 0 the file was written; 1 it could not be written, or the store
 //!     refused one call or did not answer; 78 the store is not installed or
 //!     cannot be used, which writes nothing; 2 usage. An `ERROR:` line says
-//!     which of them it was, on standard error. The checks that read the
-//!     store - the units, the backup and the polls that started nothing - are
-//!     left out of the file when their read did not answer, as they were.
+//!     which of them it was, on standard error. A read that did not answer
+//!     says so with a `WARN:` line and leaves its own check out of the file,
+//!     as the shell's left the units, the backup and the polls out.
 //!
 //!   console health report <home> [--sessions <json>] [--units <text>]
 //!     [--backup <json>] [--poll-over <json> --poll-budget <spec>]
@@ -47,11 +41,11 @@ use crate::store::{self, bounded, merged, Refusal};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tehas_core::time;
 
 /// A queue snapshot older than this is not news.
@@ -64,6 +58,14 @@ const DISK_MAX_AGE: i64 = 1800;
 const BEHIND_FOR: i64 = 86_400;
 /// The newest backup of the store is old after this.
 const BACKUP_MAX_AGE: f64 = 172_800.0;
+/// The whole publish of the report, three tries of a store that is busy or
+/// timed out included. Each try is bounded at 20 s of its own and the poll
+/// that runs health bounds the run at 120 s, so the publish must stop well
+/// inside that or the run is killed with no file written.
+const PUBLISH_BUDGET: Duration = Duration::from_secs(30);
+/// The budget of the idle polls when the host's settings did not name one,
+/// as `lib/config.sh` exports it.
+const POLL_BUDGET: &str = "cpu=5,wall=30,writes=0";
 
 #[derive(Default)]
 struct Given {
@@ -74,12 +76,12 @@ struct Given {
     poll_budget: Option<String>,
 }
 
-/// What one run asks of the store. The backup and the idle polls are checks
-/// whose refusal leaves their own entry out of the file; the three that stop
-/// the run have an ERROR line and an exit status of their own, named here.
-/// The publish of the report is not one of them: it is tried three times and
-/// its line is `refused_publish`'s.
-#[derive(Clone, Copy, PartialEq)]
+/// What a run asks of the store. `PlanShow` and `Publish` stop the run with
+/// an ERROR line and an exit status of their own; `Backup` and `PollIdle` are
+/// checks whose refusal leaves their own entry out of the file and says so
+/// with a WARN line. The publish of the report is not one of them: it is tried
+/// while the store is busy and its line is `refused_publish`'s.
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Step {
     PlanShow,
     Publish,
@@ -87,106 +89,102 @@ enum Step {
     PollIdle,
 }
 
-/// store::call, with the two tests `tehas_store_ready` makes before the call:
-/// the store binary an executable file of this home, and its database a plain
-/// file and no link. Either failing is 78 `absent`, which writes nothing.
-fn store_ready(home: &Path) -> bool {
-    let bin = home.join("libexec").join("store");
-    fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        && fs::symlink_metadata(home.join("state").join("tehas.db"))
-            .is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
-}
+impl Step {
+    /// The reads whose refusal leaves their own check out rather than stop the
+    /// run. On the type, so a new step is a decision here and not a silent
+    /// fallthrough to the run-ending path.
+    fn optional(self) -> bool {
+        matches!(self, Self::Backup | Self::PollIdle)
+    }
 
-/// The line `tehas_store_ready` and `tehas_store` answer with for a store that
-/// is not there: the binary's name is what the reader looks for, so it is
-/// named the way the shell named it, not the home's.
-fn absent(home: &Path) -> Refusal {
-    Refusal {
-        rc: 78,
-        word: "absent".to_string(),
-        line: format!(
-            "store: absent: {}/libexec/store is not an executable file",
-            home.display()
-        ),
+    /// What the read is called in the WARN line of a refusal that leaves it
+    /// out: the thing the reader looks for, not the verb.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Backup => "newest backup",
+            Self::PollIdle => "idle polls",
+            Self::PlanShow | Self::Publish => "read",
+        }
     }
 }
 
-fn store_call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
-    if !store_ready(home) {
-        return Err(absent(home));
-    }
-    store::call(home, args)
-}
-
-/// `systemctl --user --failed --plain --no-legend 'tehas-*'` under the same
-/// 10 s bound the shell gave it. The name is one the host's PATH answers.
-fn systemctl() -> String {
-    "systemctl".to_string()
-}
-
-/// None is the read that did not answer, which leaves the units out of checks
-/// rather than say none failed.
-fn failed_units() -> Option<String> {
-    failed_units_of(&systemctl())
-}
-
-fn failed_units_of(program: &str) -> Option<String> {
+/// `systemctl --user --failed --plain --no-legend 'tehas-*'` of <program>
+/// under the same 10 s bound the shell gave it. The production caller names
+/// `systemctl` and the host's PATH answers it; a test names a stub of its own,
+/// which is the only seam this read has. Nothing on the read's own answers is
+/// trusted beyond the list: each line is one unit name.
+fn failed_units_of(program: &Path) -> Option<String> {
     let mut cmd = bounded("2", "10", program);
     cmd.args(["--user", "--failed", "--plain", "--no-legend", "tehas-*"])
         .stdin(Stdio::null());
-    // The path the unit's program is looked up on. A test names a systemd of
-    // its own with it; a host has none set and PATH answers, as the shell's
-    // bare `systemctl` did.
-    if let Ok(dir) = std::env::var("TEHAS_SYSTEMCTL_DIR") {
-        // The host's PATH is kept, so the stub's own `#!/usr/bin/env bash` is
-        // found; the named directory comes first.
-        cmd.env(
-            "PATH",
-            format!("{dir}:{}", std::env::var("PATH").unwrap_or_default()),
-        );
-    }
     let (rc, said) = merged(&mut cmd);
-    (rc == 0).then(|| {
-        let said = said.trim_end_matches('\n');
-        if said.is_empty() {
-            String::new()
-        } else {
-            said.to_string()
-        }
+    if rc != 0 {
+        // The one outside call of the run that used to fail in silence: a
+        // systemd that is not on PATH, a user bus that is down, or one that
+        // was silent past the bound, all read as no failed unit unless the
+        // run says which of them it was.
+        eprintln!("WARN: systemctl gave no answer for the failed units (rc {rc})");
+        return None;
+    }
+    let said = said.trim_end_matches('\n');
+    Some(if said.is_empty() {
+        String::new()
+    } else {
+        said.to_string()
     })
 }
 
-/// The file of the report, as the store's publish reads it: a plain file in
-/// <home>/tmp, which holds nothing but its own files, made 0700 whatever the
-/// umask. The name holds this process and no other: `report` above the
-/// console is a sibling process, not another run of it.
+/// The file of the report, as the store's publish reads it: a plain file,
+/// mode 0600, that no other process holds the name of. `<home>/tmp` is made
+/// 0700 whatever the umask, and is refused when it is a link: the run writes
+/// through it, so it must be a real directory of its own.
 fn report_file(home: &Path, text: &str) -> io::Result<PathBuf> {
     let dir = home.join("tmp");
-    fs::create_dir_all(&dir)?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    if let Err(e) = fs::DirBuilder::new().mode(0o700).create(&dir) {
+        if e.kind() != io::ErrorKind::AlreadyExists {
+            return Err(e);
+        }
+    }
+    // As the poll's own scratch writer: a directory of another type, or one it
+    // cannot read the mode of, is no place to write the report.
+    let made_dir = fs::symlink_metadata(&dir)
+        .ok()
+        .is_some_and(|m| m.is_dir() && !m.file_type().is_symlink());
+    if !made_dir {
+        return Err(io::Error::other(format!(
+            "{} is not a directory of its own",
+            dir.display()
+        )));
+    }
+    if fs::symlink_metadata(&dir).is_ok_and(|m| m.permissions().mode() & 0o777 != 0o700) {
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
+    // The name is this process's own, so two runs of the console do not share
+    // one file.
     let path = dir.join(format!("health.{}", std::process::id()));
-    let made = OpenOptions::new()
+    let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&path)
-        .and_then(|mut f| f.write_all(text.as_bytes()));
-    if made.is_err() {
-        let _ = fs::remove_file(&path);
-        return made.map(|()| path);
+        .open(&path)?;
+    match file.write_all(text.as_bytes()) {
+        Ok(()) => Ok(path),
+        Err(e) => {
+            let _ = fs::remove_file(&path);
+            Err(e)
+        }
     }
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    Ok(path)
 }
 
 /// What a refused publish of the report says, in the voice libexec/health had.
-/// The store keeps the line to its first and the shell kept it to 300 bytes.
+/// `Refusal::line` is the store's first line, already cut to 300 bytes and
+/// freed of control characters by the `refusal` of store.rs, as
+/// `tehas_store_said` kept it.
 fn refused_publish(no: &Refusal) -> u8 {
     if no.word == "absent" {
         return not_installed();
     }
-    let cut = first(&no.line, 300);
-    eprintln!("ERROR: the health file could not be published: {cut}");
+    eprintln!("ERROR: the health file could not be published: {}", no.line);
     // The status the store's own answer carries: 1 for a store that was busy,
     // 78 for one that cannot be used. Nothing else is answered.
     if no.rc == 1 {
@@ -196,18 +194,27 @@ fn refused_publish(no: &Refusal) -> u8 {
     }
 }
 
-/// `tehas_store_try 3 publish --health <file>`: again while the store is busy
-/// or its 20 s went by, 1 s apart.
-fn publish_health(home: &Path, file: &Path) -> Result<(), Refusal> {
+/// The publish of the report: `tehas_store_try 3 publish --health <file>`,
+/// again while the store is busy or timed out, 1 s apart, but only within
+/// <budget> of its own. The poll bounds the whole health run at 120 s while it
+/// holds state/dispatch.lock, and each try is itself bounded at 20 s, so three
+/// slow tries would reach that bound and leave no file at all: the earlier of
+/// the three tries and the budget is what answers.
+fn publish_health(home: &Path, file: &Path, budget: Duration) -> Result<(), Refusal> {
     let arg = file.display().to_string();
     let args = ["publish", "--health", arg.as_str()];
+    let began = Instant::now();
     let mut tries = 1;
     loop {
-        let err = match store_call(home, &args) {
+        let err = match store::call(home, &args) {
             Ok(_) => return Ok(()),
             Err(no) => no,
         };
-        if tries >= 3 || err.rc != 1 || !matches!(err.word.as_str(), "busy" | "timeout") {
+        if tries >= 3
+            || err.rc != 1
+            || !matches!(err.word.as_str(), "busy" | "timeout")
+            || began.elapsed() >= budget
+        {
             return Err(err);
         }
         tries += 1;
@@ -215,21 +222,34 @@ fn publish_health(home: &Path, file: &Path) -> Result<(), Refusal> {
     }
 }
 
-/// The three reads of the store the report is built from, in the order the
-/// shell asked for them: the open planning sessions, the newest backup, and
-/// the figures of the idle polls over their budget - that budget left out when
-/// the store refused, which is what leaves `poll_cost` out of checks rather
-/// than pass it. A backup the store would not say is a null of its own, which
-/// is the check that says there is no copy at all.
-fn checks(home: &Path, budget: &str) -> Result<Given, u8> {
+/// The four reads of the store the report is built from, in the order the
+/// shell asked for them: the open planning sessions, the `publish` of the
+/// views, the newest backup, and the figures of the idle polls over their
+/// budget. A backup the store would not say is a null of its own, which is the
+/// check that says there is no copy at all; a `poll_cost` the store refused is
+/// left out rather than passed. Both say so with a WARN line: the units, the
+/// backup and the polls are the checks a run goes without, and a home that
+/// passes with three of them missing is a home whose store did not answer.
+fn checks(home: &Path, budget: &str, systemctl: &Path) -> Result<Given, u8> {
     // Each ask ends the run with the status of its refusal, which is the
     // status of the step and not of a later one.
     let ask = |step: Step, args: &[&str]| -> Result<Option<Value>, u8> {
-        match store_call(home, args) {
+        match store::call(home, args) {
             Ok(v) => Ok(Some(v)),
             // A read the report can go without: its own entry is what is left
-            // out of the file.
-            Err(_) if matches!(step, Step::Backup | Step::PollIdle) => Ok(None),
+            // out, and the line says the read did not answer. Only a store
+            // that was busy or timed out is quietly missing; anything else
+            // says so at ERROR, because a store that cannot be used is not a
+            // check that went without.
+            Err(no) if step.optional() => {
+                eprintln!(
+                    "{}: the {} of the state store could not be read: {}",
+                    if no.rc == 1 { "WARN" } else { "ERROR" },
+                    step.name(),
+                    no.line
+                );
+                Ok(None)
+            }
             // One try, and only a store that cannot be used at all ends the
             // run: a store that was busy leaves the views a tick old, which is
             // what the shell's health accepted.
@@ -253,15 +273,17 @@ fn checks(home: &Path, budget: &str) -> Result<Given, u8> {
     .map(|v| v["over"].to_string());
     // The shell's `tehas_store_get .over` of a read that answered is the empty
     // list when nothing is over budget, and the report keeps the entry it was
-    // given; only a read that refused leaves it out.
-
-    let budget = over.as_ref().map(|_| budget.to_string());
+    // given; only a read that refused leaves it out. The budget goes with it
+    // and with nothing else: report renders poll_cost only when both are there.
+    let poll_budget = over.as_ref().map(|_| budget.to_string());
+    // systemd, bounded at 10 s; None leaves the units out of the file.
+    let units = failed_units_of(systemctl);
     Ok(Given {
         sessions: Some(sessions),
-        units: failed_units(),
+        units,
         backup,
         poll_over: over,
-        poll_budget: budget,
+        poll_budget,
     })
 }
 
@@ -275,15 +297,18 @@ fn not_installed() -> u8 {
 /// The steps of the run whose refusal ends it, with the line and the status
 /// the shell gave them: the sessions the report's `plans` check is built from,
 /// and the `publish` of the views, which a store that could not be used at all
-/// makes nothing of.
+/// makes nothing of. The optional checks never reach here: `checks`' ask is
+/// what decides that, once.
 fn stopped(step: Step, no: &Refusal) -> u8 {
     if no.word == "absent" {
         return not_installed();
     }
-    let cut = first(&no.line, 300);
     match step {
         Step::PlanShow => {
-            eprintln!("ERROR: the planning sessions could not be read from the state store: {cut}");
+            eprintln!(
+                "ERROR: the planning sessions could not be read from the state store: {}",
+                no.line
+            );
             // The status the store's own answer carries.
             if no.rc == 1 {
                 1
@@ -292,7 +317,7 @@ fn stopped(step: Step, no: &Refusal) -> u8 {
             }
         }
         Step::Publish => {
-            eprintln!("ERROR: the live view could not be published: {cut}");
+            eprintln!("ERROR: the live view could not be published: {}", no.line);
             // One try, and only a store that cannot be used at all ends the
             // run: a store that was busy leaves the views a tick old.
             if no.rc == 1 {
@@ -301,9 +326,10 @@ fn stopped(step: Step, no: &Refusal) -> u8 {
                 78
             }
         }
-        // A check the report can go without: its own entry is what is left
-        // out, and the run says nothing of it.
-        Step::Backup | Step::PollIdle => 0,
+        // The two optional checks are answered by ask and cannot reach here;
+        // they end the run as a refused read would rather than be passed off
+        // as a step that stopped nothing.
+        Step::Backup | Step::PollIdle => 78,
     }
 }
 
@@ -312,22 +338,42 @@ fn stopped(step: Step, no: &Refusal) -> u8 {
 /// read of the store that refused is no reason to write no file; only the
 /// sessions, a `publish` the store could not use at all, and the publish of
 /// the report stop the run, each with the line and the status the shell gave
-/// them.
+/// them. The budget of the idle polls is the wrapper's to give: `libexec/health`
+/// loads the settings, where the value's shape is checked, and passes it with
+/// `--budget`. A run asked for none, as the cases are, takes the instance's
+/// default.
 pub fn run(given: &[String]) -> u8 {
-    let [home] = given else {
-        eprintln!("console health: usage: run <home>");
+    let [home, rest @ ..] = given else {
+        eprintln!("console health: usage: run <home> [--budget <spec>]");
         return 2;
     };
-    let budget =
-        std::env::var("TEHAS_POLL_BUDGET").unwrap_or_else(|_| "cpu=5,wall=30,writes=0".to_string());
-    run_with(Path::new(home), budget)
+    let mut budget: Option<String> = None;
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        match (flag.as_str(), it.next()) {
+            ("--budget", Some(v)) => budget = Some(v.clone()),
+            _ => {
+                eprintln!("console health: usage: run <home> [--budget <spec>]");
+                return 2;
+            }
+        }
+    }
+    run_with(
+        Path::new(home),
+        budget.unwrap_or_else(|| POLL_BUDGET.to_string()),
+        Path::new("systemctl"),
+    )
 }
 
 /// The run itself, with the budget the host's settings give: the case that
 /// names a budget of its own does not reach over the environment of the
-/// process the tests of the workspace share.
-fn run_with(home: &Path, budget: String) -> u8 {
-    let given = match checks(home, &budget) {
+/// process the tests of the workspace share. The units read is the read of
+/// systemd, which a case of the units names for itself.
+fn run_with(home: &Path, budget: String, systemctl: &Path) -> u8 {
+    if !store::ready(home) {
+        return not_installed();
+    }
+    let given = match checks(home, &budget, systemctl) {
         Ok(gathered) => gathered,
         Err(rc) => return rc,
     };
@@ -339,7 +385,7 @@ fn run_with(home: &Path, budget: String) -> u8 {
             return 1;
         }
     };
-    let outcome = publish_health(home, &file);
+    let outcome = publish_health(home, &file, PUBLISH_BUDGET);
     let _ = fs::remove_file(&file);
     match outcome {
         Ok(()) => 0,
@@ -400,6 +446,7 @@ mod run_tests {
             let _ = fs::remove_dir_all(&home);
             fs::create_dir_all(home.join("libexec")).unwrap();
             fs::create_dir_all(home.join("state")).unwrap();
+            fs::create_dir_all(home.join("bin")).unwrap();
             // The store of this build, taken from the command line of whoever
             // built the tests: the store's own cases run in the same build, so
             // one of its processes knows the binary's path. The gate builds the
@@ -565,14 +612,9 @@ mod run_tests {
             self.home.join("live/health.json").exists()
         }
 
-        /// The units read of a host that answers: the list systemd gives when
-        /// no tehas unit is failed. The case of systemd that does not answer
-        /// is the report's own.
         /// The units read of a host whose systemd answers <text>. The case of
         /// a systemd that does not answer is the report's own.
         fn units(&mut self, text: &str) {
-            let dir = self.home.join("bin");
-            fs::create_dir_all(&dir).unwrap();
             // The empty list is systemd answering that nothing failed: no
             // line, which is what --no-legend prints for no unit.
             let said = if text.is_empty() {
@@ -580,20 +622,39 @@ mod run_tests {
             } else {
                 format!("printf '%s\n' '{text}'")
             };
-            fs::write(
-                dir.join("systemctl"),
-                format!("#!/usr/bin/env bash\n{said}\n"),
-            )
-            .unwrap();
-            fs::set_permissions(dir.join("systemctl"), fs::Permissions::from_mode(0o755)).unwrap();
-            std::env::set_var("TEHAS_SYSTEMCTL_DIR", &dir);
+            fs::write(self.systemctl(), format!("#!/usr/bin/env bash\n{said}\n")).unwrap();
+            fs::set_permissions(self.systemctl(), fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        /// The stub systemd of this home, named by the run rather than read
+        /// off the environment.
+        fn systemctl(&self) -> PathBuf {
+            self.home.join("bin").join("systemctl")
         }
 
         fn run_with(&mut self, budget: &str) -> u8 {
             self.units("");
-            let rc = run_with(&self.home, budget.to_string());
-            std::env::remove_var("TEHAS_SYSTEMCTL_DIR");
-            rc
+            let program = self.systemctl();
+            run_with(&self.home, budget.to_string(), &program)
+        }
+
+        /// The whole of `run` for a home whose settings named <budget> as its
+        /// budget, given to the console as the wrapper gives it: one argument,
+        /// and no name of the host in the console.
+        fn run_budget(&mut self, budget: &str) -> u8 {
+            self.units("");
+            run(&[
+                self.home.to_string_lossy().into_owned(),
+                "--budget".to_string(),
+                budget.to_string(),
+            ])
+        }
+
+        /// The run of a home whose systemd does not answer: no stub is left
+        /// where PATH could find one.
+        fn run_without_systemd(&mut self) -> u8 {
+            let _ = fs::remove_file(self.systemctl());
+            run_with(&self.home, POLL_BUDGET.to_string(), &self.systemctl())
         }
 
         fn run(&mut self) -> u8 {
@@ -752,6 +813,43 @@ mod run_tests {
     fn a_run_takes_the_home_and_nothing_else() {
         assert_eq!(run(&[]), 2);
         assert_eq!(run(&["a".into(), "b".into()]), 2);
+    }
+
+    #[test]
+    fn a_systemd_that_does_not_answer_leaves_the_units_out_and_says_so() {
+        let mut s = Store::new("no-systemd");
+        s.queue();
+        assert_eq!(s.run_without_systemd(), 0);
+        // The read did not answer, which is not the same as none having failed:
+        // the entry is left out and the home still passes.
+        assert_eq!(s.health()["checks"]["units"], Value::Null);
+        assert_eq!(s.health()["status"], "pass");
+    }
+
+    #[test]
+    fn a_budget_the_store_refuses_leaves_the_check_out_and_says_so() {
+        // The load of lib/config.sh is what stops the host with 78 on a
+        // malformed budget; a run given one reaches the store, whose refusal
+        // is what leaves poll_cost out - never a check that passed.
+        let mut s = Store::new("budget-shape");
+        s.queue();
+        assert_eq!(s.run_budget("cpu=05,wall=30,writes=0"), 0);
+        assert_eq!(s.health()["checks"]["poll_cost"], Value::Null);
+        assert!(s
+            .calls()
+            .iter()
+            .any(|c| c == "poll-idle --since 3600 --budget cpu=05,wall=30,writes=0"));
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_used_for_a_check_is_said_and_left_out() {
+        let mut s = Store::new("unusable-check");
+        s.queue();
+        s.refuses("backup", 78, "store: corrupt: the file is no database");
+        assert_eq!(s.run(), 0);
+        // The check is still left out, but an unusable store is not a check
+        // that went without: the line says which of them it was.
+        assert_eq!(s.health()["checks"]["backup"], Value::Null);
     }
 }
 

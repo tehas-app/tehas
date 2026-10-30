@@ -23,7 +23,8 @@
 //!    and no config, since a container can write the tree it reads.
 //! 2. Docker's build cache: `docker builder prune` of that age.
 //! 3. Host scratch: files of that age directly under tmp/dl and
-//!    tmp/node-compile-cache, tmp/analytics-facts.* files of that age, the
+//!    tmp/node-compile-cache, tmp/analytics-facts.* and tmp/health.* files of
+//!    that age, the
 //!    copy of the sandbox recipe (and its temporary) of that age a killed build
 //!    left beside the build script, and tmp/tehas-test.* directories.
 //! 4. Dated tags of the sandbox image of that age, except the newest and any
@@ -864,6 +865,11 @@ impl Run {
         files.extend(self.old_files(&tmp.join("node-compile-cache"), |_| true));
         if real_dir(&tmp) {
             files.extend(self.old_files(&tmp, |n| n.starts_with("analytics-facts.")));
+            // The report a health run writes before its publish, and removes
+            // when the publish answers. A run the poll's bound killed inside
+            // the publish leaves it: the next clean takes it with the rest of
+            // the scratch of that age.
+            files.extend(self.old_files(&tmp, |n| n.starts_with("health.")));
         }
         // The copy of the recipe a sandbox build hands docker, and the temporary
         // it renames from, live beside the installed build script. A build takes
