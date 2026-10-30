@@ -115,6 +115,15 @@ t_run "$load; echo rc=\$? \$((TEHAS_PLAN_TIMEOUT + 900))"
 t_eq "$t_out" "rc=0 $((plan_max + 900))"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a scratch directory is an absolute path"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR=scratch
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_SCRATCH_DIR is not valid"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR=/mnt/scratch
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+
 t_case "a planning turn's time limit over the ceiling is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=$((plan_max + 1))
 t_run "$load; echo rc=\$?"
@@ -434,6 +443,21 @@ t_eq "$t_out" "[1][5][1440][8]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[0]"
+
+t_case "the easy merge is off unless the instance turns it on, and a value that is not 0 or 1 stops the load"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_EASY_MERGE]\""
+t_eq "$t_out" "[0]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_EASY_MERGE=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_EASY_MERGE]\""
+t_eq "$t_out" "[1]"
+for bad in "TEHAS_EASY_MERGE=yes" "TEHAS_EASY_MERGE=2"; do
+  t_case "loading rejects $bad"
+  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
+done
 
 t_case "the review loop is off unless the instance turns it on"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"

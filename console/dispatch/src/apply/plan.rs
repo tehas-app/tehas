@@ -613,7 +613,7 @@ impl Writer {
             } else {
                 format!("Filed in this turn: {what}")
             };
-            let Some(id) = self.post_question(n, turns, &out, &line) else {
+            let Some(id) = self.post_question(n, turns, &out, &line, log) else {
                 log.push(format!(
                     "WARN: the planning turn of #{n} could not be posted; the next poll tries again"
                 ));
@@ -693,10 +693,27 @@ impl Writer {
         self.plan_end(n, said, false, false, log)
     }
 
-    /// post_question: the turn's question comment, and its id.
-    fn post_question(&mut self, n: u64, turn: u64, out: &Value, line: &str) -> Option<String> {
+    /// post_question: the turn's text, then its question comment, and the
+    /// id of that. The boxes sit in a comment of their own: GitHub saves a
+    /// tick on the wrong box, or not at all, in some comments that hold a
+    /// long plan.
+    fn post_question(
+        &mut self,
+        n: u64,
+        turn: u64,
+        out: &Value,
+        line: &str,
+        log: &mut Vec<String>,
+    ) -> Option<String> {
         if !out.is_object() {
             return None;
+        }
+        let words = question::q_clean(s(out, "/text"), 40000);
+        if !words.is_empty() {
+            if !self.say(n, &words, log) {
+                return None;
+            }
+            self.plan_text_said(n, out);
         }
         let body = q_render(n, turn, out, line);
         let args = vec![
@@ -716,6 +733,19 @@ impl Writer {
         // gh prints the id alone, as --jq .id has it.
         let id = said.trim().parse::<u64>().ok()?;
         Some(id.to_string())
+    }
+
+    /// The outcome without its text, so a poll that posts the question again
+    /// does not say the plan twice.
+    fn plan_text_said(&self, n: u64, out: &Value) {
+        let mut rest = out.clone();
+        rest["text"] = json!("");
+        let new = self.st(n, ".out.new");
+        let moved = std::fs::write(&new, format!("{rest}\n"))
+            .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
+        if moved.is_err() {
+            let _ = std::fs::remove_file(&new);
+        }
     }
 
     /// plan_replace: a refine that filed replaces its issue. The mark on the

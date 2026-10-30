@@ -559,7 +559,7 @@ mod tests {
     fn a_file_that_is_no_file_a_link_or_over_the_bound_is_read_as_none() {
         // The failure of the read is none, and none is "nothing to add":
         // what the mask hides does not depend on the file being good.
-        let home = scratch_home("refused");
+        let home = scratch_home("mask-refused");
         assert!(read_models_of_home(&home.0).is_none());
         write_models(&home.0, "not json at all");
         assert_eq!(

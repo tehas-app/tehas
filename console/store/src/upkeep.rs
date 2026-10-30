@@ -3,6 +3,9 @@
 //!   backup [--show]   one copy a day, state/backup/tehas-<YYYYMMDD>.db, by
 //!                     VACUUM INTO; the newest 7 kept. --show only reads: the
 //!                     newest copy and its age
+//!   copy --to <file>  one consistent copy of the store at the absolute name
+//!                     given, by VACUUM INTO; reads the store, writes only that
+//!                     file, and refuses a name that is taken
 //!   prune --days N    endings, settled actions with their journal, and the
 //!                     heartbeats of ended cycles, older than N days. A cycle's
 //!                     row is never removed
@@ -33,6 +36,7 @@ use std::time::{Duration, SystemTime};
 #[derive(Debug, PartialEq, Eq)]
 pub enum Call {
     Backup { show: bool },
+    Copy { to: String },
     Prune { days: i64 },
     SweepLocks { days: i64, max: i64, dry_run: bool },
     LocksHeld,
@@ -50,6 +54,13 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
                 show: a.has("--show"),
             })
         }
+        "copy" => Args::parse("copy", rest, &[("--to", Kind::Value)], false).and_then(|a| {
+            let to = a.need("--to")?;
+            if !to.starts_with('/') {
+                return Err(a.usage("--to", "is an absolute name"));
+            }
+            Ok(Call::Copy { to: to.to_string() })
+        }),
         "prune" => Args::parse("prune", rest, &[("--days", Kind::Value)], false).and_then(|a| {
             Ok(Call::Prune {
                 days: a.strict_need("--days", "a count of days", days)?,
@@ -93,6 +104,7 @@ fn max(s: &str) -> Option<i64> {
 pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
     match call {
         Call::Backup { show } => backup(home, *show, now),
+        Call::Copy { to } => copy(home, to),
         Call::Prune { days } => prune(home, *days, now),
         Call::SweepLocks { days, max, dry_run } => sweep_locks(home, *days, *max, *dry_run, now),
         Call::Upkeep { dry_run } => upkeep(home, *dry_run, now),
@@ -156,6 +168,15 @@ fn newest(dir: &Path, now: i64) -> Result<String, Fail> {
         ("at", j(at)),
         ("age_seconds", j((now - at).max(0))),
     ]))
+}
+
+fn copy(home: &Path, to: &str) -> Result<String, Fail> {
+    verbs::look(home, |_| Ok(()))?;
+    // The reader's connection is enough: VACUUM INTO reads one snapshot, so a
+    // row still in the WAL is in the copy and no writer waits for it.
+    let conn = db::open_look(&db::path(home)).map_err(crate::line)?;
+    db::backup_to(&conn, Path::new(to)).map_err(crate::line)?;
+    Ok(line("copy", &[("file", j(to))]))
 }
 
 fn backup(home: &Path, show: bool, now: i64) -> Result<String, Fail> {

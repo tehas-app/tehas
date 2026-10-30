@@ -3,7 +3,7 @@
 //! turn's question or a park's. The dispatcher posts the one, a cycle the
 //! other.
 
-use regex::Regex;
+use regex::{Captures, Regex};
 use serde_json::Value;
 use std::sync::OnceLock;
 
@@ -64,8 +64,9 @@ pub fn q_clean(text: &str, max: usize) -> String {
         .collect()
     });
     static BOX: OnceLock<Regex> = OnceLock::new();
-    let boxed =
-        BOX.get_or_init(|| Regex::new(r"^([[:space:]]*[-*+][[:space:]]+)\[([ xX])\]").unwrap());
+    let boxed = BOX.get_or_init(|| {
+        Regex::new(r"^([[:space:]>]*(?:(?:[-*+]|[0-9]+[.)])[[:space:]>]+)+)\[([ xX])\]").unwrap()
+    });
     static AT: OnceLock<Regex> = OnceLock::new();
     let at = AT.get_or_init(|| Regex::new(r"@([A-Za-z0-9])").unwrap());
     // jq -r adds the line end the text is then read with.
@@ -77,7 +78,12 @@ pub fn q_clean(text: &str, max: usize) -> String {
             for (re, with) in rules {
                 l = re.replace_all(&l, with.as_str()).into_owned();
             }
-            l = boxed.replace(&l, r"${1}\[${2}]").into_owned();
+            l = boxed
+                .replace(&l, |c: &Captures| {
+                    let glyph = if &c[2] == " " { '☐' } else { '☑' };
+                    format!("{}{glyph}", &c[1])
+                })
+                .into_owned();
             at.replace_all(&l, "@\u{200b}${1}").into_owned()
         })
         .collect();
@@ -100,25 +106,27 @@ fn s<'a>(v: &'a Value, path: &str) -> &'a str {
 /// q_render: the body of a question comment. `out` holds the text, the
 /// question, pi-rukas's handoff marker (`marker`) and, for a park, tehas's
 /// park marker (`park`); `line` is the host's own, put between the question
-/// and the boxes.
+/// and the boxes. A planning turn's text is left out: the caller says it in
+/// a comment before this one, so nothing of a long plan can move a box.
 pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> String {
     let mut b = String::new();
     let handoff = Regex::new(&format!(
         r"^<!-- pi-rukas:handoff issue={issue} cap=[A-Za-z0-9_.:-]{{1,80}} -->$"
     ))
     .unwrap();
-    let marker = s(out, "/marker");
-    if handoff.is_match(marker) {
-        b += &format!("{marker}\n");
+    if kind == Kind::Park {
+        let marker = s(out, "/marker");
+        if handoff.is_match(marker) {
+            b += &format!("{marker}\n");
+        }
+        b += &format!("{}\n\n", q_clean(s(out, "/text"), 40000));
     }
-    b += &format!("{}\n", q_clean(s(out, "/text"), 40000));
     if out.get("question").is_some_and(|q| !q.is_null()) {
-        b += &format!("\n{}\n", q_clean(s(out, "/question/question"), 4000));
+        b += &format!("{}\n\n", q_clean(s(out, "/question/question"), 4000));
     }
     if !line.is_empty() {
-        b += &format!("\n{line}\n");
+        b += &format!("{line}\n\n");
     }
-    b += "\n";
     let options: Vec<Value> = out
         .pointer("/question/options")
         .and_then(Value::as_array)
@@ -180,6 +188,37 @@ pub fn q_render(kind: Kind, issue: u64, turn: u64, out: &Value, line: &str) -> S
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn no_shape_of_task_box_survives_q_clean() {
+        for (agent, clean) in [
+            ("- [ ] #1 first", "- ☐ #1 first"),
+            ("* [x] done", "* ☑ done"),
+            ("  + [X] done", "  + ☑ done"),
+            ("1. [ ] first", "1. ☐ first"),
+            ("12) [x] done", "12) ☑ done"),
+            ("> - [ ] quoted", "> - ☐ quoted"),
+            ("- - [ ] nested", "- - ☐ nested"),
+            // Words in brackets stay: they are no box.
+            ("- [HIGH] finding", "- [HIGH] finding"),
+            ("see [ ] here", "see [ ] here"),
+        ] {
+            assert_eq!(q_clean(agent, 100), clean, "{agent}");
+        }
+    }
+
+    #[test]
+    fn a_planning_question_holds_no_text_of_the_plan() {
+        let out = json!({"text": "- [ ] #1 sub\n- [HIGH] gap",
+            "question": {"question": "Which?", "options": [{"label": "Update this issue"}]}});
+        assert_eq!(
+            q_render(Kind::Plan, 7, 2, &out, ""),
+            "Which?\n\n- [ ] Update this issue\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+        );
+        // A turn with nothing but text: the boxes open the comment.
+        let out = json!({"text": "Which branch?", "question": null});
+        assert!(q_render(Kind::Plan, 7, 1, &out, "").starts_with("- [ ] End this planning session"));
+    }
 
     #[test]
     fn a_park_question_has_the_retry_boxes_and_both_markers() {

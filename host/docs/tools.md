@@ -28,6 +28,7 @@ tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
+tehas state pack|unpack -        # move a stopped factory's state to another machine
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
@@ -56,7 +57,7 @@ in the platform repository has every one with a comment.
 | ------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
 | `TEHAS_REPO`                    | required                                 | `owner/name` of the repository whose issues are the queue       |
 | `TEHAS_CONTROL_ISSUE`           | required                                 | Issue that carries `tehas:pause`                                |
-| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next` and `tehas:blocked` for the dispatcher, `tehas:prototype` for the Protolab |
+| `TEHAS_ALLOWED_LABELERS`        | required                                 | Logins whose labels count, space separated: `tehas:ready`, `tehas:plan`, `tehas:urgent`, `tehas:next`, `tehas:blocked` and `tehas:lean` for the dispatcher, `tehas:prototype` for the Protolab |
 | `PI_ENSEMBLE_SUBAGENT_MODEL`    | required                                 | Model for every subagent role without one of its own            |
 | `PI_ENSEMBLE_SUBAGENT_PROVIDER` | required                                 | Its provider, as named in `models.json`                         |
 | `PI_ENSEMBLE_MODEL_<ROLE>`      | `PI_ENSEMBLE_SUBAGENT_MODEL`             | Model for one role: `EXPLORE`, `DEVELOPER`, `ADVERSARIAL_DEVELOPER`, `CODE_REVIEW_SPECIALIST` (the six lens reviewers) or `OPS`. Another name is refused. See [A model per role](/host#a-model-per-role) |
@@ -305,7 +306,7 @@ state labels off closed issues: `tehas:running`, `tehas:awaiting-merge`,
 `tehas:question`, `tehas:planning`, `tehas:refreshing`, `tehas:blocked`,
 `tehas:ready`, `tehas:plan` and `tehas:refine`. Not `tehas:shipped`, not
 `needs-human-attention`, and not the labels a person chooses (`tehas:urgent`,
-`tehas:next`, `tehas:prototype`). The list is the console's
+`tehas:next`, `tehas:lean`, `tehas:prototype`). The list is the console's
 (`console tidy states`, `console/src/tidy.rs`), and so is the decision of what
 comes off which issue and which issue the read below is asked about
 (`console tidy plan`): the command keeps the settings, the two searches and the
@@ -527,7 +528,13 @@ done once for each time the cycle was last heard from. The episode and every
 ask are on record in the state store, with the cycle: the time the cycle was
 last heard from, how many times the poll has asked, and when it last asked or
 said. The first "asks no more" line counts as one more, so a record past 6
-asks means the poll has said that line.
+asks means the poll has said that line. Before each ask the poll writes `quiet`
+to `state/cycles/N.done`, so the cycle that reports as it stops names the stop:
+its comment carries `The dispatcher stopped it: nothing was heard from it for
+longer than its quiet bound.` and its end record carries `park_reason` `quiet`.
+A `.done` that cannot be written adds `WARN: could not write the reason for #N`
+to the poll's log and the stop goes ahead; the cycle then reports as one stopped
+without a pull request and says nothing of the quiet bound.
 Exit 0 from `systemctl --user --no-block stop` only says systemd accepted the
 stop job, so the record means the stop was asked, not that the unit stopped;
 what ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s)
@@ -595,7 +602,9 @@ state store (`~/tehas/state/tehas.db`, through `libexec/store`
 after a provider outage), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
-inputs `links`, the links to GitHub's attachment storage in that body. `at` is
+inputs `links`, the links to GitHub's attachment storage in that body, and
+`driver` when the start [chose lean](/operating#choosing-the-driver). A record
+with no `driver` is classic. `at` is
 the time GitHub gave the label or the tick; a refresh and the retry after an
 outage rest on an approval that started a cycle already, and are on record at
 the time the poll decided them. The body, the title and the record of who last
@@ -656,6 +665,13 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset.
+
+A start whose approval says driver `lean` stops first, with exit 78, the note
+`state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
+the lean driver yet and to take `tehas:lean` off. It starts no container, moves
+nothing and does not run classic in its place. `tehasbot cycle` reads the note
+and parks the issue as a start that never ran: its approval goes with the
+report, so nothing starts it again on its own. Any other 78 is a stopped cycle.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
@@ -1250,7 +1266,8 @@ What comes out of a model is made safe on the way out by the two functions the
 console's log of the same run goes through (`tehas_core::mask` and
 `tehas_core::question::q_clean`): tokens, passwords, private addresses and the
 host's own names (the same list the console is given, with `--private`) are
-masked or hidden, a comment marker is escaped, and the body is cut at 60 000
+masked or hidden, a comment marker is escaped, a task box such as `- [ ]`
+becomes the glyph `- ☐` (`☑` when ticked), and the body is cut at 60 000
 characters. The line that asks for `tehas:refine`, the label that plans an
 issue into parts of one cycle each
 ([Planning](/operating#planning)), is the command's own text and is put on
@@ -1646,12 +1663,13 @@ build one from.
 tehas labels        # one line per label
 ```
 
-Creates the eighteen labels tehas uses in the product repository: `tehas:ready`,
+Creates the nineteen labels tehas uses in the product repository: `tehas:ready`,
 `tehas:urgent`, `tehas:running`, `tehas:awaiting-merge`, `tehas:shipped`, `tehas:pause`,
 `needs-human-attention`, `tehas:question`, `tehas:plan`, `tehas:refine`, `tehas:planning`,
 `tehas:replaced` and `tehas:refined` (an issue a [refine](/operating#refining-a-request)
 filed a ticket for), `tehas:millwright-escalated`, `tehas:next`, `tehas:blocked`, `tehas:refreshing` (on a
-pull request a [refresh](/operating#refreshes) works on) and `tehas:all-hands`.
+pull request a [refresh](/operating#refreshes) works on), `tehas:all-hands` and
+`tehas:lean` (see [choosing the driver](/operating#choosing-the-driver)).
 Run it once for a new product, and again after pulling a version that adds a
 label. Run again, it puts their colours and descriptions back. It needs `TEHAS_REPO` and no other
 setting. Exit 0 when every label is there, 1 when one could not be made, 64 on
@@ -1794,6 +1812,39 @@ export of an issue the sweep has taken has no transcripts: its records, logs and
 Protolab page are still copied. See
 [the factory API](/api#tehas-export).
 
+## tehas state
+
+```
+tehas state pack [--rehearse] -
+tehas state unpack [--rehearse] -
+```
+
+Moves a stopped factory's state to another machine as one tar: `pack` writes it
+to standard output and `unpack` reads it from standard input. It holds
+`state/`, `repos/`, `live/` and `mcp/` of the home and the store as a copy the
+store made of itself, behind a `tehas-state.json` that names the release and
+the schema; the live token (`state/github`) is left out, and the target keeps
+its own. `pack` refuses while a cycle or a planning turn runs or a `tehas-*`
+unit is active; `--rehearse` does not, changes nothing and marks the tar a
+rehearsal that `unpack` takes only with `--rehearse`, which replaces the
+target's state as `unpack` does: the old state is gone, so use it only on a
+machine that will be rebuilt. `unpack` refuses while a
+unit is active, another release or schema, a bad manifest, a link that is
+absolute, leaves its directory or has a `..` after a name, a device, pipe or
+socket, and a setuid, setgid or world-writable entry. It replaces the
+four directories only after it has checked the tar and the store in a
+directory beside the home, and starts no unit.
+
+`pack` sends the tar only after tar has ended well, so a `pack` that fails sends
+nothing and `unpack` replaces nothing. Run the pipe with `set -o pipefail`; the
+source's files are untouched by a failed run, so run it again; its units stay
+down until you start them (see
+[Backups and restore](/operating#backups-and-restore)). `unpack` needs room
+beside the home for the archive and the extracted tree. After `unpack`, restart
+the docs container, because `live/` is a bind mount:
+`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`. See
+[the factory API](/api#tehas-state).
+
 ## tehas pause
 
 ```
@@ -1856,7 +1907,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
+`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
@@ -2007,7 +2058,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```

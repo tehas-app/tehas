@@ -430,6 +430,11 @@ The common ones:
 | developer timeout                   | An agent ran out of time                            | Usually model endpoint capacity; retry later             |
 | `wall-clock`, `stall`               | tehas ended the cycle: its time limit `TEHAS_WORK_TIMEOUT`, or no log moved for `TEHAS_WORK_STALL` | Read the run log the comment names; see [a cycle stops at a cap](#a-cycle-stops-at-a-cap) |
 | `runner-never-started`              | The container ended before the driver wrote its first event: no step ran and the record would hold nothing but an exit status | Look for a host-side fault: the image, the slice, the model endpoint. See [`runner-never-started`](#runner-never-started) below |
+| `this tehas cannot run the lean driver yet` | The issue carries [`tehas:lean`](/operating#choosing-the-driver) and lean needs pi-rukas#1920, which has not landed. `tehas work` stopped with exit 78: no container ran, nothing moved, classic did not run in its place. The start's approval is gone, so nothing starts it again on its own | Take `tehas:lean` off, then tick Retry. The issue runs classic |
+
+A `tehas:ready` that comes off with a comment that `tehas:lean` was applied or
+taken off by another account is no park: the choice of driver was not an allowed account's.
+See [choosing the driver](/operating#choosing-the-driver).
 
 The caps this factory has posted are explained one by one in the next
 section.

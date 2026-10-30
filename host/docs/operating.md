@@ -332,6 +332,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
+| `tehas:lean`            | The lean driver is chosen for it. [It cannot run yet](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
@@ -419,6 +420,37 @@ label added and nothing written there. See
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
+
+### Choosing the driver
+
+A cycle runs on the classic driver unless a person chooses lean for that issue
+with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
+
+Lean cannot run on this tehas yet: it waits for
+[pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920). A start
+that chose it is refused and [parked](/troubleshooting#the-cycle-parked-needs-human-attention),
+and classic does not run in its place. For now the label only records the
+choice.
+
+- It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
+  label's events. The millwright's does not count.
+- From any other account nothing starts, classic included. The poll takes
+  `tehas:ready`, and `tehas:blocked` with it, off and says why once. `tehas:lean`
+  stays on: an allowed account applies it again, or takes it off for classic,
+  and then applies `tehas:ready`. A retry over such a label starts nothing either
+  and says why.
+- The same holds when another account takes an allowed account's `tehas:lean`
+  off: the choice stands and nothing starts. An allowed account applies the
+  label again, and for classic takes it off itself.
+- The start binds the choice in its approval record. A retry (a ticked box, the
+  retry after a provider outage, the millwright's `tehas:ready` or a refresh)
+  runs the driver of the start it follows, so a label added since changes
+  nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
+  that a park holds counts too: the ticked box then reads the label.
+- With the label off, the next start is classic, retry or not.
+- The bash poll (`TEHAS_DISPATCHER=bash`) does not read who applied the label:
+  on it nothing starts while the issue carries it, and the log says why. Take it
+  off to run the issue on classic.
 
 ### What a poll costs
 
@@ -821,9 +853,10 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is written: the
-   comment holds its title and spec, lists its open points with the
-   planner's proposals, and offers **Update this issue**. Reply to change the plan, and
+5. The planner shows you a drafted plan before anything is written: one
+   comment holds its title and spec and lists its open points with the
+   planner's proposals, and the comment after it holds the question and the
+   boxes, among them **Update this issue**. Reply to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -1493,7 +1526,11 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   under a lock that is not there: an issue whose lock file is gone is left
   alone, because the cleaner cannot tell a finished cycle from a removed lock.
   `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
-  person to read, and no dot-name is entered.
+  person to read, and no dot-name is entered. A cycle that ends takes the same
+  build output itself, under the lock it still holds, so the age rule only
+  catches what a cycle killed before its end left behind. The same run removes
+  what a killed cycle left under `TEHAS_SCRATCH_DIR`, whatever its age, once the
+  issue's lock is free.
 - Docker's build cache of that age, with `docker builder prune`. This is the
   build cache of the whole host's Docker daemon: tehas is one project on one
   host, and the cache of anything else on it is made again too. No image and no
