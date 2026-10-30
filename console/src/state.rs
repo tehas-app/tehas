@@ -42,7 +42,7 @@ use serde_json::{json, Value};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -490,6 +490,21 @@ fn walk(dir: &Path, root: &Path) -> Result<(), Fail> {
     Ok(())
 }
 
+/// `io::copy` splices a pipe into a file, and on overlayfs that holds the file's
+/// lock while the pipe is empty, so the signal thread's unlink would wait on the
+/// sender. A plain read holds nothing.
+fn receive(from: &mut impl Read, to: &mut impl Write) -> io::Result<()> {
+    let mut buf = [0; 64 * 1024];
+    loop {
+        match from.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => to.write_all(&buf[..n])?,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     no_active_unit()?;
     let mine = tag(home)?;
@@ -500,7 +515,7 @@ fn unpack(home: &Path, rehearse: bool) -> Result<(), Fail> {
     let mut scratch = Scratch::new(parent, "tehas-incoming")?;
     let archive = scratch.dir.join("archive.tar");
     let mut file = fs::File::create(&archive).map_err(io_fail("could not write the archive"))?;
-    io::copy(&mut io::stdin().lock(), &mut file).map_err(io_fail("could not read the archive"))?;
+    receive(&mut io::stdin().lock(), &mut file).map_err(io_fail("could not read the archive"))?;
     drop(file);
 
     let names = tar_out(&["-t"], &archive)?;
@@ -646,6 +661,14 @@ fn swap(home: &Path, new: &Path, old: &Path) -> Result<(), Fail> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn receive_passes_every_byte_on() {
+        let sent = vec![7; 200 * 1024];
+        let mut got = Vec::new();
+        receive(&mut sent.as_slice(), &mut got).unwrap();
+        assert_eq!(got, sent);
+    }
 
     #[test]
     fn a_link_inside_its_directory_is_kept() {
