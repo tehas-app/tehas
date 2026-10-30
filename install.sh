@@ -477,8 +477,6 @@ files=(
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
-  # What closed an issue: the closer read tehasbot status and tehas tidy share.
-  "lib/shipped.sh|$TEHAS_HOME/lib/shipped.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.

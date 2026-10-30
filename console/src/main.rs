@@ -80,8 +80,8 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehas tidy and tehasbot status (lib/shipped.sh holds the names
-//! of these verbs and makes the call), see src/shipped.rs.
+//! answer says, for tehas tidy and tehasbot status (each command makes the call
+//! to these verbs itself), see src/shipped.rs.
 //!
 //!   console tidy states|plan ...
 //!

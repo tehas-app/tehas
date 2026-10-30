@@ -55,8 +55,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/shipped.sh
-. "$here/../lib/shipped.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE
 console=$here/console
@@ -100,7 +98,7 @@ call() { timeout -k 1 "$console_wait" "$console" "$@"; }
 page=$(call shipped page 2>&1) || page=""
 [[ $page =~ ^[0-9]+$ ]] || { printf 'tehas tidy: the console gave no page\n' >&2; exit 78; }
 shipped_label=$(call shipped label 2>/dev/null) || shipped_label=
-shipped_label=${shipped_label:-$tehas_shipped_label}
+shipped_label=${shipped_label:-tehas:shipped}
 # GitHub reads labels joined by commas as any of them. Each name is read whole
 # into one term of the search, so a name that spells oddly is still one term on
 # the way to GitHub.
@@ -146,8 +144,8 @@ while IFS=$'\t' read -r n off _ ask; do
   numbers=$numbers" number:$n"
 done <<<"$plan"
 
-# Whether a closed issue was closed by a merge comes from the read of
-# lib/shipped.sh - one GraphQL search a poll, not one per issue, and only for
+# Whether a closed issue was closed by a merge comes from `console shipped` -
+# one GraphQL search a poll, not one per issue, and only for
 # the issues the plan said may still earn the label. GitHub caps the terms of a
 # search, so past the page it would answer nothing at all and those issues wait
 # for a later poll. console/src/shipped.rs draws the verdict of the whole read
@@ -158,13 +156,13 @@ close_read=0
 if [ -n "$numbers" ]; then
   # shellcheck disable=SC2016  # $q is a GraphQL variable
   if ! closers=$(timeout -k 1 "$wait" gh api graphql -f q="repo:$repo is:issue is:closed$numbers" \
-    -f query="$(tehas_shipped_query "$console")" 2>/dev/null); then
+    -f query="$(call shipped query 2>/dev/null)" 2>/dev/null); then
     close_read=1
   elif ! shipped=$(printf '%s' "$closers" |
-    tehas_shipped_numbers "$console" --control "$control" 2>/dev/null); then
+    call shipped list --numbers --control "$control" 2>/dev/null); then
     # An empty list of a whole answer is a poll that shipped nothing, which is no
     # failure; no list at all is a read that failed.
-    tehas_shipped_whole "$console" "$closers" || close_read=1
+    printf '%s' "$closers" | call shipped whole >/dev/null 2>&1 || close_read=1
   fi
   # A read that did not answer is one line for the poll: the state labels still
   # go and no label is earned, but the log does not call it "no merged closer".
