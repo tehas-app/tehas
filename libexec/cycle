@@ -154,9 +154,7 @@
 # said as one, and its park owes the issue one start on the dispatcher's own,
 # unless this cycle was that start or was started by hand: the store derives
 # that from the start on record. An outage is a result whose failure kind is
-# "provider". For an image whose result has no failure (v0.12.80) it is a
-# step-failed:* or adversarial-infra-failure cap whose reason names the
-# provider, a timeout, a connection or a 5xx.
+# "provider".
 #
 # A cycle that stopped without a pull request asks what to do next, in a comment
 # with boxes. One that ended at child-timeout:develop first leaves a note of the
@@ -864,8 +862,7 @@ branch_pattern=$(tehas_branch_pattern "$issue") || branch_pattern='^$'
 [[ $build =~ ^[0-9a-f]{40}$ ]] || build=""
 # A stable cap-hit that ended the review on its round cap and sent the cycle on
 # to ci: the pull request has review findings no round answered. The why of a
-# cap: the result's failure, or for an image without one what tehas work could
-# read of the progress.
+# cap: the failure tehas work read from the result.
 # The progress, read once: each field ended by a NUL, one that is not text empty.
 mapfile -d '' -t got < <(head -c 1000000 "$progress" 2>/dev/null | jq -n -j 'input
   | def kept($set; $most): if type == "string" then gsub("[^" + $set + "]"; "") | .[0:$most] else "" end;
@@ -877,25 +874,7 @@ mapfile -d '' -t got < <(head -c 1000000 "$progress" 2>/dev/null | jq -n -j 'inp
 review_held=${got[0]:-} reason=${got[1]:-} failure_from=${got[2]:-} failure_kind=${got[3]:-}
 failure_role=${got[4]:-} failure_cause=${got[5]:-}
 provider=0
-if [ "$failure_from" = result ]; then
-  [ "$failure_kind" != provider ] || provider=1
-else
-  # TODO(trail-openers/pi-rukas#1367): an image whose result has no failure
-  # (v0.12.80). The reason comes from NDJSON lines the runner marks unstable;
-  # remove this once no host runs such an image. A failed step with no reason
-  # is said in the log, so a field the runner renamed shows up instead of
-  # silently ending the retry.
-  case "$cap" in step-failed:*)
-    [ -n "$reason" ] || log "WARN: #$issue ended at $cap and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)" ;;
-  esac
-  case "$cap" in
-    step-failed:* | adversarial-infra-failure)
-      if grep -qiE 'provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)' <<<"$reason"; then
-        provider=1
-      fi
-      ;;
-  esac
-fi
+[ "$failure_from" != result ] || [ "$failure_kind" != provider ] || provider=1
 # When tehas stopped the cycle itself, the cap is tehas's own: the time limit
 # or the stall, or a person's `tehas stop`. The runner's cap is kept only where
 # its result names an end it reached first, such as a handoff; the cap of a
@@ -932,8 +911,7 @@ fi
 # count failed dispatches too. Numbers only: anything else counts as nothing,
 # on either line. The two lines are read from the two files of the cycle and
 # can disagree, which is what the zero below is for: where the result names no
-# dispatches at all (an image whose result carries no usage, the TODO of
-# pi-rukas#1367) the rows are the progress' own and the totals are the same rows
+# dispatches at all the rows are the progress' own and the totals are the same rows
 # added up, so the table does not close with a row of zeros under rows that are
 # not zeros. The one decision of which totals to print is made once, by
 # `usage_totals`, and handed to the table as one JSON value: it answers the two
