@@ -180,4 +180,18 @@ t_run "$cycle 7"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --add-label tehas:question')" 3
 t_contains "$(t_calls gh)" "The boxes above cannot be used"
 
+t_case "a cycle that parks takes the build output of its kept workspace as it ends"
+reset
+ended failed develop
+t_run "$cycle 7"
+t_contains "$(t_calls fake-console)" "clean ended $workdir target node_modules"
+
+t_case "and a failure to do so is a warning"
+reset
+ended failed develop
+t_stub fake-console 'exit 1'
+t_run "$cycle 7"
+t_contains "$t_out" "was not removed"
+t_stub fake-console
+
 t_done
