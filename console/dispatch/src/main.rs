@@ -38,6 +38,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tehas_dispatch::read::build::{fill, snapshot, Sources};
 use tehas_dispatch::read::run::Calls;
 use tehas_dispatch::{decide, Settings, Snapshot};
+use tehas_core::hold::Report;
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -205,7 +206,8 @@ fn main() {
     }
     let out = json!({
         "exit": d.exit, "log": d.log, "actions": d.actions, "picked": d.picked,
-        "needs": d.needs, "report": d.report, "demand": d.demand,
+        "needs": d.needs, "report": d.report.as_ref().map(Report::to_value),
+        "demand": d.demand,
         "gh_requests": src.calls.gh_count,
         "seconds": (began.elapsed().as_millis() as f64 / 1000.0),
     });

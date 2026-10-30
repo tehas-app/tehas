@@ -153,17 +153,19 @@
         10
        ],
        "report": {
-        "cycles": 4,
-        "containers": 8,
-        "cyclesHow": "auto",
-        "containersHow": "auto",
-        "cycle": {
-         "bound": "cpu",
-         "slots": 4
-        },
-        "container": {
-         "bound": "memory",
-         "slots": 8
+        "slots": {
+         "cycles": 4,
+         "containers": 8,
+         "cyclesHow": "auto",
+         "containersHow": "auto",
+         "cycle": {
+          "bound": "cpu",
+          "slots": 4
+         },
+         "container": {
+          "bound": "memory",
+          "slots": 8
+         }
         }
        }
       }
@@ -238,10 +240,12 @@
        ],
        "report": {
         "why": "count",
-        "cycles": 3,
-        "containers": 3,
-        "cycle": {
-         "bound": "ceiling"
+        "slots": {
+         "cycles": 3,
+         "containers": 3,
+         "cycle": {
+          "bound": "ceiling"
+         }
         }
        }
       }
@@ -275,9 +279,11 @@
        "report": {
         "count": 2,
         "free": 0,
-        "cycles": 2,
-        "containers": 2,
-        "why": "count"
+        "why": "count",
+        "slots": {
+         "cycles": 2,
+         "containers": 2
+        }
        }
       }
      },
@@ -306,17 +312,19 @@
         7
        ],
        "report": {
-        "cycles": 1,
-        "containers": 2,
-        "cycle": {
-         "bound": "host",
-         "floored": true,
-         "slots": 0
-        },
-        "container": {
-         "bound": "host",
-         "floored": true,
-         "slots": 0
+        "slots": {
+         "cycles": 1,
+         "containers": 2,
+         "cycle": {
+          "bound": "host",
+          "floored": true,
+          "slots": 0
+         },
+         "container": {
+          "bound": "host",
+          "floored": true,
+          "slots": 0
+         }
         }
        }
       }
@@ -357,10 +365,12 @@
         11
        ],
        "report": {
-        "cycles": 5,
-        "containers": 6,
-        "cyclesHow": "number",
-        "containersHow": "auto"
+        "slots": {
+         "cycles": 5,
+         "containers": 6,
+         "cyclesHow": "number",
+         "containersHow": "auto"
+        }
        }
       }
      }
