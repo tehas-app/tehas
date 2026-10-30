@@ -18,6 +18,9 @@
 #   sudo ./bootstrap.sh dev <user> [<login>...]
 #                                     let other accounts on the host start a
 #                                     session with "tehas dev", run as <user>
+#   sudo ./bootstrap.sh clock         keep the clock right on a restored VM:
+#                                     qemu-guest-agent on a VM, and chrony set
+#                                     to step the clock at any time after boot
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected,
 #                                     and one for the slice
@@ -242,6 +245,78 @@ RULE
   install -m 755 "$root/host/login/tehas" "$bin/tehas"
   echo "bootstrap: dev part done. Members of the group tehas can type: tehas dev"
   [ "$#" = 0 ] || echo "bootstrap: $* must log in again for the group to apply."
+}
+
+# --- clock --------------------------------------------------------------------
+# A VM restored from a save has the wall clock of the moment it was saved.
+# chrony's default ("makestep 1 3") steps the clock only in its first three
+# updates after boot, so afterwards it slews the difference away, which takes
+# hours, and a clock behind real time makes GitHub refuse the App's JWT. The
+# hypervisor can set the clock itself, but only with the guest agent running.
+# Both are root's. Nothing here is pinned: the package is what the distribution
+# offers, and the drop-in is three lines of configuration.
+clock_conf=${BOOTSTRAP_ETC:-/etc}/chrony/conf.d/tehas.conf
+
+do_clock() {
+  local virtual machine agent ntpd_unit rc=0
+  virtual=""
+  machine=""
+  agent=none
+  [ "$#" = 0 ] || { echo "usage: sudo ./bootstrap.sh clock" >&2; exit 64; }
+  [ "$(id -u)" = 0 ] || die "the clock part must run as root: sudo ./bootstrap.sh clock"
+  supported
+  # The time service systemd has: one word for the unit it runs ("chrony"), or
+  # another answer ("systemd-timesyncd", "none", "" when timedatectl does not
+  # answer). A host that runs ntpd under another name is reported as that name
+  # and gets no drop-in. The probe is read once, before anything is changed.
+  ntpd_unit=$(timedatectl show -p NTP --value 2>/dev/null) || ntpd_unit=""
+  # systemd-detect-virt ends 1 on bare metal, where it prints nothing; that is
+  # an answer, not a failure of this part. A host that is not a VM has no
+  # hypervisor to set its clock, so the agent is not installed and the step of
+  # the drop-in is all this part can do for it.
+  virtual=$(systemd-detect-virt --vm 2>/dev/null) || virtual=""
+  machine=${virtual:-bare metal}
+  if [ -n "$virtual" ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq || die "apt-get update failed; nothing was installed"
+    apt-get install -y -qq qemu-guest-agent || die "could not install qemu-guest-agent"
+    # The unit is what a person looks at with systemctl, so the status line names
+    # it: "none" is this part's own word for a host that is no VM and was never
+    # asked for the agent. A unit that will not start is a failure of the part.
+    if systemctl enable --now qemu-guest-agent; then
+      agent=enabled
+    else
+      echo "bootstrap: systemctl enable --now qemu-guest-agent failed" >&2
+      agent="not enabled"
+      rc=1
+    fi
+  fi
+  if [ "$ntpd_unit" != chrony ]; then
+    echo "bootstrap: clock part done. qemu-guest-agent: $agent on $machine. No drop-in was written: the time service is ${ntpd_unit:-unknown}, not chrony"
+    return "$rc"
+  fi
+  # Three separate steps, each checked: the directory made at 755, the three
+  # lines written to it, and its mode set to 644 after them. The mode matters:
+  # a redirect of root's umask on Ubuntu leaves the file 664, and a file a
+  # daemon reads should not be group-writable. A failure of any step names the
+  # file, and nothing else under /etc is touched.
+  install -d -m 755 "${clock_conf%/*}" || die "could not make ${clock_conf%/*}"
+  # -1: step whenever the offset is over a second, at any point after boot.
+  # An earlier file of the same name is kept beside the new one.
+  [ ! -e "$clock_conf" ] || cp -p "$clock_conf" "$clock_conf.prev"
+  {
+    echo '# Written by bootstrap.sh clock. A restored VM starts with the clock'
+    echo '# of the moment it was saved; stepping is the only way back within seconds.'
+    echo 'makestep 1 -1'
+  } >"$clock_conf" || die "could not write $clock_conf"
+  chmod 644 "$clock_conf" || die "could not set the mode of $clock_conf"
+  if systemctl restart chrony; then
+    echo "bootstrap: clock part done. qemu-guest-agent: $agent on $machine. $clock_conf has makestep 1 -1, chrony restarted"
+  else
+    echo "bootstrap: clock part done, with a failure. qemu-guest-agent: $agent on $machine. $clock_conf has makestep 1 -1, but chrony did not restart: the step applies at its next start" >&2
+    rc=1
+  fi
+  return "$rc"
 }
 
 # --- shared -------------------------------------------------------------------
@@ -616,6 +691,7 @@ case "${1:-}" in
   slice) shift; do_slice "$@" ;;
   user) do_user ;;
   dev) shift; do_dev "$@" ;;
+  clock) shift; do_clock "$@" ;;
   check) do_check ;;
   *)
     sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
