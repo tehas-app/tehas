@@ -743,7 +743,7 @@ case "${1:-}" in
   clock) shift; do_clock "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac
