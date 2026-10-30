@@ -126,6 +126,40 @@ t_run "$dispatch"
 t_eq "$(started)" ""
 t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
 
+# A GitHub App as the fixer: its label events are REST's, <slug>[bot], and its
+# comments GraphQL's, <slug>. Either form of the setting is that one account.
+for setting in tehas-fixer 'tehas-fixer[bot]'; do
+  t_case "an App fixer set as $setting: its tehas:next counts"
+  reset
+  slots 2 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  queue 3 "9 tehas:next"
+  label_events 9 'tehas:next=tehas-fixer[bot]'
+  t_run "$dispatch"
+  t_eq "$(started)" "9 3 "
+
+  t_case "an App fixer set as $setting: its tehas:blocked and its comment count"
+  reset
+  slots 1 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  queue "7 tehas:blocked"
+  label_events 7 'tehas:blocked=tehas-fixer[bot]'
+  notes 7 "$(bnote 10 tehas-fixer '<!-- tehas:blocked by=12 -->')"
+  states 12=OPEN
+  t_run "$dispatch"
+  t_eq "$(started)" ""
+  t_contains "$t_out" "wait #7: tehas:blocked holds it: #12 is open"
+
+  t_case "an App fixer set as $setting: a comment by a name like its own names no blockers"
+  reset
+  slots 1 "TEHAS_MILLWRIGHT_LOGIN=$setting"
+  queue "7 tehas:blocked"
+  label_events 7 'tehas:blocked=tehas-fixer[bot]'
+  notes 7 "$(bnote 10 tehas-fixer2 '<!-- tehas:blocked by=12 -->')"
+  states 12=OPEN
+  t_run "$dispatch"
+  t_eq "$(started)" ""
+  t_contains "$t_out" "wait #7: tehas:blocked holds it: no comment of an allowed account or the fixer names its blockers"
+done
+
 t_case "tehas:blocked from an outsider is ignored, and its blockers are not asked about"
 reset
 queue "7 tehas:blocked"

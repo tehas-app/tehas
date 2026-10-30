@@ -110,6 +110,56 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "the bot account tehas-fixer is TEHAS_MILLWRIGHT_LOGIN"
 t_eq "$(t_calls fake-start)" ""
 
+# --- A GitHub App as the millwright ------------------------------------------
+# REST names an App <slug>[bot] and GraphQL <slug>: the label events and the
+# comments are REST's, so the setting in either form is the same account.
+# app_ready <setting> <label actor>: fixer_ready with the App as the fixer.
+app_ready() {
+  fixer_ready
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 "TEHAS_MILLWRIGHT_LOGIN=$1"
+  jq -nc --arg who "$2" '[{event: "labeled", label: {name: "tehas:ready"}, actor: {login: $who}, created_at: "2026-10-02T00:00:00Z"}]' >"$fx/events-7.json"
+}
+for pair in 'acme-millwright acme-millwright[bot]' 'acme-millwright[bot] acme-millwright[bot]' 'acme-millwright[bot] acme-millwright'; do
+  t_case "an App millwright set as ${pair% *} and labelling as ${pair#* } starts the cycle on alice's approval"
+  app_ready "${pair% *}" "${pair#* }"
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(t_calls fake-start)" "7"
+  t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by]')" '["acme-millwright","fixer",1,"alice"]'
+  t_contains "$t_out" "start #7 (labelled by the fixer by ${pair#* })"
+done
+
+t_case "an account with a name like the App millwright's is an outsider"
+for who in 'acme-millwright2[bot]' acme-millwright2 'acme-millwrigh[bot]'; do
+  app_ready 'acme-millwright[bot]' "$who"
+  t_run "$dispatch"
+  t_eq "$(t_calls fake-start)" ""
+  t_contains "$t_out" "clear #7: tehas:ready off, applied by '$who' who may not authorise work here"
+done
+
+for pair in 'acme-millwright[bot] acme-millwright' 'acme-millwright acme-millwright[bot]'; do
+  t_case "a bot that is the App millwright in the other form stops the poll: millwright ${pair% *}, bot ${pair#* }"
+  app_ready "${pair% *}" "${pair% *}"
+  jq -nc --arg l "${pair#* }" '{login: $l}' >"$fx/user.json"
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "the bot account ${pair#* } is TEHAS_MILLWRIGHT_LOGIN"
+  t_eq "$(t_calls fake-start)" ""
+done
+
+t_case "the App millwright's marked comment, by its REST login, is the retry's context"
+app_ready acme-millwright 'acme-millwright[bot]'
+{
+  echo '['
+  icomment 81 'acme-millwright[bot]' 2026-10-01T23:55:00Z 2026-10-01T23:55:00Z $'<!-- tehas:millwright issue=7 action=change -->\nRun the gate first.'
+  echo ','
+  icomment 82 'acme-millwright2[bot]' 2026-10-01T23:58:00Z 2026-10-01T23:58:00Z $'<!-- tehas:millwright issue=7 action=change -->\nNot the millwright.'
+  echo ']'
+} >"$fx/icomments-7.json"
+t_run "$dispatch"
+t_eq "$(t_calls fake-start)" "7"
+t_eq "$(approval '[.retry_context[] | [.source, .by]]')" '[["millwright:81","acme-millwright[bot]"]]'
+
 t_case "the fixer's marked comment before its label is the retry's context, whatever the comments setting"
 fixer_ready
 {
@@ -187,6 +237,24 @@ t_run "$dispatch"
 t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
 t_contains "$(t_calls store)" "--millwright"
 t_lacks "$(t_calls store)" "--fixer"
+
+t_case "an App millwright set with [bot] answers as GraphQL names it, and the store has the one form"
+fixer_planning
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'TEHAS_MILLWRIGHT_LOGIN=tehas-fixer[bot]'
+store_refuses none 1 none
+comments 7 "$(plan_body ' ' ' ' ' ')" "" "$(freply "$fmark"$'\nAdopt all.')"
+t_run "$dispatch"
+t_contains "$(plan_calls)" "--answer $keep/answer.md --comment 4003"
+t_contains "$(t_calls store)" "plan-answer 7 --turn 2 --by tehas-fixer --text-file"
+t_contains "$(t_calls store)" "--millwright"
+t_eq "$(rec | jq -c '.answers[-1]')" '{"turn":2,"by":"tehas-fixer","fixer":true}'
+
+t_case "an App millwright set with [bot] ticks a box as GraphQL names it"
+fixer_planning
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 'TEHAS_MILLWRIGHT_LOGIN=tehas-fixer[bot]'
+comments 7 "$(plan_body ' ' x ' ')" tehas-fixer
+t_run "$dispatch"
+t_eq "$(cat "$keep/answer.md")" "The fixer chose: Change some"
 
 t_case "a box the fixer ticked runs the turn as its choice"
 fixer_planning

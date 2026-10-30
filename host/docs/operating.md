@@ -1104,6 +1104,11 @@ Drained means no poll can still start a cycle: drain waits for the poll that is
 running before it says no cycle is, so a cycle a poll had already decided to start
 is counted rather than left behind.
 
+Most of the time you do not need it. The machine's CPUs and memory change while
+it runs, and a hypervisor restart saves the virtual machine with its cycles in
+it, so what runs goes on where it stopped: [Resize or restart the
+host](/resize) is that, and it names the four changes that still need a drain.
+
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
@@ -1157,7 +1162,12 @@ recording, and both commands then say so and exit 69.
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room. With
   refreshes on, refreshes have a lane of their own (see
-  [refreshes](#refreshes)) and do not count here.
+  [refreshes](#refreshes)) and do not count here. With `auto` the ceiling is
+  the dispatcher's own, taken from the host on every poll: the host's CPUs
+  over `TEHAS_CYCLE_CPUS`, between 1 and `TEHAS_CYCLE_CEILING`, read afresh
+  each poll so a VM that gained CPUs is used and one that lost them holds new
+  starts. It never stops a running cycle; the poll's line says `auto: 6,
+  cpu-bound` and `tehas status` says what the two counts came from.
 - No new cycle while the host runs short of disk: less than
   `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
   or on the one Docker keeps its images on, whichever has less. The poll reads
@@ -1193,6 +1203,9 @@ recording, and both commands then say so and exit 69.
   oversubscribe the slice, and on a host with many CPUs the ceiling would
   fall below the reserve. To run more cycles side by side, raise it and the
   host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
+  With `auto` the number is the slice's `MemoryMax` over
+  `TEHAS_CONTAINER_MEMORY` (8g by default), read on every poll between 2 and
+  16, so a host given more memory holds more containers on its own.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
@@ -1249,7 +1262,8 @@ recording, and both commands then say so and exit 69.
   before the poll runs, so a poll that stops on bad settings does not leave it
   to start the next one at once. If systemd still fails the path unit, for
   example at the service's start limit, `tehasbot health` warns
-  (`checks.units`), and the next `install.sh` resets it and starts it again.
+  (`checks.units`, which is `null` when that read did not answer rather than
+  empty), and the next `install.sh` resets it and starts it again.
 - Nothing else. A new pi-rukas commit runs at full concurrency from its first
   cycle, so a bad one can fail up to `TEHAS_TICKET_CONCURRENCY` cycles at
   once. Those issues end labelled `needs-human-attention`, as any failed cycle
@@ -1607,11 +1621,17 @@ written as `how: "fixer"` still counts as the millwright's, and
 [`tehas api`](/api#tehas-api) still lists `fixer-grant` and `fixer` beside
 the new names.
 
-- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It is never
-  the bot, because every agent posts as the bot: a poll stops with 78 when
-  the two are one. It is never one of `TEHAS_ALLOWED_LABELERS`: loading the
-  settings stops with 78. Unset, there is no millwright, and the account's labels
-  count as any outsider's.
+- **It is an account of its own**, named by `TEHAS_MILLWRIGHT_LOGIN`. It may
+  be a person's account or a GitHub App's. An App's login works in either
+  form, `tehas-millwright[bot]` or `tehas-millwright`: GitHub's REST API names
+  an App with `[bot]` and its GraphQL API without, so tehas takes the two as
+  one account, and no other. It is never the bot, because every agent posts
+  as the bot: loading the settings stops with 78 when it is
+  `TEHAS_BOT_LOGIN` in either form, and a poll stops with 78 when the bot's
+  own login is the millwright's. It is never one of `TEHAS_ALLOWED_LABELERS`:
+  loading the settings stops with 78. Unset, there is no millwright, and the
+  account's labels count as any outsider's. The approval record names an
+  App millwright without `[bot]`.
 - **Its `tehas:ready` starts a cycle only within its grant**: a person
   approved an earlier cycle of the issue, the body is still the body that
   person approved, nobody outside the list changed the title or text since,
@@ -1619,6 +1639,21 @@ the new names.
   since that approval (2 unless the instance says otherwise). Otherwise the
   label comes off and the issue says why. So the millwright never starts work
   nobody asked for: it never readies a `tehas:improvement` proposal.
+- **With the feed, it may start an issue a person wrote.** Optional, off
+  unless `TEHAS_MILLWRIGHT_FEED=1`, and only in the Rust dispatcher. On an
+  issue no person approved a cycle of, the millwright's `tehas:ready` starts
+  the first cycle when an account in `TEHAS_ALLOWED_LABELERS` wrote the issue,
+  nobody outside the list changed its title or text since, it carries none of
+  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:millwright-escalated`, and no allowed labeller took `tehas:ready` off
+  it before. Writing the issue is the person's approval of its text. A body
+  the millwright reshaped is not the author's, so it needs a person's
+  `tehas:ready`. At most `TEHAS_MILLWRIGHT_MAX_FEEDS` cycles the feed started
+  run at once (2 unless the instance says otherwise): past that the label
+  stays and the issue waits. When the running ones cannot be counted, it
+  waits too. A fed cycle rests on no person's approval, so once it ends the
+  millwright's grant cannot retry it: a person approves the next cycle. The
+  other checks of any start still apply: epics, the size limit, the slots.
 - **The approval record says so.** A millwright start has `how: "millwright"`,
   `rests_on`, the person's approval it rests on, and `millwright_starts`. A
   person's start counts again from none. Its other limits are the

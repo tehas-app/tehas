@@ -119,6 +119,9 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 -- start still owed. by_account is the actor of the labelled event, and
 -- body_sha256 is the text the approval binds to. input_json (v2) is what the
 -- cycle is given with it: links, comment_links, retry_context, refresh_of.
+-- easy (v9) says a refresh start ran as an easy merge (#1031): a row of the
+-- same approval that says 1 has had the one easy merge that approval is owed,
+-- and no second one starts on it.
 CREATE TABLE approvals (
   issue        INTEGER NOT NULL REFERENCES issues (issue) ON DELETE CASCADE,
   at           INTEGER NOT NULL,
@@ -133,6 +136,7 @@ CREATE TABLE approvals (
   used_at      INTEGER,
   used_by      INTEGER,
   input_json   TEXT,
+  easy         INTEGER NOT NULL DEFAULT 0 CHECK (easy IN (0, 1)),
   PRIMARY KEY (issue, at)
 );
 CREATE INDEX approvals_open ON approvals (issue, used_at);

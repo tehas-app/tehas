@@ -784,6 +784,10 @@ slice=$etc/systemd/system/tehas.slice
 rule=$etc/udev/rules.d/96-tehas-memory-online.rules
 reload=$etc/systemd/system/tehas-slice-reload.service
 slice_stubs() { # <uid the caller has> [<what docker info answers>] [<systemd-oomd's state>]
+  # Names the stubs of this section make, so the clock section can take them
+  # away again: a systemctl that only knows about chrony cannot answer the root
+  # part's questions about the slice, and the root cases come after both.
+  slice_tools="id docker systemctl "
   t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
   t_stub docker "case \"\$1\" in info) echo '${2-systemd 2}' ;; *) echo 'Docker version 29.1.3' ;; esac"
   # The step asks udevd to re-read its rules after writing the new one; the
@@ -803,6 +807,7 @@ esac'
 }
 fresh_slice() { rm -rf "$etc" "$T"/calls/* "$T/slice-loaded"; mkdir -p "$etc/systemd/system"; }
 T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+slice_tools=
 
 t_case "slice installs the shipped file, reloads and starts"
 fresh_slice
@@ -891,6 +896,7 @@ t_case "slice stops when the unit has no limit after it was started"
 fresh_slice
 slice_stubs 0
 t_stub systemctl 'case "$1" in show) printf "MemoryMax=infinity\nFragmentPath=\n" ;; esac'
+slice_tools="systemctl "
 t_run "$bootstrap slice"
 t_eq "$t_rc" 1
 t_contains "$t_out" "no memory limit"
@@ -951,6 +957,253 @@ for oomd in active inactive; do
   t_eq "$(cmp -s "$slice" "$shipped" && echo same)" same
 done
 t_lacks "$t_out" "systemd-oomd: active"
+
+# --- clock --------------------------------------------------------------------
+# The clock part: qemu-guest-agent on a VM, the chrony drop-in under
+# BOOTSTRAP_ETC. The stubs name what the host is (systemd-detect-virt), which
+# time service it runs (timedatectl) and what the distribution offers (apt-get).
+conf=$etc/chrony/conf.d/tehas.conf
+# Where the part writes, and a decoy at a path the script cannot guess: a run
+# that wrote outside BOOTSTRAP_ETC would leave its file there.
+conf_other=$T/not-etc/chrony/conf.d/tehas.conf
+mkdir -p "${conf_other%/*}"
+# The three lines the part writes, and the one line a case that does not care
+# about the comments asks for.
+conf_body='# Written by bootstrap.sh clock. A restored VM starts with the clock
+# of the moment it was saved; stepping is the only way back within seconds.
+makestep 1 -1'
+# The clock section must leave nothing behind for the sections after it: the
+# root part's own cases ask systemctl about the slice, and a systemctl that only
+# knows about chrony cannot answer them. Every stub this section makes is named
+# in clock_tools as it is made, and the list is emptied at the end of the
+# section, so a case that stubs one more tool cannot leave it for the next.
+clock_tools=
+clock_stubs() { # <uid> <what systemd-detect-virt --vm answers> [<timedatectl's NTP>]
+  # The three questions the part asks, all answered by the case: who is running
+  # it, what the host is, and which time service systemd has. The probe is
+  # always stubbed: a host that has the real program would answer for the case.
+  # The third argument is timedatectl's answer, and 'none' is one of them (a
+  # host that runs no time service), so it has no default that can be written
+  # into the body: no third argument at all means chrony.
+  local clock_tool
+  for clock_tool in id systemd-detect-virt timedatectl apt-get systemctl; do
+    clock_tools+="$clock_tool "
+  done
+  t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
+  case $2 in
+    '') t_stub systemd-detect-virt 'exit 1' ;;
+    *) t_stub systemd-detect-virt "echo '$2'" ;;
+  esac
+  case ${3+set} in
+    set) t_stub timedatectl "echo '$3'" ;;
+    *) t_stub timedatectl 'echo chrony' ;;
+  esac
+  t_stub apt-get
+  t_stub systemctl
+}
+fresh_clock() { rm -rf "$etc/chrony" "$T"/calls/*; }
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
+t_case "clock on a VM installs and enables the guest agent and writes the drop-in"
+fresh_clock
+clock_stubs 0 kvm
+rm -f "$T"/calls/*
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(t_calls systemd-detect-virt)" "--vm"
+t_eq "$(t_calls timedatectl)" "show -p NTP --value"
+t_eq "$(t_calls apt-get | tr '\n' '|')" "update -qq|install -y -qq qemu-guest-agent|"
+t_eq "$(t_calls systemctl)" "enable --now qemu-guest-agent
+restart chrony"
+t_eq "$(cat "$conf")" "$conf_body"
+t_eq "$(stat -c %a "$conf")" 644
+t_eq "$(stat -c %a "${conf%/*}")" 755
+t_contains "$t_out" "qemu-guest-agent: enabled on kvm"
+t_contains "$t_out" "makestep 1 -1, chrony restarted"
+
+t_case "clock run again keeps the file it wrote as .prev and writes the same bytes"
+rm -f "$T"/calls/*
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(cmp -s "$conf" "$conf.prev" && echo same)" same
+t_eq "$(cat "$conf")" "$conf_body"
+
+# The modes of the file and its directory: what a daemon must be able to read.
+t_case "clock keeps the drop-in of an earlier run as .prev, and its mode"
+fresh_clock
+clock_stubs 0 kvm
+rm -f "$T"/calls/*
+# The file of the earlier run is put in place by the case itself: two copies of
+# the script in one line of t_run would not stand for two runs, because the part
+# names its file from BOOTSTRAP_ETC when the script is loaded, so both would
+# write one path. What is kept is a file of another host's making, in the shape
+# chrony itself ships, and the part must not write over it.
+install -d -m 755 "${conf%/*}"
+printf 'makestep 1 3\n' >"$conf"
+chmod 600 "$conf"
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(cat "$conf")" "$conf_body"
+t_eq "$(cat "$conf.prev")" "makestep 1 3"
+# The mode of the file the part wrote, and of the one it only moved aside.
+t_eq "$(stat -c %a "$conf")" 644
+t_eq "$(stat -c %a "$conf.prev")" 600
+t_eq "$(stat -c %a "${conf%/*}")" 755
+t_eq "$(find "$etc/chrony" -type f | wc -l)" 2
+
+t_case "clock on bare metal installs no agent and still steps the clock"
+fresh_clock
+clock_stubs 0 ''
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(t_calls systemd-detect-virt)" "--vm"
+t_eq "$(t_calls apt-get)$(t_calls systemctl | grep -v '^restart chrony$')" ""
+t_contains "$t_out" "qemu-guest-agent: none on bare metal"
+t_eq "$(cat "$conf")" "$conf_body"
+t_eq "$(find "$etc/chrony" -type f | wc -l)" 1
+
+t_case "clock writes no drop-in when the time service is not chrony, and says what it found"
+for service in systemd-timesyncd none; do
+  fresh_clock
+  clock_stubs 0 kvm "$service"
+  t_run "$bootstrap clock"
+  t_eq "$t_rc" 0
+  t_eq "$([ -e "$conf" ] && echo there)" ""
+  # Nothing of the part's own left under /etc; tehas.slice stands there from the
+  # slice cases above, as it does on a host that ran them.
+  t_eq "$(find "$etc/chrony" 2>/dev/null | wc -l)" 0
+  t_contains "$t_out" "the time service is $service, not chrony"
+  t_contains "$t_out" "No drop-in was written"
+  # The agent is the hypervisor's way to set the clock and does not depend on
+  # which time service the host runs.
+  t_contains "$(t_calls apt-get)" "install -y -qq qemu-guest-agent"
+  t_eq "$(t_calls systemctl)" "enable --now qemu-guest-agent"
+done
+
+# The two files the part can own, and the modes of both: the earlier file is
+# kept as .prev rather than written over, and a person who wants the host's own
+# makestep back takes the drop-in away and reads the file that was kept.
+t_case "clock keeps the file of an earlier run as .prev, in the same run of the script"
+stat -c "%n %a" "${conf}.prev" "$conf" "${conf%/*}" | LC_ALL=C sort
+
+# A host with no systemd-detect-virt to ask: the part takes that as bare metal
+# and goes on, rather than stopping without a word about the clock. The probe is
+# stubbed by every case above, because the host running the tests may well have
+# the real program and would answer for the case otherwise; here it is taken
+# away again.
+t_case "clock on a host without the probe goes on as on bare metal"
+for answer in '' none; do
+  fresh_clock
+  clock_stubs 0 "$answer"
+  # rm, and not t_stub: no systemd-detect-virt on the PATH at all is the host
+  # this case is about, and the host running the tests may well have one.
+  rm -f "$T/bin/systemd-detect-virt"
+  t_run "$bootstrap clock"
+  t_eq "$t_rc" 0
+  t_contains "$t_out" "qemu-guest-agent: none on bare metal"
+  t_eq "$(t_calls apt-get)" ""
+  t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+done
+
+# timedatectl that does not answer at all: not a host that has no chrony, but
+# one whose time service nobody can name. The drop-in is refused either way.
+fresh_clock
+clock_stubs 0 kvm ''
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_contains "$t_out" "the time service is unknown, not chrony"
+
+t_case "clock must run as root, and changes nothing when it is not"
+fresh_clock
+clock_stubs 1000 kvm 'systemd-timesyncd'
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "sudo ./bootstrap.sh clock"
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_eq "$(t_calls apt-get)$(t_calls systemctl)" ""
+
+t_case "clock with an argument is refused (64)"
+fresh_clock
+clock_stubs 0 kvm
+t_run "$bootstrap clock boss"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: sudo ./bootstrap.sh clock"
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_eq "$(t_calls apt-get)$(t_calls systemctl)" ""
+
+t_case "clock on an unsupported host stops before it installs anything"
+fresh_clock
+clock_stubs 0 kvm
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-debian" PATH="$T_PATH")
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "supports Ubuntu 26.04 on x86_64 only"
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_eq "$(t_calls apt-get)$(t_calls systemd-detect-virt)" ""
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
+
+t_case "clock that cannot install the package stops before it enables anything"
+fresh_clock
+clock_stubs 0 kvm
+t_stub apt-get 'case "$1" in install) exit 100 ;; esac'
+clock_tools+="apt-get "
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not install qemu-guest-agent"
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_eq "$(t_calls systemctl)" ""
+
+t_case "clock whose agent will not start still writes the drop-in and exits 1"
+fresh_clock
+clock_stubs 0 kvm
+t_stub systemctl 'case "$*" in "enable --now qemu-guest-agent") exit 1 ;; esac'
+clock_tools+="systemctl "
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "qemu-guest-agent: not enabled"
+t_eq "$(grep -c makestep "$conf")" 1
+t_contains "$(t_calls systemctl)" "restart chrony"
+
+t_case "clock that wrote the drop-in but cannot restart chrony says so and exits 1"
+fresh_clock
+clock_stubs 0 kvm
+t_stub systemctl 'case "$*" in "restart chrony") exit 1 ;; esac'
+clock_tools+="systemctl "
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "chrony did not restart"
+t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+
+# BOOTSTRAP_ETC is read when the script is loaded, so a run of the whole script
+# that does not name it would write under the real /etc. The clock part owns one
+# file there and its directory; this case asks what it says when it cannot make
+# them. t_run builds the run's environment with env -i, so the name has to be
+# taken away inside the line the run reads, and not only from T_ENV.
+t_case "clock on a host that gives no BOOTSTRAP_ETC says it cannot make the file"
+fresh_clock
+clock_stubs 0 ''
+t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "cannot create directory '/etc/chrony"
+t_eq "$([ -e "$conf" ] && echo there)" ""
+t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
+
+t_case "clock writes under BOOTSTRAP_ETC and nowhere else"
+fresh_clock
+rm -f "$conf_other"
+clock_stubs 0 ''
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+t_eq "$([ -e "$conf_other" ] && echo there)" ""
+
+for clock_tool in $clock_tools $slice_tools; do rm -f "$T/bin/$clock_tool"; done
+unset clock_tool clock_tools slice_tools
+# BOOTSTRAP_ETC stays set for every later run of this file, as it was before
+# this section: the slice file that the root and check cases write goes under
+# the scratch /etc, and not the host's.
+T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
 
 # The root part's own stubs: apt-get, usermod and loginctl record, useradd
 # makes the account, runuser runs nothing and records how it was asked.
