@@ -15,11 +15,20 @@ pub struct Settings {
     /// TEHAS_MILLWRIGHT_LOGIN: the millwright's account, as `account` has it.
     pub millwright: String,
     pub concurrency: i64,
+    /// TEHAS_TICKET_CONCURRENCY as written: `auto` derives it in slots.rs.
+    pub concurrency_written: String,
     pub max_awaiting: i64,
     pub reserve: String,
     /// TEHAS_SLICE_CONTAINERS as written: slice::usable refuses one that is
-    /// not a count.
+    /// not a count, and slots.rs derives `auto` from the host.
     pub slice_containers: String,
+    /// What one container is given when `TEHAS_SLICE_CONTAINERS=auto`, and
+    /// what one cycle is given when `TEHAS_TICKET_CONCURRENCY=auto`.
+    pub container_memory: String,
+    pub cycle_cpus: String,
+    /// The most cycles `auto` may take, so a big host does not outstrip the
+    /// model endpoint. Never unset: config.sh's default is slots::MAX.
+    pub cycle_ceiling: String,
     pub refresh_conflicts: bool,
     pub refresh_slots: i64,
     /// TEHAS_CYCLE_MIN_FREE as written, and in MiB.
@@ -54,6 +63,13 @@ impl Settings {
         };
         let concurrency = n("TEHAS_TICKET_CONCURRENCY", 7);
         let min_free = s("TEHAS_CYCLE_MIN_FREE", "10g");
+        // The two settings as written, so a poll can tell `auto` from a
+        // number: a missing one is the number config.sh would have exported.
+        let written = |k: &str, d: i64| {
+            v.get(k).map_or(d.to_string(), |x| {
+                x.as_str().map_or(x.to_string(), str::to_string)
+            })
+        };
         let min_free_mb = crate::slice::bytes(&min_free)
             .map(|b| b / 1_048_576)
             .unwrap_or(0);
@@ -70,11 +86,13 @@ impl Settings {
             bot_login: s("TEHAS_BOT_LOGIN", ""),
             millwright: account(&s("TEHAS_MILLWRIGHT_LOGIN", "")).to_string(),
             concurrency,
+            concurrency_written: written("TEHAS_TICKET_CONCURRENCY", 7),
             max_awaiting: n("TEHAS_MAX_AWAITING", concurrency + 2),
             reserve: s("TEHAS_CYCLE_RESERVE", "2g"),
-            slice_containers: v.get("TEHAS_SLICE_CONTAINERS").map_or("4".into(), |x| {
-                x.as_str().map_or(x.to_string(), str::to_string)
-            }),
+            slice_containers: written("TEHAS_SLICE_CONTAINERS", 4),
+            container_memory: s("TEHAS_CONTAINER_MEMORY", "8g"),
+            cycle_cpus: s("TEHAS_CYCLE_CPUS", "4"),
+            cycle_ceiling: s("TEHAS_CYCLE_CEILING", "16"),
             refresh_conflicts: s("TEHAS_REFRESH_CONFLICTS", "0") == "1",
             refresh_slots: n("TEHAS_REFRESH_SLOTS", 1),
             min_free,

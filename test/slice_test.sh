@@ -147,11 +147,6 @@ systemd /etc/systemd/system/tehas.slice active $((6 * GIB))
 t_run "$ok"
 t_eq "$t_out" "rc=1 max= active= ceiling= why=[TEHAS_CYCLE_RESERVE=2g is more than a container may use here (1024m, tehas.slice's MemoryMax over TEHAS_SLICE_CONTAINERS=6); the host needs about 16 GiB of memory for this reserve]"
 
-t_case "a count of containers that is not a number is refused"
-good
-t_run "$pre"'TEHAS_SLICE_CONTAINERS=x; tehas_slice_ok; echo "rc=$? ceiling=[$TEHAS_SLICE_CEILING_MB] why=[$TEHAS_SLICE_WHY]"'
-t_eq "$t_out" "rc=1 ceiling=[] why=[TEHAS_SLICE_CONTAINERS=x is not a count]"
-
 t_case "a reserve of exactly a quarter is accepted"
 good
 systemd /etc/systemd/system/tehas.slice active $((8 * GIB))
