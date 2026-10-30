@@ -202,7 +202,7 @@ impl Host {
                              "status": "handoff", "parked": true,
                              "pr": "https://github.com/o/r/pull/3"},
                     "attempt": 1,
-                    "approval": {"at": iso(started - 90), "how": "label"},
+                    "approval": {"at": iso(started - 90), "how": "label", "driver": "lean"},
                     "settings": {"container": {"PI_ENSEMBLE_SUBAGENT_MODEL": "qwen3.5-coder-32b",
                                                "PI_ENSEMBLE_SUBAGENT_PROVIDER": "fleet",
                                                "PI_ENSEMBLE_MODEL_OPS": "[withheld]"},
