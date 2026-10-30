@@ -13,6 +13,22 @@ empty one above it.
 
 ### Changes
 
+- The counts of cycles and containers can follow the host: `auto` for
+  `TEHAS_TICKET_CONCURRENCY` and for `TEHAS_SLICE_CONTAINERS`. A number keeps
+  working exactly as it did, so no instance changes unless it chooses to. With
+  `auto` the dispatcher works both counts out on every poll from what the poll
+  reads anyway: `tehas.slice`'s `MemoryMax` over `TEHAS_CONTAINER_MEMORY` (8g)
+  for the containers, and `nproc` over `TEHAS_CYCLE_CPUS` (4) for the cycles,
+  each capped by `TEHAS_CYCLE_CEILING` (16) for an endpoint that cannot serve
+  what a big host asks for. A VM given more CPUs or memory is used at the next
+  poll, and one that lost them holds new starts from the next poll: a running
+  cycle is never stopped. `tehas status` prints the count in force and what
+  bounded it (`slots     cycles auto: 6, cpu-bound (...)`) and the status
+  object carries the same as `room.slots`. The arithmetic is in the
+  dispatcher's Rust, in `console/dispatch/src/slots.rs` with its tests; a host
+  whose reading answers nothing is held to one cycle and two containers rather
+  than given the ceiling (#1041).
+
 - A health file that could not read the failed units says so. When the
   `systemctl --user --failed 'tehas-*'` read does not answer, `libexec/health`
   leaves `--units` out and the console writes `checks.units` as `null` instead
