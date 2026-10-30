@@ -1,0 +1,24 @@
+# The easy merge: the first refresh of a conflicting pull request, a merge the
+# rules settle and at most one bare `pi` session, pushed as one merge commit
+# (#1031). The command the dispatcher's start runs, installed as
+# ~/tehas/libexec/tehas-merge by install.sh; libexec/easy-merge is the few lines
+# of glue that puts it in the sandbox container. A member of the workspace in
+# ../Cargo.toml.
+[package]
+name = "tehas-merge"
+version = "0.1.0"
+edition = "2021"
+# The oldest compiler that builds the workspace's members.
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "tehas_merge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tehas-merge"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"

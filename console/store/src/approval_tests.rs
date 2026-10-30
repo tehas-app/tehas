@@ -64,7 +64,7 @@ fn approval_record_stores_every_field() {
         v["approval"],
         json!({"issue":10,"at":1791000000,"by":"alice","how":"label","label":"tehas:ready",
                "body_sha256":SHA,"title_sha256":SHA_B,"comment_id":123456,"refresh_pr":null,
-               "refresh_head":null,"used_at":null,"used_by":null,"input":null})
+               "refresh_head":null,"used_at":null,"used_by":null,"input":null,"easy":false})
     );
     let v = record(&home, 11, 5, "bob", "refresh");
     assert_eq!(v["approval"]["refresh_pr"], 40);
@@ -365,7 +365,7 @@ fn approval_current_approval_is_null_once_used() {
     assert_eq!(
         current(&home, 23),
         json!({"api":1,"verb":"approval-current","ok":true,"approval":null,"current":null,
-               "rests_on":null,"millwright_starts":0,"fixer_starts":0,"refreshes":0})
+               "rests_on":null,"millwright_starts":0,"fixer_starts":0,"refreshes":0,"easy":false})
     );
     approve(&home, 23, "alice", "label");
     let v = current(&home, 23);
@@ -612,4 +612,110 @@ fn approval_undo_removes_the_inputs_with_the_row() {
     assert_eq!(v["undone"], true);
     assert_eq!(count(&home, "approvals"), 0);
     assert_eq!(current(&home, 42)["approval"], Value::Null);
+}
+
+/// A refresh start recorded as an easy merge: the row keeps the mark, and
+/// approval-current answers the dispatcher's question, "has this approval had
+/// its one easy merge".
+#[test]
+fn an_easy_refresh_start_is_marked_and_counted() {
+    let home = home("approval-easy");
+    let n = "51";
+    ok(
+        &home,
+        &[
+            "approval-record",
+            n,
+            "--at",
+            "1791000000",
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA,
+        ],
+    );
+    let lock = hold(&home, 51);
+    ok(&home, &["cycle-start", n]);
+    end(&home, 51, 1, "failed");
+    drop(lock);
+
+    ok(
+        &home,
+        &[
+            "approval-record",
+            n,
+            "--at",
+            "1791000001",
+            "--by",
+            "alice",
+            "--how",
+            "refresh",
+            "--body-sha",
+            SHA,
+            "--refresh-pr",
+            "40",
+            "--refresh-head",
+            "0123456789abcdef0123456789abcdef01234567",
+            "--easy",
+        ],
+    );
+    let lock = hold(&home, 51);
+    ok_at(&home, NOW + 1, &["cycle-start", n]);
+    let v = current(&home, 51);
+    assert_eq!(v["current"]["how"], "refresh", "{v}");
+    assert_eq!(v["easy"], true, "{v}");
+    assert_eq!(v["refreshes"], 1, "{v}");
+    end(&home, 51, 2, "failed");
+    drop(lock);
+
+    // A start on the same base that is not a refresh does not spend it again,
+    // and a refresh of a later base answers for its own base.
+    let v = current(&home, 51);
+    assert_eq!(v["easy"], true, "{v}");
+}
+
+/// The mark belongs to a refresh alone, and a row without it answers `easy`
+/// false: what a refresh of an older store ran was a full cycle.
+#[test]
+fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
+    let home = home("approval-easy-usage");
+    approve(&home, 52, "alice", "label");
+    let v = current(&home, 52);
+    assert_eq!(v["approval"]["easy"], false);
+
+    let (n, a) = ("53".to_string(), "1791000002".to_string());
+    assert!(usage(&[
+        "approval-record",
+        &n,
+        "--at",
+        &a,
+        "--by",
+        "alice",
+        "--how",
+        "label",
+        "--label",
+        "tehas:ready",
+        "--body-sha",
+        SHA,
+        "--easy",
+    ])
+    .contains("--easy is given only with --how refresh"));
+    assert_eq!(
+        count(&home, "approvals WHERE issue = 53"),
+        0,
+        "a refused row was written"
+    );
+
+    // A refresh row recorded without the switch keeps 0, which reads as "no
+    // easy merge spent".
+    record(&home, 54, 5, "alice", "refresh");
+    let _lock = hold(&home, 54);
+    ok(&home, &["cycle-start", "54"]);
+    let v = current(&home, 54);
+    assert_eq!(v["current"]["how"], "refresh");
+    assert_eq!(v["easy"], false, "{v}");
 }

@@ -149,11 +149,22 @@ impl Drop for LogGuard {
 
 /// A place to send a log, or None when `LOGS_AT_ONCE` are being sent.
 pub fn acquire() -> Option<LogGuard> {
-    LOGS.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-        (n < LOGS_AT_ONCE).then_some(n + 1)
-    })
-    .ok()
-    .map(|_| LogGuard(()))
+    // compare_exchange in a loop, not fetch_update: the latter is renamed
+    // try_update and deprecated in newer compilers, and this crate's MSRV
+    // predates the rename. The loop retries while a place is free, so a lost
+    // race with another caller does not give up a place.
+    loop {
+        let current = LOGS.load(Ordering::SeqCst);
+        if current >= LOGS_AT_ONCE {
+            return None;
+        }
+        if LOGS
+            .compare_exchange(current, current + 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            return Some(LogGuard(()));
+        }
+    }
 }
 
 fn words_of(kind: &str) -> &'static [&'static str] {
