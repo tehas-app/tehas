@@ -28,6 +28,11 @@ empty one above it.
   dispatcher's Rust, in `console/dispatch/src/slots.rs` with its tests; a host
   whose reading answers nothing is held to one cycle and two containers rather
   than given the ceiling (#1041).
+- The millwright's feed, off by default: with `TEHAS_MILLWRIGHT_FEED=1` the
+  millwright's `tehas:ready` starts the first cycle of an issue an allowed
+  labeller wrote, its text unchanged since, at most
+  `TEHAS_MILLWRIGHT_MAX_FEEDS` (2) at once. The Rust dispatcher only. The
+  queue's page now asks GitHub for each issue's author and creation time.
 
 ### Adopter action
 
