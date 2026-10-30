@@ -48,9 +48,12 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 use tehas_core::time;
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file>";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file>\n       console clean ended <workspace> <dirs> <log file>";
 
 pub fn main(given: &[String]) -> u8 {
+    if given.first().is_some_and(|v| v == "ended") {
+        return ended(&given[1..]);
+    }
     let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, pulled, logfile] =
         given
     else {
@@ -84,6 +87,32 @@ pub fn main(given: &[String]) -> u8 {
         rc: 0,
     };
     run.main(min_mb, min_word, free_kb)
+}
+
+/// What a cycle does as it ends, under the issue's lock it still holds. No
+/// cycle builds in a kept workspace again, so its build output goes now and
+/// not a day later. A workspace already gone leaves nothing to do.
+fn ended(given: &[String]) -> u8 {
+    let [workspace, dirs, logfile] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let mut run = Run {
+        dry: false,
+        home: PathBuf::new(),
+        works: String::new(),
+        base: String::new(),
+        after: 0,
+        build_after: 0,
+        dirs: dirs.split_whitespace().map(String::from).collect(),
+        sandbox: String::new(),
+        pulled: String::new(),
+        logfile: PathBuf::from(logfile),
+        freed: 0,
+        rc: 0,
+    };
+    run.ended(Path::new(workspace));
+    run.rc
 }
 
 struct Run {
@@ -453,6 +482,28 @@ fn which(name: &str) -> Option<String> {
 }
 
 impl Run {
+    fn ended(&mut self, workspace: &Path) {
+        let found: Vec<PathBuf> = roots_of(workspace)
+            .iter()
+            .flat_map(|root| build_output(root, &self.dirs))
+            .collect();
+        for dir in found {
+            if !real_dir(&dir) {
+                continue;
+            }
+            let shown = dir.display().to_string();
+            let size = bytes_of(&dir);
+            if remove(&dir) {
+                self.log(&format!(
+                    "removed {shown}: build output of a cycle that ended, {size} bytes"
+                ));
+            } else {
+                self.warn(&format!("could not remove {shown}"));
+                self.rc = 1;
+            }
+        }
+    }
+
     fn log(&mut self, msg: &str) {
         let line = format!("{} clean: {msg}\n", stamp());
         let wrote = OpenOptions::new()
@@ -1168,6 +1219,50 @@ impl Run {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cycles_end_takes_the_build_output_of_every_tree_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!("clean-ended-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let tree = root.join("widget-7");
+        let retry = root.join("widget-7.before-retry");
+        let worktree = tree.join(".runner/issue-7-default");
+        for d in [
+            tree.join("console/target/debug"),
+            tree.join("web/node_modules/x"),
+            tree.join("src"),
+            retry.join("console/target"),
+            worktree.join("console/target/debug"),
+            worktree.join("src"),
+        ] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(worktree.join(".git"), "gitdir: /elsewhere\n").unwrap();
+        fs::write(tree.join("src/kept.rs"), "x").unwrap();
+        let log = root.join("clean.log");
+        let args = [
+            tree.display().to_string(),
+            "target node_modules".to_string(),
+            log.display().to_string(),
+        ];
+        assert_eq!(ended(&args), 0);
+        for gone in [
+            tree.join("console/target"),
+            tree.join("web/node_modules"),
+            retry.join("console/target"),
+            worktree.join("console/target"),
+        ] {
+            assert!(!gone.exists(), "{}", gone.display());
+        }
+        assert!(tree.join("src/kept.rs").exists());
+        assert!(worktree.join("src").exists());
+        assert!(fs::read_to_string(&log)
+            .unwrap()
+            .contains("build output of a cycle that ended"));
+        assert_eq!(ended(&args), 0);
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(ended(&args[..2]), 64);
+    }
 
     #[test]
     fn sizes_read_with_one_decimal() {
