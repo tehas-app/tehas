@@ -124,9 +124,7 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO | TEHAS_REVIEW_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    # The counts. `auto` is the poll's word (console/dispatch/src/slots.rs) and the
-    # cycle's problem: the two counts refuse it by name, any other value by the rule
-    # of its setting (TEHAS_SLICE_CONTAINERS has its range of 2 to 16).
+    # The counts refuse `auto` by name until cycles can use it.
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_MILLWRIGHT_MAX_FEEDS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
       case "$name:$v" in TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) echo 'expected a whole number (auto is not usable yet)'; return 1 ;; esac
@@ -336,11 +334,12 @@ _tehas_valid() {
 }
 
 # _tehas_why <name> <value>: 0 when _tehas_valid accepts it, else 1 with its
-# reason in the caller's $reason. One substitution of the function answers both
-# questions: every load checks some forty settings, and only a refusal costs a
-# second one.
+# reason in the caller's $reason. The check runs in this shell and the reason
+# is asked for only when there is one: every load checks some forty settings.
 _tehas_why() {
-  reason=$(_tehas_valid "$1" "$2") || return 1
+  _tehas_valid "$1" "$2" >/dev/null && return 0
+  reason=$(_tehas_valid "$1" "$2")
+  return 1
 }
 
 # The roles an instance may give a model of their own, as the suffix of
