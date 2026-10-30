@@ -4,12 +4,14 @@
 //! still reports. `shadow` decides beside the bash's report on a host and
 //! says where the two differ. `pin` gives a cycle its own copy of the code.
 //! `clock` measures a cycle on a clock that stops while the VM is saved.
+//! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
 
 pub mod clock;
 pub mod facts;
 pub mod host;
 pub mod last_attempt;
 pub mod pin;
+pub mod renew;
 pub mod report;
 pub mod runner;
 pub mod shadow;
