@@ -7,23 +7,19 @@
 #                                    post, cut at the limit [60000]
 #   q_render <kind> <issue> <turn> <result.json> [line]
 #                                    the body of a question comment (a park's
-#                                    has no retry box when .retry is false); a
-#                                    "marker" of pi-rukas's handoff on top,
-#                                    a "park" marker of tehas_park_marker above
-#                                    the question's own; <line>, when it is
-#                                    given, is the host's own and says what the
-#                                    turn did, between the question and the boxes
+#                                    has no retry box when .retry is false, and
+#                                    a plan's leaves out .text: the poll says it
+#                                    in a comment before this one); a "marker"
+#                                    of pi-rukas's handoff on top, a "park"
+#                                    marker above the question's own; <line> is
+#                                    the host's own, above the boxes
 #   q_answer <bot> <allowed logins> [comment id] [fixer login]
 #                                    stdin: the issue's comments as GraphQL
 #                                    answers them; stdout: what was answered
 #   q_park_repeat <count> [step] [cap]
 #                                    the host's line of a park that repeats the
-#                                    one before it, given as <line> of q_render:
-#                                    how many parks in a row stopped this way,
-#                                    the step and the cap, and that a retry on
-#                                    the same text would likely stop again.
-#                                    Nothing for a count of 0 or an unreadable
-#                                    one
+#                                    one before it, given as <line> of q_render.
+#                                    Nothing for a count of 0 or an unreadable one
 #   q_untick                         stdin to stdout: a body with every box empty
 #
 # <kind> is plan (a planning turn) or park (a cycle that stopped).
@@ -33,9 +29,10 @@
 # console's rules for those (console/core/src/mask.rs), so this file needs no
 # program beside it. Three more things are taken out because the comment is
 # parsed again later or read by people: a comment marker, a task-list box, and
-# an @ that would notify somebody. Carriage returns go first: the web interface
-# turns a lone one into a line end, and the escaping below only looks at line
-# starts, so a lone one would start an unescaped box.
+# an @ that would notify somebody. A box becomes a glyph: a backslash in front
+# of it is what makes GitHub lose count of the real boxes. Carriage returns go
+# first: the web interface turns a lone one into a line end, and the box rules
+# only look at line starts, so a lone one would start a box.
 q_clean() {
   local zw=$'\xe2\x80\x8b' max=${1:-60000}
   sed -E -e 's/\r//g' \
@@ -46,7 +43,8 @@ q_clean() {
     -e 's/(^|[^0-9A-Fa-f:])[fF][cCdD][0-9A-Fa-f]{2}(:[0-9A-Fa-f]{0,4}){2,}/\1[private address]/g' \
     -e 's/[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.ts\.net/[private name]/g' \
     -e 's/<!--/<\\!--/g' \
-    -e 's/^([[:space:]]*[-*+][[:space:]]+)\[([ xX])\]/\1\\[\2]/' \
+    -e 's/^([[:space:]>]*(([-*+]|[0-9]+[.)])[[:space:]>]+)+)\[ \]/\1☐/' \
+    -e 's/^([[:space:]>]*(([-*+]|[0-9]+[.)])[[:space:]>]+)+)\[[xX]\]/\1☑/' \
     -e "s/@([A-Za-z0-9])/@$zw\\1/g" |
     jq -Rrs --argjson max "$max" '.[0:$max] | sub("\n+$"; "")'
 }
@@ -69,21 +67,23 @@ q_render() {
   # A park may carry pi-rukas's handoff marker, put back as its first line.
   # Only that marker of only this issue: the text is an agent's, the marker
   # is made by the caller.
-  marker=$(jq -r '.marker // "" | strings' "$file") || return 1
-  if [[ $marker =~ ^\<!--\ pi-rukas:handoff\ issue=$issue\ cap=[A-Za-z0-9_.:-]{1,80}\ --\>$ ]]; then
-    printf '%s\n' "$marker"
-  fi
-  jq -r '.text // ""' "$file" | q_clean 40000 || return 1
-  if [ "$(jq -r '.question != null' "$file")" = true ]; then
+  if [ "$kind" != plan ]; then
+    marker=$(jq -r '.marker // "" | strings' "$file") || return 1
+    if [[ $marker =~ ^\<!--\ pi-rukas:handoff\ issue=$issue\ cap=[A-Za-z0-9_.:-]{1,80}\ --\>$ ]]; then
+      printf '%s\n' "$marker"
+    fi
+    jq -r '.text // ""' "$file" | q_clean 40000 || return 1
     printf '\n'
+  fi
+  if [ "$(jq -r '.question != null' "$file")" = true ]; then
     jq -r '.question.question // ""' "$file" | q_clean 4000
+    printf '\n'
   fi
   # The host's own line, so it is not run through the masking an agent's words
   # go through. It holds no address of the host and no box.
   if [ -n "$line" ]; then
-    printf '\n%s\n' "$line"
+    printf '%s\n\n' "$line"
   fi
-  printf '\n'
   n=$(jq '(.question.options // []) | length' "$file") || return 1
   if [ "$n" -gt "$Q_MAX_OPTIONS" ]; then
     printf 'Options left out: %s. A reply can name another choice.\n\n' "$((n - Q_MAX_OPTIONS))"

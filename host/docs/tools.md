@@ -1248,7 +1248,8 @@ What comes out of a model is made safe on the way out by the two functions the
 console's log of the same run goes through (`tehas_core::mask` and
 `tehas_core::question::q_clean`): tokens, passwords, private addresses and the
 host's own names (the same list the console is given, with `--private`) are
-masked or hidden, a comment marker is escaped, and the body is cut at 60 000
+masked or hidden, a comment marker is escaped, a task box such as `- [ ]`
+becomes the glyph `- ☐` (`☑` when ticked), and the body is cut at 60 000
 characters. The line that asks for `tehas:refine`, the label that plans an
 issue into parts of one cycle each
 ([Planning](/operating#planning)), is the command's own text and is put on
