@@ -7,7 +7,8 @@
 -- One row per run, written when the run ends. gate_runs is how many runs of
 -- the product's gate the cycle made and gate_ms their milliseconds in all, as
 -- its stream said; both are NULL when it recorded none, which is no gate rather
--- than a gate of no time, and 0 is not stored.
+-- than a gate of no time, and 0 is not stored. driver is the driver the
+-- approval bound; NULL is classic, as on every run from before the column.
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('work', 'plan')),
@@ -49,7 +50,8 @@ CREATE TABLE runs (
   runner_ms INTEGER,
   result_schema INTEGER,
   gate_runs INTEGER,
-  gate_ms INTEGER
+  gate_ms INTEGER,
+  driver TEXT CHECK (driver IN ('classic', 'lean'))
 );
 CREATE INDEX runs_ended ON runs (ended);
 CREATE INDEX runs_issue ON runs (issue, started);
@@ -131,6 +133,8 @@ CREATE TABLE samples (
 -- schema 1 is moved aside whole under its version, as the manual says, and a
 -- host that had no gate on the record before loses nothing of it: the column
 -- is NULL, which is no gate, and no number the report prints.
+-- schema 3: driver on runs. A database of schema 2 is migrated in place
+-- (migrate in db.rs), which adds the column last, as it is above.
 
 -- schema, retention_days and created. Nothing about the host.
 CREATE TABLE meta (

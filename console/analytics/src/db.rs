@@ -8,9 +8,11 @@ use std::time::{Duration, Instant};
 use tehas_core::file::side_file;
 
 /// PRAGMA user_version of the schema in schema.sql. Schema 2 added
-/// run_gate_runs and the gate columns of runs; there is no migration, so a
-/// database of schema 1 is moved aside whole under its version.
-pub const SCHEMA_VERSION: i64 = 2;
+/// run_gate_runs and the gate columns of runs, schema 3 runs.driver.
+pub const SCHEMA_VERSION: i64 = 3;
+/// The one older schema `migrate` takes up in place. Any other is moved aside
+/// whole under its version.
+const MIGRATES: i64 = 2;
 pub const SCHEMA: &str = include_str!("schema.sql");
 pub const RETENTION_DAYS: i64 = 365;
 const DAY: i64 = 86_400;
@@ -30,12 +32,13 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// Opens the database, making it when there is none. A file that is not a
 /// database is moved to analytics.db.broken and a new one is made: the data
-/// is at most RETENTION_DAYS deep. A database of another schema version is
-/// moved, with its -wal and -shm, to analytics.db.schema-<version>, where a
-/// reader can still fetch it, and prune_aside deletes it RETENTION_DAYS after
-/// its last write. Any other failure, a full disk, a file it may not write, a lock
-/// held too long, is an error and leaves the file as it is. The second value
-/// is where a file was moved, if one was.
+/// is at most RETENTION_DAYS deep. A database of schema 2 is migrated in place.
+/// One of any other schema version is moved, with its -wal and -shm, to
+/// analytics.db.schema-<version>, where a reader can still fetch it, and
+/// prune_aside deletes it RETENTION_DAYS after its last write. Any other
+/// failure, a full disk, a file it may not write, a lock held too long, is an
+/// error and leaves the file as it is. The second value is where a file was
+/// moved, if one was.
 pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
@@ -184,20 +187,15 @@ fn is_busy(e: &rusqlite::Error) -> bool {
     )
 }
 
-/// Makes the schema of a database whose user_version read `seen`. The
-/// version is read again under a write lock: another program may have made
-/// the schema since, and its database is not a broken one.
+/// Makes or migrates the schema of a database whose user_version read `seen`.
+/// The version is read again under a write lock: another program may have
+/// done it since, and its database is not a broken one.
 pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), Unusable> {
     if seen == SCHEMA_VERSION {
         return Ok(());
     }
-    if seen != 0 {
-        // No migration exists: a schema this program does not write is kept
-        // aside under its version.
-        return Err(Unusable::Foreign(
-            seen,
-            format!("the database has schema {seen}, this program writes {SCHEMA_VERSION}"),
-        ));
+    if seen != 0 && seen != MIGRATES {
+        return Err(foreign(seen));
     }
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -205,25 +203,44 @@ pub(crate) fn settle(conn: &mut Connection, seen: i64, now: i64) -> Result<(), U
     let version: i64 = tx
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(classify)?;
-    if version == SCHEMA_VERSION {
-        return Ok(());
+    match version {
+        SCHEMA_VERSION => return Ok(()),
+        MIGRATES => migrate(&tx).map_err(classify)?,
+        0 => {
+            let tables: i64 = tx
+                .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+                .map_err(classify)?;
+            if tables != 0 {
+                return Err(Unusable::Broken(
+                    "the database has tables but no schema version".to_string(),
+                ));
+            }
+            create(&tx, now).map_err(classify)?;
+        }
+        other => return Err(foreign(other)),
     }
-    if version != 0 {
-        return Err(Unusable::Foreign(
-            version,
-            format!("the database has schema {version}, this program writes {SCHEMA_VERSION}"),
-        ));
-    }
-    let tables: i64 = tx
-        .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
-        .map_err(classify)?;
-    if tables != 0 {
-        return Err(Unusable::Broken(
-            "the database has tables but no schema version".to_string(),
-        ));
-    }
-    create(&tx, now).map_err(classify)?;
     tx.commit().map_err(classify)
+}
+
+// A schema this program neither writes nor migrates is kept aside.
+fn foreign(version: i64) -> Unusable {
+    Unusable::Foreign(
+        version,
+        format!("the database has schema {version}, this program writes {SCHEMA_VERSION}"),
+    )
+}
+
+/// Schema 2 to 3. The new column is last in schema.sql too, so a migrated
+/// database and a new one hold the same table. No view reads it.
+fn migrate(tx: &Transaction) -> rusqlite::Result<()> {
+    tx.execute_batch(
+        "ALTER TABLE runs ADD COLUMN driver TEXT CHECK (driver IN ('classic', 'lean'))",
+    )?;
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'schema'",
+        [SCHEMA_VERSION.to_string()],
+    )?;
+    tx.pragma_update(None, "user_version", SCHEMA_VERSION)
 }
 
 fn create(tx: &Transaction, now: i64) -> rusqlite::Result<()> {
@@ -251,7 +268,7 @@ pub fn event(conn: &Connection, issue: i64, event: &str, at: i64) -> rusqlite::R
 }
 
 /// Keeps when an image was built, as `image:<id>` in meta rather than a
-/// column of runs, so the schema stays 2. An id names one build: the first
+/// column of runs. An id names one build: the first
 /// time recorded stands, and every run of the image reads it, also one
 /// recorded before it was known.
 pub fn image_built(

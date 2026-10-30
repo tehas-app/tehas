@@ -128,12 +128,19 @@ t_eq "$t_out" "rc=0"
 facts=$(cat "$T/calls/facts.path")
 t_eq "$(t_calls analytics)" "run 7 --facts $facts --oom 0 --forks 1"
 t_eq "$(jq -c . "$T/calls/facts.json")" "$(jq -n -c --argjson l "$line" '{line: $l,
-  attempt: 1, approval: {at: "2026-10-24T10:59:00Z", how: "retry-tick"},
+  attempt: 1, approval: {at: "2026-10-24T10:59:00Z", how: "retry-tick", driver: null},
   settings: {container: {PI_ENSEMBLE_SUBAGENT_MODEL: "m"}, host: {TEHAS_WORK_TIMEOUT: "60"}, concurrentCycles: 2},
   rukas: "abcdef1"}')"
 t_eq "$(cat "$T/calls/facts.mode")" 600
 t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
 t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
+
+t_case "the driver of the approval reaches the facts, where the record holds it"
+rm -f "$T"/calls/*
+t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":1792497600,"by":"alice","how":"label","used_by":1,"input":{"driver":"lean"}}}'
+t_run "$scall; tehas_analytics_run 7 1 \"\$(cat \"\$T/line.json\")\""
+t_eq "$(jq -c '.approval | [.how, .driver]' "$T/calls/facts.json")" '["label","lean"]'
+cp -f --remove-destination "$T_STORE" "$home/libexec/store"
 
 t_case "a fact the store has none of for this attempt, or cannot give, is null"
 rm -f "$T"/calls/*

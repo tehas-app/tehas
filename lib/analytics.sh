@@ -29,8 +29,8 @@
 #       it: {line, attempt, approval, settings, rukas}. <line> is the line of
 #       history libexec/cycle made of the end, a JSON object, and <attempt> the
 #       attempt the state store gave the start. The rest is from the state
-#       store (lib/store.sh, which the caller sources): {at, how} of the
-#       approval that attempt used, and the settings and the pi-rukas commit on
+#       store (lib/store.sh, which the caller sources): {at, how, driver} of
+#       the approval that attempt used, and the settings and pi-rukas commit on
 #       its record. What the store cannot answer, or has none of, is a null
 #       fact, as is a line that is not an object.
 #
@@ -119,7 +119,7 @@ tehas_analytics_run() {
   [ -n "$line" ] || line=null
   if [ "$attempt" != null ]; then
     if view=$(tehas_approval_view "$issue" "$attempt"); then
-      approval=$(jq -c '{at, how}' "$view" 2>/dev/null) || approval=null
+      approval=$(jq -c '{at, how, driver}' "$view" 2>/dev/null) || approval=null
       rm -f "$view"
     fi
     # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets these
