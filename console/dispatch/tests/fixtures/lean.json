@@ -1745,6 +1745,197 @@
      }
     }
    }
+  },
+  {
+   "case": "tehas:lean an allowed account applied and another account took off starts nothing, classic included",
+   "queue": [
+    "7"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=mallory"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was taken off by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean taken off by an allowed account is classic",
+   "queue": [
+    "7"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a stranger's tehas:lean a stranger took off was no choice: it is classic",
+   "queue": [
+    "7"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=mallory",
+     "-tehas:lean=mallory"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean an allowed account applied again after a stranger took it off is lean",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=mallory",
+     "tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry tick over tehas:lean a stranger took off starts nothing and unticks once",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was taken off by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "Retry was ticked and nothing was started: `tehas:lean` was taken off by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, and takes it off for classic, then ticks Retry."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:02:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
   }
  ]
 }

@@ -52,9 +52,9 @@ pub(crate) const LEAN: &str = "tehas:lean";
 enum Driver {
     Classic,
     Lean,
-    /// tehas:lean from an account outside the list: nothing starts, classic
+    /// An account outside the list made the choice: nothing starts, classic
     /// included.
-    Stranger(String),
+    Stranger(Stranger),
     /// Its record could not be read this poll.
     Wait,
 }
@@ -68,9 +68,23 @@ impl Driver {
     }
 }
 
-/// What a start refused over `who`'s tehas:lean says on the issue.
-fn lean_stranger(who: &str) -> String {
-    format!("`{LEAN}` was applied by `{who}`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `{LEAN}` again, or takes it off for classic")
+/// Who made the choice of driver that does not count: applied tehas:lean, or
+/// with `off` took an allowed account's off.
+struct Stranger {
+    who: String,
+    off: bool,
+}
+
+impl Stranger {
+    /// What a start refused over it says on the issue.
+    fn said(&self) -> String {
+        let (what, rest) = if self.off {
+            ("taken off", "and takes it off for classic")
+        } else {
+            ("applied", "or takes it off for classic")
+        };
+        format!("`{LEAN}` was {what} by `{}`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `{LEAN}` again, {rest}", self.who)
+    }
 }
 
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
@@ -1083,17 +1097,22 @@ impl<'a> Poll<'a> {
 
     /// driver: the driver of a start, read of who applied tehas:lean and never
     /// of the label alone. With the label off a start is classic, whatever the
-    /// last one ran. With it on, a start that rests on an earlier approval
-    /// (`retry`) keeps the driver on that record, so a label added since changes
-    /// nothing until a person approves a new start.
+    /// last one ran, unless an account outside the list took an allowed
+    /// account's choice off. With it on, a start that rests on an earlier
+    /// approval (`retry`) keeps the driver on that record, so a label added
+    /// since changes nothing until a person approves a new start.
     fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
         if !has(labels, LEAN) {
-            return Ok(Driver::Classic);
+            return Ok(match self.lean_taken_off(n) {
+                Some(who) => Driver::Stranger(Stranger { who, off: true }),
+                None => Driver::Classic,
+            });
         }
         let ev = self.events(n)?;
         let (who, _) = label_actor(&ev, LEAN);
         if !self.c.allowed(&who) {
-            return Ok(Driver::Stranger(or_unknown(&who).to_string()));
+            let who = or_unknown(&who).to_string();
+            return Ok(Driver::Stranger(Stranger { who, off: false }));
         }
         if !retry {
             return Ok(Driver::Lean);
@@ -1114,10 +1133,37 @@ impl<'a> Poll<'a> {
         }
     }
 
+    /// lean_taken_off: who took tehas:lean off, when an allowed account's
+    /// choice went and that account may not take it. An issue whose events
+    /// were not read names nobody: each start reads them itself.
+    fn lean_taken_off(&self, n: u64) -> Option<String> {
+        let i = self.s.issues.get(&n)?;
+        let Events::Read(ev) = &i.events else {
+            return None;
+        };
+        let state = label_state(ev, LEAN);
+        (state.event() == "unlabeled"
+            && !self.c.allowed(state.actor())
+            && self.c.allowed(&label_actor(ev, LEAN).0))
+        .then(|| or_unknown(state.actor()).to_string())
+    }
+
+    /// lean_deny: the log line of a choice of driver that does not count.
+    fn lean_deny(&mut self, n: u64, s: &Stranger) {
+        if s.off {
+            let who = &s.who;
+            self.log(format!(
+                "skip #{n}: {LEAN} was taken off by '{who}', not an allowed account"
+            ));
+        } else {
+            self.deny("skip", n, LEAN, &s.who);
+        }
+    }
+
     /// lean_refused: the label that asked for the start comes off, so this is
     /// said once. tehas:lean stays, or the next tehas:ready would run classic.
-    fn lean_refused(&mut self, n: u64, ask: &str, who: &str) {
-        self.deny("skip", n, LEAN, who);
+    fn lean_refused(&mut self, n: u64, ask: &str, s: &Stranger) {
+        self.lean_deny(n, s);
         if self.dry {
             self.log(format!(
                 "would take {ask} off #{n}: {LEAN} is not an allowed account's"
@@ -1126,7 +1172,7 @@ impl<'a> Poll<'a> {
             self.act(json!({
                 "issue": n, "remove": [ask],
                 "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing: {}, then applies `{ask}`.", lean_stranger(who)),
+                "say": format!("Tehas took `{ask}` off this issue and started nothing: {}, then applies `{ask}`.", s.said()),
             }));
         }
     }
@@ -2016,8 +2062,8 @@ impl<'a> Poll<'a> {
             }
             let driver = match self.driver(n, &labels, fixer.is_some())? {
                 Driver::Wait => continue,
-                Driver::Stranger(who) => {
-                    self.lean_refused(n, ask, &who);
+                Driver::Stranger(s) => {
+                    self.lean_refused(n, ask, &s);
                     continue;
                 }
                 d => d,

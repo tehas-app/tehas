@@ -3,9 +3,7 @@
 //! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
 
 use super::clean::iso;
-use super::{
-    fixer_base, has, lean_stranger, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN,
-};
+use super::{fixer_base, has, or_unknown, Driver, End, Poll, Room, Start, Step};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -423,12 +421,12 @@ impl Poll<'_> {
             }
             let driver = match self.driver(n, &have, true)? {
                 Driver::Wait => continue,
-                Driver::Stranger(who) => {
-                    self.deny("skip", n, LEAN, &who);
+                Driver::Stranger(s) => {
+                    self.lean_deny(n, &s);
                     if !self.dry {
                         let note = format!(
                             "Retry was ticked and nothing was started: {}, then ticks Retry.",
-                            lean_stranger(&who)
+                            s.said()
                         );
                         self.untick(n, &ans, Some(&note));
                     }
@@ -562,14 +560,14 @@ impl Poll<'_> {
                     "apply tehas:ready",
                 )?;
             if held {
-                if let Driver::Stranger(who) = &driver {
-                    self.deny("skip", n, LEAN, who);
+                if let Driver::Stranger(s) = &driver {
+                    self.lean_deny(n, s);
                 }
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
                     self.act(json!({"park_retry": n, "how": "outage"}));
-                    if let Driver::Stranger(who) = &driver {
-                        let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", lean_stranger(who));
+                    if let Driver::Stranger(s) = &driver {
+                        let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", s.said());
                         self.act(json!({"issue": n, "say": say}));
                     }
                 }
@@ -840,8 +838,8 @@ impl Poll<'_> {
         }
         let driver = match self.driver(n, &have, true)? {
             Driver::Wait => return Ok(None),
-            Driver::Stranger(who) => {
-                return self.refresh_say(n, &format!("lean {who}"), &lean_stranger(&who));
+            Driver::Stranger(s) => {
+                return self.refresh_say(n, &format!("lean {}", s.who), &s.said());
             }
             d => d,
         };
