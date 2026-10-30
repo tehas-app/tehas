@@ -3,7 +3,7 @@
 //! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
 
 use super::clean::iso;
-use super::{fixer_base, has, or_unknown, Driver, End, Poll, Room, Start, Step};
+use super::{fixer_base, has, label_actor, or_unknown, Driver, End, Poll, Room, Start, Step};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -419,7 +419,13 @@ impl Poll<'_> {
             if !self.image_ok(n)? || !self.image_missing_ok(n) {
                 continue;
             }
-            let driver = match self.driver(n, &have, true)? {
+            // A person's tehas:ready that park_holds held comes off with this
+            // start: it is the new approval the driver reads the label for.
+            let held = has(&have, "tehas:ready") && {
+                let ev = self.events(n)?;
+                self.c.allowed(&label_actor(&ev, "tehas:ready").0)
+            };
+            let driver = match self.driver(n, &have, !held)? {
                 Driver::Wait => continue,
                 Driver::Stranger(s) => {
                     self.lean_deny(n, &s);
