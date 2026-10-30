@@ -45,4 +45,28 @@ else
   t_eq "$(approval .driver)" null
 fi
 
+t_case "the bash poll starts nothing on an issue that carries tehas:lean"
+if ! bash_reads; then
+  t_skip "this run is the Rust poll's: T_BASH_POLL=1 runs the bash poll"
+else
+  reset
+  queue "7 tehas:lean"
+  label_events 7 tehas:lean=alice
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(started)" ""
+  t_contains "$t_out" "skip #7: it carries tehas:lean, which only the Rust poll reads; take it off to run it on classic"
+fi
+
+t_case "the bash poll starts no retry on an issue that carries tehas:lean"
+if ! bash_reads; then
+  t_skip "this run is the Rust poll's: T_BASH_POLL=1 runs the bash poll"
+else
+  lean_parked '{"links":[],"driver":"lean"}'
+  t_run "$dispatch"
+  t_eq "$t_rc" 0
+  t_eq "$(started)" ""
+  t_contains "$t_out" "skip #7: it carries tehas:lean, which only the Rust poll reads; take it off to run it on classic"
+fi
+
 t_done

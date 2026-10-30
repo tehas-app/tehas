@@ -55,7 +55,8 @@ None.
   binds the choice. Lean cannot run yet: it needs pi-rukas#1920, so `tehas work`
   refuses such a start with 78, and the issue is parked with what to do. Classic
   never runs in its place. An issue without the label runs as it did. Only the
-  Rust poll reads the label.
+  Rust poll reads the label: the bash poll starts nothing on an issue that
+  carries it.
 
 ### Adopter action
 
