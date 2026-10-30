@@ -110,7 +110,7 @@ fn init_writes_the_row_of_meta_and_the_caller_s_settings() {
         "created_at=1792000000",
         "instance=tehas-tehas",
         "repo=example-owner/example-product",
-        "schema=8",
+        "schema=9",
         "tehas_commit=cb6912a",
         "tehas_version=v0.10.2",
     ]
@@ -314,7 +314,10 @@ fn each_of_the_four_classes_exits_78_with_its_word() {
     let (code, err) = check(&home).unwrap_err();
     assert_eq!(code, 78);
     assert!(err.starts_with("future the database"), "{err}");
-    assert!(err.contains("schema 9"), "{err}");
+    assert!(
+        err.contains(&format!("schema {}", db::SCHEMA_VERSION + 1)),
+        "{err}"
+    );
 }
 
 #[test]
@@ -340,7 +343,7 @@ fn check_reports_its_schema_and_an_integrity_of_ok() {
         line.starts_with("{\"api\":1,\"verb\":\"check\",\"ok\":true"),
         "{line}"
     );
-    assert!(line.contains("\"schema\":8"), "{line}");
+    assert!(line.contains("\"schema\":9"), "{line}");
     assert!(line.contains("\"integrity\":\"ok\""), "{line}");
     assert!(line.contains("\"meta\":6"), "{line}");
     assert!(line.contains("\"issues\":0"), "{line}");
@@ -994,7 +997,10 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
             .as_str()
             .unwrap(),
     );
-    assert_eq!(next, db::backup_name_at(&state, 8, 1_792_000_000, 1));
+    assert_eq!(
+        next,
+        db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, 1)
+    );
     assert!(db::is_database(&next));
     assert_eq!(mode(&next), 0o600);
     assert_eq!(fs::read(&file).unwrap(), before);
@@ -1005,7 +1011,11 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     // whatever its bits say, and root is not stopped by 0500.
     let first_copy = fs::read(&copy).unwrap();
     for n in 2..db::BACKUP_NAMES {
-        fs::write(db::backup_name_at(&state, 8, 1_792_000_000, n), b"taken").unwrap();
+        fs::write(
+            db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n),
+            b"taken",
+        )
+        .unwrap();
     }
     let err = migrate_at(&home, &state, 1_792_000_000)
         .expect_err("a backup with no free name is refused, not overwritten");
@@ -1019,7 +1029,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
     assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "8"
+        "9"
     );
     drop(conn);
     assert_eq!(fs::read(&file).unwrap(), before, "a failed backup migrated");
@@ -1029,7 +1039,7 @@ fn migrate_writes_its_backup_before_it_changes_anything() {
         .collect();
     for n in 0..db::BACKUP_NAMES {
         allowed.push(
-            db::backup_name_at(&state, 8, 1_792_000_000, n)
+            db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n)
                 .file_name()
                 .unwrap()
                 .to_os_string(),
@@ -1158,13 +1168,13 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     let line = migrate(&home, &home.join("state")).unwrap();
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(value["from"], 0, "{line}");
-    assert_eq!(value["to"], 8, "{line}");
+    assert_eq!(value["to"], 9, "{line}");
     let file = db::path(&home);
     let conn = db::open_read_only(&file).unwrap();
-    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 8);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), 9);
     assert_eq!(
         one::<String>(&conn, "SELECT value FROM meta WHERE key = 'schema'"),
-        "8"
+        "9"
     );
     // The migration writes the rows a database at 1 holds and has no way to
     // get: the four the caller gave, and the instant.
@@ -1178,7 +1188,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
             "created_at=1792000000",
             "instance=tehas-tehas",
             "repo=example-owner/example-product",
-            "schema=8",
+            "schema=9",
             "tehas_commit=cb6912a",
             "tehas_version=v0.10.2",
         ]
@@ -1205,7 +1215,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     // say a migration went wrong.
     let report = check(&home).unwrap();
     let report: serde_json::Value = serde_json::from_str(&report).unwrap();
-    assert_eq!(report["schema"], 8);
+    assert_eq!(report["schema"], 9);
     assert_eq!(report["integrity"], "ok");
     assert_eq!(
         report["rows"].as_object().unwrap().len(),
@@ -1237,7 +1247,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
         .filter(|n| n.starts_with("tehas-"))
         .collect();
     let found = format!("tehas-0-{}.db", 1_792_000_000);
-    let made = format!("tehas-8-{}.db", 1_792_000_000);
+    let made = format!("tehas-{}-{}.db", db::SCHEMA_VERSION, 1_792_000_000);
     assert!(
         copies.contains(&found),
         "the copy of the file as it was found is not in state/: {copies:?}"
@@ -1254,7 +1264,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
     let copy = PathBuf::from(value["backup"].as_str().unwrap());
     assert_eq!(
         copy,
-        db::backup_name(&state, 8, 1_792_000_000),
+        db::backup_name(&state, db::SCHEMA_VERSION, 1_792_000_000),
         "{line} reports a copy other than the one taken first"
     );
     assert!(copy.exists(), "{line} names a copy that is not there");
@@ -1297,7 +1307,7 @@ fn migrate_brings_an_empty_file_to_the_schema_and_the_rows_it_lacks() {
 fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // The name the answer carries is the name the caller opens, so it is the
     // name that must be written before the step can commit -- not after it.
-    // Every name of `tehas-8-<now>` held by a file the verb did not make is the
+    // Every name of `tehas-<version>-<now>` held by a file the verb did not make is
     // copy it cannot write, and the verb must then change nothing at all.
     let home = scratch("migrate-after");
     fs::create_dir_all(home.join("state")).unwrap();
@@ -1305,7 +1315,7 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     let state = home.join("state");
     for n in 0..db::BACKUP_NAMES {
         fs::write(
-            db::backup_name_at(&state, 8, 1_792_000_000, n),
+            db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n),
             b"not a backup",
         )
         .unwrap();
@@ -1335,7 +1345,7 @@ fn a_reported_copy_that_cannot_be_written_leaves_the_step_unrun() {
     // The foreign files are untouched: the verb neither opened one for writing
     // nor replaced it with a copy of its own.
     for n in 0..db::BACKUP_NAMES {
-        let foreign = db::backup_name_at(&state, 8, 1_792_000_000, n);
+        let foreign = db::backup_name_at(&state, db::SCHEMA_VERSION, 1_792_000_000, n);
         assert_eq!(fs::read(&foreign).unwrap(), b"not a backup");
     }
 }
@@ -1358,8 +1368,8 @@ fn migrate_reports_the_three_fields_and_a_database_at_8_stays_at_8() {
     assert_eq!(value["api"], 1, "{line}");
     assert_eq!(value["verb"], "migrate", "{line}");
     assert_eq!(value["ok"], true, "{line}");
-    assert_eq!(value["from"], 8, "{line}");
-    assert_eq!(value["to"], 8, "{line}");
+    assert_eq!(value["from"], 9, "{line}");
+    assert_eq!(value["to"], 9, "{line}");
     assert!(value["backup"].is_string(), "{line}");
     for field in ["api", "verb", "ok", "from", "to", "backup"] {
         assert!(value.get(field).is_some(), "{field} is missing from {line}");
@@ -1367,8 +1377,8 @@ fn migrate_reports_the_three_fields_and_a_database_at_8_stays_at_8() {
     // Already at 1: nothing to run, and the same answer shape. The backup is
     // still written, because the verb promises a copy before it touches the
     // file and has no way to know it will not need it until it has looked.
-    assert_eq!(value["from"], 8, "{line}");
-    assert_eq!(value["to"], 8, "{line}");
+    assert_eq!(value["from"], 9, "{line}");
+    assert_eq!(value["to"], 9, "{line}");
     assert!(db::is_database(&PathBuf::from(
         value["backup"].as_str().unwrap()
     )));
@@ -1395,7 +1405,7 @@ fn migrate_reports_the_three_fields_and_a_database_at_8_stays_at_8() {
     let again = migrate_at(&home, &state, 1_792_000_060).unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&again).unwrap()["from"],
-        8,
+        db::SCHEMA_VERSION,
         "{again}"
     );
     assert_eq!(
@@ -1424,7 +1434,8 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     let state = home.join("state");
     {
         let conn = Connection::open(&file).unwrap();
-        conn.pragma_update(None, "user_version", 9).unwrap();
+        conn.pragma_update(None, "user_version", db::SCHEMA_VERSION + 1)
+            .unwrap();
     }
     checkpoint(&file);
     let before = fs::read(&file).unwrap();
@@ -1486,7 +1497,7 @@ fn migrate_refuses_a_schema_it_has_no_step_for_and_a_future_one() {
     assert!(
         copies
             .iter()
-            .any(|n| n.to_string_lossy().starts_with("tehas-8-")),
+            .any(|n| n.to_string_lossy().starts_with("tehas-9-")),
         "the copy the verb reports: {copies:?}"
     );
     // A file with tables and no version is the same case seen from the other

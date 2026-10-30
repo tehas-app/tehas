@@ -447,28 +447,41 @@ fn start(
     now: i64,
 ) -> Result<String, Fail> {
     verbs::write(home, |c| {
+        // The clock pair of the call, read with the rows it judges: a step of
+        // the wall clock holds the lost end of #1043 off for one heartbeat
+        // interval, and the pair is kept for the calls that follow.
+        let clocks = crate::clock::Now::of(
+            crate::clock::kept(c, now),
+            Some(crate::clock::pair(now, crate::clock::mono())),
+        );
+        clocks.record(c, now)?;
         stub(c, issue)?;
         let prev = row(c, issue)?;
         let unended = prev.as_ref().is_some_and(|r| r.ended_at.is_none());
         locked(home, issue, unended, 1)?;
         if let Some(r) = prev.as_ref().filter(|r| r.ended_at.is_none()) {
             // The attempt this start replaces never ended: it is kept among
-            // the ends as lost, from when it was last heard from.
-            c.execute(
-                "INSERT OR IGNORE INTO endings (issue, started_at, ended_at, status, step)
-                 SELECT ?1, ?2, min(?3, coalesce(max(at) + ?4, ?3)), 'lost',
-                   (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?2
-                    ORDER BY at DESC LIMIT 1)
-                 FROM heartbeats WHERE issue = ?1 AND at >= ?2",
-                params![issue, r.started_at, now, crate::live::LOST_AFTER],
-            )
-            .q()?;
-            c.execute(
-                "DELETE FROM endings WHERE rowid NOT IN
-                   (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
-                [],
-            )
-            .q()?;
+            // the ends as lost, from when it was last heard from. An age rule
+            // (#1043): a step of the wall clock holds it off, so a host woken
+            // from a save does not mark a cycle that is alive lost on its
+            // first start.
+            if !clocks.holds() {
+                c.execute(
+                    "INSERT OR IGNORE INTO endings (issue, started_at, ended_at, status, step)
+                     SELECT ?1, ?2, min(?3, coalesce(max(at) + ?4, ?3)), 'lost',
+                       (SELECT step FROM heartbeats WHERE issue = ?1 AND at >= ?2
+                        ORDER BY at DESC LIMIT 1)
+                     FROM heartbeats WHERE issue = ?1 AND at >= ?2",
+                    params![issue, r.started_at, now, crate::live::LOST_AFTER],
+                )
+                .q()?;
+                c.execute(
+                    "DELETE FROM endings WHERE rowid NOT IN
+                       (SELECT rowid FROM endings ORDER BY ended_at DESC, rowid DESC LIMIT 10)",
+                    [],
+                )
+                .q()?;
+            }
         }
         let approval = if by_hand {
             None

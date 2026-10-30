@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -139,6 +139,17 @@ CREATE INDEX poll_cost_at ON poll_cost (at);
 /// not 0: `poll-idle` counts only the polls known to have started none.
 pub const STEP_8: &str = "
 ALTER TABLE poll_cost ADD COLUMN starts INTEGER;
+";
+
+/// The step from 8 to 9: the clock sample of #1043, a table of its own, so
+/// every row of the store before it is kept and nothing is rebuilt.
+pub const STEP_9: &str = "
+CREATE TABLE clock_sample (
+  id   INTEGER PRIMARY KEY CHECK (id = 1),
+  wall INTEGER NOT NULL,
+  mono INTEGER NOT NULL,
+  taken_at INTEGER NOT NULL
+);
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -446,7 +457,7 @@ pub const COUNTED_INDEXES: [&str; 14] = [
 /// The tables `check` counts. Every table of schema.sql appears here exactly
 /// once, which the test every_counted_table_exists pins, so a table that goes
 /// missing from the schema cannot go missing from the report too.
-pub const COUNTED_TABLES: [&str; 41] = [
+pub const COUNTED_TABLES: [&str; 42] = [
     "meta",
     "issues",
     "cycles",
@@ -488,6 +499,7 @@ pub const COUNTED_TABLES: [&str; 41] = [
     "sweep_log",
     "actions",
     "journal",
+    "clock_sample",
 ];
 
 /// The four classes the store tells apart, each with its own word for stderr
@@ -1071,27 +1083,35 @@ pub fn migrate(
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
-        6 => step(conn, 7, STEP_7).and_then(|()| step(conn, 8, STEP_8)),
-        7 => step(conn, 8, STEP_8),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
+        6 => step(conn, 7, STEP_7)
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
+        7 => step(conn, 8, STEP_8).and_then(|()| step(conn, 9, STEP_9)),
+        8 => step(conn, 9, STEP_9),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()

@@ -182,6 +182,7 @@
 
 mod approval;
 mod batch;
+mod clock;
 mod cycle;
 mod db;
 #[cfg(debug_assertions)]
@@ -201,6 +202,8 @@ mod verbs;
 
 #[cfg(test)]
 mod approval_tests;
+#[cfg(test)]
+mod clock_tests;
 #[cfg(test)]
 mod cycle_tests;
 #[cfg(test)]

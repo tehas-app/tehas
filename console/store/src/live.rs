@@ -13,6 +13,7 @@
 //!                      pretty-printed as tehas work's jq -n wrote it
 //!   endings.json       the ten last ends, oldest first, one line
 //!   running.json       {"cycles": [...], "last": ...}, one line
+//!   clock.json         the newest (wall, monotonic) pair of #1043, one line
 //!   health.json        the file given with --health, as given; health.down
 //!                      is made before a "fail" report is renamed into place,
 //!                      and removed after any other is
@@ -20,6 +21,7 @@
 //! and then removes each live/cycles/<number>.json that it did not write.
 //! It reads the rows and writes files; it writes no row.
 
+use crate::clock::{self, Now};
 use crate::lock;
 use crate::verbs::{self, j, line, list, obj, refuse, Args, Fail, Kind, Q};
 use rusqlite::{params, Connection};
@@ -144,7 +146,14 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
 
 fn heartbeat(home: &Path, b: &Beat, now: i64) -> Result<String, Fail> {
     let issue = b.issue;
+    // The pair of the call, read before the write lock: the beat is the
+    // heartbeat interval's clock reading, and the pair the rules of the next
+    // publish measure the wall clock against is kept with the row (#1043).
+    let got = Some(clock::pair(now, clock::mono()));
     verbs::write(home, |c| {
+        if let Some(got) = got {
+            clock::record(c, &got, now)?;
+        }
         let row = crate::cycle::row(c, issue)?
             .ok_or_else(|| refuse("nocycle", issue, "no cycle on record"))?;
         if let Some(a) = b.attempt {
@@ -248,7 +257,7 @@ struct Read {
     endings: Vec<Ending>,
 }
 
-fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
+fn read(home: &Path, c: &Connection, now: i64, clocks: &Now) -> Result<Read, Fail> {
     let mut q = c
         .prepare(
             "SELECT h.issue, h.running, h.status, h.step, h.text, c.started_at, h.at
@@ -282,7 +291,16 @@ fn read(home: &Path, c: &Connection, now: i64) -> Result<Read, Fail> {
         }
         // Quiet for two minutes and no one holds its lock: the cycle died
         // without saying so. Its time is when it became lost, so the view
-        // does not move on every publish.
+        // does not move on every publish. A step of the wall clock holds the
+        // age rule off for one heartbeat interval (#1043): after a restore
+        // every heartbeat is older than the bound, and a cycle that is alive
+        // and holds its lock is not the one at risk -- but a step found while
+        // the host was saved would say it was, so the rule waits. The cycle is
+        // kept as it is rather than dropped: a held rule decides nothing.
+        if clocks.holds() {
+            running.push(v);
+            continue;
+        }
         if v.updated_at < now - LOST_AFTER && lock::probe(home, v.issue, false).rc == 0 {
             v.running = false;
             v.status = "lost".to_string();
@@ -447,8 +465,24 @@ fn publish(
             }
         })
         .transpose()?;
+    // The clock pair of the call, read before anything is opened and kept with
+    // the rows the read makes its own: publish is the one writer of the live
+    // files, so the health report finds the newest pair in clock.json and no
+    // command of the host has to name a clock (#1043).
+    // The wall reading of the pair is `now`, the time the verb judges by; the
+    // monotonic reading is this process's own, so it says nothing across
+    // processes and is kept only for the step's hold to count against.
+    let pair = Some(clock::pair(now, clock::mono()));
     let _lock = take_lock(home)?;
-    let got = verbs::look(home, |c| read(home, c, now))?;
+    // The pair is read and kept in the write lock, and the rows the view is
+    // made of are read as they were when it was taken: a rule that acted on an
+    // age of the call that took the pair sees the same rows the pair was
+    // measured against.
+    let (got, clocks) = verbs::write(home, |c| {
+        let clocks = Now::of(clock::kept(c, now), pair);
+        clocks.record(c, now)?;
+        read(home, c, now, &clocks).map(|got| (got, clocks))
+    })?;
     let live = home.join("live");
     mkdir(&live)?;
     mkdir(&live.join("cycles"))?;
@@ -486,6 +520,10 @@ fn publish(
         &mut n,
     )?;
     written.push(j("running.json"));
+    if let Some(body) = clocks.json() {
+        put(&live, "clock.json", format!("{body}\n").as_bytes(), &mut n)?;
+        written.push(j("clock.json"));
+    }
     let mut removed = Vec::new();
     let entries = fs::read_dir(live.join("cycles")).map_err(|e| write_failed("cycles", e))?;
     for e in entries {
