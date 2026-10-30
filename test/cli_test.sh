@@ -229,7 +229,7 @@ t_eq "$t_rc" 1
 t_case "every command in the usage of tehas has a script that says how to use it"
 reset
 names=$("$T_ROOT/bin/tehas" help | sed -n 's/^  tehas \([a-z-]*\).*/\1/p' | grep -v -x help | tr '\n' ' ')
-t_eq "$names" "dispatch work plan dev index setup update labels check-product init-product status api limit drain history export top analytics mcp pause resume stop "
+t_eq "$names" "dispatch work plan dev index setup update labels check-product init-product status api limit drain history export state top analytics mcp pause resume stop "
 for name in $names; do
   t_run "$T_ROOT/bin/tehas help $name"
   t_eq "$t_rc" 0

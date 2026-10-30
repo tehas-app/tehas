@@ -19,6 +19,15 @@ empty one above it.
 - The edge router answers `/fun/theme.css`. It rewrote the path before it
   stripped `/fun`, so the rewrite never matched and the Protolab got a 404 for
   its theme.
+- `tehas state pack -` and `tehas state unpack -` move a stopped factory's
+  `state/`, `repos/`, `live/` and `mcp/` to another machine as one tar, and
+  `tehas api` lists the feature `state-move`. The live token is not moved.
+  See the factory API.
+- The state store has a read-only verb `store copy --to <file>`: a consistent
+  copy of the store at a name the caller gives.
+- `tehas limit set` leaves the checking of its arguments to the console. A bad
+  argument with missing instance settings is now exit 78, not 64, and
+  `tehas limit set --json ...` is accepted.
 
 ### Adopter action
 
