@@ -156,6 +156,7 @@ files="./.bashrc
 ./tehas/libexec/review
 ./tehas/libexec/resume
 ./tehas/libexec/setup
+./tehas/libexec/state
 ./tehas/libexec/status
 ./tehas/libexec/stop
 ./tehas/libexec/store

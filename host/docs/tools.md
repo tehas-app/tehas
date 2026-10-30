@@ -28,6 +28,7 @@ tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
 tehas export [--json] --after C <dir>  # copy a cycle's records, masked
+tehas state pack|unpack -        # move a stopped factory's state to another machine
 tehas top [--once|--json]        # one screen of what the factory is doing
 tehas analytics report|export    # the factory's last 365 days of runs
 tehas pause [reason]             # stop this host from starting new work
@@ -1792,6 +1793,39 @@ export of an issue the sweep has taken has no transcripts: its records, logs and
 Protolab page are still copied. See
 [the factory API](/api#tehas-export).
 
+## tehas state
+
+```
+tehas state pack [--rehearse] -
+tehas state unpack [--rehearse] -
+```
+
+Moves a stopped factory's state to another machine as one tar: `pack` writes it
+to standard output and `unpack` reads it from standard input. It holds
+`state/`, `repos/`, `live/` and `mcp/` of the home and the store as a copy the
+store made of itself, behind a `tehas-state.json` that names the release and
+the schema; the live token (`state/github`) is left out, and the target keeps
+its own. `pack` refuses while a cycle or a planning turn runs or a `tehas-*`
+unit is active; `--rehearse` does not, changes nothing and marks the tar a
+rehearsal that `unpack` takes only with `--rehearse`, which replaces the
+target's state as `unpack` does: the old state is gone, so use it only on a
+machine that will be rebuilt. `unpack` refuses while a
+unit is active, another release or schema, a bad manifest, a link that is
+absolute, leaves its directory or has a `..` after a name, a device, pipe or
+socket, and a setuid, setgid or world-writable entry. It replaces the
+four directories only after it has checked the tar and the store in a
+directory beside the home, and starts no unit.
+
+`pack` sends the tar only after tar has ended well, so a `pack` that fails sends
+nothing and `unpack` replaces nothing. Run the pipe with `set -o pipefail`; the
+source's files are untouched by a failed run, so run it again; its units stay
+down until you start them (see
+[Backups and restore](/operating#backups-and-restore)). `unpack` needs room
+beside the home for the archive and the extracted tree. After `unpack`, restart
+the docs container, because `live/` is a bind mount:
+`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/docs.compose.yaml up -d --force-recreate`. See
+[the factory API](/api#tehas-state).
+
 ## tehas pause
 
 ```
@@ -2005,7 +2039,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```

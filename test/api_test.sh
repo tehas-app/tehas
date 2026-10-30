@@ -34,6 +34,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "limit"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "drain"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-conflicts"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 
 t_case "api --json: the millwright and the old fixer field are its login when the instance has one"
