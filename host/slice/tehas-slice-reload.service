@@ -9,13 +9,14 @@ Description=Tehas: reload systemd so tehas.slice follows memory added to the hos
 # requests into the one run of a oneshot that has not finished.
 Conflicts=shutdown.target
 Before=shutdown.target
+# A device that flaps memory online would ask for the reload without limit.
+# systemd reads these two in [Unit] only.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
-# The path of the Ubuntu systemd this ships with. The bounds: a reload that
-# hangs would hold every later memory-online event in the same unfinished run,
-# and a device that flaps memory online would ask for it without limit.
+# The path of the Ubuntu systemd this ships with. A reload that hangs would
+# hold every later memory-online event in the same unfinished run.
 TimeoutStartSec=60
-StartLimitIntervalSec=300
-StartLimitBurst=5
 ExecStart=/usr/bin/systemctl daemon-reload
