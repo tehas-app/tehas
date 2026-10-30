@@ -316,11 +316,11 @@
 # The console and the dashboard's line are fed from the stable kinds of the
 # runner's NDJSON only. At the end, the per-role usage and why the cycle
 # stopped at its cap go to state/cycles/<issue>.progress.json for the report
-# (tehas_headless_progress). They come from the result where the image's
-# --capabilities answer says it carries them (features.usageByRole,
-# features.failureReason). An image that does not (v0.12.80) gives the usage
-# of the stable dispatch-completed lines and a reason read from lines the
-# runner marks unstable, which may be empty.
+# (tehas_headless_progress). They come from the issue's entry of the schema 5
+# result, which every image tehas starts a cycle on is checked for before the
+# cycle starts. A runner that wrote no result leaves the usage of the stable
+# dispatch-completed lines and a reason read from lines the runner marks
+# unstable, which may be empty.
 set -uo pipefail
 
 issue=${1:-}
@@ -1142,7 +1142,7 @@ step=${step:--}
 [ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
 now_file false "$status"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
-tehas_headless_progress "$log" "$caps" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
+tehas_headless_progress "$log" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
 # A stop this command made is its own cap, unless the runner had ended first.
 case "$status" in
