@@ -1,0 +1,7 @@
+# Installed by "sudo ./bootstrap.sh slice" to /etc/udev/rules.d, beside the unit
+# it names. When a memory block comes online this asks systemd-udevd to start
+# tehas-slice-reload.service, which reloads the system manager so tehas.slice
+# works its percentage MemoryMax out against the memory the host has now. Why a
+# oneshot and no RUN+=, and why no offline rule, is in the manual's slice
+# section.
+SUBSYSTEM=="memory", ACTION=="online", TAG+="systemd", ENV{SYSTEMD_WANTS}+="tehas-slice-reload.service"
