@@ -208,18 +208,13 @@ curl -i -H 'Host: uat-1.tehas.app' "http://$TEHAS_HOST_ADDR:8081/"
 
 `tehas update` pulls the platform checkout and runs `install.sh`, which
 installs the router's files and the units and makes the Docker network
-`tehas-previews`. What it does about the router depends on the host:
+`tehas-previews`. About the router it renews it only where it already runs,
+and starts nothing:
 
-- A host that ran the Protolab's server under its old name, the compose
-  project `tehas-protolab`, has that container on port 8081. `tehas update`
-  takes it down and starts the router in its place. If the router did not
-  start, run `tehas update` again once the cause is gone: it remembers the
-  takeover for a day and starts the router. After that day the mark is not
-  acted on, and starting the router is yours to do. See
-  [Troubleshooting](/troubleshooting).
-- A host that never ran it gets nothing started. The `docker compose` line
-  above starts the router. Where the router already runs, the line changes
-  nothing.
+- `tehas update` never starts the router. The `docker compose` line above starts it on a host that has
+  never run it. Where the router already runs, that line changes nothing. If
+  compose says the port is taken, a container of an earlier install holds it.
+  See [Troubleshooting](/troubleshooting).
 
 The last line answers 404 with "No preview is running at this address". From
 outside, `uat-1.tehas.app` now answers 404 where it answered 502.

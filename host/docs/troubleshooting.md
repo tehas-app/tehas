@@ -1019,23 +1019,20 @@ Host tehas-tehas
 Then run `scripts/tag-deploy.sh tehas-tehas` again. `TEHAS_SSH` changes the
 ssh command itself.
 
-## The edge router does not start
+## The edge router is not running
 
-A host that ran the Protolab's server under its old name has a container of
-the project `tehas-protolab` holding port 8081. `tehas update` takes it down
-and starts the router in its place. When the old one came down and the router
-did not start, the update says `edge: docker compose up exited <n>; the step
-is not done`, and leaves `~/tehas/state/edge-takeover` holding the time it was
-made. Fix what the lines above that message say and run `tehas update` again:
-while that file is less than a day old it starts the router whether or not
-anything runs, and says `edge: finishing the takeover`. Past a day the mark is
-not acted on: the update says `edge: the mark of the takeover is <n> hours
-old, and was left to you`, removes the file, and renews the router only where
-it already runs, so a router you stopped on purpose stays stopped. Start it by
-hand then: `docker compose -p tehas-protolab down`, then
-`. ~/tehas/env.sh && docker compose -f ~/tehas/edge/router.compose.yaml up -d`.
-A mark left by an older tehas has no time on it: it is honoured once, and gets
-the time of that run.
+`tehas update` recreates the router only where it already runs, and never
+starts it. Where nothing runs, the update says `edge: not running on this
+host, left alone` and the step is done. Start it:
+
+```
+. ~/tehas/env.sh
+docker compose -f ~/tehas/edge/router.compose.yaml up -d
+```
+
+If compose says the port is taken, a container of some earlier install is
+holding 8081: `docker ps` names it, and it is taken down with
+`docker rm -f <container>` before the line above.
 
 The router also needs the network `tehas-previews`, which `install.sh` makes. If
 compose says the network is not found, make it. `install.sh` does not make it
@@ -1221,7 +1218,7 @@ docker network inspect tehas-previews --format '{{range .Containers}}{{.Name}} {
 
 **502 from outside.** The proxy in front of the host got no answer from port
 8081: the edge router is not running, or it is bound to another address than
-the proxy sends to. See "The edge router does not start" above.
+the proxy sends to. See "The edge router is not running" above.
 
 **521 or 525 from outside.** The proxy or its certificate. The table in
 [Previews](/edge) says which.
