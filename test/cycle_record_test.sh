@@ -500,7 +500,8 @@ reset
 ended handoff commit-pr feature/x
 t_store_answers cycle-end 1 'store: busy #7: the database is locked'
 t_run "$cycle 7"
-t_eq "$t_rc" 0
+# An end the store did not take is exit 70, not 0: the unit did not succeed.
+t_eq "$t_rc" 70
 t_contains "$t_out" "ERROR: the end of #7 is not on record (busy: store: busy #7: the database is locked): cycle-end 7 --attempt 1 --status handoff"
 t_eq "$(t_calls store | grep -c '^cycle-end')" 5
 t_eq "$(t_calls fake-status | wc -l)" 1

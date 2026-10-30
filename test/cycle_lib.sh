@@ -108,6 +108,15 @@ case "$1 $2" in
     fi ;;
   # The park question, posted through the API so that its id comes back.
   "api repos/acme/widget/issues/"*"/comments") [ ! -e "$T/fx/post-fails" ] || exit 1; echo 4002 ;;
+  # The comment the cycle posts on the issue. The first ones fail, as many as
+  # comment-fails-times says, and any comment fails at once when
+  # comment-fails is there: the two arms of the edits above.
+  "issue comment")
+    if [ -s "$T/fx/comment-fails-times" ]; then
+      left=$(cat "$T/fx/comment-fails-times")
+      if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/comment-fails-times"; exit 1; fi
+    fi
+    [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
   # What the number is. An open issue, unless a case writes the fixture.
   "api repos/acme/widget/issues/"[0-9]*)
     n=${2#repos/acme/widget/issues/}
