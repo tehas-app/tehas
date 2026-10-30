@@ -13,6 +13,8 @@
 //! whatever their age; a workspace whose lock a cycle holds is still never
 //! touched.
 //!
+//! A cycle's scratch on the host's scratch disk goes with its lock free.
+//!
 //! 1. Build output in kept workspaces: every directory under an issue's
 //!    workspace, the tree a retry moved aside, and each git worktree at depth
 //!    two of either, whose name is one of the clean dirs; and
@@ -48,13 +50,16 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 use tehas_core::time;
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file>\n       console clean ended <workspace> <dirs> <log file>";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <base image> <log file> <scratch dir>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
 
 pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "ended") {
         return ended(&given[1..]);
     }
-    let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, pulled, logfile] =
+    if given.first().is_some_and(|v| v == "scratch") {
+        return scratch_made(&given[1..]);
+    }
+    let [verb, dry, home, work, after, min_mb, min_word, free_kb, dirs, sandbox, pulled, logfile, tmp_disk] =
         given
     else {
         eprintln!("{USAGE}");
@@ -83,6 +88,7 @@ pub fn main(given: &[String]) -> u8 {
         sandbox: sandbox.clone(),
         pulled: pulled.clone(),
         logfile: PathBuf::from(logfile),
+        tmp_disk: tmp_disk.clone(),
         freed: 0,
         rc: 0,
     };
@@ -93,7 +99,7 @@ pub fn main(given: &[String]) -> u8 {
 /// cycle builds in a kept workspace again, so its build output goes now and
 /// not a day later. A workspace already gone leaves nothing to do.
 fn ended(given: &[String]) -> u8 {
-    let [workspace, dirs, logfile] = given else {
+    let [workspace, dirs, logfile, tmp] = given else {
         eprintln!("{USAGE}");
         return 64;
     };
@@ -108,11 +114,38 @@ fn ended(given: &[String]) -> u8 {
         sandbox: String::new(),
         pulled: String::new(),
         logfile: PathBuf::from(logfile),
+        tmp_disk: String::new(),
         freed: 0,
         rc: 0,
     };
     run.ended(Path::new(workspace));
+    if !tmp.is_empty() && !remove(Path::new(tmp)) {
+        run.warn(&format!("could not remove {tmp}"));
+        run.rc = 1;
+    }
     run.rc
+}
+
+/// A cycle's own /tmp on the host's scratch disk, made empty and printed. A
+/// directory that cannot be used is exit 78, before Docker is called.
+fn scratch_made(given: &[String]) -> u8 {
+    let [dir, name] = given else {
+        eprintln!("{USAGE}");
+        return 64;
+    };
+    let root = Path::new(dir);
+    let p = root.join(name);
+    let made = root.is_absolute()
+        && root.is_dir()
+        && remove(&p)
+        && fs::create_dir(&p).is_ok()
+        && fs::set_permissions(&p, fs::Permissions::from_mode(0o1777)).is_ok();
+    if !made {
+        eprintln!("tehas clean: {} could not be made", p.display());
+        return 78;
+    }
+    out(&format!("{}\n", p.display()));
+    0
 }
 
 struct Run {
@@ -126,6 +159,7 @@ struct Run {
     sandbox: String,
     pulled: String,
     logfile: PathBuf,
+    tmp_disk: String,
     freed: u64,
     rc: u8,
 }
@@ -574,6 +608,7 @@ impl Run {
             self.workspaces(),
             self.build_cache(),
             self.scratch(),
+            self.cycle_scratch(),
             self.sandbox_images(),
             self.base_images(),
             self.upkeep(),
@@ -584,6 +619,43 @@ impl Run {
         let freed = self.freed;
         self.log(&format!("freed {freed} bytes"));
         self.rc
+    }
+
+    /// The /tmp a cycle killed before its end left on the scratch disk. Under
+    /// the issue's lock, and only where the lock is there to hold.
+    fn cycle_scratch(&mut self) -> bool {
+        if self.tmp_disk.is_empty() {
+            return true;
+        }
+        let Ok(entries) = fs::read_dir(&self.tmp_disk) else {
+            self.warn(&format!("could not read {}", self.tmp_disk));
+            return false;
+        };
+        let mut ok = true;
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let Some(n) = issue_of(&name, &self.base) else {
+                continue;
+            };
+            if self.cycle_running(&n) || !self.cycle_lock(&n).exists() {
+                continue;
+            }
+            let p = e.path();
+            let shown = p.display().to_string();
+            if self.dry {
+                self.log(&format!("would remove {shown}: a cycle's scratch"));
+                continue;
+            }
+            let size = bytes_of(&p);
+            if self.remove_under_lock(&n, &p) {
+                self.freed += size;
+                self.log(&format!("removed {shown}: a cycle's scratch, {size} bytes"));
+            } else if p.exists() {
+                self.warn(&format!("could not remove {shown}"));
+                ok = false;
+            }
+        }
+        ok
     }
 
     fn cycle_lock(&self, n: &str) -> PathBuf {
@@ -1244,8 +1316,11 @@ mod tests {
             tree.display().to_string(),
             "target node_modules".to_string(),
             log.display().to_string(),
+            root.join("scratch/widget-7").display().to_string(),
         ];
+        fs::create_dir_all(root.join("scratch/widget-7/mt")).unwrap();
         assert_eq!(ended(&args), 0);
+        assert!(!root.join("scratch/widget-7").exists());
         for gone in [
             tree.join("console/target"),
             tree.join("web/node_modules"),
@@ -1262,6 +1337,23 @@ mod tests {
         assert_eq!(ended(&args), 0);
         fs::remove_dir_all(&root).unwrap();
         assert_eq!(ended(&args[..2]), 64);
+    }
+
+    #[test]
+    fn a_cycles_scratch_is_made_empty_and_for_any_writer() {
+        let root = std::env::temp_dir().join(format!("clean-scratch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.display().to_string();
+        let args = [dir.clone(), "widget-7".to_string()];
+        assert_eq!(scratch_made(&args), 78, "the disk is not there");
+        fs::create_dir_all(root.join("widget-7/old")).unwrap();
+        assert_eq!(scratch_made(&args), 0);
+        let made = root.join("widget-7");
+        assert!(!made.join("old").exists());
+        let mode = fs::metadata(&made).unwrap().permissions().mode();
+        assert_eq!(mode & 0o7777, 0o1777);
+        assert_eq!(scratch_made(&["scratch".to_string(), "w".to_string()]), 78);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
