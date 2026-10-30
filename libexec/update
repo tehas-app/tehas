@@ -199,11 +199,6 @@ systemd_limit=60   # systemctl daemon-reload, is-active and restart
 build_limit=1800   # sandbox image build
 labels_limit=120   # tehas labels: one gh label create per label of this version
 
-# How long the mark of a half-finished takeover stands (see edge_up). Long
-# enough to fix the cause and run the update again, short enough that a mark
-# some earlier run left does not start a router an operator has stopped.
-takeover_mark_age=86400
-
 show_usage() {
   sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
 }
@@ -828,8 +823,7 @@ fi
 # service the host is using current, it does not add one to the host. Whether it
 # runs is asked of Docker with one plain ps on the project name the compose file
 # pins (name: tehas-docs, name: tehas-edge); the shell tests assert those
-# names are still in the files. The one other project asked about is
-# tehas-protolab, the Protolab server of before the edge router (edge_up). docker compose is for the renewal only.
+# names are still in the files. docker compose is for the renewal only.
 # The arguments are the ones written on install.sh's line, checked before use.
 compose_up() { # name project file [argument...]
   local name=$1 project=$2 file=$3 running out rc
@@ -866,87 +860,6 @@ compose_up() { # name project file [argument...]
     echo "$name: docker compose exited $rc" >&2
     return 1
   fi
-  return 0
-}
-
-# The edge router takes over from the Protolab's server of before it. An install
-# that removes edge/protolab.* leaves that server's container running from the
-# files it had open, holding port 8081, so the router could never start and the
-# update would report "not running" and end green. Where the old project runs it
-# is taken down and the router is brought up in its place; anywhere else this is
-# compose_up, which renews the router only where it already runs.
-#
-# The takeover is two commands, and the first can succeed where the second
-# fails. The next run would then find neither project running, say "left alone"
-# and count the step done, with port 8081 dark. So a taken down project leaves a
-# mark, $TEHAS_HOME/state/edge-takeover, holding the time it was made. While it
-# is fresh the router is brought up whatever runs, and the mark goes only when
-# that worked. An old one is not: an operator who stopped the router on purpose
-# would otherwise have it started again weeks later by a mark of some run they
-# already gave up on. It is said, removed, and the step is what it would have
-# been without it - renew the router only where it already runs.
-edge_up() { # argument...
-  local file=$TEHAS_HOME/edge/router.compose.yaml mark=$TEHAS_HOME/state/edge-takeover old out rc made age
-  if [ ! -f "$file" ]; then
-    compose_up edge tehas-edge "$file" "$@"
-    return
-  fi
-  if [ -e "$mark" ]; then
-    made=$(head -n 1 "$mark" 2>/dev/null) || made=""
-    case "$made" in '' | *[!0-9]*) made="" ;; esac
-    age=-1
-    [ -n "$made" ] && age=$(( $(date -u +%s) - made ))
-    if [ "$age" -gt "$takeover_mark_age" ]; then
-      printf 'edge: the mark of the takeover is %s hours old, and was left to you; start the router by hand if you want it\n' \
-        "$((age / 3600))"
-      rm -f "$mark"
-      compose_up edge tehas-edge "$file" "$@"
-      return
-    fi
-    # With no time on it the mark is one an older version wrote: it is honoured
-    # once, and from here on it carries the time of this run.
-    if [ -z "$made" ]; then
-      echo "edge: finishing the takeover from the Protolab's server (tehas-protolab); the mark had no time on it"
-      printf '%s\n' "$(date -u +%s)" >"$mark" 2>/dev/null || true
-    else
-      echo "edge: finishing the takeover from the Protolab's server (tehas-protolab)"
-    fi
-  else
-    old=$(timeout "$compose_limit" docker ps --quiet \
-      --filter "label=com.docker.compose.project=tehas-protolab" 7>&- 2>&1)
-    rc=$?
-    if [ "$rc" != 0 ]; then
-      echo "edge: docker ps failed; the step is not done" >&2
-      [ "$rc" = 124 ] && echo "  docker gave no answer in ${compose_limit}s" >&2
-      [ -n "$old" ] && printf '%s\n' "$old" | sed 's/^/  /' >&2
-      return 1
-    fi
-    if [ -z "$old" ]; then
-      compose_up edge tehas-edge "$file" "$@"
-      return
-    fi
-    echo "edge: taking over from the Protolab's server (tehas-protolab)"
-    out=$(timeout "$compose_limit" docker compose -p tehas-protolab down 7>&- 2>&1)
-    rc=$?
-    [ -n "$out" ] && printf '%s\n' "$out"
-    if [ "$rc" != 0 ]; then
-      echo "edge: docker compose down of tehas-protolab exited $rc; the step is not done" >&2
-      return 1
-    fi
-    # A mark that cannot be written does not stop the takeover: the router is
-    # brought up now all the same, and only a failure of that is then lost.
-    if ! printf '%s\n' "$(date -u +%s)" >"$mark" 2>/dev/null; then
-      echo "edge: $mark could not be written" >&2
-    fi
-  fi
-  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 7>&- 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" != 0 ]; then
-    echo "edge: docker compose up exited $rc; the step is not done" >&2
-    return 1
-  fi
-  rm -f "$mark"
   return 0
 }
 
@@ -1082,7 +995,7 @@ run_step() { # step line
     units) restart_units "${argv[@]:1}" ;;
     sandbox) build_sandbox ;;
     docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
-    edge) edge_up "${argv[@]:1}" ;;
+    edge) compose_up edge tehas-edge "$TEHAS_HOME/edge/router.compose.yaml" "${argv[@]:1}" ;;
     labels) run_labels ;;
     *)
       echo "WARN: no step this command knows for: $1" >&2
