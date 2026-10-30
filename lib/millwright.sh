@@ -76,10 +76,10 @@ tehas_millwright_base() { # <record>
   local base by
   [ -f "$1" ] && [ ! -L "$1" ] || return 1
   # shellcheck disable=SC2016  # a jq program
-  base=$(jq -c 'def ok: type == "object" and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))
-      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
-      and (.how | type) == "string" and (.how | test("^(label|retry-tick|outage-retry)$"))
-      and (.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}$"));
+  base=$(jq -c 'def ok: type == "object" and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z"))
+      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+\\z"))
+      and (.how | type) == "string" and (.how | test("^(label|retry-tick|outage-retry)\\z"))
+      and (.body_sha256 | type) == "string" and (.body_sha256 | test("^[0-9a-f]{64}\\z"));
     (if .how == "fixer" or .how == "refresh" then .rests_on else . end) | {at, by, how, body_sha256}
     | if ok then . else error("not an approval") end' "$1" 2>/dev/null) || return 1
   by=$(jq -r .by <<<"$base") || return 1
