@@ -720,6 +720,17 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
+fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
+    let mut t = world();
+    let mut a = start_of(7, "label");
+    a["driver"] = json!("lean");
+    t.apply(json!([a]));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["driver"], "lean");
+}
+
+#[test]
 fn an_approval_the_store_refuses_starts_nothing() {
     let mut t = world();
     t.fail("store", "approval-record 7|busy");

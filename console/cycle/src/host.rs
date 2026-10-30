@@ -11,12 +11,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The files of the protocol a report reads, state/cycles/<issue>.<name>.
-pub const FILES: [&str; 11] = [
+pub const FILES: [&str; 12] = [
     "result.json",
     "progress.json",
     "runner_exit",
     "status",
     "nostart",
+    "lean-refused",
     "oom",
     "forks",
     "stalled",

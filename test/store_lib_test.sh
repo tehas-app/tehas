@@ -242,6 +242,17 @@ lib 'tehas_cycle_attempt_is=5; tehas_cycle_attempt 7; echo "rc=$? is=$tehas_cycl
 t_eq "$t_out" "rc=1 is= word=busy"
 
 # --- The approval, as .approved.json had it ------------------------------------------
+t_case "tehas_approval_view: the driver on record is in the view, and a record with none has no key"
+t_store_home "$home"
+printf '{"links":[],"driver":"lean"}' >"$T/lean.json"
+t_approve "$home" 7 alice label 1760000000 --input-file "$T/lean.json"
+t_approve "$home" 8 alice label 1760000000
+t_started "$home" 7
+t_started "$home" 8
+lib 'f=$(tehas_approval_view 7); jq -c "[.how, .driver]" "$f"; rm -f "$f"; f=$(tehas_approval_view 8); jq -c "has(\"driver\")" "$f"; rm -f "$f"'
+t_contains "$t_out" '["label","lean"]'
+t_contains "$t_out" 'false'
+
 t_case "tehas_approval_view: no approval on record is 1, and no file"
 t_store_home "$home"
 rm -rf "$home/tmp"

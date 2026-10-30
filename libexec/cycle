@@ -91,6 +91,9 @@
 # and that no event was seen, and a step of no-step rather than one read from a
 # log. Its run log is still opened for a branch, but no step is taken from it.
 #
+# A runner that exits 78 and leaves state/cycles/<issue>.lean-refused started no
+# cycle either, and is parked as one that exits 4, with what to do next.
+#
 # A runner that exits 4 started no cycle: tehas work refused the start, over
 # text that is not the text the dispatcher approved (its body or its title), a
 # record it could not read, an issue it could not read, or an image or file the
@@ -449,7 +452,7 @@ fi
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
   "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
-  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.done" \
+  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.lean-refused" "${cycles:?}/${issue:?}.done" \
   "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
@@ -1072,6 +1075,8 @@ if tehas_store approval-current "$issue"; then
 else
   log "WARN: the approval of #$issue could not be read for its report ($tehas_store_word)"
 fi
+lean_note=${cycles:?}/${issue:?}.lean-refused
+if [ "$rc" = 78 ] && [ -f "$lean_note" ] && [ ! -L "$lean_note" ]; then rc_start=4; else rc_start=$rc; fi
 [[ $refreshed =~ ^[1-9][0-9]{0,9}$ ]] || refreshed=""
 [[ $base_at =~ ^[1-9][0-9]{0,10}$ ]] || base_at=""
 # park <text>: hand the issue to a human with the retry question.
@@ -1081,9 +1086,6 @@ park_why=""
 # parked_auto: what an outage park says it does on its own, once it is on record.
 parked_auto=""
 parked_now=false
-# A runner that refused to start (tehas work exit 4): no clone, no container,
-# no step. Its report names only what the dispatcher recorded, and its approval
-# record is removed below with the report.
 never_ran=0
 # A runner that wrote no result, whose branch GitHub says carries the bot's
 # open pull request: commit-pr got that far and the review after it did not.
@@ -1271,7 +1273,7 @@ elif [ "$done_why" = closed ]; then
   relabel --remove-label tehas:running && stuck=""
   comment "Tehas stopped the cycle: this issue was closed while it ran ($summary). Nothing more is needed here. $kept; $log_where.$killed$stuck"
   status=closed
-elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
+elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc_start" != 4 ]; then
   # A person closed the pull request without merging it: whether to try again
   # is theirs to say, with the label. No retry box.
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
@@ -1280,16 +1282,8 @@ elif [ -z "$pr" ] && [ -n "$closed_pr" ] && [ "$rc" != 4 ]; then
 
 $handoff}" | q_clean 60000)"
 elif [ "$died_with_open_pr" = 1 ]; then
-  # The runner wrote no result for this cycle - it died before it could - but
-  # its branch has the bot's open pull request, so commit-pr got that far and
-  # the review after it did not finish. This is a handoff to a person, not a
-  # cycle that left nothing: the change is up for review, and a clean retry
-  # would redo what an open pull request already holds. Named as such, with the
-  # pull request, and parked: needs-human-attention, and no retry box, which a
-  # park's boxes would offer. GitHub decided that the pull request is here; the
-  # log only named the branch to ask about, so no line of a log reports one
-  # GitHub does not list. The step names itself in the summary above, so the
-  # comment adds no word of its own about which step it was.
+  # A handoff to a person, not a cycle that left nothing: the change is up for
+  # review and a clean retry would redo it, so it is parked with no retry box.
   relabel --remove-label tehas:running --add-label needs-human-attention && stuck=""
   comment "${marker:+$marker
 }$(printf '%s' "Tehas cycle handed off with its pull request open and its review unfinished: $summary (runner exit $runner_rc). Its runner wrote no result, so tehas read its run log for the step it was in and GitHub for the bot's pull request on its branch: $pr. Read the pull request before you retry: a clean start redoes what it already holds. $kept; $log_where.$killed$stuck" | q_clean 60000)"
@@ -1297,11 +1291,9 @@ elif [ "$died_with_open_pr" = 1 ]; then
   status=handoff
 else
   parked="Tehas cycle stopped without a pull request: $summary (runner exit $runner_rc).$why${handoff:+ The handoff of pi-rukas follows.} $kept; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"
-  if [ "$rc" = 4 ]; then
-    # A cycle that never ran has no status, no step, no duration and no usage of
-    # its own to report: none of those are this issue's to name. What is known
-    # is the dispatcher's record of the start it authorised, and the log tehas
-    # work wrote its reason into.
+  if [ "$rc_start" = 4 ]; then
+    # What is known of a cycle that never ran is the dispatcher's record of the
+    # start, and the log tehas work wrote its reason into.
     never_ran=1
     # The time a person approved: a refresh names the approval it rests on,
     # and the retry after an outage is the poll's own, so it names no time.
@@ -1322,6 +1314,7 @@ else
       never_ran_said=" No approval of this start is recorded on this host: a fresh \`tehas:ready\` is needed."
     fi
     parked="Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit $runner_rc). Nothing of it ran: no workspace, no container, no step, no usage.$never_ran_said The comment before this one names it; $log_where."
+    [ "$rc" = 4 ] || parked="Tehas started no cycle: this start's approval says driver \`lean\`, and this tehas cannot run the lean driver yet (runner exit $runner_rc). It does not run classic in its place, and nothing of it ran. To run it on classic, take \`tehas:lean\` off, then retry; $log_where."
   elif [ "$provider" = 1 ]; then
     park_why="provider-outage"
     parked="Tehas cycle parked by a provider outage: $summary (runner exit $runner_rc), cap \`$cap\`${reason:+: $reason}; $log_where.$killed${pr:+ Its branch has an open pull request: $pr}$foreign"

@@ -118,7 +118,8 @@ CREATE INDEX endings_recent ON endings (ended_at DESC);
 -- 3.4 approvals: one approval is one start. A used_at that is null is one
 -- start still owed. by_account is the actor of the labelled event, and
 -- body_sha256 is the text the approval binds to. input_json (v2) is what the
--- cycle is given with it: links, comment_links, retry_context, refresh_of.
+-- cycle is given with it: links, comment_links, retry_context, refresh_of, and
+-- driver when the start is not classic.
 -- easy (v9) says a refresh start ran as an easy merge (#1031): a row of the
 -- same approval that says 1 has had the one easy merge that approval is owed,
 -- and no second one starts on it.

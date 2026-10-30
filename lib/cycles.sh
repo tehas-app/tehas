@@ -96,6 +96,8 @@ tehas_cycles_running() {
 #                         tehas work removes it before the container starts.
 #                         The count of memory kills is not in it: that is the
 #                         account of <issue>.oom, as for every other end.
+#   <issue>.lean-refused  tehas work's 78 was for driver lean, not another 78.
+#                         tehasbot cycle removes it before tehas work starts.
 
 # The caps tehas sets for a stop of its own making, and no other command does.
 # The one list: libexec/cycle both makes them and says who made them from it, so
