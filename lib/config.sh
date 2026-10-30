@@ -351,7 +351,6 @@ _tehas_why() {
 # lens reviewers are one role, CODE_REVIEW_SPECIALIST. The project manager is
 # the session: its model is the product's .pi/settings.json.
 _tehas_roles=(DEVELOPER OPS EXPLORE ADVERSARIAL_DEVELOPER CODE_REVIEW_SPECIALIST)
-tehas_model_roles() { printf '%s\n' "${_tehas_roles[@]}"; }
 
 # Check the per-role model settings and give each role model a provider. A name
 # pi-rukas does not read would reach the container and be ignored, and that role

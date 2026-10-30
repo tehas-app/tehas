@@ -593,7 +593,9 @@ state store (`~/tehas/state/tehas.db`, through `libexec/store`
 after a provider outage), `body_sha256`, the sha256 of the body that approval
 was checked against with carriage returns dropped, `title_sha256`, the sha256
 of the issue's title held the same way (line ends dropped), and as the start's
-inputs `links`, the links to GitHub's attachment storage in that body. `at` is
+inputs `links`, the links to GitHub's attachment storage in that body, and
+`driver` when the start [chose lean](/operating#choosing-the-driver). A record
+with no `driver` is classic. `at` is
 the time GitHub gave the label or the tick; a refresh and the retry after an
 outage rest on an approval that started a cycle already, and are on record at
 the time the poll decided them. The body, the title and the record of who last
