@@ -445,7 +445,8 @@ choice.
 - The start binds the choice in its approval record. A retry (a ticked box, the
   retry after a provider outage, the millwright's `tehas:ready` or a refresh)
   runs the driver of the start it follows, so a label added since changes
-  nothing until a person applies `tehas:ready` again.
+  nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
+  that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
 - The bash poll (`TEHAS_DISPATCHER=bash`) does not read who applied the label:
   on it nothing starts while the issue carries it, and the log says why. Take it
