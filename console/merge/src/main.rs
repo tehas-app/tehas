@@ -13,20 +13,22 @@
 //! or second pull request is ever made.
 //!
 //! Answers one JSON line on standard output: {ok, sha, conflicts, settled,
-//! model, pushed, why, pr, issue, calls}. The lines of the commands that ran
-//! go to standard error, so the container's log holds them beside the rest of
-//! the run.
+//! model, pushed, why, pr, issue, calls}. The answer is the library's
+//! `Report`, so the line a host reads and the one the cases read are one
+//! shape. The lines of the commands that ran go to standard error, so the
+//! container's log holds them beside the rest of the run, which is why a
+//! host's `calls` is the empty list: the runner of a host keeps none.
 //!
 //! Exit: 0 the merge commit was pushed; 1 it was not, with `why` naming why;
 //! 64 an argument it does not know; 78 an argument it cannot do without.
 
-use serde_json::json;
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
 use std::time::Duration;
-use tehas_merge::{merge, Plan, Runner};
+use tehas_merge::{normalise_commit, report, Plan, Runner};
 
 /// How long one command may take: git's own work is seconds, and the model's
 /// turn is the long one. The container is bounded by the unit that started it,
@@ -124,6 +126,28 @@ impl Runner for Real {
         let mut cmd = Command::new(program);
         cmd.args(args)
             .current_dir(tree)
+            // A few settings change what git or cargo do without naming them
+            // in the call, and the merge cannot read the tree it is told about
+            // through one of them. They are taken from this command's own
+            // environment before it starts anything: the container is given
+            // what a cycle is given, and a mount or a token is added by none of
+            // this. Everything else the caller passed stays, because git reads
+            // its credentials from it.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_CONFIG")
+            .env_remove("GIT_CONFIG_GLOBAL")
+            .env_remove("GIT_CONFIG_SYSTEM")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
+            .env_remove("GIT_MERGE_AUTOEDIT")
+            .env_remove("GIT_PAGER")
+            .env_remove("PAGER")
+            .env_remove("CARGO")
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("BASH_ENV")
+            .env_remove("ENV")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -145,6 +169,41 @@ impl Runner for Real {
     }
 }
 
+/// The lines a command wrote, read with the bound of the command that wrote
+/// them: a child that has exited with a full pipe keeps a reader blocked, and
+/// a read outside the bound would hold the merge past it with no answer.
+fn read_bounded(mut r: impl std::io::Read + Send + 'static) -> String {
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Err(e) = thread::Builder::new()
+        .name("read-the-answer".to_string())
+        .spawn(move || {
+            let mut buf = Vec::new();
+            // A command's answer is read whole up to 1 MiB: what the merge
+            // reads is names and lines, and more than that is no answer.
+            let _ = r.read_to_end(&mut buf);
+            let kept = String::from_utf8_lossy(&buf[..buf.len().min(1 << 20)]).into_owned();
+            let _ = tx.send(kept);
+        })
+    {
+        return format!("the answer could not be read: {e}");
+    }
+    match rx.recv_timeout(BOUND) {
+        Ok(s) => s,
+        Err(_) => format!("the answer was not written in {}s", BOUND.as_secs()),
+    }
+}
+
+/// The two streams of a child that has ended, read at once so a full pipe
+/// cannot hold the merge past its bound.
+fn drain(mut child: std::process::Child) -> (String, String) {
+    let out = child.stdout.take().map(read_bounded);
+    let err = child.stderr.take().map(read_bounded);
+    (
+        out.unwrap_or_default(),
+        err.unwrap_or_else(|| "the error answer could not be read".to_string()),
+    )
+}
+
 /// Wait for a command out to its bound, then read what it wrote. A command
 /// that does not end is killed and said so: a merge that hangs is one that
 /// did not happen, and the full refresh is the answer to that.
@@ -153,8 +212,7 @@ fn wait(mut child: std::process::Child) -> Result<(Option<i32>, String, String),
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let out = child.stdout.take().and_then(read_it).unwrap_or_default();
-                let err = child.stderr.take().and_then(read_it).unwrap_or_default();
+                let (out, err) = drain(child);
                 return Ok((status.code(), out, err));
             }
             Ok(None) => {
@@ -168,14 +226,6 @@ fn wait(mut child: std::process::Child) -> Result<(Option<i32>, String, String),
             Err(e) => return Err(format!("waiting failed: {e}")),
         }
     }
-}
-
-fn read_it(mut r: impl std::io::Read) -> Option<String> {
-    let mut buf = Vec::new();
-    // A command's answer is read whole up to 1 MiB: what the merge reads is
-    // names and lines, and more than that is not an answer to anything.
-    let _ = r.read_to_end(&mut buf);
-    Some(String::from_utf8_lossy(&buf[..buf.len().min(1 << 20)]).into_owned())
 }
 
 fn main() {
@@ -228,16 +278,17 @@ fn main() {
     if !tree.is_dir() {
         refuse(&format!("{} is not a directory", tree.display()), 78);
     }
-    // git names a commit in lower case, so the two are read lower-cased: an
-    // upper-case sha from a person or a tool names the same commit, and the
-    // merge compares it with git's own answer.
-    let head = need("head").to_ascii_lowercase();
-    let base = need("base").to_ascii_lowercase();
-    for (what, sha) in [("head", &head), ("base", &base)] {
-        if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-            refuse(&format!("--{what} is not a commit"), 64);
-        }
-    }
+    // A commit id is read once, by the rule the merge compares with: an
+    // upper-case sha from a person or a tool names the same commit as git's
+    // own lower-case spelling, and anything else is no commit at all.
+    let head = match normalise_commit(&need("head")) {
+        Some(sha) => sha,
+        None => refuse("--head is not a commit", 64),
+    };
+    let base = match normalise_commit(&need("base")) {
+        Some(sha) => sha,
+        None => refuse("--base is not a commit", 64),
+    };
     let branch = need("branch");
     let branch_ref = need("ref");
     if branch_ref.is_empty()
@@ -286,17 +337,12 @@ fn main() {
     let mut runner = Real {
         log: PathBuf::from(log),
     };
-    let out = merge(&mut plan, &mut runner);
-    // The commands that ran are in the log; `Real` keeps no call list, so the
-    // answer of a host names the empty list. The key is there because the
-    // usage above promises it.
-    println!(
-        "{}",
-        json!({"ok": out.ok(), "sha": out.sha, "conflicts": out.conflicts,
-        "settled": out.settled, "model": out.model, "pushed": out.pushed,
-        "why": out.why, "pr": pr, "issue": issue, "calls": Vec::<String>::new()})
-    );
-    if !out.ok() {
+    let answer = report(&mut plan, &mut runner);
+    // The one answer of the library, so the host's line and the one under test
+    // cannot drift apart: the same keys, and the same `calls`, which a host's
+    // `Real` answers empty because it says the commands to the log instead.
+    println!("{}", answer.json());
+    if !answer.outcome.ok() {
         std::process::exit(1);
     }
 }
