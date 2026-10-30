@@ -153,16 +153,8 @@ fn wait(mut child: std::process::Child) -> Result<(Option<i32>, String, String),
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let out = child
-                    .stdout
-                    .take()
-                    .and_then(read_it)
-                    .unwrap_or_default();
-                let err = child
-                    .stderr
-                    .take()
-                    .and_then(read_it)
-                    .unwrap_or_default();
+                let out = child.stdout.take().and_then(read_it).unwrap_or_default();
+                let err = child.stderr.take().and_then(read_it).unwrap_or_default();
                 return Ok((status.code(), out, err));
             }
             Ok(None) => {

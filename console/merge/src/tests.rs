@@ -107,7 +107,8 @@ impl Fake {
     /// the answer of the command itself. `named` is the call as a case names
     /// it, the program without its path, so `pi -p ...` is scripted by
     /// `pi -p` however the plan spells the program's name.
-    fn reply(&self, named: &str) -> Reply {        // The scripted answers win, in the order a case wrote them, so the
+    fn reply(&self, named: &str) -> Reply {
+        // The scripted answers win, in the order a case wrote them, so the
         // narrower name is written first: `pi -p` before `pi`.
         // The scripted answers win, and the broadest name wins among them: a
         // case that means the model to fail writes `pi -p` alone, and the
@@ -130,10 +131,7 @@ impl Fake {
             // The second read of HEAD is the merge commit's, which is the sha
             // the merge pushes: the first is the pull request's head the tree
             // must stand on, and the commit is written between them.
-            let after = self
-                .calls
-                .iter()
-                .any(|c| c.contains("commit --no-edit"));
+            let after = self.calls.iter().any(|c| c.contains("commit --no-edit"));
             return Reply::yes(&format!("{}\n", if after { MERGE } else { HEAD }));
         }
         if named.starts_with("grep ") {
@@ -422,7 +420,11 @@ fn a_model_that_does_not_finish_refuses_the_merge() {
         out.why
     );
     assert!(out.model, "the model was asked all the same");
-    assert!(!f.scripted("grep"), "the marker check ran too: {:?}", f.calls);
+    assert!(
+        !f.scripted("grep"),
+        "the marker check ran too: {:?}",
+        f.calls
+    );
 }
 
 #[test]
