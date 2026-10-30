@@ -7,6 +7,10 @@ edition = "2021"
 # The oldest compiler that knows what the source uses (Option::is_none_or).
 rust-version = "1.82"
 publish = false
+# The one test target below is listed by hand and nothing else under tests/ is
+# discovered: each of the nine suite files is a module of tests/main.rs, and
+# autotests would also link every one of them as a test target of its own.
+autotests = false
 
 [lib]
 name = "mcp"
@@ -15,6 +19,14 @@ path = "src/lib.rs"
 [[bin]]
 name = "tehas-mcp"
 path = "src/main.rs"
+
+# The nine suite files of tests/ are modules of this one rather than nine test
+# targets, so they link one binary instead of nine that each carried their own
+# copy of the harness and of this crate (#1116). A test keeps its own name, so
+# the path of one is its module and its own: `logs::the_id_is_checked_...`.
+[[test]]
+name = "mcp"
+path = "tests/main.rs"
 
 [dependencies]
 flate2 = "1"
