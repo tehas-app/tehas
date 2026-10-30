@@ -421,4 +421,23 @@ run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
 t_contains "$run_args" "pi-rukas-headless"
 t_lacks "$run_args" "/run/tehas/github"
 
+t_case "a scratch disk takes the place of the tmpfs, at the same path, and for this cycle alone"
+t_console || t_bad "no console: $t_console_why"
+rm -f "$T"/calls/docker*
+mkdir -p "$T/scratch"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR="$T/scratch"
+T_ENV+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+t_run "$work 7"
+t_eq "$(cycle_args | count_of --tmpfs)" "0"
+t_contains "$(cycle_args)" "$T/scratch/widget-7:/tmp"
+t_eq "$(stat -c %a "$T/scratch/widget-7")" "1777"
+t_eq "$(after --user)" "$(id -u):$(id -g)"
+
+t_case "a scratch disk that is not there starts no container"
+rm -rf "$T/scratch" "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cycle_args)" ""
+t_eq "$(preflight_args)" ""
+
 t_done

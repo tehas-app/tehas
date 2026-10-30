@@ -115,6 +115,15 @@ t_run "$load; echo rc=\$? \$((TEHAS_PLAN_TIMEOUT + 900))"
 t_eq "$t_out" "rc=0 $((plan_max + 900))"
 t_instance "${T_MINIMAL[@]}"
 
+t_case "a scratch directory is an absolute path"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR=scratch
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_SCRATCH_DIR is not valid"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR=/mnt/scratch
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=0"
+
 t_case "a planning turn's time limit over the ceiling is refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PLAN_TIMEOUT=$((plan_max + 1))
 t_run "$load; echo rc=\$?"
