@@ -216,8 +216,8 @@ pub fn events(node: &Value) -> Value {
 /// Guarding it would spend a paginated read on every running issue on every
 /// poll, and no start is decided from it: a candidate carrying the mark is left
 /// out of the ready list. What a start does rest on is read of `tehas:ready`,
-/// `tehas:blocked`, `tehas:urgent`, `tehas:plan` and `tehas:refine` only, and
-/// the exemption reaches no other label - an issue carrying the mark beside a
+/// `tehas:blocked`, `tehas:urgent`, `tehas:plan`, `tehas:refine` and
+/// `tehas:lean` only, and the exemption reaches no other label - an issue carrying the mark beside a
 /// person's label is still guarded by that one.
 ///
 /// The exemption is not a waiver of the page's own shape. A node the page

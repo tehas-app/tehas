@@ -493,25 +493,25 @@ trap 'if [ "$tidy_on" = 1 ]; then
 json=""
 gh_json() { json=$(gh "$@" 2>"$TEHAS_HOME/state/gh-err") && return; log "ERROR: gh $1 $2 failed$(grep -oiE -m1 'HTTP [0-9]{3}|secondary rate limit|rate limit|timed? ?out|connection (reset|refused)|no such host|unexpected EOF' "$TEHAS_HOME/state/gh-err" | sed -n '1s/^/: /p')"; exit 1; }
 
-# say <issue> <text>: comment on an issue. A failure is a warning in the log,
-# not the end of the poll.
+# say <issue> <text>: comment on an issue. A failure is only a warning.
 say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
 
-# post_question <kind> <issue> <turn> <result.json> [line under the agent's
-# words]: post a question comment. The line, when it is given, is the host's
-# own and goes after the question and before the boxes. Its id is left in
-# $posted. Returns 1 when it could not be posted.
+# post_question <kind> <issue> <turn> <result.json> [line above the boxes]: a
+# plan's text, once, then its question, whose id is left in $posted. 1 on a failure.
 posted=""
 post_question() {
   local body
+  body=$(jq -r '.text // ""' "$4" | q_clean 40000) || return 1
+  if [ -n "$body" ]; then
+    gh issue comment "$2" --repo "$repo" --body "$body" >/dev/null 2>&1 || return 1
+    jq '.text = ""' "$4" >"$4.new" && mv "$4.new" "$4"
+  fi
   body=$(q_render "$1" "$2" "$3" "$4" "${5:-}") || return 1
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
-# untick <issue> <answer> [note]: empty every box of a question comment. With
-# a note, say it on the issue, but only once the untick has worked: if the box
-# stays ticked the next poll sees the same tick, and the note would be posted
-# every poll. Returns 1 when the comment could not be changed.
+# untick <issue> <answer> [note]: empty every box of a question comment, then
+# say the note: a box left ticked would have it said on every poll. 1 on a failure.
 untick() {
   gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$2")" \
     -f body="$(jq -r .body <<<"$2" | q_untick)" >/dev/null 2>&1 || return 1
@@ -981,6 +981,13 @@ blocked_ok() {
   [ -n "$why" ] || return 0
   log "wait #$n: tehas:blocked holds it: $why"
   return 1
+}
+
+# lean_held <labels> <issue>: this poll does not read tehas:lean, and classic
+# never runs in place of the driver asked for.
+lean_held() {
+  [[ $1 == *" tehas:lean "* ]] || return 1
+  log "skip #$2: it carries tehas:lean, which only the Rust poll reads; take it off to run it on classic"
 }
 
 # deny_label <verb> <issue> <label>: the label came from an account outside the
@@ -1749,11 +1756,9 @@ start_cycles() {
   for n in "${picked[@]}"; do
     log "start #$n (${verb[$n]} by ${starter[$n]})"
     read -ra out <<<"${drop[$n]}"
-    # A refresh marks its pull request before its approval is recorded, so a
-    # start that cannot mark it leaves no approval for tehas_refresh_count
-    # to read as a refresh: the limit is not spent on starts that never were.
-    # A mark a person cannot see is worse than no refresh: it tells them to
-    # merge or push to a pull request a cycle is about to rewrite.
+    # A refresh marks its pull request before its approval is recorded: a start
+    # that cannot mark it spends none of the limit, and an unseen mark would let
+    # a person push to a pull request a cycle is about to rewrite.
     if [ -n "${refresh_pr[$n]:-}" ] && ! refresh_mark "${refresh_pr[$n]}"; then
       log "ERROR: could not mark pull request #${refresh_pr[$n]} as refreshing, not starting a cycle"
       failed=1
@@ -1797,18 +1802,16 @@ start_cycles() {
       failed=1
       continue
     fi
-    # In the factory's analytics: ready, at the time the approval was given,
-    # and without one at all when GitHub named none. The program keeps the
-    # first one of each issue. A failure is a warning.
+    # In the factory's analytics: ready, at the time the approval was given if
+    # GitHub named one. The program keeps the first of each issue.
     accepted=""
     case ${given_how[$n]} in
       refresh | outage-retry) accepted=${recorded_at[$n]} ;;
       *) [ -z "${given_at[$n]}" ] || accepted=${recorded_at[$n]} ;;
     esac
     tehas_analytics event "$n" ready ${accepted:+--at "$accepted"}
-    # The cycle starts only once the issue is marked as taken. If the label
-    # cannot be changed, the issue would stay in its queue and every later
-    # poll would start the same issue again.
+    # The cycle starts only once the issue is marked as taken, or the issue
+    # stays in its queue and every later poll starts it again.
     if ! gh issue edit "$n" --repo "$repo" --add-label tehas:running "${out[@]}" >/dev/null 2>&1; then
       restore_record "$n"
       park_reask "$n"
@@ -1817,8 +1820,7 @@ start_cycles() {
       continue
     fi
     done_any=1
-    # The poll started a cycle: the row of poll_cost says so, and a poll whose
-    # row says 0 is an idle one for `store poll-idle`.
+    # A poll whose poll_cost row says 0 is an idle one for `store poll-idle`.
     poll_starts=$((poll_starts + 1))
     park_spend "$n"
     [ -z "${refresh_pr[$n]:-}" ] || rm -f "$(tehas_refresh_dir)/$n.json"
@@ -1911,6 +1913,7 @@ refresh_ok() {
   if plan_open "$n"; then refresh_drop "$n" "a planning session is open on it"; return 1; fi
   work_ok "$n" || { refresh_drop "$n" "it is not an open issue"; return 1; }
   have=" $(jq -r '[(.labels // [])[].name] | join(" ")' <<<"${work_answer[$n]}") "
+  lean_held "$have" "$n" && return 1
   [[ $have == *" tehas:awaiting-merge "* || $have == *" needs-human-attention "* ]] ||
     { refresh_drop "$n" "it carries neither tehas:awaiting-merge nor needs-human-attention"; return 1; }
   # On a handed-off issue tehas:ready asks for a fresh cycle, which rule 6
@@ -3117,6 +3120,7 @@ for n in $asking; do
       mesh_ok || exit 0
       image_ok "$n" || continue # this issue's own hold, as on the ready path
       image_missing_ok "$n" || continue
+      lean_held "$have" "$n" && continue
       if [ "$dry" = 1 ]; then
         log "would run a cycle for #$n (retry ticked by $by)"
         exit 0
@@ -3141,14 +3145,9 @@ for n in $asking; do
       # A tehas:ready left on the issue would start a second cycle after this
       # one: one start uses up every request for it.
       for l in tehas:ready tehas:millwright-escalated; do [[ $have == *" $l "* ]] && drop[$n]+=" --remove-label $l"; done
-      # One tick is one start. The start takes the question off the record
-      # and then marks the issue: when the mark fails the question goes back
-      # on record, the poll ends here and the tick stays, so the next poll
-      # tries again. Once the issue is marked the question is off the record,
-      # so the tick can start nothing more. It is unticked then, so the comment
-      # shows it was taken; a failure there is only a warning.
-      # A start that failed before the issue was marked has spent nothing: the
-      # tick stays, and the next poll tries again, as the comment above says.
+      # One tick is one start: it takes the question off the record, then marks
+      # the issue. A start that failed before the mark spent nothing: the tick
+      # stays and the next poll tries again. After it, it is unticked for show.
       start_cycles
       started=$?
       [ "$started" = 0 ] || exit "$started"
@@ -3473,6 +3472,7 @@ for owed_line in "${owed[@]}"; do
     fi
     continue
   fi
+  lean_held "$have" "$n" && continue
   if [ "$dry" = 1 ]; then
     log "would run a cycle for #$n (retry after a provider outage, started by $by)"
     exit 0
@@ -3482,9 +3482,8 @@ for owed_line in "${owed[@]}"; do
   picked=("$n")
   starter[$n]=$by
   verb[$n]=requeued
-  # The text was checked unchanged since the parked cycle began, so the
-  # approval record stands on that time. The store records the approval of
-  # this retry at now: it is the poll's own decision.
+  # The text is unchanged since the parked cycle began, so the record stands on
+  # that time. The store records this retry at now: it is the poll's decision.
   given_at[$n]=$(date -u -d "@$started" +%FT%TZ)
   given_how[$n]=outage-retry
   how[$n]="start of the cycle a provider outage parked"
@@ -3575,9 +3574,9 @@ while read -r kind n; do
   fi
   [ "$ready_picked" -lt "$want" ] || continue
   have=" $(jq -r --argjson n "$n" '[.[] | select((.number | tonumber?) == $n) | (.labels // [])[].name] | join(" ")' <<<"$ready_json") "
-  # One issue is in one flow at a time: a cycle's park question would hide the
-  # session's, and the session would end with nobody told. The record counts as
-  # well as the label, since between turns only the record shows a session is open.
+  lean_held "$have" "$n" && continue
+  # One issue is in one flow at a time: a park question would hide the session's.
+  # The record counts too: between turns only it shows a session is open.
   if ! plan_sessions; then
     log "skip #$n: the open planning sessions could not be read ($plan_open_word)"
     continue
@@ -3613,10 +3612,8 @@ while read -r kind n; do
   # Asked after the label approves the issue: an issue no account is allowed
   # to start costs no call, and the label is not changed until start_cycles.
   work_ok "$n" || continue
-  # Asked of the answer work_ok already read, and before every later ask: an
-  # issue whose fix lies in another repository spends no call of its own on the
-  # pull requests, the images or the park that its start would never reach.
-  # An epic is a plan, not a change: it never starts a cycle.
+  # Before every later ask, so an issue that cannot start spends no call on
+  # them. An epic is a plan, not a change: it never starts a cycle.
   epic_ok "$n" || continue
   # Nor does one whose fix the loop says lives on the other side too.
   cross_repo_holds "$n" "$have" || continue
@@ -3628,9 +3625,7 @@ while read -r kind n; do
     continue
   fi
   image_ok "$n" || continue
-  # Asked of the text the label approved, with no call of its own: an issue
-  # that says a file goes there and links nothing waits for its owner instead
-  # of spending a cycle on a premise it cannot see.
+  # An issue that says a file goes there and links nothing waits for its owner.
   image_missing_ok "$n" || continue
   # A relabelled start on the very text the last cycle parked on asks for a spent
   # attempt: it is logged once, until the body changes or the park is ticked.

@@ -828,7 +828,7 @@ t_record() { # <home> <issue> <JSON>
   fi
   [ "$t_at" -gt "$t_last" ] || t_at=$((t_last + 10))
   jq --arg how "$t_how" '{links: (.links // [])}
-    + with_entries(select(.key == "comment_links" or .key == "retry_context"))
+    + with_entries(select(.key == "comment_links" or .key == "retry_context" or .key == "driver"))
     + (if $how == "refresh" then {refresh_of: (.refresh_of // null)} else {} end)' <<<"$t_j" >"$t_in"
   t_args=(approval-record "$t_n" --at "$t_at" --by "$(jq -r .by <<<"$t_j")" --how "$t_how"
     --body-sha "$(jq -r .body_sha256 <<<"$t_j")" --input-file "$t_in")

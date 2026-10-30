@@ -720,6 +720,17 @@ fn a_start_records_marks_says_and_starts_in_that_order() {
 }
 
 #[test]
+fn a_start_binds_its_driver_in_the_record_and_a_classic_one_names_none() {
+    let mut t = world();
+    let mut a = start_of(7, "label");
+    a["driver"] = json!("lean");
+    t.apply(json!([a]));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["driver"], "lean");
+}
+
+#[test]
 fn an_approval_the_store_refuses_starts_nothing() {
     let mut t = world();
     t.fail("store", "approval-record 7|busy");
@@ -932,6 +943,76 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
         .calls()
         .iter()
         .any(|c| c.starts_with("store approval-record")));
+}
+
+#[test]
+fn an_easy_start_logs_the_easy_merge_and_marks_its_approval() {
+    let mut t = world();
+    let h = t.w.home.clone();
+    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    let mut a = start_of(7, "refresh");
+    a["verb"] = json!("easy");
+    a["log"] = json!("start #7 (easy by alice)");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["easy"] = json!(true);
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    let got = t.apply(json!([a.clone()]));
+    // The log names the easy merge and the pull request it merges into.
+    assert_eq!(
+        got.log
+            .iter()
+            .filter(|l| l.contains("start #7"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["start #7 (easy by alice)", "start #7: easy merge of PR #12"]
+    );
+    let w = t.writes();
+    // The record carries the store's mark, so the approval cannot be owed a
+    // second easy merge (#1031).
+    let record = w
+        .iter()
+        .find(|c| c.starts_with("store approval-record"))
+        .expect("the start wrote its approval");
+    assert!(record.ends_with("--easy"), "{record}");
+    assert!(
+        record.contains(&format!(
+            "--refresh-pr 12 --refresh-head {}",
+            "c".repeat(40)
+        )),
+        "{record}"
+    );
+    assert!(w.iter().any(|c| c
+        .contains("Tehas chose the easy merge of this issue on `tehas-tehas`")
+        && c.contains(
+            "merges `main` into https://github.com/example-owner/example-product/pull/12"
+        )));
+}
+
+#[test]
+fn a_full_start_records_no_easy_mark_and_logs_no_easy_merge() {
+    let mut t = world();
+    let h = t.w.home.clone();
+    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    let mut a = start_of(7, "refresh");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    let got = t.apply(json!([a]));
+    let w = t.writes();
+    let record = w
+        .iter()
+        .find(|c| c.starts_with("store approval-record"))
+        .expect("the start wrote its approval");
+    assert!(!record.contains("--easy"), "{record}");
+    assert!(
+        !got.log.iter().any(|l| l.contains("easy merge")),
+        "{:?}",
+        got.log
+    );
+    assert!(!h.join("state/refresh/7.json").exists());
 }
 
 #[test]
@@ -1278,6 +1359,7 @@ fn quiet_of(n: u64) -> Value {
 #[test]
 fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
     let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
     let line = "WARN: the cycle for #7 holds its lock but has not been heard from since 2026-10-26T07:33:20Z, more than 1200s: stopping tehas-cycle@7.service";
     assert_eq!(a.log, vec![line]);
@@ -1289,6 +1371,30 @@ fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
             "start 7",
         ]
     );
+    assert_eq!(
+        fs::read_to_string(t.w.home.join("state/cycles/7.done")).unwrap(),
+        "quiet\n"
+    );
+}
+
+#[test]
+fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
+    let mut t = world();
+    // The directory of the cycle's files, but no write for it: a new file
+    // there cannot be made. The stop is asked all the same, and said.
+    let cycles = t.w.home.join("state/cycles");
+    fs::create_dir_all(&cycles).unwrap();
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o500)).unwrap();
+    let a = t.apply(json!([quiet_of(7)]));
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
+    let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
+    assert!(
+        said
+            .iter()
+            .any(|l| *l == "WARN: could not write the reason for #7"),
+        "{said:?}"
+    );
+    assert!(t.calls().contains(&"start 7".to_string()));
 }
 
 #[test]
@@ -1471,7 +1577,7 @@ fn an_agents_words_are_masked_before_they_are_posted() {
     let t = format!("token ghp_abcdefghijklmnop1234 and API_KEY=hunter2\r\nat {v4} or {v6} on {name}\n<!-- x -->\n- [x] done\nthanks @alice\n\n");
     assert_eq!(
         q_clean(&t, 60000),
-        "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- \\[x] done\nthanks @\u{200b}alice"
+        "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- ☑ done\nthanks @\u{200b}alice"
     );
     assert_eq!(q_clean("abcdef", 3), "abc");
     assert_eq!(q_clean("", 10), "");
@@ -1484,7 +1590,7 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
         "marker": "<!-- pi-rukas:handoff issue=7 cap=plan -->"});
     assert_eq!(
         q_render(7, 2, &out, "Filed in this turn: #9"),
-        "<!-- pi-rukas:handoff issue=7 cap=plan -->\nTwo ways.\n\nWhich?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+        "Which?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
     );
     let many: Vec<Value> = (0..22).map(|i| json!({"label": format!("o{i}")})).collect();
     let r = q_render(
@@ -1495,8 +1601,6 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
     );
     assert!(r.contains("Options left out: 2. A reply can name another choice."));
     assert_eq!(r.matches("- [ ] o").count(), 20);
-    // Another issue's marker is no marker.
-    assert!(!q_render(8, 1, &out, "").starts_with("<!-- pi-rukas"));
 }
 
 #[test]
@@ -1866,6 +1970,64 @@ fn a_question_already_posted_is_not_posted_again() {
 }
 
 #[test]
+fn a_plan_is_said_before_its_boxes_and_once() {
+    let mut t = world();
+    plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
+    let path = t.w.home.join("state/plan-7.json.out");
+    fs::write(
+        &path,
+        json!({"text": "The plan.", "question": {"question": "Which?", "options": []}}).to_string(),
+    )
+    .unwrap();
+    // The boxes do not go up: the plan stays said, the next poll adds them.
+    t.fail("gh", "repos/example-owner/example-product/issues/7/comments");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the planning turn of #7 could not be posted; the next poll tries again"]
+    );
+    let said = |t: &World| {
+        t.writes()
+            .iter()
+            .filter(|c| c.starts_with("gh issue comment 7"))
+            .count()
+    };
+    assert_eq!(said(&t), 1);
+    let kept: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(kept["text"], "");
+    assert_eq!(kept["question"]["question"], "Which?");
+
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    assert!(t.apply(json!([{"plan_post": 7}])).log.is_empty());
+    let w = t.writes();
+    assert_eq!(said(&t), 1);
+    let plan = w.iter().position(|c| c.starts_with("gh issue comment 7"));
+    let boxes = w.iter().rposition(|c| c.contains("/issues/7/comments"));
+    assert!(plan < boxes);
+}
+
+#[test]
+fn a_plan_not_said_stops_its_boxes_too() {
+    let mut t = world();
+    plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"text": "The plan."}).to_string(),
+    )
+    .unwrap();
+    t.fail("gh", "issue comment 7");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "WARN: comment on #7 failed",
+            "WARN: the planning turn of #7 could not be posted; the next poll tries again"
+        ]
+    );
+    assert!(!t.writes().iter().any(|c| c.contains("/issues/7/comments")));
+}
+
+#[test]
 fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     // An issue of another repository is said, never edited: the original stays.
     let mut t = world();
@@ -1985,7 +2147,7 @@ fn more_of_what_q_clean_masks() {
     );
     assert_eq!(
         q_clean("* [ ] a\n  + [x] b\na@b", 100),
-        "* \\[ ] a\n  + \\[x] b\na@\u{200b}b"
+        "* ☐ a\n  + ☑ b\na@\u{200b}b"
     );
     assert_eq!(q_clean("äöå", 2), "äö");
 }

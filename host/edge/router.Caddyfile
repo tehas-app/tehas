@@ -61,10 +61,17 @@
         # The typeface, the style sheets and the sprites, shared with the
         # dashboard. Its page and its scripts stay there.
         handle @look {
-            uri strip_prefix /fun
             root * /srv/fun
-            # The instance's theme, as the docs server picks it.
-            rewrite /theme.css /theme-{$TEHAS_THEME:pixel}.css
+            # route keeps this order: Caddy would rewrite before it strips.
+            route {
+                uri strip_prefix /fun
+                # The instance's theme, as the docs server picks it.
+                rewrite /theme.css /theme-{$TEHAS_THEME:pixel}.css
+                # The animated factory is the pixel theme's, as on the docs
+                # server.
+                @logo expression `path('/factory.svg') && "{$TEHAS_THEME:pixel}" != "pixel"`
+                rewrite @logo /favicon.svg
+            }
             file_server
         }
         # One ticket under a name of its own, so one prototype's script is a

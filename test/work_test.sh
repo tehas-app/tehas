@@ -421,4 +421,46 @@ run_args=$(cat "$T"/calls/docker.args.* 2>/dev/null)
 t_contains "$run_args" "pi-rukas-headless"
 t_lacks "$run_args" "/run/tehas/github"
 
+t_case "a scratch disk takes the place of the tmpfs, at the same path, and for this cycle alone"
+t_console || t_bad "no console: $t_console_why"
+rm -f "$T"/calls/docker*
+mkdir -p "$T/scratch"
+t_instance "${T_MINIMAL[@]}" TEHAS_SCRATCH_DIR="$T/scratch"
+T_ENV+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+t_run "$work 7"
+t_eq "$(cycle_args | count_of --tmpfs)" "0"
+t_contains "$(cycle_args)" "$T/scratch/widget-7:/tmp"
+t_eq "$(stat -c %a "$T/scratch/widget-7")" "1777"
+t_eq "$(after --user)" "$(id -u):$(id -g)"
+
+t_case "a scratch disk that is not there starts no container"
+rm -rf "$T/scratch" "$T"/calls/docker*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_eq "$(cycle_args)" ""
+t_eq "$(preflight_args)" ""
+
+t_case "a record that says driver lean is refused before anything moves: 78, no container, and no classic run"
+t_instance "${T_MINIMAL[@]}"
+T_ENV=("${env_ok[@]}")
+rm -rf "$T/home/tehas/work"
+mkdir -p "$T/home/tehas/work"
+: >"$T/home/tehas/work/.tehas-workspaces"
+mkdir -p "$T/home/tehas/work/widget-7"
+echo keep >"$T/home/tehas/work/widget-7/notes.txt"
+record_is alice "Words only."
+record_edit '.driver = "lean"'
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_eq "$t_rc" 78
+t_contains "$t_out" "this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #7 to run it on classic"
+t_eq "$([ -f "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" left
+t_lacks "$(t_calls docker)" "run "
+t_eq "$(cycle_args)" ""
+t_eq "$(preflight_args)" ""
+t_eq "$(t_calls gh)" ""
+t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
+t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name '*.before-retry' | wc -l)" 0
+rm -rf "$T/home/tehas/work"
+
 t_done

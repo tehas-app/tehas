@@ -187,6 +187,8 @@ t_health || t_bad "no console: $t_console_why"
 # health file carries.
 T_ENV=(TEHAS_INSTANCE_DIR="$T/instance")
 t_instance "${T_MINIMAL[@]}"
+# A systemd with no failed unit, so the run says nothing on a machine with none.
+t_stub systemctl 'exit 0'
 t_run "TEHAS_HOME='$sample' '$T_HEALTH'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 T_ENV=()
