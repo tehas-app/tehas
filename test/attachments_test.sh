@@ -200,10 +200,11 @@ t_eq "$t_out" "Tehas gave this cycle 1 image from the issue text.
 t_case "without a record the manifest names no approval"
 t_eq "$(jq -c .approval "$T/images/manifest.json")" null
 
-# record <body>: an approval record of that body, with the one link.
+# record <body> [<by>]: an approval record of that body, with the one link,
+# approved by <by> (alice, unless the case names another).
 record() {
-  jq -n --arg sum "$(printf %s "$1" | sha256sum | cut -d' ' -f1)" \
-    '{at: "2026-10-14T00:00:00Z", by: "alice", how: "label", body_sha256: $sum, links: ["https://github.com/user-attachments/assets/1111"]}' >"$T/record.json"
+  jq -n --arg sum "$(printf %s "$1" | sha256sum | cut -d' ' -f1)" --arg by "${2:-alice}" \
+    '{at: "2026-10-14T00:00:00Z", by: $by, how: "label", body_sha256: $sum, links: ["https://github.com/user-attachments/assets/1111"]}' >"$T/record.json"
 }
 t_case "with a record whose hash is the body's, the record's links are fetched and the approval named"
 outsider NONE
@@ -220,6 +221,39 @@ t_run "$images approved $T/record.json; echo \"\$image_why\""
 t_eq "$t_rc" 0
 t_eq "$t_out" "the issue's text is not the text that was approved: it changed after the approval"
 t_eq "$(t_calls curl)" ""
+
+# A jq test of the form "^...$" also matches a value with a newline on the end,
+# so the shape checks of a record end their pattern with \\z. The record below
+# names an allowed labeller with a newline on the end of it, which would move
+# the fields of a manifest read back by line; the newline is put in by jq, since
+# a shell variable drops the newline at its end.
+record_nl() { # <body>
+  local nl=$'\n'
+  jq -n --arg sum "$(printf %s "$1" | sha256sum | cut -d' ' -f1)" \
+    --arg by "alice$nl" \
+    '{at: "2026-10-14T00:00:00Z", by: $by, how: "label", body_sha256: $sum, links: ["https://github.com/user-attachments/assets/1111"]}' >"$T/record.json"
+}
+t_case "a record whose approval names an account with a newline on the end is refused"
+rm -f "$T"/calls/*
+record_nl "See ![shot](https://github.com/user-attachments/assets/1111)"
+# The file holds what the case means it to: jq wrote the newline, and the shape
+# check of this file is the only thing that refuses it. The bytes of the value
+# are looked at where the file is written, since a captured command substitution
+# drops a newline of its own from the end of what it captures.
+t_run "jq -c .by $T/record.json | od -c | head -n 2"
+t_eq "$t_out" '0000000   "   a   l   i   c   e   \   n   "  \n
+0000012'
+t_run "$images approved $T/record.json; echo \"rc=\$? image_why=\$image_why\""
+t_eq "$t_out" "rc=1 image_why=the approval record could not be read"
+t_eq "$(t_calls curl)" ""
+
+t_case "the same record without the newline is read as before"
+rm -f "$T"/calls/*
+record "See ![shot](https://github.com/user-attachments/assets/1111)"
+t_run "$images approved $T/record.json"
+t_eq "$t_rc" 0
+t_eq "$(taken)" '[["image-1.png"],[]]'
+t_eq "$(jq -c .approval "$T/images/manifest.json")" '{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}'
 
 t_case "the same link of the same approval must give the same bytes"
 record "See ![shot](https://github.com/user-attachments/assets/1111)"

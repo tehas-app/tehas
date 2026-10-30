@@ -163,6 +163,7 @@ commands a person does.
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
+| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize) |
 
 ## Installing a factory
 
@@ -1179,6 +1180,29 @@ above); its CPU quota and its memory do not. There is no CPU or memory budget to
 `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is refused with 78 and one line naming
 the slice file.
 
+`auto` gives the count to the dispatcher instead. On every poll it reads the
+host as the poll reads it anyway - `nproc` for the CPUs, `tehas.slice`'s
+`MemoryMax` for the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
+cycles and the slice's memory over `TEHAS_CONTAINER_MEMORY` as the containers,
+each between its own floor and 16, and neither above `TEHAS_CYCLE_CEILING`, the
+bound for an endpoint that cannot serve what a big host asks for. So a VM given
+more CPUs or memory is used at the next poll, and one that lost them holds new
+starts from the next poll: **a running cycle is never stopped**, only the room
+for another one moves. `tehas status` prints the count in force and the word
+for what bounded it, in a line above the slice's:
+
+```
+slots     cycles auto: 6, cpu-bound (24 CPUs over TEHAS_CYCLE_CPUS=4, 6 containers of tehas.slice over TEHAS_CONTAINER_MEMORY=8g, ceiling 16)
+slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
+```
+
+The same is in the [status object](/api#tehas-status--json) as `room.slots`.
+A host whose reading answers nothing (no `nproc`, a slice with no limit) is
+held to one cycle and two containers rather than given the ceiling: the poll
+starts one cycle rather than what it cannot show room for. `auto` is proven on
+a host of a few dozen CPUs; a small host is better off with a number, which is
+also what it needs when it wants workstreams (see the axis below).
+
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 1, and pi-rukas is always told it as
 `PI_ENSEMBLE_MAX_WORKSTREAMS`.
@@ -1196,8 +1220,9 @@ each. The two settings would otherwise multiply, and with them the agents
 calling the model backends and the gates on the same CPUs: 4 issues of 4
 workstreams are 16 developer agents and up to 16 full gates at once, in four
 containers' quotas. So an instance may set `TEHAS_CONCURRENCY` above 1 only
-with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. With both above 1 every
-command stops with exit 78 and one line that names both:
+with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. `auto` asks for more
+than one cycle on any host with room, so it is refused the same way. With both
+above 1 every command stops with exit 78 and one line that names both:
 
 ```
 tehas: TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1: choose one, ...
@@ -1291,6 +1316,11 @@ slice still answers from its file.
 Another limit for one host goes in
 `/etc/systemd/system/tehas.slice.d/override.conf`, by root, followed by
 `systemctl daemon-reload`. tehas never writes that file.
+
+The host's own size follows the machine: `MemoryMax` is a percentage, so a
+virtual machine given more memory by its hypervisor needs no change here, and
+the next container reads the new ceiling for itself. That is on
+[Resize or restart the host](/resize).
 
 ## Sandbox image
 
@@ -1650,10 +1680,14 @@ Every unit and both containers are started by the operator. `tehas update`
 restarts a unit that is already active and recreates a container that already
 runs, and adds nothing. So a host installed before previews existed has the
 units `tehas-preview.timer` and `tehas-preview-sweep.timer` installed and not
-running until they are enabled. The one exception is a host that runs the
-Protolab's server under its old compose project, `tehas-protolab`: an update
-takes that container down and starts the edge router in its place.
-[Previews](/edge) has the steps.
+running until they are enabled. [Previews](/edge) has the steps.
+
+The same is true of a restart of the machine itself, which is nobody's job but
+the operator's: after a hypervisor restart the timers come back with the user's
+session where lingering is on, and the two containers have to be brought up by
+hand with the `docker compose` lines above. Where the machine is a virtual
+machine, `libvirt-guests` is what brings the host itself back with its cycles
+still running: [Resize or restart the host](/resize).
 
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns

@@ -98,11 +98,14 @@ in the platform repository has every one with a comment.
 | `TEHAS_LOW_GATE_WAIT`          | `60`                                     | Optional. Seconds `TEHAS_LOW_GATE` gets before its answer is a closed gate. A whole number from 1 to 600, else every command stops with 78. The poll holds `~/tehas/state/dispatch.lock` while it waits, so a long value delays every later poll (see [tehas dispatch](#tehas-dispatch)) |
 | `TEHAS_WORK_REPO`               | `~/tehas/repos/<name>`                   | The product checkout cycles are cloned from. Must be a clone of `TEHAS_REPO`. A cycle works in `~/tehas/work/<name>-<issue>`, which is not a setting |
 | `TEHAS_BRANCH`                  | the checkout's `origin/HEAD`             | Branch cycles start from and pull requests target               |
-| `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1`: with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)) |
-| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1    | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave `TEHAS_SLICE_CONTAINERS` containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most `TEHAS_SLICE_CONTAINERS`; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that |
+| `TEHAS_CONCURRENCY`             | `1`                                      | Workstreams side by side inside one cycle. Above 1 only with `TEHAS_TICKET_CONCURRENCY=1` (or with the setting left out): with both above 1 a command stops with 78 (see [The host](/host#limits-and-concurrency)). `TEHAS_TICKET_CONCURRENCY=auto` asks for more than one cycle, so it is refused with this above 1 too |
+| `TEHAS_TICKET_CONCURRENCY`      | the host's CPUs minus one, at least 1, or `auto` | The most cycles side by side. A ceiling, never a divisor: the dispatcher starts fewer while `tehas.slice` has no room, and never more than leave `TEHAS_SLICE_CONTAINERS` containers in it (see [Limits that hold work back](/operating#limits-that-hold-work-back)). A value above the host's CPUs is accepted. A container's share of the CPUs is the host's CPUs less one over this, plus `TEHAS_REFRESH_SLOTS` with refreshes on, counted at most `TEHAS_SLICE_CONTAINERS`; its pids limit and its runs of the gate at once follow the share. Its CPU quota is the host's CPUs less one whatever this is. Lower it when the model backends cannot serve this many cycles; nothing measures that. `auto` asks the dispatcher for the count instead: on every poll it takes this host's CPUs over `TEHAS_CYCLE_CPUS`, capped by `TEHAS_CYCLE_CEILING`, so a VM that gained or lost CPUs needs no setting changed. A running cycle is never stopped by what it says: a shrink only holds new starts. `tehas status` and the [status object](/api#tehas-status--json) show the count in force and the word for what bounded it |
+| `TEHAS_CONTAINER_MEMORY`        | `8g`                                     | What one container is given when `TEHAS_SLICE_CONTAINERS=auto`: the dispatcher divides `tehas.slice`'s `MemoryMax` by this on every poll, so the containers follow the host's memory. A Docker size of at least 6m, which the poll checks and `tehas status` names: a size it cannot read leaves the slice at its floor of two containers. Read only under `auto`, and nothing else changes when it is set |
+| `TEHAS_CYCLE_CPUS`              | `4`                                      | What one cycle is given when `TEHAS_TICKET_CONCURRENCY=auto`: the host's CPUs over this are the cycles, capped by `TEHAS_CYCLE_CEILING`. A share to count with, not a quota: a container's CPU quota stays the host's CPUs less one whatever this is. A positive whole number, which the poll checks; no count there leaves the host at its floor of one cycle. Read only under `auto` |
+| `TEHAS_CYCLE_CEILING`           | `16`                                     | The most cycles `auto` may take, so a host with 96 CPUs does not ask for more cycles than the model endpoint serves. It bounds `auto` only: a number for `TEHAS_TICKET_CONCURRENCY` or `TEHAS_SLICE_CONTAINERS` is taken as written. A positive whole number, which the poll checks; no count there leaves the bound at 16. Nothing measures the endpoint; this is the number a person gives it |
 | `TEHAS_MAX_AWAITING`            | `TEHAS_TICKET_CONCURRENCY` plus 2        | Open `tehas:awaiting-merge` issues, plus running cycles, allowed before holding |
 | `TEHAS_CYCLE_RESERVE`           | `2g`                                     | Memory one container is given as a floor (`docker --memory-reservation`) and the unit the dispatcher counts room in. A reclaim priority inside `tehas.slice` and the amount admission promises, not a guarantee against the whole host. A Docker size of at least 6m, and at most the slice's `MemoryMax` over `TEHAS_SLICE_CONTAINERS`, else the command stops with 78 naming both numbers. With the defaults the host needs about 11 GiB of memory; a smaller host sets it lower |
-| `TEHAS_SLICE_CONTAINERS`        | `4`                                      | Containers `tehas.slice` holds at once, from 2 to 16. Each container's memory ceiling is the slice's `MemoryMax` over this, and the dispatcher starts no cycle while this many containers are in the slice, so the ceilings never sum to more than the slice. Every container counts: cycles, refreshes, dev sessions, planning turns, the indexer. A higher value runs more cycles side by side, each with a lower ceiling: raise the host's memory with it. With `TEHAS_TICKET_CONCURRENCY=5` and one refresh slot, 6 on a 64 GiB host gives each container 8 GiB |
+| `TEHAS_SLICE_CONTAINERS`        | `4`, or `auto`                           | Containers `tehas.slice` holds at once, from 2 to 16. Each container's memory ceiling is the slice's `MemoryMax` over this, and the dispatcher starts no cycle while this many containers are in the slice, so the ceilings never sum to more than the slice. Every container counts: cycles, refreshes, dev sessions, planning turns, the indexer. A higher value runs more cycles side by side, each with a lower ceiling: raise the host's memory with it. With `TEHAS_TICKET_CONCURRENCY=5` and one refresh slot, 6 on a 64 GiB host gives each container 8 GiB. `auto` divides the slice's `MemoryMax` by `TEHAS_CONTAINER_MEMORY` on every poll instead, between 2 and 16: a host given more memory holds more containers with no setting to change |
 | `TEHAS_WORK_TIMEOUT`            | `21600`                                  | Seconds before a cycle is given up. At most 25200: [the cycle's unit](/host#time-limits) stops a cycle after 8 hours |
 | `TEHAS_WORK_STALL`              | `3600`                                   | Seconds a cycle may go without a line added to any of its logs before it is stopped as `stalled`. Must be longer than `TEHAS_VERIFY_TIMEOUT`, because a gate can print nothing while it runs; else the command stops with 78 |
 | `TEHAS_WORK_IMAGES`             | `0`                                      | `1` gives a cycle and a planning session the images its issue text links: see [tehas work](#tehas-work) and [tehas plan](#tehas-plan). The model must declare `"image"` in its `input` in `models.json` and answer a request with an image, and the sandbox image must say, by the label `tehas.rukas.images` its build writes, that its pi-rukas reads the manifest tehas writes beside them. Else the dispatcher holds the cycles of issues whose text links an attachment; other issues start, and `install.sh` reports what the label says |
@@ -2178,6 +2181,23 @@ made is said there as `#N runs from the install: its own copy could not be made
 (<why>)`, and the cycle runs from `~/tehas` as before. Each start removes the
 copies whose process has ended.
 
+**The clock a cycle is measured on.** `tehas-cycle clock` counts a cycle on a
+monotonic clock: the seconds since boot, read from the first number of
+`/proc/uptime`. The wall clock is not read at all, so the time a VM was saved
+counts against nothing. `tehas-cycle clock now` prints those seconds;
+`tehas-cycle clock mark <file>` writes them into a file, which is how a cycle
+marks its start and the last growth of its logs; `tehas-cycle clock check
+<file> --limit <s> --stall <s> --since <s>` reads the mark of the start in
+`<file>` and the mark of the last log growth in `--since` (a number `clock now`
+printed), prints `ok`, `stalled` or `over` and exits 0, 1 or 2, counting the
+limit before the stall. A mark that is missing or is not one number, or a time
+that would run backwards (a mark ahead of the clock, as after the boot was
+redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
+seconds are whole seconds since boot truncated down, and one mark file holds
+one number; a mark file of more than 32 bytes, or one that is not a regular
+file, is no mark. The glue that calls it from `tehas work` is a later change;
+on a host today these three verbs are the whole of it.
+
 It runs [tehas work](#tehas-work) for the issue, reads the runner's result
 that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,
 the step it stopped in, cap, branch, token usage), finds the pull request the
@@ -2685,6 +2705,13 @@ previews are not being built." when `freeBytes` is `null`.
 
 `checks.slice` is `live/dispatch.json` as the dispatcher's last poll wrote
 it: `time`, `why`, `hold`, `count`, `room`, `committed`, `max` and `reserve`.
+With either count set to `auto` it carries `slots` too: the two counts in
+force, `cyclesHow` and `containersHow` for how each was arrived at, and
+`cycle` and `container` with the readings behind them (`bound` for the one
+that gave the count, `slots` for what the host's own readings give, `cpus`,
+the three settings as written, and `floored` when a reading answered nothing).
+It is absent for a factory that sets numbers for both, which has nothing to
+explain.
 `why` is empty when cycles may start, else one word: `slice`, `unreadable`,
 `disk`, `resources`, `limit`, `red`, `count`, `awaiting`, `pressure`, `room` or `full`, and
 `hold` is the line the dispatcher logged; with `unreadable` it names the file
@@ -3676,7 +3703,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` changed, or `versions.env` changed in a line the image build reads: one named `SHELLCHECK_`, `PLAYWRIGHT_`, `CBM_`, `PI_RUKAS_` or `VIPUNE_` | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left, holding the time it was made: the next `tehas update` starts the router whatever runs, and removes that file when it did. A mark of more than a day ago is not acted on - it is said, removed, and the step is what it would have been without it |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag                 |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:
