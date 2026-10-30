@@ -37,7 +37,7 @@
 # "until": "...", "reason": "..."}: state is none, ok, expired or unreadable,
 # and a field without a value is left out.
 #
-# The arguments are checked here, the settings are loaded here, and the
+# The settings are loaded here, and the arguments of set, the
 # reading, the writing and the printing are the console's (console/src/flags.rs).
 #
 # Exit: 0 shown, set or cleared; 64 a bad argument, which writes nothing; 78
@@ -49,37 +49,12 @@ usage() {
   exit 64
 }
 
-action=show json=0
-cycles="" plan=on for="" until="" reason="" have_reason=0 have_plan=0
+action=show
 case "${1-}" in
   "") ;;
-  --json) [ "$#" = 1 ] || usage; json=1 ;;
-  clear) [ "$#" = 1 ] || usage; action=clear ;;
-  set)
-    action="set"
-    shift
-    while [ "$#" -gt 0 ]; do
-      [ "$#" -ge 2 ] || usage
-      case "$1" in
-        --cycles) [ -z "$cycles" ] || usage; [[ $2 =~ ^(0|[1-9][0-9]{0,3})$ ]] || usage; cycles=$2 ;;
-        --plan)
-          [ "$have_plan" = 0 ] || usage
-          have_plan=1
-          case "$2" in on | off) plan=$2 ;; *) usage ;; esac
-          ;;
-        --for) [ -z "$for$until" ] || usage; [[ $2 =~ ^[1-9][0-9]{0,8}$ ]] || usage; for=$2 ;;
-        --until)
-          [ -z "$for$until" ] || usage
-          [[ $2 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || usage
-          until=$2
-          ;;
-        --reason) [ "$have_reason" = 0 ] || usage; have_reason=1; reason=$2 ;;
-        *) usage ;;
-      esac
-      shift 2
-    done
-    [ -n "$cycles" ] || usage
-    ;;
+  --json) [ "$#" = 1 ] || usage ;;
+  clear) [ "$#" = 1 ] || usage; action=clear; shift ;;
+  set) action="set"; shift ;;
   *) usage ;;
 esac
 
@@ -94,10 +69,5 @@ tehas_load || exit 78
 # shellcheck source=lib/limit.sh
 . "$here/../lib/limit.sh"
 
-args=()
-[ "$json" = 0 ] || args=(--json)
 [ -x "$console" ] || { echo "tehas limit: no console at $console: run install.sh" >&2; exit 78; }
-[ "$action" != show ] || exec "$console" flags limit show "${args[@]}"
-[ "$action" != set ] || args+=(--cycles "$cycles" --plan "$plan")
-[ "$action" != set ] || { [ -z "$for" ] || args+=(--for "$for"); [ -z "$until" ] || args+=(--until "$until"); [ "$have_reason" = 0 ] || args+=(--reason "$reason"); }
-exec "$console" flags limit "$action" "${args[@]}"
+exec "$console" flags limit "$action" "$@"
