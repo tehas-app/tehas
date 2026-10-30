@@ -97,6 +97,8 @@ struct Poll<'a> {
     dry: bool,
     d: Decision,
     control_skipped: bool,
+    /// Fed starts this poll picked, beside the ones running.
+    fed_picked: u64,
     work_refused: Vec<u64>,
     gate_asked: bool,
     gate_answer: i32,
@@ -125,6 +127,7 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         dry,
         d: Decision::default(),
         control_skipped: false,
+        fed_picked: 0,
         work_refused: Vec::new(),
         gate_asked: false,
         gate_answer: 0,
@@ -1463,8 +1466,9 @@ impl<'a> Poll<'a> {
 
     /// fixer_ok: the fixer's tehas:ready, applied at `at`. The person's
     /// approval it rests on and the count of fixer starts with this one, or
-    /// None with the label off and the reason said.
-    fn fixer_ok(&mut self, n: u64, at: &str) -> Step<Option<(Value, u64)>> {
+    /// None with the label off and the reason said. With the feed on, an
+    /// issue never approved may rest on its author instead (feed_ok).
+    fn fixer_ok(&mut self, n: u64, at: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
         if !self.unchanged_since(
             n,
             at,
@@ -1479,6 +1483,11 @@ impl<'a> Poll<'a> {
             return Ok(None);
         }
         let sum = text::body_sha256(&self.text(n));
+        let never =
+            matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None))));
+        if self.c.millwright_feed && never && n != self.c.control {
+            return self.feed_ok(n, &sum, labels);
+        }
         let why = match self.fixer_grant(n, &sum) {
             Ok((base, count)) => {
                 let by = base["by"].as_str().unwrap_or("").to_string();
@@ -1501,6 +1510,12 @@ impl<'a> Poll<'a> {
             }
             Err((why, false)) => why,
         };
+        self.fixer_refused(n, &why);
+        Ok(None)
+    }
+
+    /// The fixer's tehas:ready comes off, and the issue says why.
+    fn fixer_refused(&mut self, n: u64, why: &str) {
         self.log(format!(
             "skip #{n}: tehas:ready from the fixer starts nothing: {why}"
         ));
@@ -1513,7 +1528,85 @@ impl<'a> Poll<'a> {
                 "say": format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."),
             }));
         }
-        Ok(None)
+    }
+
+    /// feed_ok: the millwright's tehas:ready on an issue no person approved a
+    /// cycle of, under TEHAS_MILLWRIGHT_FEED. A person wrote it, and the text
+    /// is still theirs: the start rests on that. Some(base, 1), or None with
+    /// the label off and the reason said, or kept when the cap only defers it.
+    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
+        let Some(running) = self.s.fed else {
+            self.log(format!(
+                "skip #{n}: tehas:ready from the fixer waits: the fed cycles running could not be counted"
+            ));
+            return Ok(None);
+        };
+        let max = self.c.millwright_max_feeds.max(0) as u64;
+        if running + self.fed_picked >= max {
+            self.log(format!(
+                "wait #{n}: {} fed cycles run, TEHAS_MILLWRIGHT_MAX_FEEDS is {max}",
+                running + self.fed_picked
+            ));
+            return Ok(None);
+        }
+        let t = self.text(n);
+        let author = t
+            .pointer("/author/login")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let written = t
+            .get("createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let held = [
+            "tehas:improvement",
+            "cross-project",
+            "needs-human-attention",
+            "tehas:millwright-escalated",
+        ]
+        .into_iter()
+        .find(|l| has(labels, l));
+        let ev = self.events(n)?;
+        let c = self.c;
+        let undone = ev
+            .iter()
+            .find(|e| e.event == "unlabeled" && e.label == "tehas:ready" && c.allowed(&e.actor))
+            .map(|e| e.actor.clone());
+        let why = if !self.c.allowed(&author) {
+            Some(format!(
+                "no person approved a cycle of it, and its author {} is not named in `TEHAS_ALLOWED_LABELERS`",
+                or_unknown(&author)
+            ))
+        } else if written.is_empty() {
+            Some(
+                "no person approved a cycle of it, and when it was written could not be read"
+                    .into(),
+            )
+        } else if let Some(l) = held {
+            Some(format!(
+                "no person approved a cycle of it, and it carries `{l}`"
+            ))
+        } else {
+            undone.map(|who| format!("{who} took `tehas:ready` off it before"))
+        };
+        if let Some(why) = why {
+            self.fixer_refused(n, &why);
+            return Ok(None);
+        }
+        if !self.unchanged_since(
+            n,
+            &written,
+            &format!("{author} wrote it"),
+            "a person applies tehas:ready",
+        )? {
+            return Ok(None);
+        }
+        Ok(Some((
+            json!({"at": written, "by": author, "how": "feed", "body_sha256": sum}),
+            1,
+        )))
     }
 
     /// tehas_fixer_grant: the approval and count, or why not and whether
@@ -1749,7 +1842,7 @@ impl<'a> Poll<'a> {
                     {
                         let ev = self.events(n)?;
                         let (_, at) = label_actor(&ev, "tehas:ready");
-                        match self.fixer_ok(n, &at)? {
+                        match self.fixer_ok(n, &at, &labels)? {
                             Some(grant) => fixer = Some(grant),
                             None => continue,
                         }
@@ -1830,11 +1923,20 @@ impl<'a> Poll<'a> {
                         .to_string()
                 };
                 st.verb = "labelled by the fixer".into();
-                st.how = format!(
-                    "`tehas:ready` label as the fixer, on {}'s approval of {}",
-                    s("by"),
-                    s("at")
-                );
+                st.how = if s("how") == "feed" {
+                    self.fed_picked += 1;
+                    format!(
+                        "`tehas:ready` label as the fixer, on the issue {} wrote at {}",
+                        s("by"),
+                        s("at")
+                    )
+                } else {
+                    format!(
+                        "`tehas:ready` label as the fixer, on {}'s approval of {}",
+                        s("by"),
+                        s("at")
+                    )
+                };
                 st.given_how = "millwright".into();
                 st.fixer = Some((base, count));
             }

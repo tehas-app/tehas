@@ -416,6 +416,14 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRI
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
 
+t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[0][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[1][4]"
+
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
@@ -506,7 +514,8 @@ t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
 for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
-  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots"; do
+  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
+  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many"; do
   t_case "loading rejects $bad"
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
