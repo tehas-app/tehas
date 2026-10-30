@@ -417,11 +417,8 @@ status_file=$TEHAS_HOME/state/cycles/$issue.status
 # stream: its own exit status, one line of plain digits. Read and removed by
 # tehasbot cycle.
 nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
-# The file the cycle clock keeps the mark of this start in.
 clock_mark=$TEHAS_HOME/state/cycles/$issue.clock
-# The cycle's clock, in the two words this command asks it: the program beside
-# this one as the console is, and answered by the stub of a test at the same
-# path. Bounded like the loop's other calls.
+# The cycle's clock, bounded like the loop's other calls.
 clock() { timeout -k 5 10 "$here/tehas-cycle" clock "$@" 2>/dev/null; }
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
@@ -980,14 +977,16 @@ moved() {
   find "$log" "$runs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1
 }
 
-status=running stalled=0 timed=0 last=0 stopped=0 killed=0
+status=running stalled=0 timed=0 seen=$started stopped=0 killed=0
+last=$(clock now)
 while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   sleep 10
   [ "$interrupted" = 0 ] || break
   oom_look
   now_file true running
   m=$(moved)
-  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$(clock now)
+  # `seen` is an mtime, `last` a reading of the cycle clock.
+  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$seen" ] && { seen=$m; last=$(clock now); }
   # The two bounds of the loop on the cycle clock: a runner that does not stop
   # itself at its --timeout, and a cycle whose logs stood still for the stall.
   # A clock that says nothing, says `ok` or says `unknown`, stops no cycle: only

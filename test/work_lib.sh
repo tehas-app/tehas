@@ -43,6 +43,7 @@ t_stub tehas-cycle 'case "$1 $2" in
       date +%s
     fi ;;
   "clock check"*)
+    echo "$*" >>"$T/clock.calls"
     if [ -e "$T/clock.check" ]; then cat "$T/clock.check"; exit 0; fi
     limit=0 stall=0 since=0 prev=""
     for a in "$@"; do
