@@ -116,8 +116,12 @@ out=$(mktemp -d "${TMPDIR:-/tmp}/tehas-tests.XXXXXX") || exit 2
 trap 'rm -rf "$out"' EXIT
 
 unset T_STORE_BIN T_STORE_WHY T_ATTACH_BIN T_DISPATCH_BIN T_CYCLE_BIN T_CONSOLE_BIN
+# The binaries are run, not debugged, so the build asks cargo for no debug
+# info: that is most of the size of console/target/shell. The variable is on
+# this command only, not exported: scripts/verify.sh runs the workspace's
+# cargo test in console/target at the same time and keeps its debug info.
 store_build() {
-  cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
+  CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked --offline --quiet --manifest-path "$root/console/Cargo.toml" \
     --target-dir "$root/console/target/shell" -p store -p attach -p tehas-dispatch -p tehas-cycle -p console >"$out/store-build.log" 2>&1
 }
 store_why=""
