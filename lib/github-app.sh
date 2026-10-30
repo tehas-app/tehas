@@ -26,7 +26,7 @@
 #                           background, asking every 5 minutes, while a
 #                           container reads it; prints the renewer's pid, or
 #                           nothing without an app. Kill it when the container
-#                           ends.
+#                           ends. The renewing is `tehas-cycle renew`.
 #   tehas_github_token      print a token that has at least 10 minutes left,
 #                           making one when the kept one has less. 1 with one
 #                           line on stderr when it cannot: no app, no key, the
@@ -146,11 +146,11 @@ tehas_github_env() {
 
 tehas_github_renew() {
   tehas_github_app || return 0
-  (
-    trap 'exit 0' TERM
-    while sleep "${TEHAS_GITHUB_RENEW_EVERY:-300}" & wait $!; do
-      tehas_github_token >/dev/null || true
-    done
-  ) </dev/null >/dev/null 2>&1 &
+  local cmd=${TEHAS_GITHUB_RENEW_CMD:-$TEHAS_HOME/libexec/github-token} cycle=${TEHAS_CYCLE:-$TEHAS_HOME/libexec/tehas-cycle}
+  # With no streams of its own, what the renewer says is what this function's
+  # caller has - a cycle gives it its work log - and the token command's own
+  # output is thrown away, so no token is.
+  "$cycle" renew --cmd "$cmd" --every "${TEHAS_GITHUB_RENEW_EVERY:-300}" \
+    --retry "${TEHAS_GITHUB_RENEW_RETRY:-30}" </dev/null &
   printf '%s\n' "$!"
 }
