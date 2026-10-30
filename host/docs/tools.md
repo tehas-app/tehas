@@ -3676,7 +3676,7 @@ which ones each id accepts and which of them it requires:
 | `units <unit>...`           | a unit file changed                  | systemd reloaded its unit files, and the unit is active: restarted, never enabled |
 | `sandbox`                   | `sandbox/` changed, or `versions.env` changed in a line the image build reads: one named `SHELLCHECK_`, `PLAYWRIGHT_`, `CBM_`, `PI_RUKAS_` or `VIPUNE_` | always                                                            |
 | `docs --force-recreate`     | `edge/docs.*` changed                | its container is running: recreated with that flag                 |
-| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag. Or the Protolab's server of before it runs, the compose project `tehas-protolab`: that one is taken down and the router is started. If the old one came down and the router did not start, the step stays owed and `~/tehas/state/edge-takeover` is left, holding the time it was made: the next `tehas update` starts the router whatever runs, and removes that file when it did. A mark of more than a day ago is not acted on - it is said, removed, and the step is what it would have been without it |
+| `edge --force-recreate`     | `edge/router.*` changed              | its container is running: recreated with that flag                 |
 
 Both containers are recreated rather than just brought up, because what changed is
 the Caddyfile they mount and Caddy reads its config when the process starts:

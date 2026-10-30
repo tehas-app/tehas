@@ -1650,10 +1650,7 @@ Every unit and both containers are started by the operator. `tehas update`
 restarts a unit that is already active and recreates a container that already
 runs, and adds nothing. So a host installed before previews existed has the
 units `tehas-preview.timer` and `tehas-preview-sweep.timer` installed and not
-running until they are enabled. The one exception is a host that runs the
-Protolab's server under its old compose project, `tehas-protolab`: an update
-takes that container down and starts the edge router in its place.
-[Previews](/edge) has the steps.
+running until they are enabled. [Previews](/edge) has the steps.
 
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns
