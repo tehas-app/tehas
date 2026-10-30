@@ -388,19 +388,6 @@ _tehas_role_models() { # <instance.env>
   return 0
 }
 
-# The TEHAS_FIXER_* names were renamed TEHAS_MILLWRIGHT_* in v0.14.0 (#676)
-# and stopped being read in a later release (#799).
-_tehas_fixer_names() {
-  local key old
-  for key in LOGIN MAX_RETRIES MAX_PLAN_ANSWERS; do
-    old=TEHAS_FIXER_$key
-    [ -z "${!old+x}" ] || {
-      tehas_err "$old is no longer read: rename it TEHAS_MILLWRIGHT_$key (see $file)"
-      return 78
-    }
-  done
-}
-
 tehas_load() {
   local dir file v reason line mb
   : "${TEHAS_HOME:=$HOME/tehas}"
@@ -447,25 +434,19 @@ tehas_load() {
   set +a
 
   _tehas_role_models "$file" || return 78
-  _tehas_fixer_names || return 78
-
-  # Database clones are not part of this version. An instance that still asks
-  # for them is refused, not run without them.
-  if [ "${TEHAS_CLONES:-0}" != 0 ]; then
-    tehas_err "TEHAS_CLONES is set and this version of tehas has no database clones (see $file)"
+  # The names an earlier version read are refused, not ignored: a line that does
+  # nothing in an instance file is a mistake the operator sees.
+  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
+    [ -n "${!v+x}" ] || continue
+    [ "$v" = TEHAS_CLONES ] && [ "${!v}" = 0 ] && continue
+    case "$v" in
+      TEHAS_FIXER_*) tehas_err "$v is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_} (see $file)" ;;
+      TEHAS_CLONES) tehas_err "$v is set and this version of tehas has no database clones (see $file)" ;;
+      TEHAS_WORK_CPUS) tehas_err "$v is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)" ;;
+      TEHAS_WORK_MEMORY) tehas_err "$v is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)" ;;
+    esac
     return 78
-  fi
-  # The budgets of an earlier version: the limit around every container is the
-  # slice on the host now, and nothing here divides anything, so a budget line
-  # would be a setting that does nothing. Refused, not ignored.
-  if [ -n "${TEHAS_WORK_CPUS+x}" ]; then
-    tehas_err "TEHAS_WORK_CPUS is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
-    return 78
-  fi
-  if [ -n "${TEHAS_WORK_MEMORY+x}" ]; then
-    tehas_err "TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
-    return 78
-  fi
+  done
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
