@@ -275,7 +275,7 @@ platform
 
 issues=$(gh issue list --repo "$repo" --state all --limit 200 \
   --search 'label:"tehas:ready","tehas:running","tehas:awaiting-merge","needs-human-attention","tehas:plan","tehas:planning" sort:updated-desc' \
-  --json number,title,url,state,labels,createdAt,updatedAt,closedAt 2>/dev/null) || exit 0
+  --json number,title,url,state,labels,createdAt,updatedAt,closedAt 2>/dev/null) || { log "WARN status: the list of issues could not be read, no snapshot was written"; exit 0; }
 everything=$(gh issue list --repo "$repo" --state all --limit 1000 --json title,labels 2>/dev/null) || everything=null
 jq -e 'type == "array"' <<<"$everything" >/dev/null 2>&1 || everything=null
 # The closing pull request is only in the issue's closed event, so this one is
@@ -298,7 +298,7 @@ fi
 # snapshot of no completed work; only a reply with no list of nodes in it is no
 # snapshot, which is the case its 1 and the line above cover.
 shipped=$(printf '%s' "$closers" | tehas_shipped_list "$console" --control "$control" 2>/dev/null) ||
-  tehas_shipped_whole "$console" "$closers" || exit 0
+  tehas_shipped_whole "$console" "$closers" || { log "WARN status: the answer of what closed these issues was no list, no snapshot was written"; exit 0; }
 # One object on a line is no list for jq, which wants one value: made one here,
 # once, with the control issue already out of it.
 shipped=$(jq -sc '.' <<<"$shipped") || exit 0

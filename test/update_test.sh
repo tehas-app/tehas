@@ -37,17 +37,16 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # timeout that records what it bounds and then runs the real one. platform()
 # puts them back for each case, because a stub an earlier case installed would
 # otherwise answer this one.
-# The old Protolab project is not running here: the edge step asks about it first.
 # A sandbox build asks the base for its capabilities: the answer of the image
 # of pi-rukas main.
-docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
+docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
 
-# docker that answers ps for the docs project only, which is what a host without
-# a Protolab server looks like. The liveness question is `docker ps --quiet
+# docker that answers ps for the docs project only, so only the docs container
+# is renewed. The liveness question is `docker ps --quiet
 # --filter label=com.docker.compose.project=<name>`; the renewal is
 # `docker compose -f <file> up -d`, so ps is the first argument and the label the
 # fourth.
@@ -528,7 +527,6 @@ t_lacks "$t_out" "next:"
 t_eq "$(t_calls build)" "build"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
-ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 ps --quiet --filter label=com.docker.compose.project=tehas-edge
 compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
@@ -564,7 +562,6 @@ systemctl --user restart tehas-dispatch.timer tehas-energy.service tehas-top.ser
 $th/sandbox/build.sh
 docker ps --quiet --filter label=com.docker.compose.project=tehas-docs
 docker compose -f $th/edge/docs.compose.yaml up -d --force-recreate
-docker ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 docker ps --quiet --filter label=com.docker.compose.project=tehas-edge
 docker compose -f $th/edge/router.compose.yaml up -d --force-recreate"
 t_eq "$(owed_steps)" ""
@@ -582,7 +579,6 @@ t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: not running on this host, left alone"
 t_eq "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-docs
 compose -f $th/edge/docs.compose.yaml up -d --force-recreate
-ps --quiet --filter label=com.docker.compose.project=tehas-protolab
 ps --quiet --filter label=com.docker.compose.project=tehas-edge"
 t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-dispatch.timer
@@ -598,156 +594,6 @@ t_eq "$(t_calls systemctl)" "--user daemon-reload
 --user is-active tehas-clean.timer
 --user restart tehas-dispatch.timer tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
 t_eq "$(owed_steps)" ""
-
-t_case "a running server of the old project is taken over by the edge router"
-instance
-platform 1 "$ASK"
-# Only the old project runs; `down` and `up` succeed.
-t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "edge: taking over from the Protolab's server (tehas-protolab)"
-t_contains "$(t_calls docker)" "ps --quiet --filter label=com.docker.compose.project=tehas-protolab
-compose -p tehas-protolab down
-compose -f $th/edge/router.compose.yaml up -d --force-recreate"
-t_lacks "$(t_calls docker)" "project=tehas-edge"
-t_lacks "$(owed_steps)" "edge"
-
-t_case "a failed question about the old project leaves the step not done"
-instance
-platform 1 "$ASK"
-t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) echo "could not connect" >&2; exit 125 ;; *) printf "c1\n" ;; esac; fi'
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "edge: docker ps failed; the step is not done"
-t_lacks "$(t_calls docker)" "down"
-t_contains "$(owed_steps)" "edge --force-recreate"
-
-t_case "an old project that will not come down is not replaced"
-instance
-platform 1 "$ASK"
-t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "edge: docker compose down of tehas-protolab exited 1; the step is not done"
-t_lacks "$(t_calls docker)" "router.compose.yaml up"
-t_contains "$(owed_steps)" "edge --force-recreate"
-
-# The takeover is two commands. One that stopped between them leaves a mark,
-# so the next run does not find nothing running and call the step done.
-t_case "a takeover whose router did not come up is not done, and leaves a mark"
-instance
-platform 1 "$ASK"
-# The old project runs until it is taken down; `up` of the router fails.
-t_stub docker 'case "$1" in
-  ps) case "$4" in *tehas-protolab) [ -e "$T/calls/down" ] || printf "c1\n" ;; esac ;;
-  compose)
-    [ "$2" != -p ] || { : >"$T/calls/down"; exit 0; }
-    case "$*" in *router.compose.yaml*) [ ! -e "$T/up-fails" ] || { echo "port is already allocated" >&2; exit 1; } ;; esac ;;
-esac'
-: >"$T/up-fails"
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "edge: docker compose up exited 1; the step is not done"
-t_contains "$(t_calls docker)" "compose -p tehas-protolab down
-compose -f $th/edge/router.compose.yaml up -d --force-recreate"
-t_eq "$(owed_steps)" "edge --force-recreate"
-t_eq "$(grep -cE '^[0-9]+$' "$th/state/edge-takeover")" 1
-
-t_case "the next run finishes the takeover with nothing of either project running"
-rm -f "$T"/calls/docker
-push_install 'echo "tehas is up to date"'
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
-t_lacks "$t_out" "left alone"
-t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
-t_lacks "$(t_calls docker)" "down"
-t_eq "$(owed_steps)" "edge --force-recreate"
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 1
-# And once the router comes up, the mark goes and the step is done.
-rm -f "$T/up-fails" "$T"/calls/docker
-push_install 'echo "tehas is up to date!"'
-t_run "$update"
-t_eq "$t_rc" 0
-t_lacks "$t_out" "left alone"
-t_eq "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
-t_eq "$(owed_steps)" ""
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
-# After that the step is what it was: nothing runs, so nothing is started.
-printf 'edge --force-recreate\n' >"$owed_file"
-rm -f "$T"/calls/docker
-push_install 'echo "tehas is up to date!!"'
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "edge: not running on this host, left alone"
-t_eq "$(t_calls docker | grep -c '^compose ')" 0
-
-t_case "a takeover that went through leaves no mark"
-instance
-platform 1 "$ASK"
-t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) printf "c1\n" ;; esac; fi'
-t_run "$update"
-t_eq "$t_rc" 0
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
-
-t_case "an old project that will not come down leaves no mark"
-instance
-platform 1 "$ASK"
-t_stub docker 'case "$1" in ps) case "$4" in *tehas-protolab) printf "c1\n" ;; esac ;; compose) [ "$2" = -p ] && { echo "cannot remove" >&2; exit 1; } ;; esac'
-t_run "$update"
-t_eq "$t_rc" 1
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
-
-# The mark is the memory of one half-finished takeover, not a standing order to
-# start the router. A person who stopped it on purpose would otherwise have it
-# started by a mark some run gave up on, weeks later.
-t_case "a mark older than the day it was made is not acted on"
-instance
-platform 0 'echo "tehas is up to date"'
-# Nothing of either project runs: without the mark this step would leave the
-# router alone.
-t_stub docker
-mkdir -p "$th/state"
-printf '%s\n' "$(( $(date -u +%s) - 90000 ))" >"$th/state/edge-takeover"
-printf 'edge --force-recreate\n' >"$owed_file"
-rm -f "$T"/calls/docker
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "the mark of the takeover is"
-t_contains "$t_out" "edge: not running on this host, left alone"
-t_lacks "$t_out" "finishing the takeover"
-t_eq "$(t_calls docker | grep -c '^compose ')" 0
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
-t_eq "$(owed_steps)" ""
-
-t_case "a mark of the same day is acted on, and the age comes from the mark"
-instance
-platform 0 'echo "tehas is up to date"'
-mkdir -p "$th/state"
-printf '%s\n' "$(( $(date -u +%s) - 3600 ))" >"$th/state/edge-takeover"
-printf 'edge --force-recreate\n' >"$owed_file"
-rm -f "$T"/calls/docker
-t_run "$update"
-t_eq "$t_rc" 0
-t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
-t_contains "$(t_calls docker)" "compose -f $th/edge/router.compose.yaml up -d --force-recreate"
-t_eq "$(find "$th/state" -name edge-takeover | wc -l)" 0
-t_eq "$(owed_steps)" ""
-
-t_case "a mark with no time on it is honoured once and gets the time of this run"
-instance
-platform 0 'echo "tehas is up to date"'
-mkdir -p "$th/state"
-: >"$th/state/edge-takeover"
-printf 'edge --force-recreate\n' >"$owed_file"
-t_stub docker 'case "$1" in compose) case "$*" in *router.compose.yaml*) echo "port is already allocated" >&2; exit 1 ;; esac ;; esac'
-rm -f "$T"/calls/docker
-t_run "$update"
-t_eq "$t_rc" 1
-t_contains "$t_out" "edge: finishing the takeover from the Protolab's server"
-t_eq "$(owed_steps)" "edge --force-recreate"
-t_eq "$(grep -cE '^[0-9]+$' "$th/state/edge-takeover")" 1
 
 t_case "every state of systemd's active family restarts the unit"
 instance

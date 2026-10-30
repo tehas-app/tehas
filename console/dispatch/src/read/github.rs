@@ -37,7 +37,7 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
     issues(states: OPEN, first: {ISSUE_PAGE}, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number title body lastEditedAt editor { login }
+        number title body createdAt author { login } lastEditedAt editor { login }
         labels(first: 50) { nodes { name } }
         subIssuesSummary { total completed }
         timelineItems(itemTypes: [LABELED_EVENT, UNLABELED_EVENT, RENAMED_TITLE_EVENT], last: 100) {
@@ -299,7 +299,8 @@ pub fn issue(o: &Open) -> Map<String, Value> {
     m.insert(
         "edit".into(),
         json!({"lastEditedAt": n.get("lastEditedAt"), "editor": n.get("editor"),
-            "body": n.get("body"), "title": n.get("title")}),
+            "body": n.get("body"), "title": n.get("title"),
+            "createdAt": n.get("createdAt"), "author": n.get("author")}),
     );
     m.insert(
         "view".into(),
