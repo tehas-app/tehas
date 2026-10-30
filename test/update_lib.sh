@@ -36,17 +36,16 @@ T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1)
 # timeout that records what it bounds and then runs the real one. platform()
 # puts them back for each case, because a stub an earlier case installed would
 # otherwise answer this one.
-# The old Protolab project is not running here: the edge step asks about it first.
 # A sandbox build asks the base for its capabilities: the answer of the image
 # of pi-rukas main.
-docker_up() { t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
+docker_up() { t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi'; }
 systemctl_active() { t_stub systemctl 'if [ "$2" = is-active ]; then echo active; fi'; }
 real_timeout=$(command -v timeout)
 bound_calls() { t_stub timeout "exec $real_timeout \"\$@\""; }
 
-# docker that answers ps for the docs project only, which is what a host without
-# a Protolab server looks like. The liveness question is `docker ps --quiet
+# docker that answers ps for the docs project only, so only the docs container
+# is renewed. The liveness question is `docker ps --quiet
 # --filter label=com.docker.compose.project=<name>`; the renewal is
 # `docker compose -f <file> up -d`, so ps is the first argument and the label the
 # fourth.
@@ -229,7 +228,7 @@ rukas_image() { # <commit or none>
   else
     printf '%s\n' "$1" >"$T/fx/label"
   fi
-  t_stub docker 'if [ "$1" = ps ]; then case "$4" in *tehas-protolab) ;; *) printf "c1\n" ;; esac; fi
+  t_stub docker 'if [ "$1" = ps ]; then printf "c1\n"; fi
 if [ "$1" = run ]; then cat "$T_ROOT/test/fixtures/headless-c5ddc0a/capabilities.json"; fi
 if [ "$1" = image ]; then case "$*" in
   "image inspect tehas/pi-rukas:release-"*) exit 1 ;;

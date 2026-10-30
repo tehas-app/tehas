@@ -1016,7 +1016,7 @@ names_issue=$(tehas_names_issue)
 # this one: that one is said, not taken.
 mapfile -d '' -t got < <(jq -j --arg n "$issue" "$one$names_issue"'
   def url_in($st): [.[] | select(type == "object" and ((.state // "") | ascii_upcase) == $st) | select(mine)
-    | .url | strings | select(test("^https://[A-Za-z0-9./_-]+$"))] | first // "";
+    | .url | strings | select(test("^https://[A-Za-z0-9./_-]+\\z"))] | first // "";
   (url_in("OPEN") | v), (url_in("MERGED") | v), (url_in("CLOSED") | v),
   ([.[] | select(type == "object") | mine] | if any(not) and (any | not) then 1 else 0 end | v)' <<<"$prs" 2>/dev/null)
 pr=${got[0]-} merged_pr=${got[1]-} closed_pr=${got[2]-} foreign=""

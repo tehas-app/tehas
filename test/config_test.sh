@@ -377,11 +377,11 @@ t_case "findings about pi-rukas are filed unless the instance skips them, and ne
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
 t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_SKIP]\""
 t_eq "$t_out" "[0]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_SKIP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_SKIP=1
 t_run "$load && echo \"[\$TEHAS_IMPROVE_RUKAS_SKIP]\""
 t_eq "$t_out" "[1]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
-  TEHAS_IMPROVE_RUKAS_SKIP=1 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_IMPROVE_REPO=acme/factory TEHAS_IMPROVE_RUKAS_REPO=acme/rukas \
+  TEHAS_IMPROVE_RUKAS_SKIP=1
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_IMPROVE_RUKAS_SKIP is 1 and TEHAS_IMPROVE_RUKAS_REPO is set"
@@ -416,11 +416,19 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRI
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
 
-t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
+t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
 printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[0][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[1][4]"
+
+t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
+t_instance "${T_MINIMAL[@]}"
 t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[0][2][10][1]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_EVERY=1440 TEHAS_REFRESH_SLOTS=8 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_REFRESH_CONFLICTS=1 TEHAS_REFRESH_MAX=5 TEHAS_REFRESH_EVERY=1440 TEHAS_REFRESH_SLOTS=8
 t_run "$load && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
 t_eq "$t_out" "[1][5][1440][8]"
 printf '%s\n' "${T_MINIMAL[@]}" TEHAS_REFRESH_SLOTS=0 >"$TEHAS_INSTANCE_DIR/instance.env"
@@ -444,18 +452,20 @@ for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REVI
   t_contains "$t_out" "rc=78"
 done
 
-t_case "the slice holds four containers unless the instance says another number from 2 to 16"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_case "the slice holds four containers unless the instance says another number from 2 to 16, or auto"
+t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
 t_eq "$t_out" "[4]"
-for good_n in 2 6 16; do
-  printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=$good_n >"$TEHAS_INSTANCE_DIR/instance.env"
+for good_n in 2 6 16 auto; do
+  t_instance "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=$good_n
   t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
   t_eq "$t_out" "[$good_n]"
 done
-for bad in "TEHAS_SLICE_CONTAINERS=1" "TEHAS_SLICE_CONTAINERS=0" "TEHAS_SLICE_CONTAINERS=17" "TEHAS_SLICE_CONTAINERS=06" "TEHAS_SLICE_CONTAINERS=six"; do
-  t_case "loading rejects $bad"
-  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+# `auto` is the poll's word, refused by lib/slice.sh at every start
+# (test/slice_test.sh and the Rust slice's own test). Anything else is no count.
+for bad in 1 0 17 06 1.5 -4 99999999999999999999 AUTO; do
+  t_case "loading rejects TEHAS_SLICE_CONTAINERS=$bad"
+  t_instance "${T_MINIMAL[@]}" "TEHAS_SLICE_CONTAINERS=$bad"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
 done
@@ -463,37 +473,28 @@ done
 # The hold of rule 6: unset, the dispatcher never asks the measure, so nothing
 # changes. Set, it is a whole number of at least 1.
 t_case "the size hold is off unless the instance names a number of files"
-printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}"
 t_run "$load && set -u && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[]"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=3 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=3
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[3]"
 
 for bad in "TEHAS_SIZE_MAX_FILES=0" "TEHAS_SIZE_MAX_FILES=-1" "TEHAS_SIZE_MAX_FILES=x"; do
   t_case "loading rejects $bad"
-  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "tehas: TEHAS_SIZE_MAX_FILES is not valid"
 done
 
-# The dispatcher compares the setting with the files of a body, so a digit
-# string no comparison can hold must stop loading rather than reach that
-# comparison. Its length is refused first, with no complaint from the
-# comparison itself.
-for bad in "1000000000" "99999999999999999999"; do
-  t_case "loading rejects a TEHAS_SIZE_MAX_FILES of '$bad'"
-  printf '%s\n' "${T_MINIMAL[@]}" "TEHAS_SIZE_MAX_FILES='$bad'" >"$TEHAS_INSTANCE_DIR/instance.env"
-  t_run "$load; echo rc=\$?"
-  t_contains "$t_out" "rc=78"
-  t_contains "$t_out" "TEHAS_SIZE_MAX_FILES is not valid: expected at most 9 digits"
-  t_lacks "$t_out" "integer expression"
-done
-# Every count: a number no comparison can hold is refused by its length, not
-# taken as passing the comparison that failed on it.
+# Every count: a digit string no comparison can hold is refused by its length,
+# not taken as passing the comparison that failed on it (the dispatcher compares
+# TEHAS_SIZE_MAX_FILES with the files of a body, and `tehas limit` its cycles
+# with what runs: a long number must stop the load, not reach either).
 for name in TEHAS_WORK_TIMEOUT TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_VERIFY_TIMEOUT \
-  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING; do
+  TEHAS_CHILD_TIMEOUT TEHAS_WORK_STALL TEHAS_PLAN_TIMEOUT TEHAS_SIZE_MAX_FILES TEHAS_MAX_AWAITING \
+  TEHAS_MILLWRIGHT_MAX_RETRIES; do
   t_case "loading rejects a $name of 20 digits"
   t_instance "${T_MINIMAL[@]}" "$name=99999999999999999999"
   t_run "$load; echo rc=\$?"
@@ -501,21 +502,22 @@ for name in TEHAS_WORK_TIMEOUT TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_
   t_contains "$t_out" "$name is not valid: expected at most 9 digits"
   t_lacks "$t_out" "integer expression"
 done
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_SIZE_MAX_FILES=999999999
 t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
 for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
-  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots"; do
+  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
+  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many"; do
   t_case "loading rejects $bad"
-  printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
+  t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
 t_case "the millwright is never one of the accounts that authorise work"
-printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=alice >"$TEHAS_INSTANCE_DIR/instance.env"
+t_instance "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=alice
 t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_MILLWRIGHT_LOGIN (alice) is in TEHAS_ALLOWED_LABELERS"
@@ -682,7 +684,9 @@ t_run "$load; echo rc=\$?"
 t_contains "$t_out" "rc=78"
 t_contains "$t_out" "TEHAS_WORK_MEMORY is set"
 
-t_case "TEHAS_CYCLE_CPUS and TEHAS_CYCLE_MEMORY are not exported"
+# What the poll reads for `auto` is not exported and not checked here: the
+# loader clears what came in with it, and the poll defaults the three itself.
+t_case "an inherited auto count is cleared and stays cleared in a child"
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_CYCLE_CPUS=64 TEHAS_CYCLE_MEMORY=64g)
 t_run "$load && echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\" && bash -c 'echo \"[\${TEHAS_CYCLE_CPUS:-}][\${TEHAS_CYCLE_MEMORY:-}]\"'"
@@ -704,6 +708,51 @@ t_case "previews and clones written as off still load"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=0 TEHAS_CLONES=0
 t_run "$load; echo rc=\$?"
 t_eq "$t_out" "rc=0"
+
+# An earlier version read a blank TEHAS_CLONES as no clones through ${VAR:-0},
+# so the line stays loadable: one blank line must not stop every command.
+t_case "clones written as nothing still load, and the name is not exported"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=
+t_run "$load; echo rc=\$?; declare -x TEHAS_CLONES 2>&1 | grep -c TEHAS_CLONES"
+t_eq "$t_out" "rc=0
+0"
+
+t_case "clones written any other way are refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=00
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_CLONES is set and this version of tehas has no database clones"
+
+# What the host's environment holds is not a setting: the sweep in tehas_load
+# drops every TEHAS_* name before instance.env is read, so a retired name gets
+# there only from the file. These two cases say so, and they are the reason the
+# loop reads the names after the source rather than before it.
+t_case "TEHAS_CLONES in the environment alone is dropped, not refused"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_CLONES=9)
+t_run "$load; echo rc=\$?; echo \"[\${TEHAS_CLONES-unset}]\""
+t_eq "$t_out" "rc=0
+[unset]"
+T_ENV=()
+
+t_case "TEHAS_WORK_CPUS in the environment alone is dropped, not refused"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_WORK_CPUS=4)
+t_run "$load; echo rc=\$?; echo \"[\${TEHAS_WORK_CPUS-unset}]\""
+t_eq "$t_out" "rc=0
+[unset]"
+T_ENV=()
+
+t_case "of two retired lines the operator is told about the first of them"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=1 TEHAS_WORK_CPUS=4
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_CLONES is set and this version of tehas has no database clones"
+t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=0 TEHAS_WORK_CPUS=4
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_CPUS is set"
 
 t_case "previews without a domain are refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1
@@ -1006,11 +1055,47 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_MAX_AWAITING=3
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
 
-t_case "a concurrency that is no number is refused, not added to"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=two
+for bad in two 0 -1 1.5 99999999999999999999; do
+  t_case "a concurrency that is no number is refused, not added to: $bad"
+  t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=$bad
+  t_run "$load"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
+done
+
+# `auto` is a value the dispatcher answers, not one the loader works out: it
+# reaches the environment as written, and nothing here runs nproc for it.
+t_case "auto for both counts is kept as written, and no nproc is asked for it"
+rm -f "$T/bin/nproc"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_SLICE_CONTAINERS=auto
+t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_SLICE_CONTAINERS\""
+t_eq "$t_rc" 0
+t_eq "$t_out" "auto auto"
+t_eq "$(t_calls nproc)" ""
+t_stub nproc 'echo 8'
+
+t_case "auto with the lane off holds a review cap of three, the floor the setting has"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "3"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_MAX_AWAITING=9
+t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
+t_eq "$t_out" "9"
+
+t_case "auto is refused with several workstreams: one axis of parallelism"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=auto
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
+t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (auto) are both above 1"
+
+# The three the poll reads for `auto` are not the loader's: nothing is exported
+# and nothing is checked, and the poll holds the rule and the default of each
+# with the arithmetic (console/dispatch/src/slots.rs).
+t_case "what the instance writes for the auto settings reaches the environment as written"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONTAINER_MEMORY=16g TEHAS_CYCLE_CPUS=8 TEHAS_CYCLE_CEILING=6
+t_run "$load && echo \"\$TEHAS_CONTAINER_MEMORY \$TEHAS_CYCLE_CPUS \$TEHAS_CYCLE_CEILING\""
+t_eq "$t_out" "16g 8 6"
+
 rm -f "$T/bin/nproc"
 
 t_case "the reserve defaults to 2g"
