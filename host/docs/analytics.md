@@ -309,6 +309,35 @@ The line is the report's, not the dashboard's file: `tehasbot status` publishes
 only the top-level keys it names and `gate` is not one of them (see [the keys of
 the published report](/tools#tehasbot-status-and-the-console)).
 
+### Drivers
+
+`tehas analytics report` has a `drivers` key, and the terminal a `Drivers` table,
+that compare the drivers over the same ten days of work runs. It has one object
+for `classic` and one for `lean`, both always there. A run with no driver on
+record is classic. Each object gives:
+
+| Key | What it says |
+| --- | --- |
+| `n` | The work runs of the driver, refused and stopped ones with them |
+| `prShare` | The share of `n` that ended in a pull request a person could merge: outcome `pr` or `merged` |
+| `parkedShare` | The share of `n` with outcome `parked` |
+| `minutes` | `n` runs with a length, their `total` and `median`, whole minutes |
+| `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
+| `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
+
+A figure with nothing to work from is left out. An empty token column is not a
+zero: lean reports no usage yet, so its `tokens` is `{"n": 0}` and the terminal
+prints `-`. Where some runs reported usage the terminal adds their count.
+
+The comparison is on pull requests, not on merges by the driver, because lean
+does not merge. A pull request counts once per issue, however many runs followed
+it up, since a merge is on record per issue. It counts as merged when the issue
+has a `merged` event, or a work run that ended merged, at or after the first run
+of that driver that reached it, and at or before the report's `to`.
+
+The table is the report's, not the dashboard's file: like `gate`, `drivers` is not
+among the keys `tehasbot status` publishes.
+
 ### Refine
 
 The report has a `refine` key, and the terminal a `Refine` line, that say how

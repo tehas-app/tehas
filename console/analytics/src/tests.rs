@@ -3500,6 +3500,14 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
         ],
+        "drivers": {
+            "classic": {"n": 6, "prShare": 0.333, "parkedShare": 0.0,
+                        "minutes": {"n": 6, "total": 80, "median": 13},
+                        "tokens": {"n": 4, "total": 6650, "median": 1750},
+                        "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
+            "lean": {"n": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+                     "pullRequests": {"n": 0, "merged": 0}},
+        },
     });
     assert_eq!(got, want, "{}", serde_json::to_string_pretty(&got).unwrap());
     let text = got.to_string();
@@ -3563,6 +3571,134 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     );
 }
 
+/// A work run that ended in the report's window, as the columns the drivers
+/// are read from.
+fn driver_run(
+    conn: &Connection,
+    id: &str,
+    issue: i64,
+    started: i64,
+    outcome: &str,
+    tokens: Option<i64>,
+    driver: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, driver)
+         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, ?5, ?6)",
+        rusqlite::params![id, issue, started, outcome, tokens, driver],
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
+    let home = scratch("report-drivers");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // Classic: two pull requests, one merged by the driver, one parked run.
+    driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
+    driver_run(&conn, "b", 2, day0, "pr", Some(200), Some("classic"));
+    driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
+    driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
+    // Lean: no usage yet. One pull request a person merged later, one not.
+    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
+    db::event(&conn, 5, "merged", day0 + 3600).unwrap();
+    let got = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        got["drivers"],
+        json!({
+            "classic": {"n": 4, "prShare": 0.5, "parkedShare": 0.25,
+                        "minutes": {"n": 4, "total": 40, "median": 10},
+                        "tokens": {"n": 4, "total": 1000, "median": 250},
+                        "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
+            "lean": {"n": 3, "prShare": 0.667, "parkedShare": 0.333,
+                     "minutes": {"n": 3, "total": 30, "median": 10},
+                     "tokens": {"n": 0},
+                     "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
+        })
+    );
+    let text = crate::report::text(&got);
+    let row = |name: &str| {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(name))
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap()
+    };
+    assert_eq!(row("classic"), "classic 4 50% 25% 40 1000 2 1");
+    assert_eq!(row("lean"), "lean 3 66.7% 33.3% 30 - (n=0) 2 1");
+}
+
+#[test]
+fn a_driver_of_no_runs_has_counts_and_no_figures() {
+    let home = scratch("report-no-drivers");
+    let to = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    let none = json!({"n": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+                      "pullRequests": {"n": 0, "merged": 0}});
+    assert_eq!(
+        crate::report::build(&conn, to).unwrap()["drivers"],
+        json!({"classic": none, "lean": none})
+    );
+}
+
+#[test]
+fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
+    let home = scratch("report-part-tokens");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
+    driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
+    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    // A reported 0 is a figure; an empty run is not in the median either.
+    assert_eq!(
+        got["drivers"]["lean"]["tokens"],
+        json!({"n": 2, "total": 400, "median": 200})
+    );
+    assert!(crate::report::text(&got).contains("400 (n=2)"));
+}
+
+#[test]
+fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
+    let home = scratch("report-pulls");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    // Two runs of one pull request, the second a follow-up by another how.
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, Some("lean"));
+    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
+    // Merged before this cycle of the issue: an earlier pull request's.
+    db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
+    driver_run(&conn, "c", 2, day0, "pr", None, Some("lean"));
+    // Merged after the report's end: not yet, in this report.
+    driver_run(&conn, "d", 3, day0, "pr", None, Some("lean"));
+    db::event(&conn, 3, "merged", to + 1).unwrap();
+    // No pull request, so it is in no count of them, merged or not.
+    driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
+    db::event(&conn, 4, "merged", day0 + 2000).unwrap();
+    assert_eq!(
+        crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["pullRequests"],
+        json!({"n": 3, "merged": 1, "share": 0.333})
+    );
+}
+
+#[test]
+fn a_migrated_run_reads_classic_in_the_report() {
+    let home = scratch("report-migrated");
+    let file = db::path(&home);
+    let now = 1_792_022_400;
+    drop(schema_2_database(&file, now));
+    let (conn, _) = db::open(&file, now).unwrap();
+    let got = crate::report::build(&conn, now).unwrap();
+    assert_eq!(got["drivers"]["classic"]["n"], 1);
+    assert_eq!(got["drivers"]["classic"]["prShare"], 1.0);
+    assert_eq!(got["drivers"]["lean"]["n"], 0);
+}
+
 #[test]
 fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
@@ -3611,6 +3747,7 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
             "availability",
             "cycleTime",
             "daily",
+            "drivers",
             "firstPassYield",
             "from",
             "handoffRate",
