@@ -538,13 +538,10 @@ tehas_load() {
   export TEHAS_GITHUB_APP_ID=${TEHAS_GITHUB_APP_ID:-} TEHAS_GITHUB_APP_INSTALLATION=${TEHAS_GITHUB_APP_INSTALLATION:-} TEHAS_BOT_LOGIN=${TEHAS_BOT_LOGIN:-}
   # Refreshes: whether the factory resolves conflicts in its own pull requests
   # that wait for a merge (off unless the instance says so: it starts cycles with
-  # no fresh label), whether it may answer one with the easy merge of #1031 rather
-  # than a full refresh cycle (off), how many of one pull request since the
-  # person's approval its cycle rests on, the minutes between two runs of tehasbot
-  # refresh, and how many run in a lane of their own, 0 for none: then they share
-  # the cycles' slots.
-  export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0} TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2}
-  export TEHAS_EASY_MERGE=${TEHAS_EASY_MERGE:-0}
+  # no fresh label) and whether an easy merge may come first (TEHAS_EASY_MERGE,
+  # off), how many of one pull request since the approval its cycle rests on, the
+  # minutes between two runs of tehasbot refresh, and its lanes (0: the cycles').
+  export TEHAS_REFRESH_CONFLICTS=${TEHAS_REFRESH_CONFLICTS:-0} TEHAS_REFRESH_MAX=${TEHAS_REFRESH_MAX:-2} TEHAS_EASY_MERGE=${TEHAS_EASY_MERGE:-0}
   export TEHAS_REFRESH_EVERY=${TEHAS_REFRESH_EVERY:-10} TEHAS_REFRESH_SLOTS=${TEHAS_REFRESH_SLOTS:-1}
   # The check on the branch's head commit whose failure holds new cycles back.
   # Unset, the poll does not ask.
@@ -643,6 +640,10 @@ tehas_load() {
   fi
   for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_SCRATCH_DIR; do
     [ -n "${!v:-}" ] || continue
+    _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
+  done
+  for v in TEHAS_ANALYTICS_SRC TEHAS_ANALYTICS_SITE TEHAS_IMPROVE_REPO TEHAS_IMPROVE_RUKAS_REPO TEHAS_IMPROVE_MAX_OPEN TEHAS_MILLWRIGHT_LOGIN TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_BOT_LOGIN TEHAS_RUKAS_WORKAROUNDS TEHAS_BRANCH_CHECK TEHAS_LOW_GATE TEHAS_CLEAN_DIRS; do
+    [ -n "${!v}" ] || continue
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # An entry for a setting the instance no longer has is a workaround removed
