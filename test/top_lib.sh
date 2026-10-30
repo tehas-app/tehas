@@ -56,12 +56,26 @@ proc_files() { # <dir> <clock seconds> "<cpu user nice system idle iowait irq so
   printf 'MemTotal:       65536 kB\nMemFree:          10000 kB\nMemAvailable:     32768 kB\n' >"$dir/meminfo"
   printf 'processor\t: 0\nmodel name\t: a cpu\nprocessor\t: 1\n' >"$dir/cpuinfo"
   # A row is "<pid> <short name> <cpu ticks> <resident pages>". The start ticks
-  # come from the pid, so two trees give the same process the same start.
+  # come from the pid: 900 + pid - 100, in ticks. So two trees give the same
+  # process the same start, and a process whose start has to differ is written
+  # by hand, as the brackets case does.
   for row in "$@"; do
-    read -r pid name ticks rss <<<"$row"
+    read -r pid name ticks rss <<<"${row//\|/ }"
     mkdir -p "$dir/$pid"
     printf '%s (%s) S 1 %s %s 0 -1 1 0 0 0 0 %s 0 0 0 20 0 1 0 %s 1048576 %s 0 0 0 0 0 0 0 0 0 0 0 0 0 0 17 0 0 0 0 0 0\n' \
       "$pid" "$name" "$pid" "$pid" "$ticks" "$((900 + pid - 100))" "$rss" >"$dir/$pid/stat"
+  done
+}
+
+# The rows of a process set, for proc_files: pids from the first to the last,
+# each named after itself and all of them with the same start (the start ticks
+# come from the pid). Each next pid has used <step> ticks more than the last,
+# from <base> for the first. The fields of a row are kept apart by | so the
+# whole set survives one unquoted word per row.
+pid_rows() { # <first> <last> <base ticks> <step>
+  local p base=$3 span=$4
+  for p in $(seq "$1" "$2"); do
+    printf "%d|p%d|%d|10 " "$p" "$p" "$((base + (p - $1) * span))"
   done
 }
 
