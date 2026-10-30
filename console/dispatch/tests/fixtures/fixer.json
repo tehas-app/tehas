@@ -2882,6 +2882,680 @@
      "the fixer saved the question"
     ]
    }
+  },
+  {
+   "case": "the feed: the fixer's tehas:ready on an issue alice wrote starts its first cycle, resting on her issue",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "by": "tehas-fixer",
+      "given": "millwright",
+      "fixer_starts": 1,
+      "how": "`tehas:ready` label as the fixer, on the issue alice wrote at 2026-09-30T00:00:00Z",
+      "rests_on": {
+       "by": "alice",
+       "at": "2026-09-30T00:00:00Z",
+       "how": "feed"
+      }
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "without the feed, the fixer's label on an issue never approved starts nothing",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "no person approved an earlier cycle of it"
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed starts nothing an outsider wrote: the label comes off and the issue says why",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its author bob is not named in `TEHAS_ALLOWED_LABELERS`"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "bob"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed starts no improvement proposal",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "tehas:improvement"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "it carries `tehas:improvement`"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed starts nothing a person escalated",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "it carries `needs-human-attention`"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed starts nothing a person took tehas:ready off before",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:00:00Z"
+       },
+       {
+        "event": "unlabeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T01:00:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "alice took `tehas:ready` off it before"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ]
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed waits on a text an outsider changed since alice wrote it",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "its text was changed by 'bob' after alice wrote it"
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": "2026-10-01T00:00:00Z",
+       "editor": {
+        "login": "bob"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed waits at its cap, with the label left",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 2
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "wait #7: 2 fed cycles run, TEHAS_MILLWRIGHT_MAX_FEEDS is 2"
+    ],
+    "log_lacks": [
+     "would take tehas:ready off"
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "the feed waits when the fed cycles cannot be counted",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "the fed cycles running could not be counted"
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "an issue a person approved before is the grant's, not the feed's: at the limit the label comes off",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
+    "TEHAS_MILLWRIGHT_FEED": "1",
+    "TEHAS_MILLWRIGHT_MAX_RETRIES": "1"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-02T00:00:00Z"
+       }
+      ]
+     }
+    },
+    "fed": 0
+   },
+   "body": {
+    "7": "Words."
+   },
+   "expect": {
+    "picked": [],
+    "log": [
+     "the fixer has started 1 cycles on it since alice approved it, the limit"
+    ]
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 1
+    }
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "edit": {
+       "createdAt": "2026-09-30T00:00:00Z",
+       "author": {
+        "login": "alice"
+       },
+       "lastEditedAt": null,
+       "editor": null
+      }
+     }
+    }
+   }
   }
  ]
 }

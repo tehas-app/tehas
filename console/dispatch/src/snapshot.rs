@@ -200,6 +200,9 @@ pub struct Snapshot {
     /// The pull requests a refresh reads, by number: GraphQL's
     /// .data.repository.pullRequest, or {"failed": true}.
     pub pulls: BTreeMap<u64, Value>,
+    /// With TEHAS_MILLWRIGHT_FEED: the running cycles a fed start began, None
+    /// when that could not be read.
+    pub fed: Option<u64>,
     /// gh issue list --label tehas:question.
     pub asking: Option<Value>,
     /// park-show --automatic's parks, owed a retry after an outage.
@@ -530,6 +533,7 @@ impl Snapshot {
                         .collect()
                 })
                 .unwrap_or_default(),
+            fed: v.get("fed").and_then(Value::as_u64),
             asking: v.get("asking").cloned(),
             owed: v.get("owed").map(|o| {
                 if failed(o) {

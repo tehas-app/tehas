@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use crate::live;
 
 /// PRAGMA user_version of the schema in schema.sql.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 pub const SCHEMA: &str = include_str!("schema.sql");
 
 /// The steps from schema 1 to 2 and from 2 to 3: columns and a table added,
@@ -139,6 +139,14 @@ CREATE INDEX poll_cost_at ON poll_cost (at);
 /// not 0: `poll-idle` counts only the polls known to have started none.
 pub const STEP_8: &str = "
 ALTER TABLE poll_cost ADD COLUMN starts INTEGER;
+";
+
+/// The step from 8 to 9: whether a refresh start ran as an easy merge (#1031),
+/// last in `approvals` as in schema.sql. A row of an older store keeps it 0,
+/// which is "no easy merge on this row", the answer a row written before the
+/// easy merge existed must have: a refresh of such a row was a full cycle.
+pub const STEP_9: &str = "
+ALTER TABLE approvals ADD COLUMN easy INTEGER NOT NULL DEFAULT 0 CHECK (easy IN (0, 1));
 ";
 
 /// How long SQLite waits for a lock another connection holds before giving
@@ -1071,27 +1079,37 @@ pub fn migrate(
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         2 => step(conn, 3, STEP_3)
             .and_then(|()| step_4(conn))
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         3 => step_4(conn)
             .and_then(|()| step(conn, 5, STEP_5))
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         4 => step(conn, 5, STEP_5)
             .and_then(|()| step(conn, 6, STEP_6))
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
         5 => step(conn, 6, STEP_6)
             .and_then(|()| step(conn, 7, STEP_7))
-            .and_then(|()| step(conn, 8, STEP_8)),
-        6 => step(conn, 7, STEP_7).and_then(|()| step(conn, 8, STEP_8)),
-        7 => step(conn, 8, STEP_8),
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
+        6 => step(conn, 7, STEP_7)
+            .and_then(|()| step(conn, 8, STEP_8))
+            .and_then(|()| step(conn, 9, STEP_9)),
+        7 => step(conn, 8, STEP_8).and_then(|()| step(conn, 9, STEP_9)),
+        // The store of the previous release sits at 8, so the step from it is
+        // one the shipped binary must answer for.
+        8 => step(conn, 9, STEP_9),
         v => Err(DbError::Corrupt(format!(
             "no migration from schema {v} of {}, this binary writes {SCHEMA_VERSION}",
             file.display()
