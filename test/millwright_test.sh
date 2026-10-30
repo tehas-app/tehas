@@ -82,6 +82,15 @@ by_refresh() { # <refreshes> [<fixer starts>]
   echo "{\"at\":\"2026-10-01T00:00:00Z\",\"by\":\"alice\",\"how\":\"refresh\",\"body_sha256\":\"$SUM\",\"links\":[],\"refreshes\":$1,\"fixer_starts\":${2:-0},\"rests_on\":$(person)}"
 }
 
+t_case "the rules that read a record take one that names a driver, in each shape a start has"
+for shape in "$(person)" "$(by_fixer 1)" "$(by_refresh 1)"; do
+  record 7 "$(jq -c '.driver = "lean"' <<<"$shape")"
+  view 7 '. "$T_ROOT/lib/attachments.sh"; jq -r .driver "$v"; jq "$(tehas_approval_record) record_ok" "$v"; tehas_millwright_base "$v" | jq -r .by'
+  t_eq "$t_out" 'lean
+true
+alice'
+done
+
 t_case "a refresh rests on the person's approval, and carries the fixer's count on"
 record 7 "$(by_refresh 1 1)"
 view 7 'tehas_millwright_base "$v" | jq -c "[.by, .how]"; tehas_millwright_starts "$v"'
