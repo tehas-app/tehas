@@ -25,6 +25,8 @@
 #   3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
 #                                        compile-cache, analytics-facts.*,
 #                                        tehas-test.* dirs, a staged recipe
+#                                        and the /tmp of a killed cycle on
+#                                        TEHAS_SCRATCH_DIR, under its lock
 #   4. old sandbox images                dated tags of that age, except the
 #                                        newest and any a container or a uid
 #                                        tag holds
@@ -105,4 +107,4 @@ free_kb=$(tehas_free_kb "$TEHAS_HOME") || free_kb=""
 pulled=$(tehas_base_image) || pulled=""
 exec "$console" clean run "$dry" "$TEHAS_HOME" "$TEHAS_WORK_DIR" "$TEHAS_CLEAN_AFTER" \
   "$TEHAS_CLEAN_MIN_FREE_MB" "$TEHAS_CLEAN_MIN_FREE" "$free_kb" "$TEHAS_CLEAN_DIRS" \
-  "$sandbox_image" "$pulled" "$logfile"
+  "$sandbox_image" "$pulled" "$logfile" "${TEHAS_SCRATCH_DIR:-}"
