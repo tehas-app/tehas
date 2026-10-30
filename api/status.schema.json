@@ -88,7 +88,20 @@
         "refreshes": {"type": "integer", "minimum": 0},
         "maxAwaiting": {"type": "integer"},
         "slice": {"type": "integer", "minimum": 0},
-        "limit": {"type": "integer", "minimum": 0}
+        "limit": {"type": "integer", "minimum": 0},
+        "slots": {
+          "type": "object",
+          "required": ["cycles", "containers", "cyclesHow", "containersHow"],
+          "additionalProperties": false,
+          "properties": {
+            "cycles": {"type": "integer", "minimum": 0},
+            "containers": {"type": "integer", "minimum": 0},
+            "cyclesHow": {"enum": ["auto", "number", "fixed"]},
+            "containersHow": {"enum": ["auto", "number", "fixed"]},
+            "cycle": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}},
+            "container": {"type": "object", "required": ["bound", "slots", "cpus", "cycleCpus", "containerMemory", "ceiling", "floored"], "additionalProperties": false, "properties": {"bound": {"enum": ["cpu", "memory", "ceiling", "host"]}, "slots": {"type": "integer", "minimum": 0}, "cpus": {"type": ["integer", "null"], "minimum": 0}, "cycleCpus": {"type": "string"}, "containerMemory": {"type": "string"}, "ceiling": {"type": "string"}, "floored": {"type": "boolean"}}}
+          }
+        }
       }
     }
   }

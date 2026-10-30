@@ -54,6 +54,30 @@
     "refreshes": 1,
     "maxAwaiting": 1,
     "slice": 2,
-    "limit": 1
+    "limit": 1,
+    "slots": {
+      "cycles": 3,
+      "containers": 6,
+      "cyclesHow": "auto",
+      "containersHow": "auto",
+      "cycle": {
+        "bound": "ceiling",
+        "slots": 12,
+        "cpus": 24,
+        "cycleCpus": "4",
+        "containerMemory": "8g",
+        "ceiling": "3",
+        "floored": false
+      },
+      "container": {
+        "bound": "memory",
+        "slots": 6,
+        "cpus": 24,
+        "cycleCpus": "4",
+        "containerMemory": "8g",
+        "ceiling": "3",
+        "floored": false
+      }
+    }
   }
 }
