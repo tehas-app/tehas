@@ -20,6 +20,8 @@ const DAY: i64 = 86_400;
 /// How long to keep trying the journal switch, and how often, when another
 /// opener holds the lock it needs.
 const WAL_WAIT: Duration = Duration::from_secs(5);
+// Past the busy timeout, or a second try never starts.
+const OPEN_WAIT: Duration = Duration::from_secs(10);
 const WAL_RETRY: Duration = Duration::from_millis(50);
 
 pub const EVENTS: [&str; 7] = [
@@ -36,16 +38,23 @@ pub fn path(home: &Path) -> PathBuf {
 /// One of any other schema version is moved, with its -wal and -shm, to
 /// analytics.db.schema-<version>, where a reader can still fetch it, and
 /// prune_aside deletes it RETENTION_DAYS after its last write. Any other
-/// failure, a full disk, a file it may not write, a lock held too long, is an
-/// error and leaves the file as it is. The second value is where a file was
+/// failure, a full disk, a file it may not write, a lock still held after
+/// OPEN_WAIT, is an error and leaves the file as it is. The second value is where a file was
 /// moved, if one was.
 pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), String> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
     }
-    let (to, why, keep_sides) = match try_open(file, now) {
+    let until = Instant::now() + OPEN_WAIT;
+    let opened = loop {
+        match try_open(file, now) {
+            Err(Unusable::Busy(_)) if Instant::now() < until => std::thread::sleep(WAL_RETRY),
+            opened => break opened,
+        }
+    };
+    let (to, why, keep_sides) = match opened {
         Ok(conn) => return Ok((conn, None)),
-        Err(Unusable::Failed(e)) => return Err(e),
+        Err(Unusable::Failed(e) | Unusable::Busy(e)) => return Err(e),
         Err(Unusable::Broken(why)) => (file.with_extension("db.broken"), why, false),
         Err(Unusable::Foreign(version, why)) => (
             file.with_extension(format!("db.schema-{version}")),
@@ -63,7 +72,9 @@ pub fn open(file: &Path, now: i64) -> Result<(Connection, Option<PathBuf>), Stri
         }
     }
     let conn = try_open(file, now).map_err(|e| match e {
-        Unusable::Failed(e) | Unusable::Broken(e) | Unusable::Foreign(_, e) => e,
+        Unusable::Failed(e) | Unusable::Busy(e) | Unusable::Broken(e) | Unusable::Foreign(_, e) => {
+            e
+        }
     })?;
     Ok((conn, Some(to)))
 }
@@ -101,6 +112,8 @@ pub fn prune_aside(file: &Path, now: i64) {
 pub(crate) enum Unusable {
     // The file may be a good database: it is left alone.
     Failed(String),
+    // Another program holds the file for now: try again, then as Failed.
+    Busy(String),
     // The file is not a database of this schema.
     Broken(String),
     // A database of another schema version: kept aside, not discarded.
@@ -112,6 +125,7 @@ fn classify(e: rusqlite::Error) -> Unusable {
         Some(rusqlite::ErrorCode::NotADatabase) | Some(rusqlite::ErrorCode::DatabaseCorrupt) => {
             Unusable::Broken(format!("the database is not usable: {e}"))
         }
+        _ if is_busy(&e) => Unusable::Busy(format!("the database could not be opened: {e}")),
         _ => Unusable::Failed(format!("the database could not be opened: {e}")),
     }
 }

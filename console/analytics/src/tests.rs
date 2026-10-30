@@ -1628,12 +1628,29 @@ fn a_write_lock_held_through_the_migration_is_an_error_and_changes_nothing() {
     late.busy_timeout(std::time::Duration::ZERO).unwrap();
     assert!(matches!(
         db::settle(&mut late, 2, now),
-        Err(db::Unusable::Failed(_))
+        Err(db::Unusable::Busy(_))
     ));
     holder.execute_batch("COMMIT").unwrap();
     assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 2);
     assert!(db::settle(&mut late, 2, now).is_ok());
     assert_eq!(one::<i64>(&late, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+#[test]
+fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
+    let home = scratch("migrate-long-lock");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    let holder = schema_2_database(&file, now);
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(6));
+        holder.execute_batch("COMMIT").unwrap();
+    });
+    let (conn, moved) = db::open(&file, now).unwrap();
+    release.join().unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
 }
 
 #[test]
