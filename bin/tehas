@@ -18,6 +18,7 @@
 #   tehas drain [--wait S] [--json]  start nothing new, wait for running cycles
 #   tehas history [--json] [--after C] [--issue N]  the cycles that ended
 #   tehas export --after C <dir>     copy them elsewhere, masked
+#   tehas state pack|unpack -        move a stopped factory's state to another machine
 #   tehas top [--once|--json]        one screen of what the factory is doing
 #   tehas analytics report|export    the factory's last 365 days of runs
 #   tehas mcp key                    a new key for the read-only MCP server
@@ -46,7 +47,7 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | labels | top | pause | resume | stop | api | limit | drain | history | export | mcp | check-product | init-product) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | setup | update | labels | top | pause | resume | stop | api | limit | drain | history | export | state | mcp | check-product | init-product) echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
     analytics) echo "$libexec/analytics-cmd" ;;
   esac
