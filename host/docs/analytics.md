@@ -63,11 +63,11 @@ seconds and durations are seconds, as integers, except `runner_ms` and
 `PRAGMA user_version` is the schema version, today 3. Within one version
 columns are only added. A change of a column's meaning raises the version.
 A file at 2 is migrated in place as the program opens it: one transaction adds
-the column `driver` to `runs`, and every run stays. Programs that have the file
-open go on working. A host whose file is still at 1 keeps it aside under its
-version and starts a new one. Nothing of the gate was on the record there before;
-the new gate columns are NULL where a run made no gate, which the report reads as
-no gate rather than a gate of no time.
+the column `driver` to `runs` and makes the view `v_versions` anew, and every run
+stays. Programs that have the file open go on working. A host whose file is still
+at 1 keeps it aside under its version and starts a new one. Nothing of the gate
+was on the record there before; the new gate columns are NULL where a run made no
+gate, which the report reads as no gate rather than a gate of no time.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
@@ -261,7 +261,7 @@ So that a reader does not have to work out the common figures again:
 | --- | --- | --- |
 | `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens` | 1 |
+| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## The report
 
