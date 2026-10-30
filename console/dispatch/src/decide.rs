@@ -7,6 +7,7 @@ use crate::events::{
 };
 use crate::settings::Settings;
 use crate::slice::{self, gib};
+use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -97,6 +98,8 @@ struct Poll<'a> {
     dry: bool,
     d: Decision,
     control_skipped: bool,
+    /// Fed starts this poll picked, beside the ones running.
+    fed_picked: u64,
     work_refused: Vec<u64>,
     gate_asked: bool,
     gate_answer: i32,
@@ -107,6 +110,9 @@ struct Poll<'a> {
     stopped: Vec<u64>,
     /// The bot's login, once the poll has read it.
     bot: String,
+    /// The cycles and the containers this poll's readings give, `auto` or as
+    /// written: settled once, and asked of no reading a number does not need.
+    slots: Slots,
     /// "hold refreshes" was said this poll.
     refresh_said: bool,
     /// Parked issues with a box ticked: rule 5a leaves them.
@@ -125,6 +131,7 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         dry,
         d: Decision::default(),
         control_skipped: false,
+        fed_picked: 0,
         work_refused: Vec::new(),
         gate_asked: false,
         gate_answer: 0,
@@ -132,6 +139,14 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
         image_hold: None,
         stopped: Vec::new(),
         bot: String::new(),
+        slots: Slots {
+            cycles: 0,
+            containers: 0,
+            cycle_how: "fixed",
+            container_how: "fixed",
+            cycle: None,
+            container: None,
+        },
         refresh_said: false,
         park_ticked: Vec::new(),
         plan_busy: None,
@@ -520,7 +535,28 @@ impl<'a> Poll<'a> {
             cycles = count - refreshing;
             lane = Some((c.refresh_slots - refreshing).max(0));
         }
-        let free = c.concurrency - cycles;
+        // The ceiling the poll decides by. `auto` is derived from the two
+        // readings the snapshot took this poll, so a host that grew or
+        // shrank is answered at the next poll and a running cycle is never
+        // stopped: only the room to start another moves.
+        self.slots = slots::derive(
+            &Probe::read(
+                s.slice
+                    .show
+                    .as_ref()
+                    .and_then(|m| m.get("MemoryMax"))
+                    .and_then(Value::as_str)
+                    .and_then(slice::bytes),
+                s.slice.cpus.as_deref().and_then(|c| c.parse().ok()),
+                &c.container_memory,
+                &c.cycle_cpus,
+                &c.cycle_ceiling,
+            ),
+            &c.slice_containers,
+            &c.concurrency_written,
+        );
+        let concurrency = self.slots.cycles;
+        let free = concurrency - cycles;
         let limit_state = s
             .limit
             .get("state")
@@ -559,7 +595,10 @@ impl<'a> Poll<'a> {
         let mut mem_note = String::new();
         let mut pressure = None;
         let mut ceiling_mb = 0;
-        match slice::usable(&s.slice, &c.reserve, &c.slice_containers) {
+        // The containers in force, so `auto` divides the slice by the number
+        // the poll derived rather than by the word in the setting.
+        let containers = self.slots.containers.to_string();
+        match slice::usable(&s.slice, &c.reserve, &containers) {
             Ok(u) => {
                 ceiling_mb = u.ceiling_mb;
                 let r = slice::room(&s.slice, &u, &c.reserve, count as u64);
@@ -659,10 +698,13 @@ impl<'a> Poll<'a> {
             hold = hold_of;
         } else if free <= 0 {
             why = "count".into();
-            hold = format!(
-                "holding: {cycles} cycles are running (limit {})",
-                c.concurrency
-            );
+            hold = match slots::words(&self.slots).as_str() {
+                // A number as always: the count alone.
+                "" => format!("holding: {cycles} cycles are running (limit {concurrency})"),
+                // `auto` names its count and the reading that gave it, so the
+                // line says what a resize of the host did.
+                why => format!("holding: {cycles} cycles are running ({why})"),
+            };
             if let Some(lane) = lane {
                 hold = format!(
                     "{hold}; the refresh lane has {lane} of {} free",
@@ -796,6 +838,13 @@ impl<'a> Poll<'a> {
                 "why": why, "hold": hold, "count": count, "room": room_mem, "committed": committed,
                 "max": slice_max, "reserve": c.reserve, "free": free, "awaitRoom": await_room,
             });
+            if let Some(slots) = self.slots.report() {
+                if let (Some(r), Some(slots)) = (r.as_object_mut(), slots.as_object()) {
+                    for (k, v) in slots {
+                        r.insert(k.clone(), v.clone());
+                    }
+                }
+            }
             if let Some(l) = limit_room {
                 r["limitRoom"] = json!(l);
             }
@@ -1463,8 +1512,9 @@ impl<'a> Poll<'a> {
 
     /// fixer_ok: the fixer's tehas:ready, applied at `at`. The person's
     /// approval it rests on and the count of fixer starts with this one, or
-    /// None with the label off and the reason said.
-    fn fixer_ok(&mut self, n: u64, at: &str) -> Step<Option<(Value, u64)>> {
+    /// None with the label off and the reason said. With the feed on, an
+    /// issue never approved may rest on its author instead (feed_ok).
+    fn fixer_ok(&mut self, n: u64, at: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
         if !self.unchanged_since(
             n,
             at,
@@ -1479,6 +1529,11 @@ impl<'a> Poll<'a> {
             return Ok(None);
         }
         let sum = text::body_sha256(&self.text(n));
+        let never =
+            matches!(self.s.issues.get(&n), Some(i) if matches!(i.approval, Some(Ok(None))));
+        if self.c.millwright_feed && never && n != self.c.control {
+            return self.feed_ok(n, &sum, labels);
+        }
         let why = match self.fixer_grant(n, &sum) {
             Ok((base, count)) => {
                 let by = base["by"].as_str().unwrap_or("").to_string();
@@ -1501,6 +1556,12 @@ impl<'a> Poll<'a> {
             }
             Err((why, false)) => why,
         };
+        self.fixer_refused(n, &why);
+        Ok(None)
+    }
+
+    /// The fixer's tehas:ready comes off, and the issue says why.
+    fn fixer_refused(&mut self, n: u64, why: &str) {
         self.log(format!(
             "skip #{n}: tehas:ready from the fixer starts nothing: {why}"
         ));
@@ -1513,7 +1574,85 @@ impl<'a> Poll<'a> {
                 "say": format!("Tehas took `tehas:ready` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: {why}. A person decides now: an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to start a cycle."),
             }));
         }
-        Ok(None)
+    }
+
+    /// feed_ok: the millwright's tehas:ready on an issue no person approved a
+    /// cycle of, under TEHAS_MILLWRIGHT_FEED. A person wrote it, and the text
+    /// is still theirs: the start rests on that. Some(base, 1), or None with
+    /// the label off and the reason said, or kept when the cap only defers it.
+    fn feed_ok(&mut self, n: u64, sum: &str, labels: &[String]) -> Step<Option<(Value, u64)>> {
+        let Some(running) = self.s.fed else {
+            self.log(format!(
+                "skip #{n}: tehas:ready from the fixer waits: the fed cycles running could not be counted"
+            ));
+            return Ok(None);
+        };
+        let max = self.c.millwright_max_feeds.max(0) as u64;
+        if running + self.fed_picked >= max {
+            self.log(format!(
+                "wait #{n}: {} fed cycles run, TEHAS_MILLWRIGHT_MAX_FEEDS is {max}",
+                running + self.fed_picked
+            ));
+            return Ok(None);
+        }
+        let t = self.text(n);
+        let author = t
+            .pointer("/author/login")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let written = t
+            .get("createdAt")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let held = [
+            "tehas:improvement",
+            "cross-project",
+            "needs-human-attention",
+            "tehas:millwright-escalated",
+        ]
+        .into_iter()
+        .find(|l| has(labels, l));
+        let ev = self.events(n)?;
+        let c = self.c;
+        let undone = ev
+            .iter()
+            .find(|e| e.event == "unlabeled" && e.label == "tehas:ready" && c.allowed(&e.actor))
+            .map(|e| e.actor.clone());
+        let why = if !self.c.allowed(&author) {
+            Some(format!(
+                "no person approved a cycle of it, and its author {} is not named in `TEHAS_ALLOWED_LABELERS`",
+                or_unknown(&author)
+            ))
+        } else if written.is_empty() {
+            Some(
+                "no person approved a cycle of it, and when it was written could not be read"
+                    .into(),
+            )
+        } else if let Some(l) = held {
+            Some(format!(
+                "no person approved a cycle of it, and it carries `{l}`"
+            ))
+        } else {
+            undone.map(|who| format!("{who} took `tehas:ready` off it before"))
+        };
+        if let Some(why) = why {
+            self.fixer_refused(n, &why);
+            return Ok(None);
+        }
+        if !self.unchanged_since(
+            n,
+            &written,
+            &format!("{author} wrote it"),
+            "a person applies tehas:ready",
+        )? {
+            return Ok(None);
+        }
+        Ok(Some((
+            json!({"at": written, "by": author, "how": "feed", "body_sha256": sum}),
+            1,
+        )))
     }
 
     /// tehas_fixer_grant: the approval and count, or why not and whether
@@ -1749,7 +1888,7 @@ impl<'a> Poll<'a> {
                     {
                         let ev = self.events(n)?;
                         let (_, at) = label_actor(&ev, "tehas:ready");
-                        match self.fixer_ok(n, &at)? {
+                        match self.fixer_ok(n, &at, &labels)? {
                             Some(grant) => fixer = Some(grant),
                             None => continue,
                         }
@@ -1830,11 +1969,20 @@ impl<'a> Poll<'a> {
                         .to_string()
                 };
                 st.verb = "labelled by the fixer".into();
-                st.how = format!(
-                    "`tehas:ready` label as the fixer, on {}'s approval of {}",
-                    s("by"),
-                    s("at")
-                );
+                st.how = if s("how") == "feed" {
+                    self.fed_picked += 1;
+                    format!(
+                        "`tehas:ready` label as the fixer, on the issue {} wrote at {}",
+                        s("by"),
+                        s("at")
+                    )
+                } else {
+                    format!(
+                        "`tehas:ready` label as the fixer, on {}'s approval of {}",
+                        s("by"),
+                        s("at")
+                    )
+                };
                 st.given_how = "millwright".into();
                 st.fixer = Some((base, count));
             }

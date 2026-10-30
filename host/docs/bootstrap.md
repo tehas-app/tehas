@@ -43,6 +43,7 @@ sudo ./bootstrap.sh root boss     # 1. as root, naming the tehas user; runs step
 ./bootstrap.sh check              # 3. as the tehas user: one line per tool, and one for the slice
 sudo ./bootstrap.sh slice         # only if step 1 could not install the slice, or it changed
 sudo ./bootstrap.sh dev boss alice   # optional: let the account alice type "tehas dev"
+sudo ./bootstrap.sh clock         # optional, for a host that is a VM: see below
 ```
 
 If the platform repository is private, the clone needs the deploy key from the
@@ -132,6 +133,56 @@ Run it again when an update of tehas changes the shipped file.
 Another limit for one host goes in
 `/etc/systemd/system/tehas.slice.d/override.conf`, written by root. The step
 never writes or removes that file.
+
+### Optional: `clock`
+
+```
+sudo ./bootstrap.sh clock
+```
+
+Keeps the wall clock right on a host that is a virtual machine, which is what a
+VM restored from a save needs. It takes no arguments, reads nothing from the
+instance or the user's home, and installs nothing on a host that is not a VM.
+
+A restored VM starts with the clock of the moment it was saved, so it is behind
+real time by the whole time it was off. Two things follow, and the step deals
+with both:
+
+- **The guest agent.** With `qemu-guest-agent` running, the hypervisor can set
+  the clock of the guest at all. `clock` installs the package from Ubuntu and
+  runs `systemctl enable --now qemu-guest-agent`, so the unit is started now and
+  starts at the next boot. On bare metal (`systemd-detect-virt --vm` gives no
+  answer) nothing is installed: there is no hypervisor to ask.
+- **chrony stepping.** chrony's own default is `makestep 1 3`: it steps the
+  clock only in its first three updates after boot, and slews the difference
+  after that. A slew of hours takes hours, and a clock behind real time is
+  enough for GitHub to refuse the App's JWT, which stops the queue. The step
+  writes `/etc/chrony/conf.d/tehas.conf`:
+
+  ```
+  # Written by bootstrap.sh clock. A restored VM starts with the clock
+  # of the moment it was saved; stepping is the only way back within seconds.
+  makestep 1 -1
+  ```
+
+  `-1` means step at any point after boot, whenever the offset is over a second.
+  The file is mode 644 in a directory of 755, and an earlier file of that name
+  is kept as `tehas.conf.prev`. Then it restarts chrony, because the drop-in is
+  read only at its start.
+
+Only chrony is stepped. The step asks `timedatectl show -p NTP --value` which
+unit systemd runs as its time service, and writes nothing unless the answer is
+`chrony`: a host on `systemd-timesyncd`, on none, or with no answer at all is
+reported as it is and left alone. The status line names both halves, so a host
+that needs one of them and got the other says so on one line. A guest agent
+that will not start, or a chrony that will not restart, is reported and the step
+ends 1; the other half is still done.
+
+`check` does not report this step: nothing about the clock stops an install, and
+what is wrong shows up as a refused JWT instead. The step is not run by `root`
+or by the installer, so a host gets it when a person runs it. On a VM that is a
+tehas host, run it once; run it again after an update of the platform that
+changes the file above.
 
 ### Optional: `dev <user> [<login>...]`
 
@@ -304,4 +355,6 @@ for the tehas user. `tehas work` refuses to start a cycle without them.
 host `check` passes and a second `user` run changes nothing. A run from scratch on a
 fresh machine has not been done. Expect to fix something the first time.
 
-The `slice` step is tested, not yet seen on a host.
+The `slice` step is tested, not yet seen on a host. So is the `clock` step:
+the cases stub the probe, the time service and the package manager, and nobody
+has restored a VM and watched the clock come back within seconds.
