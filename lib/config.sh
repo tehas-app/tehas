@@ -124,8 +124,11 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO | TEHAS_REVIEW_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_MILLWRIGHT_MAX_FEEDS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | \
+    # The counts; `auto` is worked out by the poll (console/dispatch/src/slots.rs).
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_MILLWRIGHT_MAX_FEEDS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
+      case "$name:$v" in TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) return 0 ;; esac
+      [[ $name != TEHAS_SLICE_CONTAINERS || $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected auto or a whole number from 2 to 16"; return 1; }
       [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
       _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
@@ -184,7 +187,7 @@ _tehas_valid() {
     TEHAS_ANALYTICS_SITE)
       [[ $v =~ ^[A-Za-z0-9._-]+$ ]] || { echo "expected one word of letters, digits, dots and dashes"; return 1; }
       ;;
-    TEHAS_CYCLE_RESERVE)
+    TEHAS_CYCLE_RESERVE | TEHAS_CONTAINER_MEMORY)
       # The shape lib/slice.sh reads at every start: no leading zero, at most
       # twelve digits of bytes or nine with a unit, and a size Docker takes: it
       # refuses a memory value under 6m.
@@ -224,9 +227,6 @@ _tehas_valid() {
     # between two runs of tehasbot refresh are at most a day.
     TEHAS_REFRESH_SLOTS)
       [[ $v =~ ^[0-8]$ ]] || { echo "expected a whole number from 0 to 8"; return 1; }
-      ;;
-    TEHAS_SLICE_CONTAINERS)
-      [[ $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected a whole number from 2 to 16"; return 1; }
       ;;
     TEHAS_REFRESH_EVERY)
       [[ $v =~ ^[1-9][0-9]{0,3}$ ]] && [ "$v" -le 1440 ] ||
@@ -483,8 +483,8 @@ tehas_load() {
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
   # The most issues worked on side by side, each in a cycle of its own. A
   # ceiling: the dispatcher starts fewer while the slice has no room. By
-  # default one per CPU, less one for the host. The only thing read of the
-  # host here.
+  # default one per CPU, less one for the host; `auto` is kept as written and
+  # answered by the poll (console/dispatch/src/slots.rs). The only host read here.
   v=$(_tehas_host_cpus)
   export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-$((v > 1 ? v - 1 : 1))}
   # The memory one container is given as its floor, what the dispatcher counts
@@ -552,7 +552,7 @@ tehas_load() {
   export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-} TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review: a fixed
   # number would leave slots that can never be used. A concurrency that is not a
-  # number is refused below and leaves the floor of three.
+  # number (or `auto`) leaves the floor of three.
   v=3
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
@@ -700,7 +700,7 @@ tehas_load() {
   fi
   # One axis of parallelism: several cycles of one workstream, or one cycle of
   # several. Both would multiply the agents and the gates on the same CPUs.
-  if [ "$TEHAS_CONCURRENCY" -gt 1 ] && [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; then
+  if [ "$TEHAS_CONCURRENCY" -gt 1 ] && { [ "$TEHAS_TICKET_CONCURRENCY" = auto ] || [ "$TEHAS_TICKET_CONCURRENCY" -gt 1 ]; }; then
     tehas_err "TEHAS_CONCURRENCY ($TEHAS_CONCURRENCY) and TEHAS_TICKET_CONCURRENCY ($TEHAS_TICKET_CONCURRENCY) are both above 1: choose one, several issues at a time with one workstream each, or one issue at a time with TEHAS_TICKET_CONCURRENCY=1 (see $file)"
     return 78
   fi

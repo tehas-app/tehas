@@ -1104,6 +1104,11 @@ Drained means no poll can still start a cycle: drain waits for the poll that is
 running before it says no cycle is, so a cycle a poll had already decided to start
 is counted rather than left behind.
 
+Most of the time you do not need it. The machine's CPUs and memory change while
+it runs, and a hypervisor restart saves the virtual machine with its cycles in
+it, so what runs goes on where it stopped: [Resize or restart the
+host](/resize) is that, and it names the four changes that still need a drain.
+
 A program that drives factories uses the same commands: see
 [the factory API](/api).
 
@@ -1157,7 +1162,12 @@ recording, and both commands then say so and exit 69.
 - At most `TEHAS_TICKET_CONCURRENCY` cycles at a time. It is a ceiling, not
   a promise: the dispatcher starts fewer when the slice has no room. With
   refreshes on, refreshes have a lane of their own (see
-  [refreshes](#refreshes)) and do not count here.
+  [refreshes](#refreshes)) and do not count here. With `auto` the ceiling is
+  the dispatcher's own, taken from the host on every poll: the host's CPUs
+  over `TEHAS_CYCLE_CPUS`, between 1 and `TEHAS_CYCLE_CEILING`, read afresh
+  each poll so a VM that gained CPUs is used and one that lost them holds new
+  starts. It never stops a running cycle; the poll's line says `auto: 6,
+  cpu-bound` and `tehas status` says what the two counts came from.
 - No new cycle while the host runs short of disk: less than
   `TEHAS_CYCLE_MIN_FREE` (10g by default) free on the file system of `~/tehas`
   or on the one Docker keeps its images on, whichever has less. The poll reads
@@ -1193,6 +1203,9 @@ recording, and both commands then say so and exit 69.
   oversubscribe the slice, and on a host with many CPUs the ceiling would
   fall below the reserve. To run more cycles side by side, raise it and the
   host's memory together: 6 on a 64 GiB host gives each container 8 GiB.
+  With `auto` the number is the slice's `MemoryMax` over
+  `TEHAS_CONTAINER_MEMORY` (8g by default), read on every poll between 2 and
+  16, so a host given more memory holds more containers on its own.
 - No new cycle while the whole slice stalls on memory: `full avg60` of its
   memory pressure above 10 while more than half of the slice is promised.
   Below that the pressure is one container at its own ceiling, which a new
