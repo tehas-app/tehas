@@ -657,11 +657,12 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset.
 
-A start whose approval says driver `lean` stops first, with exit 78 and a line
-that says this tehas cannot run the lean driver yet and to take `tehas:lean`
-off. It starts no container, moves nothing and does not run classic in its
-place. `tehasbot cycle` parks the issue as a start that never ran: its approval
-goes with the report, so nothing starts it again on its own.
+A start whose approval says driver `lean` stops first, with exit 78, the note
+`state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
+the lean driver yet and to take `tehas:lean` off. It starts no container, moves
+nothing and does not run classic in its place. `tehasbot cycle` reads the note
+and parks the issue as a start that never ran: its approval goes with the
+report, so nothing starts it again on its own. Any other 78 is a stopped cycle.
 
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
@@ -1897,7 +1898,7 @@ Ends a cycle by hand and clears what it left on this host. It asks
 of its lock, and removes the container `tehas-work-12` when it is still there.
 Then it removes what says a cycle runs, owes something, or is parked:
 `~/tehas/state/cycles/12.lock` with `.cid`, `.done`, `.stalled`,
-`.timed`, `.oom`, `.forks`, `.nostart`, `.progress.json` and
+`.timed`, `.oom`, `.forks`, `.nostart`, `.lean-refused`, `.progress.json` and
 `.result.json`, `~/tehas/live/console-12.txt`, `~/.pi/agent/ensemble-runs/issue-12`, and the
 workspace `~/tehas/work/<name>-12` with its `.state`, `.before-retry` and
 `.images` beside it. `--keep-workspace` keeps the workspace for you to read.
