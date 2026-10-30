@@ -435,9 +435,10 @@ choice.
 - It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
   label's events. The millwright's does not count.
 - From any other account nothing starts, classic included. The poll takes
-  `tehas:ready` off and says why once. `tehas:lean` stays on: an allowed account
-  applies it again, or takes it off for classic, and then applies `tehas:ready`.
-  A retry over such a label starts nothing either and says why.
+  `tehas:ready`, and `tehas:blocked` with it, off and says why once. `tehas:lean`
+  stays on: an allowed account applies it again, or takes it off for classic,
+  and then applies `tehas:ready`. A retry over such a label starts nothing either
+  and says why.
 - The same holds when another account takes an allowed account's `tehas:lean`
   off: the choice stands and nothing starts. An allowed account applies the
   label again, and for classic takes it off itself.
