@@ -231,11 +231,17 @@ fn foreign(version: i64) -> Unusable {
 }
 
 /// Schema 2 to 3. The new column is last in schema.sql too, so a migrated
-/// database and a new one hold the same table. No view reads it.
+/// database and a new one hold the same table. No view reads it. v_versions,
+/// the last statement of schema.sql, is made anew.
 fn migrate(tx: &Transaction) -> rusqlite::Result<()> {
-    tx.execute_batch(
-        "ALTER TABLE runs ADD COLUMN driver TEXT CHECK (driver IN ('classic', 'lean'))",
-    )?;
+    let view = SCHEMA
+        .rfind("CREATE VIEW v_versions")
+        .map_or("", |at| &SCHEMA[at..]);
+    tx.execute_batch(&format!(
+        "ALTER TABLE runs ADD COLUMN driver TEXT CHECK (driver IN ('classic', 'lean'));
+         DROP VIEW v_versions;
+         {view}"
+    ))?;
     tx.execute(
         "UPDATE meta SET value = ?1 WHERE key = 'schema'",
         [SCHEMA_VERSION.to_string()],

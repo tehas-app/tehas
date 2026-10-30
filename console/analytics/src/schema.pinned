@@ -167,7 +167,8 @@ WITH r AS (
     coalesce(rukas_version, rukas_commit, '') AS rv,
     outcome,
     coalesce(seconds, 0) AS seconds,
-    coalesce(input, 0) + coalesce(output, 0) + coalesce(cache_read, 0) AS tokens
+    CASE WHEN coalesce(input, output, cache_read) IS NOT NULL
+      THEN coalesce(input, 0) + coalesce(output, 0) + coalesce(cache_read, 0) END AS tokens
   FROM runs WHERE kind = 'work' AND ended IS NOT NULL
 ),
 ms AS (
@@ -180,7 +181,7 @@ mt AS (
   SELECT tv, rv, tokens AS v,
     row_number() OVER (PARTITION BY tv, rv ORDER BY tokens) AS rn,
     count(*) OVER (PARTITION BY tv, rv) AS n
-  FROM r
+  FROM r WHERE tokens IS NOT NULL
 ),
 pairs AS (
   SELECT tv, rv, count(*) AS runs,

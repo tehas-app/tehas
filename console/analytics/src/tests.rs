@@ -3787,6 +3787,29 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
 }
 
 #[test]
+fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
+    let median =
+        |conn: &Connection| one::<Option<f64>>(conn, "SELECT median_tokens FROM v_versions");
+    // On a new database and on one migrated from schema 2.
+    let new = scratch("view-tokens-new");
+    let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
+    let old = scratch("view-tokens-migrated");
+    drop(schema_2_database(&db::path(&old), 1_792_022_400));
+    let (migrated, _) = db::open(&db::path(&old), 1_792_022_400).unwrap();
+    migrated.execute("DELETE FROM runs", []).unwrap();
+    for conn in [&fresh, &migrated] {
+        driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
+        driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
+        assert_eq!(median(conn), None);
+        driver_run(conn, "c", 3, 1_792_022_400, "pr", Some(500), None);
+        assert_eq!(median(conn), Some(500.0));
+        // A reported 0 is a figure.
+        driver_run(conn, "d", 4, 1_792_022_400, "pr", Some(0), None);
+        assert_eq!(median(conn), Some(250.0));
+    }
+}
+
+#[test]
 fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
     let day0 = 1_792_022_400;
