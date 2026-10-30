@@ -961,7 +961,8 @@ t_lacks "$t_out" "systemd-oomd: active"
 # --- clock --------------------------------------------------------------------
 # The clock part: qemu-guest-agent on a VM, the chrony drop-in under
 # BOOTSTRAP_ETC. The stubs name what the host is (systemd-detect-virt), which
-# time service it runs (timedatectl) and what the distribution offers (apt-get).
+# time service systemd has active (systemctl is-active) and what the distribution
+# offers (apt-get).
 conf=$etc/chrony/conf.d/tehas.conf
 # Where the part writes, and a decoy at a path the script cannot guess: a run
 # that wrote outside BOOTSTRAP_ETC would leave its file there.
@@ -978,28 +979,49 @@ makestep 1 -1'
 # in clock_tools as it is made, and the list is emptied at the end of the
 # section, so a case that stubs one more tool cannot leave it for the next.
 clock_tools=
-clock_stubs() { # <uid> <what systemd-detect-virt --vm answers> [<timedatectl's NTP>]
+clock_stubs() { # <uid> <what systemd-detect-virt --vm answers> [<the units that are active>...]
   # The three questions the part asks, all answered by the case: who is running
-  # it, what the host is, and which time service systemd has. The probe is
-  # always stubbed: a host that has the real program would answer for the case.
-  # The third argument is timedatectl's answer, and 'none' is one of them (a
-  # host that runs no time service), so it has no default that can be written
-  # into the body: no third argument at all means chrony.
-  local clock_tool
-  for clock_tool in id systemd-detect-virt timedatectl apt-get systemctl; do
+  # it, what the host is, and which of the two chrony units systemd has active.
+  # The units are the third argument onwards; none at all is the host of the
+  # cases that only want the step, where chrony is active, the name Ubuntu's
+  # package gives its unit. systemd answers the probe with its exit status and
+  # nothing on stdout, so the stub ends 0 for a unit the case named and 3 for any
+  # other, as systemctl does for a unit that is not running.
+  local clock_tool clock_unit units
+  # The units of the host, read from the third argument as one string and not as
+  # "$@": the shell of this file has set -u, and an expansion of "$@" with no
+  # third argument, or of a plain $3, is an unbound one. The name is read unquoted
+  # below, which splits it back into the units.
+  #   ''            the step cases: chrony active, Ubuntu's name for its unit
+  #   none          no unit active: the part is asked twice and told no twice
+  #   <one or more> the units of the host, by their own names
+  case "${3-}" in
+    '') units=chrony ;;
+    none) units='' ;;
+    *) units=${*:3} ;;
+  esac
+  for clock_tool in id systemd-detect-virt apt-get systemctl; do
     clock_tools+="$clock_tool "
   done
   t_stub id "case \"\$*\" in -u) echo $1 ;; boss) ;; *) exit 1 ;; esac"
-  case $2 in
+  # "$2" quoted, and not $2: clock_stubs 0 '' means a host that is no VM, and the
+  # words of an unquoted empty argument would leave $2 unbound.
+  case "$2" in
     '') t_stub systemd-detect-virt 'exit 1' ;;
     *) t_stub systemd-detect-virt "echo '$2'" ;;
   esac
-  case ${3+set} in
-    set) t_stub timedatectl "echo '$3'" ;;
-    *) t_stub timedatectl 'echo chrony' ;;
-  esac
+  # The probe is the case's, named by the words of $units.
+  # shellcheck disable=SC2086 # the words of $units are the units of the case
+  t_stub systemctl "case \"\$*\" in$(for clock_unit in $units; do printf '\n  "is-active --quiet %s") : ;;' "$clock_unit"; done)
+  # The two calls the part makes besides the probe answer as the tools of every
+  # other step do, which is what the cases that only want the step need. A case
+  # that wants one of them to fail stubs systemctl again, and gives the probe its
+  # own line there. These lines are part of the stub and not of this file: the
+  # shell reads them when the stub runs.
+  'enable --now qemu-guest-agent' | 'restart chrony') : ;;
+  *) exit 3 ;;
+esac"
   t_stub apt-get
-  t_stub systemctl
 }
 fresh_clock() { rm -rf "$etc/chrony" "$T"/calls/*; }
 T_ENV=(BOOTSTRAP_ETC="$etc" BOOTSTRAP_OS_RELEASE="$T/os-ubuntu" PATH="$T_PATH")
@@ -1011,9 +1033,9 @@ rm -f "$T"/calls/*
 t_run "$bootstrap clock"
 t_eq "$t_rc" 0
 t_eq "$(t_calls systemd-detect-virt)" "--vm"
-t_eq "$(t_calls timedatectl)" "show -p NTP --value"
 t_eq "$(t_calls apt-get | tr '\n' '|')" "update -qq|install -y -qq qemu-guest-agent|"
-t_eq "$(t_calls systemctl)" "enable --now qemu-guest-agent
+t_eq "$(t_calls systemctl)" "is-active --quiet chrony
+enable --now qemu-guest-agent
 restart chrony"
 t_eq "$(cat "$conf")" "$conf_body"
 t_eq "$(stat -c %a "$conf")" 644
@@ -1053,31 +1075,39 @@ t_eq "$(find "$etc/chrony" -type f | wc -l)" 2
 
 t_case "clock on bare metal installs no agent and still steps the clock"
 fresh_clock
-clock_stubs 0 ''
+clock_stubs 0 '' chrony
 t_run "$bootstrap clock"
 t_eq "$t_rc" 0
 t_eq "$(t_calls systemd-detect-virt)" "--vm"
-t_eq "$(t_calls apt-get)$(t_calls systemctl | grep -v '^restart chrony$')" ""
+t_eq "$(t_calls apt-get)$(t_calls systemctl | grep -v -e '^restart chrony$' -e '^is-active --quiet chrony$')" ""
 t_contains "$t_out" "qemu-guest-agent: none on bare metal"
 t_eq "$(cat "$conf")" "$conf_body"
 t_eq "$(find "$etc/chrony" -type f | wc -l)" 1
 
-t_case "clock writes no drop-in when the time service is not chrony, and says what it found"
-for service in systemd-timesyncd none; do
+# Neither of the two units active is a host whose time service is not chrony:
+# systemd answered both questions, so the part knows what it found, writes
+# nothing of its own, and still ends 0.
+t_case "clock writes no drop-in when no chrony unit is active, and says what it found"
+for units in systemd-timesyncd ntpd; do
   fresh_clock
-  clock_stubs 0 kvm "$service"
+  # The name of the loop holds the units of one case, which are the words the
+  # helper joins into the answer of the stub.
+  # shellcheck disable=SC2086
+  clock_stubs 0 kvm $units
   t_run "$bootstrap clock"
   t_eq "$t_rc" 0
   t_eq "$([ -e "$conf" ] && echo there)" ""
   # Nothing of the part's own left under /etc; tehas.slice stands there from the
   # slice cases above, as it does on a host that ran them.
   t_eq "$(find "$etc/chrony" 2>/dev/null | wc -l)" 0
-  t_contains "$t_out" "the time service is $service, not chrony"
+  t_contains "$t_out" "neither chrony nor chronyd is active"
   t_contains "$t_out" "No drop-in was written"
+  # Both units were asked, in this order, and neither answered active.
+  t_eq "$(t_calls systemctl | grep -c '^is-active --quiet ')" 2
   # The agent is the hypervisor's way to set the clock and does not depend on
   # which time service the host runs.
   t_contains "$(t_calls apt-get)" "install -y -qq qemu-guest-agent"
-  t_eq "$(t_calls systemctl)" "enable --now qemu-guest-agent"
+  t_eq "$(t_calls systemctl | grep -v '^is-active --quiet ')" "enable --now qemu-guest-agent"
 done
 
 # The two files the part can own, and the modes of both: the earlier file is
@@ -1092,9 +1122,12 @@ stat -c "%n %a" "${conf}.prev" "$conf" "${conf%/*}" | LC_ALL=C sort
 # the real program and would answer for the case otherwise; here it is taken
 # away again.
 t_case "clock on a host without the probe goes on as on bare metal"
-for answer in '' none; do
+for answer in none none; do
   fresh_clock
-  clock_stubs 0 "$answer"
+  # The two words of the loop are what systemd-detect-virt answers, read unquoted
+  # so that the word 'none' reaches the helper as one argument of its own.
+  # shellcheck disable=SC2086
+  clock_stubs 0 $answer
   # rm, and not t_stub: no systemd-detect-virt on the PATH at all is the host
   # this case is about, and the host running the tests may well have one.
   rm -f "$T/bin/systemd-detect-virt"
@@ -1105,18 +1138,37 @@ for answer in '' none; do
   t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
 done
 
-# timedatectl that does not answer at all: not a host that has no chrony, but
-# one whose time service nobody can name. The drop-in is refused either way.
+# The other name of the unit, on the distributions whose package calls it
+# chronyd: the part asks chrony first and, told no, asks chronyd. The helper's
+# word 'none' is not meant here, since the host of this case does have one unit
+# active; its name is given instead, and chrony is answered by neither.
+t_case "clock accepts the chronyd name of the unit"
 fresh_clock
-clock_stubs 0 kvm ''
+clock_stubs 0 kvm chronyd
+rm -f "$T"/calls/*
 t_run "$bootstrap clock"
 t_eq "$t_rc" 0
+t_eq "$(t_calls systemctl | grep '^is-active --quiet ')" "is-active --quiet chrony
+is-active --quiet chronyd"
+t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+
+# systemctl that cannot be asked at all: no systemd, or no systemctl on the
+# PATH. That is not a host without chrony, so the part does not say "done": it
+# says what it could not do and ends 1, and writes nothing.
+t_case "clock that cannot ask systemd fails instead of saying done"
+fresh_clock
+clock_stubs 0 kvm
+rm -f "$T/bin/systemctl"
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not ask systemd whether chrony or chronyd is active"
+t_lacks "$t_out" "clock part done"
 t_eq "$([ -e "$conf" ] && echo there)" ""
-t_contains "$t_out" "the time service is unknown, not chrony"
+t_eq "$(t_calls apt-get)" ""
 
 t_case "clock must run as root, and changes nothing when it is not"
 fresh_clock
-clock_stubs 1000 kvm 'systemd-timesyncd'
+clock_stubs 1000 kvm systemd-timesyncd
 t_run "$bootstrap clock"
 t_eq "$t_rc" 1
 t_contains "$t_out" "sudo ./bootstrap.sh clock"
@@ -1152,12 +1204,19 @@ t_run "$bootstrap clock"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not install qemu-guest-agent"
 t_eq "$([ -e "$conf" ] && echo there)" ""
-t_eq "$(t_calls systemctl)" ""
+t_eq "$(t_calls systemctl | grep -v '^is-active --quiet ')" ""
 
 t_case "clock whose agent will not start still writes the drop-in and exits 1"
 fresh_clock
 clock_stubs 0 kvm
-t_stub systemctl 'case "$*" in "enable --now qemu-guest-agent") exit 1 ;; esac'
+# The probe answered first by the helper's stub, then again by this one: a body
+# that only names the agent leaves the probe and the restart to the default of
+# the case, which is the one the case means for them.
+t_stub systemctl 'case "$*" in
+  "is-active --quiet chrony") : ;;
+  "enable --now qemu-guest-agent") exit 1 ;;
+  "restart chrony") : ;;
+esac'
 clock_tools+="systemctl "
 t_run "$bootstrap clock"
 t_eq "$t_rc" 1
@@ -1168,12 +1227,60 @@ t_contains "$(t_calls systemctl)" "restart chrony"
 t_case "clock that wrote the drop-in but cannot restart chrony says so and exits 1"
 fresh_clock
 clock_stubs 0 kvm
-t_stub systemctl 'case "$*" in "restart chrony") exit 1 ;; esac'
+t_stub systemctl 'case "$*" in
+  "is-active --quiet chrony") : ;;
+  "enable --now qemu-guest-agent") : ;;
+  "restart chrony") exit 1 ;;
+esac'
 clock_tools+="systemctl "
 t_run "$bootstrap clock"
 t_eq "$t_rc" 1
 t_contains "$t_out" "chrony did not restart"
 t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+
+# The copy that keeps the old drop-in is a step of its own, and its failure
+# stops the part: the manual says the file before is kept, so writing over it
+# after a failed copy would leave the host's own makestep nowhere.
+t_case "clock whose copy to .prev fails leaves the old drop-in and ends 1"
+fresh_clock
+clock_stubs 0 kvm
+clock_tools+="cp "
+# The old drop-in is put where the part will find it, and a copy of it kept out of
+# the way, so the case can ask what the file holds afterwards. The copy is under a
+# name of its own, because $T is the one name the body of a stub may read when the
+# stub runs (test/lib.sh gives it to the run), and no other case of this file
+# writes that path.
+install -d -m 755 "${conf%/*}"
+printf 'makestep 1 3\n' >"$T/cp.host"
+chmod 600 "$T/cp.host"
+cp -p "$T/cp.host" "$conf"
+t_stub cp 'case "$1" in
+  -p) echo "cp: cannot copy" >&2; exit 1 ;;
+esac'
+t_run "$bootstrap clock"
+t_eq "$t_rc" 1
+t_contains "$t_out" "could not keep $conf as $conf.prev"
+t_contains "$t_out" "$conf was left as it is"
+t_lacks "$t_out" "clock part done"
+# The host's file, its bytes and its mode, unchanged; nothing kept, nothing new,
+# and the part stopped before it asked chrony to restart.
+t_eq "$(cmp -s "$conf" "$T/cp.host" && echo same)" same
+t_eq "$(cat "$conf")" "makestep 1 3"
+t_eq "$(stat -c %a "$conf")" 600
+t_eq "$([ -e "$conf.prev" ] && echo there)" ""
+t_eq "$(t_calls systemctl | grep -c 'restart chrony')" 0
+
+t_case "clock with no drop-in yet does not ask for a copy that cannot fail"
+fresh_clock
+clock_stubs 0 kvm
+# cp is taken away rather than stubbed to fail: with no file to keep, the part
+# has no reason to call it, and a run that did would say so.
+clock_tools+="cp "
+rm -f "$T/bin/cp"
+t_run "$bootstrap clock"
+t_eq "$t_rc" 0
+t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
+t_eq "$([ -e "$conf.prev" ] && echo there)" ""
 
 # BOOTSTRAP_ETC is read when the script is loaded, so a run of the whole script
 # that does not name it would write under the real /etc. The clock part owns one
@@ -1182,7 +1289,7 @@ t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
 # taken away inside the line the run reads, and not only from T_ENV.
 t_case "clock on a host that gives no BOOTSTRAP_ETC says it cannot make the file"
 fresh_clock
-clock_stubs 0 ''
+clock_stubs 0 '' chrony
 t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
 t_eq "$t_rc" 1
 t_contains "$t_out" "cannot create directory '/etc/chrony"
@@ -1192,7 +1299,7 @@ t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
 t_case "clock writes under BOOTSTRAP_ETC and nowhere else"
 fresh_clock
 rm -f "$conf_other"
-clock_stubs 0 ''
+clock_stubs 0 '' chrony
 t_run "$bootstrap clock"
 t_eq "$t_rc" 0
 t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
