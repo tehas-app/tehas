@@ -657,6 +657,12 @@ from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
 codes v1, result schema 5, NDJSON progress with a stable subset.
 
+A start whose approval says driver `lean` stops first, with exit 78 and a line
+that says this tehas cannot run the lean driver yet and to take `tehas:lean`
+off. It starts no container, moves nothing and does not run classic in its
+place. `tehasbot cycle` parks the issue as a start that never ran: its approval
+goes with the report, so nothing starts it again on its own.
+
 Before anything is moved or fetched, it asks the image what it supports,
 `pi-rukas-headless --capabilities`. The cycle starts only when the image speaks
 exit codes 1, result schema 5 and stable NDJSON 1, the `work` verb takes the

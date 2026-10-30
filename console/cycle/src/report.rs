@@ -785,12 +785,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .unwrap_or_default();
     // The approval this start used.
     let (mut refreshed, mut base_at, mut base_by) = (String::new(), String::new(), String::new());
+    let mut lean = false;
     match &f.approval {
         Ok(a) => {
             let cur = a.get("current").filter(|c| {
                 c.is_object() && c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
             });
             if let Some(c) = cur {
+                lean = c.pointer("/input/driver").and_then(Value::as_str) == Some("lean");
                 let dash = |x: Option<&Value>| match x {
                     None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                     Some(Value::String(s)) => s.clone(),
@@ -946,6 +948,8 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         },
     };
     let rc = f.rc;
+    // tehas work refused the start: with 4, or with 78 for a driver it cannot run.
+    let never_started = rc == 4 || (rc == 78 && lean);
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {
@@ -1048,7 +1052,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             format!("Tehas stopped the cycle: this issue was closed while it ran ({summary}). Nothing more is needed here. {kept_said}; {log_where}.{killed}{s}")
         }));
         status = "closed".into();
-    } else if pr.is_empty() && !closed_pr.is_empty() && rc != 4 {
+    } else if pr.is_empty() && !closed_pr.is_empty() && !never_started {
         r.actions.push(to("needs-human-attention"));
         r.actions.push(comment(&|s| {
             format!(
@@ -1076,7 +1080,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
         let mut park_why = "";
         let mut auto = String::new();
-        if rc == 4 {
+        if never_started {
             never_ran = true;
             let (mut by, mut epoch) = (f.start_by.clone(), f.approval_at.clone());
             match f.start_how.as_str() {
@@ -1099,6 +1103,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 " No approval of this start is recorded on this host: a fresh `tehas:ready` is needed.".to_string()
             };
             parked = format!("Tehas started no cycle: an image or file the issue links could not be given to it, or the issue could not be read for them (runner exit {runner_rc}). Nothing of it ran: no workspace, no container, no step, no usage.{said} The comment before this one names it; {log_where}.");
+            if rc != 4 {
+                parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
+            }
         } else if provider {
             park_why = "provider-outage";
             let rs = if reason.is_empty() {

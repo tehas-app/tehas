@@ -557,6 +557,39 @@ approved_start() { # [<approval-record args>...]
   t_approve "$T/home/tehas" 7 alice label "$(date -u -d 2026-01-01T00:00:00Z +%s)" "$@"
 }
 
+# tehas work refused a lean start (78): parked with what to do, its approval
+# gone, so nothing starts it again but a person.
+lean_refused() {
+  reset
+  echo 78 >"$fx/rc"
+  printf '{"links":[],"driver":"lean"}' >"$T/lean-input.json"
+  approved_start --input-file "$T/lean-input.json"
+}
+
+t_case "a lean start tehas work refused is parked with what to do, and its approval goes"
+lean_refused
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "Tehas started no cycle: this start's approval says driver \`lean\`, and this tehas cannot run the lean driver yet (runner exit 78). It does not run classic in its place, and nothing of it ran. To run it on classic, take \`tehas:lean\` off, then retry;"
+t_contains "$(t_calls gh)" "--remove-label tehas:running --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "- [ ] Retry from a clean start"
+t_lacks "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "--add-label tehas:ready"
+# No approval left for the millwright or a refresh to rest on: the poll does
+# not start it again. A tick reads the label, so taking it off runs classic.
+t_eq "$(t_row approval-current 7 -- '[.approval, .current, .rests_on] | tostring')" '[null,null,null]'
+t_eq "$(t_row history-show 7 -- '.rows[0] | [.rc, .how, .by] | @csv')" '78,"label","alice"'
+t_eq "$(park_of '[.automatic] | tostring')" '[false]'
+
+t_case "a 78 on a classic start stays a stopped cycle, with its approval on record"
+reset
+echo 78 >"$fx/rc"
+approved_start
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "tehas:lean"
+t_eq "$(t_row approval-current 7 -- '.current.by')" alice
+
 t_case "a start that never ran is parked as one that never ran, named from the record"
 never_ran approved
 t_run "$cycle 7"
