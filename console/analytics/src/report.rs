@@ -30,6 +30,14 @@
 //! median and p90 of one run of the gate, how many a work run made and their
 //! share of the runs' time, over the runs that recorded them, from the two gate
 //! columns `run.rs` fills. Counts and durations only.
+//!
+//! `drivers` compares the drivers on the same work runs: for each of them the
+//! runs, those that ran (not refused or stopped), of these the share that ended
+//! in a pull request a person could merge and the share handed to a person,
+//! minutes, tokens, and of those pull requests, one per issue, how many were
+//! merged by now. A run with no driver on record is classic. Lean does not
+//! merge, so the figure is the pull requests', not the driver's own merges. Like
+//! `gate`, `tehasbot status` does not publish it.
 
 use rusqlite::{params, Connection};
 use serde_json::{json, Map, Value};
@@ -44,8 +52,10 @@ const DAY: i64 = 86_400;
 /// is a dispatcher that was not polling: it is not counted as available,
 /// nor as one long draw of the sample's watts.
 pub const SAMPLE_SPAN: i64 = 600;
-/// A version pair with fewer work runs shows its count only.
+/// A version pair with fewer work runs shows its count only, and one with fewer
+/// that reported usage no median of tokens.
 pub const VERSION_FLOOR: usize = 3;
+use crate::run::DRIVERS;
 const STOP_REASONS: usize = 5;
 const STEPS: usize = 12;
 const VERSIONS: usize = 10;
@@ -172,6 +182,8 @@ fn obj(pairs: Vec<(&str, Option<Value>)>) -> Value {
 
 struct WorkRun {
     id: String,
+    issue: i64,
+    driver: String,
     started: i64,
     ended: i64,
     seconds: Option<i64>,
@@ -254,9 +266,9 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     )?;
 
     let n_shipped = shipped.len();
-    let per_shipped = |total: i64| {
-        (n_shipped > 0).then(|| json!((total as f64 / n_shipped as f64).round() as i64))
-    };
+    let per =
+        |total: i64, n: usize| (n > 0).then(|| json!((total as f64 / n as f64).round() as i64));
+    let per_shipped = |total: i64| per(total, n_shipped);
 
     let mut report = Map::new();
     report.insert("report".into(), json!(REPORT_VERSION));
@@ -326,6 +338,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
         .iter()
         .fold((0, 0, 0), |a, t| (a.0 + t.0, a.1 + t.1, a.2 + t.2));
     let total_tokens = input + output + cache_read;
+    let usage_shipped = shipped.iter().filter(|s| s.runs == 0 || s.usage).count();
     report.insert(
         "tokens".into(),
         obj(vec![
@@ -334,7 +347,8 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
             ("input", Some(json!(input))),
             ("output", Some(json!(output))),
             ("cacheRead", Some(json!(cache_read))),
-            ("perShipped", per_shipped(total_tokens)),
+            ("shipped", Some(json!(usage_shipped))),
+            ("perShipped", per(total_tokens, usage_shipped)),
         ]),
     );
 
@@ -349,6 +363,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     report.insert("stopReasons".into(), stop_reasons(&runs));
     report.insert("stations".into(), stations(conn, &runs, from, to)?);
     report.insert("versions".into(), versions(&runs));
+    report.insert("drivers".into(), drivers(conn, &runs, to)?);
     Ok(Value::Object(report))
 }
 
@@ -773,7 +788,7 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
         "SELECT id, started, ended, seconds, coalesce(outcome, 'failed'), input, output, cache_read,
                 failure_kind, cap, park_reason, last_step, failed_step,
                 coalesce(tehas_version, ''), coalesce(rukas_version, rukas_commit, ''),
-                gate_runs, gate_ms
+                gate_runs, gate_ms, issue, coalesce(driver, 'classic')
          FROM runs WHERE kind = 'work' AND ended >= ?1 AND ended <= ?2 ORDER BY ended",
     )?;
     let rows = q.query_map(params![from, to], |r| {
@@ -782,6 +797,8 @@ fn work_runs(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Work
             .then(|| (i.unwrap_or(0), o.unwrap_or(0), c.unwrap_or(0)));
         Ok(WorkRun {
             id: r.get(0)?,
+            issue: r.get(17)?,
+            driver: r.get(18)?,
             started: r.get(1)?,
             ended: r.get(2)?,
             seconds: r.get::<_, Option<i64>>(3)?.filter(|s| *s >= 0),
@@ -807,18 +824,25 @@ struct Shipped {
     merged: i64,
     lead: Option<i64>,
     runs: i64,
+    // A run behind the merge reported usage.
+    usage: bool,
 }
 
 // The issues v_lead counts as shipped whose merge is in the window.
 fn shipped(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Shipped>> {
     let mut q = conn.prepare(
-        "SELECT merged, lead_seconds, runs FROM v_lead WHERE merged >= ?1 AND merged <= ?2",
+        "SELECT merged, lead_seconds, runs, EXISTS (
+           SELECT 1 FROM runs r WHERE r.issue = v_lead.issue AND r.kind = 'work'
+             AND r.started <= v_lead.merged
+             AND (r.input IS NOT NULL OR r.output IS NOT NULL OR r.cache_read IS NOT NULL))
+         FROM v_lead WHERE merged >= ?1 AND merged <= ?2",
     )?;
     let rows = q.query_map(params![from, to], |r| {
         Ok(Shipped {
             merged: r.get(0)?,
             lead: r.get(1)?,
             runs: r.get(2)?,
+            usage: r.get(3)?,
         })
     })?;
     rows.collect()
@@ -1064,7 +1088,8 @@ fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite
 
 // One row per tehas and pi-rukas version pair, the pair that ran last
 // first. A pair with VERSION_FLOOR runs or more also has the share that
-// reached a pull request and the median seconds and tokens.
+// reached a pull request and the median seconds, and with as many that reported
+// usage, the median tokens of those and their count.
 fn versions(runs: &[WorkRun]) -> Value {
     let mut pairs: Vec<((String, String), Vec<&WorkRun>)> = Vec::new();
     for r in runs {
@@ -1089,25 +1114,135 @@ fn versions(runs: &[WorkRun]) -> Value {
                     .count();
                 let mut secs: Vec<i64> = v.iter().map(|r| r.seconds.unwrap_or(0)).collect();
                 secs.sort_unstable();
-                let mut tokens: Vec<i64> = v.iter().map(|r| r.tokens()).collect();
+                let mut tokens = used_tokens(&v);
                 tokens.sort_unstable();
                 let pick = |o: Option<Value>| if enough { o } else { None };
+                let used = tokens.len();
+                let pick_tokens = |o: Option<Value>| o.filter(|_| used >= VERSION_FLOOR);
                 obj(vec![
                     ("tehas", named(&tv)),
                     ("rukas", named(&rv)),
                     ("n", Some(json!(n))),
                     ("prShare", pick(share(pr, n).map(Value::from))),
                     ("medianSeconds", pick(median(&secs).map(Value::from))),
-                    ("medianTokens", pick(median(&tokens).map(Value::from))),
+                    (
+                        "medianTokens",
+                        pick_tokens(median(&tokens).map(Value::from)),
+                    ),
+                    ("tokensN", pick_tokens(Some(json!(used)))),
                 ])
             })
             .collect(),
     )
 }
 
+/// Each issue's last merge up to `to`: a merged event, or a work run that
+/// ended merged, the two `v_lead` reads. The view keeps the first, and a merge
+/// before a run started is of an earlier cycle of the issue.
+fn last_merges(conn: &Connection, to: i64) -> rusqlite::Result<BTreeMap<i64, i64>> {
+    let mut q = conn.prepare(
+        "SELECT issue, max(at) FROM (
+           SELECT issue, at FROM issue_events WHERE event = 'merged'
+           UNION ALL
+           SELECT issue, ended FROM runs WHERE kind = 'work' AND outcome = 'merged'
+         ) WHERE at <= ?1 GROUP BY issue",
+    )?;
+    let rows = q.query_map(params![to], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// The tokens of the runs that reported usage: the rest have no figure, not 0.
+fn used_tokens(runs: &[&WorkRun]) -> Vec<i64> {
+    runs.iter()
+        .filter(|r| r.tokens.is_some())
+        .map(|r| r.tokens())
+        .collect()
+}
+
+/// `n`, the sum and the median of sorted values in units of `per`, the last two
+/// left out with no value to work them from: nothing reported is no figure, not 0.
+fn tally(sorted: &[i64], per: i64) -> Value {
+    let whole = |x: i64| json!((x as f64 / per as f64).round() as i64);
+    obj(vec![
+        ("n", Some(json!(sorted.len()))),
+        (
+            "total",
+            (!sorted.is_empty()).then(|| whole(sorted.iter().sum())),
+        ),
+        ("median", median(sorted).map(whole)),
+    ])
+}
+
+/// The runs of each driver in the window. A refused or stopped run is in `n` and
+/// not in the shares: neither tells of the driver, as `stations` has it. Parked is
+/// what `handoffRate` counts, since a run tehas parks with its pull request open is
+/// outcome handoff. A run that reported no usage is in no token figure and one of
+/// no length in no minutes figure. A pull request counts once per issue, because
+/// a merge is on record per issue and the runs that follow up one pull request
+/// are many. A merge is of one driver: the one whose run last reached a pull
+/// request before it, since an earlier pull request of the issue may be closed.
+fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Value> {
+    let merges = last_merges(conn, to)?;
+    let reaches = |r: &WorkRun| matches!(r.outcome.as_str(), "pr" | "merged");
+    let ran_at_all = |r: &WorkRun| !matches!(r.outcome.as_str(), "refused" | "stopped");
+    let mut merged_by: BTreeMap<i64, (i64, &str)> = BTreeMap::new();
+    for r in runs.iter().filter(|r| reaches(r)) {
+        if merges.get(&r.issue).is_some_and(|m| *m >= r.started) {
+            let last = merged_by.entry(r.issue).or_insert((r.started, &r.driver));
+            if r.started >= last.0 {
+                *last = (r.started, &r.driver);
+            }
+        }
+    }
+    let mut out = Map::new();
+    for driver in DRIVERS {
+        let of: Vec<&WorkRun> = runs.iter().filter(|r| r.driver == driver).collect();
+        let n = of.len();
+        let ran = of.iter().filter(|r| ran_at_all(r)).count();
+        let reached: Vec<&&WorkRun> = of.iter().filter(|r| reaches(r)).collect();
+        let pulls: BTreeSet<i64> = reached.iter().map(|r| r.issue).collect();
+        let merged = pulls
+            .iter()
+            .filter(|issue| merged_by.get(issue).is_some_and(|m| m.1 == driver))
+            .count();
+        let parked = of
+            .iter()
+            .filter(|r| matches!(r.outcome.as_str(), "handoff" | "parked"))
+            .count();
+        let mut secs: Vec<i64> = of
+            .iter()
+            .filter(|r| ran_at_all(r))
+            .filter_map(|r| r.seconds)
+            .collect();
+        secs.sort_unstable();
+        let mut tokens = used_tokens(&of);
+        tokens.sort_unstable();
+        out.insert(
+            driver.to_string(),
+            obj(vec![
+                ("n", Some(json!(n))),
+                ("ran", Some(json!(ran))),
+                ("prShare", share(reached.len(), ran).map(Value::from)),
+                ("parkedShare", share(parked, ran).map(Value::from)),
+                ("minutes", Some(tally(&secs, 60))),
+                ("tokens", Some(tally(&tokens, 1))),
+                (
+                    "pullRequests",
+                    Some(obj(vec![
+                        ("n", Some(json!(pulls.len()))),
+                        ("merged", Some(json!(merged))),
+                        ("share", share(merged, pulls.len()).map(Value::from)),
+                    ])),
+                ),
+            ]),
+        );
+    }
+    Ok(Value::Object(out))
+}
+
 /// The report as `analytics report` prints it for a person: the figures of
-/// `build`, one to a line, then the days, the stop reasons, the steps and
-/// the versions. A figure that is left out of the JSON is shown as "-".
+/// `build`, one to a line, then the days, the stop reasons, the steps, the
+/// versions and the drivers. A figure that is left out of the JSON is shown as "-".
 pub fn text(report: &Value) -> String {
     let int = |v: &Value| v.as_i64();
     let at = |path: &[&str]| path.iter().fold(report, |v, k| &v[*k]).clone();
@@ -1393,6 +1528,36 @@ pub fn text(report: &Value) -> String {
             ));
         }
         lines.push(line);
+    }
+
+    lines.push(String::new());
+    lines.push("Drivers".to_string());
+    lines.push(format!(
+        "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
+        "", "runs", "ran", "to a PR", "parked", "minutes", "tokens", "PRs", "merged"
+    ));
+    for driver in DRIVERS {
+        let d = &report["drivers"][driver];
+        let pulls = &d["pullRequests"];
+        // A count short of the runs says the tokens are not all of them.
+        let tokens = match (int(&d["tokens"]["n"]), int(&d["n"])) {
+            (Some(some), Some(all)) if some < all => {
+                format!("{} (n={some})", num(&d["tokens"]["total"]))
+            }
+            _ => num(&d["tokens"]["total"]),
+        };
+        lines.push(format!(
+            "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
+            driver,
+            num(&d["n"]),
+            num(&d["ran"]),
+            pct(&d["prShare"]),
+            pct(&d["parkedShare"]),
+            num(&d["minutes"]["total"]),
+            tokens,
+            num(&pulls["n"]),
+            num(&pulls["merged"])
+        ));
     }
     let mut out = lines.join("\n");
     out.push('\n');
