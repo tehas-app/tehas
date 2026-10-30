@@ -482,6 +482,23 @@ rm -f "$T/clock.now" "$T/clock.n"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=("${env_ok[@]}")
 
+t_case "logs that stand still do not move the stall's mark, and the mark is a clock reading"
+fresh
+rm -f "$T/clock.calls"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+seq 5000 10 5200 >"$T/clock.now"
+printf 'ok\n' >"$T/clock.check"
+container '"$nap" 1; exit 10'
+t_run "$work 7"
+since=$(sed -n 's/.*--since \([0-9]*\).*/\1/p' "$T/clock.calls" | sort -u)
+t_eq "$(wc -l <"$T/clock.calls" | awk '{print ($1 >= 3)}')" "1"
+t_eq "$(echo "$since" | wc -l | awk '{print ($1 <= 2)}')" "1"
+t_eq "$(echo "$since" | awk '$1 > 6000' | wc -l | tr -d ' ')" "0"
+rm -f "$T/clock.check" "$T/clock.now" "$T/clock.n" "$T/clock.calls"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
 t_case "the cycle clock saying stalled stops the cycle as stalled"
 fresh
 rm -f "$T/home/tehas/state/cycles/7.stalled"
