@@ -3501,11 +3501,11 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
         ],
         "drivers": {
-            "classic": {"n": 6, "prShare": 0.333, "parkedShare": 0.0,
+            "classic": {"n": 6, "ran": 5, "prShare": 0.4, "parkedShare": 0.2,
                         "minutes": {"n": 6, "total": 80, "median": 13},
                         "tokens": {"n": 4, "total": 6650, "median": 1750},
                         "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
-            "lean": {"n": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+            "lean": {"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
                      "pullRequests": {"n": 0, "merged": 0}},
         },
     });
@@ -3610,11 +3610,11 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
     assert_eq!(
         got["drivers"],
         json!({
-            "classic": {"n": 4, "prShare": 0.5, "parkedShare": 0.25,
+            "classic": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
                         "minutes": {"n": 4, "total": 40, "median": 10},
                         "tokens": {"n": 4, "total": 1000, "median": 250},
                         "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
-            "lean": {"n": 3, "prShare": 0.667, "parkedShare": 0.333,
+            "lean": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
                      "minutes": {"n": 3, "total": 30, "median": 10},
                      "tokens": {"n": 0},
                      "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
@@ -3627,8 +3627,52 @@ fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
             .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
             .unwrap()
     };
-    assert_eq!(row("classic"), "classic 4 50% 25% 40 1000 2 1");
-    assert_eq!(row("lean"), "lean 3 66.7% 33.3% 30 - (n=0) 2 1");
+    assert_eq!(row("classic"), "classic 4 4 50% 25% 40 1000 2 1");
+    assert_eq!(row("lean"), "lean 3 3 66.7% 33.3% 30 - (n=0) 2 1");
+}
+
+#[test]
+fn a_drivers_shares_are_of_its_runs_that_ran() {
+    let home = scratch("report-driver-ran");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!(lean["n"], 4);
+    assert_eq!(lean["ran"], 2);
+    assert_eq!(lean["prShare"], 0.5);
+    assert_eq!(lean["parkedShare"], 0.0);
+}
+
+#[test]
+fn a_driver_with_only_refused_runs_has_no_shares() {
+    let home = scratch("report-driver-refused");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
+    assert_eq!(lean.get("prShare"), None);
+    assert_eq!(lean.get("parkedShare"), None);
+}
+
+#[test]
+fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
+    let home = scratch("report-driver-handoff");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    assert_eq!(got["drivers"]["lean"]["parkedShare"], 0.5);
+    assert_eq!(got["handoffRate"]["share"], 0.5);
 }
 
 #[test]
@@ -3636,7 +3680,7 @@ fn a_driver_of_no_runs_has_counts_and_no_figures() {
     let home = scratch("report-no-drivers");
     let to = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), to).unwrap();
-    let none = json!({"n": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+    let none = json!({"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
                       "pullRequests": {"n": 0, "merged": 0}});
     assert_eq!(
         crate::report::build(&conn, to).unwrap()["drivers"],
