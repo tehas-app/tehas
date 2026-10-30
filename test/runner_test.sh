@@ -667,17 +667,23 @@ with_console() {
   : >"$repo/console/Cargo.toml"
 }
 
+# The stub records its arguments; the environment of its call is what a case
+# about a variable has to echo itself, into the same file t_calls reads.
 t_case "the store, the attachment checker, tehas-dispatch, tehas-cycle and the console are built once, offline, into a target of its own, and named to every test file"
 fresh
 with_console
 t_stub cargo 'prev=""
 for a in "$@"; do [ "$prev" != --target-dir ] || td=$a; prev=$a; done
+printf "debug=%s\\n" "${CARGO_PROFILE_DEV_DEBUG-absent}" >>"$T/calls/cargo"
 mkdir -p "$td/debug" && echo store >"$td/debug/store"'
 saw_store a_test.sh
 saw_store b_test.sh
 run
 t_eq "$t_rc" 0
-t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store -p attach -p tehas-dispatch -p tehas-cycle -p console"
+# The line of the environment is the last of the call, so the arguments still
+# read as one line: the binary is run, not debugged, so no debug info.
+t_eq "$(t_calls cargo)" "build --locked --offline --quiet --manifest-path $repo/console/Cargo.toml --target-dir $repo/console/target/shell -p store -p attach -p tehas-dispatch -p tehas-cycle -p console
+debug=0"
 t_contains "$t_out" "a_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
 t_contains "$t_out" "b_test.sh bin=$repo/console/target/shell/debug/store why="$'\n'
 
