@@ -1428,6 +1428,307 @@ fn a_database_of_another_schema_is_kept_aside_under_its_version() {
     assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 1);
 }
 
+/// The database as a schema 2 program made it, from that program's schema.sql
+/// and its `create`, in WAL mode, with a finished run, its step and its role.
+fn schema_2_database(file: &Path, now: i64) -> Connection {
+    let c = Connection::open(file).unwrap();
+    c.execute_batch(include_str!("../tests/fixtures/schema-2.sql"))
+        .unwrap();
+    for (key, value) in [
+        ("schema", "2".to_string()),
+        ("retention_days", "365".to_string()),
+        ("created", now.to_string()),
+    ] {
+        c.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .unwrap();
+    }
+    c.pragma_update(None, "user_version", 2).unwrap();
+    c.pragma_update(None, "journal_mode", "WAL").unwrap();
+    c.execute_batch(&format!(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, pr, input, gate_runs, gate_ms)
+           VALUES ('work-7-1', 'work', 7, {s}, {e}, 60, 'pr', 70, 10, 1, 5000);
+         INSERT INTO run_steps (run_id, step, round) VALUES ('work-7-1', 'implement', 1);
+         INSERT INTO run_roles (run_id, role) VALUES ('work-7-1', 'developer');",
+        s = now - 120,
+        e = now - 60,
+    ))
+    .unwrap();
+    c
+}
+
+// Every object as SQLite holds it, less the white space: ALTER TABLE puts the
+// new column on the old table's last line.
+fn stored_schema(conn: &Connection) -> Vec<(String, String)> {
+    let mut q = conn
+        .prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name")
+        .unwrap();
+    let rows = q
+        .query_map([], |r| {
+            let sql: String = r.get(1)?;
+            Ok((r.get(0)?, sql.split_whitespace().collect()))
+        })
+        .unwrap();
+    rows.map(Result::unwrap).collect()
+}
+
+#[test]
+fn a_schema_2_database_migrates_in_place_and_keeps_its_runs() {
+    let home = scratch("migrate");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    drop(schema_2_database(&file, now));
+    let (conn, moved) = db::open(&file, now).unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+    assert_eq!(one::<String>(&conn, "PRAGMA journal_mode"), "wal");
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT group_concat(key || '=' || value, ' ') FROM (SELECT * FROM meta ORDER BY key)"
+        ),
+        format!(
+            "created={now} retention_days=365 schema={}",
+            db::SCHEMA_VERSION
+        )
+    );
+    assert_eq!(
+        one::<String>(
+            &conn,
+            "SELECT id || ' ' || gate_ms || ' ' || coalesce(driver, 'none') FROM runs"
+        ),
+        "work-7-1 5000 none"
+    );
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_steps"), 1);
+    assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM run_roles"), 1);
+    // Nothing went aside.
+    let names: Vec<String> = fs::read_dir(home.join("state"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .filter(|n| n.contains(".schema-") || n.ends_with(".broken"))
+        .collect();
+    assert_eq!(names, Vec::<String>::new());
+    // A second open has nothing left to do.
+    let (again, moved) = db::open(&file, now + 1).unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(one::<i64>(&again, "SELECT count(*) FROM runs"), 1);
+}
+
+#[test]
+fn a_migrated_database_holds_what_a_new_one_does() {
+    let home = scratch("migrated");
+    let file = db::path(&home);
+    drop(schema_2_database(&file, 1_792_000_000));
+    let (migrated, _) = db::open(&file, 1_792_000_000).unwrap();
+    let fresh = scratch("fresh");
+    let (new, _) = db::open(&db::path(&fresh), 1_792_000_000).unwrap();
+    assert_eq!(stored_schema(&migrated), stored_schema(&new));
+    let driver_is_checked = migrated.execute("UPDATE runs SET driver = 'other'", []);
+    assert!(driver_is_checked.is_err());
+    // What schema.pinned pins of a run is what a migrated database takes.
+    let run = run::Run {
+        id: "work-8-1".into(),
+        issue: 8,
+        started: 1,
+        driver: Some("lean".into()),
+        ..run::Run::default()
+    };
+    run::insert(&migrated, &run).unwrap();
+    assert_eq!(
+        one::<String>(&migrated, "SELECT driver FROM runs WHERE issue = 8"),
+        "lean"
+    );
+}
+
+#[test]
+fn programs_that_open_a_schema_2_database_at_once_all_get_it() {
+    for round in 0..20 {
+        let home = scratch(&format!("migrate-concurrent-{round}"));
+        let file = db::path(&home);
+        let now = 1_792_000_000;
+        drop(schema_2_database(&file, now));
+        let openers: Vec<_> = (0..8)
+            .map(|i| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    let (conn, moved) = db::open(&file, now).unwrap();
+                    db::event(&conn, i, "ready", now).unwrap();
+                    moved
+                })
+            })
+            .collect();
+        for o in openers {
+            assert_eq!(o.join().unwrap(), None, "a database was moved aside");
+        }
+        assert!(!home.join("state/analytics.db.schema-2").exists());
+        let conn = Connection::open(&file).unwrap();
+        assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM runs"), 1);
+        assert_eq!(one::<i64>(&conn, "SELECT count(*) FROM issue_events"), 8);
+    }
+}
+
+#[test]
+fn a_database_another_program_migrated_meanwhile_is_left_as_it_is() {
+    let home = scratch("migrate-race");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    drop(schema_2_database(&file, now));
+    // This one read user_version 2; the other took the write lock first.
+    let mut late = Connection::open(&file).unwrap();
+    db::open(&file, now).unwrap();
+    assert!(db::settle(&mut late, 2, now).is_ok());
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+#[test]
+fn a_connection_open_through_the_migration_goes_on_working() {
+    let home = scratch("migrate-open");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    let old = schema_2_database(&file, now);
+    // A reader in the middle of a read does not hold the migration up, and
+    // goes on seeing the rows it was reading.
+    let reader = Connection::open(&file).unwrap();
+    reader.execute_batch("BEGIN").unwrap();
+    assert_eq!(one::<i64>(&reader, "SELECT count(*) FROM runs"), 1);
+    let (_conn, moved) = db::open(&file, now).unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(one::<i64>(&reader, "SELECT count(*) FROM runs"), 1);
+    reader.execute_batch("COMMIT").unwrap();
+    assert_eq!(
+        one::<i64>(
+            &reader,
+            "SELECT count(*) FROM pragma_table_info('runs') WHERE name = 'driver'"
+        ),
+        1
+    );
+    // A schema 2 program that had the file open writes on, by its columns.
+    old.execute(
+        "INSERT INTO runs (id, kind, issue, started, outcome) VALUES ('work-8-1', 'work', 8, 1, 'pr')",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        one::<i64>(&old, "SELECT count(*) FROM runs WHERE driver IS NULL"),
+        2
+    );
+}
+
+#[test]
+fn a_write_lock_held_through_the_migration_is_an_error_and_changes_nothing() {
+    let home = scratch("migrate-busy");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    let holder = schema_2_database(&file, now);
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut late = Connection::open(&file).unwrap();
+    late.busy_timeout(std::time::Duration::ZERO).unwrap();
+    assert!(matches!(
+        db::settle(&mut late, 2, now),
+        Err(db::Unusable::Busy(_))
+    ));
+    holder.execute_batch("COMMIT").unwrap();
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), 2);
+    assert!(db::settle(&mut late, 2, now).is_ok());
+    assert_eq!(one::<i64>(&late, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+#[test]
+fn a_write_lock_held_past_the_busy_timeout_is_waited_out() {
+    let home = scratch("migrate-long-lock");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    let holder = schema_2_database(&file, now);
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(6));
+        holder.execute_batch("COMMIT").unwrap();
+    });
+    let (conn, moved) = db::open(&file, now).unwrap();
+    release.join().unwrap();
+    assert_eq!(moved, None);
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+#[test]
+fn a_migration_that_fails_takes_nothing_with_it_and_moves_nothing() {
+    let home = scratch("migrate-fails");
+    let file = db::path(&home);
+    let now = 1_792_000_000;
+    let c = schema_2_database(&file, now);
+    c.execute_batch("ALTER TABLE runs ADD COLUMN driver TEXT")
+        .unwrap();
+    drop(c);
+    assert!(db::open(&file, now).is_err());
+    let c = Connection::open(&file).unwrap();
+    assert_eq!(one::<i64>(&c, "PRAGMA user_version"), 2);
+    assert_eq!(
+        one::<String>(&c, "SELECT value FROM meta WHERE key = 'schema'"),
+        "2"
+    );
+    assert_eq!(one::<i64>(&c, "SELECT count(*) FROM runs"), 1);
+    assert!(!home.join("state/analytics.db.schema-2").exists());
+}
+
+#[test]
+fn a_database_of_schema_1_is_still_kept_aside() {
+    let home = scratch("schema-1");
+    let file = db::path(&home);
+    {
+        let c = Connection::open(&file).unwrap();
+        c.execute_batch(
+            "CREATE TABLE runs (x); INSERT INTO runs VALUES (42); PRAGMA user_version = 1",
+        )
+        .unwrap();
+    }
+    let (conn, moved) = db::open(&file, 1_792_000_000).unwrap();
+    assert_eq!(
+        moved,
+        Some(home.join("state/analytics.db.schema-1")),
+        "schema 1 has no migration"
+    );
+    assert_eq!(one::<i64>(&conn, "PRAGMA user_version"), db::SCHEMA_VERSION);
+}
+
+#[test]
+fn a_run_stores_the_driver_its_approval_bound_and_nothing_else() {
+    let home = scratch("driver");
+    let started = secs("2026-10-18T10:16:39Z");
+    for (issue, approval, want) in [
+        (1, json!({"how": "label", "driver": "lean"}), Some("lean")),
+        (
+            2,
+            json!({"how": "label", "driver": "classic"}),
+            Some("classic"),
+        ),
+        (3, json!({"how": "label"}), None),
+        (4, json!({"how": "label", "driver": null}), None),
+        (5, json!({"how": "label", "driver": "fast"}), None),
+        (6, json!({"how": "label", "driver": "LEAN"}), None),
+        (7, json!({"how": "label", "driver": "le an"}), None),
+        (8, json!({"how": "label", "driver": 1}), None),
+        (9, Value::Null, None),
+    ] {
+        let line = json!({"at": "2026-10-18T10:20:00Z", "started": started, "rc": 0,
+                          "status": "handoff"});
+        history(&home, issue, &[line]);
+        fact(&home, issue, "approval", approval);
+        let conn = record(&home, issue, started + 300);
+        assert_eq!(
+            conn.query_row("SELECT driver FROM runs WHERE issue = ?1", [issue], |r| {
+                r.get::<_, Option<String>>(0)
+            })
+            .unwrap()
+            .as_deref(),
+            want,
+            "issue {issue}"
+        );
+    }
+}
+
 #[test]
 fn prune_deletes_a_kept_schema_365_days_after_its_last_write() {
     let home = scratch("aside");
@@ -3180,7 +3481,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                  "share": 0.467},
         "machineTime": {"n": 6, "seconds": 4800, "perShipped": 1600},
         "tokens": {"n": 4, "total": 6650, "input": 6100, "output": 500, "cacheRead": 50,
-                   "perShipped": 2217},
+                   "shipped": 3, "perShipped": 2217},
         // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
         "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
         // 100 W for 600 s, 100 W for 600 s, 200 W for 600 s, 100 W for 300 s.
@@ -3212,10 +3513,18 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         // Three runs or more show their figures; fewer, the count only.
         "versions": [
             {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
-             "medianTokens": 1750},
+             "medianTokens": 2500, "tokensN": 3},
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
         ],
+        "drivers": {
+            "classic": {"n": 6, "ran": 5, "prShare": 0.4, "parkedShare": 0.2,
+                        "minutes": {"n": 5, "total": 80, "median": 15},
+                        "tokens": {"n": 4, "total": 6650, "median": 1750},
+                        "pullRequests": {"n": 2, "merged": 2, "share": 1.0}},
+            "lean": {"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+                     "pullRequests": {"n": 0, "merged": 0}},
+        },
     });
     assert_eq!(got, want, "{}", serde_json::to_string_pretty(&got).unwrap());
     let text = got.to_string();
@@ -3279,6 +3588,286 @@ fn the_gate_line_of_the_report_gives_its_figures_in_text_and_json() {
     );
 }
 
+/// A work run that ended in the report's window, as the columns the drivers
+/// are read from.
+fn driver_run(
+    conn: &Connection,
+    id: &str,
+    issue: i64,
+    started: i64,
+    outcome: &str,
+    tokens: Option<i64>,
+    driver: Option<&str>,
+) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, seconds, outcome, input, driver)
+         VALUES (?1, 'work', ?2, ?3, ?3 + 600, 600, ?4, ?5, ?6)",
+        rusqlite::params![id, issue, started, outcome, tokens, driver],
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_report_splits_by_driver_and_counts_a_null_row_as_classic() {
+    let home = scratch("report-drivers");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    // Classic: two pull requests, one merged by the driver, one parked run.
+    driver_run(&conn, "a", 1, day0, "merged", Some(100), None);
+    driver_run(&conn, "b", 2, day0, "pr", Some(200), Some("classic"));
+    driver_run(&conn, "c", 3, day0, "parked", Some(300), None);
+    driver_run(&conn, "d", 4, day0, "failed", Some(400), None);
+    // Lean: no usage yet. One pull request a person merged later, one not.
+    driver_run(&conn, "e", 5, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "f", 6, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "g", 7, day0, "parked", None, Some("lean"));
+    db::event(&conn, 5, "merged", day0 + 3600).unwrap();
+    let got = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        got["drivers"],
+        json!({
+            "classic": {"n": 4, "ran": 4, "prShare": 0.5, "parkedShare": 0.25,
+                        "minutes": {"n": 4, "total": 40, "median": 10},
+                        "tokens": {"n": 4, "total": 1000, "median": 250},
+                        "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
+            "lean": {"n": 3, "ran": 3, "prShare": 0.667, "parkedShare": 0.333,
+                     "minutes": {"n": 3, "total": 30, "median": 10},
+                     "tokens": {"n": 0},
+                     "pullRequests": {"n": 2, "merged": 1, "share": 0.5}},
+        })
+    );
+    let text = crate::report::text(&got);
+    let row = |name: &str| {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(name))
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .unwrap()
+    };
+    assert_eq!(row("classic"), "classic 4 4 50% 25% 40 1000 2 1");
+    assert_eq!(row("lean"), "lean 3 3 66.7% 33.3% 30 - (n=0) 2 1");
+}
+
+#[test]
+fn a_drivers_shares_are_of_its_runs_that_ran() {
+    let home = scratch("report-driver-ran");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "failed", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "refused", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "stopped", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!(lean["n"], 4);
+    assert_eq!(lean["ran"], 2);
+    assert_eq!(lean["prShare"], 0.5);
+    assert_eq!(lean["parkedShare"], 0.0);
+}
+
+#[test]
+fn a_driver_with_only_refused_runs_has_no_shares() {
+    let home = scratch("report-driver-refused");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "refused", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    let lean = &got["drivers"]["lean"];
+    assert_eq!((&lean["n"], &lean["ran"]), (&json!(1), &json!(0)));
+    assert_eq!(lean.get("prShare"), None);
+    assert_eq!(lean.get("parkedShare"), None);
+}
+
+#[test]
+fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
+    let home = scratch("report-driver-handoff");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "handoff", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "parked", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "d", 4, day0, "pr", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    assert_eq!(got["drivers"]["lean"]["parkedShare"], 0.5);
+    assert_eq!(got["handoffRate"]["share"], 0.5);
+}
+
+#[test]
+fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped() {
+    let home = scratch("report-per-shipped");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    let tokens =
+        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
+    driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
+    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    db::event(&conn, 2, "merged", day0 + 3600).unwrap();
+    assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
+    assert_eq!(tokens(&conn)["shipped"], 1);
+    // One run with a figure is enough for the issue to count.
+    driver_run(&conn, "c", 2, day0 + 1, "pr", Some(0), Some("lean"));
+    assert_eq!(tokens(&conn)["perShipped"], 500_000);
+    assert_eq!(tokens(&conn)["shipped"], 2);
+    // No run here at all: no driver left a gap, so the issue counts as it did.
+    db::event(&conn, 3, "merged", day0 + 3600).unwrap();
+    assert_eq!(tokens(&conn)["shipped"], 3);
+}
+
+#[test]
+fn a_driver_of_no_runs_has_counts_and_no_figures() {
+    let home = scratch("report-no-drivers");
+    let to = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), to).unwrap();
+    let none = json!({"n": 0, "ran": 0, "minutes": {"n": 0}, "tokens": {"n": 0},
+                      "pullRequests": {"n": 0, "merged": 0}});
+    assert_eq!(
+        crate::report::build(&conn, to).unwrap()["drivers"],
+        json!({"classic": none, "lean": none})
+    );
+}
+
+#[test]
+fn empty_tokens_are_left_out_of_a_drivers_sum_and_not_counted() {
+    let home = scratch("report-part-tokens");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", Some(0), Some("lean"));
+    driver_run(&conn, "b", 2, day0, "pr", Some(400), Some("lean"));
+    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    let got = crate::report::build(&conn, day0 + DAY).unwrap();
+    // A reported 0 is a figure; an empty run is not in the median either.
+    assert_eq!(
+        got["drivers"]["lean"]["tokens"],
+        json!({"n": 2, "total": 400, "median": 200})
+    );
+    assert!(crate::report::text(&got).contains("400 (n=2)"));
+}
+
+#[test]
+fn a_pull_request_counts_once_and_only_a_merge_after_it_was_reached() {
+    let home = scratch("report-pulls");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    // Two runs of one pull request, the second a follow-up by another how.
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, Some("lean"));
+    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
+    // Merged before this cycle of the issue: an earlier pull request's.
+    db::event(&conn, 2, "merged", day0 - 8 * DAY).unwrap();
+    driver_run(&conn, "c", 2, day0, "pr", None, Some("lean"));
+    // Merged after the report's end: not yet, in this report.
+    driver_run(&conn, "d", 3, day0, "pr", None, Some("lean"));
+    db::event(&conn, 3, "merged", to + 1).unwrap();
+    // No pull request, so it is in no count of them, merged or not.
+    driver_run(&conn, "e", 4, day0, "failed", None, Some("lean"));
+    db::event(&conn, 4, "merged", day0 + 2000).unwrap();
+    assert_eq!(
+        crate::report::build(&conn, to).unwrap()["drivers"]["lean"]["pullRequests"],
+        json!({"n": 3, "merged": 1, "share": 0.333})
+    );
+}
+
+#[test]
+fn a_merge_is_of_the_driver_that_last_reached_a_pull_request_before_it() {
+    let home = scratch("report-pulls-driver");
+    let day0 = 1_792_022_400;
+    let to = day0 + DAY;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    // Lean's pull request was closed, classic's merged.
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 1, day0 + 1000, "pr", None, None);
+    db::event(&conn, 1, "merged", day0 + 2000).unwrap();
+    // The other way round, and a classic run after the merge changes nothing.
+    driver_run(&conn, "c", 2, day0, "pr", None, None);
+    driver_run(&conn, "d", 2, day0 + 1000, "pr", None, Some("lean"));
+    db::event(&conn, 2, "merged", day0 + 2000).unwrap();
+    driver_run(&conn, "e", 2, day0 + 3000, "pr", None, None);
+    let report = crate::report::build(&conn, to).unwrap();
+    assert_eq!(
+        report["drivers"]["lean"]["pullRequests"],
+        json!({"n": 2, "merged": 1, "share": 0.5})
+    );
+    assert_eq!(
+        report["drivers"]["classic"]["pullRequests"],
+        json!({"n": 2, "merged": 1, "share": 0.5})
+    );
+}
+
+#[test]
+fn a_refused_run_is_in_no_minutes_of_its_driver() {
+    let home = scratch("report-minutes-ran");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0 - 9 * DAY).unwrap();
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "refused", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "stopped", None, Some("lean"));
+    let report = crate::report::build(&conn, day0 + DAY).unwrap();
+    assert_eq!(report["drivers"]["lean"]["n"], json!(3));
+    assert_eq!(
+        report["drivers"]["lean"]["minutes"],
+        json!({"n": 1, "total": 10, "median": 10})
+    );
+}
+
+#[test]
+fn a_migrated_run_reads_classic_in_the_report() {
+    let home = scratch("report-migrated");
+    let file = db::path(&home);
+    let now = 1_792_022_400;
+    drop(schema_2_database(&file, now));
+    let (conn, _) = db::open(&file, now).unwrap();
+    let got = crate::report::build(&conn, now).unwrap();
+    assert_eq!(got["drivers"]["classic"]["n"], 1);
+    assert_eq!(got["drivers"]["classic"]["prShare"], 1.0);
+    assert_eq!(got["drivers"]["lean"]["n"], 0);
+}
+
+#[test]
+fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
+    let home = scratch("report-version-tokens");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    let pair = |conn: &Connection| {
+        let got = crate::report::build(conn, day0 + DAY).unwrap();
+        let row = &got["versions"][0];
+        (row["medianTokens"].clone(), row["tokensN"].clone())
+    };
+    driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
+    assert_eq!(pair(&conn), (Value::Null, Value::Null));
+    // The floor holds for the runs behind the figure, not the pair's.
+    driver_run(&conn, "d", 4, day0, "pr", Some(500), None);
+    driver_run(&conn, "e", 5, day0, "pr", Some(600), None);
+    assert_eq!(pair(&conn), (Value::Null, Value::Null));
+    driver_run(&conn, "f", 6, day0, "pr", Some(700), None);
+    assert_eq!(pair(&conn), (json!(600), json!(3)));
+}
+
+#[test]
+fn v_versions_leaves_runs_with_no_usage_out_of_its_median_tokens() {
+    let median =
+        |conn: &Connection| one::<Option<f64>>(conn, "SELECT median_tokens FROM v_versions");
+    // On a new database and on one migrated from schema 2.
+    let new = scratch("view-tokens-new");
+    let (fresh, _) = db::open(&db::path(&new), 1_792_022_400).unwrap();
+    let old = scratch("view-tokens-migrated");
+    drop(schema_2_database(&db::path(&old), 1_792_022_400));
+    let (migrated, _) = db::open(&db::path(&old), 1_792_022_400).unwrap();
+    migrated.execute("DELETE FROM runs", []).unwrap();
+    for conn in [&fresh, &migrated] {
+        driver_run(conn, "a", 1, 1_792_022_400, "pr", None, Some("lean"));
+        driver_run(conn, "b", 2, 1_792_022_400, "pr", None, Some("lean"));
+        assert_eq!(median(conn), None);
+        driver_run(conn, "c", 3, 1_792_022_400, "pr", Some(500), None);
+        assert_eq!(median(conn), Some(500.0));
+        // A reported 0 is a figure.
+        driver_run(conn, "d", 4, 1_792_022_400, "pr", Some(0), None);
+        assert_eq!(median(conn), Some(250.0));
+    }
+}
+
 #[test]
 fn a_version_pair_reaches_its_figures_at_three_runs() {
     let home = scratch("report-floor");
@@ -3303,7 +3892,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
         } else {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
-                   "medianSeconds": 60, "medianTokens": 10})
+                   "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
         };
         assert_eq!(pair(&conn), want);
     }
@@ -3327,6 +3916,7 @@ fn an_empty_database_reports_counts_of_nothing_and_leaves_out_what_has_no_value(
             "availability",
             "cycleTime",
             "daily",
+            "drivers",
             "firstPassYield",
             "from",
             "handoffRate",
@@ -3485,7 +4075,7 @@ fn the_text_report_says_the_figures_with_their_counts() {
         "\n2026-10-16         1     2       2       20\n",
         "\nStop reasons  (n=4)\n  explore-bodies-empty              1\n",
         "\n  implement                         2 of 3     66.7%\n",
-        "\n  v1                  0.13.0                  4      50%     15m      1750\n",
+        "\n  v1                  0.13.0                  4      50%     15m      2500\n",
         "\n  v2                  -                       1\n",
     ] {
         assert!(text.contains(want), "{want:?} in\n{text}");

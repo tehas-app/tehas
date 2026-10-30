@@ -60,18 +60,24 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 2. Within one version
+`PRAGMA user_version` is the schema version, today 3. Within one version
 columns are only added. A change of a column's meaning raises the version.
-There are no migrations, so a host whose file is still at 1 keeps it aside under
-its version and starts a new one. Nothing of the gate was on the record there
-before; the new gate columns are NULL where a run made no gate, which the report
-reads as no gate rather than a gate of no time.
+A file at 2 is migrated in place as the program opens it: one transaction adds
+the column `driver` to `runs` and makes the view `v_versions` anew, and every run
+stays. Programs that have the file open go on working. A host whose file is still
+at 1 keeps it aside under its version and starts a new one. Nothing of the gate
+was on the record there before; the new gate columns are NULL where a run made no
+gate, which the report reads as no gate rather than a gate of no time.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
-  one is made. It is deleted 365 days after its last write.
+  one is made. It is deleted 365 days after its last write. That goes for a
+  version newer than the program too: after a rollback to a release of schema 2,
+  the file at 3 goes aside whole. Move it back by hand before going forward again:
+  nothing says it is still aside, and a second rollback renames the file then at 3
+  over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -84,17 +90,18 @@ for the JSON of [the factory API](/api).
 
 ## The tables
 
-The columns that came in schema 2 are named `Since` 2; the rest came in schema
-1. A column without a value is NULL.
+The columns that came after schema 1 are named by the schema in `Since`; the rest
+came in schema 1. A column without a value is NULL.
 
 ### runs
 
 One row per run, written when the run ends. A work run takes its facts from
 the cycle, which gathers them into a private file for the call
 (`lib/analytics.sh`): the line of history the cycle made of its end and the
-attempt the state store gave its start, and from the state store `at` and
-`how` of the approval that start used, the run's `settings` snapshot and the
-image's pi-rukas commit. It reads the rest from the host: the
+attempt the state store gave its start, and from the state store `at`, `how`
+and `driver` of the approval that start used, read before the end goes on record
+because a start that never ran takes its approval with it, the run's `settings`
+snapshot and the image's pi-rukas commit. It reads the rest from the host: the
 headless runner's result, `progress.json`, the preflight log and
 `docs/version.txt`. A run that has no result (killed, stalled, timed out) is
 stored with tehas's status and its times. A planning turn takes its session
@@ -138,6 +145,7 @@ call; one that a caller killed during the call leaves is removed by
 | `result_schema` | The pi-rukas result's schema number, 3 or 4 | 1 |
 | `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time; 0 is not stored, so a run whose rows the runner timed of nothing keeps no count either | 2 |
 | `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. A single run of it of more than three runs of `TEHAS_VERIFY_TIMEOUT` is no figure, and NULL with no run of it | 2 |
+| `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 
 The outcome of a work run:
 
@@ -245,7 +253,7 @@ than its poll gives NULL.
 docker says of the id as the run ends. An id names one build, so the first time
 recorded stands and every run of the image reads it, also one recorded before
 it. A prune drops the key of an image no run names. No host name, address or
-token. Since schema 1; the image keys add no column, so the schema stays 2.
+token. Since schema 1; the image keys add no column.
 
 ## The views
 
@@ -255,7 +263,7 @@ So that a reader does not have to work out the common figures again:
 | --- | --- | --- |
 | `v_lead` | Per shipped issue: `issue`, `merged`, `ready`, `lead_seconds` and `runs`, the work runs it took. Shipped is a `merged` event, or a work run whose outcome was `merged` | 1 |
 | `v_daily` | Per UTC day: `day`, `shipped`, `runs` ended, of them `failed`, their `minutes` and `tokens` (input, output and cache read) | 1 |
-| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens` | 1 |
+| `v_versions` | Per tehas and pi-rukas version pair of work runs that ended: `tehas_version`, `rukas_version` (its commit where it has no version), `runs`, `pr_share`, `handoff_share`, `parked_share`, `failed_share`, `median_minutes` and `median_tokens`, the last of the runs that reported usage, NULL where none did | 1 |
 
 ## The report
 
@@ -303,6 +311,41 @@ ran the gate once says the same either way.
 The line is the report's, not the dashboard's file: `tehasbot status` publishes
 only the top-level keys it names and `gate` is not one of them (see [the keys of
 the published report](/tools#tehasbot-status-and-the-console)).
+
+### Drivers
+
+`tehas analytics report` has a `drivers` key, and the terminal a `Drivers` table,
+that compare the drivers over the same ten days of work runs. It has one object
+for `classic` and one for `lean`, both always there. A run with no driver on
+record is classic. Each object gives:
+
+| Key | What it says |
+| --- | --- |
+| `n` | The work runs of the driver, refused and stopped ones with them |
+| `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
+| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
+| `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
+| `minutes` | `n` runs of `ran` with a length, their `total` and `median`, whole minutes |
+| `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
+| `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
+
+A figure with nothing to work from is left out. An empty token column is not a
+zero: lean reports no usage yet, so its `tokens` is `{"n": 0}` and the terminal
+prints `- (n=0)`. Where the count is short of the runs the terminal adds it after
+the total.
+
+The comparison is on pull requests, not on merges by the driver, because lean
+does not merge. A pull request counts once per issue, however many runs followed
+it up, since a merge is on record per issue. A merge is a `merged` event, or a
+work run that ended merged, at or before the report's `to`. It goes to one
+driver: the one whose run last reached a pull request before it. So when lean's
+pull request is closed and classic's merges, the merge is classic's. Events stay
+once per issue, so the second merge of a reopened issue has no event: a pull
+request lean left there reads as not merged, though a classic run that ended
+merged would count.
+
+The table is the report's, not the dashboard's file: like `gate`, `drivers` is not
+among the keys `tehasbot status` publishes.
 
 ### Refine
 
@@ -438,7 +481,7 @@ tehas analytics export copy.db --json
 ```
 
 writes a consistent copy with SQLite's `VACUUM INTO`, mode 600, and prints
-`{"api":1,"schema":2,"from":...,"to":...,"runs":N}`, read from the copy. It
+`{"api":1,"schema":3,"from":...,"to":...,"runs":N}`, read from the copy. It
 takes no lock a cycle holds and makes no network call. It never replaces a
 file. A file name may not start with `-`: write `./-name` for one that does.
 See [the factory API](/api#tehas-analytics-export) for the fields.
@@ -470,8 +513,8 @@ What was agreed with tehas-industry (tehas #377, tehas-industry #26):
   `(run_id, step, round)`, `(run_id, role)`, `(issue, event)` and
   `samples.at`. A fetch repeated is harmless, so there is no cursor.
 - It fetches the copy before it runs `tehas update --to` on a factory, so a
-  release that raises the schema version loses nothing. The old file is kept
-  aside under its version for 365 days as well.
+  release that raises the schema version loses nothing. A file the release does
+  not migrate is kept aside under its version for 365 days as well.
 - Events stay once per issue. Industry's long-term copy keeps what is older
   than 365 days.
 
