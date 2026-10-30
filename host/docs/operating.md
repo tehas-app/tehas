@@ -1495,7 +1495,9 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
   person to read, and no dot-name is entered. A cycle that ends takes the same
   build output itself, under the lock it still holds, so the age rule only
-  catches what a cycle killed before its end left behind.
+  catches what a cycle killed before its end left behind. The same run removes
+  what a killed cycle left under `TEHAS_SCRATCH_DIR`, whatever its age, once the
+  issue's lock is free.
 - Docker's build cache of that age, with `docker builder prune`. This is the
   build cache of the whole host's Docker daemon: tehas is one project on one
   host, and the cache of anything else on it is made again too. No image and no
