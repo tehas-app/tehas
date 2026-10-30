@@ -86,6 +86,8 @@ in the platform repository has every one with a comment.
 | `TEHAS_BOT_LOGIN`               | empty                                    | Optional. The app's login, `<slug>[bot]` |
 | `TEHAS_MILLWRIGHT_MAX_RETRIES`  | `2`                                      | How many cycles the millwright may start on one issue since a person last approved it |
 | `TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS` | `3`                                  | How many planning questions the millwright may answer in one session. It never answers two in a row (see [the millwright's grant](/operating#the-millwrights-grant)) |
+| `TEHAS_MILLWRIGHT_FEED`        | `0`                                      | 1 lets the millwright's `tehas:ready` start the first cycle of an issue a person wrote (see [the millwright's grant](/operating#the-millwrights-grant)). Anything but 0 or 1 stops every command with 78 |
+| `TEHAS_MILLWRIGHT_MAX_FEEDS`   | `2`                                      | How many cycles the feed started may run at once. A positive whole number |
 | `TEHAS_REFRESH_CONFLICTS`      | `0`                                      | 1 has the factory resolve conflicts in its own pull requests that wait for a merge (see [refreshes](/operating#refreshes)). Anything but 0 or 1 stops every command with 78 |
 | `TEHAS_REFRESH_MAX`            | `2`                                      | Refreshes of one pull request since the person's approval its cycle rests on. A positive whole number |
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
