@@ -1160,19 +1160,25 @@ impl<'a> Poll<'a> {
         }
     }
 
-    /// lean_refused: the label that asked for the start comes off, so this is
+    /// lean_refused: the labels that ask for the start come off, so this is
     /// said once. tehas:lean stays, or the next tehas:ready would run classic.
-    fn lean_refused(&mut self, n: u64, ask: &str, s: &Stranger) {
+    fn lean_refused(&mut self, n: u64, ask: &str, labels: &[String], s: &Stranger) {
         self.lean_deny(n, s);
+        let mut off = vec![ask];
+        if ask != "tehas:blocked" && has(labels, "tehas:blocked") {
+            off.push("tehas:blocked");
+        }
+        let names = format!("`{}`", off.join("` and `"));
         if self.dry {
             self.log(format!(
-                "would take {ask} off #{n}: {LEAN} is not an allowed account's"
+                "would take {} off #{n}: {LEAN} is not an allowed account's",
+                off.join(" and ")
             ));
         } else {
             self.act(json!({
-                "issue": n, "remove": [ask],
-                "fail": Self::label_fail(n, &[ask], &[]),
-                "say": format!("Tehas took `{ask}` off this issue and started nothing: {}, then applies `{ask}`.", s.said()),
+                "issue": n, "remove": off,
+                "fail": Self::label_fail(n, &off, &[]),
+                "say": format!("Tehas took {names} off this issue and started nothing: {}, then applies `{ask}`.", s.said()),
             }));
         }
     }
@@ -2063,7 +2069,7 @@ impl<'a> Poll<'a> {
             let driver = match self.driver(n, &labels, fixer.is_some())? {
                 Driver::Wait => continue,
                 Driver::Stranger(s) => {
-                    self.lean_refused(n, ask, &s);
+                    self.lean_refused(n, ask, &labels, &s);
                     continue;
                 }
                 d => d,

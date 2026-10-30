@@ -1936,6 +1936,51 @@
      }
     }
    }
+  },
+  {
+   "case": "a refusal over tehas:lean takes tehas:blocked off with the ask, so a blocked issue is told once",
+   "queue": [
+    "7 tehas:blocked tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:blocked=alice",
+     "tehas:lean=mallory"
+    ]
+   },
+   "notes": {
+    "7": [
+     [
+      10,
+      "alice",
+      "<!-- tehas:blocked by=12 -->"
+     ]
+    ]
+   },
+   "states": {
+    "7": {
+     "12": "CLOSED"
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready",
+       "tehas:blocked"
+      ],
+      "say": "Tehas took `tehas:ready` and `tehas:blocked` off this issue and started nothing: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
   }
  ]
 }
