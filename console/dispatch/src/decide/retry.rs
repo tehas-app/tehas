@@ -3,7 +3,9 @@
 //! request. Each takes the room rules 2 and 3 left, as libexec/dispatch does.
 
 use super::clean::iso;
-use super::{fixer_base, has, or_unknown, End, Poll, Room, Start, Step};
+use super::{
+    fixer_base, has, lean_stranger, or_unknown, Driver, End, Poll, Room, Start, Step, LEAN,
+};
 use crate::questions;
 use crate::text;
 use serde_json::{json, Map, Value};
@@ -419,6 +421,21 @@ impl Poll<'_> {
             if !self.image_ok(n)? || !self.image_missing_ok(n) {
                 continue;
             }
+            let driver = match self.driver(n, &have, true)? {
+                Driver::Wait => continue,
+                Driver::Stranger(who) => {
+                    self.deny("skip", n, LEAN, &who);
+                    if !self.dry {
+                        let note = format!(
+                            "Retry was ticked and nothing was started: {}, then ticks Retry.",
+                            lean_stranger(&who)
+                        );
+                        self.untick(n, &ans, Some(&note));
+                    }
+                    continue;
+                }
+                d => d,
+            };
             if self.dry {
                 self.log(format!("would run a cycle for #{n} (retry ticked by {by})"));
                 return Err(End(0));
@@ -435,6 +452,7 @@ impl Poll<'_> {
             if issue_alone {
                 extra.insert("issue_alone".into(), json!(true));
             }
+            driver.bind(&mut extra);
             self.d.picked.push(n);
             self.act_gates(n);
             self.act_start(
@@ -527,7 +545,12 @@ impl Poll<'_> {
             if self.control_ask(n, "a cycle its provider outage parked asked to start again") {
                 continue;
             }
-            let held = view.get("state").and_then(Value::as_str) != Some("OPEN")
+            let driver = self.driver(n, &have, true)?;
+            if matches!(driver, Driver::Wait) {
+                continue;
+            }
+            let held = matches!(driver, Driver::Stranger(_))
+                || view.get("state").and_then(Value::as_str) != Some("OPEN")
                 || !has(&have, "needs-human-attention")
                 || has(&have, "tehas:running")
                 || self.plan_open(n)
@@ -539,9 +562,16 @@ impl Poll<'_> {
                     "apply tehas:ready",
                 )?;
             if held {
+                if let Driver::Stranger(who) = &driver {
+                    self.deny("skip", n, LEAN, who);
+                }
                 self.log(format!("skip #{n}: its retry after a provider outage is not started; it waits for a person"));
                 if !self.dry {
                     self.act(json!({"park_retry": n, "how": "outage"}));
+                    if let Driver::Stranger(who) = &driver {
+                        let say = format!("Tehas did not start this issue again after the provider outage: {}, then applies `tehas:ready`.", lean_stranger(who));
+                        self.act(json!({"issue": n, "say": say}));
+                    }
                 }
                 continue;
             }
@@ -559,6 +589,8 @@ impl Poll<'_> {
             self.act_gates(n);
             self.act(json!({"issue": n, "say": "Tehas starts this issue again on its own: its last cycle was parked by a provider outage, and the model endpoint answers again. It does this once. If the new cycle is parked the same way, it waits for a person."}));
             self.d.picked.push(n);
+            let mut extra = Map::new();
+            driver.bind(&mut extra);
             self.act_start(
                 n,
                 Start {
@@ -569,7 +601,7 @@ impl Poll<'_> {
                     given_how: "outage-retry".into(),
                     remove,
                     fixer: None,
-                    extra: Map::new(),
+                    extra,
                 },
             );
             return Err(End(0));
@@ -806,6 +838,13 @@ impl Poll<'_> {
         if !self.image_ok(n)? || !self.image_missing_ok(n) {
             return Ok(None);
         }
+        let driver = match self.driver(n, &have, true)? {
+            Driver::Wait => return Ok(None),
+            Driver::Stranger(who) => {
+                return self.refresh_say(n, &format!("lean {who}"), &lean_stranger(&who));
+            }
+            d => d,
+        };
         let branch: String = node
             .get("baseRefName")
             .and_then(Value::as_str)
@@ -836,6 +875,7 @@ impl Poll<'_> {
             json!({"pr": pr, "head_sha": req["head_sha"], "base_sha": req["base_sha"],
                 "branch": if branch.is_empty() { self.c.branch.clone() } else { branch }}),
         );
+        driver.bind(&mut extra);
         Ok(Some(Start {
             starter: by,
             verb: "refresh".into(),

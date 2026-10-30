@@ -332,6 +332,7 @@ With `TEHAS_SIZE_MAX_FILES` set on the instance, an issue whose own body names m
 | `cross-project`         | On a finding of the loop: the change belongs in another repository of the stack too | Not started; read the `Names` line, then work both sides or close it |
 | `tehas:millwright-escalated` | The millwright left it to a person | Read the millwright's note; decide, or take the label off to hand it back |
 | `tehas:next`            | Started after urgent issues, before the rest | Take it off to give the issue its place by number back |
+| `tehas:lean`            | The lean driver is chosen for it. [It cannot run yet](#choosing-the-driver) | Take it off to run the issue on classic |
 | `tehas:blocked`         | Started once every blocker it names is closed | Close the blockers; swap it for `tehas:ready` to start it now |
 | `tehas:refreshing`      | On a pull request: a [refresh](#refreshes) works on it | Do not merge or push to it now; it comes off when the cycle ends |
 
@@ -419,6 +420,31 @@ label added and nothing written there. See
 
 `tehas` is the one command to type on the host; `tehas help` lists what it
 does. See [Commands](/tools).
+
+### Choosing the driver
+
+A cycle runs on the classic driver unless a person chooses lean for that issue
+with `tehas:lean`. The label starts nothing: `tehas:ready` still does that.
+
+Lean cannot run on this tehas yet: it waits for
+[pi-rukas#1920](https://github.com/trail-openers/pi-rukas/issues/1920). A start
+that chose it is refused and [parked](/troubleshooting#the-cycle-parked-needs-human-attention),
+and classic does not run in its place. For now the label only records the
+choice.
+
+- It counts only from an account in `TEHAS_ALLOWED_LABELERS`, read from the
+  label's events. The millwright's does not count.
+- From any other account nothing starts, classic included. The poll takes
+  `tehas:ready` off and says why once. `tehas:lean` stays on: an allowed account
+  applies it again, or takes it off for classic, and then applies `tehas:ready`.
+  A retry over such a label starts nothing either and says why.
+- The start binds the choice in its approval record. A retry (a ticked box, the
+  retry after a provider outage, the millwright's `tehas:ready` or a refresh)
+  runs the driver of the start it follows, so a label added since changes
+  nothing until a person applies `tehas:ready` again.
+- With the label off, the next start is classic, retry or not.
+- The bash poll (`TEHAS_DISPATCHER=bash`) does not read the label: on it the
+  issue runs classic.
 
 ### What a poll costs
 

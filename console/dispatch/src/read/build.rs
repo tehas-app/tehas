@@ -411,6 +411,18 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
             .iter()
             .flat_map(|n| [store::Read::Park(*n), store::Read::Approval(*n)]),
     );
+    // The driver of a retry is on its record, whichever rule starts it. Only an
+    // issue that carries the label costs a read.
+    let lean: Vec<u64> = q
+        .open
+        .iter()
+        .filter(|o| has(&o.labels, crate::decide::LEAN))
+        .map(|o| o.number)
+        .collect();
+    want(
+        &mut per_issue,
+        lean.iter().copied().map(store::Read::Approval),
+    );
     // One run of the store answers all of them, and the answers are read below
     // as the single calls were read. A poll that ends at the pause below pays
     // this batch for the refresh reads above the pause and nothing else: the
@@ -421,6 +433,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for n in &from {
         let (_, current) = store::approval(&asked, *n);
         entry(&mut issues, *n)["current"] = current;
+    }
+    for n in lean {
+        entry(&mut issues, n)["approval"] = store::approval(&asked, n).0;
     }
     if c.millwright_feed {
         s["fed"] = store::fed(&asked, &locks);

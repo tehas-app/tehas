@@ -45,6 +45,34 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
     out
 }
 
+/// The label that chooses the lean driver for one issue.
+pub(crate) const LEAN: &str = "tehas:lean";
+
+/// The driver a start runs, as `Poll::driver` reads it.
+enum Driver {
+    Classic,
+    Lean,
+    /// tehas:lean from an account outside the list: nothing starts, classic
+    /// included.
+    Stranger(String),
+    /// Its record could not be read this poll.
+    Wait,
+}
+
+impl Driver {
+    /// The action of a classic start names no driver.
+    fn bind(&self, extra: &mut Map<String, Value>) {
+        if matches!(self, Driver::Lean) {
+            extra.insert("driver".into(), json!("lean"));
+        }
+    }
+}
+
+/// What a start refused over `who`'s tehas:lean says on the issue.
+fn lean_stranger(who: &str) -> String {
+    format!("`{LEAN}` was applied by `{who}`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `{LEAN}` again, or takes it off for classic")
+}
+
 /// What a poll does: its exit status, the lines it logs, the writes it makes,
 /// in order, and the files it publishes.
 #[derive(Clone, Debug, Default)]
@@ -1053,6 +1081,56 @@ impl<'a> Poll<'a> {
         Ok(false)
     }
 
+    /// driver: the driver of a start, read of who applied tehas:lean and never
+    /// of the label alone. With the label off a start is classic, whatever the
+    /// last one ran. With it on, a start that rests on an earlier approval
+    /// (`retry`) keeps the driver on that record, so a label added since changes
+    /// nothing until a person approves a new start.
+    fn driver(&mut self, n: u64, labels: &[String], retry: bool) -> Step<Driver> {
+        if !has(labels, LEAN) {
+            return Ok(Driver::Classic);
+        }
+        let ev = self.events(n)?;
+        let (who, _) = label_actor(&ev, LEAN);
+        if !self.c.allowed(&who) {
+            return Ok(Driver::Stranger(or_unknown(&who).to_string()));
+        }
+        if !retry {
+            return Ok(Driver::Lean);
+        }
+        match self.s.issues.get(&n).and_then(|i| i.approval.clone()) {
+            None => {
+                self.need("approval");
+                Ok(Driver::Wait)
+            }
+            Some(Err(())) => {
+                self.log(format!("wait #{n}: its approval could not be read"));
+                Ok(Driver::Wait)
+            }
+            // No start on record to follow: this one is the first.
+            Some(Ok(None)) => Ok(Driver::Lean),
+            Some(Ok(Some(r))) if r.get("driver") == Some(&json!("lean")) => Ok(Driver::Lean),
+            Some(Ok(Some(_))) => Ok(Driver::Classic),
+        }
+    }
+
+    /// lean_refused: the label that asked for the start comes off, so this is
+    /// said once. tehas:lean stays, or the next tehas:ready would run classic.
+    fn lean_refused(&mut self, n: u64, ask: &str, who: &str) {
+        self.deny("skip", n, LEAN, who);
+        if self.dry {
+            self.log(format!(
+                "would take {ask} off #{n}: {LEAN} is not an allowed account's"
+            ));
+        } else {
+            self.act(json!({
+                "issue": n, "remove": [ask],
+                "fail": Self::label_fail(n, &[ask], &[]),
+                "say": format!("Tehas took `{ask}` off this issue and started nothing: {}, then applies `{ask}`.", lean_stranger(who)),
+            }));
+        }
+    }
+
     /// unchanged_since: the title and body are what the approval at `since`
     /// covered, changed since by nobody outside the list. The two reads of a
     /// change rank a missing time in opposite directions on purpose: an
@@ -1936,6 +2014,14 @@ impl<'a> Poll<'a> {
             if kind == 'x' && !self.low_gate(n) {
                 continue;
             }
+            let driver = match self.driver(n, &labels, fixer.is_some())? {
+                Driver::Wait => continue,
+                Driver::Stranger(who) => {
+                    self.lean_refused(n, ask, &who);
+                    continue;
+                }
+                d => d,
+            };
             self.d.picked.push(n);
             ready_picked += 1;
             let mut remove = vec![ask.to_string()];
@@ -1986,6 +2072,7 @@ impl<'a> Poll<'a> {
                 st.given_how = "millwright".into();
                 st.fixer = Some((base, count));
             }
+            driver.bind(&mut st.extra);
             self.starts.push((n, st));
         }
         let count = self.live().count();
