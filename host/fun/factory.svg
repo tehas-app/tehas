@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="552" height="276" viewBox="0 0 552 276" shape-rendering="crispEdges" role="img" aria-label="Pixel factory with a wind turbine and a smiling sun">
+  <style>
+    .turbine-rotor{transform-origin:80px 101px;animation:turbine-turn 30s linear infinite}
+    @keyframes turbine-turn{0%{transform:rotate(0deg)}66.667%{transform:rotate(720deg)}100%{transform:rotate(720deg)}}
+    .sun-rays{opacity:0;animation:rays-show 30s steps(1) infinite}
+    .sun-rays line{stroke-dasharray:10 8;animation:rays-flow 1.2s steps(6) infinite}
+    @keyframes rays-show{0%,68%{opacity:0}70%,96%{opacity:1}98%,100%{opacity:0}}
+    @keyframes rays-flow{to{stroke-dashoffset:-18}}
+    @media(prefers-reduced-motion:reduce){.turbine-rotor,.sun-rays,.sun-rays line{animation:none}}
+  </style>
+  <!-- Two slow turns over twenty seconds, then ten seconds of stillness.
+       While the rotor rests, rays run from the sun to the roof panels. -->
+  <!-- The ground runs on past the hall, as far to the right as the turbine's
+       strip reaches to the left, so the sun has open sky of its own. -->
+  <rect x="0" y="248" width="552" height="28" fill="#333"/>
+  <rect x="0" y="245" width="552" height="10" fill="#694"/>
+  <g class="sun-rays" stroke="#e62" stroke-width="5">
+    <line x1="462" y1="32" x2="187" y2="108"/>
+    <line x1="450" y1="66" x2="268" y2="107"/>
+    <line x1="462" y1="98" x2="346" y2="106"/>
+  </g>
+  <!-- Sun to the right of the hall, clear of the roof: a round blob with a
+       happy face, shining on the roof panels. -->
+  <g transform="translate(488 66)">
+    <g fill="#fc6" stroke="#222" stroke-width="3">
+      <rect x="-5" y="-58" width="10" height="10"/>
+      <rect x="-5" y="48" width="10" height="10"/>
+      <rect x="-58" y="-5" width="10" height="10"/>
+      <rect x="48" y="-5" width="10" height="10"/>
+      <rect x="-48" y="-48" width="10" height="10"/>
+      <rect x="38" y="-48" width="10" height="10"/>
+      <rect x="-48" y="38" width="10" height="10"/>
+      <rect x="38" y="38" width="10" height="10"/>
+      <path d="M-18-42h36v6h12v6h6v12h6v36h-6v12h-6v6H18v6h-36v-6h-12v-6h-6V18h-6v-36h6v-12h6v-6h12z"/>
+    </g>
+    <g fill="#222">
+      <rect x="-19" y="-16" width="8" height="12"/>
+      <rect x="11" y="-16" width="8" height="12"/>
+      <rect x="-22" y="6" width="6" height="6"/>
+      <rect x="16" y="6" width="6" height="6"/>
+      <rect x="-16" y="12" width="32" height="6"/>
+    </g>
+  </g>
+  <!-- Turbine stands to the left of the brick hall, with no exhaust stack. -->
+  <path d="M75 110h10l10 135H65z" fill="#222"/>
+  <path d="M78 111h5l6 129H72z" fill="#7cb"/>
+  <rect x="60" y="237" width="40" height="11" fill="#222"/>
+  <g class="turbine-rotor">
+    <polygon points="75,97 75,42 85,42 85,97" fill="#eee" stroke="#222" stroke-width="3"/>
+    <polygon points="84,98 132,121 126,131 80,106" fill="#eee" stroke="#222" stroke-width="3"/>
+    <polygon points="76,104 32,132 26,122 75,97" fill="#eee" stroke="#222" stroke-width="3"/>
+    <rect x="72" y="93" width="16" height="16" fill="#222"/>
+    <rect x="76" y="97" width="8" height="8" fill="#fc6"/>
+  </g>
+  <g transform="translate(100 40) scale(.82)">
+  <rect x="34" y="111" width="360" height="139" fill="#222"/>
+  <rect x="45" y="121" width="338" height="118" fill="#c53"/>
+  <rect x="45" y="125" width="338" height="9" fill="#fc6"/>
+  <rect x="45" y="165" width="338" height="5" fill="#c53" opacity=".55"/>
+  <rect x="45" y="205" width="338" height="5" fill="#c53" opacity=".55"/>
+
+  <!-- Three uneven roof teeth, their panelled slopes facing the sun. -->
+  <path d="M29 119v-18h61V67l62 34h37V67l62 34h36V67l61 34h49v18z" fill="#222"/>
+  <path d="M90 101V79l42 22zm99 0V79l42 22zm98 0V79l42 22z" fill="#7cb"/>
+  <rect x="29" y="112" width="368" height="15" fill="#333"/>
+
+  <!-- A run of small windows instead of a pair of face-like eyes. -->
+  <rect x="65" y="145" width="37" height="34" fill="#222"/>
+  <rect x="72" y="152" width="23" height="20" fill="#7cb"/>
+  <rect x="114" y="145" width="37" height="34" fill="#222"/>
+  <rect x="121" y="152" width="23" height="20" fill="#7cb"/>
+  <rect x="163" y="145" width="37" height="34" fill="#222"/>
+  <rect x="170" y="152" width="23" height="20" fill="#7cb"/>
+  <rect x="212" y="145" width="37" height="34" fill="#222"/>
+  <rect x="219" y="152" width="23" height="20" fill="#7cb"/>
+
+  <!-- Loading dock, rolling door and safety markings. -->
+  <rect x="268" y="151" width="104" height="91" fill="#222"/>
+  <rect x="278" y="161" width="84" height="72" fill="#7cb"/>
+  <rect x="278" y="176" width="84" height="7" fill="#333"/>
+  <rect x="278" y="194" width="84" height="7" fill="#333"/>
+  <rect x="278" y="212" width="84" height="7" fill="#333"/>
+  <rect x="258" y="234" width="125" height="13" fill="#333"/>
+  <rect x="267" y="239" width="22" height="6" fill="#fc6"/>
+  <rect x="307" y="239" width="22" height="6" fill="#fc6"/>
+  <rect x="347" y="239" width="22" height="6" fill="#fc6"/>
+  <rect x="45" y="235" width="211" height="13" fill="#333"/>
+  </g>
+</svg>

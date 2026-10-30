@@ -1749,7 +1749,9 @@ A page asks for `/fun/theme.css`, and the docs server and the edge router
 answer with `~/tehas/fun/theme-<name>.css`. Both read the settings when their
 container is created: run the two `docker compose ... up -d` lines again after
 changing either. The sprites and scenes are pictures and stay the same in every
-theme.
+theme. The header picture is the exception: `pixel` shows the animated factory,
+and every other theme the logo, which is also the favicon. The share card
+follows it, `share.png` for `pixel` and `share-logo.png` for the rest.
 
 A theme is one file in `host/fun/`, `theme-<name>.css`, that sets every token
 `theme-pixel.css` sets; its name is added to the list in `lib/config.sh`.

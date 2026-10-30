@@ -438,9 +438,9 @@ fn top(title: &str, menu: &str, home: &str) -> String {
     let home = h(&Value::from(home));
     let mut out = String::from("<!doctype html>\n<html lang=\"en\">\n<head>\n");
     out.push_str(&format!("  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <meta name=\"robots\" content=\"noindex, nofollow\">\n  <title>{} - Protolab</title>\n", h(&Value::from(title))));
-    out.push_str("  <link rel=\"icon\" type=\"image/svg+xml\" href=\"/fun/logo.svg\">\n  <link rel=\"stylesheet\" href=\"/fun/theme.css\">\n  <link rel=\"stylesheet\" href=\"/fun/game-view.css\">\n  <link rel=\"stylesheet\" href=\"/fun/protolab.css\">\n");
+    out.push_str("  <link rel=\"icon\" type=\"image/svg+xml\" href=\"/fun/favicon.svg\">\n  <link rel=\"stylesheet\" href=\"/fun/theme.css\">\n  <link rel=\"stylesheet\" href=\"/fun/game-view.css\">\n  <link rel=\"stylesheet\" href=\"/fun/protolab.css\">\n");
     out.push_str("</head>\n<body id=\"top\">\n  <a class=\"skip\" href=\"#page\">Skip to the page</a>\n  <header class=\"topbar topbar-short\">\n");
-    out.push_str(&format!("    <a class=\"brand\" href=\"{home}\" aria-label=\"Protolab, every prototype\">\n      <img src=\"/fun/logo.svg\" width=\"50\" height=\"50\" alt=\"\">\n      <span>PROTOLAB</span>\n    </a>\n    <nav class=\"menu\" aria-label=\"Site\">\n      <a href=\"{home}\">ALL PROTOTYPES</a>\n"));
+    out.push_str(&format!("    <a class=\"brand\" href=\"{home}\" aria-label=\"Protolab, every prototype\">\n      <img src=\"/fun/factory.svg\" width=\"80\" height=\"50\" alt=\"\">\n      <span>PROTOLAB</span>\n    </a>\n    <nav class=\"menu\" aria-label=\"Site\">\n      <a href=\"{home}\">ALL PROTOTYPES</a>\n"));
     out.push_str(menu);
     out.push_str("    </nav>\n  </header>\n  <main class=\"lab-stage\" id=\"page\">\n");
     out

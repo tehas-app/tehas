@@ -22,7 +22,7 @@
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="The tehas logo, a white factory on a green square, beside the word TEHAS">
+  <meta property="og:image:alt" content="{{ if eq (env "TEHAS_THEME") "pixel" }}A pixel art factory with a wind turbine{{ else }}The tehas logo, a white factory on a green square,{{ end }} beside the word TEHAS">
   <meta name="twitter:card" content="summary_large_image">
   <script type="application/ld+json">
   {
@@ -40,7 +40,7 @@
     "keywords": "Pi software factory, Pi coding agent, pi-rukas, software factory, coding agents, self-hosted models, GitHub issues"
   }
   </script>
-  <link rel="icon" type="image/svg+xml" href="/fun/logo.svg">
+  <link rel="icon" type="image/svg+xml" href="/fun/favicon.svg">
   <link rel="stylesheet" href="/fun/theme.css">
   <link rel="stylesheet" href="/fun/game-view.css">
   <link rel="stylesheet" href="/fun/energy-view.css">
@@ -55,7 +55,7 @@
 
   <header class="topbar">
     <a class="brand" href="#top" aria-label="Tehas factory floor, top of page">
-      <img src="/fun/logo.svg" width="50" height="50" alt="">
+      <img src="/fun/factory.svg" width="100" height="50" alt="">
       <span>TEHAS</span>
     </a>
     <p class="source" id="source" role="status">NO DATA</p>
