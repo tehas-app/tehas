@@ -11,7 +11,8 @@
 //! flag, the limit and the locks of the planning turns. What only the store or
 //! systemd know comes in as arguments, as the shell got it: the open planning
 //! sessions (`store plan-show --open`), the failed tehas units (`systemctl
-//! --user --failed --plain --no-legend`), the store's newest backup (`store
+//! --user --failed --plain --no-legend`, left out when systemd did not answer
+//! with a list, empty or not), the store's newest backup (`store
 //! backup --show`, left out when the store did not answer) and the idle polls
 //! over their budget (`store poll-idle --budget`, left out when it refused).
 //! A file that is not there, or not what it should be, is null. The report
@@ -39,7 +40,7 @@ const BACKUP_MAX_AGE: f64 = 172_800.0;
 #[derive(Default)]
 struct Given {
     sessions: Option<String>,
-    units: String,
+    units: Option<String>,
     backup: Option<String>,
     poll_over: Option<String>,
     poll_budget: Option<String>,
@@ -64,7 +65,7 @@ pub fn main(given: &[String]) -> u8 {
         };
         match flag.as_str() {
             "--sessions" => g.sessions = Some(v),
-            "--units" => g.units = v,
+            "--units" => g.units = Some(v),
             "--backup" => g.backup = Some(v),
             "--poll-over" => g.poll_over = Some(v),
             "--poll-budget" => g.poll_budget = Some(v),
@@ -173,6 +174,14 @@ fn slice(live: &Path, now: i64) -> J {
             f.push((k.to_string(), d.get(k).clone()));
         }
     }
+    // What the two counts are when an instance says `auto`: the poll derived
+    // them from the host on this very poll, and the reason says which reading
+    // gave them. Left out, as every other optional field is, when the poll
+    // wrote none: a factory with numbers for both settings reports nothing
+    // new.
+    if !d.get("slots").is_null() {
+        f.push(("slots".to_string(), d.get("slots").clone()));
+    }
     J::Obj(f)
 }
 
@@ -250,7 +259,8 @@ fn pause_flag(home: &Path) -> J {
     }
 }
 
-/// The failed tehas units, from what systemctl printed.
+/// The failed tehas units, from what systemctl printed. No `--units` is null:
+/// systemd did not answer, which is not the same as none having failed.
 fn units(text: &str) -> J {
     J::Arr(
         text.split('\n')
@@ -323,7 +333,8 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
         ("lifted", J::Bool(lifted)),
     ]);
 
-    let units = units(&g.units);
+    // systemd did not answer: no list, and no warning raised from one.
+    let units = g.units.as_deref().map(units);
     let (backup, backup_known) = match g.backup.as_deref().and_then(J::parse) {
         Some(b) => match b.get("newest") {
             J::Null => (J::Null, true),
@@ -394,7 +405,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .cmp(&J::num(BACKUP_MAX_AGE))
                 .is_gt());
     let disk_low = !disk.is_null() && disk.get("low").truthy();
-    let has_units = units.len() > 0;
+    let has_units = units.as_ref().is_some_and(|u| u.len() > 0);
 
     let status = if queue.is_null() || failed {
         "fail"
@@ -454,7 +465,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
     } else if has_units {
         format!(
             "systemd gave up on {}: run systemctl --user reset-failed and start it again.",
-            joined(&units)
+            joined(units.as_ref().unwrap_or(&J::Arr(vec![])))
         )
     } else if disk_low {
         if disk.get("freeBytes").is_null() {
@@ -584,7 +595,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 ("allHands", all_hands),
                 ("pause", pause),
                 ("platform", platform),
-                ("units", units),
+                ("units", units.unwrap_or(J::Null)),
                 ("backup", backup_check),
                 ("poll_cost", poll_cost),
             ]),
@@ -792,16 +803,57 @@ mod tests {
     }
 
     #[test]
+    fn the_slots_a_poll_derived_are_kept_and_a_number_writes_none() {
+        let h = home("slots");
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
+                 "slots":{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
+                          "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}}"#,
+        );
+        assert_eq!(
+            h.report(&Given::default())
+                .at(&["checks", "slice", "slots", "cycle", "bound"])
+                .as_str(),
+            Some("cpu")
+        );
+        // A poll that sets numbers writes no slots object, and the check keeps
+        // the fields it always had: no key at all, not one that is null.
+        h.write(
+            "live/dispatch.json",
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","room":1,"free":1}"#,
+        );
+        let r = h.report(&Given::default());
+        assert!(r.at(&["checks", "slice"]).get("slots").is_null());
+        assert_eq!(
+            r.at(&["checks", "slice"]).dump(),
+            r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":1,"committed":null,"max":null,"reserve":null,"free":1}"#
+        );
+    }
+
+    #[test]
     fn failed_units_low_disk_and_a_platform_behind_warn() {
         let h = home("units");
         let g = Given {
-            units: "tehas-dispatch.path loaded failed failed Dispatch\nother.service x\n".into(),
+            units: Some(
+                "tehas-dispatch.path loaded failed failed Dispatch\nother.service x\n".into(),
+            ),
             ..Given::default()
         };
         assert_eq!(
             said(&h.report(&g)).1,
             "systemd gave up on tehas-dispatch.path: run systemctl --user reset-failed and start it again."
         );
+        assert_eq!(
+            h.report(&g).at(&["checks", "units"]).dump(),
+            r#"["tehas-dispatch.path"]"#
+        );
+        // An empty text is a read that found nothing: an empty list, no warning.
+        let g = Given {
+            units: Some(String::new()),
+            ..Given::default()
+        };
+        assert_eq!(h.report(&g).at(&["checks", "units"]).dump(), "[]");
         h.write("live/previews.json", r#"{"generatedAt":"2026-10-17T14:00:00Z","disk":{"freeBytes":1,"minFreeBytes":2,"low":true}}"#);
         assert_eq!(
             said(&h.report(&Given::default())).1,
@@ -816,6 +868,16 @@ mod tests {
             said(&h.report(&Given::default())).1,
             "The platform is 3 commits behind origin/main since 2026-10-15: run tehas update."
         );
+    }
+
+    #[test]
+    fn units_systemd_did_not_answer_is_no_check_and_no_warning() {
+        let h = home("no-units");
+        // No `--units` at all: the read failed, so the file says nothing of the
+        // units and an otherwise healthy home still passes.
+        let r = h.report(&Given::default());
+        assert_eq!(r.at(&["checks", "units"]), &J::Null);
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
     }
 
     #[test]

@@ -132,9 +132,9 @@ texts as \$ts
 tehas_approval_record() {
   # shellcheck disable=SC2016  # a jq program
   printf '%s\n' 'def record_ok: type == "object" and (.links | type) == "array"
-    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$"))
-    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
-    and (.how | test("^(label|retry-tick|outage-retry|fixer|refresh)$"))
+    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z"))
+    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+\\z"))
+    and (.how | test("^(label|retry-tick|outage-retry|fixer|refresh)\\z"))
     and (.comment_links == null or (.comment_links | type) == "array");'
 }
 
@@ -153,7 +153,7 @@ tehas_record_is_file() {
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_body() {
   printf '%s\n' 'record_ok and (.body_sha256 | type) == "string"
-    and (.body_sha256 | length) == 64 and (.body_sha256 | test("^[0-9a-f]+$"))'
+    and (.body_sha256 | length) == 64 and (.body_sha256 | test("^[0-9a-f]+\\z"))'
 }
 
 # The title's hash, held to the body's shape. A record written before titles
@@ -162,7 +162,7 @@ tehas_approval_body() {
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_title() {
   printf '%s\n' ' and (.title_sha256 == null or ((.title_sha256 | type) == "string")
-    and (.title_sha256 | length) == 64 and (.title_sha256 | test("^[0-9a-f]+$")))'
+    and (.title_sha256 | length) == 64 and (.title_sha256 | test("^[0-9a-f]+\\z")))'
 }
 
 # tehas_approval_text <record> <issue>: the issue's text against what the
@@ -824,7 +824,7 @@ tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
       (if $comments == 1 then (.comment_links // [])[]
          | select(type == "object" and (.link | type) == "string" and (.source | type) == "string"
              and (.by | type) == "string" and (.link | links == [.])
-             and (.source | test("^(pr-)?comment:[0-9]+$")) and (.by | test("^[A-Za-z0-9-]+$")))
+             and (.source | test("^(pr-)?comment:[0-9]+\\z")) and (.by | test("^[A-Za-z0-9-]+\\z")))
          | "\(.source)\t\(.link)\t\(.by)"
        else empty end)' "$record"
   else
@@ -927,12 +927,12 @@ tehas_answer_images() { # <dir> <answer file> <comment id>
 # and the whole at 32000.
 tehas_retry_context() { # <record> [<comments: 0 or 1>]
   jq -r --argjson comments "${2:-1}" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN:-}" 'def ok($src): [(.retry_context // [])[] | select(type == "object" and (.text | type) == "string"
-      and (.source | type) == "string" and (.source | test("^" + $src + ":[0-9]+$"))
-      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+$"))
-      and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+$")))];
+      and (.source | type) == "string" and (.source | test("^" + $src + ":[0-9]+\\z"))
+      and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+(\\[bot\\])?\\z"))
+      and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z")))];
     def quoted: map("\n## \(.source | sub(":"; " ")), by \(.by), \(.at)\n\n"
       + (.text | gsub("\r"; "") | .[0:4000] | split("\n") | map("> " + .) | join("\n")) + "\n") | join("");
-    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("fixer")[] | select($fixer != "" and .by == $fixer)][0:1] as $f
+    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("fixer")[] | select($fixer != "" and (.by | rtrimstr("[bot]")) == ($fixer | rtrimstr("[bot]")))][0:1] as $f
     | [select(.how == "refresh") | (.retry_context // [])[] | select(type == "object" and .source == "refresh" and (.text | type) == "string")
        | .text | gsub("\r"; "") | .[0:4000]][0:1] as $r
     | select(($c | length) + ($f | length) + ($r | length) > 0)
@@ -1011,8 +1011,8 @@ tehas_issue_images_left_out() { # <issue> <file> [record]
     | ([.links[] | strings | select(links == [.]) | {link: ., reason: $reason, source: "body"}] +
        [(.comment_links // [])[] | select(type == "object" and (.link | type) == "string"
          and (.source | type) == "string" and (.by | type) == "string"
-         and (.link | links == [.]) and (.source | test("^(pr-)?comment:[0-9]+$"))
-         and (.by | test("^[A-Za-z0-9-]+$"))) | {link: .link, reason: $reason, source: .source}]
+         and (.link | links == [.]) and (.source | test("^(pr-)?comment:[0-9]+\\z"))
+         and (.by | test("^[A-Za-z0-9-]+\\z"))) | {link: .link, reason: $reason, source: .source}]
        | reduce .[] as $e ({}; if .seen[$e.link] then . else .seen[$e.link] = 1 | .out += [$e] end)) as $d
     | {issue: $issue, images: [], approval: {at: .at, by: .by, how: .how}, leftOut: ($d.out // [])}
     | select(.leftOut | length > 0)

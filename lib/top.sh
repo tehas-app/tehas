@@ -76,12 +76,6 @@ tehas_host_reading() { # [dir]
   "$tehas_top_console" top reading "${1:-$tehas_proc_dir}" 2>/dev/null
 }
 
-# The host section from two readings: the later one and the earlier one.
-tehas_top_host() { # <later reading> <earlier reading>
-  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
-  "$tehas_top_console" top host "$1" "$2" 2>/dev/null
-}
-
 # What of the snapshot may be published: these keys and nothing else. A key
 # added to the snapshot later stays out of live/top.json until someone names it
 # here - the dashboard can be on the internet, and a rule that only removes the
