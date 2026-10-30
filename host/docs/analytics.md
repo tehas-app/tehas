@@ -75,7 +75,9 @@ gate, which the report reads as no gate rather than a gate of no time.
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
   one is made. It is deleted 365 days after its last write. That goes for a
   version newer than the program too: after a rollback to a release of schema 2,
-  the file at 3 goes aside whole. Move it back by hand before going forward again.
+  the file at 3 goes aside whole. Move it back by hand before going forward again:
+  nothing says it is still aside, and a second rollback renames the file then at 3
+  over it, which loses the runs it held.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -335,7 +337,10 @@ The comparison is on pull requests, not on merges by the driver, because lean
 does not merge. A pull request counts once per issue, however many runs followed
 it up, since a merge is on record per issue. It counts as merged when the issue
 has a `merged` event, or a work run that ended merged, at or after the first run
-of that driver that reached it, and at or before the report's `to`.
+of that driver that reached it, and at or before the report's `to`. Events stay
+once per issue, so the second merge of a reopened issue has no event: a pull
+request lean left there reads as not merged, though a classic run that ended
+merged would count.
 
 The table is the report's, not the dashboard's file: like `gate`, `drivers` is not
 among the keys `tehasbot status` publishes.
