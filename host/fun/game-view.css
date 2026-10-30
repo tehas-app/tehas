@@ -754,7 +754,7 @@ body[data-factory="live"] .console-state::before {
   .topbar { padding: 8px 8px 0; gap: 0 8px; }
   .source, .topbar > .gate { padding: 4px 8px; }
   .menu { padding: 0 8px; }
-  .brand img { width: 80px; height: 40px; }
+  .brand img { width: 40px; height: 40px; }
   .brand span { display: none; }
 
   .sign { display: flex; }
