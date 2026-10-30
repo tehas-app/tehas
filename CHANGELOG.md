@@ -13,6 +13,29 @@ empty one above it.
 
 ### Changes
 
+### Adopter action
+
+None.
+
+## v0.19.0 (2026-10-30)
+
+### Changes
+
+- `TEHAS_SCRATCH_DIR` is a new optional setting. Set, a cycle's `/tmp` is
+  `<dir>/<name>-<issue>` on that disk in place of the tmpfs in its memory. It
+  needs a file system of its own, because nothing limits a cycle's size inside
+  it. Unset, nothing changes.
+- A cycle removes the build output of its workspace as it ends, where the
+  hourly cleaner took it after 24 hours or under 30 GB free. Sources, `.git`
+  and sessions stay.
+- A planning question's boxes get a comment of their own: the plan text, then
+  the question, so ticks land on the right box (#1118).
+- `bootstrap.sh clock` writes the chrony drop-in on a host that runs chrony. It
+  asked `timedatectl` and wrote nothing on a real host (#1106).
+- `tehasbot status` finds the shipped issues that lack `tehas:shipped` with one
+  call to the console, where it took two processes (#1083).
+- `lib/shipped.sh` is gone. `tidy` and `status` call the console directly
+  (#1076).
 - A new logo. It is the favicon in every theme. The paper, beesknees and
   beesknees26 themes also show it in the header and on the share card. The
   pixel theme keeps its animated factory and its share card.
