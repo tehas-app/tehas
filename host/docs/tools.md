@@ -325,7 +325,7 @@ names the issue in its text is on it. One further GraphQL
 search a poll answers that for all of them at once, and only when there is a
 label to give, and it is the same read
 [tehasbot status](#tehasbot-status-and-the-console) makes, and the same console
-verb decides its answer (`lib/shipped.sh`, `console/src/shipped.rs`).
+verb decides its answer (`console shipped`, `console/src/shipped.rs`).
 The search is asked about at most a hundred issues, the page of that read: past
 it an issue is not named and keeps its labels for a later poll. An issue whose
 closer the read answered as a person or an unmerged pull request, and which
@@ -2427,8 +2427,8 @@ Completed means closed by a merged pull request, by the close event's closer or
 by a merged pull request GitHub lists as closing the issue when the close event
 names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
-with: the query is `lib/shipped.sh`'s and the acceptance rule the console's
-(`console shipped`, `console/src/shipped.rs`), the ones `tehas tidy` reads too, so
+with: the query and the acceptance rule are the console's (`console shipped`,
+`console/src/shipped.rs`), the ones `tehas tidy` reads too, so
 the two commands cannot disagree on what a merge closed. `tehasbot status` gives each issue its read finds shipped the label;
 `tehas tidy` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
