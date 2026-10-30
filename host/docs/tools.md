@@ -4317,7 +4317,11 @@ then measure a file's own time, not a queue.
 
 Before the pool starts, it builds the state store (`console/store`) once,
 offline, into `console/target/shell`, and tells every test file where the
-program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The directory
+program is (`T_STORE_BIN`) or why there is none (`T_STORE_WHY`). The build is
+asked for no debug info (`CARGO_PROFILE_DEV_DEBUG=0` on that one command),
+because those binaries are run and not debugged: debug info is most of what
+the directory holds. The variable is not exported, so the gate's `cargo test`
+in `console/target` keeps its debug info. The directory
 is its own because `scripts/verify.sh` runs the workspace's `cargo test` in
 `console/target` at the same time, and cargo holds that directory's lock while
 it builds (the workspace's dev profile keeps line tables and no incremental
