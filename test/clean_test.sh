@@ -579,6 +579,25 @@ t_eq "$([ -L "$tmp/analytics-facts.LINK" ] && echo there)" "there"
 t_eq "$([ -e "$T/outside-facts" ] && echo there)" "there"
 t_contains "$t_out" "removed $tmp/analytics-facts.OLD: host scratch"
 
+t_case "a health report of that age goes, a young one, a directory and a link stay"
+# The report a health run writes before its publish survives only when the
+# poll's bound killed the run inside the publish.
+reset
+echo old >"$tmp/health.OLD"
+echo new >"$tmp/health.NEW"
+mkdir -p "$tmp/health.DIR"
+ln -s "$T/outside-report" "$tmp/health.LINK"
+echo stay >"$T/outside-report"
+age "$tmp/health.OLD" "$tmp/health.DIR" "$T/outside-report"
+t_run "$clean"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$tmp/health.OLD" ] && echo there)" ""
+t_eq "$([ -e "$tmp/health.NEW" ] && echo there)" "there"
+t_eq "$([ -d "$tmp/health.DIR" ] && echo there)" "there"
+t_eq "$([ -L "$tmp/health.LINK" ] && echo there)" "there"
+t_eq "$([ -e "$T/outside-report" ] && echo there)" "there"
+t_contains "$t_out" "removed $tmp/health.OLD: host scratch"
+
 t_case "young host scratch stays"
 reset
 echo new >"$tmp/dl/tool.tar.gz"

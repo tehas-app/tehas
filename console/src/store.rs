@@ -2,19 +2,53 @@
 //! it, and the two ways of running a command that call needs.
 
 use serde_json::{json, Value};
+use std::fs;
 use std::io::{self, Read};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, ExitStatus, Stdio};
 
 /// What a call that did not answer said, as lib/store.sh sets it: the status
 /// (1 refused, busy or timeout; 64 usage; 78 unusable), the store's word or
-/// ours (timeout, absent, garbled), and the first line.
+/// ours (timeout, absent, garbled), and the first line, as `said` keeps it for
+/// a log: no control bytes and at most 300 bytes.
 #[derive(Debug)]
 pub struct Refusal {
     pub rc: u8,
     pub word: String,
     pub line: String,
+}
+
+/// The two tests `tehas_store_ready` makes: the store an executable file of
+/// this home, and its database a plain file and no link. One copy, so a caller
+/// cannot forget one; a stat that errors is answered as a binary that is not
+/// there, as the shell's `[ -f ]` and `[ -x ]` answered it.
+pub fn ready(home: &Path) -> bool {
+    let bin = home.join("libexec").join("store");
+    let db = home.join("state").join("tehas.db");
+    fs::metadata(&bin).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        && fs::symlink_metadata(&db).is_ok_and(|m| m.is_file() && !m.file_type().is_symlink())
+}
+
+/// What a failed call sets, as `tehas_store_said` does: the line is for a log,
+/// so every control character becomes `?` and it is cut at 300 bytes. Every
+/// refusal of `call` goes through here, so a caller prints the line as it
+/// stands.
+fn refusal(rc: u8, word: &str, line: &str) -> Refusal {
+    let cleaned: String = line
+        .chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect();
+    let mut cut = cleaned.len().min(300);
+    while cut > 0 && !cleaned.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    Refusal {
+        rc,
+        word: word.to_string(),
+        line: cleaned[..cut].to_string(),
+    }
 }
 
 fn code(status: ExitStatus) -> i32 {
@@ -61,13 +95,7 @@ pub fn call(home: &Path, args: &[&str]) -> Result<Value, Refusal> {
             .env("TEHAS_HOME", home)
             .stdin(Stdio::null()),
     );
-    let no = |rc: u8, word: &str, line: String| {
-        Err(Refusal {
-            rc,
-            word: word.to_string(),
-            line,
-        })
-    };
+    let no = |rc: u8, word: &str, line: String| Err(refusal(rc, word, &line));
     let said = said.trim_end_matches('\n');
     match rc {
         0 => {
