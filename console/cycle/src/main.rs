@@ -32,6 +32,26 @@
 //!                                     what the dispatcher starts a planning
 //!                                     turn with: the same copy, and run
 //!                                     libexec/<program> of it with the args
+//!   tehas-cycle clock now             print the seconds of the monotonic
+//!                                     clock: seconds since boot, read from
+//!                                     the first number of /proc/uptime
+//!                                     (src/clock.rs)
+//!   tehas-cycle clock mark <file>     write that number into <file>, for
+//!                                     the mark of a cycle's start and the
+//!                                     mark of its last log growth
+//!   tehas-cycle clock check <file> --limit <s> --stall <s> --since <s>
+//!                                     <file> holds the mark of the start and
+//!                                     <s> after --since is a number from
+//!                                     `clock now`, the mark of the last growth
+//!                                     of the cycle's logs: print `ok`,
+//!                                     `stalled` or `over` and exit 0, 1 or 2.
+//!                                     The limit is counted before the stall.
+//!                                     A mark that is missing or not a number,
+//!                                     or a time that would go backwards,
+//!                                     prints `unknown` and exits 3: nothing
+//!                                     is stopped on a guess. It reads no wall
+//!                                     clock, so a VM that was saved is not
+//!                                     counted against a cycle
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -48,11 +68,13 @@
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
-//! read, said on standard error, or run could not exec; 64 an argument it
-//! does not know; 78 run without an absolute TEHAS_HOME.
+//! read, said on standard error, or run could not exec, or `clock check` said
+//! `stalled`; 2 `clock check` said `over`; 3 `clock check` said `unknown`;
+//! 64 an argument it does not know; 78 run without an absolute TEHAS_HOME.
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
@@ -137,6 +159,36 @@ fn main() {
             if on() {
                 shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
             }
+        }
+        ["clock", "now"] => {
+            if clock::print_now(clock::boot_seconds).is_none() {
+                fail("the clock could not be read".to_string());
+            }
+        }
+        ["clock", "mark", file] => {
+            clock::mark(Path::new(file), clock::boot_seconds).unwrap_or_else(|e| fail(e));
+        }
+        ["clock", "check", file, rest @ ..] => {
+            let mut limit = None;
+            let mut stall = None;
+            let mut since = None;
+            let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(&args));
+            let mut it = rest.iter();
+            while let Some(flag) = it.next() {
+                let v = it.next().unwrap_or_else(|| wrong(&args));
+                match *flag {
+                    "--limit" => limit = Some(secs(v)),
+                    "--stall" => stall = Some(secs(v)),
+                    "--since" => since = Some(secs(v)),
+                    _ => wrong(&args),
+                }
+            }
+            let (Some(limit), Some(stall), Some(since)) = (limit, stall, since) else {
+                wrong(&args)
+            };
+            let v = clock::check(Path::new(file), limit, stall, since, clock::boot_seconds);
+            println!("{}", v.word());
+            std::process::exit(i32::from(v.exit()));
         }
         ["run", n] => {
             let n = issue(n, &args);
