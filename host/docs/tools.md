@@ -2625,10 +2625,12 @@ bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
-`tehas status` prints the same file for a person. The report is built by the
-console beside the command (`console health report`, `console/src/health.rs`);
-the command keeps the calls of the state store, the `systemctl --user --failed`
-call and the publish.
+`tehas status` prints the same file for a person. The whole run is the console
+beside the command (`console health run`, `console/src/health.rs`): it makes
+the five calls of the state store, the `systemctl --user --failed` read and the
+publish itself, so one run starts about fourteen processes and not twenty-seven.
+`libexec/health` is the wrapper of that one command. `console health report`
+builds the report alone from answers given as arguments, and writes nothing.
 
 `checks.pause` names the switches: `{flag: {at, reason}, label, lifted}`, with
 `flag` null when no flag is set, `label` whether `tehas:pause` is on the control
