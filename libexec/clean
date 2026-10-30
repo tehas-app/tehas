@@ -4,9 +4,8 @@
 # ~/tehas/tmp.
 #
 # A full disk stops previews and fails clones. A kept workspace is never built
-# in again, since every cycle clones fresh, so its build output is dead weight
-# until the 7-day sweep takes the workspace (libexec/dispatch). The cleaner
-# takes the weight first and leaves the workspace for a person to read.
+# in again, since every cycle clones fresh. A cycle takes its build output as it
+# ends (libexec/cycle); this takes what a killed cycle left.
 #
 # Only what has not been used for TEHAS_CLEAN_AFTER hours (24 by default)
 # goes. When the free disk is under TEHAS_CLEAN_MIN_FREE (30g by default),
@@ -26,6 +25,8 @@
 #   3. host scratch                      under $TEHAS_HOME/tmp: dl, node-
 #                                        compile-cache, analytics-facts.*,
 #                                        tehas-test.* dirs, a staged recipe
+#                                        and the /tmp of a killed cycle on
+#                                        TEHAS_SCRATCH_DIR, under its lock
 #   4. old sandbox images                dated tags of that age, except the
 #                                        newest and any a container or a uid
 #                                        tag holds
@@ -106,4 +107,4 @@ free_kb=$(tehas_free_kb "$TEHAS_HOME") || free_kb=""
 pulled=$(tehas_base_image) || pulled=""
 exec "$console" clean run "$dry" "$TEHAS_HOME" "$TEHAS_WORK_DIR" "$TEHAS_CLEAN_AFTER" \
   "$TEHAS_CLEAN_MIN_FREE_MB" "$TEHAS_CLEAN_MIN_FREE" "$free_kb" "$TEHAS_CLEAN_DIRS" \
-  "$sandbox_image" "$pulled" "$logfile"
+  "$sandbox_image" "$pulled" "$logfile" "${TEHAS_SCRATCH_DIR:-}"
