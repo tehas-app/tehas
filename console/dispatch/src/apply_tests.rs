@@ -1278,6 +1278,7 @@ fn quiet_of(n: u64) -> Value {
 #[test]
 fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
     let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
     let a = t.apply(json!([quiet_of(7)]));
     let line = "WARN: the cycle for #7 holds its lock but has not been heard from since 2026-10-26T07:33:20Z, more than 1200s: stopping tehas-cycle@7.service";
     assert_eq!(a.log, vec![line]);
@@ -1289,6 +1290,30 @@ fn a_quiet_cycle_is_noted_then_stopped_as_the_answer_says() {
             "start 7",
         ]
     );
+    assert_eq!(
+        fs::read_to_string(t.w.home.join("state/cycles/7.done")).unwrap(),
+        "quiet\n"
+    );
+}
+
+#[test]
+fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
+    let mut t = world();
+    // The directory of the cycle's files, but no write for it: a new file
+    // there cannot be made. The stop is asked all the same, and said.
+    let cycles = t.w.home.join("state/cycles");
+    fs::create_dir_all(&cycles).unwrap();
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o500)).unwrap();
+    let a = t.apply(json!([quiet_of(7)]));
+    fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
+    let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
+    assert!(
+        said
+            .iter()
+            .any(|l| *l == "WARN: could not write the reason for #7"),
+        "{said:?}"
+    );
+    assert!(t.calls().contains(&"start 7".to_string()));
 }
 
 #[test]

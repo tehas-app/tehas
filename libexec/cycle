@@ -170,10 +170,10 @@
 # it comes off once the cycle is reported, whatever the outcome.
 #
 # The dispatcher stops a cycle whose work is done, and says why first in
-# state/cycles/<issue>.done: closed (the issue was closed), merged or
-# pr-closed (the bot's pull request for it). A merged pull request ends the
-# cycle as merged, as above. A cycle stopped because its issue was closed only
-# loses tehas:running, and nothing is asked.
+# state/cycles/<issue>.done: closed (the issue was closed), merged, pr-closed
+# (the bot's pull request for it) or quiet (the poll's quiet rule). A merged
+# pull request ends the cycle as merged, as above. A cycle stopped because its
+# issue was closed only loses tehas:running, and nothing is asked.
 #
 # When the cycle has been reported it leaves state/dispatch.again (for
 # tehas-dispatch.path, after a poll already running) and starts one poll
@@ -1056,7 +1056,7 @@ marker=""
 # Why the dispatcher stopped this cycle, if it did.
 done_why=""
 IFS= LC_ALL=C read -r -n 16 done_why 2>/dev/null <"$cycles/$issue.done"
-case "$done_why" in closed | merged | pr-closed) ;; *) done_why="" ;; esac
+case "$done_why" in closed | merged | pr-closed) ;; quiet) [ -n "$park_reason" ] || park_reason=quiet; why="$why The dispatcher stopped it: nothing was heard from it for longer than its quiet bound." ;; *) done_why="" ;; esac
 rm -f "$cycles/$issue.done"
 # The approval this start used, read once for the report: the pull request a
 # refresh marked. A start by hand used none. An approval that cannot be read
