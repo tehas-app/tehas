@@ -1,85 +1,15 @@
 #!/usr/bin/env bash
 # Write the factory's health file: $TEHAS_HOME/live/health.json, served by the
-# docs server as /health (and /healthz).
-#
-# It reads what the factory already writes under live/ and the state store: the
-# queue snapshot (live/status.json, from tehasbot status), the running cycles and
-# the last one (live/running.json, from tehas work), what holds cycles back and
-# the slice's numbers and the demand (live/dispatch.json and live/demand.json,
-# both from the last poll), the cost of the polls of the last hour that started no
-# cycle (`store poll-idle --budget`), this host's pause flag, the planning turns
-# whose lock the turn's unit holds (state/plan-<issue>.json.lock), and the failed
-# tehas units. No network, model or docker. tehasbot status runs it on exit, at
+# docs server as /health (and /healthz). tehasbot status runs it on exit, at
 # every poll and at the end of every cycle.
 #
-# The file follows the health check response format (draft-inadarei-api-health-check):
-#   status "pass"  the factory is taking work
-#   status "warn"  one of the holds the console names in `output`: a queue
-#                  snapshot older than ten minutes, a pause, a hold the
-#                  dispatcher put on every start, a tehas unit systemd gave up
-#                  on, too little disk for previews, a platform a day behind, a
-#                  stale store backup, or an idle poll over its budget. Every
-#                  check is also in `checks`, so none is lost to a reader.
-#   status "fail"  the last cycle ended as anything but merged or handoff and
-#                  no cycle has started since, or there is no queue snapshot yet
-# On "fail" there is also live/health.down, which makes the docs server answer
-# 503 with the same body. Both files are put in place by the state store's
-# publish (lib/live.sh), which makes health.down before a failing report and
-# removes it after any other. A stopped dispatcher cannot report itself: the
-# file just stops changing, and a "time" older than ten minutes is down.
+# The whole run is the console's: `console health run <home>`
+# (console/src/health.rs), which makes the store's calls and the units read itself.
 #
-# Usage: tehasbot health (prints nothing). Exit: 0 written; 1 the file could not
-# be written, or the store did not answer (busy); 78 the store is not installed
-# or cannot be used, which writes nothing: a health file without the planning
-# turns would say none run. A read that did not answer is left out of checks.
+# Usage: tehasbot health (prints nothing). Exit: 0 the file was written; 1 it
+# could not be written or the store did not answer; 78 the store is not
+# installed or cannot be used, which writes nothing. An ERROR: line says which.
 set -uo pipefail
 
 : "${TEHAS_HOME:=$HOME/tehas}"
-live=$TEHAS_HOME/live
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# The console beside the commands builds the report (console/src/health.rs).
-console=${TEHAS_CONSOLE:-$here/console}
-# shellcheck source=lib/store.sh
-. "$here/../lib/store.sh"
-if ! tehas_store_ready; then
-  echo "ERROR: the state store is not installed (run install.sh)" >&2
-  exit 78
-fi
-if ! tehas_store plan-show --open; then
-  echo "ERROR: the planning sessions could not be read from the state store: $tehas_store_line" >&2
-  [ "$tehas_store_rc" = 1 ] && exit 1
-  exit 78
-fi
-sessions=$tehas_store_out
-mkdir -p "$live"
-# shellcheck source=lib/live.sh
-. "$here/../lib/live.sh"
-# The cycle views fresh from the store: a cycle that died without a word stops
-# being shown as running here. One try: when the store is busy the views read
-# below are a tick old, and the report is still written.
-if ! tehas_store publish && [ "$tehas_store_rc" != 1 ]; then
-  echo "ERROR: the live view could not be published: $tehas_store_line" >&2
-  exit 78
-fi
-
-# The failed tehas units, such as tehas-dispatch.path at its start limit (it
-# stays failed, and a cycle that ends no longer starts a poll), the newest daily
-# copy of the store, and the polls of the last hour that started no cycle against
-# the budget of lib/config.sh. A units read that did not answer is left out.
-units=$(timeout 10 systemctl --user --failed --plain --no-legend 'tehas-*' 2>/dev/null) || units='no-answer'
-args=(--sessions "$sessions")
-[ "$units" = no-answer ] || args+=(--units "$units")
-! tehas_store backup --show || args+=(--backup "$tehas_store_out")
-budget=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
-! tehas_store poll-idle --since 3600 --budget "$budget" ||
-  args+=(--poll-over "$(tehas_store_get .over)" --poll-budget "$budget")
-mkdir -p "$TEHAS_HOME/tmp" && chmod 700 "$TEHAS_HOME/tmp" || exit 1
-report=$(mktemp "$TEHAS_HOME/tmp/health.XXXXXX") || exit 1
-trap 'rm -f "$report"' EXIT
-"$console" health report "$TEHAS_HOME" "${args[@]}" >"$report" || exit 1
-if ! tehas_live_publish --health "$report"; then
-  echo "ERROR: the health file could not be published: $tehas_store_line" >&2
-  [ "$tehas_store_rc" = 1 ] && exit 1
-  exit 78
-fi
-exit 0
+exec "${TEHAS_CONSOLE:-${BASH_SOURCE[0]%/*}/console}" health run "$TEHAS_HOME"
