@@ -388,6 +388,38 @@ _tehas_role_models() { # <instance.env>
   return 0
 }
 
+# The names an earlier version read are refused, not ignored: a line that does
+# nothing in an instance file is a mistake the operator sees (TEHAS_FIXER_* were
+# renamed TEHAS_MILLWRIGHT_* in v0.14.0 #676, unread since #799). The list's
+# order picks which of two retired lines is reported. A name's fate is its own
+# arm, and the last arm speaks for any name without one, so the list and the
+# arms cannot drift apart into a refusal with no message.
+_tehas_retired_names() { # <instance.env>
+  local file=$1 v reason
+  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
+    [ -n "${!v+x}" ] || continue
+    # The off value of the one name that took one: an earlier version read 0 and
+    # a blank line alike as no clones, which is what this version does, so the
+    # line stays loadable. The name is unset with it, so it never reaches a
+    # cycle, and the sweep in tehas_load took the host's TEHAS_* names before
+    # instance.env was read, so this is the file's own line.
+    if [ "$v" = TEHAS_CLONES ] && { [ "${!v}" = 0 ] || [ -z "${!v}" ]; }; then
+      unset "$v"
+      continue
+    fi
+    case "$v" in
+      TEHAS_FIXER_*) reason="is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_}" ;;
+      TEHAS_CLONES) reason="is set and this version of tehas has no database clones" ;;
+      TEHAS_WORK_CPUS) reason="is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      TEHAS_WORK_MEMORY) reason="is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      *) reason="is set and this version of tehas does not read it" ;;
+    esac
+    tehas_err "$v $reason (see $file)"
+    return 78
+  done
+  return 0
+}
+
 tehas_load() {
   local dir file v reason line mb
   : "${TEHAS_HOME:=$HOME/tehas}"
@@ -411,7 +443,8 @@ tehas_load() {
   export TEHAS_INSTANCE_DIR=$dir
 
   # A token in the instance directory would be in its repository. Read with
-  # bash alone: loading runs no other command.
+  # bash alone, and trust the file: it is operator-owned and run as shell here,
+  # so a hostile line needs a reader that does not execute it, as this scan is.
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line#"${line%%[![:space:]]*}"}
     line=${line#export }
@@ -434,19 +467,7 @@ tehas_load() {
   set +a
 
   _tehas_role_models "$file" || return 78
-  # The names an earlier version read are refused, not ignored: a line that does
-  # nothing in an instance file is a mistake the operator sees.
-  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
-    [ -n "${!v+x}" ] || continue
-    [ "$v" = TEHAS_CLONES ] && [ "${!v}" = 0 ] && continue
-    case "$v" in
-      TEHAS_FIXER_*) tehas_err "$v is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_} (see $file)" ;;
-      TEHAS_CLONES) tehas_err "$v is set and this version of tehas has no database clones (see $file)" ;;
-      TEHAS_WORK_CPUS) tehas_err "$v is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)" ;;
-      TEHAS_WORK_MEMORY) tehas_err "$v is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)" ;;
-    esac
-    return 78
-  done
+  _tehas_retired_names "$file" || return 78
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
