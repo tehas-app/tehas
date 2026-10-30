@@ -184,22 +184,13 @@ impl Outcome {
         }
     }
 
-    /// Say whether a model was asked, from the calls the runner holds: any
-    /// call of `pi` at all, whatever it answered. `report` sets this so the
-    /// answer always tells whether a model was spent on the pull request.
-    fn modelled(mut self, asked: &[String]) -> Outcome {
-        self.model = asked.iter().any(|c| {
-            c.split_once(char::is_whitespace)
-                .is_some_and(|(p, _)| p.ends_with("/pi") || p == "pi")
-        });
-        self
-    }
-
     /// The command's own words, put after the rule's: a refusal goes to the
     /// issue's comment and to the poll's log, and what the command said is the
     /// part a person can act on. One line, cut to 300 characters.
     fn said(mut self, d: Done) -> Outcome {
-        if let Some(w) = first_line(&d.err).or_else(|| first_line(&d.out)).filter(|w| !w.is_empty())
+        if let Some(w) = first_line(&d.err)
+            .or_else(|| first_line(&d.out))
+            .filter(|w| !w.is_empty())
         {
             self.why = format!("{}: {}", self.why, trim(&w));
         }
@@ -281,11 +272,14 @@ pub fn short_calls(calls: &[String]) -> Vec<String> {
 pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
     let pr = plan.pr;
     let issue = plan.issue;
-    // Whether a session of `pi` ran is read from what the runner was asked,
-    // not from the merge's own answer: a turn that failed or left a marker
-    // behind was asked all the same, and the dispatcher must know a model was
-    // spent before it falls back to a full cycle.
-    let outcome = match merge_and_settle(plan, r) {
+    // Whether a session of `pi` ran, held here as well as in the outcome so
+    // that a refusal which carries no outcome still says a model was spent.
+    // `merge_and_settle` answers it before it asks the session, so a turn that
+    // failed or left a marker behind was asked all the same. It is never read
+    // from the calls the runner holds: on a host `Real` records none, and the
+    // answer there would always be false.
+    let mut asked_model = false;
+    let outcome = match merge_and_settle(plan, r, &mut asked_model) {
         Ok(out) if out.why.is_empty() => out,
         Ok(out) => {
             abandon(plan, r);
@@ -295,6 +289,7 @@ pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
             abandon(plan, r);
             let mut out = Outcome::started(Vec::new());
             out.why = why.why;
+            out.model = asked_model;
             out
         }
     };
@@ -302,7 +297,7 @@ pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
     Report {
         pr,
         issue,
-        outcome: outcome.modelled(&calls),
+        outcome,
         calls: short_calls(&calls),
     }
 }
@@ -314,14 +309,20 @@ fn abandon(plan: &mut Plan, r: &mut dyn Runner) {
     let _ = plan.git_of(r, &["merge", "--abort"]);
 }
 
-fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why> {
+fn merge_and_settle(
+    plan: &mut Plan,
+    r: &mut dyn Runner,
+    asked_model: &mut bool,
+) -> Result<Outcome, Why> {
     // The head the pull request was at when this merge was asked for: the
     // point the outsider check measures from. A tree at any other commit is
-    // not the pull request this decision was made about.
+    // not the pull request this decision was made about. git names a commit in
+    // lower case and a caller may spell it any other way, so the two are
+    // compared as the caseless hex digits git's answer holds.
     let now = plan
         .git_of(r, &["rev-parse", "HEAD"])
         .let_say("the tree's commit could not be read")?;
-    if trim(now.trim()) != plan.head {
+    if !trim(now.trim()).eq_ignore_ascii_case(&trim(plan.head)) {
         return Err(Why::new(format!(
             "the tree is not the pull request's head {}",
             plan.head
@@ -378,7 +379,11 @@ fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why>
                 left.len()
             )));
         }
+        // Both answers are set before the session is asked: a turn that did
+        // not finish is still one the merge asked for, so the dispatcher knows
+        // a model was spent before it falls back to a full cycle.
         out.model = true;
+        *asked_model = true;
         ask_model(plan, r, &left)?;
     }
     // The whole tree is read for a marker, not just the files that conflicted:

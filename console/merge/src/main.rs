@@ -153,16 +153,8 @@ fn wait(mut child: std::process::Child) -> Result<(Option<i32>, String, String),
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let out = child
-                    .stdout
-                    .take()
-                    .and_then(read_it)
-                    .unwrap_or_default();
-                let err = child
-                    .stderr
-                    .take()
-                    .and_then(read_it)
-                    .unwrap_or_default();
+                let out = child.stdout.take().and_then(read_it).unwrap_or_default();
+                let err = child.stderr.take().and_then(read_it).unwrap_or_default();
                 return Ok((status.code(), out, err));
             }
             Ok(None) => {
@@ -236,8 +228,11 @@ fn main() {
     if !tree.is_dir() {
         refuse(&format!("{} is not a directory", tree.display()), 78);
     }
-    let head = need("head");
-    let base = need("base");
+    // git names a commit in lower case, so the two are read lower-cased: an
+    // upper-case sha from a person or a tool names the same commit, and the
+    // merge compares it with git's own answer.
+    let head = need("head").to_ascii_lowercase();
+    let base = need("base").to_ascii_lowercase();
     for (what, sha) in [("head", &head), ("base", &base)] {
         if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
             refuse(&format!("--{what} is not a commit"), 64);
@@ -292,11 +287,14 @@ fn main() {
         log: PathBuf::from(log),
     };
     let out = merge(&mut plan, &mut runner);
+    // The commands that ran are in the log; `Real` keeps no call list, so the
+    // answer of a host names the empty list. The key is there because the
+    // usage above promises it.
     println!(
         "{}",
         json!({"ok": out.ok(), "sha": out.sha, "conflicts": out.conflicts,
         "settled": out.settled, "model": out.model, "pushed": out.pushed,
-        "why": out.why, "pr": pr, "issue": issue})
+        "why": out.why, "pr": pr, "issue": issue, "calls": Vec::<String>::new()})
     );
     if !out.ok() {
         std::process::exit(1);
