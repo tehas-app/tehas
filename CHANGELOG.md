@@ -13,6 +13,42 @@ empty one above it.
 
 ### Changes
 
+- The counts of cycles and containers can follow the host: `auto` for
+  `TEHAS_TICKET_CONCURRENCY` and for `TEHAS_SLICE_CONTAINERS`. A number keeps
+  working exactly as it did, so no instance changes unless it chooses to. With
+  `auto` the dispatcher works both counts out on every poll from what the poll
+  reads anyway: `tehas.slice`'s `MemoryMax` over `TEHAS_CONTAINER_MEMORY` (8g)
+  for the containers, and `nproc` over `TEHAS_CYCLE_CPUS` (4) for the cycles,
+  each capped by `TEHAS_CYCLE_CEILING` (16) for an endpoint that cannot serve
+  what a big host asks for. A VM given more CPUs or memory is used at the next
+  poll, and one that lost them holds new starts from the next poll: a running
+  cycle is never stopped. `tehas status` prints the count in force and what
+  bounded it (`slots     cycles auto: 6, cpu-bound (...)`) and the status
+  object carries the same as `room.slots`. The arithmetic is in the
+  dispatcher's Rust, in `console/dispatch/src/slots.rs` with its tests; a host
+  whose reading answers nothing is held to one cycle and two containers rather
+  than given the ceiling (#1041).
+- The millwright's feed, off by default: with `TEHAS_MILLWRIGHT_FEED=1` the
+  millwright's `tehas:ready` starts the first cycle of an issue an allowed
+  labeller wrote, its text unchanged since, at most
+  `TEHAS_MILLWRIGHT_MAX_FEEDS` (2) at once. The Rust dispatcher only. The
+  queue's page now asks GitHub for each issue's author and creation time.
+
+- A health file that could not read the failed units says so. When the
+  `systemctl --user --failed 'tehas-*'` read does not answer, `libexec/health`
+  leaves `--units` out and the console writes `checks.units` as `null` instead
+  of `[]`, so the file carries no units check rather than a passed one, and
+  raises no warning from a list it never read. An empty read is still `[]`
+  (#1055).
+
+### Adopter action
+
+None.
+
+## v0.17.0 (2026-10-29)
+
+### Changes
+
 - The mask that the console, its live file and the MCP server's logs share
   hides more: a provider key written as a literal `apiKey` or `backupApiKey`
   in `$HOME/.pi/agent/models.json`, where before it hid only the value of a
@@ -21,10 +57,39 @@ empty one above it.
   A missing, unreadable or malformed one adds nothing, and so does a value
   that names a variable, holds white space, is under 8 or over 512 characters,
   or is past the first 64 of the file (#986).
+- `TEHAS_MILLWRIGHT_LOGIN` takes a GitHub App's login, `<slug>[bot]`, as
+  `TEHAS_BOT_LOGIN` does. Before, the setting refused it with 78, and since an
+  invalid setting stops every command, the dispatcher stopped too. The
+  millwright's labels, comments, ticks and replies count whether GitHub names
+  the App `<slug>[bot]` (REST) or `<slug>` (GraphQL), and no other account
+  does. The approval record and the planning record name an App millwright
+  without `[bot]`. Loading the settings now also stops with 78 when the
+  millwright is `TEHAS_BOT_LOGIN`, in either form (#1051).
+- Four MCP tools to follow a factory without SSH (#1027). `factory_events`
+  gives the lines of `dispatch.log` and `refresh.log` after a cursor, masked,
+  each with a kind; the cursor follows a copy-and-truncate rotation and names
+  a log it lost in `gaps` (#1023). `factory_decisions` lists the dispatcher's
+  last start, skip, wait and drop decisions, from the last 1 MiB of
+  `dispatch.log` (#1024). `factory_park` says why an issue's last stopped run
+  of the last 30 days stopped: the park marker's fields and the runner's
+  result (#1025). `factory_sessions` and `factory_failures` name the sandbox
+  image of each run (`image`, `imageBuilt`), and `factory_failures` can split
+  a version pair by image (#1026).
+- A planning turn records the sandbox image it started in, through
+  `state/plan-<n>.json`, and the Rust cycle report passes the image's build
+  time to analytics as `libexec/cycle` does (#1026).
+- Health no longer says the last cycle failed while a cycle with no known
+  start is running (#1001).
+- An issue closed by a merged pull request is marked shipped even when its
+  close event names a commit (#1028).
+- Footers spell the version as `tehas`, not `TEHAS` (#1012).
+- The store's concurrency test and the flags clock test no longer fail on a
+  loaded host (#1022).
 
 ### Adopter action
 
-None.
+None. A factory whose `TEHAS_MILLWRIGHT_LOGIN` line was commented out because
+it held a `[bot]` login can have it back.
 
 ## v0.16.2 (2026-10-29)
 

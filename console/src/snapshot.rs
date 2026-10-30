@@ -37,13 +37,7 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
         .map_or(Value::Null, |h| h["checks"]["queue"].clone());
     let cycle = cycle(&live.join("running.json"));
     let console = console(live, &cycle, lines);
-    let reading_ok = serde_json::from_str::<Value>(reading).is_ok_and(|r| r.is_object());
-    let earlier_ok = serde_json::from_str::<Value>(earlier).is_ok_and(|r| r.is_object());
-    let host = if reading_ok && earlier_ok {
-        top::host_text(reading, earlier)
-    } else {
-        "null".to_string()
-    };
+    let host = top::host_text(reading, earlier).unwrap_or_else(|| "null".to_string());
     let mut snapshot = safe(json!({
         "generatedAt": time::iso(now),
         "factory": factory,
@@ -59,7 +53,11 @@ pub fn snapshot(live: &Path, lines: usize, max_age: i64, reading: &str, earlier:
     snapshot["reading"] = json!("\u{1}reading");
     snapshot.to_string().replacen(HOST, &host, 1).replacen(
         READING,
-        if reading_ok { reading.trim() } else { "null" },
+        if serde_json::from_str::<Value>(reading).is_ok_and(|r| r.is_object()) {
+            reading.trim()
+        } else {
+            "null"
+        },
         1,
     )
 }

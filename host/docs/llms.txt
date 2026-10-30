@@ -103,6 +103,7 @@ be ignored for a first install.
 - [A GitHub App for a factory]({{ $base }}/github-app.md): the identity the factory acts as on GitHub, made and installed
 - [Features]({{ $base }}/features.md): what exists and how far each part is proven
 - [The host]({{ $base }}/host.md): layout on the machine and the sandbox contract test
+- [Resize or restart the host]({{ $base }}/resize.md): changing a host VM's CPUs and memory, and restarting its hypervisor, without a drain: what a person does on the hypervisor, in libvirt
 - [Previews and the Protolab on the internet]({{ $base }}/edge.md): a preview of every pull request, and how the names were published
 - [Commands]({{ $base }}/tools.md): `tehas`, `tehasbot` and what each of their commands does
 - [The factory API]({{ $base }}/api.md): the commands a program drives a factory with, and their JSON
