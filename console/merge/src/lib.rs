@@ -45,9 +45,13 @@ pub trait Runner {
 
 /// A command the merge could not settle, in the words it refuses with: the
 /// rule's own sentence and, where the command said something, what it said.
+/// A refusal also says whether a session of `pi` had been asked by then, so
+/// the answer the dispatcher reads cannot lose that fact on a path that
+/// carries no outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Why {
     pub why: String,
+    pub asked_model: bool,
 }
 
 /// What one easy merge did, in the words its caller reads: the pull request,
@@ -77,7 +81,17 @@ impl Report {
 
 impl Why {
     fn new(why: impl Into<String>) -> Why {
-        Why { why: why.into() }
+        Why {
+            why: why.into(),
+            asked_model: false,
+        }
+    }
+
+    /// A refusal raised after the session was asked: the merge still says a
+    /// model was spent on the pull request.
+    fn asked(mut self) -> Why {
+        self.asked_model = true;
+        self
     }
 
     /// The command's own words, cut to one line and to 300 characters: a
@@ -85,7 +99,7 @@ impl Why {
     fn said(mut self, d: Done) -> Why {
         let words = first_line(&d.err).or_else(|| first_line(&d.out));
         if let Some(w) = words.filter(|w| !w.is_empty()) {
-            self.why = format!("{}: {}", self.why, trim(&w));
+            self.why = format!("{}: {}", self.why, cut(&w));
         }
         self
     }
@@ -98,7 +112,8 @@ fn first_line(s: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn trim(s: &str) -> String {
+/// A command's words cut to 300 characters: what a refusal and the log hold.
+fn cut(s: &str) -> String {
     s.chars().take(300).collect()
 }
 
@@ -155,6 +170,19 @@ fn is_name(path: &str, name: &str) -> bool {
     path.rsplit('/').next().unwrap_or(path) == name
 }
 
+/// The same commit as git would name it, or `None` for anything that is not
+/// 40 hex digits. Case is the only thing this settles: git's `rev-parse`
+/// answers in lower case and a person or a tool may spell the sha any other
+/// way, so the spelling the command accepts and the spelling the merge
+/// compares with are one set, decided here rather than a file apart.
+pub fn normalise_commit(sha: &str) -> Option<String> {
+    let sha = sha.trim();
+    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(sha.to_ascii_lowercase())
+}
+
 /// The merge's verdict, and what it did to reach it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
@@ -192,7 +220,7 @@ impl Outcome {
             .or_else(|| first_line(&d.out))
             .filter(|w| !w.is_empty())
         {
-            self.why = format!("{}: {}", self.why, trim(&w));
+            self.why = format!("{}: {}", self.why, cut(&w));
         }
         self
     }
@@ -249,13 +277,6 @@ impl Plan<'_> {
     }
 }
 
-/// The whole of one easy merge. It writes nothing outside `plan.tree`, and
-/// pushes only its own commit to `plan.branch_ref`: never a rebase, never a
-/// force, never another pull request.
-pub fn merge(plan: &mut Plan, r: &mut dyn Runner) -> Outcome {
-    report(plan, r).outcome
-}
-
 /// The calls a runner holds, named by the last part of the program: what a
 /// host's log keeps, and what a case reads to say `no model turn`.
 pub fn short_calls(calls: &[String]) -> Vec<String> {
@@ -272,14 +293,9 @@ pub fn short_calls(calls: &[String]) -> Vec<String> {
 pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
     let pr = plan.pr;
     let issue = plan.issue;
-    // Whether a session of `pi` ran, held here as well as in the outcome so
-    // that a refusal which carries no outcome still says a model was spent.
-    // `merge_and_settle` answers it before it asks the session, so a turn that
-    // failed or left a marker behind was asked all the same. It is never read
-    // from the calls the runner holds: on a host `Real` records none, and the
-    // answer there would always be false.
-    let mut asked_model = false;
-    let outcome = match merge_and_settle(plan, r, &mut asked_model) {
+    // A refusal carries whether a session was asked, so the answer never
+    // comes from the calls the runner holds: on a host `Real` records none.
+    let outcome = match merge_and_settle(plan, r) {
         Ok(out) if out.why.is_empty() => out,
         Ok(out) => {
             abandon(plan, r);
@@ -289,7 +305,7 @@ pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
             abandon(plan, r);
             let mut out = Outcome::started(Vec::new());
             out.why = why.why;
-            out.model = asked_model;
+            out.model = why.asked_model;
             out
         }
     };
@@ -309,20 +325,28 @@ fn abandon(plan: &mut Plan, r: &mut dyn Runner) {
     let _ = plan.git_of(r, &["merge", "--abort"]);
 }
 
-fn merge_and_settle(
-    plan: &mut Plan,
-    r: &mut dyn Runner,
-    asked_model: &mut bool,
-) -> Result<Outcome, Why> {
+fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why> {
+    // Past the point where a session is asked, every refusal must still say a
+    // model was spent, so each read or write below carries its error through
+    // `Why::asked`. One of them missing would answer `model: false` for a
+    // merge that did spend a session, which is what the dispatcher falls back
+    // on a full cycle for.
+    //
     // The head the pull request was at when this merge was asked for: the
     // point the outsider check measures from. A tree at any other commit is
-    // not the pull request this decision was made about. git names a commit in
-    // lower case and a caller may spell it any other way, so the two are
-    // compared as the caseless hex digits git's answer holds.
+    // not the pull request this decision was made about. git's answer is read
+    // as a commit and compared in full, so an answer that holds 40 hex digits
+    // and anything after them is refused rather than matched as a prefix.
     let now = plan
         .git_of(r, &["rev-parse", "HEAD"])
         .let_say("the tree's commit could not be read")?;
-    if !trim(now.trim()).eq_ignore_ascii_case(&trim(plan.head)) {
+    let now = match normalise_commit(&now) {
+        Some(sha) => sha,
+        None => {
+            return Err(Why::new("the tree's commit is not a commit"));
+        }
+    };
+    if now != plan.head {
         return Err(Why::new(format!(
             "the tree is not the pull request's head {}",
             plan.head
@@ -379,27 +403,32 @@ fn merge_and_settle(
                 left.len()
             )));
         }
-        // Both answers are set before the session is asked: a turn that did
-        // not finish is still one the merge asked for, so the dispatcher knows
-        // a model was spent before it falls back to a full cycle.
+        // Answered before the session is asked: the turn below may fail or
+        // leave a marker behind and the answer still says a model was spent.
         out.model = true;
-        *asked_model = true;
-        ask_model(plan, r, &left)?;
+        ask_model(plan, r, &left).map_err(Why::asked)?;
     }
     // The whole tree is read for a marker, not just the files that conflicted:
     // a marker written anywhere by a rule or by the model is one the merge
     // must not push, and the outsider check below has no reason to excuse one.
-    let marked = markers(r, &plan.tree)?;
+    let marked = markers(r, &plan.tree).map_err(Why::asked)?;
     if !marked.is_empty() {
         out.why = format!("conflict markers are left in {}", marked.join(", "));
         return Ok(out);
     }
-    commit(plan, r)?;
+    commit(plan, r).map_err(Why::asked)?;
     let sha = plan
         .git_of(r, &["rev-parse", "HEAD"])
-        .let_say("the merge commit could not be read")?
-        .trim()
-        .to_string();
+        .let_say("the merge commit could not be read")?;
+    // The commit git names for the commit it has just written, read the same
+    // way as the head above: what the merge pushes is a commit id and nothing
+    // else.
+    let sha = match normalise_commit(&sha) {
+        Some(sha) => sha,
+        None => {
+            return Err(Why::asked(Why::new("the merge commit is not a commit")));
+        }
+    };
     // The merge commit is two parents; what it changed is what it wrote over
     // the pull request's head, which is exactly the files that conflicted plus
     // the lockfiles written again. Anything else it touched is a file nobody
@@ -407,7 +436,8 @@ fn merge_and_settle(
     // one. `HEAD^1` is the pull request's head, `HEAD^2` the branch's commit.
     let changed = plan
         .git_of(r, &["diff", "--name-only", &format!("{sha}^1"), &sha])
-        .let_say("what the merge changed could not be read")?;
+        .let_say("what the merge changed could not be read")
+        .map_err(Why::asked)?;
     let changed: Vec<String> = changed.lines().map(|l| l.trim().to_string()).collect();
     let outsiders: Vec<String> = changed
         .iter()
