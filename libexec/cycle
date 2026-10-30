@@ -199,7 +199,7 @@
 # TEHAS_ANALYTICS.
 # From the environment: TEHAS_CYCLE_FROM=unit, which tehas-cycle@.service sets.
 # tehas work is run with TEHAS_CYCLE_ATTEMPT, the attempt of this start.
-# For tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD,
+# For tests: TEHAS_WORK_CMD, TEHAS_STATUS_CMD, TEHAS_CONSOLE_CMD,
 # TEHAS_CYCLE_RETRY_WAIT (seconds between two tries of a GitHub call [5]) and
 # TEHAS_CYCLE_STOP_GH_WAIT (seconds a GitHub call may take after a stop [20]).
 set -uo pipefail
@@ -247,6 +247,7 @@ repo=$TEHAS_REPO
 workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+console=${TEHAS_CONSOLE_CMD:-$here/console}
 cycles=$TEHAS_HOME/state/cycles
 
 mkdir -p "$cycles" "$TEHAS_HOME/logs"
@@ -420,9 +421,7 @@ post_question() {
 # handed off with its pull request open for a human to merge, and with it the
 # one tehas work moved aside when this issue was retried. A cycle stopped by a
 # merge or a close someone else made is not tidied: its work may exist nowhere
-# else. Only a directory under one that tehas work marked is removed, as tehas
-# work does. The cycle's own state directory is not named here: it went before
-# this, whether or not the workspace was kept.
+# else. Only a directory under one that tehas work marked is removed.
 tidy() {
   if [ -f "${workdir%/*}/.tehas-workspaces" ]; then
     rm -rf "$workdir" "$workdir.before-retry" ||
@@ -1423,6 +1422,8 @@ tehas_analytics event "$issue" ended
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
 [ -z "$shadow" ] || timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
+# Nothing builds in a kept workspace again, and this cycle still holds the lock.
+timeout -k 5 300 "$console" clean ended "$workdir" "$TEHAS_CLEAN_DIRS" "$TEHAS_HOME/logs/clean.log" "${TEHAS_SCRATCH_DIR:+$TEHAS_SCRATCH_DIR/${workdir##*/}}" >/dev/null 2>&1 || log "WARN: the build output of $workdir was not removed"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 # The slot is free now: fill it without waiting for the timer. systemd takes a
