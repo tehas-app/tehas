@@ -417,6 +417,12 @@ status_file=$TEHAS_HOME/state/cycles/$issue.status
 # stream: its own exit status, one line of plain digits. Read and removed by
 # tehasbot cycle.
 nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
+# The file the cycle clock keeps the mark of this start in.
+clock_mark=$TEHAS_HOME/state/cycles/$issue.clock
+# The cycle's clock, in the two words this command asks it: the program beside
+# this one as the console is, and answered by the stub of a test at the same
+# path. Bounded like the loop's other calls.
+clock() { timeout -k 5 10 "$here/tehas-cycle" clock "$@" 2>/dev/null; }
 stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 grace=${TEHAS_WORK_GRACE:-300}
@@ -897,6 +903,10 @@ docker run --rm --init --name "$name" \
 pid=$!
 
 started=$EPOCHSECONDS
+# The two bounds of the watch loop are counted on tehas-cycle's clock, not the
+# wall clock, so a VM save and restore stops no cycle. `started` stays an epoch
+# time for the seconds said to people and for the container's own deadline.
+clock mark "$clock_mark" || echo "tehas work: no cycle clock for #$issue: its limits wait on the clock"
 echo "tehas work: issue $issue started, log $log"
 
 # For the dashboard: a readable console of this cycle, and its heartbeat on the
@@ -964,38 +974,29 @@ oom_look() {
   return 0
 }
 
-# The newest change to any of the cycle's logs, in whole seconds since the epoch.
+# The newest change to any of the cycle's logs, in whole seconds of mtime.
 # Transcripts of an earlier cycle are older than this one's start.
 moved() {
   find "$log" "$runs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1
 }
 
-status=running
-stalled=0
-timed=0
-last=$started
-# Set when this command stops the container itself, and when the container
-# was killed while the cycle was running.
-stopped=0
-killed=0
+status=running stalled=0 timed=0 last=0 stopped=0 killed=0
 while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
   sleep 10
   [ "$interrupted" = 0 ] || break
   oom_look
   now_file true running
-  # The runner stops itself at its --timeout. This is for one that does not.
-  if [ $((EPOCHSECONDS - started)) -ge $((limit + grace)) ]; then
-    echo "tehas work: time limit of ${limit}s passed"
-    timed=1
-    break
-  fi
   m=$(moved)
-  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$m
-  if [ $((EPOCHSECONDS - last)) -ge "$stall" ]; then
-    echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"
-    stalled=1
-    break
-  fi
+  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$last" ] && last=$(clock now)
+  # The two bounds of the loop on the cycle clock: a runner that does not stop
+  # itself at its --timeout, and a cycle whose logs stood still for the stall.
+  # A clock that says nothing, says `ok` or says `unknown`, stops no cycle: only
+  # the two words of the clock itself end a cycle here.
+  verdict=$(clock check "$clock_mark" --limit $((limit + grace)) --stall "$stall" --since "$last")
+  case "$verdict" in
+    over) echo "tehas work: time limit of ${limit}s passed"; timed=1; break ;;
+    stalled) echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"; stalled=1; break ;;
+  esac
 done
 
 # A stop that came while the container was still being made found nothing to

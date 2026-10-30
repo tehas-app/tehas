@@ -26,6 +26,36 @@ ln -s "$T_ROOT/lib" "$tree/lib"
 ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
 t_stub console
 mv "$T/bin/console" "$tree/libexec/console"
+# The cycle clock of tehas work, in $tree/libexec/tehas-cycle. By default it
+# keeps the seconds tehas work's own start was marked at and counts on with
+# the wall clock, so a case that says nothing about the clock sees a cycle
+# measured as it was before the cycle clock: `clock now` gives the seconds
+# since the mark and `clock check` decides from them. A case that means the
+# cycle clock itself writes $T/clock.now, one reading per call of `clock now`
+# in order, and $T/clock.check, the word `clock check` answers with.
+t_stub tehas-cycle 'case "$1 $2" in
+  "clock mark") date +%s >"$3"; date +%s >"$T/clock.start" ;;
+  "clock now")
+    if [ -e "$T/clock.now" ]; then
+      n=$(cat "$T/clock.n" 2>/dev/null || echo 0); n=$((n + 1))
+      echo "$n" >"$T/clock.n"; sed -n "${n}p" "$T/clock.now"
+    else
+      date +%s
+    fi ;;
+  "clock check"*)
+    if [ -e "$T/clock.check" ]; then cat "$T/clock.check"; exit 0; fi
+    limit=0 stall=0 since=0 prev=""
+    for a in "$@"; do
+      case $prev in --limit) limit=$a ;; --stall) stall=$a ;; --since) since=$a ;; esac
+      prev=$a
+    done
+    now=$(date +%s); start=$(cat "$T/clock.start" 2>/dev/null || echo "$now")
+    [ $((now - start)) -le "$limit" ] || { echo over; exit 2; }
+    [ $((now - since)) -lt "$stall" ] || { echo stalled; exit 1; }
+    echo ok ;;
+esac
+exit 0'
+mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at
