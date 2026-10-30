@@ -64,6 +64,24 @@ t_stub curl '[ ! -e "${CURL_RC:-}" ] && exit "${CURL_RC:-0}"; exit 0'
 # them: none until a case writes $T/failed-units, and the read fails with
 # SYSTEMCTL_RC when a case names one.
 t_stub systemctl 'cat "$T/failed-units" 2>/dev/null; exit "${SYSTEMCTL_RC:-0}"'
+# The console of the host, where status looks for it beside itself, wrapped so
+# every call the command makes is written down: the labels of the shipped issues
+# are one call of one verb, and a case counts them.
+cp "$T_CONSOLE" "$shim/libexec/console-real"
+t_stub console '[ -e "$T/console-calls" ] || : >"$T/console-calls"
+printf "%s\n" "$*" >>"$T/console-calls"
+exec "$shim/libexec/console-real" "$@"'
+# The console of the host, where status looks for it beside itself, wrapped so
+# every call the command makes is written down: the labels of the shipped issues
+# are one call of one verb, and a case counts them.
+cp "$shim/libexec/console" "$T/console-real"
+mv "$shim/libexec/console" "$shim/libexec/console-real"
+cat >"$shim/libexec/console" <<'STUB'
+#!/usr/bin/env bash
+{ [ -e "$T/console-calls" ] || :; printf '%s\n' "$*" >>"$T/console-calls"; }
+exec "$T/console-real" "$@"
+STUB
+chmod +x "$shim/libexec/console"
 closed() { # number closedAt closer [label]: a closed issue as the search for shipped work returns it
   local label=""
   [ -z "${4:-}" ] || label="{\"name\":\"$4\"}"
@@ -97,6 +115,7 @@ issue() { # number label state
 reset() {
   rm -rf "$T"/calls/* "$T/gh-down" "$T/all-down" "$T/shipped-down" "$T/count-down" "$T/control-down" "$T/allhands" "$T/epics-down" "$live" \
     "$T/home/tehas/state" "$T/home/tehas/current" "$T/home/tehas/versions" "$T/home/tehas/versions.env" "$T/rel.json"
+  rm -f "$T/console-calls"
   echo "[]" >"$T/all.json"
   epics_page
   shipped
@@ -422,6 +441,24 @@ t_eq "$(t_calls gh | grep -c 'issue edit')" 1
 t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:shipped"
 t_lacks "$(t_calls gh)" "issue edit 20 --repo"
 t_lacks "$(t_calls gh)" "issue edit 22 --repo"
+
+# The one call of the console: of three shipped issues the poll edits the two
+# that lack the label and the one whose labels are no list, and it asks for the
+# labels once and not once per issue (issue #1083).
+t_case "the issues to label come from one console call of the list that lacks the label"
+reset
+shipped "$(closed 20 2026-01-02T00:00:00Z '{"merged":true}' tehas:shipped)" \
+  "$(closed 21 2026-01-03T00:00:00Z '{"merged":true}')" \
+  "$(no_labels 22 2026-01-04T00:00:00Z '{"merged":true}')"
+t_run "$status"
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.completed[].number] | sort' "$live/status.json")" "[20,21,22]"
+t_eq "$(t_calls gh | grep -c 'issue edit')" 2
+t_contains "$(t_calls gh)" "issue edit 21 --repo acme/widget --add-label tehas:shipped"
+t_contains "$(t_calls gh)" "issue edit 22 --repo acme/widget --add-label tehas:shipped"
+t_lacks "$(t_calls gh)" "issue edit 20 --repo"
+t_eq "$(grep -c 'shipped list --numbers --lacking tehas:shipped' "$T/console-calls")" 1
+t_eq "$(grep -c ' shipped has ' "$T/console-calls")" 0
 
 # A label the read could not read is a missing label: the edit is sent, as it
 # was before the query read the labels at all.
