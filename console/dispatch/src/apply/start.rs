@@ -561,6 +561,9 @@ impl Writer {
         let given_at = text(a, "at").to_string();
         let mut input = Map::new();
         input.insert("links".into(), a.get("links").cloned().unwrap_or(json!([])));
+        if let Some(d) = a.get("driver") {
+            input.insert("driver".into(), d.clone());
+        }
         let mut retry = Value::Null;
         let mut from: Vec<Value> = Vec::new();
         // The comment policy of this start, derived once: the host reads
