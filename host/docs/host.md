@@ -163,6 +163,7 @@ commands a person does.
 | The model gateway's `baseUrl` and key, when it uses one | `baseUrl` of the provider in `models.json`, with the token as `$TEHAS_MODEL_KEY_<NAME>` in `~/.config/tehas/env`. See [A backup model endpoint](#a-backup-model-endpoint) |
 | `TEHAS_ENERGY_URL`, when the model is behind a gateway | The energy sampler asks `<baseUrl>/v1/cluster` with the model's token. A gateway that does not pass that path through needs the cluster URL named here, asked with no token. See [`tehasbot energy`](/tools#tehasbot-energy) |
 | Disk for the sandbox image                     | What `docker image inspect --format '{{.Size}}' tehas/pi-rukas:uid$(id -u)` reports for the host's image, with room above that for the base a build pulls and the layers it writes, and room for one image of a rollback. Before the first build the image is not there to be measured, and its size is upstream's base plus these steps: [Bootstrap](/bootstrap#what-the-machine-needs). A second instance user of one host builds its own image for its own uid and shares the layers of the first: [What two instance users of one host share](#what-two-instance-users-of-one-host-share) |
+| Room to grow into, when the machine is a VM     | The host runs as one virtual machine on a hypervisor, so its CPUs and memory are set at its maximum once, with room above what the factory needs today: `<vcpu current='N'>MAX</vcpu>` and memory as a `virtio-mem` device. Everything under the maximum then changes while the machine runs, and a restart of the hypervisor saves the VM with its cycles in it. No tehas command takes part in any of it. See [Resize or restart the host](/resize) |
 
 ## Installing a factory
 
@@ -1316,6 +1317,11 @@ Another limit for one host goes in
 `/etc/systemd/system/tehas.slice.d/override.conf`, by root, followed by
 `systemctl daemon-reload`. tehas never writes that file.
 
+The host's own size follows the machine: `MemoryMax` is a percentage, so a
+virtual machine given more memory by its hypervisor needs no change here, and
+the next container reads the new ceiling for itself. That is on
+[Resize or restart the host](/resize).
+
 ## Sandbox image
 
 `tehas/pi-rukas:uid<uid>`: the upstream pi-rukas image plus the in-container
@@ -1678,6 +1684,13 @@ running until they are enabled. The one exception is a host that runs the
 Protolab's server under its old compose project, `tehas-protolab`: an update
 takes that container down and starts the edge router in its place.
 [Previews](/edge) has the steps.
+
+The same is true of a restart of the machine itself, which is nobody's job but
+the operator's: after a hypervisor restart the timers come back with the user's
+session where lingering is on, and the two containers have to be brought up by
+hand with the `docker compose` lines above. Where the machine is a virtual
+machine, `libvirt-guests` is what brings the host itself back with its cycles
+still running: [Resize or restart the host](/resize).
 
 Search engines are told to stay out: every page carries `noindex` and
 `/robots.txt` disallows everything. `TEHAS_INDEXING=1` in `instance.env` turns
