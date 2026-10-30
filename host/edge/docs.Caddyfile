@@ -82,6 +82,12 @@
             # The instance's theme (TEHAS_THEME): every page asks for
             # /fun/theme.css and gets fun/theme-<name>.css.
             rewrite /theme.css /theme-{$TEHAS_THEME:pixel}.css
+            # The animated factory and its share card are the pixel theme's.
+            # Every other theme shows the logo, which is the favicon.
+            @logo expression `path('/factory.svg') && "{$TEHAS_THEME:pixel}" != "pixel"`
+            rewrite @logo /favicon.svg
+            @share expression `path('/share.png') && "{$TEHAS_THEME:pixel}" != "pixel"`
+            rewrite @share /share-logo.png
             # install.sh keeps the previous copy of a replaced file beside it.
             @backup path *.prev
             respond @backup 404
