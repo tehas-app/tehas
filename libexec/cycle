@@ -1422,8 +1422,8 @@ tehas_analytics event "$issue" ended
 # by now, and a record that cannot be written is the loop's loss only.
 tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
 [ -z "$shadow" ] || timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
-# No cycle builds in a kept workspace again. This cycle still holds the lock.
-timeout -k 5 300 "$console" clean ended "$workdir" "$TEHAS_CLEAN_DIRS" "$TEHAS_HOME/logs/clean.log" >/dev/null 2>&1 || log "WARN: the build output of $workdir was not removed"
+# Nothing builds in a kept workspace again, and this cycle still holds the lock.
+timeout -k 5 300 "$console" clean ended "$workdir" "$TEHAS_CLEAN_DIRS" "$TEHAS_HOME/logs/clean.log" "${TEHAS_SCRATCH_DIR:+$TEHAS_SCRATCH_DIR/${workdir##*/}}" >/dev/null 2>&1 || log "WARN: the build output of $workdir was not removed"
 # The next poll refreshes the status. A stopped cycle leaves it to that poll.
 [ "$signalled" = 1 ] || "$status_cmd"
 # The slot is free now: fill it without waiting for the timer. systemd takes a

@@ -254,6 +254,9 @@ _tehas_valid() {
     TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
       [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
       ;;
+    TEHAS_SCRATCH_DIR)
+      [[ $v =~ ^(/[A-Za-z0-9._-]+)+$ && $v != *..* ]] || { echo "expected an absolute path such as /mnt/scratch"; return 1; }
+      ;;
     TEHAS_CLEAN_DIRS)
       # Names, not paths: the cleaner matches them with find -name, so the pattern
       # below admits no slash, no bare dot and none of the dot-names a workspace
@@ -635,7 +638,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_SCRATCH_DIR; do
     [ -n "${!v:-}" ] || continue
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
