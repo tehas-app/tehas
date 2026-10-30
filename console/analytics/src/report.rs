@@ -265,9 +265,9 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
     )?;
 
     let n_shipped = shipped.len();
-    let per_shipped = |total: i64| {
-        (n_shipped > 0).then(|| json!((total as f64 / n_shipped as f64).round() as i64))
-    };
+    let per =
+        |total: i64, n: usize| (n > 0).then(|| json!((total as f64 / n as f64).round() as i64));
+    let per_shipped = |total: i64| per(total, n_shipped);
 
     let mut report = Map::new();
     report.insert("report".into(), json!(REPORT_VERSION));
@@ -337,6 +337,7 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
         .iter()
         .fold((0, 0, 0), |a, t| (a.0 + t.0, a.1 + t.1, a.2 + t.2));
     let total_tokens = input + output + cache_read;
+    let usage_shipped = shipped.iter().filter(|s| s.runs == 0 || s.usage).count();
     report.insert(
         "tokens".into(),
         obj(vec![
@@ -345,7 +346,8 @@ pub fn build(conn: &Connection, to: i64) -> rusqlite::Result<Value> {
             ("input", Some(json!(input))),
             ("output", Some(json!(output))),
             ("cacheRead", Some(json!(cache_read))),
-            ("perShipped", per_shipped(total_tokens)),
+            ("shipped", Some(json!(usage_shipped))),
+            ("perShipped", per(total_tokens, usage_shipped)),
         ]),
     );
 
@@ -821,18 +823,25 @@ struct Shipped {
     merged: i64,
     lead: Option<i64>,
     runs: i64,
+    // A run behind the merge reported usage.
+    usage: bool,
 }
 
 // The issues v_lead counts as shipped whose merge is in the window.
 fn shipped(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Shipped>> {
     let mut q = conn.prepare(
-        "SELECT merged, lead_seconds, runs FROM v_lead WHERE merged >= ?1 AND merged <= ?2",
+        "SELECT merged, lead_seconds, runs, EXISTS (
+           SELECT 1 FROM runs r WHERE r.issue = v_lead.issue AND r.kind = 'work'
+             AND r.started <= v_lead.merged
+             AND (r.input IS NOT NULL OR r.output IS NOT NULL OR r.cache_read IS NOT NULL))
+         FROM v_lead WHERE merged >= ?1 AND merged <= ?2",
     )?;
     let rows = q.query_map(params![from, to], |r| {
         Ok(Shipped {
             merged: r.get(0)?,
             lead: r.get(1)?,
             runs: r.get(2)?,
+            usage: r.get(3)?,
         })
     })?;
     rows.collect()

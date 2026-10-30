@@ -3464,7 +3464,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
                  "share": 0.467},
         "machineTime": {"n": 6, "seconds": 4800, "perShipped": 1600},
         "tokens": {"n": 4, "total": 6650, "input": 6100, "output": 500, "cacheRead": 50,
-                   "perShipped": 2217},
+                   "shipped": 3, "perShipped": 2217},
         // 1500 seconds of 734400 since the first sample: 600 + 600 + 300.
         "availability": {"n": 5, "seconds": 734_400, "share": 0.002},
         // 100 W for 600 s, 100 W for 600 s, 200 W for 600 s, 100 W for 300 s.
@@ -3673,6 +3673,27 @@ fn a_run_handed_off_to_a_person_counts_as_parked_for_its_driver() {
     let got = crate::report::build(&conn, day0 + DAY).unwrap();
     assert_eq!(got["drivers"]["lean"]["parkedShare"], 0.5);
     assert_eq!(got["handoffRate"]["share"], 0.5);
+}
+
+#[test]
+fn a_shipped_issue_whose_runs_reported_no_usage_is_no_zero_in_tokens_per_shipped() {
+    let home = scratch("report-per-shipped");
+    let day0 = 1_792_022_400;
+    let (conn, _) = db::open(&db::path(&home), day0).unwrap();
+    let tokens =
+        |conn: &Connection| crate::report::build(conn, day0 + DAY).unwrap()["tokens"].clone();
+    driver_run(&conn, "a", 1, day0, "merged", Some(1_000_000), None);
+    driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
+    db::event(&conn, 2, "merged", day0 + 3600).unwrap();
+    assert_eq!(tokens(&conn)["perShipped"], 1_000_000);
+    assert_eq!(tokens(&conn)["shipped"], 1);
+    // One run with a figure is enough for the issue to count.
+    driver_run(&conn, "c", 2, day0 + 1, "pr", Some(0), Some("lean"));
+    assert_eq!(tokens(&conn)["perShipped"], 500_000);
+    assert_eq!(tokens(&conn)["shipped"], 2);
+    // No run here at all: no driver left a gap, so the issue counts as it did.
+    db::event(&conn, 3, "merged", day0 + 3600).unwrap();
+    assert_eq!(tokens(&conn)["shipped"], 3);
 }
 
 #[test]
