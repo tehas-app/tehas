@@ -182,8 +182,16 @@ t_live "$sample" "$(jq .last.issue "$T_ROOT/preview/live/running.json")" false \
 jq '.generatedAt = (now | todate)' "$T_ROOT/preview/live/status.json" >"$sample/live/status.json"
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_health || t_bad "no console: $t_console_why"
+# The wrapper loads the settings, as its siblings do, so the case gives it the
+# instance a host has: the minimal one, whose budget is the default the sample
+# health file carries.
+T_ENV=(TEHAS_INSTANCE_DIR="$T/instance")
+t_instance "${T_MINIMAL[@]}"
+# A systemd with no failed unit, so the run says nothing on a machine with none.
+t_stub systemctl 'exit 0'
 t_run "TEHAS_HOME='$sample' '$T_HEALTH'; echo rc=\$?"
 t_eq "$t_out" "rc=0"
+T_ENV=()
 shape='[paths | map(tostring) | join(".")] | sort | join(" ")'
 t_eq "$(jq -r "$shape" "$T_ROOT/preview/live/health.json")" "$(jq -r "$shape" "$sample/live/health.json")"
 t_eq "$(jq -c '[.status, .checks.queue.inLine, .checks.queue.review, .checks.cycle.status]' "$T_ROOT/preview/live/health.json")" \

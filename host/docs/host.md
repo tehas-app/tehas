@@ -128,7 +128,9 @@ an unknown is never a reason to take an image away. Volumes are a person's call.
 
 The third step is the host's scratch: old files under `~/tehas/tmp/dl`, where
 `bootstrap.sh` keeps what it downloads, and under `~/tehas/tmp/node-compile-cache`,
-old `~/tehas/tmp/analytics-facts.*` files a killed analytics call left, old
+old `~/tehas/tmp/analytics-facts.*` files a killed analytics call left, the
+`~/tehas/tmp/health.*` report a health run killed by the poll's bound left
+unpublished, old
 `~/tehas/tmp/tehas-test.*` directories a run left behind, and the copy of the
 sandbox recipe - `~/tehas/sandbox/sandbox-uid.Dockerfile`, or its
 `sandbox-uid.Dockerfile.XXXXXX` temporary - of that age a build killed before its

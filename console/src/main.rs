@@ -37,7 +37,7 @@
 //! The snapshot behind tehas top, its host section and the frame drawn from
 //! it, see src/top.rs, src/snapshot.rs and src/frame.rs.
 //!
-//!   console health report ...
+//!   console health run <home> [--budget <spec>] | report ...
 //!
 //! The health file tehasbot health writes, see src/health.rs.
 //!

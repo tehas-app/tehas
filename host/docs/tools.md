@@ -123,7 +123,10 @@ in the platform repository has every one with a comment.
 | `TEHAS_SIZE_MAX_FILES`          | unset                                    | Optional. The count of files an issue may name before the dispatcher holds it instead of starting it: see [Limits that hold work back](/operating#limits-that-hold-work-back). Unset, no issue is held for its size. A whole number of at least 1. The `sizes` figures of [tehas analytics](/analytics#size) say where to set it |
 | `TEHAS_SIZE_MAX_BYTES`          | `131072`                                 | Bytes of an issue body `tehas work` measures when it records the size of an approved start in `state/sizes.jsonl`. The measure's pass is not free and a body may be a paste of anything, so a body past the bound is measured from its front. A whole number of at least 1 |
 | `TEHAS_SIZE_MAX_LINES`          | `1000`                                   | Lines of an issue body the same measure reads. The pass costs more the more lines it holds, whatever their bytes, so the bound on bytes alone leaves a body of many short lines unbounded and this one leaves a body of one huge line unbounded: a start needs both. A whole number of at least 1 |
-| `TEHAS_POLL_BUDGET`             | `cpu=5,wall=30,writes=0`                 | The cost of one poll that started nothing: the medians of the idle polls of the last hour over it make `tehasbot health` warn (`checks.poll_cost`). `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part left out, each figure a whole number of at most 9 digits with no leading 0, else every command stops with 78. `tehasbot health` gives the value to `store poll-idle --budget` as it stands, so the rule is the store's own: what it would refuse stops the load instead of leaving the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
+| `TEHAS_POLL_BUDGET`             | `cpu=5,wall=30,writes=0`                 | The cost of one poll that started nothing: the medians of the idle polls of the last hour over it make `tehasbot health` warn (`checks.poll_cost`). `cpu=<seconds>,wall=<seconds>,writes=<count>`, any part left out, each figure a whole number of at most 9 digits with no leading 0, else every command stops with 78. `tehasbot health` loads the settings and gives the value to the console with
+`--budget`, which gives it to `store poll-idle --budget` as it stands, so the
+rule is the store's own: what it would refuse stops the load instead of leaving
+the check out in silence (see [What a poll costs](/operating#what-a-poll-costs)) |
 | `TEHAS_PLAN_MAX_TURNS`          | `20`                                     | Turns a planning session may take before it is ended            |
 | `TEHAS_PLAN_TIMEOUT`            | `7200`                                   | Seconds before one planning turn is given up. At most 7200, 2 hours: the unit of a turn runs to that limit plus a quarter of an hour (see [the host manual](/host#time-limits)) |
 | `PI_ENSEMBLE_HOST_ALIASES`      | empty                                    | `name:address` pairs the sandbox must resolve, comma separated  |
@@ -2676,10 +2679,15 @@ bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
 `WARN: the health file could not be written`. The docs server
 serves the file at `/health` and `/healthz` as `application/health+json`.
-`tehas status` prints the same file for a person. The report is built by the
-console beside the command (`console health report`, `console/src/health.rs`);
-the command keeps the calls of the state store, the `systemctl --user --failed`
-call and the publish.
+`tehas status` prints the same file for a person. The whole run is the console
+beside the command (`console health run`, `console/src/health.rs`): it makes
+the five calls of the state store, the `systemctl --user --failed` read and the
+publish itself. `libexec/health` is the wrapper of that one command: it loads
+the settings, so the budget it passes with `--budget` is the instance's and the
+load's 78 still fires on a malformed one, and it says so and exits 78 when no
+console stands beside it. The console reads no setting name of the host.
+`console health report`
+builds the report alone from answers given as arguments, and writes nothing.
 
 `checks.pause` names the switches: `{flag: {at, reason}, label, lifted}`, with
 `flag` null when no flag is set, `label` whether `tehas:pause` is on the control
@@ -2702,7 +2710,13 @@ first of them, or the cycle that finished last when none is running.
 in flight: a session the state store has running (`plan-show --open`) whose
 lock (`state/plan-<issue>.json.lock`) its unit holds. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
-when it is not installed or cannot be used.
+when it is not installed or cannot be used. The publish of the report is tried
+three times while the store is busy, within 30 s of its own, so that a store
+that is slow rather than refusing still leaves a file before the poll's bound
+cuts the run off. A check whose read did not answer - the units, the backup or
+the idle polls - is left out of `checks` and its own `WARN:` line says so, so a
+home that passes with a check missing is a home whose store or systemd did not
+answer.
 
 `fail` is about the cycle that finished most recently. It lasts until a cycle
 starts after that one ended. A cycle that was already running when the other
@@ -3253,7 +3267,8 @@ starting cycles:
    again too. The next sandbox build is slower after a prune. No image and no
    volume is removed.
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
-   `~/tehas/tmp/node-compile-cache`, `~/tehas/tmp/analytics-facts.*` files, and
+   `~/tehas/tmp/node-compile-cache`, `~/tehas/tmp/analytics-facts.*` and
+   `~/tehas/tmp/health.*` files, and
    `~/tehas/tmp/tehas-test.*` directories, of that age. Nothing else under `~/tehas`, and nothing outside it: not
    `~/tehas/dev`, so nothing under a manual session's `<name>.state` is walked.
 4. **Old sandbox images.** The dated tags of the sandbox image whose image was

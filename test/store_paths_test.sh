@@ -159,7 +159,7 @@ carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
   'lib/planning.sh console/src/health.rs' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'install.sh lib/planning.sh libexec/dispatch libexec/health console/src/health.rs' \
+  'install.sh lib/planning.sh libexec/dispatch console/src/health.rs' \
   "the lock a planning turn holds while it runs; install.sh moves no .keep while it is held"
 carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
   "lib/planning.sh $an/plan.rs $an/tests.rs" \
