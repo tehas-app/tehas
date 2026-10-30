@@ -113,6 +113,12 @@ impl Writer {
                 word(&f)
             ));
         }
+        // The reason the dispatcher stopped it, for the cycle to put in its
+        // comment and its end record; as stop_done leaves its own.
+        let done = self.home.join(format!("state/cycles/{n}.done"));
+        if std::fs::write(&done, "quiet\n").is_err() {
+            log.push(format!("WARN: could not write the reason for #{n}"));
+        }
         // Without waiting for it: the cycle reports as it stops.
         self.changed = true;
         let rc = match &self.host.stop_cmd {

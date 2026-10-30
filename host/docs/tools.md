@@ -524,7 +524,13 @@ done once for each time the cycle was last heard from. The episode and every
 ask are on record in the state store, with the cycle: the time the cycle was
 last heard from, how many times the poll has asked, and when it last asked or
 said. The first "asks no more" line counts as one more, so a record past 6
-asks means the poll has said that line.
+asks means the poll has said that line. Before each ask the poll writes `quiet`
+to `state/cycles/N.done`, so the cycle that reports as it stops names the stop:
+its comment carries `The dispatcher stopped it: nothing was heard from it for
+longer than its quiet bound.` and its end record carries `park_reason` `quiet`.
+A `.done` that cannot be written adds `WARN: could not write the reason for #N`
+to the poll's log and the stop goes ahead; the cycle then reports as one stopped
+without a pull request and says nothing of the quiet bound.
 Exit 0 from `systemctl --user --no-block stop` only says systemd accepted the
 stop job, so the record means the stop was asked, not that the unit stopped;
 what ends a unit that ignores the job is the unit's own `TimeoutStopSec` (300s)

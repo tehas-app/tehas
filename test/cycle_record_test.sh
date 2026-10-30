@@ -554,6 +554,17 @@ t_lacks "$(t_calls gh)" "issues/7/comments"
 t_contains "$t_out" "status=closed"
 t_eq "$(find "$state/7.done" 2>/dev/null | wc -l)" 0
 
+t_case "a cycle the dispatcher stopped for being quiet names that stop in its comment and its record"
+reset
+ended running adversarial feature/x
+echo 'mkdir -p "$TEHAS_HOME/state/cycles"; echo quiet >"$TEHAS_HOME/state/cycles/7.done"; exit 2' >"$fx/work.sh"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "The dispatcher stopped it"
+t_contains "$(t_calls gh)" "The dispatcher stopped it"
+t_eq "$(t_row history-show 7 -- '.rows[0].park_reason')" quiet
+t_eq "$(find "$state/7.done" 2>/dev/null | wc -l)" 0
+
 t_case "a reason the dispatcher left for an earlier cycle is not this cycle's"
 reset
 mkdir -p "$state"
