@@ -2562,7 +2562,7 @@ turns are only counted.
 | `leadTime` | `median` and `p90` seconds from the first accepted `tehas:ready` to the merge, over `n` shipped issues whose `ready` is still in the database |
 | `cycleTime` | `median` and `p90` seconds of the `n` runs |
 | `machineTime` | `seconds` of all `n` runs, and `perShipped` |
-| `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped` (of the total) |
+| `tokens` | `total`, `input`, `output` and `cacheRead` of the `n` runs that reported usage, and `perShipped`: the total over the `shipped` issues it counts. A shipped issue whose runs all reported no usage is not one of them: an empty count is no zero |
 | `availability` | `share` of the `seconds` since the first sample in the window that the factory could take work, from `n` samples. A sample counts for the time to the next, at most ten minutes, and only when it says not paused and either no hold or cycles running (slots that are full are not down time); a stretch with no samples counts as not available |
 | `energy` | `kwh` and `perShipped`, from the `n` samples with the mesh's draw: each draw over the time to the next sample, at most ten minutes. Left out where no sample has one |
 | `daily` | Ten `{day, shipped, runs, failed, minutes}`, oldest first: issues shipped, runs ended and of them failed, and their minutes |
