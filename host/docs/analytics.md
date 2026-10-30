@@ -60,18 +60,22 @@ beside it. It is not under `live/` and is not served. Times are UTC Unix
 seconds and durations are seconds, as integers, except `runner_ms` and
 `run_roles.ms`, which are milliseconds.
 
-`PRAGMA user_version` is the schema version, today 2. Within one version
+`PRAGMA user_version` is the schema version, today 3. Within one version
 columns are only added. A change of a column's meaning raises the version.
-There are no migrations, so a host whose file is still at 1 keeps it aside under
-its version and starts a new one. Nothing of the gate was on the record there
-before; the new gate columns are NULL where a run made no gate, which the report
-reads as no gate rather than a gate of no time.
+A file at 2 is migrated in place as the program opens it: one transaction adds
+the column `driver` to `runs`, and every run stays. Programs that have the file
+open go on working. A host whose file is still at 1 keeps it aside under its
+version and starts a new one. Nothing of the gate was on the record there before;
+the new gate columns are NULL where a run made no gate, which the report reads as
+no gate rather than a gate of no time.
 
 - **A file that is not a database**, or fails SQLite's check, is moved to
   `analytics.db.broken` and a new one is made. The data is at most 365 days deep.
 - **A database of another schema version** is moved, with its side files, to
   `analytics.db.schema-<version>`, where a reader can still fetch it, and a new
-  one is made. It is deleted 365 days after its last write.
+  one is made. It is deleted 365 days after its last write. That goes for a
+  version newer than the program too: after a rollback to a release of schema 2,
+  the file at 3 goes aside whole. Move it back by hand before going forward again.
 - Any other failure, a full disk or a lock held too long, leaves the file as
   it is.
 
@@ -84,8 +88,8 @@ for the JSON of [the factory API](/api).
 
 ## The tables
 
-The columns that came in schema 2 are named `Since` 2; the rest came in schema
-1. A column without a value is NULL.
+The columns that came after schema 1 are named by the schema in `Since`; the rest
+came in schema 1. A column without a value is NULL.
 
 ### runs
 
@@ -138,6 +142,7 @@ call; one that a caller killed during the call leaves is removed by
 | `result_schema` | The pi-rukas result's schema number, 3 or 4 | 1 |
 | `gate_runs` | How many runs of the product's gate the cycle made, from its stream. NULL when the stream held none, which is no gate rather than a gate of no time; 0 is not stored, so a run whose rows the runner timed of nothing keeps no count either | 2 |
 | `gate_ms` | Their milliseconds in all, as the runner timed each of them: the gate's own time, not the wait for another run of it that held the container's CPU share. A single run of it of more than three runs of `TEHAS_VERIFY_TIMEOUT` is no figure, and NULL with no run of it | 2 |
+| `driver` | The driver the start's approval bound: `classic` or `lean`. NULL where the approval holds no driver or another word, on every run from before the column, and on a planning turn. NULL reads as classic | 3 |
 
 The outcome of a work run:
 
@@ -245,7 +250,7 @@ than its poll gives NULL.
 docker says of the id as the run ends. An id names one build, so the first time
 recorded stands and every run of the image reads it, also one recorded before
 it. A prune drops the key of an image no run names. No host name, address or
-token. Since schema 1; the image keys add no column, so the schema stays 2.
+token. Since schema 1; the image keys add no column.
 
 ## The views
 
@@ -438,7 +443,7 @@ tehas analytics export copy.db --json
 ```
 
 writes a consistent copy with SQLite's `VACUUM INTO`, mode 600, and prints
-`{"api":1,"schema":2,"from":...,"to":...,"runs":N}`, read from the copy. It
+`{"api":1,"schema":3,"from":...,"to":...,"runs":N}`, read from the copy. It
 takes no lock a cycle holds and makes no network call. It never replaces a
 file. A file name may not start with `-`: write `./-name` for one that does.
 See [the factory API](/api#tehas-analytics-export) for the fields.
@@ -470,8 +475,8 @@ What was agreed with tehas-industry (tehas #377, tehas-industry #26):
   `(run_id, step, round)`, `(run_id, role)`, `(issue, event)` and
   `samples.at`. A fetch repeated is harmless, so there is no cursor.
 - It fetches the copy before it runs `tehas update --to` on a factory, so a
-  release that raises the schema version loses nothing. The old file is kept
-  aside under its version for 365 days as well.
+  release that raises the schema version loses nothing. A file the release does
+  not migrate is kept aside under its version for 365 days as well.
 - Events stay once per issue. Industry's long-term copy keeps what is older
   than 365 days.
 

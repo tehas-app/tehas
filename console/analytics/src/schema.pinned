@@ -1,4 +1,4 @@
-user_version 2
+user_version 3
 
 -- index issue_events_at
 CREATE INDEX issue_events_at ON issue_events (at);
@@ -106,7 +106,8 @@ CREATE TABLE runs (
   runner_ms INTEGER,
   result_schema INTEGER,
   gate_runs INTEGER,
-  gate_ms INTEGER
+  gate_ms INTEGER,
+  driver TEXT CHECK (driver IN ('classic', 'lean'))
 );
 
 -- table samples

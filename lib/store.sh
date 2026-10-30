@@ -162,11 +162,10 @@ tehas_cycle_attempt() { # <issue>
   tehas_cycle_attempt_is=$got
 }
 
-# The approval as the dispatcher wrote .approved.json: the inputs it gave the
-# cycle, and for a millwright's or a refresh start the approval it rests on and
-# the starts counted on that. A refresh names the person's approval it rests on,
-# as given_at did: its own row's at is when the dispatcher decided (D5). The line
-# below is #686's alias: the store writes new words, this shape the old.
+# The approval as the dispatcher wrote .approved.json: its inputs, the driver it
+# bound, and for a millwright's or a refresh start the approval it rests on and
+# the starts counted on that. A refresh names the person's approval: its own at
+# is when the dispatcher decided (D5). mw is #686's alias: new words to the old.
 # shellcheck disable=SC2016  # a jq program
 tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
   def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
@@ -178,6 +177,7 @@ tehas_approval_shape='def iso: if type == "number" then todate else error("not a
     | {at: ($c.at | iso), by: $c.by, how: $how, body_sha256: $c.body_sha256, links: ($in.links // [])}
       + (if $c.title_sha256 == null then {} else {title_sha256: $c.title_sha256} end)
       + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
+      + (if $in.driver == null then {} else {driver: $in.driver} end)
       + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
       + (if $how == "fixer" then {rests_on: $base, fixer_starts: $starts} else {} end)
       + (if $how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
