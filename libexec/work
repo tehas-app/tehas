@@ -96,9 +96,11 @@
 #
 #             64 no bot token or no git identity; no cycle was started.
 #             78 the instance settings are invalid, the state store is not
-#                installed, tehas.slice is not
-#                usable on this host, the image does not support what the
-#                cycle is given, or the product names no gate in
+#                installed, tehas.slice is not usable on this host, the
+#                approval says driver lean, which this tehas cannot run yet
+#                (state/cycles/<issue>.lean-refused says that was the reason),
+#                the image does not support what the cycle is given, or the
+#                product names no gate in
 #                .pi/verify-cmd and holds neither package.json nor Cargo.toml
 #                at the commit the cycle's clone was made at; no cycle was
 #                started, nothing was pushed, and the workspace made for the
@@ -479,6 +481,13 @@ else
       record_why="the approval of this issue could not be read"
       ;;
   esac
+fi
+
+# Lean needs trail-openers/pi-rukas#1920, and classic never runs in its place.
+if tehas_record_is_file "$record" && [ -n "$(jq -r '.driver // ""' "$record" 2>/dev/null)" ]; then
+  : >"$TEHAS_HOME/state/cycles/$issue.lean-refused"
+  echo "tehas work: this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #$issue to run it on classic" >&2
+  exit 78
 fi
 
 # The bot's identity is the tehas user's own. What the container is given is

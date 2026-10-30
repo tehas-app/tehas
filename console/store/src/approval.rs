@@ -55,9 +55,11 @@ pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
 /// approval. Each list is a JSON array and `refresh_of` an object or null; the
-/// readers check the entries.
+/// readers check the entries. `driver` is written only when it is `DRIVER`: no
+/// driver means classic, which is every record written before it existed.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
 const INPUT_BOUND: u64 = 1 << 20;
+const DRIVER: &str = "lean";
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
@@ -212,7 +214,7 @@ fn record_args(rest: &[String]) -> Result<Call, String> {
     })))
 }
 
-/// The inputs as stored: the file's JSON object, with only the four keys and
+/// The inputs as stored: the file's JSON object, with only the known keys and
 /// each of its type, written again compactly.
 fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
     let text = verbs::read_text(path, INPUT_BOUND, "1 MiB", issue, "input", "the input")?;
@@ -226,6 +228,8 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             value.is_array()
         } else if key == "refresh_of" {
             value.is_object() || value.is_null()
+        } else if key == "driver" {
+            value == DRIVER
         } else {
             return Err(bad(&format!(
                 "holds a key it may not: {}",
