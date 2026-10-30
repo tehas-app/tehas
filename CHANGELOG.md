@@ -22,6 +22,13 @@ None.
 
 ### Changes
 
+- A planning turn posts its text in one comment and its boxes in the next, so
+  a tick lands on the box that was clicked. Before, a tick in a long plan could
+  be lost or saved on the box below, which ended the session (#1118).
+- An agent's task box in a comment is now a glyph, `☐` or `☑`. Numbered and
+  quoted boxes are caught too (#1118).
+- A cycle takes its build output as it ends (#1092).
+- `TEHAS_SCRATCH_DIR` puts a cycle's `/tmp` on a scratch disk (#1095).
 - A new logo. It is the favicon in every theme. The paper, beesknees and
   beesknees26 themes also show it in the header and on the share card. The
   pixel theme keeps its animated factory and its share card.
