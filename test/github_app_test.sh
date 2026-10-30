@@ -22,11 +22,6 @@ esac'
 # acme/widget. The answer of a case that wants to tell two of them apart is a
 # word with a counter of its own on the end, which no other case sees.
 t_stub curl 'for a in "$@"; do case "$a" in *Authorization:*) printf "%s\n" "$a" >>"$T/calls/auth" ;; esac; done
-# The ask of a case that wants to be measured by its mints, not by the tokens
-# it made: the word CURL_FAILS is what names it, and the mint is counted before
-# the exchange is refused, so a case sees an ask the token command could not
-# answer.
-if [ "${CURL_FAILS:-}" = fails ]; then n=$(($(cat "$T/mints" 2>/dev/null || echo 0) + 1)); echo "$n" >"$T/mints"; exit 22; fi
 [ -z "${CURL_FAILS:-}" ] || exit 22
 case "$*" in
 *access_tokens*) if [ -n "${CURL_ANSWER:-}" ]; then printf "%s" "$CURL_ANSWER"; else
@@ -355,62 +350,24 @@ t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
 t_eq "$t_out" "$T/home/tehas/bin/gh
 token=ghp_user"
 
-# The renewer is tehas-cycle's own verb, so a case of it names the program of
-# this checkout: the one a cycle installs at libexec/tehas-cycle. The renewer
-# is asked once per case, and the case waits for what it left behind rather
-# than for the renewer itself, which runs until the cycle ends it.
-#
-# The renewer holds none of the case's streams, so a case that read one of them
-# to the end would wait for the renewer and not for the token: the case reads
-# nothing, and the renewer's own output goes where nothing is kept of it.
-#
-# renew_start <every> <retry> [fails]: the renewer of the case, with the waits
-# it is to be measured by, and the asks made to fail when `fails` is given.
-renew_start() {
-  local out=$T/renewer.pid
-  # No stream of the case is given to the renewer but the pid: the pid is a
-  # file, the command's own streams are the case's and read by nobody, and the
-  # reason the asks failed is looked for in what the token command left, not in
-  # the line the renewer says of it.
-  t_run "$lib && TEHAS_CYCLE='$T_CYCLE' TEHAS_GITHUB_RENEW_EVERY=$1 TEHAS_GITHUB_RENEW_RETRY=$2 ${3:+CURL_FAILS=fails}; tehas_github_renew >'$out' 2>/dev/null"
-  cat "$out"
-}
-
-t_case "the renewer makes a new token when the kept one runs low, and stops when killed"
+t_case "the renewer is tehas-cycle renew, starts at once, and stops when killed"
 reset
-keep 300
-t_cycle || t_skip "$t_cycle_why"
-pid=$(renew_start 1 30)
-for _ in $(seq 1 50); do grep -q fresh "$kept" 2>/dev/null && break; sleep 0.1; done
-t_eq "$(cat "$kept")" "$(grep -o 'ghs_fresh[0-9]*' "$kept")"
-# The cycle's kill of it: TERM, and the renewer is gone.
+mkdir -p "$T/home/tehas/libexec"
+cat >"$T/home/tehas/libexec/tehas-cycle" <<STUB
+#!/bin/bash
+printf '%s\n' "\$*" >"$T/renew.args"
+exec sleep 20
+STUB
+chmod 755 "$T/home/tehas/libexec/tehas-cycle"
+start=$SECONDS
+t_run "$lib && pid=\$(tehas_github_renew 2>/dev/null); echo \"\$pid\""
+t_eq "$(((SECONDS - start) < 10))" "1"
+pid=$t_out
+for _ in $(seq 1 50); do [ -s "$T/renew.args" ] && break; sleep 0.1; done
+t_eq "$(cat "$T/renew.args")" "renew --cmd $T/home/tehas/libexec/github-token --every 300 --retry 30"
 kill "$pid" 2>/dev/null
 sleep 0.3
 t_eq "$(kill -0 "$pid" 2>/dev/null && echo alive || echo stopped)" "stopped"
-
-t_case "the renewer asks again after the retry of a failed ask, and not after the every"
-reset
-# The renewer of this case runs with no streams of its own and asks a command
-# that answers nothing of the token's: the command is the case's, of the same
-# shape as the token command, and says one word and fails. Two asks within the
-# retry's seconds is the retry's path: the whole of `every` is 300 s, so a
-# renewer that waited for it would have asked once.
-t_cycle || t_skip "$t_cycle_why"
-dir=$(mktemp -d "$T/renewer.XXXXXX")
-cat >"$dir/cmd" <<'EOF'
-#!/bin/sh
-n=$(cat "$0.count" 2>/dev/null || echo 0)
-echo $((n + 1)) >"$0.count"
-printf 'ghs_secret\n'
-exit 1
-EOF
-chmod 755 "$dir/cmd"
-t_run "$lib && TEHAS_CYCLE='$T_CYCLE' TEHAS_GITHUB_RENEW_EVERY=300 TEHAS_GITHUB_RENEW_RETRY=1 TEHAS_GITHUB_RENEW_CMD='$dir/cmd'; tehas_github_renew >'$dir/pid' 2>/dev/null"
-pid=$(cat "$dir/pid")
-for _ in $(seq 1 100); do [ "$(cat "$dir/cmd.count" 2>/dev/null || echo 0)" -ge 2 ] && break; sleep 0.1; done
-kill "$pid" 2>/dev/null
-sleep 0.3
-t_eq "$(cat "$dir/cmd.count" 2>/dev/null || echo 0)" "2"
 
 t_case "without an app the renewer starts nothing"
 reset
