@@ -935,6 +935,76 @@ fn a_refresh_marks_its_pull_request_first_and_its_approval_names_what_it_refresh
 }
 
 #[test]
+fn an_easy_start_logs_the_easy_merge_and_marks_its_approval() {
+    let mut t = world();
+    let h = t.w.home.clone();
+    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    let mut a = start_of(7, "refresh");
+    a["verb"] = json!("easy");
+    a["log"] = json!("start #7 (easy by alice)");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["easy"] = json!(true);
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    let got = t.apply(json!([a.clone()]));
+    // The log names the easy merge and the pull request it merges into.
+    assert_eq!(
+        got.log
+            .iter()
+            .filter(|l| l.contains("start #7"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["start #7 (easy by alice)", "start #7: easy merge of PR #12"]
+    );
+    let w = t.writes();
+    // The record carries the store's mark, so the approval cannot be owed a
+    // second easy merge (#1031).
+    let record = w
+        .iter()
+        .find(|c| c.starts_with("store approval-record"))
+        .expect("the start wrote its approval");
+    assert!(record.ends_with("--easy"), "{record}");
+    assert!(
+        record.contains(&format!(
+            "--refresh-pr 12 --refresh-head {}",
+            "c".repeat(40)
+        )),
+        "{record}"
+    );
+    assert!(w.iter().any(|c| c
+        .contains("Tehas chose the easy merge of this issue on `tehas-tehas`")
+        && c.contains(
+            "merges `main` into https://github.com/example-owner/example-product/pull/12"
+        )));
+}
+
+#[test]
+fn a_full_start_records_no_easy_mark_and_logs_no_easy_merge() {
+    let mut t = world();
+    let h = t.w.home.clone();
+    fs::write(h.join("state/refresh/7.json"), "{}").unwrap();
+    let mut a = start_of(7, "refresh");
+    a["refresh_pr"] = json!(12);
+    a["refresh_url"] = json!("https://github.com/example-owner/example-product/pull/12");
+    a["refresh_of"] =
+        json!({"pr": 12, "head_sha": "c".repeat(40), "base_sha": "d".repeat(40), "branch": "main"});
+    let got = t.apply(json!([a]));
+    let w = t.writes();
+    let record = w
+        .iter()
+        .find(|c| c.starts_with("store approval-record"))
+        .expect("the start wrote its approval");
+    assert!(!record.contains("--easy"), "{record}");
+    assert!(
+        !got.log.iter().any(|l| l.contains("easy merge")),
+        "{:?}",
+        got.log
+    );
+    assert!(!h.join("state/refresh/7.json").exists());
+}
+
+#[test]
 fn a_time_the_approval_cannot_be_dated_by_is_now() {
     let mut t = world();
     let mut a = start_of(7, "label");
