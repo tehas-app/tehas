@@ -152,3 +152,6 @@
   animation: none !important;
   transition: none !important;
 }
+
+/* The logo is square. The markup is sized for pixel's factory. */
+.brand img { width: 50px; height: 50px; }

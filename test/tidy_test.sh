@@ -149,11 +149,10 @@ exit 0
 STUB
   chmod +x "$shim/libexec/console"
   printf '100\n' >"$fx/page.txt"
-  # The library's own name for the label of a merge, which the console of this
-  # checkout prints too: the case reads it out of lib/shipped.sh rather than
-  # writing the word out again.
-  # shellcheck source=lib/shipped.sh
-  printf '%s\n' "$(. "$T_ROOT/lib/shipped.sh" && printf '%s' "$tehas_shipped_label")" >"$fx/label.txt"
+  # The name of the label of a merge, read out of the console of this checkout
+  # rather than written out again: a rename of the label reaches this case with
+  # the rule.
+  printf '%s\n' "$("$T_CONSOLE" shipped label)" >"$fx/label.txt"
   : >"$fx/plan.txt"
   [ "$shape" = no-read ] && : >"$fx/no-read"
   return 0
@@ -638,7 +637,8 @@ t_contains "$(reads)" "number:23"
 
 t_case "the candidates past the page of the read are left to a later poll"
 # More candidates than the page of the shared read, twice over: the terms of a
-# search are capped, so the read is asked about tehas_shipped_page of them and
+# search are capped, so the read is asked about the page of the console's query
+# of them and
 # no more, and the rest keep their state labels for the polls that follow.
 reset
 page=$(tehas_page_count)

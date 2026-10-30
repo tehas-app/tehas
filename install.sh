@@ -477,8 +477,6 @@ files=(
   "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
-  # What closed an issue: the closer read tehasbot status and tehas tidy share.
-  "lib/shipped.sh|$TEHAS_HOME/lib/shipped.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -525,7 +523,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh review resume setup status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh review resume setup state status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a

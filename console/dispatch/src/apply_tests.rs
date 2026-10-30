@@ -1496,7 +1496,7 @@ fn an_agents_words_are_masked_before_they_are_posted() {
     let t = format!("token ghp_abcdefghijklmnop1234 and API_KEY=hunter2\r\nat {v4} or {v6} on {name}\n<!-- x -->\n- [x] done\nthanks @alice\n\n");
     assert_eq!(
         q_clean(&t, 60000),
-        "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- \\[x] done\nthanks @\u{200b}alice"
+        "token ghp_*** and API_KEY=***\nat [private address] or [private address] on [private name]\n<\\!-- x -->\n- ☑ done\nthanks @\u{200b}alice"
     );
     assert_eq!(q_clean("abcdef", 3), "abc");
     assert_eq!(q_clean("", 10), "");
@@ -1509,7 +1509,7 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
         "marker": "<!-- pi-rukas:handoff issue=7 cap=plan -->"});
     assert_eq!(
         q_render(7, 2, &out, "Filed in this turn: #9"),
-        "<!-- pi-rukas:handoff issue=7 cap=plan -->\nTwo ways.\n\nWhich?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
+        "Which?\n\nFiled in this turn: #9\n\n- [ ] A first\n  the first\n- [ ] B\n- [ ] End this planning session\n\nTick one box, or reply in a comment. Only an answer from an account that may authorise work counts.\n\n<!-- tehas:question kind=plan issue=7 turn=2 -->"
     );
     let many: Vec<Value> = (0..22).map(|i| json!({"label": format!("o{i}")})).collect();
     let r = q_render(
@@ -1520,8 +1520,6 @@ fn a_planning_question_is_rendered_as_the_bash_renders_it() {
     );
     assert!(r.contains("Options left out: 2. A reply can name another choice."));
     assert_eq!(r.matches("- [ ] o").count(), 20);
-    // Another issue's marker is no marker.
-    assert!(!q_render(8, 1, &out, "").starts_with("<!-- pi-rukas"));
 }
 
 #[test]
@@ -1891,6 +1889,64 @@ fn a_question_already_posted_is_not_posted_again() {
 }
 
 #[test]
+fn a_plan_is_said_before_its_boxes_and_once() {
+    let mut t = world();
+    plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
+    let path = t.w.home.join("state/plan-7.json.out");
+    fs::write(
+        &path,
+        json!({"text": "The plan.", "question": {"question": "Which?", "options": []}}).to_string(),
+    )
+    .unwrap();
+    // The boxes do not go up: the plan stays said, the next poll adds them.
+    t.fail("gh", "repos/example-owner/example-product/issues/7/comments");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: the planning turn of #7 could not be posted; the next poll tries again"]
+    );
+    let said = |t: &World| {
+        t.writes()
+            .iter()
+            .filter(|c| c.starts_with("gh issue comment 7"))
+            .count()
+    };
+    assert_eq!(said(&t), 1);
+    let kept: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(kept["text"], "");
+    assert_eq!(kept["question"]["question"], "Which?");
+
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    assert!(t.apply(json!([{"plan_post": 7}])).log.is_empty());
+    let w = t.writes();
+    assert_eq!(said(&t), 1);
+    let plan = w.iter().position(|c| c.starts_with("gh issue comment 7"));
+    let boxes = w.iter().rposition(|c| c.contains("/issues/7/comments"));
+    assert!(plan < boxes);
+}
+
+#[test]
+fn a_plan_not_said_stops_its_boxes_too() {
+    let mut t = world();
+    plan_row(&t, json!({"turns": 2, "label": "tehas:plan"}));
+    fs::write(
+        t.w.home.join("state/plan-7.json.out"),
+        json!({"text": "The plan."}).to_string(),
+    )
+    .unwrap();
+    t.fail("gh", "issue comment 7");
+    let a = t.apply(json!([{"plan_post": 7}]));
+    assert_eq!(
+        a.log,
+        vec![
+            "WARN: comment on #7 failed",
+            "WARN: the planning turn of #7 could not be posted; the next poll tries again"
+        ]
+    );
+    assert!(!t.writes().iter().any(|c| c.contains("/issues/7/comments")));
+}
+
+#[test]
 fn a_refine_that_filed_elsewhere_or_again_is_refined_once() {
     // An issue of another repository is said, never edited: the original stays.
     let mut t = world();
@@ -2010,7 +2066,7 @@ fn more_of_what_q_clean_masks() {
     );
     assert_eq!(
         q_clean("* [ ] a\n  + [x] b\na@b", 100),
-        "* \\[ ] a\n  + \\[x] b\na@\u{200b}b"
+        "* ☐ a\n  + ☑ b\na@\u{200b}b"
     );
     assert_eq!(q_clean("äöå", 2), "äö");
 }

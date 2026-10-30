@@ -326,3 +326,54 @@ fn locks_held_counts_a_lock_it_cannot_probe_and_reads_no_directory_as_none() {
     assert_eq!(ok(&home, &["locks-held"])["held"], serde_json::json!([4]));
     assert!(usage(&["locks-held", "--all"]).contains("locks-held"));
 }
+
+#[test]
+fn copy_writes_the_store_to_the_named_file_and_changes_nothing_else() {
+    let home = home("copy-to");
+    let (_lock, _) = start(&home, 7);
+    let to = home.join("elsewhere.db");
+    let v = ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    assert_eq!(v["file"], to.to_str().unwrap());
+    assert_eq!(mode(&to), 0o600);
+    let c = Connection::open(&to).unwrap();
+    let n: i64 = c
+        .query_row("SELECT count(*) FROM cycles WHERE issue = 7", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(n, 1);
+    assert!(!home.join("state/backup").exists());
+    // A name that is taken is not overwritten.
+    let (code, _) = refused(&home, &["copy", "--to", to.to_str().unwrap()]);
+    assert_ne!(code, 0);
+}
+
+#[test]
+fn copy_needs_an_absolute_name() {
+    assert!(usage(&["copy"]).contains("--to"));
+    assert!(usage(&["copy", "--to", "here.db"]).contains("absolute"));
+}
+
+#[test]
+fn copy_holds_a_row_that_is_still_in_the_wal() {
+    let home = home("copy-wal");
+    // A reader of its own keeps SQLite from folding the WAL into the file.
+    let db = home.join("state/tehas.db");
+    let reader = Connection::open(&db).unwrap();
+    reader
+        .query_row("SELECT count(*) FROM cycles", [], |r| r.get::<_, i64>(0))
+        .unwrap();
+    let (_lock, _) = start(&home, 9);
+    let wal = fs::metadata(home.join("state/tehas.db-wal")).unwrap().len();
+    assert!(wal > 0, "the row is in the WAL");
+    let to = home.join("state/wal-copy.db");
+    ok(&home, &["copy", "--to", to.to_str().unwrap()]);
+    let c = Connection::open(&to).unwrap();
+    let n: i64 = c
+        .query_row("SELECT count(*) FROM cycles WHERE issue = 9", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(n, 1);
+    drop(reader);
+}

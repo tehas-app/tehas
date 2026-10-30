@@ -363,7 +363,7 @@ tidies and adds the label in the call that strips their state labels, so the
 label says one thing, that a merge closed the issue, whatever the queue's list
 happened to hold. Two commands
 put the label from a merged closer, and both read the one answer of
-`lib/shipped.sh` and hand it to the same console verb (`console shipped`,
+`console shipped query` and hand it to the same console verb (`console shipped`,
 `console/src/shipped.rs`) that decides it: `tehas tidy` in the edit that takes the
 state labels off, and `tehasbot status` from its own read of the list for any
 issue missing it.
@@ -821,9 +821,10 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is written: the
-   comment holds its title and spec, lists its open points with the
-   planner's proposals, and offers **Update this issue**. Reply to change the plan, and
+5. The planner shows you a drafted plan before anything is written: one
+   comment holds its title and spec and lists its open points with the
+   planner's proposals, and the comment after it holds the question and the
+   boxes, among them **Update this issue**. Reply to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
@@ -1493,7 +1494,11 @@ removes what has not been used for `TEHAS_CLEAN_AFTER` hours, 24 by default:
   under a lock that is not there: an issue whose lock file is gone is left
   alone, because the cleaner cannot tell a finished cycle from a removed lock.
   `.git`, the sources, uncommitted changes, `memory` and `sessions` stay for a
-  person to read, and no dot-name is entered.
+  person to read, and no dot-name is entered. A cycle that ends takes the same
+  build output itself, under the lock it still holds, so the age rule only
+  catches what a cycle killed before its end left behind. The same run removes
+  what a killed cycle left under `TEHAS_SCRATCH_DIR`, whatever its age, once the
+  issue's lock is free.
 - Docker's build cache of that age, with `docker builder prune`. This is the
   build cache of the whole host's Docker daemon: tehas is one project on one
   host, and the cache of anything else on it is made again too. No image and no

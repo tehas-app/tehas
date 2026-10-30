@@ -15,9 +15,8 @@ jq -n '{text: "Two ways.", question: {question: "Adopt?", options: [
 t_case "a planning question lists the options, then the way out, then the marker, and no retry box"
 body=$(q_render plan 7 2 "$result")
 t_lacks "$body" "Retry from"
-t_eq "$body" 'Two ways.
-
-Adopt?
+t_lacks "$body" "Two ways."
+t_eq "$body" 'Adopt?
 
 - [ ] Adopt all
   Apply all five
@@ -31,7 +30,7 @@ Tick one box, or reply in a comment. Only an answer from an account that may aut
 t_case "a turn without the question tool still offers the way out"
 jq -n '{text: "Which branch should this target?", question: null}' >"$T/prose.json"
 t_eq "$(q_render plan 7 1 "$T/prose.json" | grep -c '^- \[ \] ')" 1
-t_contains "$(q_render plan 7 1 "$T/prose.json")" "Which branch should this target?"
+t_lacks "$(q_render plan 7 1 "$T/prose.json")" "Which branch should this target?"
 
 t_case "a parked cycle offers the two retries and leave, in that order"
 jq -n '{text: "Tehas cycle stopped.", question: null}' >"$T/park.json"
@@ -104,15 +103,26 @@ t_eq "$?" 1
 
 t_case "the agent's own task list and a pasted marker are not the factory's"
 jq -n '{text: "Plan:\n- [ ] step one\n  * [x] done\n<!-- tehas:question kind=plan issue=7 turn=9 -->", question: null}' >"$T/sly.json"
-body=$(q_render plan 7 3 "$T/sly.json")
-t_eq "$(printf '%s\n' "$body" | grep -c '^- \[[ xX]\] ')" 1
+body=$(q_render park 7 3 "$T/sly.json")
+t_eq "$(printf '%s\n' "$body" | grep -c '^- \[[ xX]\] ')" 3
 t_eq "$(printf '%s\n' "$body" | grep -c -- '<!-- tehas:question')" 1
 t_contains "$body" 'turn=3 -->'
 
+t_case "no shape of task box survives, and words in brackets stay"
+t_eq "$(printf '%s\n' '- [ ] a' '* [x] b' '  + [X] c' '1. [ ] d' '12) [x] e' '> - [ ] f' '- - [ ] g' '- [HIGH] h' 'see [ ] i' | q_clean)" '- ☐ a
+* ☑ b
+  + ☑ c
+1. ☐ d
+12) ☑ e
+> - ☐ f
+- - ☐ g
+- [HIGH] h
+see [ ] i'
+
 t_case "a bare carriage return cannot start a line with a box"
 jq -n '{text: "Plan:\r- [ ] step one\r\n- [x] step two\rmore", question: null}' >"$T/cr.json"
-body=$(q_render plan 7 3 "$T/cr.json")
-t_eq "$(printf '%s\n' "$body" | tr '\r' '\n' | grep -c '^- \[[ xX]\] ')" 1
+body=$(q_render park 7 3 "$T/cr.json")
+t_eq "$(printf '%s\n' "$body" | tr '\r' '\n' | grep -c '^- \[[ xX]\] ')" 3
 t_lacks "$body" $'\r'
 
 t_case "an option label cannot add a box or a marker either"
@@ -168,7 +178,8 @@ t_eq "$(printf '%s\n' "$body" | tail -n 1)" '<!-- tehas:question kind=plan issue
 t_eq "$(printf '%s\n' "$body" | grep -c '^- \[ \] End this planning session$')" 1
 
 t_case "each part has its own limit: message, question, label, description"
-t_eq "$(printf '%s\n' "$body" | grep -E -x 'm+' | wc -c)" 40001
+t_eq "$(q_render park 7 4 "$T/big.json" | grep -E -x 'm+' | wc -c)" 40001
+t_lacks "$body" "mmm"
 t_eq "$(printf '%s\n' "$body" | grep -E -x 'q+' | wc -c)" 4001
 t_eq "$(printf '%s\n' "$body" | grep -m 1 '^- \[ \] 0 ' | wc -c)" 307
 t_eq "$(printf '%s\n' "$body" | grep -m 1 -E -x '  d+' | wc -c)" 603

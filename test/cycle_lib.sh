@@ -148,6 +148,7 @@ done
 exit "$(cat "$T/fx/rc" 2>/dev/null || echo 0)"
 '
 t_stub fake-status
+t_stub fake-console
 # The poll a cycle starts when it ends.
 t_stub systemctl
 
@@ -162,7 +163,7 @@ reset() {
   mkdir -p "$T/home/tehas/logs"
   # The state store a cycle runs, with nothing on record.
   t_store_home "$T/home/tehas"
-  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CYCLE_RETRY_WAIT=0)
+  T_ENV=(TEHAS_WORK_CMD=fake-work TEHAS_STATUS_CMD=fake-status TEHAS_CONSOLE_CMD=fake-console TEHAS_CYCLE_RETRY_WAIT=0)
   t_instance "${T_MINIMAL[@]}"
 }
 # The runner's result for the cycle, and the exit status that goes with it.

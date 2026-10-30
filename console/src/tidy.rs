@@ -85,7 +85,7 @@ const STATES: [&str; 9] = [
 ];
 
 /// The label tidy gives and never takes off: the record of a merge, named once
-/// with the page of the read in `shipped`, which is where `lib/shipped.sh` reads
+/// with the page of the read in `shipped`, which is where the two commands read
 /// it from too. `states` prints it after the ones to take off, which is how a
 /// caller tells the two apart: the search is made for the names before it, and
 /// the plan compares against them alone, so the label the read may earn is
@@ -416,8 +416,9 @@ mod tests {
 
     #[test]
     fn the_label_of_a_merge_is_named_once_for_both_commands() {
-        // lib/shipped.sh prints the name it edits with and tidy compares the
-        // same constant: a rename reaches the removal rule and the add together.
+        // `console shipped label` prints the name tidy edits with and tidy
+        // compares the same constant: a rename reaches the removal rule and the
+        // add together.
         assert_eq!(SHIPPED, crate::shipped::SHIPPED);
         assert_eq!(SHIPPED, "tehas:shipped");
     }
