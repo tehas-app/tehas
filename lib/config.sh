@@ -124,12 +124,14 @@ _tehas_valid() {
     TEHAS_REPO | TEHAS_IMPROVE_REPO | TEHAS_IMPROVE_RUKAS_REPO | TEHAS_RELEASE_REPO | TEHAS_REVIEW_REPO)
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
-    # The counts; `auto` is worked out by the poll (console/dispatch/src/slots.rs).
+    # The counts. `auto` is the poll's word (console/dispatch/src/slots.rs) and the
+    # cycle's problem: the two counts refuse it by name, any other value by the rule
+    # of its setting (TEHAS_SLICE_CONTAINERS has its range of 2 to 16).
     TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_MILLWRIGHT_MAX_FEEDS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
-      case "$name:$v" in TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) return 0 ;; esac
-      [[ $name != TEHAS_SLICE_CONTAINERS || $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected auto or a whole number from 2 to 16"; return 1; }
-      [[ $v =~ ^[1-9][0-9]*$ ]] || { echo "expected a positive whole number"; return 1; }
+      case "$name:$v" in TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) echo 'expected a whole number (auto is not usable yet)'; return 1 ;; esac
+      [[ $name != TEHAS_SLICE_CONTAINERS || $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected a whole number from 2 to 16"; return 1; }
+      [[ $v =~ ^[1-9][0-9]*$ ]] || { echo 'expected a positive whole number'; return 1; }
       _tehas_is_count "$v" || { echo "expected at most 9 digits"; return 1; }
       ;;
     TEHAS_LOW_GATE_WAIT)
@@ -334,12 +336,11 @@ _tehas_valid() {
 }
 
 # _tehas_why <name> <value>: 0 when _tehas_valid accepts it, else 1 with its
-# reason in the caller's $reason. The check runs in this shell and the reason
-# is asked for only when there is one: every load checks some forty settings.
+# reason in the caller's $reason. One substitution of the function answers both
+# questions: every load checks some forty settings, and only a refusal costs a
+# second one.
 _tehas_why() {
-  _tehas_valid "$1" "$2" >/dev/null && return 0
-  reason=$(_tehas_valid "$1" "$2")
-  return 1
+  reason=$(_tehas_valid "$1" "$2") || return 1
 }
 
 # The roles an instance may give a model of their own, as the suffix of
@@ -486,9 +487,8 @@ tehas_load() {
   # time, checked below.
   export TEHAS_CONCURRENCY=${TEHAS_CONCURRENCY:-1}
   # The most issues worked on side by side, each in a cycle of its own. A
-  # ceiling: the dispatcher starts fewer while the slice has no room. By
-  # default one per CPU, less one for the host; `auto` is kept as written and
-  # answered by the poll (console/dispatch/src/slots.rs). The only host read here.
+  # ceiling: the dispatcher starts fewer while the slice has no room. By default
+  # one per CPU, less one for the host. The only host read here.
   v=$(_tehas_host_cpus)
   export TEHAS_TICKET_CONCURRENCY=${TEHAS_TICKET_CONCURRENCY:-$((v > 1 ? v - 1 : 1))}
   # The memory one container is given as its floor, what the dispatcher counts
@@ -556,7 +556,7 @@ tehas_load() {
   export TEHAS_RUKAS_WORKAROUNDS=${TEHAS_RUKAS_WORKAROUNDS:-} TEHAS_HOST_ADDR=${TEHAS_HOST_ADDR:-127.0.0.1}
   # Room for every cycle and two pull requests that wait for a review: a fixed
   # number would leave slots that can never be used. A concurrency that is not a
-  # number (or `auto`) leaves the floor of three.
+  # number leaves the floor of three.
   v=3
   ! _tehas_is_count "$TEHAS_TICKET_CONCURRENCY" || v=$((TEHAS_TICKET_CONCURRENCY + 2))
   export TEHAS_MAX_AWAITING=${TEHAS_MAX_AWAITING:-$v}
