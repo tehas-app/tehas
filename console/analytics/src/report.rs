@@ -52,7 +52,8 @@ const DAY: i64 = 86_400;
 /// is a dispatcher that was not polling: it is not counted as available,
 /// nor as one long draw of the sample's watts.
 pub const SAMPLE_SPAN: i64 = 600;
-/// A version pair with fewer work runs shows its count only.
+/// A version pair with fewer work runs shows its count only, and one with fewer
+/// that reported usage no median of tokens.
 pub const VERSION_FLOOR: usize = 3;
 use crate::run::DRIVERS;
 const STOP_REASONS: usize = 5;
@@ -1087,8 +1088,8 @@ fn stations(conn: &Connection, runs: &[WorkRun], from: i64, to: i64) -> rusqlite
 
 // One row per tehas and pi-rukas version pair, the pair that ran last
 // first. A pair with VERSION_FLOOR runs or more also has the share that
-// reached a pull request and the median seconds, and the median tokens of the
-// runs that reported usage.
+// reached a pull request and the median seconds, and with as many that reported
+// usage, the median tokens of those and their count.
 fn versions(runs: &[WorkRun]) -> Value {
     let mut pairs: Vec<((String, String), Vec<&WorkRun>)> = Vec::new();
     for r in runs {
@@ -1116,13 +1117,19 @@ fn versions(runs: &[WorkRun]) -> Value {
                 let mut tokens = used_tokens(&v);
                 tokens.sort_unstable();
                 let pick = |o: Option<Value>| if enough { o } else { None };
+                let used = tokens.len();
+                let pick_tokens = |o: Option<Value>| o.filter(|_| used >= VERSION_FLOOR);
                 obj(vec![
                     ("tehas", named(&tv)),
                     ("rukas", named(&rv)),
                     ("n", Some(json!(n))),
                     ("prShare", pick(share(pr, n).map(Value::from))),
                     ("medianSeconds", pick(median(&secs).map(Value::from))),
-                    ("medianTokens", pick(median(&tokens).map(Value::from))),
+                    (
+                        "medianTokens",
+                        pick_tokens(median(&tokens).map(Value::from)),
+                    ),
+                    ("tokensN", pick_tokens(Some(json!(used)))),
                 ])
             })
             .collect(),

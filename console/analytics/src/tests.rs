@@ -3496,7 +3496,7 @@ fn the_report_gives_the_figures_of_a_known_data_set() {
         // Three runs or more show their figures; fewer, the count only.
         "versions": [
             {"tehas": "v1", "rukas": "0.13.0", "n": 4, "prShare": 0.5, "medianSeconds": 900,
-             "medianTokens": 2500},
+             "medianTokens": 2500, "tokensN": 3},
             {"tehas": "v2", "n": 1},
             {"tehas": "v2", "rukas": "0.13.0", "n": 1},
         ],
@@ -3770,14 +3770,20 @@ fn a_run_with_no_usage_is_no_zero_in_a_version_pairs_median() {
     let day0 = 1_792_022_400;
     let (conn, _) = db::open(&db::path(&home), day0).unwrap();
     let pair = |conn: &Connection| {
-        crate::report::build(conn, day0 + DAY).unwrap()["versions"][0]["medianTokens"].clone()
+        let got = crate::report::build(conn, day0 + DAY).unwrap();
+        let row = &got["versions"][0];
+        (row["medianTokens"].clone(), row["tokensN"].clone())
     };
     driver_run(&conn, "a", 1, day0, "pr", None, Some("lean"));
     driver_run(&conn, "b", 2, day0, "pr", None, Some("lean"));
     driver_run(&conn, "c", 3, day0, "pr", None, Some("lean"));
-    assert_eq!(pair(&conn), Value::Null);
+    assert_eq!(pair(&conn), (Value::Null, Value::Null));
+    // The floor holds for the runs behind the figure, not the pair's.
     driver_run(&conn, "d", 4, day0, "pr", Some(500), None);
-    assert_eq!(pair(&conn), json!(500));
+    driver_run(&conn, "e", 5, day0, "pr", Some(600), None);
+    assert_eq!(pair(&conn), (Value::Null, Value::Null));
+    driver_run(&conn, "f", 6, day0, "pr", Some(700), None);
+    assert_eq!(pair(&conn), (json!(600), json!(3)));
 }
 
 #[test]
@@ -3804,7 +3810,7 @@ fn a_version_pair_reaches_its_figures_at_three_runs() {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": i + 1})
         } else {
             json!({"tehas": "v0.7.22", "rukas": "0.13.0", "n": 3, "prShare": 0.667,
-                   "medianSeconds": 60, "medianTokens": 10})
+                   "medianSeconds": 60, "medianTokens": 10, "tokensN": 3})
         };
         assert_eq!(pair(&conn), want);
     }
