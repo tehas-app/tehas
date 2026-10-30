@@ -137,10 +137,9 @@ tehas work: the driver's diagnostics are in $(basename "$cycle_log")"
 t_lacks "$(cat "$cycle_log.err")" "holds nothing"
 t_lacks "$(cat "$cycle_log.err")" "the cap is all the record says"
 
-t_case "the reason the progress read for the cap is said with it"
+t_case "the reason the result gives for the cap is said with it"
 fresh
-container "progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"502 Bad Gateway\"}}'
-says handoff verify-failed:develop; exit 10"
+container "says2 handoff verify-failed:develop '{\"kind\":\"provider\",\"providerMessage\":\"502 Bad Gateway\"}'; exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
@@ -240,8 +239,7 @@ t_contains "$err" "repetition 100"
 t_case "the reason of the cap is kept to what the park comment can hold"
 fresh
 long=$(printf 'r%.0s' $(seq 1 900))
-container "progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"$long\"}}'
-says handoff plan-spec-mismatch; exit 10"
+container "says2 handoff plan-spec-mismatch '{\"kind\":\"provider\",\"providerMessage\":\"$long\"}'; exit 10"
 t_run "$work 7"
 t_eq "$t_rc" 10
 cycle_log=$(printf '%s\n' "$t_out" | sed -n 's/^tehas work: issue 7 started, log //p')
@@ -272,7 +270,7 @@ t_run "$work 7"
 t_eq "$t_rc" 2
 t_eq "$(cat "$result_file")" ""
 
-t_case "the progress gives the usage per role of the stable dispatch lines, each key once, and the last cap's reason"
+t_case "the progress of a run whose runner wrote no result gives the usage of the stable dispatch lines, each key once, and the last cap's reason"
 fresh
 done_line() { printf '{"v":1,"kind":"dispatch-completed","key":"%s","event":{"role":"%s","ok":true,"usage":{"turns":2,"input":10,"output":4,"cacheRead":1}}}' "$1" "$2"; }
 container "progress '$(done_line 7:1:1 developer)'; progress '$(done_line 7:1:1 developer)'; progress '$(done_line 7:2:1 developer)'
@@ -280,14 +278,13 @@ progress '$(done_line 7:3:1 'ops x;')'
 progress '{\"v\":1,\"kind\":\"dispatch-completed\",\"unstable\":true,\"key\":\"7:4:1\",\"event\":{\"role\":\"liar\",\"usage\":{\"turns\":99}}}'
 progress 'not json'
 progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"502 Bad Gateway\"}}'
-says handoff step-failed:develop; exit 10"
+exit 30"
 t_run "$work 7"
 t_eq "$(jq -c '.roles' "$progress_file")" '[{"role":"developer","dispatches":2,"turns":4,"input":20,"output":8,"cacheRead":2},{"role":"opsx","dispatches":1,"turns":2,"input":10,"output":4,"cacheRead":1}]'
 t_eq "$(jq -r '.reason' "$progress_file")" "502 Bad Gateway"
 
-t_case "where the image says its result carries them, the usage per role and the failure come from the result"
+t_case "the usage per role and the failure of a schema 5 run come from its result"
 fresh
-jq '.features += {failureReason: true, usageByRole: true}' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 container "progress '$(done_line 7:1:1 liar)'
 progress '{\"v\":1,\"kind\":\"dispatch-failed-provider\",\"unstable\":true,\"event\":{\"providerMessage\":\"from the progress\"}}'
 echo '{\"schemaVersion\":5,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"handoff\",\"cap\":\"step-failed:develop\",\"failure\":{\"kind\":\"provider\",\"message\":\"m\",\"providerMessage\":\"503 from the result\"},\"usage\":{\"dispatches\":1,\"byRole\":{\"developer\":{\"input\":3,\"output\":1,\"cacheRead\":0,\"turns\":2,\"dispatches\":1}}},\"exitCode\":10}]}'

@@ -124,6 +124,7 @@ t_case "a short name holding brackets or quotes is still one name"
 reset
 files
 proc3=$T/proc3
+rm -rf "$proc3"
 proc_files "$proc3" 1000 '1000 100 500 8000 200 10 5 20' \
   '100 systemd 150 300' '500 a(b)c\"d 20 100' '600 [bracket] 30 100'
 mkdir -p "$proc3/notapid" "$proc3/700"
@@ -145,6 +146,7 @@ t_case "a tree with no load averages and no memory gives one line of question ma
 reset
 files
 proc4=$T/proc4
+rm -rf "$proc4"
 proc_files "$proc4" 1000 '1000 100 500 8000 200 10 5 20' '100 systemd 150 300'
 rm -f "$proc4/loadavg" "$proc4/meminfo"
 T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc4")
@@ -223,46 +225,86 @@ t_run '. "$T_ROOT/lib/top.sh"; tehas_top_frame "$(cat "$T/two")" 80 24'
 t_contains "$t_out" "host      2 cpus, load 0.10 0.20 0.30, cpu 50%, mem 32 of 64 MB"
 t_contains "$t_out" "tehas-cycle"
 
-# Two readings a hundred seconds apart, written by hand: the sleepy one has
-# used a thousand seconds of CPU in its life and one second in this window, the
-# busy one forty seconds in the window and almost none in its life. Only the
-# difference is shown.
-t_case "CPU percent is the difference between two readings, not since it started"
-reset
-jq -c -n '{clock: 1000.00, cpus: 2, load: [0.1, 0.2, 0.3],
-           memory: {totalKb: 65536, availKb: 32768}, cpuAll: 100000, cpuIdle: 90000,
-           procs: ([[100, "sleepy", 100000, 100, 400], [200, "busy", 100, 200, 400],
-                    [600, "gone", 500, 600, 10]] +
-                   [range(300; 316) | [., "p" + (. | tostring), 1000, 500, 10]])}' >"$T/r1"
-jq -c -n '{clock: 1100.00, cpus: 2, load: [0.1, 0.2, 0.3],
-           memory: {totalKb: 65536, availKb: 32768}, cpuAll: 200000, cpuIdle: 180000,
-           procs: ([[100, "sleepy", 100100, 100, 400], [200, "busy", 4100, 200, 400],
-                    [700, "new", 50, 700, 10]] +
-                   [range(300; 316) | [., "p" + (. | tostring), 1000 + ((. - 300) * 100), 500, 10]])}' >"$T/r2"
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_host "$(cat "$T/r2")" "$(cat "$T/r1")" >"$T/host"'
-t_eq "$t_rc" 0
-t_eq "$(jq -r '.cpuPercent' "$T/host")" "10"
-t_eq "$(jq -r '[.processes[0].name, .processes[0].cpuPercent, (.processes | length)] | join(" ")' "$T/host")" "busy 40 15"
-# The fifteen that used the most CPU in this window. sleepy is out although it
-# has used more CPU than any of them in its life; so are the two processes that
-# used less than the fifteenth.
-t_eq "$(jq -c '[.processes[].name]' "$T/host")" \
-  '["busy","p315","p314","p313","p312","p311","p310","p309","p308","p307","p306","p305","p304","p303","p302"]'
-t_eq "$(jq -c '[.processes[].cpuPercent] | unique' "$T/host")" '[2,3,4,5,6,7,8,9,10,11,12,13,14,15,40]'
-# A process only in the later reading and one only in the earlier are not
-# measured: there is nothing to take a difference between.
-t_eq "$(jq -c '[.processes[].name] | map(select(. == "new" or . == "gone"))' "$T/host")" "[]"
-t_eq "$(jq -r '.processes[0].upSeconds' "$T/host")" 1098
+# Two trees of one host, a hundred seconds apart, from the same process set:
+# tehas-cycle under 200 and twenty processes from p500 up, whose rows pid_rows
+# writes so the set is said once. In the window tehas-cycle used 4000 ticks of
+# one CPU (40%). The aggregate line of the later tree holds 5000 ticks of which
+# 4000 were idle, against 1000 of which 4000 were idle a hundred seconds before:
+# 4000 ticks of use in the window and all 4000 of them that one process, so the
+# host reads 100%. Of the twenty, each next pid used 100 ticks more, so the
+# fifteen that used the most are p515 down and p500 and p501 are out beside the
+# process that worked.
+every_two() { # <earlier> <later>
+  local earlier=$1 later=$2
+  rm -rf "$earlier" "$later"
+  # The rows are split on purpose: one word is one row of proc_files.
+  # shellcheck disable=SC2046
+  proc_files "$earlier" 1000 '1000 0 0 4000 0 0 0 0' \
+    '200 tehas-cycle 0 800' $(pid_rows 500 519 1000 0)
+  # shellcheck disable=SC2046
+  proc_files "$later" 1100 '5000 0 0 4000 0 0 0 0' \
+    '200 tehas-cycle 4000 800' $(pid_rows 500 515 1000 100)
+}
 
-t_case "a pid that began again is not read as one long process"
+t_case "a snapshot given the reading of the frame before reports the difference"
 reset
-jq -c -n '{clock: 1000.00, cpus: 1, load: [0, 0, 0], memory: null, cpuAll: 1000, cpuIdle: 900,
-           procs: [[100, "cycle", 5000, 500, 400]]}' >"$T/r1"
-jq -c -n '{clock: 1010.00, cpus: 1, load: [0, 0, 0], memory: null, cpuAll: 2000, cpuIdle: 1900,
-           procs: [[100, "cycle", 50, 50000, 400]]}' >"$T/r2"
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_host "$(cat "$T/r2")" "$(cat "$T/r1")" >"$T/host"'
+files
+# The two trees are read through the [dir] argument of tehas_host_reading, so
+# one case can hold a pair of them: the later is the tree named in
+# TEHAS_PROC_DIR and the earlier is asked for by path, which is how the reading
+# of the frame before reaches the next call. Swapping the two would change the
+# figures. Start ticks come from the pid, so upSeconds of a row is the later
+# clock less the start ticks its pid gives it.
+every_two "$T/earlier" "$T/later"
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$T/later")
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(tehas_host_reading "$T/earlier")" >"$T/host"'
 t_eq "$t_rc" 0
-t_eq "$(jq -c '.processes' "$T/host")" "[]"
+# The host over the window: 4000 ticks of use out of the 4000 the aggregate line
+# gained ((5000 - 1000) less the 4000 idle in both), and none of them idle - so
+# the host reads 100% and all of it is the one process.
+t_eq "$(jq -r '.host.cpuPercent' "$T/host")" "100"
+t_eq "$(jq -r '[.host.processes[0].name, .host.processes[0].cpuPercent, (.host.processes | length)] | join(" ")' "$T/host")" "tehas-cycle 40 15"
+# The fifteen that used the most CPU in this window: tehas-cycle, then the
+# fifteen pids from p515 down. p516 to p519, which are in the earlier reading
+# only, are not measured: there is nothing to take a difference between.
+t_eq "$(jq -c '[.host.processes[].name]' "$T/host")" \
+  '["tehas-cycle","p515","p514","p513","p512","p511","p510","p509","p508","p507","p506","p505","p504","p503","p502"]'
+t_eq "$(jq -c '[.host.processes[].cpuPercent] | unique' "$T/host")" '[2,3,4,5,6,7,8,9,10,11,12,13,14,15,40]'
+# The first row is tehas-cycle, pid 200: the clock of the later reading, 1100 s,
+# less the start ticks its pid gives it, (900 + 200 - 100) * 100 / 100.
+t_eq "$(jq -r '.host.processes[0].upSeconds' "$T/host")" 1090
+# Load and memory are the text of the tree: 0.10 stays 0.10. The figures are
+# what proc_files writes with two digits, which is what a number read through
+# JSON would lose.
+t_eq "$(jq -c '.host.load' "$T/host")" '[0.10,0.20,0.30]'
+t_eq "$(jq -c '.host.memory | keys' "$T/host")" '["percent","totalMb","usedMb"]'
+
+# A process with no row in the earlier reading has nothing to take a difference
+# from: its CPU is nothing, not a figure of the window. tehas-cycle is under
+# 5000 here and the earlier tree knows only 200; p501 is under a pid the earlier
+# tree does not name at all. The rule that a pid which began again in the window
+# is not read as one long process is pinned by the Rust twin of this fixture in
+# console/src/top.rs, where the start time of one pid can be given two values.
+t_case "a process with no row in the earlier reading is not measured"
+reset
+files
+earlier=$T/earlier
+later=$T/later
+rm -rf "$earlier" "$later"
+proc_files "$earlier" 1000 '1000 0 0 4000 0 0 0 0' '200 tehas-cycle 0 800' '500 p500 1000 10'
+proc_files "$later" 1100 '5500 0 0 4000 0 0 0 0' \
+  '5000 tehas-cycle 4000 800' '500 p500 1100 10' '501 p501 1200 10'
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$later")
+t_run '. "$T_ROOT/lib/top.sh"; tehas_top_snapshot 16 "$(tehas_host_reading "$earlier")" >"$T/host"'
+t_eq "$t_rc" 0
+t_eq "$(jq -c '[.host.processes[].name] | sort' "$T/host")" '["p500","p501","tehas-cycle"]'
+# The rows that the earlier tree does not pair say nothing: p501 is under a pid
+# the earlier tree does not name, and tehas-cycle under one it does not know.
+# A row with no row behind it is not a measurement, and it is not the host's
+# figure either - which the host line below says for itself.
+t_eq "$(jq -c '[.host.processes[] | select(.name != "p500") | .cpuPercent] | unique' "$T/host")" \
+  '[null]'
+t_eq "$(jq -r '.host.cpuPercent' "$T/host")" "null"
 
 t_case "the redrawing view hands the reading of one frame to the next"
 reset

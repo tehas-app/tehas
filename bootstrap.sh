@@ -12,7 +12,8 @@
 #                                     the slice, then the user part as <user>
 #                                     in the same run, unless --root-only
 #   sudo ./bootstrap.sh slice         the systemd slice the sandbox containers
-#                                     run in, /etc/systemd/system/tehas.slice
+#                                     run in, its unit and the udev rule that
+#                                     reloads systemd when memory is added
 #   ./bootstrap.sh user               the rest, as the tehas user, under that
 #                                     user's home; ends with pi-rukas's installer
 #   sudo ./bootstrap.sh dev <user> [<login>...]
@@ -23,7 +24,8 @@
 #                                     to step the clock at any time after boot
 #   ./bootstrap.sh check              change nothing; one line per tool with
 #                                     the version found and the one expected,
-#                                     and one for the slice
+#                                     and one each for the slice, its rule and
+#                                     its reload unit
 #
 # It does not create credentials, clone the product or install tehas itself:
 # see the manual's bootstrap page for the steps around it.
@@ -132,12 +134,24 @@ docker_systemd_driver() {
 }
 
 # --- slice --------------------------------------------------------------------
-# One system unit, host/slice/tehas.slice, copied to /etc/systemd/system. Root
-# is needed for exactly this: rootful Docker places containers under PID 1, so
-# a slice of the tehas user cannot hold them. It reads nothing from the
-# instance, the user's home or the network.
+# Three files, all from host/slice: tehas.slice copied to /etc/systemd/system,
+# the udev rule under /etc/udev/rules.d, and the oneshot that rule starts.
+# tehas.slice.d/override.conf is not among them: tehas reads that file and never
+# writes it. Root is needed for exactly this: rootful Docker places containers
+# under PID 1, so a slice of the tehas user cannot hold them. Nothing here reads
+# the instance, the user's home or the network.
+#
+# The three pairs are one table of "<shipped> <installed>" rows, in the order
+# they are written: the unit the rule names first, so one daemon-reload reads
+# all three. The pre-flight loop, the write loop and check read that table, so
+# a fourth shipped file is one row here and nothing else.
 slice_file=$root/host/slice/tehas.slice
 slice_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas.slice
+rule_file=$root/host/slice/96-tehas-memory-online.rules
+rule_to=${BOOTSTRAP_ETC:-/etc}/udev/rules.d/96-tehas-memory-online.rules
+reload_file=$root/host/slice/tehas-slice-reload.service
+reload_to=${BOOTSTRAP_ETC:-/etc}/systemd/system/tehas-slice-reload.service
+slice_parts=("$reload_file $reload_to" "$rule_file $rule_to" "$slice_file $slice_to")
 
 # The slice as systemd has it: sets slice_path and slice_max. True when it is
 # loaded from a file, has a memory limit, and the file has not changed since
@@ -156,8 +170,11 @@ slice_loaded() {
 # was written), 1 when a step failed. Every step is checked by hand: do_root
 # calls this where set -e does not reach.
 slice_install() {
-  local answer driver version oomd
-  [ -f "$slice_file" ] || { echo "bootstrap: $slice_file is missing from this checkout" >&2; return 1; }
+  local answer driver version oomd part f to all_equal
+  for part in "${slice_parts[@]}"; do
+    f=${part%% *}
+    [ -f "$f" ] || { echo "bootstrap: $f is missing from this checkout" >&2; return 1; }
+  done
   answer=$(docker info --format '{{.CgroupDriver}} {{.CgroupVersion}}' 2>/dev/null) || answer=""
   if [ "$answer" != "systemd 2" ]; then
     read -r driver version _ <<<"$answer" || true
@@ -169,14 +186,37 @@ slice_install() {
     fi
     return 3
   fi
-  # An equal file is not enough: it is in force only once systemd has read it.
-  if [ -f "$slice_to" ] && cmp -s "$slice_file" "$slice_to" && slice_loaded; then
+  # All three equal is what "in place" means, and an equal slice file is not
+  # enough on its own: it is in force only once systemd has read it. Comparing
+  # one pair only would let a run that wrote two of the three report success
+  # forever after, with the rule on the host pointing at a unit that is not there.
+  all_equal=yes
+  for part in "${slice_parts[@]}"; do
+    to=${part##* }
+    if [ ! -f "$to" ] || ! cmp -s "${part%% *}" "$to"; then all_equal=no; break; fi
+  done
+  if [ "$all_equal" = yes ] && slice_loaded; then
     echo "bootstrap: slice part already in place"
     return 0
   fi
-  install -D -m 644 "$slice_file" "$slice_to" ||
-    { echo "bootstrap: could not write $slice_to" >&2; return 1; }
+  # The unit the rule names is first in the table and the slice last, so one
+  # daemon-reload reads all three: the manager that sees the rule has the unit to
+  # start, and the slice has it beside its own file.
+  for part in "${slice_parts[@]}"; do
+    install -D -m 644 "${part%% *}" "${part##* }" ||
+      { echo "bootstrap: could not write ${part##* }" >&2; return 1; }
+  done
   systemctl daemon-reload || { echo "bootstrap: systemctl daemon-reload failed" >&2; return 1; }
+  # The rule is read by udevd, not by the system manager: without this reload
+  # the file sits in /etc/udev/rules.d until udevd next restarts. A host with no
+  # udevadm has nothing to reload, so the line is a warning, not a failed step:
+  # the slice itself is written, reloaded and started either way.
+  if command -v udevadm >/dev/null 2>&1; then
+    timeout 30 udevadm control --reload-rules ||
+      echo "bootstrap: warning: udevadm control --reload-rules failed; memory added to the host will not reach the slice until udevd next reloads its rules" >&2
+  else
+    echo "bootstrap: warning: no udevadm on this host; the memory-online rule takes effect only at udevd's next restart" >&2
+  fi
   systemctl start tehas.slice || { echo "bootstrap: systemctl start tehas.slice failed" >&2; return 1; }
   slice_loaded || {
     echo "bootstrap: tehas.slice has no memory limit after it was started (FragmentPath=${slice_path:-none}, MemoryMax=${slice_max:-none})" >&2
@@ -185,6 +225,7 @@ slice_install() {
   # Information only: tehas neither uses nor needs systemd-oomd.
   oomd=inactive
   [ "$(systemctl is-active systemd-oomd 2>/dev/null || true)" != active ] || oomd=active
+  # Only what the step proved: check is what reports the rule and the unit.
   echo "bootstrap: slice part done. tehas.slice is loaded from $slice_path, MemoryMax $slice_max bytes. systemd-oomd: $oomd"
 }
 
@@ -371,7 +412,7 @@ found_ctx7_tree() { found_npm ctx7 found_ctx7 "$CTX7_LOCK_SHA256"; }
 found_parallel_tree() { found_npm parallel-web-cli found_parallel "$PARALLEL_CLI_LOCK_SHA256"; }
 
 do_check() {
-  local rc=0 name want found tool
+  local rc=0 name want found tool part
   home_paths
   line() { # name found expected
     local mark=ok
@@ -419,14 +460,22 @@ EOF
   check "docker without sudo" docker info
   lingering() { [ "$(loginctl show-user "$(id -un)" -p Linger --value)" = yes ]; }
   check "lingering" lingering
-  # Root's to install, so it is reported and does not fail the check.
-  if [ ! -f "$slice_to" ]; then
-    echo "tehas.slice: missing (sudo ./bootstrap.sh slice)"
-  elif cmp -s "$slice_file" "$slice_to"; then
-    echo "tehas.slice: in place"
-  else
-    echo "tehas.slice: differs (sudo ./bootstrap.sh slice)"
-  fi
+  # Root's to install, so they are reported and do not fail the check. The three
+  # verdicts come from one helper over the table slice_install writes from, so a
+  # line's name is the installed file's own name and one verdict is one code path.
+  check_part() { # <shipped> <installed>
+    local shipped=$1 installed=$2
+    if [ ! -f "$installed" ]; then
+      echo "$(basename "$installed"): missing (sudo ./bootstrap.sh slice)"
+    elif cmp -s "$shipped" "$installed"; then
+      echo "$(basename "$installed"): in place"
+    else
+      echo "$(basename "$installed"): differs (sudo ./bootstrap.sh slice)"
+    fi
+  }
+  for part in "${slice_parts[@]}"; do
+    check_part "${part%% *}" "${part##* }"
+  done
   return "$rc"
 }
 
@@ -694,7 +743,7 @@ case "${1:-}" in
   clock) shift; do_clock "$@" ;;
   check) do_check ;;
   *)
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
     exit 64
     ;;
 esac

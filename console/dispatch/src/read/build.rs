@@ -334,6 +334,14 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         per_issue.extend(reads);
     }
 
+    // The running cycles a fed start began count against the feed's cap.
+    if c.millwright_feed {
+        want(
+            &mut per_issue,
+            locks.iter().copied().map(store::Read::Approval),
+        );
+    }
+
     // Refreshes: the history, the marks, the requests and what they read.
     let history = store::refreshed(calls);
     let mut from: Vec<u64> = history
@@ -413,6 +421,9 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     for n in &from {
         let (_, current) = store::approval(&asked, *n);
         entry(&mut issues, *n)["current"] = current;
+    }
+    if c.millwright_feed {
+        s["fed"] = store::fed(&asked, &locks);
     }
     s["refresh_requests"] = json!(requests.iter().map(|(n, _)| n).collect::<Vec<_>>());
     for (n, req) in &requests {
