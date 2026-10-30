@@ -378,3 +378,35 @@ pub fn room(r: &Reading, s: &Usable, reserve: &str, count: u64) -> Room {
 pub fn gib(b: u64) -> String {
     format!("{}.{} GiB", b / GIB, b % GIB * 10 / GIB)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reading that passes every check but the ones a case names.
+    fn host() -> Reading {
+        let mut show = Map::new();
+        show.insert("FragmentPath".into(), Value::from("/etc/systemd/system/tehas.slice"));
+        show.insert("ActiveState".into(), Value::from("active"));
+        show.insert("MemoryMax".into(), Value::from("34359738368"));
+        Reading {
+            show: Some(show),
+            docker: Some("systemd 2".into()),
+            controllers: Some("cpu memory pids".into()),
+            cpus: Some("8".into()),
+            root: "/sys/fs/cgroup".into(),
+            scopes: Some(vec![]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_count_of_containers_that_is_no_number_is_refused_by_name() {
+        // The instance asked for `auto`, which config.sh lets through for the
+        // poll to answer: a command that starts a container has no count to
+        // size one with, and says which of the two it is.
+        let why = usable(&host(), "2g", "auto").unwrap_err();
+        assert_eq!(why, "TEHAS_SLICE_CONTAINERS=auto is not a count");
+        assert!(usable(&host(), "2g", "4").is_ok());
+    }
+}
