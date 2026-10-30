@@ -10,29 +10,30 @@
 #       poll ends. A failure, the time limit included, is one line in the
 #       caller's log, "WARN analytics <subcommand>: exit N": 124 at the
 #       limit, 137 a second later for a program that ignores TERM, as what
-#       libexec/cycle starts during its report does. Does nothing
-#       unless TEHAS_ANALYTICS is on, and nothing, silently, where the
-#       program is not installed.
+#       libexec/cycle starts during its report does. Does nothing unless
+#       TEHAS_ANALYTICS is on, and silently where the program is not installed.
 #
 #   tehas_analytics_to <file> <subcommand> [<argument>...]
 #       The same call, with what the program prints written to <file>, for
-#       the subcommands that answer: report and sessions. The same time limit and the same
-#       WARN line. Returns 0 when the program ended with 0, 1 when it failed
-#       (<file> then holds what it printed, if anything), and 2, writing
-#       nothing, where tehas_analytics would not call it: TEHAS_ANALYTICS is
-#       not on or the program is not installed. A caller of sessions or
-#       outcomes passes --out and a directory, and /dev/null for <file>.
+#       the subcommands that answer: report and sessions. The same time limit
+#       and WARN line. Returns 0 when the program ended with 0, 1 when it failed
+#       (<file> then holds what it printed, if anything), and 2, writing nothing,
+#       where tehas_analytics would not call it. A caller of sessions or outcomes
+#       passes --out and a directory, and /dev/null for <file>.
 #
-#   tehas_analytics_run <issue> <attempt> <line> [<option>...]
+#   tehas_analytics_approval <issue> <attempt>
+#       Print {at, how, driver} of the approval that attempt used, or null. Read
+#       before cycle-end, which removes the record of a start that never ran.
+#
+#   tehas_analytics_run <issue> <attempt> <line> <approval> [<option>...]
 #       tehas_analytics run <issue> --facts <file> [<option>...], the facts of
 #       the run that ended written to <file> for the call and removed after
 #       it: {line, attempt, approval, settings, rukas}. <line> is the line of
 #       history libexec/cycle made of the end, a JSON object, and <attempt> the
-#       attempt the state store gave the start. The rest is from the state
-#       store (lib/store.sh, which the caller sources): {at, how, driver} of
-#       the approval that attempt used, and the settings and pi-rukas commit on
-#       its record. What the store cannot answer, or has none of, is a null
-#       fact, as is a line that is not an object.
+#       attempt the state store gave the start. The settings and pi-rukas commit
+#       are from its record on the state store (lib/store.sh, which the caller
+#       sources). What the store cannot answer, or has none of, is a null fact,
+#       as is a line that is not an object.
 #
 #   tehas_analytics_plan <issue> [<option>...]
 #       tehas_analytics plan <issue> --facts <file> [<option>...], the facts
@@ -110,32 +111,31 @@ tehas_analytics_facts() {
   return 0
 }
 
+tehas_analytics_approval() { # <issue> <attempt>
+  local view approval=""
+  if [[ $2 =~ ^[1-9][0-9]{0,8}$ ]] && tehas_analytics_on && view=$(tehas_approval_view "$1" "$2"); then
+    approval=$(jq -c '{at, how, driver}' "$view" 2>/dev/null)
+    rm -f "$view"
+  fi
+  printf '%s\n' "${approval:-null}"
+}
+
 tehas_analytics_run() {
-  local issue=$1 attempt=$2 line=$3 approval=null settings=null rukas=null view facts
-  shift 3
+  local issue=$1 attempt=$2 line=$3 approval=$4 settings="" rukas="" facts
+  shift 4
   tehas_analytics_on || return 0
   [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]] || attempt=null
   line=$(jq -c 'objects' <<<"$line" 2>/dev/null) || line=""
-  [ -n "$line" ] || line=null
-  if [ "$attempt" != null ]; then
-    if view=$(tehas_approval_view "$issue" "$attempt"); then
-      approval=$(jq -c '{at, how, driver}' "$view" 2>/dev/null) || approval=null
-      rm -f "$view"
-    fi
-    # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets these
-    if tehas_store cycle-show "$issue"; then
-      settings=$(jq -c --argjson a "$attempt" ".cycle | select(. != null and .attempt == \$a) | $tehas_settings_shape" \
-        <<<"$tehas_store_out" 2>/dev/null) || settings=null
-      rukas=$(jq -c --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .rukas_commit' \
-        <<<"$tehas_store_out" 2>/dev/null) || rukas=null
-    fi
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets these
+  if [ "$attempt" != null ] && tehas_store cycle-show "$issue"; then
+    settings=$(jq -c --argjson a "$attempt" ".cycle | select(. != null and .attempt == \$a) | $tehas_settings_shape" \
+      <<<"$tehas_store_out" 2>/dev/null) || settings=""
+    rukas=$(jq -c --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .rukas_commit' \
+      <<<"$tehas_store_out" 2>/dev/null) || rukas=""
   fi
-  [ -n "$approval" ] || approval=null
-  [ -n "$settings" ] || settings=null
-  [ -n "$rukas" ] || rukas=null
   # Through standard input: a history line may be longer than one argument
   # of a command may be.
-  facts=$(printf '%s\n' "$line" "$attempt" "$approval" "$settings" "$rukas" |
+  facts=$(printf '%s\n' "${line:-null}" "$attempt" "${approval:-null}" "${settings:-null}" "${rukas:-null}" |
     jq -s -c '{line: .[0], attempt: .[1], approval: .[2], settings: .[3], rukas: .[4]}' 2>/dev/null) ||
     facts=""
   [ -n "$facts" ] || facts=null
