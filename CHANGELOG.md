@@ -13,6 +13,20 @@ empty one above it.
 
 ### Changes
 
+- The dispatcher chooses an easy merge or the full refresh for each refresh
+  start, behind `TEHAS_EASY_MERGE` (off). With it on, a pull request whose
+  approval has had no easy merge yet starts as one, its approval record is
+  written with the store's `--easy` mark and the dispatch log reads
+  `start #<issue>: easy merge of PR #<n>`. The store answers `easy` for an
+  approval, which is how the poll knows the one merge is spent. The full
+  refresh runs instead when the last easy merge pushed nothing, or pushed and
+  the pull request then failed the check `TEHAS_BRANCH_CHECK` names, or
+  conflicts again; with no check named, only a new conflict asks for the full
+  one, and a pull request whose check is still running waits. An easy merge
+  counts against `TEHAS_REFRESH_MAX` like any refresh. Until part 3 lands the
+  container still runs the full refresh, so today only the record and the log
+  line differ (#1031).
+
 ### Adopter action
 
 None.
