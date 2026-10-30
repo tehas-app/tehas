@@ -482,6 +482,42 @@ rm "$T/shipped-down"
 t_run "$status"
 t_eq "$(cksum <"$live/status.json")" "$before"
 
+t_case "a list of issues that cannot be read warns and leaves the old snapshot"
+# The header of the command promises a WARN line whenever it writes no snapshot.
+# The read of the list of issues in work is one of the two reads that end the
+# run with nothing written, and used to do so in silence: now it says so, as the
+# read of the closers has always done, and exit stays 0.
+reset
+t_run "$status"
+before=$(cksum <"$live/status.json")
+rm "$live/health.json"
+# The stub answers the search of the issues in work from $T/issues.json and the
+# word cloud of every issue from $T/all.json: only the first file is gone here,
+# so the read the run cannot do without fails and the one it can do without does
+# not. t_case clears $T/calls, so the two lines below are this case's calls.
+rm "$T/issues.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "issue list --repo acme/widget --state all --limit 200"
+t_lacks "$t_out" "WARN status: the answer of what closed these issues was no list"
+t_contains "$t_out" "WARN status: the list of issues could not be read, no snapshot was written"
+t_eq "$(cksum <"$live/status.json")" "$before"
+t_eq "$(jq -r .status "$live/health.json")" pass
+
+t_case "an answer of what closed these issues that is no list warns and leaves the old snapshot"
+# The read answers 0 with a reply that holds no list of nodes: the console says
+# it is no answer at all, so the run writes no snapshot and says why.
+reset
+t_run "$status"
+before=$(cksum <"$live/status.json")
+rm "$live/health.json"
+printf '%s\n' '{"data":{}}' >"$T/shipped.json"
+t_run "$status"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN status: the answer of what closed these issues was no list, no snapshot was written"
+t_eq "$(cksum <"$live/status.json")" "$before"
+t_eq "$(jq -r .status "$live/health.json")" pass
+
 t_case "with GitHub down the old snapshot stays and health is still refreshed"
 reset
 t_run "$status"
