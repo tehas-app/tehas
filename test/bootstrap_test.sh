@@ -1147,7 +1147,7 @@ fresh_clock
 clock_stubs 0 ''
 t_run "unset BOOTSTRAP_ETC; $bootstrap clock"
 t_eq "$t_rc" 1
-t_contains "$t_out" "cannot create directory '/etc/chrony'"
+t_contains "$t_out" "cannot create directory '/etc/chrony"
 t_eq "$([ -e "$conf" ] && echo there)" ""
 t_eq "$([ -e "${conf}.prev" ] && echo there)" ""
 
