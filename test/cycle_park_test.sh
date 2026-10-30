@@ -562,6 +562,7 @@ approved_start() { # [<approval-record args>...]
 lean_refused() {
   reset
   echo 78 >"$fx/rc"
+  echo ': >"$TEHAS_HOME/state/cycles/7.lean-refused"' >"$fx/work.sh"
   printf '{"links":[],"driver":"lean"}' >"$T/lean-input.json"
   approved_start --input-file "$T/lean-input.json"
 }
@@ -589,6 +590,22 @@ t_run "$cycle 7"
 t_contains "$(t_calls gh)" "stopped without a pull request"
 t_lacks "$(t_calls gh)" "tehas:lean"
 t_eq "$(t_row approval-current 7 -- '.current.by')" alice
+
+t_case "a 78 on a lean start that tehas work did not say was lean's is a stopped cycle, with its approval on record"
+lean_refused
+rm "$fx/work.sh"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "stopped without a pull request"
+t_lacks "$(t_calls gh)" "tehas:lean"
+t_eq "$(t_row approval-current 7 -- '.current.by')" alice
+
+t_case "a refused lean start of an earlier cycle says nothing of this one"
+lean_refused
+rm "$fx/work.sh"
+mkdir -p "$T/home/tehas/state/cycles"
+: >"$T/home/tehas/state/cycles/7.lean-refused"
+t_run "$cycle 7"
+t_contains "$(t_calls gh)" "stopped without a pull request"
 
 t_case "a start that never ran is parked as one that never ran, named from the record"
 never_ran approved

@@ -785,14 +785,12 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .unwrap_or_default();
     // The approval this start used.
     let (mut refreshed, mut base_at, mut base_by) = (String::new(), String::new(), String::new());
-    let mut lean = false;
     match &f.approval {
         Ok(a) => {
             let cur = a.get("current").filter(|c| {
                 c.is_object() && c.get("used_by").and_then(Value::as_u64) == Some(f.attempt)
             });
             if let Some(c) = cur {
-                lean = c.pointer("/input/driver").and_then(Value::as_str) == Some("lean");
                 let dash = |x: Option<&Value>| match x {
                     None | Some(Value::Null) | Some(Value::Bool(false)) => "-".to_string(),
                     Some(Value::String(s)) => s.clone(),
@@ -948,8 +946,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         },
     };
     let rc = f.rc;
-    // tehas work refused the start: with 4, or with 78 for a driver it cannot run.
-    let never_started = rc == 4 || (rc == 78 && lean);
+    // tehas work refused the start: with 4, or with 78 and its note on lean.
+    let lean_refused = rc == 78 && matches!(f.file("lean-refused"), File::Text(_));
+    let never_started = rc == 4 || lean_refused;
     let handoff_part = if handoff.is_empty() {
         String::new()
     } else {

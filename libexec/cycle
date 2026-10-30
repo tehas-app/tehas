@@ -91,7 +91,7 @@
 # and that no event was seen, and a step of no-step rather than one read from a
 # log. Its run log is still opened for a branch, but no step is taken from it.
 #
-# A runner that exits 78 on a start whose approval says driver lean started no
+# A runner that exits 78 and leaves state/cycles/<issue>.lean-refused started no
 # cycle either, and is parked as one that exits 4, with what to do next.
 #
 # A runner that exits 4 started no cycle: tehas work refused the start, over
@@ -452,7 +452,7 @@ fi
 rm -f "${cycles:?}/${issue:?}.oom" "${cycles:?}/${issue:?}.forks" "${cycles:?}/${issue:?}.stalled" "${cycles:?}/${issue:?}.timed" \
   "${cycles:?}/${issue:?}.stopped" "${cycles:?}/${issue:?}.stopped.new" \
   "${cycles:?}/${issue:?}.result.json" "${cycles:?}/${issue:?}.progress.json" \
-  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.done" \
+  "${cycles:?}/${issue:?}.nostart" "${cycles:?}/${issue:?}.lean-refused" "${cycles:?}/${issue:?}.done" \
   "${cycles:?}/${issue:?}.runner_exit" "${cycles:?}/${issue:?}.status"
 # The trap is set before the runner starts, so no signal falls between.
 wpid=""
@@ -1066,16 +1066,17 @@ rm -f "$cycles/$issue.done"
 # leaves it unknown: the mark of a refresh is then the dispatcher's to clear.
 # A refresh is on record at the time the poll decided it: the person's approval
 # it rests on is the one named for it, as tehas_approval_shape names it.
-refreshed="" base_at="" driver="" base_by=""
+refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
-  read -r refreshed base_at driver base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
+  read -r refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
     | .current | select(. != null and .used_by == $a)
-    | [(if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr) else null end), $r.at, .input.driver, $r.by]
+    | [(if .how == "refresh" then (.refresh_pr // .input.refresh_of.pr) else null end), $r.at, $r.by]
     | map(. // "-" | tostring) | join(" ")' <<<"$tehas_store_out" 2>/dev/null)
 else
   log "WARN: the approval of #$issue could not be read for its report ($tehas_store_word)"
 fi
-case "$rc:$driver" in 78:lean) rc_start=4 ;; *) rc_start=$rc ;; esac
+lean_note=${cycles:?}/${issue:?}.lean-refused
+if [ "$rc" = 78 ] && [ -f "$lean_note" ] && [ ! -L "$lean_note" ]; then rc_start=4; else rc_start=$rc; fi
 [[ $refreshed =~ ^[1-9][0-9]{0,9}$ ]] || refreshed=""
 [[ $base_at =~ ^[1-9][0-9]{0,10}$ ]] || base_at=""
 # park <text>: hand the issue to a human with the retry question.

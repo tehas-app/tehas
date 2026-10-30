@@ -454,6 +454,7 @@ rm -f "$T"/calls/*
 t_run "$work 7"
 t_eq "$t_rc" 78
 t_contains "$t_out" "this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #7 to run it on classic"
+t_eq "$([ -f "$T/home/tehas/state/cycles/7.lean-refused" ] && echo left)" left
 t_lacks "$(t_calls docker)" "run "
 t_eq "$(cycle_args)" ""
 t_eq "$(preflight_args)" ""

@@ -14,7 +14,7 @@
 # What goes is only what says a cycle runs, is owed, or is parked:
 #
 #   state/cycles/<issue>.lock .cid .done .stalled .timed .oom
-#                  .forks .nostart .nostart.new .progress.json .result.json
+#                  .forks .nostart .nostart.new .lean-refused .progress.json .result.json
 #   state/cycles/<issue>.stopped .stopped.new, left by an earlier stop
 #   the issue's current park on the state store asks for nothing more: its
 #                  question is taken off the record (its boxes start nothing)
@@ -133,7 +133,7 @@ runs=$HOME/.pi/agent/ensemble-runs/issue-$n
 # The one sibling name belongs here too: a write of a note is made beside it and
 # moved into place, and a stop that takes the note takes the name of a write
 # that never finished, as libexec/work's own clear of these files does.
-notes=(lock cid "done" stalled timed stopped oom forks nostart nostart.new progress.json result.json)
+notes=(lock cid "done" stalled timed stopped oom forks nostart nostart.new lean-refused progress.json result.json)
 
 # said <path>: one line for a thing that went, in the shape a person types.
 said() {

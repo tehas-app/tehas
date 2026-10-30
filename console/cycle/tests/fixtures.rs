@@ -168,14 +168,16 @@ fn the_reports_of_the_bash_cases() {
 }
 
 /// The report of a case of tests/fixtures/park.json that exited 4, with `rc`
-/// and the driver its approval names in its place.
-fn refused(rc: i64, driver: Option<&str>) -> (Vec<String>, String) {
+/// in its place, with the driver lean on its approval and with or without the
+/// note tehas work leaves when it refuses lean.
+fn refused(rc: i64, note: bool) -> (Vec<String>, String) {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/park.json");
     let cases: Vec<Value> = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     let mut c = cases.into_iter().find(|c| c["facts"]["rc"] == 4).unwrap();
     c["facts"]["rc"] = rc.into();
-    if let Some(d) = driver {
-        c["facts"]["approval"]["current"]["input"] = serde_json::json!({"driver": d});
+    c["facts"]["approval"]["current"]["input"] = serde_json::json!({"driver": "lean"});
+    if note {
+        c["facts"]["files"]["lean-refused"] = "".into();
     }
     let facts = Facts::from_json(&c["facts"]).unwrap();
     let r = report(&facts, &mut Given(c["facts"]["github"].clone()));
@@ -188,7 +190,7 @@ fn refused(rc: i64, driver: Option<&str>) -> (Vec<String>, String) {
 
 #[test]
 fn a_lean_start_refused_with_78_is_parked_as_one_that_never_ran() {
-    let (end, said) = refused(78, Some("lean"));
+    let (end, said) = refused(78, true);
     assert!(end.contains(&"--never-ran".to_string()), "{end:?}");
     assert!(
         said.contains("this tehas cannot run the lean driver yet"),
@@ -198,8 +200,9 @@ fn a_lean_start_refused_with_78_is_parked_as_one_that_never_ran() {
 }
 
 #[test]
-fn a_78_on_a_classic_start_is_a_cycle_that_stopped() {
-    let (end, said) = refused(78, None);
+fn another_78_on_a_lean_start_is_a_cycle_that_stopped() {
+    let (end, said) = refused(78, false);
     assert!(!end.contains(&"--never-ran".to_string()), "{end:?}");
     assert!(said.contains("stopped without a pull request"), "{said}");
+    assert!(!said.contains("lean"), "{said}");
 }
