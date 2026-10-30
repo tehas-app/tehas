@@ -11,6 +11,7 @@ use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
+use tehas_core::hold::{Why, Report};
 
 mod clean;
 mod plan;
@@ -94,8 +95,10 @@ pub struct Decision {
     pub exit: i32,
     pub log: Vec<String>,
     pub actions: Vec<Value>,
-    /// live/dispatch.json, without its time. A dry run writes none.
-    pub report: Option<Value>,
+    /// live/dispatch.json, without its time. A dry run writes none. The keys
+    /// and the hold's words are tehas-core's, so the readers of the file name
+    /// them by the same type the writer does.
+    pub report: Option<Report>,
     /// live/demand.json, without its time: Some(Null) removes it. A dry run
     /// writes none.
     pub demand: Option<Value>,
@@ -637,6 +640,10 @@ impl<'a> Poll<'a> {
         let mut mem_note = String::new();
         let mut pressure = None;
         let mut ceiling_mb = 0;
+        // The word of the slice's own reason, remembered for the arm that
+        // answers with it later: the slice's text decides it, and only the
+        // arms of `slice::room` name it.
+        let mut slice_word = None;
         // The containers in force, so `auto` divides the slice by the number
         // the poll derived rather than by the word in the setting.
         let containers = self.slots.containers.to_string();
@@ -660,6 +667,7 @@ impl<'a> Poll<'a> {
                         }
                     }
                 }
+                slice_word = Why::parse(&mem_why);
             }
             Err(why) => slice_hold = format!("holding: {why}"),
         }
@@ -672,7 +680,7 @@ impl<'a> Poll<'a> {
             self.log(line);
         }
         let room_mem_i = room_mem as i64;
-        let (mut hold, mut why) = (String::new(), String::new());
+        let (mut hold, mut why) = (String::new(), None);
         let (mut want, mut want_all) = (0i64, 0i64);
         let mut want_refresh = None;
         let mut cut = "";
@@ -688,10 +696,10 @@ impl<'a> Poll<'a> {
             }
         };
         if !slice_hold.is_empty() {
-            why = "slice".into();
+            why = Some(Why::Slice);
             hold = slice_hold;
         } else if mem_why == "unreadable" {
-            why = "unreadable".into();
+            why = Some(Why::Unreadable);
             hold = format!(
                 "holding: the slice's use could not be read{}",
                 if mem_note.is_empty() {
@@ -701,45 +709,45 @@ impl<'a> Poll<'a> {
                 }
             );
         } else if !s.endpoint_hold.is_empty() {
-            why = "resources".into();
+            why = Some(Why::Resources);
             hold = s.endpoint_hold.clone();
         } else if let Some(Some(kb)) =
             disk_low(self).filter(|kb| matches!(kb, Some(k) if *k < c.min_free_mb * 1024))
         {
-            why = "disk".into();
+            why = Some(Why::Disk);
             hold = format!(
                 "holding: {} free on the disk, under TEHAS_CYCLE_MIN_FREE={}: no cycle starts",
                 gib(kb * 1024),
                 c.min_free
             );
         } else if matches!(s.disk_kb, Some(None)) {
-            why = "disk".into();
+            why = Some(Why::Disk);
             hold = "holding: the free disk space could not be read: no cycle starts".into();
         } else if limit_state == "expired" {
-            why = "limit".into();
+            why = Some(Why::Limit);
             hold =
                 format!(
                 "holding: the limit expired at {}: nothing starts until it is set again or cleared",
                 s.limit.get("until").and_then(Value::as_str).unwrap_or("null")
             );
         } else if limit_state == "unreadable" {
-            why = "limit".into();
+            why = Some(Why::Limit);
             hold = format!(
                 "holding: the limit cannot be read: nothing starts until it is set again or cleared ({}/state/limit.json)",
                 c.home
             );
         } else if matches!(limit_room, Some(r) if r <= 0) {
-            why = "limit".into();
+            why = Some(Why::Limit);
             hold = format!(
                 "holding: the limit allows {limit_words} at once and {count} {} running{}",
                 if count == 1 { "is" } else { "are" },
                 with_reason(&limit_reason)
             );
-        } else if let Some((word, hold_of)) = self.branch_check() {
-            why = word.into();
-            hold = hold_of;
+        } else if let Some(word) = self.branch_check() {
+            why = Some(word.0);
+            hold = word.1;
         } else if free <= 0 {
-            why = "count".into();
+            why = Some(Why::Count);
             hold = match slots::words(&self.slots).as_str() {
                 // A number as always: the count alone.
                 "" => format!("holding: {cycles} cycles are running (limit {concurrency})"),
@@ -782,7 +790,7 @@ impl<'a> Poll<'a> {
             let room = c.max_awaiting - awaiting - count;
             await_room = Some(room);
             if room <= 0 {
-                why = "awaiting".into();
+                why = Some(Why::Awaiting);
                 hold = if count == 0 {
                     format!(
                         "holding: {awaiting} issues await merge (limit {})",
@@ -795,8 +803,8 @@ impl<'a> Poll<'a> {
                     )
                 };
             } else if !mem_why.is_empty() {
-                why = mem_why.clone();
-                hold = match why.as_str() {
+                why = slice_word;
+                hold = match why.map(|w| w.as_str()).unwrap_or("") {
                     "pressure" => format!(
                         "holding: tehas.slice is under memory pressure (full avg60 {})",
                         pressure.clone().unwrap_or_else(|| "unknown".into())
@@ -828,7 +836,7 @@ impl<'a> Poll<'a> {
                     cut = "lane";
                 }
                 if want == 0 && cut == "lane" {
-                    why = "lane".into();
+                    why = Some(Why::Lane);
                     hold = format!(
                         "holding: tehas.slice has room for {room_mem} more and the refresh lane keeps {}",
                         lane.unwrap_or(0)
@@ -843,7 +851,7 @@ impl<'a> Poll<'a> {
             short = waiting > want;
         }
         if short && want > 0 {
-            why = cut.into();
+            why = Why::parse(cut);
             hold = match cut {
                 "awaiting" => format!(
                     "holding: {want} of {free} free slots start: {awaiting} issues await merge and {count} cycles are running (limit {})",
@@ -869,34 +877,28 @@ impl<'a> Poll<'a> {
             }
         }
         if !self.dry {
-            if !why.is_empty() {
-                if why != s.last_why || short {
+            if why.is_some() {
+                if why.map_or("", |w| w.as_str()) != s.last_why || short {
                     self.log(hold.clone());
                 }
             } else if !s.last_why.is_empty() {
                 self.log("released: cycles may start again");
             }
-            let mut r = json!({
-                "why": why, "hold": hold, "count": count, "room": room_mem, "committed": committed,
-                "max": slice_max, "reserve": c.reserve, "free": free, "awaitRoom": await_room,
+            self.d.report = Some(Report {
+                why,
+                hold: hold.clone(),
+                count,
+                room: room_mem,
+                committed,
+                max: slice_max,
+                reserve: c.reserve.clone(),
+                free,
+                await_room,
+                limit_room,
+                refresh_room: lane,
+                endpoint: (!s.endpoint.is_empty()).then(|| s.endpoint.clone()),
+                slots: self.slots.report(),
             });
-            if let Some(slots) = self.slots.report() {
-                if let (Some(r), Some(slots)) = (r.as_object_mut(), slots.as_object()) {
-                    for (k, v) in slots {
-                        r.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-            if let Some(l) = limit_room {
-                r["limitRoom"] = json!(l);
-            }
-            if let Some(l) = lane {
-                r["refreshRoom"] = json!(l);
-            }
-            if !s.endpoint.is_empty() {
-                r["endpoint"] = json!(s.endpoint);
-            }
-            self.d.report = Some(r);
             self.d.reported_at = Some((self.d.actions.len(), self.d.log.len()));
         }
         Ok(Room {
@@ -927,7 +929,7 @@ impl<'a> Poll<'a> {
     /// branch's head commit, and `unknown-gate` when its runs finished and
     /// none of them says it passed. Anything else holds nothing, and says why
     /// it could not tell once.
-    fn branch_check(&mut self) -> Option<(&'static str, String)> {
+    fn branch_check(&mut self) -> Option<(Why, String)> {
         let c = self.c;
         if c.branch_check.is_empty() {
             return None;
@@ -949,7 +951,7 @@ impl<'a> Poll<'a> {
         // through to the arm that starts cycles.
         let (red, note) = match state {
             Some(Check::Red(sha)) => (
-                Some(("red", format!("holding: {branch} is red at {sha}"))),
+                Some((Why::Red, format!("holding: {branch} is red at {sha}"))),
                 String::new(),
             ),
             Some(Check::Done(_)) => (None, String::new()),
@@ -973,7 +975,7 @@ impl<'a> Poll<'a> {
                 // The hold's own word, not `red`: a person fixes a red gate on
                 // the branch, and an outcome the poll cannot read by naming
                 // the check that answers it. The hold itself is the same hold.
-                (Some(("unknown-gate", format!("holding: {said}"))), said)
+                (Some((Why::UnknownGate, format!("holding: {said}"))), said)
             }
             Some(Check::Unreadable) | None => (
                 None,
