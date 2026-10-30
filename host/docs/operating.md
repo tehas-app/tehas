@@ -821,9 +821,10 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is written: the
-   comment holds its title and spec, lists its open points with the
-   planner's proposals, and offers **Update this issue**. Reply to change the plan, and
+5. The planner shows you a drafted plan before anything is written: one
+   comment holds its title and spec and lists its open points with the
+   planner's proposals, and the comment after it holds the question and the
+   boxes, among them **Update this issue**. Reply to change the plan, and
    the next turn drafts it again. Every turn of a session works on the
    commit the session started on.
    - **Update this issue** makes the plan, exactly as shown, proposals
