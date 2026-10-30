@@ -706,6 +706,11 @@ fn plan_answer() {
 }
 
 #[test]
+fn lean() {
+    run_suite("lean");
+}
+
+#[test]
 fn approval() {
     run_suite("approval");
 }

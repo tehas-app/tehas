@@ -1,0 +1,1750 @@
+{
+ "suite": "no shell suite: the bash poll never read tehas:lean",
+ "later": [],
+ "not_ported": [],
+ "cases": [
+  {
+   "case": "no label gives a start with no driver",
+   "queue": [
+    "7"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "label"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean from an allowed account gives a start with driver lean",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "label",
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean from another account starts nothing, classic included, and takes the ask off so it says so once",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=mallory"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "issue": 7,
+      "remove": [
+       "tehas:ready"
+      ],
+      "say": "Tehas took `tehas:ready` off this issue and started nothing: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "remove": [
+       "tehas:lean"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "case": "tehas:lean on its own starts nothing and says nothing",
+   "snapshot": {
+    "ready": [],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "nothing": true
+   }
+  },
+  {
+   "case": "a dry run says what a stranger's tehas:lean would do and writes nothing",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=mallory"
+    ]
+   },
+   "dry": true,
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "would take tehas:ready off #7: tehas:lean is not an allowed account's"
+    ],
+    "nothing": true
+   }
+  },
+  {
+   "case": "the label with no event that applied it is no choice: nobody chose lean",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was applied by 'unknown', not an allowed account"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the last account to apply it decides, not the first",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice",
+     "-tehas:lean=alice",
+     "tehas:lean=mallory"
+    ]
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "the millwright applying tehas:lean chooses nothing",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=tehas-fixer"
+    ]
+   },
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was applied by 'tehas-fixer', not an allowed account"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   }
+  },
+  {
+   "case": "a person's new tehas:ready reads the label, not the last record",
+   "queue": [
+    "7 tehas:lean"
+   ],
+   "label_events": {
+    "7": [
+     "tehas:lean=alice"
+    ]
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-09-01T00:00:00Z",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a person's new tehas:ready with the label off is classic, whatever the last start ran",
+   "queue": [
+    "7"
+   ],
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-09-01T00:00:00Z",
+     "body": "Words."
+    }
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "approval": {
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer's retry keeps the driver of the start it rests on",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "approval": {
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "millwright",
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a fixer start on a fixer start keeps it too",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 1
+    }
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "approval": {
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "millwright",
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer's retry with the label off is classic",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "approval": {
+       "driver": "lean"
+      }
+     }
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "millwright"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "the fixer's retry of a classic start stays classic: a label added since changes nothing",
+   "settings": {
+    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer"
+   },
+   "snapshot": {
+    "ready": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "tehas:ready"
+       },
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:ready"
+        },
+        "actor": {
+         "login": "tehas-fixer"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       },
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "body": {
+    "7": "Words."
+   },
+   "approved": {
+    "7": {
+     "by": "alice",
+     "at": "2026-10-01T00:00:00Z",
+     "body": "Words.",
+     "fixer_starts": 0
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "millwright"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   }
+  },
+  {
+   "case": "a retry tick keeps the driver of the start it follows",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "retry-tick",
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick with the label off is classic",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "retry-tick"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick of a classic start stays classic: a label added since changes nothing",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick with no start on record follows the label: a start that never ran left none",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": null
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick over a stranger's tehas:lean starts nothing and unticks once",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: tehas:lean was applied by 'mallory', not an allowed account"
+    ],
+    "actions": [
+     {
+      "untick": 7,
+      "say": "Retry was ticked and nothing was started: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then ticks Retry."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick whose record cannot be read waits, and starts no classic",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "wait #7: its approval could not be read"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     },
+     {
+      "untick": 7
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "failed": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a retry tick the snapshot read no record for asks for it",
+   "world": "parked",
+   "park_q": [
+    "x",
+    " ",
+    " ",
+    "alice"
+   ],
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "needs": [
+     "approval"
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "asking": [
+     {
+      "number": 7,
+      "labels": [
+       {
+        "name": "needs-human-attention"
+       },
+       {
+        "name": "tehas:question"
+       },
+       {
+        "name": "tehas:lean"
+       }
+      ]
+     }
+    ],
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ]
+     }
+    }
+   },
+   "drop": [
+    "issues.7.approval"
+   ]
+  },
+  {
+   "case": "an outage retry keeps the driver of the start it follows",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "outage-retry",
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "view": {
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      },
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "an outage retry with the label off is classic",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "view": {
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      },
+      "events": [],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "an outage retry over a stranger's tehas:lean spends the retry and says why once",
+   "world": "parked",
+   "park_q": [
+    " ",
+    " ",
+    " ",
+    ""
+   ],
+   "body": {
+    "7": "Words."
+   },
+   "snapshot": {
+    "endpoint": {
+     "end": "main"
+    },
+    "owed": [
+     {
+      "issue": 7,
+      "started_at": 1767232800,
+      "started_by": "alice"
+     }
+    ],
+    "issues": {
+     "7": {
+      "view": {
+       "state": "OPEN",
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "parked": {
+    "7": {
+     "reason": "provider-outage",
+     "body": "Words."
+    }
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "log": [
+     "skip #7: its retry after a provider outage is not started; it waits for a person"
+    ],
+    "actions": [
+     {
+      "park_retry": 7,
+      "how": "outage"
+     },
+     {
+      "issue": 7,
+      "say": "Tehas did not start this issue again after the provider outage: `tehas:lean` was applied by `mallory`, an account that may not choose the driver in this factory, and tehas does not run classic in its place. An account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:lean` again, or takes it off for classic, then applies `tehas:ready`."
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "view": {
+       "labels": [
+        {
+         "name": "needs-human-attention"
+        },
+        {
+         "name": "tehas:question"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      },
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a refresh keeps the driver of the start it follows",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh",
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "alice"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a refresh with the label off is classic",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [
+     7
+    ],
+    "actions": [
+     {
+      "start": 7,
+      "given": "refresh"
+     }
+    ],
+    "no_actions": [
+     {
+      "driver": "lean"
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  {
+   "case": "a refresh over a stranger's tehas:lean is dropped and says why",
+   "settings": {
+    "TEHAS_TICKET_CONCURRENCY": 2,
+    "TEHAS_REFRESH_CONFLICTS": "1"
+   },
+   "snapshot": {
+    "ready": [],
+    "awaiting": [
+     {
+      "number": 7
+     }
+    ],
+    "refresh_requests": [
+     7
+    ],
+    "continues": true,
+    "pulls": {
+     "50": {
+      "state": "OPEN",
+      "number": 50,
+      "url": "https://github.com/acme/widget/pull/50",
+      "isDraft": false,
+      "isCrossRepository": false,
+      "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseRefName": "main",
+      "baseRefOid": "cccccccccccccccccccccccccccccccccccccccc",
+      "mergeable": "CONFLICTING",
+      "author": {
+       "login": "tehas-bot"
+      },
+      "headRepository": {
+       "nameWithOwner": "acme/widget"
+      },
+      "labels": {
+       "nodes": []
+      },
+      "closingIssuesReferences": {
+       "totalCount": 1,
+       "nodes": [
+        {
+         "number": 7,
+         "state": "OPEN",
+         "labels": {
+          "nodes": [
+           {
+            "name": "tehas:awaiting-merge"
+           }
+          ]
+         },
+         "closedByPullRequestsReferences": {
+          "nodes": [
+           {
+            "number": 50,
+            "state": "OPEN"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    },
+    "issues": {
+     "7": {
+      "events": [],
+      "request": {
+       "at": "2026-10-17T09:00:00Z",
+       "pr": 50,
+       "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+       "base_sha": "cccccccccccccccccccccccccccccccccccccccc"
+      },
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f"
+      },
+      "history": [],
+      "work": {
+       "number": 7,
+       "state": "open",
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        }
+       ]
+      },
+      "edit": {
+       "lastEditedAt": null,
+       "editor": null,
+       "body": "Words."
+      }
+     }
+    },
+    "refreshing": []
+   },
+   "expect": {
+    "exit": 0,
+    "picked": [],
+    "actions": [
+     {
+      "issue": 7,
+      "refresh_said": "lean mallory"
+     }
+    ],
+    "no_actions": [
+     {
+      "start": 7
+     }
+    ]
+   },
+   "after": {
+    "issues": {
+     "7": {
+      "events": [
+       {
+        "event": "labeled",
+        "label": {
+         "name": "tehas:lean"
+        },
+        "actor": {
+         "login": "mallory"
+        },
+        "created_at": "2026-10-01T00:01:00Z"
+       }
+      ],
+      "approval": {
+       "at": "2026-10-01T00:00:00Z",
+       "by": "alice",
+       "how": "label",
+       "body_sha256": "44dcebcdcc564a642123c985ea211a70d843bbb02df908a1a46172c4ca15c11f",
+       "links": [],
+       "driver": "lean"
+      },
+      "work": {
+       "labels": [
+        {
+         "name": "tehas:awaiting-merge"
+        },
+        {
+         "name": "tehas:lean"
+        }
+       ]
+      }
+     }
+    }
+   }
+  }
+ ]
+}
