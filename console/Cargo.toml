@@ -3,11 +3,11 @@
 # of the workspace, so the gate's cargo commands on this manifest cover the
 # analytics program in analytics/, the store in store/, the MCP server in
 # mcp/, the attachment checker in attach/, the library they share in core/,
-# the dispatcher's decisions in dispatch/ and a cycle's report in cycle/ as
-# well.
+# the dispatcher's decisions in dispatch/, a cycle's report in cycle/ and the
+# easy merge of a pull request in merge/ as well.
 [workspace]
-members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "store"]
-default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "store"]
+members = ["analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store"]
+default-members = [".", "analytics", "attach", "core", "cycle", "dispatch", "mcp", "merge", "store"]
 
 [package]
 name = "console"
