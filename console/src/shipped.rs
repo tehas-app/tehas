@@ -1,5 +1,6 @@
 //! What closed an issue: the test that a merged pull request did, for
-//! lib/shipped.sh. The GraphQL read stays bash - `console shipped query` prints
+//! `libexec/tidy` and `libexec/status`. The GraphQL read stays bash -
+//! `console shipped query` prints
 //! the document and the caller makes the call with gh - and the answer is
 //! handed here, so the acceptance rule has one statement. Two commands act on
 //! it: tehas tidy (libexec/tidy) puts tehas:shipped on in the edit that takes
@@ -109,8 +110,8 @@ pub const REFERENCES: usize = 20;
 // state labels off, and the name tehasbot status gives from its own read. It is
 // named here because both the comparison that earns it and the edit that writes
 // it read this one word - `console shipped label` prints it for the bash that
-// edits, and `lib/shipped.sh` holds the name only as a fallback for a host
-// whose console is older than this verb.
+// edits, and each of the two commands holds the name only as a fallback for a
+// host whose console is older than this verb.
 pub const SHIPPED: &str = "tehas:shipped";
 
 // The document, in the lines the GitHub endpoint reads as one. $q is a GraphQL
@@ -1114,7 +1115,7 @@ mod tests {
 
     #[test]
     fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
-        // lib/shipped.sh holds the name too, for a host whose console is older
+        // Each caller holds the name too, for a host whose console is older
         // than this verb: the two must say the same word, which is what the
         // shell test of libexec/tidy reads out of the console.
         assert_eq!(SHIPPED, "tehas:shipped");
