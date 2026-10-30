@@ -180,7 +180,7 @@ standard input and nothing to answer:
 
 ```
 sudo ./bootstrap.sh root <user>   # packages, Docker, the docker group, linger, the slice, then the pinned tools as <user>
-./bootstrap.sh check              # one line per tool, and one for the slice
+./bootstrap.sh check              # one line per tool, and one each for the slice, its rule and its reload unit
 # the instance's instance.env and models.json are in place, and
 # ~/.config/tehas/instance-dir names the directory, or instance.env sits in
 # ~/.config/tehas itself; the bot's token and the model tokens are in
@@ -426,7 +426,10 @@ last two make `--check` exit 1, and so `tehas update --check` stays red, until
 root has run [`sudo ./bootstrap.sh slice`](/bootstrap#slice): every sandbox
 container runs in the slice and none starts without it. A real run prints a
 `note:` line for the last two, installs everything else and installs no slice,
-which is root's step.
+which is root's step. The step installs two files beside the slice, the udev
+rule and the unit that reloads systemd when memory comes online, and this line
+compares the slice file only: [`./bootstrap.sh check`](/bootstrap#check) reports
+those two as well, by file.
 
 `install.sh` validates the settings first and installs nothing if they are
 invalid. It prints one `next:` line per follow-up its changed files call for, and
@@ -1315,7 +1318,8 @@ slice still answers from its file.
 
 Another limit for one host goes in
 `/etc/systemd/system/tehas.slice.d/override.conf`, by root, followed by
-`systemctl daemon-reload`. tehas never writes that file.
+`systemctl start tehas-slice-reload.service`, the same one-shot reload the udev
+rule asks for. tehas never writes that file.
 
 The host's own size follows the machine: `MemoryMax` is a percentage, so a
 virtual machine given more memory by its hypervisor needs no change here, and
