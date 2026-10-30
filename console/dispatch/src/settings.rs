@@ -30,6 +30,10 @@ pub struct Settings {
     /// model endpoint. Never unset: config.sh's default is slots::MAX.
     pub cycle_ceiling: String,
     pub refresh_conflicts: bool,
+    /// TEHAS_EASY_MERGE: 1 lets the dispatcher choose an easy merge for a
+    /// refresh start instead of the full cycle. Off unless the instance says
+    /// so; with it off every refresh is a full refresh as before (#1031).
+    pub easy_merge: bool,
     pub refresh_slots: i64,
     /// TEHAS_CYCLE_MIN_FREE as written, and in MiB.
     pub min_free: String,
@@ -99,6 +103,7 @@ impl Settings {
             cycle_cpus: s("TEHAS_CYCLE_CPUS", "4"),
             cycle_ceiling: s("TEHAS_CYCLE_CEILING", "16"),
             refresh_conflicts: s("TEHAS_REFRESH_CONFLICTS", "0") == "1",
+            easy_merge: s("TEHAS_EASY_MERGE", "0") == "1",
             refresh_slots: n("TEHAS_REFRESH_SLOTS", 1),
             min_free,
             min_free_mb,

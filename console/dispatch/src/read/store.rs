@@ -464,6 +464,11 @@ fn approval_shape(v: &Value) -> Option<Value> {
         out["fixer_starts"] = starts;
         out["refreshes"] = get(v, "refreshes");
         out["refresh_of"] = get(&input, "refresh_of");
+        // #1031: whether the one easy merge this approval is owed has been had.
+        // Absent, as on an answer of an older store: no easy merge has been.
+        if v.get("easy") == Some(&json!(true)) {
+            out["easy"] = json!(true);
+        }
         if !base.is_null() {
             out["at"] = base["at"].clone();
             out["by"] = base["by"].clone();
@@ -515,7 +520,7 @@ pub fn history(calls: &mut Calls, n: u64) -> Value {
                 .map(|a| {
                     a.iter()
                         .filter(|r| r.get("kind").and_then(Value::as_str) == Some("cycle"))
-                        .map(|r| json!({"how": get(r, "how"), "parked": get(r, "parked"), "started": get(r, "started_at")}))
+                        .map(|r| json!({"how": get(r, "how"), "parked": get(r, "parked"), "started": get(r, "started_at"), "easy": get(r, "easy")}))
                         .collect()
                 })
                 .unwrap_or_default(),
