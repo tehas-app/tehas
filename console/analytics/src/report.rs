@@ -32,9 +32,10 @@
 //! columns `run.rs` fills. Counts and durations only.
 //!
 //! `drivers` compares the drivers on the same work runs: for each of them the
-//! runs, the share that ended in a pull request a person could merge, the share
-//! parked, minutes, tokens, and of those pull requests, one per issue, how many
-//! were merged by now. A run with no driver on record is classic. Lean does not
+//! runs, those that ran (not refused or stopped), of these the share that ended
+//! in a pull request a person could merge and the share handed to a person,
+//! minutes, tokens, and of those pull requests, one per issue, how many were
+//! merged by now. A run with no driver on record is classic. Lean does not
 //! merge, so the figure is the pull requests', not the driver's own merges. Like
 //! `gate`, `tehasbot status` does not publish it.
 
@@ -1156,8 +1157,11 @@ fn tally(sorted: &[i64], per: i64) -> Value {
     ])
 }
 
-/// The runs of each driver in the window. A run that reported no usage is in no
-/// token figure and one of no length in no minutes figure. A pull request counts
+/// The runs of each driver in the window. A refused or stopped run is in `n` and
+/// not in the shares: neither tells of the driver, as `stations` has it. Parked is
+/// what `handoffRate` counts, since a run tehas parks with its pull request open is
+/// outcome handoff. A run that reported no usage is in no token figure and one of
+/// no length in no minutes figure. A pull request counts
 /// once per issue, because a merge is on record per issue and the runs that
 /// follow up one pull request are many, and as merged when the issue's last
 /// merge is at or after the first run of the driver that reached it.
@@ -1167,6 +1171,10 @@ fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Val
     for driver in DRIVERS {
         let of: Vec<&WorkRun> = runs.iter().filter(|r| r.driver == driver).collect();
         let n = of.len();
+        let ran = of
+            .iter()
+            .filter(|r| !matches!(r.outcome.as_str(), "refused" | "stopped"))
+            .count();
         let reached: Vec<&&WorkRun> = of
             .iter()
             .filter(|r| matches!(r.outcome.as_str(), "pr" | "merged"))
@@ -1180,7 +1188,10 @@ fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Val
             .iter()
             .filter(|(issue, first)| merges.get(issue).is_some_and(|m| m >= first))
             .count();
-        let parked = of.iter().filter(|r| r.outcome == "parked").count();
+        let parked = of
+            .iter()
+            .filter(|r| matches!(r.outcome.as_str(), "handoff" | "parked"))
+            .count();
         let mut secs: Vec<i64> = of.iter().filter_map(|r| r.seconds).collect();
         secs.sort_unstable();
         let mut tokens = used_tokens(&of);
@@ -1189,8 +1200,9 @@ fn drivers(conn: &Connection, runs: &[WorkRun], to: i64) -> rusqlite::Result<Val
             driver.to_string(),
             obj(vec![
                 ("n", Some(json!(n))),
-                ("prShare", share(reached.len(), n).map(Value::from)),
-                ("parkedShare", share(parked, n).map(Value::from)),
+                ("ran", Some(json!(ran))),
+                ("prShare", share(reached.len(), ran).map(Value::from)),
+                ("parkedShare", share(parked, ran).map(Value::from)),
                 ("minutes", Some(tally(&secs, 60))),
                 ("tokens", Some(tally(&tokens, 1))),
                 (
@@ -1500,8 +1512,8 @@ pub fn text(report: &Value) -> String {
     lines.push(String::new());
     lines.push("Drivers".to_string());
     lines.push(format!(
-        "  {:<10}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
-        "", "runs", "to a PR", "parked", "minutes", "tokens", "PRs", "merged"
+        "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
+        "", "runs", "ran", "to a PR", "parked", "minutes", "tokens", "PRs", "merged"
     ));
     for driver in DRIVERS {
         let d = &report["drivers"][driver];
@@ -1514,9 +1526,10 @@ pub fn text(report: &Value) -> String {
             _ => num(&d["tokens"]["total"]),
         };
         lines.push(format!(
-            "  {:<10}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
+            "  {:<10}{:>5}{:>5}{:>9}{:>8}{:>10}{:>14}{:>5}{:>8}",
             driver,
             num(&d["n"]),
+            num(&d["ran"]),
             pct(&d["prShare"]),
             pct(&d["parkedShare"]),
             num(&d["minutes"]["total"]),

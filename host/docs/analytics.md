@@ -320,8 +320,9 @@ record is classic. Each object gives:
 | Key | What it says |
 | --- | --- |
 | `n` | The work runs of the driver, refused and stopped ones with them |
-| `prShare` | The share of `n` that ended in a pull request a person could merge: outcome `pr` or `merged` |
-| `parkedShare` | The share of `n` with outcome `parked` |
+| `ran` | Those of `n` that ran: not refused, not stopped. Neither says anything of the driver |
+| `prShare` | The share of `ran` that ended in a pull request a person could merge: outcome `pr` or `merged` |
+| `parkedShare` | The share of `ran` handed to a person: outcome `handoff` or `parked`, as `handoffRate` counts them, since a run tehas parks with its pull request open has outcome `handoff` |
 | `minutes` | `n` runs with a length, their `total` and `median`, whole minutes |
 | `tokens` | `n` runs that reported usage, their `total` and `median` (input, output and cache read) |
 | `pullRequests` | `n` issues whose runs reached a pull request, how many of them `merged`, and that `share` |
