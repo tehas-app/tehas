@@ -91,6 +91,32 @@ for f in docs router; do
   t_contains "$(cat "$T_ROOT/host/edge/$f.compose.yaml")" 'TEHAS_THEME: "${TEHAS_THEME:-pixel}"'
 done
 
+t_case "the pixel theme shows its animated factory, every other theme the logo"
+# shellcheck disable=SC2016  # the server's own syntax, kept literal
+pixel_factory='"{$TEHAS_THEME:pixel}" != "pixel"'
+for f in docs router; do
+  caddy=$(cat "$T_ROOT/host/edge/$f.Caddyfile")
+  t_contains "$caddy" "@logo expression \`path('/factory.svg') && $pixel_factory\`"
+  t_contains "$caddy" 'rewrite @logo /favicon.svg'
+done
+t_contains "$(cat "$T_ROOT/host/edge/docs.Caddyfile")" "@share expression \`path('/share.png') && $pixel_factory\`"
+t_contains "$(cat "$T_ROOT/host/edge/docs.Caddyfile")" 'rewrite @share /share-logo.png'
+t_contains "$(cat "$fun/favicon.svg")" 'tehas factory icon'
+t_contains "$(cat "$fun/factory.svg")" 'turbine-rotor'
+for theme in paper beesknees beesknees26; do
+  t_contains "$(cat "$fun/theme-$theme.css")" '.brand img { width: 50px; height: 50px; }'
+done
+t_contains "$(cat "$fun/game-view.css")" '.brand img { width: auto; height: 40px; }'
+for f in "$fun/index.html" "$T_ROOT/host/docs/_layout.html"; do
+  t_contains "$(cat "$f")" 'eq (env "TEHAS_THEME") "pixel"'
+done
+
+t_case "the router strips /fun in a route, before it rewrites by theme"
+# Outside a route Caddy runs rewrite before uri, and nothing would match.
+look=$(sed -n '/handle @look {/,/file_server/p' "$T_ROOT/host/edge/router.Caddyfile")
+t_contains "$look" 'route {'
+t_eq "$(grep -n -E 'route \{|uri strip_prefix|rewrite /theme.css' <<<"$look" | sed 's/^[0-9]*: *//; s/ .*//' | xargs)" "route uri rewrite"
+
 t_case "the docs server answers / with the instance's layout, the floor without one, and both by name"
 caddy=$(cat "$T_ROOT/host/edge/docs.Caddyfile")
 # The server's own syntax, kept literal.

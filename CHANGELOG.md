@@ -13,6 +13,12 @@ empty one above it.
 
 ### Changes
 
+- A new logo. It is the favicon in every theme. The paper, beesknees and
+  beesknees26 themes also show it in the header and on the share card. The
+  pixel theme keeps its animated factory and its share card.
+- The edge router answers `/fun/theme.css`. It rewrote the path before it
+  stripped `/fun`, so the rewrite never matched and the Protolab got a 404 for
+  its theme.
 
 ### Adopter action
 
