@@ -66,7 +66,8 @@ proc_files() { # <dir> <clock seconds> "<cpu user nice system idle iowait irq so
 }
 
 reset() {
-  rm -rf "$T"/calls/* "$live" "$proc1" "$proc2"
+  rm -rf "$T"/calls/* "$live" "$proc1" "$proc2" "$T"/proc3 "$T"/proc4 \
+    "$T"/earlier "$T"/later
   mkdir -p "$live"
   unit_stub
   proc_files "$proc1" 1000 '1000 100 500 8000 200 10 5 20' \

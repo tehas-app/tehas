@@ -1,5 +1,7 @@
 //! The host section of `tehas top` (lib/top.sh): one reading of /proc, and
-//! the section drawn from two of them.
+//! the section drawn from two of them. The section is not a verb of its own:
+//! the snapshot computes it from two readings of `reading`, in
+//! src/snapshot.rs.
 //!
 //!   console top reading <dir>
 //!     One reading of the tree at <dir> (/proc on a host) as one line of JSON:
@@ -8,12 +10,12 @@
 //!     comm, CPU ticks, start ticks, resident pages]. Exit 1 when the tree
 //!     cannot be read. The clock and the load averages are the text of the
 //!     files, so a reading says what the host said.
-//!   console top host <later reading> <earlier reading>
-//!     The section: CPU use is what changed between the two readings, never
-//!     the average since a process started. A process counts only with the
-//!     same pid and start time in both, so a reused pid is not one long
-//!     process. Two readings at the same instant measure nothing: their CPU
-//!     figures are null. Prints null when either reading is no object.
+//!
+//! CPU use in the section is what changed between the two readings, never the
+//! average since a process started. A process counts only with the same pid
+//! and start time in both, so a reused pid is not one long process. Two
+//! readings at the same instant measure nothing: their CPU figures are null.
+//! The section is null when either reading is no object.
 //!   console top frame <width> <height> <snapshot
 //!     The frame drawn from a snapshot, see src/frame.rs.
 //!
@@ -38,10 +40,6 @@ pub fn main(given: &[String]) -> u8 {
             }
             None => 1,
         },
-        [verb, later, earlier] if verb == "host" => {
-            println!("{}", host_text(later, earlier));
-            0
-        }
         [verb, live, lines, max_age, reading, earlier] if verb == "snapshot" => {
             match (lines.parse(), max_age.parse()) {
                 (Ok(lines), Ok(max_age)) => {
@@ -87,7 +85,7 @@ pub fn main(given: &[String]) -> u8 {
         }
         _ => {
             eprintln!(
-                "console top: usage: reading <dir> | host <later> <earlier> | snapshot <live> <lines> <max age> <reading> <earlier> | frame <width> <height> <snapshot"
+                "console top: usage: reading <dir> | snapshot <live> <lines> <max age> <reading> <earlier> | frame <width> <height> <snapshot"
             );
             2
         }
@@ -421,6 +419,99 @@ mod tests {
         let now = reading(1010.0, 2000, 1900, json!([[100, "cycle", 50, 50000, 400]]));
         assert_eq!(host(&now, &was, 4096.0)["processes"], json!([]));
         assert_eq!(host(&now, &json!("x"), 4096.0), Value::Null);
+    }
+
+    // Two readings of the host, a hundred seconds apart, written as text so
+    // that the load of a reading keeps the digits its file wrote. The sleepy
+    // process has used a thousand seconds of CPU in its life and one second in
+    // this window; the busy one forty seconds in the window and almost none in
+    // its life. p302 begins again in the window, and seventeen processes that
+    // used one second more than the last fill the rows past the top fifteen.
+    fn pair(load: &str) -> (String, String) {
+        let procs = |named: [&str; 3], window: bool| {
+            // A row is [pid, comm, ticks, start ticks, resident pages].
+            let mut rows: Vec<String> = named.iter().map(|s| s.to_string()).collect();
+            let (first, step) = if window { (1100, 100) } else { (1000, 0) };
+            rows.extend((300..317).map(|p| {
+                let start = if window && p == 302 { 10_000 } else { 500 };
+                format!("[{p},\"p{p}\",{},{start},10]", first + (p - 300) * step)
+            }));
+            rows.join(",")
+        };
+        let was = format!(
+            "{{\"clock\":1000.00,\"cpus\":2,\"load\":[{load}],\"memory\":{{\"totalKb\":65536,\"availKb\":32768}},\"cpuAll\":100000,\"cpuIdle\":90000,\"procs\":[{}]}}",
+            procs(["[100,\"sleepy\",100000,100,400]", "[200,\"busy\",100,200,400]", "[600,\"gone\",500,600,10]"], false),
+        );
+        let now = format!(
+            "{{\"clock\":1100.00,\"cpus\":2,\"load\":[{load}],\"memory\":{{\"totalKb\":65536,\"availKb\":32768}},\"cpuAll\":200000,\"cpuIdle\":180000,\"procs\":[{}]}}",
+            procs(["[100,\"sleepy\",100100,100,400]", "[200,\"busy\",4100,200,400]", "[700,\"new\",50,700,10]"], true),
+        );
+        (now, was)
+    }
+
+    #[test]
+    fn the_section_shows_the_difference_and_the_load_as_the_reading_wrote_it() {
+        // The three load averages of a reading are its text, so they are read
+        // back as the array a reading holds them.
+        let (now, was) = pair("0.10,0.20,0.30");
+        let text = host_text(&now, &was);
+        let h: Value = serde_json::from_str(&text).unwrap();
+        assert!(text.contains("\"load\":[0.10,0.20,0.30]"), "{text}");
+        assert_eq!(h["load"], json!([0.10, 0.20, 0.30]));
+        assert_eq!(h["cpuPercent"], json!(10));
+        assert_eq!(
+            h["memory"],
+            json!({"totalMb": 64, "usedMb": 32, "percent": 50})
+        );
+        // The fifteen that used the most CPU in this window: sleepy is out
+        // although it has used more than any of them in its life, p302 is out
+        // for beginning again in the window, and so are the two processes that
+        // used less than the fifteenth.
+        let names: Vec<&str> = h["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "busy", "p316", "p315", "p314", "p313", "p312", "p311", "p310", "p309", "p308",
+                "p307", "p306", "p305", "p304", "p303"
+            ]
+        );
+        let used: Vec<f64> = h["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["cpuPercent"].as_f64().unwrap())
+            .collect();
+        assert_eq!(used[0], 40.0);
+        let mut used: Vec<f64> = used;
+        used.sort_by(|a, b| a.total_cmp(b));
+        used.dedup();
+        assert_eq!(
+            used,
+            [4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 40.0]
+        );
+        assert_eq!(h["processes"][0]["upSeconds"], json!(1098));
+        // A process only in the later reading and one only in the earlier are
+        // not measured: there is nothing to take a difference between.
+        assert!(!names.contains(&"new"));
+        assert!(!names.contains(&"gone"));
+    }
+
+    #[test]
+    fn the_section_is_null_when_a_reading_is_no_object_or_names_no_load() {
+        let (now, was) = pair("0.1 0.2 0.3");
+        assert_eq!(host_text(&now, ""), "null");
+        assert_eq!(host_text("not json", &was), "null");
+        assert_eq!(host_text("{\"clock\":1}", &was), "null");
+        // The load of the later reading is what the section says; a reading
+        // that names none leaves it out.
+        let no_load = now.replace("\"load\":[0.1,0.2,0.3],", "");
+        let h: Value = serde_json::from_str(&host_text(&no_load, &was)).unwrap();
+        assert_eq!(h["load"], Value::Null);
     }
 
     #[test]
