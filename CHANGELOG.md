@@ -13,12 +13,25 @@ empty one above it.
 
 ### Changes
 
+
+### Adopter action
+
+None.
+
+## v0.18.1 (2026-10-30)
+
+### Changes
+
 - A new logo. It is the favicon in every theme. The paper, beesknees and
   beesknees26 themes also show it in the header and on the share card. The
   pixel theme keeps its animated factory and its share card.
 - The edge router answers `/fun/theme.css`. It rewrote the path before it
   stripped `/fun`, so the rewrite never matched and the Protolab got a 404 for
   its theme.
+- `tehasbot status` finds the shipped issues that lack `tehas:shipped` with one
+  call to the console, where it took two processes (#1083).
+- `lib/shipped.sh` is gone. `tidy` and `status` call the console directly
+  (#1076).
 
 ### Adopter action
 
