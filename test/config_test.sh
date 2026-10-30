@@ -416,6 +416,14 @@ printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRI
 t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_LOGIN][\$TEHAS_MILLWRIGHT_MAX_RETRIES][\$TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS]\""
 t_eq "$t_out" "[tehas-fixer][3][1]"
 
+t_case "the millwright's feed is off unless the instance turns it on, two at once by default"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && set -u && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[0][2]"
+printf '%s\n' "${T_MINIMAL[@]}" TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_MILLWRIGHT_FEED=1 TEHAS_MILLWRIGHT_MAX_FEEDS=4 >"$TEHAS_INSTANCE_DIR/instance.env"
+t_run "$load && echo \"[\$TEHAS_MILLWRIGHT_FEED][\$TEHAS_MILLWRIGHT_MAX_FEEDS]\""
+t_eq "$t_out" "[1][4]"
+
 t_case "refreshes are off unless the instance turns them on, two of one pull request and every 10 minutes by default"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && set -u && echo \"[\$TEHAS_REFRESH_CONFLICTS][\$TEHAS_REFRESH_MAX][\$TEHAS_REFRESH_EVERY][\$TEHAS_REFRESH_SLOTS]\""
@@ -499,7 +507,8 @@ t_run "$load && echo \"[\$TEHAS_SIZE_MAX_FILES]\""
 t_eq "$t_out" "[999999999]"
 
 for bad in "TEHAS_MILLWRIGHT_LOGIN=two words" "TEHAS_MILLWRIGHT_LOGIN=-x" "TEHAS_MILLWRIGHT_MAX_RETRIES=0" "TEHAS_MILLWRIGHT_MAX_RETRIES=many" \
-  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots"; do
+  "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=0" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=-1" "TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=lots" \
+  "TEHAS_MILLWRIGHT_FEED=yes" "TEHAS_MILLWRIGHT_FEED=2" "TEHAS_MILLWRIGHT_MAX_FEEDS=0" "TEHAS_MILLWRIGHT_MAX_FEEDS=many"; do
   t_case "loading rejects $bad"
   t_instance "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'"
   t_run "$load; echo rc=\$?"
@@ -699,6 +708,51 @@ t_case "previews and clones written as off still load"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=0 TEHAS_CLONES=0
 t_run "$load; echo rc=\$?"
 t_eq "$t_out" "rc=0"
+
+# An earlier version read a blank TEHAS_CLONES as no clones through ${VAR:-0},
+# so the line stays loadable: one blank line must not stop every command.
+t_case "clones written as nothing still load, and the name is not exported"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=
+t_run "$load; echo rc=\$?; declare -x TEHAS_CLONES 2>&1 | grep -c TEHAS_CLONES"
+t_eq "$t_out" "rc=0
+0"
+
+t_case "clones written any other way are refused"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=00
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "TEHAS_CLONES is set and this version of tehas has no database clones"
+
+# What the host's environment holds is not a setting: the sweep in tehas_load
+# drops every TEHAS_* name before instance.env is read, so a retired name gets
+# there only from the file. These two cases say so, and they are the reason the
+# loop reads the names after the source rather than before it.
+t_case "TEHAS_CLONES in the environment alone is dropped, not refused"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_CLONES=9)
+t_run "$load; echo rc=\$?; echo \"[\${TEHAS_CLONES-unset}]\""
+t_eq "$t_out" "rc=0
+[unset]"
+T_ENV=()
+
+t_case "TEHAS_WORK_CPUS in the environment alone is dropped, not refused"
+printf '%s\n' "${T_MINIMAL[@]}" >"$TEHAS_INSTANCE_DIR/instance.env"
+T_ENV=(TEHAS_WORK_CPUS=4)
+t_run "$load; echo rc=\$?; echo \"[\${TEHAS_WORK_CPUS-unset}]\""
+t_eq "$t_out" "rc=0
+[unset]"
+T_ENV=()
+
+t_case "of two retired lines the operator is told about the first of them"
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=1 TEHAS_WORK_CPUS=4
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_CLONES is set and this version of tehas has no database clones"
+t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
+t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=0 TEHAS_WORK_CPUS=4
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_contains "$t_out" "tehas: TEHAS_WORK_CPUS is set"
 
 t_case "previews without a domain are refused"
 t_instance "${T_MINIMAL[@]}" TEHAS_PREVIEWS=1

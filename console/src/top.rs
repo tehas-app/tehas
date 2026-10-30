@@ -1,5 +1,7 @@
 //! The host section of `tehas top` (lib/top.sh): one reading of /proc, and
-//! the section drawn from two of them.
+//! the section drawn from two of them. The section is not a verb of its own:
+//! the snapshot computes it from two readings of `reading`, in
+//! src/snapshot.rs.
 //!
 //!   console top reading <dir>
 //!     One reading of the tree at <dir> (/proc on a host) as one line of JSON:
@@ -8,12 +10,12 @@
 //!     comm, CPU ticks, start ticks, resident pages]. Exit 1 when the tree
 //!     cannot be read. The clock and the load averages are the text of the
 //!     files, so a reading says what the host said.
-//!   console top host <later reading> <earlier reading>
-//!     The section: CPU use is what changed between the two readings, never
-//!     the average since a process started. A process counts only with the
-//!     same pid and start time in both, so a reused pid is not one long
-//!     process. Two readings at the same instant measure nothing: their CPU
-//!     figures are null. Prints null when either reading is no object.
+//!
+//! CPU use in the section is what changed between the two readings, never the
+//! average since a process started. A process counts only with the same pid
+//! and start time in both, so a reused pid is not one long process. Two
+//! readings at the same instant measure nothing: their CPU figures are null.
+//! The section is null when either reading is no object.
 //!   console top frame <width> <height> <snapshot
 //!     The frame drawn from a snapshot, see src/frame.rs.
 //!
@@ -38,10 +40,6 @@ pub fn main(given: &[String]) -> u8 {
             }
             None => 1,
         },
-        [verb, later, earlier] if verb == "host" => {
-            println!("{}", host_text(later, earlier));
-            0
-        }
         [verb, live, lines, max_age, reading, earlier] if verb == "snapshot" => {
             match (lines.parse(), max_age.parse()) {
                 (Ok(lines), Ok(max_age)) => {
@@ -86,23 +84,47 @@ pub fn main(given: &[String]) -> u8 {
             }
         }
         _ => {
-            eprintln!(
-                "console top: usage: reading <dir> | host <later> <earlier> | snapshot <live> <lines> <max age> <reading> <earlier> | frame <width> <height> <snapshot"
-            );
+            eprintln!("console top: {USAGE}");
             2
         }
     }
 }
 
-/// The section from two readings, as text: null when either is no object.
-pub fn host_text(later: &str, earlier: &str) -> String {
+// The verbs `main` takes, so the word a caller is shown and the arms that
+// answer them are said once.
+const USAGE: &str =
+    "console top: usage: reading <dir> | snapshot <live> <lines> <max age> <reading> <earlier> | frame <width> <height> <snapshot";
+
+/// The section from two readings, as text: nothing when either is no object,
+/// which is what a caller that has no section prints.
+pub fn host_text(later: &str, earlier: &str) -> Option<String> {
     let parse = |s: &str| serde_json::from_str::<Value>(s).unwrap_or(Value::Null);
-    let section = host(&parse(later), &parse(earlier), page_size()).to_string();
+    host_section(&parse(later), &parse(earlier), || raw_load(later))
+}
+
+/// The section from two readings that have been parsed, or nothing when
+/// either is no object. The load averages are filled in by `load`, which
+/// gives their text as the reading wrote it.
+fn host_section(
+    later: &Value,
+    earlier: &Value,
+    load: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    if !(later.is_object() && earlier.is_object()) {
+        return None;
+    }
+    let section = host(later, earlier, page_size());
+    // A section that is nothing stays nothing: only the load of a section that
+    // is there has a sentinel to fill.
+    if section.is_null() {
+        return None;
+    }
+    let section = section.to_string();
     // The load averages as the reading wrote them: 0.10 stays 0.10.
-    match raw_load(later) {
+    Some(match load() {
         Some(raw) => section.replacen(LOAD, &raw, 1),
         None => section.replacen(LOAD, "null", 1),
-    }
+    })
 }
 
 /// A decimal as the file wrote it, digits and dots only.
@@ -421,6 +443,205 @@ mod tests {
         let now = reading(1010.0, 2000, 1900, json!([[100, "cycle", 50, 50000, 400]]));
         assert_eq!(host(&now, &was, 4096.0)["processes"], json!([]));
         assert_eq!(host(&now, &json!("x"), 4096.0), Value::Null);
+    }
+
+    // The three load averages of a reading as its file wrote them. The later
+    // reading and the earlier one are asked to say different figures, so a
+    // section that carries the earlier ones can be seen.
+    const LOAD_LATER: &str = "0.10,0.20,0.30";
+    const LOAD_EARLIER: &str = "0.04,0.05,0.06";
+
+    // One reading of the host as text. The clock, the load and the two
+    // aggregate figures are written as the files gave them, so a reading keeps
+    // the digits its host said.
+    fn frame(clock: &str, all: &str, idle: &str, load: &str, procs: &str) -> String {
+        format!(
+            "{{\"clock\":{clock},\"cpus\":2,\"load\":[{load}],\"memory\":{{\"totalKb\":65536,\"availKb\":32768}},\"cpuAll\":{all},\"cpuIdle\":{idle},\"procs\":[{procs}]}}"
+        )
+    }
+
+    // A row is [pid, comm, ticks, start ticks, resident pages]. The named
+    // rows are the ones a test names, and the fill brings the count to
+    // `count`: pid 300 upwards, each one `step` ticks more than the last, all
+    // of them started at the same instant.
+    fn rows(named: [&str; 3], ticks: u64, step: u64, count: usize) -> String {
+        let fill = (0..count).map(|i| {
+            format!(
+                "[{},\"p{}\",{},{},10]",
+                300 + i,
+                300 + i,
+                ticks + (i as u64) * step,
+                500
+            )
+        });
+        named
+            .into_iter()
+            .map(str::to_string)
+            .chain(fill)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    // Two readings of one host, a hundred seconds apart. The sleepy process
+    // has used a thousand seconds of CPU in its life and one hundred ticks in
+    // this window; the busy one forty seconds in the window and almost none in
+    // its life. Over the host the window is 100000 ticks of which 90000 were
+    // idle, so the host reads 10% - the figure the test above owns, kept here
+    // only to show the whole section is there. The fill is seventeen processes
+    // whose use in the window rises by one hundred ticks each, so the fifteen
+    // highest fill the rows and the two that used least, at 1.0 and 2.0, are
+    // out beside sleepy.
+    fn pair() -> (String, String) {
+        let was = frame(
+            "1000.00",
+            "100000",
+            "90000",
+            LOAD_EARLIER,
+            &rows(
+                [
+                    "[100,\"sleepy\",100000,100,400]",
+                    "[200,\"busy\",100,200,400]",
+                    "[600,\"gone\",500,600,10]",
+                ],
+                1000,
+                0,
+                17,
+            ),
+        );
+        let now = frame(
+            "1100.00",
+            "200000",
+            "180000",
+            LOAD_LATER,
+            &rows(
+                [
+                    "[100,\"sleepy\",100100,100,400]",
+                    "[200,\"busy\",4100,200,400]",
+                    "[700,\"new\",50,700,10]",
+                ],
+                1100,
+                100,
+                17,
+            ),
+        );
+        (now, was)
+    }
+
+    #[test]
+    fn the_section_shows_the_difference_and_the_load_as_the_reading_wrote_it() {
+        // The three load averages of a reading are its text, so they are read
+        // back as the array a reading holds them, and they are the later
+        // reading's: the earlier one says other figures.
+        let (now, was) = pair();
+        let text = host_text(&now, &was).unwrap();
+        let h: Value = serde_json::from_str(&text).unwrap();
+        assert!(text.contains("\"load\":[0.10,0.20,0.30]"), "{text}");
+        assert_eq!(h["load"], json!([0.10, 0.20, 0.30]));
+        // The host over the window: 100000 ticks of which 90000 were idle. The
+        // aggregate figure itself is owned by the test above; here it says the
+        // section was built at all.
+        assert_eq!(h["cpuPercent"], json!(10));
+        assert_eq!(
+            h["memory"],
+            json!({"totalMb": 64, "usedMb": 32, "percent": 50})
+        );
+        // The fifteen that used the most CPU in this window: sleepy is out
+        // although it has used more than any of them in its life, and so are
+        // the two of the fill that used least, p300 at 1.0 and p301 at 2.0,
+        // below the fifteenth row at 4.0.
+        let names: Vec<&str> = h["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "busy", "p316", "p315", "p314", "p313", "p312", "p311", "p310", "p309", "p308",
+                "p307", "p306", "p305", "p304", "p303"
+            ]
+        );
+        let mut used: Vec<f64> = h["processes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["cpuPercent"].as_f64().unwrap())
+            .collect();
+        assert_eq!(used[0], 40.0);
+        used.sort_by(|a, b| a.total_cmp(b));
+        assert_eq!(
+            used,
+            [4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 40.0]
+        );
+        assert_eq!(h["processes"][0]["upSeconds"], json!(1098));
+        // A process only in the later reading and one only in the earlier are
+        // not measured: there is nothing to take a difference between.
+        assert!(!names.contains(&"new"));
+        assert!(!names.contains(&"gone"));
+    }
+
+    #[test]
+    fn the_section_is_nothing_when_a_reading_is_no_object() {
+        let (now, was) = pair();
+        // A reading that is no JSON at all, and a reading of no tree, leave the
+        // section out: there is no pair to take a difference from. The
+        // unparseable one is asked for on both sides, so the order of the two
+        // cannot be what makes the answer.
+        assert_eq!(host_text("not json", &was), None);
+        assert_eq!(host_text(&now, "not json"), None);
+        assert_eq!(host_text(&now, ""), None);
+        assert_eq!(host_text("", &now), None);
+        // The same through the function that decides it, not only the text that
+        // carries the decision: one reading that is no object is enough, on
+        // either side of the pair, whatever else the other one holds.
+        assert_eq!(
+            host(&json!("not json"), &json!({"clock": 1.0}), 4096.0),
+            Value::Null
+        );
+        assert_eq!(
+            host(&json!({"clock": 1.0}), &json!(""), 4096.0),
+            Value::Null
+        );
+        // An object that says nothing is still a reading, so the pair is still
+        // a pair: it gives a section, and that section says nothing. This is
+        // the answer a caller must not read as "no section", and it is the one
+        // a caller must not read as "the host is idle".
+        let thin = host_text("{\"clock\":1}", &was).unwrap();
+        let h: Value = serde_json::from_str(&thin).unwrap();
+        assert!(h.is_object());
+        assert_eq!(h["load"], Value::Null);
+        assert_eq!(h["cpuPercent"], Value::Null);
+        assert_eq!(h["processes"], json!([]));
+    }
+
+    #[test]
+    fn a_reading_with_no_load_leaves_the_load_out() {
+        let (now, was) = pair();
+        let no_load = {
+            let mut v: Value = serde_json::from_str(&now).unwrap();
+            v.as_object_mut().unwrap().remove("load");
+            v.to_string()
+        };
+        let h: Value = serde_json::from_str(&host_text(&no_load, &was).unwrap()).unwrap();
+        assert_eq!(h["load"], Value::Null);
+        // A reading whose load is a shorter array is a reading of its own: it
+        // gives a section, and the section says nothing about the load. The
+        // two are told apart here and nowhere else.
+        let short = now.replace(LOAD_LATER, "0.10,0.20");
+        assert_ne!(host_text(&short, &was), None);
+        // Three figures are the array a section carries.
+        let h: Value = serde_json::from_str(&host_text(&short, &was).unwrap()).unwrap();
+        assert_eq!(h["load"], Value::Null);
+        assert!(h["processes"].is_array());
+    }
+
+    #[test]
+    fn the_verbs_of_the_command_are_the_words_of_its_usage() {
+        assert_eq!(super::main(&["top".into(), "nope".into()]), 2);
+        for verb in ["reading", "snapshot", "frame"] {
+            assert!(super::USAGE.contains(verb), "{verb} is not in the usage");
+        }
     }
 
     #[test]

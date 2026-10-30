@@ -125,7 +125,7 @@ _tehas_valid() {
       [[ $v =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "expected owner/name"; return 1; }
       ;;
     # The counts; `auto` is worked out by the poll (console/dispatch/src/slots.rs).
-    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
+    TEHAS_CONTROL_ISSUE | TEHAS_MAX_AWAITING | TEHAS_IMPROVE_MAX_OPEN | TEHAS_MILLWRIGHT_MAX_RETRIES | TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS | TEHAS_MILLWRIGHT_MAX_FEEDS | TEHAS_REFRESH_MAX | TEHAS_WORK_TIMEOUT | TEHAS_WORK_STALL | TEHAS_CONCURRENCY | TEHAS_TICKET_CONCURRENCY | TEHAS_SLICE_CONTAINERS | \
       TEHAS_PLAN_MAX_TURNS | TEHAS_PLAN_TIMEOUT | TEHAS_VERIFY_TIMEOUT | TEHAS_CHILD_TIMEOUT | TEHAS_BUILD_TIMEOUT | TEHAS_SIZE_MAX_FILES)
       case "$name:$v" in TEHAS_TICKET_CONCURRENCY:auto | TEHAS_SLICE_CONTAINERS:auto) return 0 ;; esac
       [[ $name != TEHAS_SLICE_CONTAINERS || $v =~ ^([2-9]|1[0-6])$ ]] || { echo "expected auto or a whole number from 2 to 16"; return 1; }
@@ -175,7 +175,7 @@ _tehas_valid() {
     TEHAS_LAYOUT)
       case "$v" in floor | business) ;; *) echo "expected floor or business"; return 1 ;; esac
       ;;
-    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP | TEHAS_REVIEW)
+    TEHAS_INDEXING | TEHAS_ANALYTICS_COOKIE | TEHAS_WORK_IMAGES | TEHAS_WORK_DESCRIBE | TEHAS_WORK_FILES | TEHAS_WORK_COMMENTS | TEHAS_WORK_ZIPS | TEHAS_TOP | TEHAS_REFRESH_CONFLICTS | TEHAS_IMPROVE_RUKAS_SKIP | TEHAS_REVIEW | TEHAS_MILLWRIGHT_FEED)
       case "$v" in 0 | 1) ;; *) echo "expected 0 or 1"; return 1 ;; esac
       ;;
     TEHAS_ANALYTICS_SRC)
@@ -388,17 +388,36 @@ _tehas_role_models() { # <instance.env>
   return 0
 }
 
-# The TEHAS_FIXER_* names were renamed TEHAS_MILLWRIGHT_* in v0.14.0 (#676)
-# and stopped being read in a later release (#799).
-_tehas_fixer_names() {
-  local key old
-  for key in LOGIN MAX_RETRIES MAX_PLAN_ANSWERS; do
-    old=TEHAS_FIXER_$key
-    [ -z "${!old+x}" ] || {
-      tehas_err "$old is no longer read: rename it TEHAS_MILLWRIGHT_$key (see $file)"
-      return 78
-    }
+# The names an earlier version read are refused, not ignored: a line that does
+# nothing in an instance file is a mistake the operator sees (TEHAS_FIXER_* were
+# renamed TEHAS_MILLWRIGHT_* in v0.14.0 #676, unread since #799). The list's
+# order picks which of two retired lines is reported. A name's fate is its own
+# arm, and the last arm speaks for any name without one, so the list and the
+# arms cannot drift apart into a refusal with no message.
+_tehas_retired_names() { # <instance.env>
+  local file=$1 v reason
+  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
+    [ -n "${!v+x}" ] || continue
+    # The off value of the one name that took one: an earlier version read 0 and
+    # a blank line alike as no clones, which is what this version does, so the
+    # line stays loadable. The name is unset with it, so it never reaches a
+    # cycle, and the sweep in tehas_load took the host's TEHAS_* names before
+    # instance.env was read, so this is the file's own line.
+    if [ "$v" = TEHAS_CLONES ] && { [ "${!v}" = 0 ] || [ -z "${!v}" ]; }; then
+      unset "$v"
+      continue
+    fi
+    case "$v" in
+      TEHAS_FIXER_*) reason="is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_}" ;;
+      TEHAS_CLONES) reason="is set and this version of tehas has no database clones" ;;
+      TEHAS_WORK_CPUS) reason="is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      TEHAS_WORK_MEMORY) reason="is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      *) reason="is set and this version of tehas does not read it" ;;
+    esac
+    tehas_err "$v $reason (see $file)"
+    return 78
   done
+  return 0
 }
 
 tehas_load() {
@@ -424,7 +443,8 @@ tehas_load() {
   export TEHAS_INSTANCE_DIR=$dir
 
   # A token in the instance directory would be in its repository. Read with
-  # bash alone: loading runs no other command.
+  # bash alone, and trust the file: it is operator-owned and run as shell here,
+  # so a hostile line needs a reader that does not execute it, as this scan is.
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line#"${line%%[![:space:]]*}"}
     line=${line#export }
@@ -447,25 +467,7 @@ tehas_load() {
   set +a
 
   _tehas_role_models "$file" || return 78
-  _tehas_fixer_names || return 78
-
-  # Database clones are not part of this version. An instance that still asks
-  # for them is refused, not run without them.
-  if [ "${TEHAS_CLONES:-0}" != 0 ]; then
-    tehas_err "TEHAS_CLONES is set and this version of tehas has no database clones (see $file)"
-    return 78
-  fi
-  # The budgets of an earlier version: the limit around every container is the
-  # slice on the host now, and nothing here divides anything, so a budget line
-  # would be a setting that does nothing. Refused, not ignored.
-  if [ -n "${TEHAS_WORK_CPUS+x}" ]; then
-    tehas_err "TEHAS_WORK_CPUS is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
-    return 78
-  fi
-  if [ -n "${TEHAS_WORK_MEMORY+x}" ]; then
-    tehas_err "TEHAS_WORK_MEMORY is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice (see $file)"
-    return 78
-  fi
+  _tehas_retired_names "$file" || return 78
 
   # Derived and optional settings.
   if [ -n "${TEHAS_REPO:-}" ]; then
@@ -525,10 +527,10 @@ tehas_load() {
   # refuses it). TEHAS_REVIEW is whether it reviews at all: off, since it is an
   # agent on a timer with no person in front of it.
   export TEHAS_REVIEW_REPO=${TEHAS_REVIEW_REPO:-} TEHAS_REVIEW=${TEHAS_REVIEW:-0}
-  # The millwright: the account whose tehas:ready the dispatcher takes on its own
-  # grant (unset, none), its ceiling of cycles on one issue since a person last
-  # approved it, and its ceiling of planning questions a session may get.
-  export TEHAS_MILLWRIGHT_LOGIN=${TEHAS_MILLWRIGHT_LOGIN:-} TEHAS_MILLWRIGHT_MAX_RETRIES=${TEHAS_MILLWRIGHT_MAX_RETRIES:-2} TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=${TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS:-3}
+  # The millwright: its account (unset, none), its ceilings of cycles on one issue
+  # since a person approved it and of planning questions a session may get, and
+  # its feed: whether it may start an issue a person wrote (off), and how many at once.
+  export TEHAS_MILLWRIGHT_LOGIN=${TEHAS_MILLWRIGHT_LOGIN:-} TEHAS_MILLWRIGHT_MAX_RETRIES=${TEHAS_MILLWRIGHT_MAX_RETRIES:-2} TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS=${TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS:-3} TEHAS_MILLWRIGHT_FEED=${TEHAS_MILLWRIGHT_FEED:-0} TEHAS_MILLWRIGHT_MAX_FEEDS=${TEHAS_MILLWRIGHT_MAX_FEEDS:-2}
   # The GitHub App the factory acts as, or none (lib/github-app.sh).
   export TEHAS_GITHUB_APP_ID=${TEHAS_GITHUB_APP_ID:-} TEHAS_GITHUB_APP_INSTALLATION=${TEHAS_GITHUB_APP_INSTALLATION:-} TEHAS_BOT_LOGIN=${TEHAS_BOT_LOGIN:-}
   # Refreshes: whether the factory resolves conflicts in its own pull requests
@@ -621,7 +623,7 @@ tehas_load() {
   # optional one an instance left out is checked only when it is there, as
   # TEHAS_BUILD_TIMEOUT is: its default belongs to the command that reads it.
   for v in TEHAS_THEME TEHAS_LAYOUT TEHAS_INDEXING TEHAS_WORK_IMAGES TEHAS_WORK_DESCRIBE TEHAS_WORK_FILES TEHAS_WORK_COMMENTS TEHAS_WORK_ZIPS TEHAS_ANALYTICS TEHAS_ANALYTICS_COOKIE TEHAS_TOP TEHAS_IMPROVE_RUKAS_SKIP TEHAS_REVIEW TEHAS_CONCURRENCY TEHAS_TICKET_CONCURRENCY TEHAS_HOST_ADDR TEHAS_MAX_AWAITING TEHAS_WORK_TIMEOUT TEHAS_WORK_STALL TEHAS_VERIFY_TIMEOUT TEHAS_CHILD_TIMEOUT TEHAS_PLAN_MAX_TURNS TEHAS_PLAN_TIMEOUT \
-    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
+    TEHAS_MILLWRIGHT_MAX_RETRIES TEHAS_MILLWRIGHT_MAX_PLAN_ANSWERS TEHAS_MILLWRIGHT_FEED TEHAS_MILLWRIGHT_MAX_FEEDS TEHAS_REFRESH_CONFLICTS TEHAS_REFRESH_MAX TEHAS_REFRESH_EVERY TEHAS_REFRESH_SLOTS TEHAS_PREVIEWS TEHAS_PREVIEW_MAX TEHAS_PREVIEW_MIN_FREE TEHAS_CYCLE_MIN_FREE TEHAS_CLEAN_MIN_FREE TEHAS_CYCLE_RESERVE TEHAS_SLICE_CONTAINERS TEHAS_LOW_GATE_WAIT TEHAS_CLEAN_AFTER TEHAS_POLL_BUDGET TEHAS_SIZE_MAX_BYTES TEHAS_SIZE_MAX_LINES; do
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
   # Its default belongs to install.sh, so an instance that left it out is checked

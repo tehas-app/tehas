@@ -229,7 +229,8 @@ container() {
   [ -n "$body" ] || body='progress cycle; exit 0'
   printf '%s\n' 'nap=$(command -pv sleep)' \
     'c=$T/home/tehas/logs; b=7; rm -f "$c"/work-$b-*.jsonl.err' \
-    'says() { echo "{\"schemaVersion\":5,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2},\"exitCode\":10}]}"; }' \
+    'says2() { echo "{\"schemaVersion\":5,\"buildCommit\":null,\"exitCode\":10,\"issues\":[{\"issue\":7,\"status\":\"$1\",\"cap\":\"${2:-}\",\"failedStep\":\"develop\",\"branch\":\"feature/issue-7-x\",\"steps\":[{\"step\":\"explore\"},{\"step\":\"develop\"}],\"usage\":{\"input\":5,\"output\":2,\"cacheRead\":1,\"turns\":3,\"dispatches\":2,\"byRole\":{}},\"failure\":${3:-null},\"exitCode\":10}]}"; }' \
+    'says() { says2 "$1" "${2:-}"; }' \
     'progress() { printf "%s\n" "$1" >&2; }' \
     "$body" >"$T/container.sh"
 }

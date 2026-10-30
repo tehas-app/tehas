@@ -62,16 +62,15 @@
 #   tehas_headless_now <ndjson>
 #       the step of the last stable step-started line and the message of the
 #       last stable log line, as two lines.
-#   tehas_headless_progress <ndjson> [<caps> <result> <issue>]
+#   tehas_headless_progress <ndjson> [<result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
 #       cause, or null; from, where roles and failure were read; reviewHeld, a
 #       stable cap-hit ended the review on its round cap and sent the cycle on
 #       to ci, so its findings were left open. roles and failure come from the
-#       result where the answer says it carries them (features.usageByRole,
-#       features.failureReason), else from the progress: the stable
-#       dispatch-completed lines, each counted once by its key, and for the
-#       reason lines the runner marks unstable.
+#       issue's entry of the result; with no such entry they come from the
+#       progress: the stable dispatch-completed lines, each counted once by
+#       its key, and for the reason lines the runner marks unstable.
 #   tehas_headless_outcome <result> <issue>
 #       the issue's entry of a schema 5 result as one JSON object, its text
 #       fields reduced to plain characters, its exitCode null unless a number.
@@ -262,47 +261,43 @@ tehas_headless_now() { # <ndjson>
     2>/dev/null | head -n 2
 }
 
-tehas_headless_progress() { # <ndjson> [<caps> <result> <issue>]
-  local legacy result=null caps
-  caps=$(jq -c 'objects' <<<"${2:-}" 2>/dev/null) || caps=""
-  [ -n "$caps" ] || caps='{}'
+tehas_headless_progress() { # <ndjson> [<result> <issue>]
+  local legacy result=null
   legacy=$(_tehas_headless_progress_lines "$1") || legacy=""
   [ -n "$legacy" ] || legacy='{"roles":[],"reason":"","reviewHeld":false}'
-  if [ -n "${4:-}" ] && [ ! -L "${3:-}" ]; then
-    result=$(jq -c --argjson issue "$4" --argjson rv "$tehas_headless_result" '
+  if [ -n "${3:-}" ] && [ ! -L "${2:-}" ]; then
+    result=$(jq -c --argjson issue "$3" --argjson rv "$tehas_headless_result" '
       select(type == "object" and .schemaVersion == $rv)
-      | [.issues[]? | objects | select(.issue == $issue)] | first // null' "$3" 2>/dev/null) || result=null
+      | [.issues[]? | objects | select(.issue == $issue)] | first // null' "$2" 2>/dev/null) || result=null
     [ -n "$result" ] || result=null
   fi
-  jq -n -c --argjson legacy "$legacy" --argjson r "$result" --argjson caps "$caps" '
+  jq -n -c --argjson legacy "$legacy" --argjson r "$result" '
     def n: if type == "number" and . >= 0 then . else 0 end;
     def plain: if type == "string" then gsub("[^A-Za-z0-9_.:-]"; "") else "" end;
-    (($caps.features.usageByRole == true) and ($r != null)) as $by_role
-    | (($caps.features.failureReason == true) and ($r != null)) as $by_failure
+    ($r != null) as $from_result
     | ($r.failure // null | objects // null) as $f
-    | {roles: (if $by_role then
+    | {roles: (if $from_result then
                [($r.usage | objects | .byRole | objects) // {} | to_entries[] | select(.value | type == "object")
                 | (.key | plain) as $k
                 | {role: (if $k == "" then "driver" else $k end), dispatches: (.value.dispatches | n),
                    turns: (.value.turns | n), input: (.value.input | n), output: (.value.output | n),
                    cacheRead: (.value.cacheRead | n)}]
              else $legacy.roles end),
-       reason: (if $by_failure then
+       reason: (if $from_result then
                 ([$f.providerMessage?, $f.message?] | map(strings | select(length > 0)) | first // "")
               else $legacy.reason end),
-       failure: (if $by_failure and $f != null then
+       failure: (if $from_result and $f != null then
                  {kind: ($f.kind | plain), step: ($f.step | plain), role: ($f.role | plain), cause: ($f.cause | plain)}
                else null end),
        reviewHeld: ($legacy.reviewHeld == true),
-       from: {roles: (if $by_role then "result" else "progress" end),
-              failure: (if $by_failure then "result" else "progress" end)}}' 2>/dev/null
+       from: {roles: (if $from_result then "result" else "progress" end),
+              failure: (if $from_result then "result" else "progress" end)}}' 2>/dev/null
 }
 
-# The per-role usage and the reason of a build whose result carries neither
-# (v0.12.80): the stable dispatch-completed lines, and for the reason the
-# lines the runner marks unstable.
-# TODO(trail-openers/pi-rukas#1367): remove once no host runs an image
-# without features.failureReason and features.usageByRole.
+# The per-role usage and the reason of a run whose runner wrote no result: the
+# stable dispatch-completed lines, and for the reason the lines the runner marks
+# unstable. A schema 5 run always answers from its result, so this is read only
+# for a runner that died before writing one.
 _tehas_headless_progress_lines() { # <ndjson>
   {
     _tehas_headless_stable "$1"

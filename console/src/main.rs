@@ -32,7 +32,7 @@
 //!
 //! What a planning turn of libexec/plan says, see src/plan.rs.
 //!
-//!   console top reading|host|snapshot|frame ...
+//!   console top reading|snapshot|frame ...
 //!
 //! The snapshot behind tehas top, its host section and the frame drawn from
 //! it, see src/top.rs, src/snapshot.rs and src/frame.rs.
