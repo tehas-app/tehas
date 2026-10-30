@@ -443,8 +443,9 @@ choice.
   runs the driver of the start it follows, so a label added since changes
   nothing until a person applies `tehas:ready` again.
 - With the label off, the next start is classic, retry or not.
-- The bash poll (`TEHAS_DISPATCHER=bash`) does not read the label: on it the
-  issue runs classic.
+- The bash poll (`TEHAS_DISPATCHER=bash`) does not read who applied the label:
+  on it nothing starts while the issue carries it, and the log says why. Take it
+  off to run the issue on classic.
 
 ### What a poll costs
 
