@@ -237,9 +237,9 @@ EOS
   sed -i "s|'@RC@'|'$rc'|" "$fx/work.sh"
   mkdir -p "$workdir"
 }
-# A runner that wrote its result but whose image carries no usage at all (the
-# TODO of pi-rukas#1367), with the rows the progress did record. The totals of
-# the table are then those rows added up.
+# A runner that wrote its result but whose entry carries no usage at all, with
+# the rows the progress did record. The totals of the table are then those rows
+# added up.
 ended_no_usage_with_rows() {
   ended handoff commit-pr feature/issue-7-x
   jq '.issues[0] |= del(.usage)' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"

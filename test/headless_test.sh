@@ -132,9 +132,9 @@ for bad in "" "../x" "Plan" "a-b" "a b"; do
   t_eq "$t_rc" 1
 done
 
-t_case "where the image says its result carries them, usage per role and the failure come from the result"
+t_case "the usage per role and the failure of a schema 5 run come from its result"
 jq '.issues[0].usage.byRole = {ops: {input: 0, output: 0, cacheRead: 0, turns: 0, dispatches: 1}}' "$sx/result.json" >"$T/r.json"
-p=$(tehas_headless_progress "$sx/progress.jsonl" "$scaps" "$T/r.json" 7)
+p=$(tehas_headless_progress "$sx/progress.jsonl" "$T/r.json" 7)
 t_eq "$(jq -c .roles <<<"$p")" '[{"role":"ops","dispatches":1,"turns":0,"input":0,"output":0,"cacheRead":0}]'
 t_eq "$(jq -c .failure <<<"$p")" '{"kind":"cap","step":"explore","role":"","cause":""}'
 t_eq "$(jq -r .reason <<<"$p")" explore-bodies-empty
@@ -145,32 +145,29 @@ jq '.issues[0].failure = {kind: "provider", step: "develop", role: "developer", 
   message: "The provider refused", providerMessage: "429 Too Many Requests"}
   | .issues[0].usage.byRole = {developer: {input: 5, output: 2, cacheRead: 1, turns: 3, dispatches: 2}, "a b": {dispatches: "x"}, bad: 7}' \
   "$sx/result.json" >"$T/r.json"
-p=$(tehas_headless_progress "$sx/progress.jsonl" "$scaps" "$T/r.json" 7)
+p=$(tehas_headless_progress "$sx/progress.jsonl" "$T/r.json" 7)
 t_eq "$(jq -c .failure <<<"$p")" '{"kind":"provider","step":"develop","role":"developer","cause":"rate-limited:429"}'
 t_eq "$(jq -r .reason <<<"$p")" "429 Too Many Requests"
 t_eq "$(jq -c .roles <<<"$p")" '[{"role":"developer","dispatches":2,"turns":3,"input":5,"output":2,"cacheRead":1},{"role":"ab","dispatches":0,"turns":0,"input":0,"output":0,"cacheRead":0}]'
 
-t_case "a result with no failure, where the image says it would carry one, has none"
+t_case "a result with no failure has none"
 jq 'del(.issues[0].failure)' "$sx/result.json" >"$T/r.json"
-p=$(tehas_headless_progress "$sx/progress.jsonl" "$scaps" "$T/r.json" 7)
+p=$(tehas_headless_progress "$sx/progress.jsonl" "$T/r.json" 7)
 t_eq "$(jq -c '[.failure, .reason, .from.failure]' <<<"$p")" '[null,"","result"]'
 
-t_case "an image that does not say so (v0.12.80) gives the progress lines, whatever its result holds"
-p=$(tehas_headless_progress "$nx/progress.jsonl" "$caps" "$sx/result.json" 7)
+t_case "a run whose runner wrote no result gives the progress lines"
+p=$(tehas_headless_progress "$nx/progress.jsonl")
 t_eq "$(jq -c '[.roles, .failure, .from]' <<<"$p")" '[[],null,{"roles":"progress","failure":"progress"}]'
 t_contains "$(jq -r .reason <<<"$p")" "cancelled (abort signal)"
-jq '.issues[0].usage.byRole = {ops: {dispatches: 1}}' "$sx/result.json" >"$T/r.json"
-p=$(tehas_headless_progress "$nx/progress.jsonl" "$(jq -c 'del(.features.failureReason)' <<<"$scaps")" "$T/r.json" 7)
-t_eq "$(jq -c '[.from, (.roles | length)]' <<<"$p")" '[{"roles":"result","failure":"progress"},1]'
 
 t_case "no result, another issue, a schema 3 result or a result that is a link gives the progress lines"
 for args in "$T/missing.json 7" "$sx/result.json 8" "$nx/result.json 7"; do
   # shellcheck disable=SC2086  # the file and the issue, two arguments
-  t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$scaps" $args | jq -c .from)" '{"roles":"progress","failure":"progress"}'
+  t_eq "$(tehas_headless_progress "$nx/progress.jsonl" $args | jq -c .from)" '{"roles":"progress","failure":"progress"}'
 done
 ln -s "$sx/result.json" "$T/link.json"
-t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$scaps" "$T/link.json" 7 | jq -c .from)" '{"roles":"progress","failure":"progress"}'
-t_eq "$(tehas_headless_progress /dev/null "not json" /dev/null 7 | jq -c '[.roles, .reason, .failure]')" '[[],"",null]'
+t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$T/link.json" 7 | jq -c .from)" '{"roles":"progress","failure":"progress"}'
+t_eq "$(tehas_headless_progress /dev/null /dev/null 7 | jq -c '[.roles, .reason, .failure]')" '[[],"",null]'
 
 t_case "the live line is the last stable step and the driver's last notice, without its marker line"
 t_eq "$(tehas_headless_now "$fx/progress.jsonl" | head -n 1)" handoff
