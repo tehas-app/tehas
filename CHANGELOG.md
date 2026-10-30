@@ -13,6 +13,11 @@ empty one above it.
 
 ### Changes
 
+- The millwright's feed, off by default: with `TEHAS_MILLWRIGHT_FEED=1` the
+  millwright's `tehas:ready` starts the first cycle of an issue an allowed
+  labeller wrote, its text unchanged since, at most
+  `TEHAS_MILLWRIGHT_MAX_FEEDS` (2) at once. The Rust dispatcher only. The
+  queue's page now asks GitHub for each issue's author and creation time.
 
 ### Adopter action
 

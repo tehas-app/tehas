@@ -1625,6 +1625,21 @@ the new names.
   since that approval (2 unless the instance says otherwise). Otherwise the
   label comes off and the issue says why. So the millwright never starts work
   nobody asked for: it never readies a `tehas:improvement` proposal.
+- **With the feed, it may start an issue a person wrote.** Optional, off
+  unless `TEHAS_MILLWRIGHT_FEED=1`, and only in the Rust dispatcher. On an
+  issue no person approved a cycle of, the millwright's `tehas:ready` starts
+  the first cycle when an account in `TEHAS_ALLOWED_LABELERS` wrote the issue,
+  nobody outside the list changed its title or text since, it carries none of
+  `tehas:improvement`, `cross-project`, `needs-human-attention` and
+  `tehas:millwright-escalated`, and no allowed labeller took `tehas:ready` off
+  it before. Writing the issue is the person's approval of its text. A body
+  the millwright reshaped is not the author's, so it needs a person's
+  `tehas:ready`. At most `TEHAS_MILLWRIGHT_MAX_FEEDS` cycles the feed started
+  run at once (2 unless the instance says otherwise): past that the label
+  stays and the issue waits. When the running ones cannot be counted, it
+  waits too. A fed cycle rests on no person's approval, so once it ends the
+  millwright's grant cannot retry it: a person approves the next cycle. The
+  other checks of any start still apply: epics, the size limit, the slots.
 - **The approval record says so.** A millwright start has `how: "millwright"`,
   `rests_on`, the person's approval it rests on, and `millwright_starts`. A
   person's start counts again from none. Its other limits are the
