@@ -10,11 +10,16 @@
 # --- A cap that a provider outage gives ---------------------------------------
 # The state file as pi-rukas leaves it when a step failed for good: the failed
 # dispatch, then the cap.
-# A handoff at <cap>, and the reason tehas work read of the failure before it.
+# A handoff at <cap>, and the failure the runner named before it, which tehas
+# work wrote into the progress as a schema 5 run does.
 capped() { # <cap> <failure event as JSON>
   ended handoff handoff feature/issue-7-x
   jq --arg cap "$1" '.issues[0].cap = $cap' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
-  jq -n --argjson f "$2" '{roles: [], reason: ($f.providerMessage // $f.errorTail // "")}' >"$fx/progress.json"
+  jq -n --argjson f "$2" '{roles: [], reason: ($f.providerMessage // $f.errorTail // ""),
+    failure: {kind: (if $f.kind == "dispatch-failed-provider" then "provider" else $f.kind end)}
+              + {step: $f.step, role: $f.role, cause: $f.cause}
+              | with_entries(select(.value != null)),
+    from: {roles: "result", failure: "result"}}' >"$fx/progress.json"
 }
 outage='{"kind":"dispatch-failed-provider","step":"adversarial","at":2,"providerMessage":"Connection error."}'
 
@@ -39,13 +44,13 @@ t_eq "$(t_row history-show 7 -- '.rows[-1] | [.cap, .provider, .parked] | tostri
 t_eq "$(jq -c '[.cap, .capReason]' "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" \
   '["step-failed:adversarial","Connection error."]'
 
-t_case "a timeout and a 5xx are provider outages too"
+t_case "a failed dispatch is no outage, whatever its words say"
 for f in '{"kind":"dispatch-failed","at":2,"errorTail":"request timed out after 600s"}' \
   '{"kind":"dispatch-failed","at":2,"errorTail":"502 Bad Gateway"}'; do
   reset
   capped step-failed:develop "$f"
   t_run "$cycle 7"
-  t_eq "$(park_of .reason)" provider-outage
+  t_eq "$(park_of .reason)" step-failed:develop
 done
 
 t_case "an outage of a cycle started by hand owes no retry, and says it waits for a person"
@@ -81,19 +86,19 @@ t_lacks "$(t_calls gh)" "provider outage"
 t_eq "$(park_of '[.reason, .automatic]')" '["step-failed:develop",false]'
 t_eq "$(jq -r .capReason "$T/home/tehas/tmp/improve/window/7-261011-120000/cycle.json")" "3 assertions failed in test/x"
 
-t_case "a failed step with no reason is said in the log, and is not taken for an outage"
+t_case "a cap whose progress names no failure is no outage and asks no reason"
 reset
 capped step-failed:develop '{"kind":"dispatch-failed","at":2}'
 t_run "$cycle 7"
-t_contains "$t_out" "WARN: #7 ended at step-failed:develop and no reason was found in its progress"
+t_lacks "$t_out" "no reason was found"
 t_eq "$(park_of .reason)" step-failed:develop
 reset
 capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"exit 1"}'
 t_run "$cycle 7"
 t_lacks "$t_out" "no reason was found"
 
-# A result that carries its failure (features.failureReason): tehas work wrote
-# the failure into the progress, and its kind is what counts.
+# The failure of a schema 5 run as tehas work writes it into the progress:
+# its kind is what counts.
 failed() { # <cap> <failure kind> <reason>
   ended handoff handoff feature/issue-7-x
   jq --arg cap "$1" '.issues[0].cap = $cap' "$fx/result.json" >"$fx/r" && mv "$fx/r" "$fx/result.json"
@@ -147,7 +152,7 @@ failed round-cap cap "round-cap"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "It failed:"
 reset
-capped step-failed:develop '{"kind":"dispatch-failed","at":2,"errorTail":"3 assertions failed"}'
+failed round-cap cap "the driver stopped"
 t_run "$cycle 7"
 t_lacks "$(t_calls gh)" "It failed:"
 
@@ -296,11 +301,11 @@ t_run "$cycle 7"
 t_eq "$(park_markers | wc -l)" 1
 [ "$(park_sig)" != "$first" ] || t_bad "a different cap gave the same sig"
 
-t_case "a provider outage says so in the marker, and a park with no failure kind has an empty one"
+t_case "a provider outage says so in the marker, with the kind of its failure"
 reset
 capped step-failed:adversarial "$outage"
 t_run "$cycle 7"
-t_contains "$(park_markers)" "<!-- tehas:park issue=7 step=handoff kind= provider=1 sig="
+t_contains "$(park_markers)" "<!-- tehas:park issue=7 step=handoff kind=provider provider=1 sig="
 
 t_case "a newline or a comment end in the park's text does not break the marker"
 reset
