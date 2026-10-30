@@ -1159,7 +1159,7 @@ t_eq "$(tail -n 1 "$conf")" "makestep 1 -1"
 t_case "clock that cannot ask systemd fails instead of saying done"
 fresh_clock
 clock_stubs 0 kvm
-rm -f "$T/bin/systemctl"
+t_stub systemctl 'exit 127'
 t_run "$bootstrap clock"
 t_eq "$t_rc" 1
 t_contains "$t_out" "could not ask systemd whether chrony or chronyd is active"
