@@ -71,10 +71,21 @@ None.
   never runs in its place. An issue without the label runs as it did. Only the
   Rust poll reads the label: the bash poll starts nothing on an issue that
   carries it.
+- Analytics records which driver ran each cycle, and `tehas analytics report`
+  compares the drivers in a `drivers` key and a `Drivers` table. Runs from
+  before read as classic.
+- The analytics database moves to schema 3, in place, with no loss. Empty
+  token counts are no longer zeros: `versions.medianTokens` and
+  `tokens.perShipped` leave those runs out, and a pair's median rests on at
+  least three runs that reported usage.
 
 ### Adopter action
 
 Run `tehas labels` to make `tehas:lean`.
+
+Roll back to a release before schema 3 only if you accept this: an older
+program moves a schema 3 `state/analytics.db` aside whole and starts a new one.
+A second rollback replaces that kept copy.
 
 ## v0.18.0 (2026-10-30)
 
