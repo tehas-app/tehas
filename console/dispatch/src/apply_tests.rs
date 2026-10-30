@@ -1389,8 +1389,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
     let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
     assert!(
-        said
-            .iter()
+        said.iter()
             .any(|l| *l == "WARN: could not write the reason for #7"),
         "{said:?}"
     );
@@ -1980,7 +1979,10 @@ fn a_plan_is_said_before_its_boxes_and_once() {
     )
     .unwrap();
     // The boxes do not go up: the plan stays said, the next poll adds them.
-    t.fail("gh", "repos/example-owner/example-product/issues/7/comments");
+    t.fail(
+        "gh",
+        "repos/example-owner/example-product/issues/7/comments",
+    );
     let a = t.apply(json!([{"plan_post": 7}]));
     assert_eq!(
         a.log,

@@ -11,7 +11,7 @@ use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
 use crate::text;
 use serde_json::{json, Map, Value};
-use tehas_core::hold::{Why, Report};
+use tehas_core::hold::{Report, Why};
 
 mod clean;
 mod plan;

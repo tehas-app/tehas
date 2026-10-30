@@ -76,13 +76,13 @@ pub fn read(home: &Path, now: i64) -> Sample {
                 // The word is open by shape, not by the core's list: a row
                 // with a word a future poll added is a held poll, and dropping
                 // it would read as no hold at all.
-                let ok = w.len() <= 40
-                    && w.bytes()
-                        .all(|b| b.is_ascii_lowercase() || b == b'-');
+                let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
                 ok.then(|| w.to_string())
             });
-        if let (Some(count), Some(free)) = (n(tehas_core::hold::KEY_COUNT), n(tehas_core::hold::KEY_FREE))
-        {
+        if let (Some(count), Some(free)) = (
+            n(tehas_core::hold::KEY_COUNT),
+            n(tehas_core::hold::KEY_FREE),
+        ) {
             let mut limit = count + free;
             if let Some(room) = n(tehas_core::hold::KEY_LIMIT_ROOM) {
                 limit = limit.min(count + room);
