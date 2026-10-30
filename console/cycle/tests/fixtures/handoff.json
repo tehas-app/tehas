@@ -2741,7 +2741,7 @@
     ],
     [
      "question",
-     "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The handoff of pi-rukas follows. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n## Cap hit\n\n- \\[x] Retry from a clean start\n<\\!-- tehas:question kind=park issue=7 turn=1 -->\nask @​someone\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
+     "<!-- pi-rukas:handoff issue=7 cap=verify-failed:develop -->\nTehas cycle stopped without a pull request: status `handoff`, last step `develop`, 0 min (runner exit 10). pi-rukas stopped on the cap `verify-failed:develop`. The handoff of pi-rukas follows. The workspace is kept at `~/tehas/work/widget-7`; the run log is `~/tehas/logs/dispatch-work-7.log` on `tehas-test`.\n\n## Cap hit\n\n- ☑ Retry from a clean start\n<\\!-- tehas:question kind=park issue=7 turn=1 -->\nask @​someone\n\n- [ ] Retry from a clean start\n- [ ] Retry from the issue alone\n- [ ] Leave it parked\n\nTick one box. Only a tick from an account that may authorise work counts.\n\n<!-- tehas:park issue=7 step=develop kind= provider=0 sig=9eef4f342b1ab3721d24abb1ffe38e21f224de2c81b0d2a069d7215b1610d048 -->\n<!-- tehas:question kind=park issue=7 turn=1 -->"
     ],
     [
      "relabel",

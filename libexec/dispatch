@@ -493,25 +493,25 @@ trap 'if [ "$tidy_on" = 1 ]; then
 json=""
 gh_json() { json=$(gh "$@" 2>"$TEHAS_HOME/state/gh-err") && return; log "ERROR: gh $1 $2 failed$(grep -oiE -m1 'HTTP [0-9]{3}|secondary rate limit|rate limit|timed? ?out|connection (reset|refused)|no such host|unexpected EOF' "$TEHAS_HOME/state/gh-err" | sed -n '1s/^/: /p')"; exit 1; }
 
-# say <issue> <text>: comment on an issue. A failure is a warning in the log,
-# not the end of the poll.
+# say <issue> <text>: comment on an issue. A failure is only a warning.
 say() { gh issue comment "$1" --repo "$repo" --body "$2" >/dev/null 2>&1 || log "WARN: comment on #$1 failed"; }
 
-# post_question <kind> <issue> <turn> <result.json> [line under the agent's
-# words]: post a question comment. The line, when it is given, is the host's
-# own and goes after the question and before the boxes. Its id is left in
-# $posted. Returns 1 when it could not be posted.
+# post_question <kind> <issue> <turn> <result.json> [line above the boxes]: a
+# plan's text, once, then its question, whose id is left in $posted. 1 on a failure.
 posted=""
 post_question() {
   local body
+  body=$(jq -r '.text // ""' "$4" | q_clean 40000) || return 1
+  if [ -n "$body" ]; then
+    gh issue comment "$2" --repo "$repo" --body "$body" >/dev/null 2>&1 || return 1
+    jq '.text = ""' "$4" >"$4.new" && mv "$4.new" "$4"
+  fi
   body=$(q_render "$1" "$2" "$3" "$4" "${5:-}") || return 1
   posted=$(gh api "repos/$repo/issues/$2/comments" -f body="$body" --jq .id 2>/dev/null) || return 1
   [ -n "$posted" ]
 }
-# untick <issue> <answer> [note]: empty every box of a question comment. With
-# a note, say it on the issue, but only once the untick has worked: if the box
-# stays ticked the next poll sees the same tick, and the note would be posted
-# every poll. Returns 1 when the comment could not be changed.
+# untick <issue> <answer> [note]: empty every box of a question comment, then
+# say the note: a box left ticked would have it said on every poll. 1 on a failure.
 untick() {
   gh api -X PATCH "repos/$repo/issues/comments/$(jq -r .comment <<<"$2")" \
     -f body="$(jq -r .body <<<"$2" | q_untick)" >/dev/null 2>&1 || return 1
