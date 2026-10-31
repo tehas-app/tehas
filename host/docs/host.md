@@ -1185,16 +1185,24 @@ above); its CPU quota and its memory do not. There is no CPU or memory budget to
 `TEHAS_WORK_CPUS` or `TEHAS_WORK_MEMORY` is refused with 78 and one line naming
 the slice file.
 
-`auto` gives the count to the dispatcher instead. On every poll it reads the
-host as the poll reads it anyway - `nproc` for the CPUs, `tehas.slice`'s
-`MemoryMax` for the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
+`auto` is not a value either count takes today: the settings check refuses it
+with 78 and one line that says `expected a whole number (auto is not usable
+yet)`. The dispatcher can answer it - on every poll it reads the host as the
+poll reads it anyway - `nproc` for the CPUs, `tehas.slice`'s `MemoryMax` for
+the memory - and takes the CPUs over `TEHAS_CYCLE_CPUS` as the
 cycles and the slice's memory over `TEHAS_CONTAINER_MEMORY` as the containers,
 each between its own floor and 16, and neither above `TEHAS_CYCLE_CEILING`, the
-bound for an endpoint that cannot serve what a big host asks for. So a VM given
-more CPUs or memory is used at the next poll, and one that lost them holds new
-starts from the next poll: **a running cycle is never stopped**, only the room
-for another one moves. `tehas status` prints the count in force and the word
-for what bounded it, in a line above the slice's:
+bound for an endpoint that cannot serve what a big host asks for. The cycle
+cannot use such a count yet (`lib/slice.sh` reads a number at every start), so
+a cycle started under `auto` parks and a poll starts none until a person
+notices. It fails closed here rather than spend an approval on a cycle that
+cannot run.
+
+What the dispatcher would do with it, and what `tehas status` will show once it
+can, is this: a VM given more CPUs or memory is used at the next poll, and one
+that lost them holds new starts from the next poll: **a running cycle is never
+stopped**, only the room for another one moves. `tehas status` prints the count
+in force and the word for what bounded it, in a line above the slice's:
 
 ```
 slots     cycles auto: 6, cpu-bound (24 CPUs over TEHAS_CYCLE_CPUS=4, 6 containers of tehas.slice over TEHAS_CONTAINER_MEMORY=8g, ceiling 16)
@@ -1202,11 +1210,10 @@ slice     room for 3 cycles (4.0 GiB of 20.0 GiB promised, reserve 2g, 20 s ago)
 ```
 
 The same is in the [status object](/api#tehas-status--json) as `room.slots`.
-A host whose reading answers nothing (no `nproc`, a slice with no limit) is
-held to one cycle and two containers rather than given the ceiling: the poll
-starts one cycle rather than what it cannot show room for. `auto` is proven on
-a host of a few dozen CPUs; a small host is better off with a number, which is
-also what it needs when it wants workstreams (see the axis below).
+A host whose reading answers nothing (no `nproc`, a slice with no limit) would
+be held to one cycle and two containers rather than given the ceiling: the poll
+starts one cycle rather than what it cannot show room for. Set a number, which
+is also what an instance needs when it wants workstreams (see the axis below).
 
 `TEHAS_CONCURRENCY` sets how many workstreams one cycle may run side by side,
 inside that one container. It defaults to 1, and pi-rukas is always told it as
@@ -1225,9 +1232,10 @@ each. The two settings would otherwise multiply, and with them the agents
 calling the model backends and the gates on the same CPUs: 4 issues of 4
 workstreams are 16 developer agents and up to 16 full gates at once, in four
 containers' quotas. So an instance may set `TEHAS_CONCURRENCY` above 1 only
-with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. `auto` asks for more
-than one cycle on any host with room, so it is refused the same way. With both
-above 1 every command stops with exit 78 and one line that names both:
+with `TEHAS_TICKET_CONCURRENCY=1`, one issue at a time. `auto` would ask for
+more than one cycle on any host with room, and the settings check refuses it for
+either count anyway. With both above 1 every command stops with exit 78 and one
+line that names both:
 
 ```
 tehas: TEHAS_CONCURRENCY (4) and TEHAS_TICKET_CONCURRENCY (7) are both above 1: choose one, ...
