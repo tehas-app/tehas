@@ -2,7 +2,7 @@
 // the tests write, grow, truncate and rotate.
 
 use mcp::events::{DEFAULT_EVENTS, EVENTS_MAX, READ_MAX, TEXT_CUT};
-use mcp::keys::parse_keys;
+use mcp::keys::{parse_keys, Setting};
 use mcp::rpc::{handle, Request};
 use mcp::tools::{call, Dirs, Output, ToolError};
 use serde_json::{json, Value};
@@ -180,7 +180,7 @@ fn the_fixtures_give_the_last_events_merged_by_time_and_masked() {
 #[test]
 fn through_the_server_it_is_listed_and_answers() {
     let k = "abcdefghijklmnopqrstuvwxyz012345";
-    let keys = parse_keys(k).unwrap();
+    let keys = parse_keys([(&Setting::Full, k), (&Setting::Dashboard, "")]).unwrap();
     let send = |body: Value, name: Option<&str>| {
         let auth = format!("Bearer {k}");
         let method = body["method"].as_str().unwrap().to_string();
