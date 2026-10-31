@@ -4362,7 +4362,8 @@ every `test/*_test.sh` in the same pool: nothing waits for the lint to finish.
 Those need bash, git, jq and shellcheck, and cargo for the store (below): no
 sandbox image, no product checkout and no network. At most `TEHAS_TEST_JOBS` tasks run at once: by
 default the smaller of the CPUs `nproc` counts and the CPU quota of the cgroup
-it runs in, rounded up. The slowest files start first, from a short fixed list
+it runs in, rounded up, and at most two tasks a GiB of that cgroup's memory
+ceiling, so the 4 GiB of `tehas check-product --sandbox` runs 8 on any host. The slowest files start first, from a short fixed list
 in the script, so none of them starts last and holds the run; the rest follow
 in name order and the lint of each file after them. While the host's load
 average is at least its CPUs, as when other runners share the machine, the
