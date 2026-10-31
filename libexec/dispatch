@@ -2030,11 +2030,15 @@ park_holds() {
   now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
   [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$now" = "$sum" ] || return 1
-  # The way round a park open to the fixer alone, its grant reached already.
-  # REST names no editor, so any edit of the note holds.
+  # The way round a park open to the fixer alone, its grant reached already. A
+  # read that failed proves no note either way: the hold stays, untold, and the
+  # next poll asks again. REST names no editor, so any edit of the note holds.
   if [ "${by_fixer:-0}" = 1 ] && { [ "$TEHAS_WORK_IMAGES" = 1 ] || [ "$TEHAS_WORK_FILES" = 1 ]; }; then
-    note=$(fixer_note "$n" "$at" 2>/dev/null |
-      jq -c --arg m "<!-- tehas:millwright issue=$n action=change -->" 'select((.edited | not) and (.context[-1].text // "" | contains($m)))' 2>/dev/null) || note=''
+    if ! [[ $at =~ ^[0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]] || ! note=$(fixer_note "$n" "$at"); then
+      log "hold #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since, and the fixer's comments could not be read"
+      return 0
+    fi
+    note=$(jq -c --arg m "<!-- tehas:millwright issue=$n action=change -->" 'select((.edited | not) and (.context[-1].text // "" | contains($m)))' <<<"$note")
     if [ -n "$note" ]; then
       park_lifted[$n]=$note
       log "lift #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since, lifted on the fixer's guidance comment"
