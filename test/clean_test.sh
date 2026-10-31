@@ -698,8 +698,15 @@ old_base "$base1"
 t_contains "$t_out" "would remove $base_image: a base image of that age"
 t_lacks "$t_out" "image prune"
 t_lacks "$t_out" "rmi $image_name"
-t_contains "$t_out" "freed 0 bytes"
+# The dry run names the bytes it would free, so it never closes at 0: the
+# figure is the paths of the file system, and the line says the docker and store
+# steps are not in it.
+t_contains "$t_out" "would remove $workdir-7/target: build output of #7, untouched for 24 hours, "
+t_contains "$t_out" "clean: would free "
+t_lacks "$t_out" "freed 0 bytes"
 t_lacks "$t_out" "clean: removed"
+t_lacks "$(t_calls docker)" "builder prune"
+t_contains "$t_out" "would prune docker's build cache of 24 hours and older, whose size is not known beforehand"
 
 # --- 1b. the roots of an issue that sit beside the workspace ------------------
 # A retry leaves the workspace it moved aside where it is, and a cycle makes its
@@ -1332,7 +1339,8 @@ t_eq "$t_rc" 0
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 t_eq "$([ -e "$workdir-7.state/cache" ] && echo there)" "there"
 t_contains "$t_out" "would remove $workdir-7/target: build output of #7"
-t_contains "$(t_calls docker)" "builder prune -f --filter until=0h"
+t_lacks "$(t_calls docker)" "builder prune"
+t_contains "$t_out" "would prune docker's build cache of 0 hours and older"
 
 # The setting is the instance's, as every other: the run asks the loader, so an
 # instance that names a lower point is a host that frees nothing at 12 GiB.
