@@ -2692,7 +2692,7 @@ sweep_workspaces() {
     said=0
     for e in "${files[@]}"; do
       [ -e "$e" ] || [ -L "$e" ] || continue
-      flock -n "$lock" rm -rf -- "$e" 8>&- || { log "WARN: could not remove ${e#"$TEHAS_HOME"/} of #$n"; break; }
+      flock -n "$lock" rm -rf -- "$e" 8>&- || { log "WARN: could not remove ${e#"$TEHAS_HOME"/} of #$n"; said=0; break; }
       said=1
     done
     if [ "$said" = 1 ]; then
