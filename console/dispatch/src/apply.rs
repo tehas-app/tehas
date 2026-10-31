@@ -20,7 +20,7 @@ pub mod start;
 mod stop;
 mod turn;
 
-use crate::read::run::{run, run_input_env, Calls};
+use crate::read::run::{gh_why, run, run_input_env, Calls};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -86,7 +86,8 @@ pub struct Applied {
 enum Wrote {
     /// What gh printed: a comment posted names its id there.
     Done(String),
-    Failed,
+    /// What gh gave as its reason, as `gh_why` has it.
+    Failed(String),
     /// Not made: the journal could not record it.
     Unrecorded,
 }
@@ -363,7 +364,7 @@ impl Writer {
         if r.ok() || (there && r.status.is_some()) {
             Wrote::Done(r.out)
         } else {
-            Wrote::Failed
+            Wrote::Failed(gh_why(&r.err))
         }
     }
 
@@ -420,7 +421,7 @@ impl Writer {
         ];
         match self.write(n, "comment-post", args, Some(body), None) {
             Wrote::Done(_) => true,
-            Wrote::Failed => {
+            Wrote::Failed(_) => {
                 log.push(format!("WARN: comment on #{n} failed"));
                 false
             }
@@ -492,8 +493,8 @@ impl Writer {
         };
         match self.write(n, kind, args, None, None) {
             Wrote::Done(_) => {}
-            Wrote::Failed => {
-                log.push(text(a, "fail").to_string());
+            Wrote::Failed(why) => {
+                log.push(format!("{}{why}", text(a, "fail")));
                 return;
             }
             Wrote::Unrecorded => {
@@ -555,7 +556,7 @@ impl Writer {
                     self.say(n, say, log);
                 }
             }
-            Wrote::Failed => log.push(text(a, "fail").to_string()),
+            Wrote::Failed(_) => log.push(text(a, "fail").to_string()),
             Wrote::Unrecorded => log.push(Self::unrecorded(n)),
         }
     }
@@ -571,7 +572,7 @@ impl Writer {
         ];
         let worked = match self.write(pr, "refresh-end", args, None, Some("Not Found")) {
             Wrote::Done(_) => true,
-            Wrote::Failed => false,
+            Wrote::Failed(_) => false,
             Wrote::Unrecorded => {
                 log.push(Self::unrecorded(pr));
                 return;

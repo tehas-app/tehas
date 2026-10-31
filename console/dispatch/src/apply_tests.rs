@@ -300,6 +300,17 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
 }
 
 #[test]
+fn a_refused_label_change_logs_gh_reason() {
+    let mut t = world();
+    t.fail("gh", "issue edit|HTTP 403");
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: HTTP 403"]
+    );
+}
+
+#[test]
 fn a_failed_label_change_logs_its_line_and_says_nothing() {
     let mut t = world();
     t.fail("gh", "issue edit");

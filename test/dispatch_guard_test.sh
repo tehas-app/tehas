@@ -649,9 +649,11 @@ t_case "when the labels cannot be changed nothing is said on the issue, and the 
 wide_issue 6
 slots 1 TEHAS_SIZE_MAX_FILES=3
 echo "issue edit 7" >"$fx/edit-fails-on"
+echo "HTTP 403: refused" >"$fx/gh-stderr"
 t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention"
+t_contains "$t_out" "HTTP 403"
 t_lacks "$(t_calls gh)" "issue comment 7"
 t_eq "$(t_calls fake-start)" ""
 rm -f "$fx/edit-fails-on"
