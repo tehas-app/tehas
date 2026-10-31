@@ -147,7 +147,7 @@ case "$1 $2" in
     [ ! -e "$T/fx/edit-fails" ] || exit 1
     # An edit whose arguments contain the text in edit-fails-on fails.
     if [ -s "$T/fx/edit-fails-on" ]; then
-      case "$*" in *"$(<"$T/fx/edit-fails-on")"*) exit 1 ;; esac
+      case "$*" in *"$(<"$T/fx/edit-fails-on")"*) cat "$T/fx/gh-stderr" >&2 2>/dev/null; exit 1 ;; esac
     fi ;;
   "pr list") [ ! -e "$T/fx/pr-fails" ] || exit 1
     # The pull requests marked tehas:refreshing.

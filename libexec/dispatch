@@ -997,8 +997,14 @@ deny_label() {
 }
 
 # tehas_label_off <issue> <label> [more gh issue edit options]: take a label
-# off, 1 when GitHub refused. Each caller warns with the options it asked for.
-tehas_label_off() { gh issue edit "$1" --repo "$repo" --remove-label "$2" "${@:3}" >/dev/null 2>&1; }
+# off, 1 with gh's reason logged when GitHub refused. Each caller warns with the
+# options it asked for.
+tehas_label_off() {
+  local why
+  why=$(gh issue edit "$1" --repo "$repo" --remove-label "$2" "${@:3}" 2>&1 >/dev/null) && return 0
+  log "WARN: gh issue edit #$1: ${why%%$'\n'*}"
+  return 1
+}
 
 # approval <issue> <label>: who applied the label most recently, and when, in
 # $who and $at; the issue's events in $events. Returns 1, with the reason
