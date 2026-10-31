@@ -2336,9 +2336,11 @@ outage stopped it and whether it parked, and the result and progress that
 link is refused, and progress older than the start is not kept). It writes one
 line of history per end, the last 50 of each issue. A store that does not take
 the end after five tries is `ERROR: the end of #N is not on record (...)` with
-every argument named; the record stays open, and the issue's next start
-replaces it. tehas work's files that carried these are read and removed as
-before, except the result and the progress, which stay until the next start for
+every argument named; the record stays open, the issue's next start replaces
+it, and the cycle ends with exit 70 rather than 0, so the unit does not read as
+a cycle that got its end on record. tehas work's files that carried these are
+read and removed as before, except the result and the progress, which stay
+until the next start for
 `tehas export`.
 
 `tehas:awaiting-merge` is given only to a run that ended as `handoff`, with the
@@ -2418,11 +2420,14 @@ without a pull request. Nothing of a log is read for a cycle that wrote a
 result: that result names its step and its branch, and the two are not mixed.
 
 The label change that ends a cycle is tried three times, five seconds apart,
-and so is the search for the pull request. If GitHub still refuses the label
-change, the log says `WARN: label change on #N failed`, the cycle's comment
-says that the label could not be changed, and the issue stays `tehas:running`
-until the next poll of [tehas dispatch](#tehas-dispatch) finds it. A search
-for the pull request that GitHub refuses three times is not taken for a cycle
+and so are the cycle's comment on the issue and the search for the pull
+request. If GitHub still refuses the label change, the log says
+`WARN: label change on #N failed`, the cycle's comment says that the label
+could not be changed, and the issue stays `tehas:running` until the next poll
+of [tehas dispatch](#tehas-dispatch) finds it. A comment GitHub still refuses
+after three tries is one line `WARN: comment on #N failed` in the log, and the
+cycle is reported as far as it could be. A search for the pull request that
+GitHub refuses three times is not taken for a cycle
 that left none: the issue is parked with a comment that says the pull request
 could not be looked up and names the branch, and the branch stays on the
 cycle's record in the state store until the issue's next cycle starts.
@@ -2468,6 +2473,7 @@ call.
 | 3    | A cycle for this issue is already running            |
 | 64   | The argument is not an issue number                  |
 | 65   | The number is not work the factory takes: a pull request, a closed issue, or an answer GitHub could not give after three tries. Nothing was changed and no container started. The cycle still claimed its place, so a poll that started it does not report a failed start |
+| 70   | The state store did not take the cycle's end after five tries. The cycle reported what it could and its record stays open, which the issue's next start replaces. The `ERROR:` line names every argument of the `cycle-end` it tried |
 | 78   | The instance settings are invalid                    |
 
 ## tehasbot status and the console

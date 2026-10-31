@@ -116,6 +116,29 @@ for st in failed aborted unknown running; do
   t_contains "$(t_calls gh)" "Its branch has an open pull request: https://github.com/acme/widget/pull/9"
 done
 
+t_case "a comment that GitHub refuses once is posted on the second try"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+echo 1 >"$fx/comment-fails-times"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '^issue comment 7 ')" 2
+t_lacks "$t_out" "WARN: comment on #7 failed"
+t_contains "$(t_calls gh)" "Pull request waiting for a human"
+t_eq "$(t_row cycle-show 7 -- '(.cycle.ended_at != null)')" true
+
+t_case "after three refusals the comment is said once, and the cycle still ends its record"
+reset
+ended handoff commit-pr feature/x
+echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+: >"$fx/comment-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_eq "$(t_calls gh | grep -c -e '^issue comment 7 ')" 3
+t_eq "$(grep -c -e 'WARN: comment on #7 failed' <<<"$t_out")" 1
+t_eq "$(t_row cycle-show 7 -- '(.cycle.ended_at != null)')" true
+
 t_case "a list of pull requests that GitHub refuses once is asked for again"
 reset
 ended handoff commit-pr feature/x
