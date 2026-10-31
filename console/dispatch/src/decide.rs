@@ -1679,13 +1679,13 @@ impl<'a> Poll<'a> {
 
     /// park_holds: a fresh label on the very body the last cycle parked on
     /// starts nothing. Said on the issue once a park. The millwright's own
-    /// label is lifted by a fresh `action=change` comment, when the instance
-    /// gives a cycle the note and its grant was reached (#1130): `lift` then
-    /// carries that comment, and the caller puts it on the start it builds.
+    /// label, applied at `fixer_at` within its grant, is lifted by a fresh
+    /// `action=change` comment when the instance gives a cycle the note
+    /// (#1130): `lift` then carries that comment for the start.
     fn park_holds(
         &mut self,
         n: u64,
-        fixer: Option<&(Value, u64)>,
+        fixer_at: Option<&str>,
         lift: &mut Option<Value>,
     ) -> Step<bool> {
         let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
@@ -1735,37 +1735,25 @@ impl<'a> Poll<'a> {
             .unwrap_or("")
             .trim_matches([' ', '\t']);
         let cap = if cap.is_empty() { "nothing" } else { cap }.to_string();
-        // The way round a park that is open to the millwright alone: its own
-        // guidance comment says the next run is not the run that stopped. The
-        // grant was reached before this, so a start past the cap of retries or
-        // on no person's approval never asks. The comment is the one the
-        // record would take as the note of the start, and it reaches a cycle
-        // only where the instance gives it images or files: elsewhere the
-        // hold stays.
-        if fixer
-            .filter(|_| self.c.work_images || self.c.work_files)
-            .is_some()
-        {
-            // The label's own instant, as the caller read it from the events.
-            let at = self
-                .events(n)
-                .ok()
-                .map(|ev| label_actor(&ev, "tehas:ready").1);
-            let note = self
+        // The way round a park open to the millwright alone: its own guidance
+        // comment says the next run is not the run that stopped. The grant was
+        // reached before this, and the note reaches a cycle only where the
+        // instance gives it images or files. A read that failed proves no note
+        // either way: the hold stays, untold, and the next poll asks again.
+        if let Some(at) = fixer_at.filter(|_| self.c.work_images || self.c.work_files) {
+            let read = self
                 .s
                 .issues
                 .get(&n)
-                .and_then(|i| i.comments.clone())
-                .and_then(|list| {
-                    at.as_deref().and_then(|a| {
-                        crate::apply::start::change_note(&list, n, &self.c.millwright, a)
-                    })
-                })
-                .flatten();
-            if let Some(note) = note {
-                // The start the lift lets through counts against the cap, as
-                // every millwright start does: the grant's own count already
-                // holds this start, so the note alone is passed on.
+                .and_then(|i| i.comments.as_ref())
+                .and_then(|list| crate::apply::start::change_note(list, n, &self.c.millwright, at));
+            let Some(found) = read else {
+                self.log(format!(
+                    "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
+                ));
+                return Ok(true);
+            };
+            if let Some(note) = found {
                 *lift = Some(note);
                 self.log(format!(
                     "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the fixer's guidance comment"
@@ -2221,7 +2209,7 @@ impl<'a> Poll<'a> {
             let mut lift = None;
             if !self.image_ok(n)?
                 || !self.image_missing_ok(n)
-                || self.park_holds(n, fixer.as_ref(), &mut lift)?
+                || self.park_holds(n, fixer.as_ref().map(|_| at.as_str()), &mut lift)?
             {
                 continue;
             }

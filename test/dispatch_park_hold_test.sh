@@ -132,6 +132,13 @@ with_notes() { # <notes as a REST list>
   park_comments "Words." "$1"
 }
 
+# The park's question taken off #7, as leaving it parked does.
+no_question() {
+  echo '[{"number":7,"labels":[{"name":"tehas:ready"},{"name":"needs-human-attention"}]}]' >"$fx/ready.json"
+  echo '[]' >"$fx/asking.json"
+  jq -c '.labels |= map(select(.name != "tehas:question"))' "$fx/work-7.json" >"$fx/work-7.new" && mv "$fx/work-7.new" "$fx/work-7.json"
+}
+
 # A lifted park starts the cycle, and nothing of the hold is said or told.
 lifts() {
   new_poll
@@ -235,6 +242,21 @@ millwright_parked
 with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=change -->
 Second thoughts.' | jq -s .)"
 if bash_reads; then holds "Words."; else lifts; fi
+
+t_case "comments that cannot be read keep the hold, untold, and the next poll asks again"
+millwright_parked
+with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+# With the question open that read ends the poll before any start is weighed.
+no_question
+mv "$fx/comments-7.json" "$fx/comments-7.kept"
+mv "$fx/icomments-7.json" "$fx/icomments-7.kept"
+holds "Words."
+t_contains "$t_out" "the fixer's comments could not be read"
+t_lacks "$(t_calls gh)" "Not started: the last cycle parked on"
+t_eq "$(park_of '.told_at != null')" false
+mv "$fx/comments-7.kept" "$fx/comments-7.json"
+mv "$fx/icomments-7.kept" "$fx/icomments-7.json"
+lifts
 
 t_case "a person's tehas:ready on the parked body is held whatever comments exist"
 millwright_parked

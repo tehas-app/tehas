@@ -739,7 +739,8 @@ the record would take from that account is one carrying `<!-- tehas:millwright
 issue=<n> action=change -->`: its newest marked comment of the ten minutes
 before the label, saved by nobody after the label and by no other account. A
 newer `action=retry` comment takes the lift away: that ask is the run again.
-The start the lift let through counts against
+Comments that cannot be read keep the hold for that poll, nothing is said on the
+issue, and the log says why. The start the lift let through counts against
 `TEHAS_MILLWRIGHT_MAX_RETRIES` as any millwright start does, and it is held
 when the grant itself refuses, which a start of no person's approval or a body
 changed since the approval is. The poll's log says
