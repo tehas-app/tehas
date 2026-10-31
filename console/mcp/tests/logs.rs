@@ -1,7 +1,7 @@
 // factory_log over a snapshot and a logs directory written by the tests.
 
 use flate2::read::GzDecoder;
-use mcp::keys::parse_keys;
+use mcp::keys::{parse_keys, Setting};
 use mcp::logs::{acquire, base64, masked, search, MATCHES_MAX, PLAIN_MAX, SEARCH_BYTES_MAX};
 use mcp::rpc::{handle, Request};
 use mcp::tools::{call, Dirs, Output, ToolError};
@@ -887,7 +887,12 @@ fn blob_shape() {
             .collect(),
         body: body.as_bytes(),
     };
-    let r = handle(&req, &parse_keys(k, "").unwrap(), &env.dirs, "v9.9.9");
+    let r = handle(
+        &req,
+        &parse_keys([(&Setting::Full, k), (&Setting::Dashboard, "")]).unwrap(),
+        &env.dirs,
+        "v9.9.9",
+    );
     let v: Value = serde_json::from_slice(&r.body).unwrap();
     let res = &v["result"];
     assert_eq!(res["content"][1]["type"], "resource", "{v}");
@@ -1786,7 +1791,12 @@ fn a_third_search_waits_as_a_third_log_does() {
             .collect(),
         body: body.as_bytes(),
     };
-    let r = handle(&req, &parse_keys(k, "").unwrap(), &env.dirs, "v9.9.9");
+    let r = handle(
+        &req,
+        &parse_keys([(&Setting::Full, k), (&Setting::Dashboard, "")]).unwrap(),
+        &env.dirs,
+        "v9.9.9",
+    );
     let v: Value = serde_json::from_slice(&r.body).unwrap();
     assert_eq!(v["result"]["structuredContent"]["api"], 1);
     assert_eq!(
