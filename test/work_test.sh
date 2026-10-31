@@ -116,8 +116,58 @@ given=$(t_calls console | grep -e '^--progress ')
 t_contains "$given" " --private gpu1 --private 192.0.2.9 --private 192.0.2.10 --private v6host --private 2001:db8::1 --private models.lan --private bot@example.com"
 t_lacks "$given" "--private gb "
 t_lacks "$given" "elsewhere"
-t_contains "$(t_calls console | grep -e '^--mask ' | head -n 1)" "--mask --private gpu1 --private 192.0.2.9"
+t_lacks "$(t_calls console)" "--mask"
+t_contains "$(t_calls console | grep -e '^--progress ')" "--now $T/home/tehas/live/console-7.txt.now"
 t_lacks "$(t_calls console)" "test-token"
+
+# The step and the notice of the status line come from the two lines the
+# console beside the log writes (console/src/now.rs), and not from a pass over
+# the log by this command. The stub writes the file as the console does.
+t_case "the status line is read from the console's now file, and a stale one is taken away"
+container 'progress "{\"v\":1,\"kind\":\"log\",\"message\":\"a notice\"}"; exit 0'
+# The stub takes the names of the two lines from the files a case writes, so
+# one case can say what the console of this cycle kept.
+cat >"$tree/libexec/console" <<'NOW'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$T/calls/console"
+now=
+prev=
+for a in "$@"; do
+  [ "$prev" = --now ] && now=$a
+  prev=$a
+done
+[ -n "$now" ] || exit 0
+[ -e "$T/now.step" ] || exit 0
+printf '%s\n%s\n' "$(cat "$T/now.step")" "$(cat "$T/now.text")" >"$now.new"
+mv "$now.new" "$now"
+exit 0
+NOW
+chmod +x "$tree/libexec/console"
+# The file of a cycle before this one, which the start takes away.
+echo stale >"$live/console-7.txt.now"
+printf develop >"$T/now.step"
+printf 'step 3 of the cycle' >"$T/now.text"
+rm -f "$T"/calls/*
+t_run "$work 7"
+t_contains "$(t_calls console | grep -e '^--progress ')" "--now $live/console-7.txt.now"
+# The end of the cycle takes it away: nothing else clears live/.
+t_eq "$(find "$live" -maxdepth 1 -name '*.now' | wc -l)" 0
+t_eq "$(find "$live" -maxdepth 1 -name '*.now.new' | wc -l)" 0
+
+# Without the file the step is starting and the notice empty: tehas status of
+# a cycle whose console never came up says so and does not stop.
+cat >"$tree/libexec/console" <<'NOW'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$T/calls/console"
+exit 0
+NOW
+chmod +x "$tree/libexec/console"
+echo stale >"$live/console-7.txt.now"
+rm -f "$T"/calls/* "$T/now.step"
+t_run "$work 7"
+t_lacks "$(t_calls store)" "--step develop"
+t_eq "$(find "$live" -maxdepth 1 -name 'console-7.txt.now' | wc -l)" 0
+rm -f "$T/now.text"
 
 t_case "the console masks the host of a role's own provider too"
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_MODEL_DEVELOPER=big PI_ENSEMBLE_PROVIDER_DEVELOPER=other
@@ -489,7 +539,9 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHA
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 seq 5000 10 5200 >"$T/clock.now"
 printf 'ok\n' >"$T/clock.check"
-container '"$nap" 1; exit 10'
+# The container stays until the loop has passed three times, however loaded the
+# host is, and gives up after 30 s.
+container 'for _ in $(seq 1 300); do [ "$(wc -l <"$T/clock.calls" 2>/dev/null || echo 0)" -ge 3 ] && break; "$nap" 0.1; done; exit 10'
 t_run "$work 7"
 since=$(sed -n 's/.*--since \([0-9]*\).*/\1/p' "$T/clock.calls" | sort -u)
 t_eq "$(wc -l <"$T/clock.calls" | awk '{print ($1 >= 3)}')" "1"

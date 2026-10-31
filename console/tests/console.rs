@@ -47,6 +47,19 @@ fn wait_for(out: &PathBuf, lines: usize) {
     }
 }
 
+// One write to the end of a log, as the runner adds its lines. A pass that
+// wrote the file again from its start would be read in full, and the follower
+// would see bytes the cycle never added.
+fn append(path: &PathBuf, bytes: &str) {
+    use std::io::Write;
+    fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap()
+        .write_all(bytes.as_bytes())
+        .unwrap();
+}
+
 #[test]
 fn a_cycle_becomes_a_console_file_and_a_stop_reads_the_last_lines() {
     let dir = scratch("cycle");
@@ -373,9 +386,93 @@ fn work_calls_the_console_by_the_arguments_it_takes() {
     let work = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../libexec/work")).unwrap();
     for call in [
         "\"$here/console\" --progress \"$log\"",
-        "--runs \"$runs\" --out \"$console\" --since \"$((started - 5))\"",
-        "\"$here/console\" --mask",
+        "--runs \"$runs\" --out \"$console\" --since \"$((started - 5))\" --now \"$console_now\"",
     ] {
         assert!(work.contains(call), "libexec/work does not hold: {call}");
     }
+    assert!(
+        !work.contains("--mask"),
+        "libexec/work still asks for --mask"
+    );
+}
+
+// The two lines the watch loop of libexec/work reads for the dashboard's
+// status, kept by the console and by no one else.
+#[test]
+fn the_now_file_holds_the_step_and_the_notice_and_is_written_again_when_they_change() {
+    let dir = scratch("now");
+    let (progress, runs, out, now) = (
+        dir.join("work-10.jsonl"),
+        dir.join("runs"),
+        dir.join("console-10.txt"),
+        dir.join("console-10.txt.now"),
+    );
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 5;
+    let mut console = Stopped(
+        Command::new(CONSOLE)
+            .args(["--progress", progress.to_str().unwrap()])
+            .args(["--runs", runs.to_str().unwrap()])
+            .args(["--out", out.to_str().unwrap()])
+            .args(["--since", &since.to_string()])
+            .args(["--private", "models.lan"])
+            .args(["--now", now.to_str().unwrap()])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    // Nothing of the cycle yet: the step is empty and the notice too.
+    let held = |what: &str| {
+        let started = Instant::now();
+        loop {
+            let got = fs::read_to_string(&now).unwrap_or_default();
+            if got == what {
+                return;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "the now file holds {:?}, not {what:?}",
+                got
+            );
+            sleep(Duration::from_millis(50));
+        }
+    };
+    held("\n\n");
+
+    let step = "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"develop\"}}\n";
+    let notice = "{\"v\":1,\"kind\":\"log\",\"message\":\"on models.lan now\\nsecond line\"}\n";
+    fs::write(&progress, format!("{step}{notice}")).unwrap();
+    // The masked notice, of one line, and the step of the last step-started.
+    held("develop\non [private name] now\n");
+    let written = fs::metadata(&now).unwrap().modified().unwrap();
+
+    // A line that changes neither is not written again. The log is appended to
+    // as the runner writes it: a pass that rewrote the file from its start
+    // would be read again in full, not left behind.
+    append(
+        &progress,
+        "{\"v\":1,\"kind\":\"log\",\"message\":\"and again\"}\n",
+    );
+    wait_for(&out, 4);
+    assert_eq!(fs::metadata(&now).unwrap().modified().unwrap(), written);
+
+    // The step and the notice of the next step are written again.
+    append(
+        &progress,
+        "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"review\"}}\n\
+             {\"v\":1,\"kind\":\"log\",\"message\":\"pi-rukas:driver-event hidden\"}\n\
+             {\"v\":1,\"kind\":\"log\",\"message\":\"the handoff\"}\n",
+    );
+    held("review\nthe handoff\n");
+
+    let killed = Command::new("kill")
+        .args(["-TERM", &console.0.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    assert!(console.0.wait().unwrap().success());
+    assert_eq!(fs::read_to_string(&now).unwrap(), "review\nthe handoff\n");
 }

@@ -29,6 +29,9 @@ struct Fake {
     /// The programs that ran, by their last part, one entry per call: what a
     /// case counts when it asks whether a model was asked at all.
     asked: Vec<String>,
+    /// A call that fails once the merge commit is written, for a read the
+    /// merge also makes before it.
+    fail_after_commit: Option<String>,
 }
 
 impl Fake {
@@ -39,6 +42,7 @@ impl Fake {
             replies: Vec::new(),
             calls: Vec::new(),
             asked: Vec::new(),
+            fail_after_commit: None,
         }
     }
 
@@ -108,6 +112,19 @@ impl Fake {
     /// it, the program without its path, so `pi -p ...` is scripted by
     /// `pi -p` however the plan spells the program's name.
     fn reply(&self, named: &str) -> Reply {
+        let committed = self.calls.iter().any(|c| c.contains("commit --no-edit"));
+        if committed
+            && self
+                .fail_after_commit
+                .as_deref()
+                .is_some_and(|f| named.starts_with(f))
+        {
+            return Reply {
+                prefix: String::new(),
+                status: 1,
+                out: "it failed".to_string(),
+            };
+        }
         // The scripted answers win, in the order a case wrote them, so the
         // narrower name is written first: `pi -p` before `pi`.
         // The scripted answers win, and the broadest name wins among them: a
@@ -192,7 +209,36 @@ impl Runner for Fake {
     }
 }
 
+/// A runner that records nothing: what `Real` is on a host, where the calls
+/// are said to the log and never kept. A case uses it to show the answer does
+/// not depend on a call list.
+struct Silent {
+    inner: Fake,
+}
+
+impl Silent {
+    /// The host's runner over a tree whose commands a case can still inspect
+    /// through `inner`.
+    fn over(inner: Fake) -> Silent {
+        Silent { inner }
+    }
+}
+
+impl Runner for Silent {
+    fn run(&mut self, program: &str, args: &[String], tree: &Path) -> Done {
+        self.inner.run(program, args, tree)
+    }
+
+    // `calls` is not overridden: this is what `Real` is on a host, which
+    // answers the trait's default because it keeps the commands in its log.
+}
+
 const HEAD: &str = "1111111111111111111111111111111111111111";
+/// The same commit in git's own spelling and in the upper case a person or a
+/// tool may write `--head` with: one letter apart, so the case that fails is
+/// the one that drops the lower-casing rather than the one that trims.
+const HEAD_UPPER: &str = "111111111111111111111111111111111111111A";
+const HEAD_LOWER: &str = "111111111111111111111111111111111111111a";
 const MERGE: &str = "9999999999999999999999999999999999999999";
 const BASE: &str = "2222222222222222222222222222222222222222";
 
@@ -479,6 +525,255 @@ fn the_rules_are_exactly_the_files_the_issue_names() {
 }
 
 #[test]
+fn a_runner_that_records_no_calls_still_says_the_model_ran() {
+    // The host's runner keeps no call list, so `model` must come from the
+    // merge itself and not from the calls it holds.
+    let (mut p, f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    let mut silent = Silent::over(f);
+    let r = report(&mut p, &mut silent);
+    assert!(r.outcome.ok(), "{}", r.outcome.why);
+    assert!(
+        r.outcome.model,
+        "a session ran and the answer said it did not"
+    );
+    assert!(
+        r.calls.is_empty(),
+        "the runner was asked to record nothing: {:?}",
+        r.calls
+    );
+    assert_eq!(r.json()["model"], serde_json::json!(true));
+    assert_eq!(
+        silent.inner.of("pi").len(),
+        1,
+        "no session ran: {:?}",
+        silent.inner.asked
+    );
+}
+
+#[test]
+fn a_merge_with_no_conflict_says_no_model_ran() {
+    let (mut p, mut f) = merged(&["src/app.rs"], &[]);
+    f.answers("git merge", 0, "");
+    let out = outcome(&mut p, &mut f);
+    assert!(!out.ok(), "a clean merge is not an easy merge: {}", out.why);
+    assert!(
+        !out.model,
+        "nothing was left to resolve, so nothing was asked"
+    );
+    assert!(f.of("pi").is_empty(), "a model turn ran: {:?}", f.of("pi"));
+}
+
+#[test]
+fn a_head_spelled_in_upper_case_is_the_commit_git_names() {
+    // The command reads `--head` through `normalise_commit`, so the plan it
+    // hands the merge holds git's own spelling, and the merge goes through
+    // rather than refusing on how the caller wrote the sha.
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    f.answers("git rev-parse HEAD", 0, &format!("{HEAD_LOWER}\n"));
+    let head = normalise_commit(HEAD_UPPER).unwrap();
+    p.head = &head;
+    let out = outcome(&mut p, &mut f);
+    assert_eq!(p.head, HEAD_LOWER, "the plan does not hold git's spelling");
+    assert!(
+        out.ok(),
+        "the head was refused: {}; {:?}",
+        out.why,
+        f.of("git")
+    );
+    assert!(out.model);
+    assert!(f.did("merge --no-ff"), "no merge ran: {:?}", f.calls);
+}
+
+#[test]
+fn a_commit_id_is_40_hex_digits_in_git_s_own_spelling() {
+    // The accept rule of the command and the compare rule of the merge are the
+    // same rule: what does not read as a commit is refused, whatever case it
+    // is spelled in.
+    let (upper, lower) = (HEAD_UPPER.to_string(), HEAD_LOWER.to_string());
+    assert_eq!(normalise_commit(&upper).as_deref(), Some(lower.as_str()));
+    assert_eq!(normalise_commit(&lower).as_deref(), Some(lower.as_str()));
+    // The two spellings name one commit and the pair really does differ in
+    // case, so the case below cannot pass by comparing a sha with itself.
+    assert_ne!(upper, lower);
+    assert_eq!(upper.to_ascii_lowercase(), lower);
+    // A sha with room around it is the commit it names: the command reads the
+    // argument and git's answer through here, and both carry a line ending.
+    assert_eq!(
+        normalise_commit(&format!(" {lower} \n")).as_deref(),
+        Some(lower.as_str())
+    );
+    for not_a_commit in [
+        "",
+        "1111",
+        &format!("{lower}deadbeef"),
+        &format!("{lower} {}", "f".repeat(260)),
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        &lower.replacen('a', "-", 1),
+    ] {
+        assert_eq!(normalise_commit(not_a_commit), None, "{not_a_commit}");
+    }
+}
+
+#[test]
+fn a_git_answer_that_is_more_than_a_commit_is_not_the_head() {
+    // The head guard compares whole commits: an answer that begins with the
+    // head's 40 hex digits and holds more than them is no commit, and a tree
+    // whose commit cannot be named is not merged into.
+    for padded in [
+        format!("{HEAD}deadbeef\n"),
+        format!("{HEAD}{}\n", "f".repeat(260)),
+    ] {
+        let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+        f.answers("git rev-parse HEAD", 0, &padded);
+        let out = outcome(&mut p, &mut f);
+        assert!(!out.ok(), "the merge went through: {}", out.why);
+        assert_eq!(out.why, "the tree's commit is not a commit");
+        assert!(!out.model, "no session was asked");
+        assert!(!f.did("merge --no-ff"), "a merge ran: {:?}", f.calls);
+    }
+}
+
+#[test]
+fn a_refusal_after_the_model_still_says_the_model_ran() {
+    // The host's condition: a runner that records nothing, a session that was
+    // asked, and a merge that stops after it. The answer must say both.
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    f.answers("pi -p", 1, "provider did not answer");
+    let mut silent = Silent::over(f);
+    let r = report(&mut p, &mut silent);
+    assert!(!r.outcome.ok(), "the merge went through");
+    assert!(
+        r.outcome
+            .why
+            .starts_with("the model turn did not finish: provider did not answer"),
+        "{}",
+        r.outcome.why
+    );
+    assert!(
+        r.outcome.model,
+        "a session ran and the refusal said it did not"
+    );
+    assert!(
+        r.calls.is_empty(),
+        "the runner records nothing: {:?}",
+        r.calls
+    );
+    assert_eq!(r.json()["model"], serde_json::json!(true));
+    assert!(
+        silent.inner.asked_model(),
+        "no session was asked: {:?}",
+        silent.inner.asked
+    );
+}
+
+#[test]
+fn a_refusal_at_the_commit_after_the_model_still_says_the_model_ran() {
+    // The session answered and the tree went on to stop for a reason of its
+    // own: the model was spent all the same, and a refusal raised past the
+    // session carries that with it rather than losing it.
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    f.answers("pi -p", 0, "done\n");
+    f.answers("git commit", 1, "nothing to commit");
+    let mut silent = Silent::over(f);
+    let r = report(&mut p, &mut silent);
+    assert!(!r.outcome.ok(), "the merge went through");
+    assert!(
+        r.outcome
+            .why
+            .starts_with("the merge commit could not be written: nothing to commit"),
+        "{}",
+        r.outcome.why
+    );
+    assert!(
+        r.outcome.model,
+        "a session ran and the refusal said it did not"
+    );
+    assert!(
+        r.calls.is_empty(),
+        "the runner records nothing: {:?}",
+        r.calls
+    );
+    assert_eq!(r.json()["model"], serde_json::json!(true));
+    assert!(
+        silent.inner.asked_model(),
+        "no session was asked: {:?}",
+        silent.inner.asked
+    );
+}
+
+/// A session answered and the merge then stopped at `step`, which answered
+/// `status` and `said`.
+fn stopped_after_the_session(step: &str, status: i32, said: &str) -> Report {
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    f.answers(step, status, said);
+    let mut silent = Silent::over(f);
+    report(&mut p, &mut silent)
+}
+
+#[test]
+fn every_stop_after_the_session_says_the_model_ran() {
+    for (step, status, said, why) in [
+        ("grep ", 0, "src/app.rs\n", "conflict markers"),
+        ("grep ", 2, "it failed", "for its markers"),
+        ("git commit", 1, "it failed", "could not be written"),
+        (
+            "git push",
+            1,
+            "it failed",
+            "the push of the merge commit failed",
+        ),
+    ] {
+        let r = stopped_after_the_session(step, status, said);
+        assert!(!r.outcome.ok(), "{step} went through");
+        assert!(r.outcome.why.contains(why), "{step}: {}", r.outcome.why);
+        assert!(r.outcome.model, "{step}: {}", r.outcome.why);
+    }
+}
+
+#[test]
+fn the_reads_of_the_merge_commit_say_the_model_ran() {
+    for (step, why) in [
+        ("git rev-parse HEAD", "the merge commit could not be read"),
+        ("git diff --name-only 9", "what the merge changed could not"),
+    ] {
+        let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+        // The head is read first; only the read after the commit may fail.
+        f.fail_after_commit = Some(step.to_string());
+        let mut silent = Silent::over(f);
+        let r = report(&mut p, &mut silent);
+        assert!(r.outcome.why.starts_with(why), "{}", r.outcome.why);
+        assert!(r.outcome.model, "{step}: {}", r.outcome.why);
+    }
+}
+
+#[test]
+fn a_file_outside_the_conflict_after_the_session_says_the_model_ran() {
+    let (mut p, f) = merged(&["src/app.rs"], &["src/app.rs", "src/other.rs"]);
+    let mut silent = Silent::over(f);
+    let r = report(&mut p, &mut silent);
+    assert!(
+        r.outcome.why.contains("did not conflict"),
+        "{}",
+        r.outcome.why
+    );
+    assert!(r.outcome.model);
+    assert_eq!(r.outcome.sha.as_deref(), Some(MERGE));
+}
+
+#[test]
+fn a_refusal_of_a_merge_the_rules_settled_says_no_model_ran() {
+    for step in ["git commit", "git push"] {
+        let (mut p, mut f) = merged(&["Cargo.lock"], &["Cargo.lock"]);
+        f.answers(step, 1, "it failed");
+        let mut silent = Silent::over(f);
+        let r = report(&mut p, &mut silent);
+        assert!(!r.outcome.ok(), "{step} went through");
+        assert!(!r.outcome.model, "{step}: {}", r.outcome.why);
+        assert!(!silent.inner.asked_model());
+    }
+}
+
+#[test]
 fn the_answer_names_the_pull_request_and_what_ran() {
     let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
     let r = report(&mut p, &mut f);
@@ -488,7 +783,8 @@ fn the_answer_names_the_pull_request_and_what_ran() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["model"], true);
     assert_eq!(v["pushed"], true);
-    assert!(v["calls"].as_array().unwrap().len() >= 5, "{}", v["calls"]);
+    assert!(v.get("calls").is_none(), "{v}");
+    assert!(r.calls.len() >= 5, "{:?}", r.calls);
     assert!(v["conflicts"]
         .as_array()
         .unwrap()

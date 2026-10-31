@@ -4,24 +4,24 @@
 
 use super::run::run;
 use serde_json::{json, Value};
-use std::fs::{self, File};
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::file::{read_regular, ReadError};
 
-/// Whether a lock file is held by someone: it is there, and cannot be taken.
+/// Whether a lock file is held by someone, or cannot be told apart from one
+/// that is: anything but no lock and a lock the probe took counts as held, as
+/// `flock -n` finds. The probe is core's, the one every reader of a lock asks.
+///
+/// A lock of a whole file is held by descriptor and one process holds only one
+/// of those per file, so the probe's own open takes a lock the same process
+/// already holds: a caller that holds the lock itself is told it is free. The
+/// callers ask about a lock another process took.
 pub fn held(path: &Path) -> bool {
-    // A lock file that is there and cannot be opened cannot be taken either,
-    // as flock -n finds.
-    let Ok(f) = File::open(path) else {
-        return path.exists();
-    };
-    match f.try_lock() {
-        Ok(()) => {
-            let _ = f.unlock();
-            false
-        }
-        Err(_) => true,
-    }
+    matches!(
+        tehas_core::lock::probe(path),
+        tehas_core::lock::Probe::Held | tehas_core::lock::Probe::Unknown(_)
+    )
 }
 
 /// tehas_cycles_running: the issues whose cycle holds its lock.
@@ -207,6 +207,22 @@ pub fn requests(home: &Path) -> Vec<(u64, Value)> {
         .collect();
     out.sort_by_key(|(n, _)| *n);
     out
+}
+
+/// Where the record of a plan's start is kept. No container is given the state
+/// directory, and only the dispatcher writes here.
+pub fn plan_start_file(home: &Path, n: u64) -> PathBuf {
+    home.join(format!("state/plan-start/{n}.json"))
+}
+
+/// The record of a plan's start of an issue, None when it has none, and Null
+/// when one is there and cannot be read: not a file, or not JSON.
+pub fn plan_start(home: &Path, n: u64) -> Option<Value> {
+    match read_regular(&plan_start_file(home, n), 4096) {
+        Ok((bytes, _)) => Some(serde_json::from_slice(&bytes).unwrap_or(Value::Null)),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(Value::Null),
+    }
 }
 
 /// The why of the last live/dispatch.json, empty when it cannot be read. The
@@ -457,11 +473,109 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
+    use std::path::PathBuf;
+
+    struct Dir(PathBuf);
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A home of this case's own, with its `state`.
+    fn home(name: &str) -> Dir {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let d = std::env::temp_dir().join(format!(
+            "tehas-dispatch-host-{}-{name}-{}",
+            std::process::id(),
+            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("state")).unwrap();
+        Dir(d)
+    }
+
+    #[test]
+    fn a_plans_record_is_there_or_not_and_what_cannot_be_read_counts_for_nothing() {
+        let h = home("plan-start");
+        assert_eq!(plan_start(&h.0, 7), None);
+        fs::create_dir_all(h.0.join("state/plan-start")).unwrap();
+        assert_eq!(plan_start(&h.0, 7), None);
+        let file = plan_start_file(&h.0, 7);
+        fs::write(&file, r#"{"by":"alice"}"#).unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(json!({"by": "alice"})));
+        assert_eq!(plan_start(&h.0, 8), None);
+        fs::write(&file, "not json").unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
+        // A link is no record, whatever it points at.
+        fs::remove_file(&file).unwrap();
+        let there = h.0.join("elsewhere.json");
+        fs::write(&there, r#"{"by":"alice"}"#).unwrap();
+        std::os::unix::fs::symlink(&there, &file).unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
+    }
 
     #[test]
     fn times_read_as_fromdateiso8601_reads_them() {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-31T00:00:00Z"), Some(1_793_404_800));
         assert_eq!(epoch("2026-10-31 00:00:00"), None);
+    }
+
+    #[test]
+    fn no_lock_and_one_the_probe_took_are_not_held() {
+        let h = home("free");
+        let lock = h.0.join("state/plan-7.json.lock");
+        assert!(!held(&lock), "no lock file");
+        fs::write(&lock, "").unwrap();
+        assert!(!held(&lock), "a lock no one holds");
+    }
+
+    #[test]
+    fn a_directory_at_a_planning_lock_path_is_held() {
+        let h = home("directory");
+        let lock = h.0.join("state/plan-7.json.lock");
+        fs::create_dir(&lock).unwrap();
+        assert!(held(&lock), "a name that is no lock file");
+    }
+
+    #[test]
+    fn a_link_at_a_planning_lock_path_is_held() {
+        let h = home("link");
+        let target = h.0.join("elsewhere.lock");
+        fs::write(&target, "").unwrap();
+        let lock = h.0.join("state/plan-7.json.lock");
+        std::os::unix::fs::symlink(&target, &lock).unwrap();
+        assert!(held(&lock), "a lock asked by a name of its own");
+    }
+
+    #[test]
+    fn a_lock_held_by_another_process_is_held() {
+        let h = home("held");
+        let lock = h.0.join("state/plan-7.json.lock");
+        fs::write(&lock, "").unwrap();
+        // The holder is a process of its own, so the probe's open is not the one
+        // that already holds the lock. It prints when it holds, waits for a line,
+        // and gives the lock up when the pipe closes.
+        let mut child = std::process::Command::new("flock")
+            .arg("-x")
+            .arg(&lock)
+            .arg("-c")
+            .arg("echo held; read _")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut said = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut said)
+            .unwrap();
+        assert_eq!(said.trim(), "held", "the holder never took the lock");
+        assert!(held(&lock), "a lock another process holds");
+        drop(child.stdin.take().unwrap());
+        child.wait().unwrap();
+        assert!(!held(&lock), "the lock was given back");
     }
 }

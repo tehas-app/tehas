@@ -5,8 +5,10 @@ pub mod file;
 pub mod forge;
 pub mod grammar;
 pub mod hold;
+pub mod lock;
 #[cfg(feature = "mask")]
 pub mod mask;
+pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;

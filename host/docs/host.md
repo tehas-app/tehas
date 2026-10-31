@@ -43,7 +43,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/protolab/`                  | The Protolab's pages and the files of each prototype, written by `tehasbot protolab` |
 | `~/tehas/preview/`                   | The state of each preview, and a bare clone the pull requests' commits are fetched into, written by `tehasbot preview` |
 | `~/tehas/logs/`, `state/`, `live/`, `tmp/` | Logs, state, dashboard data, scratch. `state/` holds the dispatch lock, status files, the files a planning turn passes on (`plan-<issue>.json.out`, `.json.rc`, `.json.lock` and `.json.image`), the state store (`tehas.db`), which holds what each start rests on, each cycle's record and its history, each park and the id of its question, each planning session and the history of its turns, and the manifest of each start's images (`cycles/<issue>.manifest.json`, with `cycles/<issue>.images.md` and `cycles/<issue>.retry-context.md` when the cycle had them). What each approved start measured is kept in `state/sizes.jsonl`, one line per start, mode 600: when, which issue, and the four counts of its approved body, the last 500 lines. The report's size figures read it. What each refining session filed is kept beside it in `state/refined.jsonl`, likewise the last 500 lines. No cycle, planning or manual container is given it; the indexing container is given `state/index` to write |
-| `~/tehas/mcp/`                       | The two files `tehasbot status` writes for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`. Mode 700: the snapshot holds what the agents saw, and neither is published |
+| `~/tehas/mcp/`                       | The two files `tehasbot status` asks `analytics` to write for the MCP server: the sessions snapshot `sessions.jsonl` and the outcomes counts `outcomes.jsonl`, each with a `.stamp` line beside it that says why it need not be written again. Mode 700: the snapshot holds what the agents saw, and neither is published |
 | `~/tehas/tmp/improve/`, `~/tehas/state/improve.lock` | Where the improvement loop is on: the record of each cycle that ended, until a run has read it, and the lock of a run |
 | `~/tehas/state/tehas.db`, `state/backup/` | The state store's database and the copies made of it before each migration. See [The state store](#the-state-store) |
 | `~/tehas/state/imported-<YYYYMMDD>/` | The record files of an older tehas that `install.sh` imported into the state store that day, each under its path in `state/`. Nothing reads them; remove the directory once satisfied. See [The state store](#the-state-store) |
@@ -83,7 +83,12 @@ all, and the answer is used only when it names an existing directory under
 symlink, and enters no dot-name, which is what
 keeps those trees out of the removal. It holds the issue's lock while it removes,
 so no cycle starts under it, and it removes nothing for an issue whose lock file
-is not there to hold. When the age rule passes, an issue is left alone for one of
+is not there to hold, or whose lock the probe cannot tell: a link, a directory or
+a lock no one can open is read as a lock a cycle holds, because a lock is held by
+descriptor and a name of its own proves nothing about the file that was locked.
+The probe is the one the library keeps (`tehas_core::lock`,
+`console/core/src/lock.rs`), the same one the dispatcher, the health page and the
+store ask, so the four of them agree about one lock. When the age rule passes, an issue is left alone for one of
 two reasons and the log line names which: `kept the build output of #<issue>:
 no lock to hold, so nothing of it was removed` when its trees held build output and no
 lock could be taken, and `nothing to remove in #<issue>` when none of its trees held
@@ -484,7 +489,9 @@ Five installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server, the state store and the attachment
 checker, Rust programs in the Cargo workspace `console/` (the others are in
 `console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
-and the library all but the attachment checker share is in `console/core/`).
+and the library all but the attachment checker share is in `console/core/`,
+which holds the one probe of a lock file that the store, the dispatcher, the
+health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and

@@ -170,7 +170,7 @@
 # label could not be added is taken off the record again.
 #
 # A refresh (approval how "refresh") put tehas:refreshing on its pull request;
-# it comes off once the cycle is reported, whatever the outcome.
+# it comes off once the cycle is reported, whatever the outcome. The pull request's title is set then too (console pr-title).
 #
 # The dispatcher stops a cycle whose work is done, and says why first in
 # state/cycles/<issue>.done: closed (the issue was closed), merged, pr-closed
@@ -1369,6 +1369,7 @@ case "${pr:-}" in
     [[ ! $pr_number =~ ^[1-9][0-9]{0,9}$ ]] || end_args+=(--pr "$pr_number")
     ;;
 esac
+[ -z "${pr_number:-}" ] || title_why=$(timeout -k 5 "$((signalled ? stop_gh_wait : 120))" "$console" pr-title sync "$pr_number" 2>&1) || log "WARN: the title of pull request #$pr_number was not kept: ${title_why:-it took too long}"
 for f in result progress; do
   [ ! -e "$cycles/$issue.$f.json" ] && [ ! -L "$cycles/$issue.$f.json" ] ||
     end_args+=("--$f" "$cycles/$issue.$f.json")

@@ -6,7 +6,7 @@
 use serde_json::{json, Map, Value};
 use std::fs;
 use tehas_core::question::box_line;
-use tehas_dispatch::text::body_sha256;
+use tehas_dispatch::text::{body_sha256, plan_sum};
 use tehas_dispatch::{decide, Settings, Snapshot};
 
 const GIB: u64 = 1_073_741_824;
@@ -215,6 +215,30 @@ fn expand(c: &Value, snap: &mut Value) {
             i["events"] = json!([{"event": "labeled", "label": {"name": "tehas:blocked"},
                 "actor": {"login": who}, "created_at": "2026-10-01T00:01:00Z"}]);
             is.insert(n.clone(), i);
+        }
+        snap["issues"] = Value::Object(is);
+    }
+    // planned: a plan with no open points written onto the issue, as the poll
+    // that ended its session leaves it: {by}'s tehas:plan, the bot's rename
+    // and tehas:ready, the plan's text, and the record of its start.
+    if let Some(m) = c.get("planned").and_then(Value::as_object) {
+        let mut is = issues(snap);
+        for (n, x) in m {
+            let by = x["by"].as_str().unwrap();
+            let text = json!({"title": "feat: the plan", "body": "## Plan"});
+            let i = is.entry(n.clone()).or_insert_with(|| json!({}));
+            i["events"] = json!([
+                {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": by},
+                 "created_at": "2026-10-01T00:00:00Z"},
+                {"event": "unlabeled", "label": {"name": "tehas:plan"}, "actor": {"login": "tehas-bot"},
+                 "created_at": "2026-10-01T00:00:10Z"},
+                {"event": "renamed", "actor": {"login": "tehas-bot"},
+                 "created_at": "2026-10-01T00:20:00Z"},
+                ready_event("tehas-bot", Some("2026-10-01T00:20:01Z")),
+            ]);
+            i["edit"] = json!({"title": text["title"], "body": text["body"],
+                "lastEditedAt": "2026-10-01T00:20:00Z", "editor": {"login": "tehas-bot"}});
+            i["plan_start"] = json!({"by": by, "sum": plan_sum(&text)});
         }
         snap["issues"] = Value::Object(is);
     }
@@ -683,6 +707,11 @@ fn run_suite(name: &str) {
 #[test]
 fn refine() {
     run_suite("refine");
+}
+
+#[test]
+fn plan_start() {
+    run_suite("plan_start");
 }
 
 #[test]
