@@ -97,10 +97,13 @@ for accidents, not a wall.
 
    Keys are separated by spaces, each at least 32 characters of
    `A-Za-z0-9_-`. At least one key stands in one list or the other, and no key
-   stands in both: the scope of a key of both would be a guess. With
-   `TEHAS_MCP=1`, a host with no key at all, a key that is not like that, or a
-   key of both lists stops the server with exit 78 and one line that names the
-   settings, never a key. `TEHAS_MCP_DASHBOARD_KEYS` may be left out, which
+   stands in both: the scope of a key of both would be a guess. The server
+   enforces both rules itself when it starts, so the check the `tehas mcp`
+   command makes of the two settings is a fast reading of the same rules before
+   it asks Docker for a container, and names the same line of the same shape.
+   With `TEHAS_MCP=1`, a host with no key at all, a key that is not like that,
+   or a key of both lists stops the server with exit 78 and one line that names
+   the settings, never a key. `TEHAS_MCP_DASHBOARD_KEYS` may be left out, which
    leaves a server of full keys only, as it was. A line for either setting in
    `instance.env` is refused the same way.
 
@@ -216,6 +219,13 @@ The binary takes the 10 seconds as `--io-timeout <seconds>`, a whole number
 from 1 to 3600, and keeps the default without it. `tehasbot mcp serve` never
 passes it, so the server on a host always waits the 10 seconds. The flag is
 there for the tests, which would otherwise wait out the deadline itself.
+
+`tools/list` and `server/discover` answer with `ttlMs` of 30000 and a
+`cacheScope` of `private`. The answer itself carries no `ETag` or
+`Cache-Control` and every answer closes its connection, so the hint belongs to
+the client alone: a program that asks the list again inside the 30 seconds is
+answered the same bytes by the server, which holds the list and does not build
+it twice.
 
 The `2025-11-25` handshake is there because neither Hermes nor OpenClaw says
 yet which version it speaks. It goes once both speak `2026-07-28`.

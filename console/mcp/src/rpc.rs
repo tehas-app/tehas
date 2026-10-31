@@ -6,9 +6,9 @@
 //! `initialize` is answered, then the client's requests carry the header
 //! `MCP-Protocol-Version: 2025-11-25`. No session is kept for either.
 
-use crate::keys::{Keys, Scope};
+use crate::keys::{Authenticated, Keys};
 use crate::logs::LogGuard;
-use crate::tools::{self, Dirs, Output, ToolError};
+use crate::tools::{self, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 
 pub const MODERN: &str = "2026-07-28";
@@ -37,10 +37,10 @@ pub struct Response {
     pub status: u16,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
-    /// The scope of the key that was used, for the access log: `full` or
-    /// `dashboard`, the server's own words. A refused request has none.
+    /// The scope of the key that was used, for the access log: the server's
+    /// own word for the two of `Scope`. A refused request has none.
     pub key: Option<String>,
-    pub scope: Option<String>,
+    pub scope: Option<Scope>,
     /// The tool of a `tools/call`, for the access log: its name only, never
     /// its arguments, which can carry an issue number or text from a private
     /// repository. The value is one the server wrote, never the client's: a
@@ -88,6 +88,17 @@ fn header<'a>(req: &'a Request, name: &str) -> Option<&'a str> {
         .map(|(_, v)| v.as_str())
 }
 
+/// The answer that refuses a request: a status and its headers, never a body.
+/// `gate` is the only place that writes one, and the type says so, so a
+/// refusal cannot grow an answer's content by accident.
+pub struct Refusal(Response);
+
+impl Refusal {
+    pub fn into_response(self) -> Response {
+        self.0
+    }
+}
+
 fn error(status: u16, id: &Value, code: i64, message: &str, data: Option<Value>) -> Response {
     let mut e = json!({"code": code, "message": message});
     if let Some(d) = data {
@@ -111,50 +122,46 @@ fn unsupported(id: &Value, requested: &str) -> Response {
 }
 
 pub fn handle(req: &Request, keys: &Keys, dirs: &Dirs, server_version: &str) -> Response {
-    let (key, scope) = match gate(req, keys) {
-        Ok(v) => v,
-        Err(r) => return *r,
+    let key = match gate(req, keys) {
+        Ok(k) => k,
+        Err(r) => return r.into_response(),
     };
-    let mut r = answer(req, scope, dirs, server_version);
-    r.key = Some(key);
-    r.scope = Some(scope.as_str().to_string());
+    let mut r = answer(req, &key, dirs, server_version);
+    r.key = Some(key.fingerprint().to_string());
+    r.scope = Some(key.scope());
     r
 }
 
 /// What is decided from the headers alone, before any byte of the body is
-/// read: the fingerprint of the request's key with its scope, or the answer
-/// that refuses it. The refusal is held in a box: a `Response` carries a body,
-/// and the refusal of the headers never has one, so the box keeps the size of
-/// this function's error nothing but a pointer where an answer is a body's
-/// length away.
-pub fn gate(req: &Request, keys: &Keys) -> Result<(String, Scope), Box<Response>> {
+/// read: the key of the request as the key store knows it, or the answer that
+/// refuses it. A refusal is a short answer of no body, the kind `gate` is the
+/// only place that writes.
+pub fn gate(req: &Request, keys: &Keys) -> Result<Authenticated, Refusal> {
     // No browser is a client of this server: an Origin means a page is
     // trying to reach it (DNS rebinding), whatever the origin is.
     if header(req, "Origin").is_some() {
-        return Err(Box::new(Response::empty(403)));
+        return Err(Refusal(Response::empty(403)));
     }
     // The key before the method: without one, nothing about the server is
     // said, not even which methods it takes.
-    let (key, scope) = keys.check(header(req, "Authorization")).ok_or_else(|| {
-        Box::new({
-            let mut r = Response::empty(401);
-            r.headers.push(("WWW-Authenticate".into(), "Bearer".into()));
-            r
-        })
+    let key = keys.check(header(req, "Authorization")).ok_or_else(|| {
+        let mut r = Response::empty(401);
+        r.headers.push(("WWW-Authenticate".into(), "Bearer".into()));
+        Refusal(r)
     })?;
     if req.method != "POST" {
         let mut r = Response::empty(405);
-        r.key = Some(key);
-        r.scope = Some(scope.as_str().to_string());
-        return Err(Box::new(r));
+        r.key = Some(key.fingerprint().to_string());
+        r.scope = Some(key.scope());
+        return Err(Refusal(r));
     }
-    Ok((key, scope))
+    Ok(key)
 }
 
-/// The answer to a request that passed the gate. `scope` is the scope of the
-/// key that made the request: it decides which tools the request may see and
-/// call.
-pub fn answer(req: &Request, scope: Scope, dirs: &Dirs, server_version: &str) -> Response {
+/// The answer to a request whose key the store recognised. The `key` came from
+/// [`Keys::check`], so the scope it carries decides which tools the request may
+/// see and call: no caller can bring a scope of its own.
+pub fn answer(req: &Request, key: &Authenticated, dirs: &Dirs, server_version: &str) -> Response {
     if req.body.len() > MAX_BODY {
         return Response::empty(413);
     }
@@ -210,7 +217,7 @@ pub fn answer(req: &Request, scope: Scope, dirs: &Dirs, server_version: &str) ->
         ("ping", false) => json!({}),
         ("tools/list", _) => json!({
             "resultType": "complete",
-            "tools": tools::list_scoped(scope),
+            "tools": tools::list_scoped(key.scope()),
             "ttlMs": LIST_TTL_MS,
             "cacheScope": "private",
         }),
@@ -232,17 +239,14 @@ pub fn answer(req: &Request, scope: Scope, dirs: &Dirs, server_version: &str) ->
                 None => "-".into(),
             });
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            // A tool outside the key's scope is refused before its arguments
-            // are looked at, and is refused as an unknown one is below: the
-            // answer is the same, so the scope cannot be probed tool by tool.
-            let served = name.is_some_and(|n| Keys::serves(scope, n));
-            // A tool the key may not see is answered as one the server does
-            // not have, so no argument of it is read and no other answer is
-            // ever given.
-            let called = if served {
-                tools::call_held(dirs, name.unwrap_or(""), &args)
+            // A tool outside the key's scope is answered exactly as one the
+            // server does not have, so the scope is not probeable tool by
+            // tool. The arguments above are read for either answer.
+            let asked = name.unwrap_or("");
+            let called = if key.may_call(asked) {
+                tools::call_held(dirs, asked, &args)
             } else {
-                Err(ToolError::Unknown(name.unwrap_or("").to_string()))
+                Err(ToolError::Unknown(asked.to_string()))
             };
             match called.map(|(out, place)| {
                 hold = place;

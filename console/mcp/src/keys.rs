@@ -1,50 +1,67 @@
 //! The API keys of the two settings, and the check of a request's bearer
 //! token.
 //!
-//! `TEHAS_MCP_KEYS` holds the full keys, which are given every tool.
+//! [`Setting`] names the two settings, so the words of the environment, the
+//! words of an error and the scope a key of the setting is given stand in one
+//! place. `TEHAS_MCP_KEYS` holds the full keys, which are given every tool.
 //! `TEHAS_MCP_DASHBOARD_KEYS` holds the keys of a program that must not reach
-//! the sessions and their logs: such a key is served only the tools of
-//! `crate::tools::DASHBOARD`, the four that copy from `live/`. A key in both
+//! the sessions and their logs: such a key is served only the four of
+//! [`crate::tools::serves`], beside the catalog of the tools. A key in both
 //! lists is refused, so no key's scope is a guess.
+//!
+//! The shape a key must have is the rule of [`listed`] alone; the check in
+//! `libexec/mcp` of the same two settings is a fast reading of it before the
+//! container is started, and says nothing the server does not enforce.
 //!
 //! The server is still given `~/tehas/mcp` and `~/tehas/logs`: the scope
 //! lives in the program, not in the mounts.
 
-use crate::tools::DASHBOARD;
+use crate::tools::{self, Entry, Scope};
 use sha2::{Digest, Sha256};
 
 const MIN_LEN: usize = 32;
 
-/// What a key's holder may call.
+/// One of the two settings that hold keys: its name in the environment, the
+/// word of an error, and the scope a key of it is given. A third list would
+/// be one more value here, and nothing else would change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
-    /// Every tool the server has.
+pub enum Setting {
+    /// `TEHAS_MCP_KEYS`: every tool.
     Full,
-    /// The four of `DASHBOARD`, and no other.
+    /// `TEHAS_MCP_DASHBOARD_KEYS`: the four of the dashboard.
     Dashboard,
 }
 
-/// The server's own word for a key's scope, for the access log.
-impl Scope {
-    pub fn as_str(self) -> &'static str {
+impl Setting {
+    /// The name of the environment variable the list is read from, which is
+    /// also the name an error gives it.
+    pub fn name(self) -> &'static str {
         match self {
-            Scope::Full => "full",
-            Scope::Dashboard => "dashboard",
+            Setting::Full => "TEHAS_MCP_KEYS",
+            Setting::Dashboard => "TEHAS_MCP_DASHBOARD_KEYS",
         }
     }
+
+    /// The scope a key of this setting is given.
+    pub fn scope(self) -> Scope {
+        match self {
+            Setting::Full => Scope::Full,
+            Setting::Dashboard => Scope::Dashboard,
+        }
+    }
+
+    /// The two settings, the full one first: the order the lists are read in
+    /// and the order an error names them.
+    pub const ALL: [Setting; 2] = [Setting::Full, Setting::Dashboard];
 }
 
 /// The keys of both settings, each with its scope.
-pub struct Keys(Vec<(String, Scope)>);
+pub struct Keys(Vec<Entry>);
 
 // Never the keys themselves, not even in a test's failure message.
 impl std::fmt::Debug for Keys {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let dashboard = self
-            .0
-            .iter()
-            .filter(|(_, s)| *s == Scope::Dashboard)
-            .count();
+        let dashboard = self.0.iter().filter(|e| e.is_dashboard()).count();
         write!(
             f,
             "Keys({} full, {} dashboard)",
@@ -54,49 +71,65 @@ impl std::fmt::Debug for Keys {
     }
 }
 
-/// The keys of both settings: the raw value of `TEHAS_MCP_KEYS` and that of
-/// `TEHAS_MCP_DASHBOARD_KEYS`, either of which may be empty. At least one of
-/// the two must hold a key. The error names the setting and a key by its
-/// position, never by its value.
-pub fn parse_keys(full: &str, dashboard: &str) -> Result<Keys, String> {
-    let full = listed(full, "TEHAS_MCP_KEYS")?;
-    let dashboard = listed(dashboard, "TEHAS_MCP_DASHBOARD_KEYS")?;
-    if full.is_empty() && dashboard.is_empty() {
-        return Err(
-            "TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS are both empty: \
-                    give at least one key in either"
-                .into(),
-        );
+/// The keys of both settings: each one's raw value, either of which may be
+/// empty, paired with the setting it was read from. At least one of the two
+/// must hold a key. The error names the setting and a key by its position,
+/// never by its value.
+pub fn parse_keys(of: [(&'static Setting, &str); 2]) -> Result<Keys, String> {
+    let (full_list, dashboard_list) = (listed(of[0].1, *of[0].0)?, listed(of[1].1, *of[1].0)?);
+    if full_list.is_empty() && dashboard_list.is_empty() {
+        return Err(format!(
+            "{} and {} are both empty: give at least one key in either",
+            Setting::Full.name(),
+            Setting::Dashboard.name(),
+        ));
     }
-    // The whole of both lists is compared, so the time taken says nothing
-    // about which list a key is in. The message names the settings and the
-    // positions, never the key.
+    // Every key of one list is compared with every key of the other, so the
+    // time taken says nothing about which list a key is in. The two lists are
+    // the operator's own file and this runs once, at start-up, before the
+    // container and before any request: the constant-time comparison of the
+    // request path, where a key is looked for among the whole store, is
+    // `Keys::check`. The message names the settings and the positions, never
+    // the key.
+    let full = &full_list;
+    let dashboard = &dashboard_list;
     for (i, k) in full.iter().enumerate() {
         for (j, other) in dashboard.iter().enumerate() {
             if same(k.as_bytes(), other.as_bytes()) {
                 return Err(format!(
-                    "TEHAS_MCP_KEYS: key {} is TEHAS_MCP_DASHBOARD_KEYS: key {}: \
+                    "{}: key {} is {}: key {}: \
                      a key is in one list or the other",
+                    Setting::Full.name(),
                     i + 1,
-                    j + 1
+                    Setting::Dashboard.name(),
+                    j + 1,
                 ));
             }
         }
     }
-    let mut keys: Vec<(String, Scope)> = full
+    let mut keys: Vec<Entry> = Setting::ALL
         .into_iter()
-        .map(|k| (k, Scope::Full))
-        .chain(dashboard.into_iter().map(|k| (k, Scope::Dashboard)))
+        .zip([full_list, dashboard_list])
+        .flat_map(|(setting, list)| {
+            list.into_iter().map(move |key| Entry {
+                key,
+                scope: setting.scope(),
+            })
+        })
         .collect();
-    // The order of the entries is the server's, never the settings': a request
-    // for a key of one scope is not answered sooner than one for a key of the
-    // other, whichever list its owner wrote first.
-    keys.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    // The order of the entries is the server's, never the settings', and it
+    // is taken from the fingerprint rather than the key's own bytes, so no
+    // comparison of a request's token with a stored key reads a key of one
+    // list differently from one of the other.
+    keys.sort_unstable_by_key(|e| (fingerprint(&e.key), e.key.len()));
     Ok(Keys(keys))
 }
 
-/// One list of keys, each checked. The name is the setting's, for an error.
-fn listed(raw: &str, name: &str) -> Result<Vec<String>, String> {
+/// One list of keys, each checked: at least [`MIN_LEN`] characters of
+/// `A-Za-z0-9_-`. `libexec/mcp` reads the same rule for the same two settings
+/// before it starts the container; this is the rule that stands. The error
+/// names the setting and the key's place in it, never the key.
+fn listed(raw: &str, of: Setting) -> Result<Vec<String>, String> {
     let keys: Vec<String> = raw.split_whitespace().map(str::to_string).collect();
     for (i, k) in keys.iter().enumerate() {
         let ok = k.len() >= MIN_LEN
@@ -104,8 +137,9 @@ fn listed(raw: &str, name: &str) -> Result<Vec<String>, String> {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
         if !ok {
             return Err(format!(
-                "{name}: key {} is not at least {MIN_LEN} characters of A-Za-z0-9_-",
-                i + 1
+                "{}: key {} is not at least {MIN_LEN} characters of A-Za-z0-9_-",
+                of.name(),
+                i + 1,
             ));
         }
     }
@@ -121,9 +155,9 @@ impl Keys {
         self.0.is_empty()
     }
 
-    /// The fingerprint of the key an Authorization header carries, with the
-    /// scope that key was listed under, or None.
-    pub fn check(&self, authorization: Option<&str>) -> Option<(String, Scope)> {
+    /// The key an Authorization header carries, with its fingerprint and the
+    /// scope it was listed under, or None.
+    pub fn check(&self, authorization: Option<&str>) -> Option<Authenticated> {
         let h = authorization?;
         let (scheme, token) = h.split_at_checked(7)?;
         if !scheme.eq_ignore_ascii_case("bearer ") {
@@ -132,17 +166,43 @@ impl Keys {
         // Every key is compared in full, so the time taken does not say which
         // key or how much of one matched.
         let mut found = None;
-        for (k, scope) in &self.0 {
-            if same(k.as_bytes(), token.as_bytes()) {
-                found = Some((fingerprint(k), *scope));
+        for e in &self.0 {
+            if same(e.key.as_bytes(), token.as_bytes()) {
+                found = Some(Authenticated {
+                    fingerprint: fingerprint(&e.key),
+                    scope: e.scope,
+                });
             }
         }
         found
     }
+}
 
-    /// Whether a key of this scope is served the tool.
-    pub fn serves(scope: Scope, name: &str) -> bool {
-        scope == Scope::Full || DASHBOARD.contains(&name)
+/// A request's key, as the key store knows it. Built only by [`Keys::check`],
+/// so a scope carried by one of these is a scope a listed key was given: no
+/// caller can name a scope the settings do not.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Authenticated {
+    fingerprint: String,
+    scope: Scope,
+}
+
+impl Authenticated {
+    /// The short name of the key for the access log: eight hex characters of
+    /// its hash, never the key.
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
+    /// The scope the key store read this key under.
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+
+    /// Whether this key is served the tool: the rule of [`tools::serves`]
+    /// over the scope of the key that made the request.
+    pub fn may_call(&self, name: &str) -> bool {
+        tools::serves(self.scope, name)
     }
 }
 
@@ -168,13 +228,36 @@ mod tests {
     const K1: &str = "abcdefghijklmnopqrstuvwxyz012345";
     const K2: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ-_6789";
     const D1: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
-    // 33 characters, so a list holding it is refused: the shortest key is 32.
-    const SHORT: &str = "0123456789abcdefghijklmnopqrstuvwxyz+";
+    // 31 characters of legal ones, so a list holding it is refused for its
+    // length alone.
+    const SHORT: &str = "abcdefghijklmnopqrstuvwxyz01234";
+    // 33 characters with one that is not legal, so it is refused for its
+    // characters alone.
+    const ODD_CHAR: &str = "0123456789abcdefghijklmnopqrstuvwxyz+";
+
+    // The two raw lists of a call to `parse_keys`, so the pair is written once
+    // and a swap of the two is a swap of the two settings, not of two strings.
+    fn of<'a>(full: &'a str, dashboard: &'a str) -> [(&'static Setting, &'a str); 2] {
+        [(&Setting::Full, full), (&Setting::Dashboard, dashboard)]
+    }
+
+    // The holder of a key of one setting, read from the store itself so that
+    // `may_call` is tested of a value the key store actually issues.
+    fn holder(setting: Setting) -> Authenticated {
+        let list = match setting {
+            Setting::Full => K1,
+            Setting::Dashboard => D1,
+        };
+        parse_keys(of(K1, D1))
+            .expect("two lists of one key each")
+            .check(Some(&format!("Bearer {list}")))
+            .expect("a listed key")
+    }
 
     #[test]
     fn no_key_in_either_list_is_refused_by_name() {
         for (full, dashboard) in [("", ""), ("  \n", ""), ("", " \t")] {
-            let err = parse_keys(full, dashboard).unwrap_err();
+            let err = parse_keys(of(full, dashboard)).unwrap_err();
             assert!(err.contains("TEHAS_MCP_KEYS"), "{err}");
             assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
         }
@@ -182,40 +265,40 @@ mod tests {
 
     #[test]
     fn a_dashboard_key_alone_is_enough() {
-        let keys = parse_keys("", D1).unwrap();
+        let keys = parse_keys(of("", D1)).unwrap();
         assert_eq!(keys.len(), 1);
-        let (fp, scope) = keys.check(Some(&format!("Bearer {D1}"))).unwrap();
-        assert_eq!(scope, Scope::Dashboard);
-        assert_eq!(fp.len(), 8);
+        let key = keys.check(Some(&format!("Bearer {D1}"))).unwrap();
+        assert_eq!(key.scope(), Scope::Dashboard);
+        assert_eq!(key.fingerprint().len(), 8);
         assert!(keys.check(Some(&format!("Bearer {K1}"))).is_none());
     }
 
     #[test]
     fn a_full_key_alone_is_enough() {
-        let keys = parse_keys(K1, "").unwrap();
+        let keys = parse_keys(of(K1, "")).unwrap();
         assert_eq!(
-            keys.check(Some(&format!("Bearer {K1}"))).unwrap().1,
+            keys.check(Some(&format!("Bearer {K1}"))).unwrap().scope(),
             Scope::Full
         );
     }
 
     #[test]
     fn each_list_keeps_its_own_scope() {
-        let keys = parse_keys(&format!("{K1} {K2}"), D1).unwrap();
+        let keys = parse_keys(of(&format!("{K1} {K2}"), D1)).unwrap();
         assert_eq!(keys.len(), 3);
         assert_eq!(
-            keys.check(Some(&format!("Bearer {K2}"))).unwrap().1,
+            keys.check(Some(&format!("Bearer {K2}"))).unwrap().scope(),
             Scope::Full
         );
         assert_eq!(
-            keys.check(Some(&format!("Bearer {D1}"))).unwrap().1,
+            keys.check(Some(&format!("Bearer {D1}"))).unwrap().scope(),
             Scope::Dashboard
         );
     }
 
     #[test]
     fn a_key_in_both_lists_is_refused_by_setting_and_position() {
-        let err = parse_keys(&format!("{K1} {D1}"), &format!("{D1} {K2}")).unwrap_err();
+        let err = parse_keys(of(&format!("{K1} {D1}"), &format!("{D1} {K2}"))).unwrap_err();
         assert!(err.contains("TEHAS_MCP_KEYS"), "{err}");
         assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
         // The second full key and the first dashboard one: those are the two
@@ -227,52 +310,59 @@ mod tests {
 
     #[test]
     fn a_short_key_of_either_setting_is_refused() {
-        assert!(parse_keys(&K1[..31], "")
+        assert!(parse_keys(of(&K1[..31], ""))
             .unwrap_err()
             .contains("TEHAS_MCP_KEYS"));
-        let err = parse_keys("", &format!("{D1} {SHORT}")).unwrap_err();
+        // Refused for its length alone: every character of it is legal.
+        let err = parse_keys(of("", &format!("{D1} {SHORT}"))).unwrap_err();
         assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
         assert!(err.contains("key 2"), "{err}");
+        assert!(!err.contains(SHORT), "{err}");
     }
 
     #[test]
     fn a_key_with_other_characters_is_refused_without_its_value() {
+        // 33 characters, so it is refused for its characters alone.
+        let err = parse_keys(of(&format!("{K1} {ODD_CHAR}"), "")).unwrap_err();
+        assert!(!err.contains(ODD_CHAR));
+        assert!(err.contains("TEHAS_MCP_KEYS"));
+        let err = parse_keys(of("", &format!("{D1} {ODD_CHAR}"))).unwrap_err();
+        assert!(!err.contains(ODD_CHAR));
+        assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"));
         let bad = "abcdefghijklmnopqrstuvwxyz01234+";
-        let err = parse_keys(&format!("{K1} {bad}"), "").unwrap_err();
+        let err = parse_keys(of(&format!("{K1} {bad}"), "")).unwrap_err();
         assert!(!err.contains(bad));
         assert!(err.contains("TEHAS_MCP_KEYS"));
-        let err = parse_keys("", &format!("{D1} {bad}")).unwrap_err();
-        assert!(!err.contains(bad));
-        assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"));
     }
 
     #[test]
     fn keys_are_split_on_any_whitespace() {
         assert_eq!(
-            parse_keys(&format!("{K1}\t{K2}\n"), &format!("  {D1}  "))
+            parse_keys(of(&format!("{K1}\t{K2}\n"), &format!("  {D1}  ")))
                 .unwrap()
                 .len(),
             3
         );
-        assert_eq!(parse_keys("", &format!("{D1}\n{K2}")).unwrap().len(), 2);
+        assert_eq!(parse_keys(of("", &format!("{D1}\n{K2}"))).unwrap().len(), 2);
     }
 
     #[test]
     fn a_listed_key_is_named_by_a_short_fingerprint() {
-        let keys = parse_keys(&format!("{K1} {K2}"), "").unwrap();
-        let (fp, _) = keys.check(Some(&format!("Bearer {K1}"))).unwrap();
-        assert_eq!(fp.len(), 8);
-        assert!(fp.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(
-            keys.check(Some(&format!("bearer {K1}"))),
-            Some((fp, Scope::Full))
-        );
+        let keys = parse_keys(of(&format!("{K1} {K2}"), "")).unwrap();
+        let key = keys.check(Some(&format!("Bearer {K1}"))).unwrap();
+        assert_eq!(key.fingerprint().len(), 8);
+        assert!(key.fingerprint().chars().all(|c| c.is_ascii_hexdigit()));
+        // The same key by the other spelling of the scheme: the same holder,
+        // the same fingerprint, and the scope of the list it stands in.
+        let lower = keys.check(Some(&format!("bearer {K1}"))).expect("a scheme");
+        assert_eq!(lower.fingerprint(), key.fingerprint());
+        assert_eq!(lower.scope(), Scope::Full);
         assert!(keys.check(Some(&format!("Bearer {K2}"))).is_some());
     }
 
     #[test]
     fn anything_else_is_no_key() {
-        let keys = parse_keys(K1, "").unwrap();
+        let keys = parse_keys(of(K1, "")).unwrap();
         for h in [
             format!("Basic {K1}"),
             format!("Bearer {K1} "),
@@ -288,15 +378,17 @@ mod tests {
 
     #[test]
     fn a_dashboard_key_is_served_only_its_four_tools() {
-        for name in DASHBOARD {
-            assert!(Keys::serves(Scope::Dashboard, name), "{name}");
+        for name in tools::DASHBOARD {
+            let dashboard = holder(Setting::Dashboard);
+            let full = holder(Setting::Full);
+            assert!(dashboard.may_call(name), "{name}");
             // A full key is unchanged: it is served every tool of the server.
-            assert!(Keys::serves(Scope::Full, name), "{name}");
+            assert!(full.may_call(name), "{name}");
         }
         // A name the server has not is answered the same to either key; that
         // is the dispatch's guard, `known`, and tests/rpc.rs pins the answer.
         for scope in [Scope::Full, Scope::Dashboard] {
-            assert!(!super::super::tools::known("factory_delete"), "{scope:?}");
+            assert!(!tools::known("factory_delete"), "{scope:?}");
         }
         for name in [
             "factory_console",
@@ -314,13 +406,13 @@ mod tests {
             "",
             "Factory_Status",
         ] {
-            assert!(!Keys::serves(Scope::Dashboard, name), "{name}");
+            assert!(!holder(Setting::Dashboard).may_call(name), "{name}");
         }
     }
 
     #[test]
     fn the_debug_line_names_no_key() {
-        let keys = parse_keys(K1, D1).unwrap();
+        let keys = parse_keys(of(K1, D1)).unwrap();
         let line = format!("{keys:?}");
         assert!(!line.contains(K1) && !line.contains(D1), "{line}");
         assert!(

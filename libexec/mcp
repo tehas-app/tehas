@@ -52,10 +52,10 @@ serve() {
     1) ;;
     *) tehas_err "TEHAS_MCP is 0 or 1 (in ~/.config/tehas/env)"; exit 78 ;;
   esac
-  # Each list is checked where it is written, so the line of a bad key names its
-  # own setting and the key's place in that list: a position counted over both
-  # would sit in neither. The server tells the lists apart, refuses a key of
-  # both (whose scope is a guess) and of neither, and reads nothing from blanks.
+  # Each list is checked where it is written, so a bad key is named by its own
+  # setting and place. The shape is the server's rule, the byte check of listed
+  # in console/mcp/src/keys.rs, which enforces it at start-up; the regex is
+  # that rule read here, before docker is asked for a container.
   check_keys() { # <setting> <value>: 0 when the setting holds a key
     local name=$1 list=() i
     read -r -a list <<<"$2"
