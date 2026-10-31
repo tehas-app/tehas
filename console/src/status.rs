@@ -552,25 +552,23 @@ pub fn status_json(h: &J, now: i64, stale: bool) -> J {
     let room = if s.is_null() {
         J::Null
     } else {
-        obj(
-            [
-                ("cycles", "free"),
-                ("refreshes", "refreshRoom"),
-                ("maxAwaiting", "awaitRoom"),
-                ("slice", "room"),
-                ("limit", "limitRoom"),
-            ]
-            .into_iter()
-            .map(|(name, key)| (name, s.get(key).clone()))
-            .filter(|(_, v)| !v.is_null())
-            // With `auto` the count in force is the poll's, not the setting's,
-            // so the object carries it and the word for what bounded it. The
-            // numbers a factory wrote add nothing and are absent, as `limit`
-            // is without a limit.
-            .chain(std::iter::once(("slots", s.get("slots").clone())))
-            .filter(|(_, v)| !v.is_null())
-            .collect(),
-        )
+        obj([
+            ("cycles", "free"),
+            ("refreshes", "refreshRoom"),
+            ("maxAwaiting", "awaitRoom"),
+            ("slice", "room"),
+            ("limit", "limitRoom"),
+        ]
+        .into_iter()
+        .map(|(name, key)| (name, s.get(key).clone()))
+        .filter(|(_, v)| !v.is_null())
+        // With `auto` the count in force is the poll's, not the setting's,
+        // so the object carries it and the word for what bounded it. The
+        // numbers a factory wrote add nothing and are absent, as `limit`
+        // is without a limit.
+        .chain(std::iter::once(("slots", s.get("slots").clone())))
+        .filter(|(_, v)| !v.is_null())
+        .collect())
     };
     let mut fields = vec![
         ("api", J::num(1.0)),
@@ -723,7 +721,8 @@ mod tests {
                           "cycle":{"bound":"host","slots":0,"cpus":null,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":true}}}}}"#,
         );
         assert!(
-            slice_line(&held, NOW).starts_with("slots     cycles auto: 1, host-bound, no reading (? CPUs"),
+            slice_line(&held, NOW)
+                .starts_with("slots     cycles auto: 1, host-bound, no reading (? CPUs"),
             "{}",
             slice_line(&held, NOW)
         );
