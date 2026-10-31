@@ -941,16 +941,10 @@ pub fn list_scoped(scope: Scope) -> Value {
     Value::Array(
         entries()
             .iter()
-            .filter(|t| serves(scope, name_of(t)))
+            .filter(|t| t["name"].as_str().is_some_and(|n| serves(scope, n)))
             .cloned()
             .collect(),
     )
-}
-
-/// The name of one entry of the catalog, which `build_entries` writes as a
-/// string of its own.
-fn name_of(entry: &Value) -> &str {
-    entry["name"].as_str().expect("a name")
 }
 
 /// The published entries, built once for the process. The schemas of the tools
@@ -958,9 +952,8 @@ fn name_of(entry: &Value) -> &str {
 /// the same bytes, and a dashboard key that polls the list costs a clone of
 /// four entries rather than the reconstruction of fifteen.
 fn entries() -> &'static [Value] {
-    static ENTRIES: LazyLock<Vec<Value>> =
-        LazyLock::new(|| build_entries().as_array().expect("a list of tools").clone());
-    &ENTRIES
+    static ENTRIES: LazyLock<Value> = LazyLock::new(build_entries);
+    ENTRIES.as_array().map_or(&[], Vec::as_slice)
 }
 
 /// The structured content of one call, with "api": 1.
