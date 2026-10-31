@@ -1389,8 +1389,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
     let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
     assert!(
-        said.iter()
-            .any(|l| *l == "WARN: could not write the reason for #7"),
+        said.contains(&"WARN: could not write the reason for #7"),
         "{said:?}"
     );
     assert!(t.calls().contains(&"start 7".to_string()));
