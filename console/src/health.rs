@@ -996,11 +996,109 @@ fn slice(live: &Path, now: i64) -> J {
     // them from the host on this very poll, and the reason says which reading
     // gave them. The report nests them under `slots`, and they are left out,
     // as every other optional field is, when the poll wrote none: a factory
-    // with numbers for both settings reports nothing new.
-    if !d.get(hold::KEY_SLOTS).is_null() {
+    // with numbers for both settings reports nothing new. A value of another
+    // shape is left out the same way, because `status` copies it into the
+    // object the schema of api/status.schema.json closes.
+    if slots_shape(d.get(hold::KEY_SLOTS)) {
         f.push((hold::KEY_SLOTS.to_string(), d.get(hold::KEY_SLOTS).clone()));
     }
     J::Obj(f)
+}
+
+/// The keys of an object, in the order they were written. Nothing else has
+/// any, which is how a key the schema does not name is told from one it does.
+fn keys(v: &J) -> Vec<&str> {
+    match v {
+        J::Obj(o) => o.iter().map(|(k, _)| k.as_str()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The seven keys of one derivation, in the order the dispatcher's own writer
+/// lays them down.
+const AUTO_KEYS: [&str; 7] = [
+    "bound",
+    "slots",
+    "cpus",
+    "cycleCpus",
+    "containerMemory",
+    "ceiling",
+    "floored",
+];
+
+/// The six keys of the slots object: the four the schema requires, and the two
+/// derivations a poll writes only for a setting that said `auto`.
+const SLOT_KEYS: [&str; 6] = [
+    "cycles",
+    "containers",
+    "cyclesHow",
+    "containersHow",
+    "cycle",
+    "container",
+];
+
+/// Whether <v> is the slots object `api/status.schema.json` promises: the four
+/// keys, their counts and their three words each, `cycle` and `container` when
+/// the poll derived them, and nothing else. `status` copies the value into
+/// `room.slots` as it stands, so one that is not this shape would be answered
+/// in the report of a factory whose file was written by hand or by an older
+/// release; it is left out, as a poll that wrote none is.
+fn slots_shape(v: &J) -> bool {
+    /// A count of at least 0: a number with no fraction and no sign.
+    fn count(v: &J) -> bool {
+        match v.as_f64() {
+            Some(n) => n >= 0.0 && n.fract() == 0.0,
+            None => false,
+        }
+    }
+
+    /// One of the three words a setting asked for.
+    fn how(v: &J) -> bool {
+        matches!(v.as_str(), Some("auto") | Some("number") | Some("fixed"))
+    }
+
+    /// The keys of <v> are exactly <want>, whatever order the file wrote them
+    /// in: a key that is not named is refused and one that is named and
+    /// missing is refused too, as the schema closes the object.
+    fn only(v: &J, want: &[&str]) -> bool {
+        let mut have = keys(v);
+        have.sort_unstable();
+        let mut want = want.to_vec();
+        want.sort_unstable();
+        have == want
+    }
+
+    /// The derivation of one `auto`: the seven keys the schema names, and each
+    /// of them its own type. A side that the setting gave no reading for is
+    /// not there at all, which the caller allows.
+    fn auto(v: &J) -> bool {
+        only(v, &AUTO_KEYS)
+            && matches!(
+                v.get("bound").as_str(),
+                Some("cpu") | Some("memory") | Some("ceiling") | Some("host")
+            )
+            && count(v.get("slots"))
+            && (v.get("cpus").is_null() || count(v.get("cpus")))
+            && v.get("cycleCpus").as_str().is_some()
+            && v.get("containerMemory").as_str().is_some()
+            && v.get("ceiling").as_str().is_some()
+            && matches!(v.get("floored"), J::Bool(_))
+    }
+
+    // The four keys the schema requires, plus each side the poll derived.
+    let mut want = SLOT_KEYS[..4].to_vec();
+    for k in ["cycle", "container"] {
+        if !v.get(k).is_null() {
+            want.push(k);
+        }
+    }
+    only(v, &want)
+        && count(v.get("cycles"))
+        && count(v.get("containers"))
+        && how(v.get("cyclesHow"))
+        && how(v.get("containersHow"))
+        && (v.get("cycle").is_null() || auto(v.get("cycle")))
+        && (v.get("container").is_null() || auto(v.get("container")))
 }
 
 /// The demand as the last poll left it, when that poll is young enough.
@@ -1681,6 +1779,102 @@ mod tests {
             r.at(&["checks", "slice"]).dump(),
             r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":1,"committed":null,"max":null,"reserve":null,"free":1}"#
         );
+    }
+
+    /// The poll's slots object with one key of `cycle` added, so a case says
+    /// which shape it refused.
+    fn cycle_with(home: &Home, key: &str, value: &str) {
+        home.write(
+            "live/dispatch.json",
+            &format!(
+                r#"{{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
+                     "slots":{{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
+                              "cycle":{{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false,"{key}":{value}}}}}}}"#,
+            ),
+        );
+    }
+
+    /// The poll's slots object with one of its own keys replaced by <value>.
+    fn slots_with(home: &Home, key: &str, value: &str) {
+        home.write(
+            "live/dispatch.json",
+            &format!(
+                r#"{{"time":"2026-10-17T14:00:00Z","why":"","room":3,"free":2,
+                     "slots":{{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto","{key}":{value}}}}}"#,
+            ),
+        );
+    }
+
+    #[test]
+    fn a_slots_value_of_another_shape_is_left_out() {
+        let h = home("slots-shape");
+        // The shape the schema promises is copied, and each value that is not
+        // it is left out as a poll that wrote none is: the check keeps the
+        // fields it always had and no `slots` at all.
+        let copied = |h: &Home| {
+            !h.report(&Given::default())
+                .at(&["checks", "slice"])
+                .get("slots")
+                .is_null()
+        };
+
+        // The four keys are each required, at their own type.
+        for (key, value) in [
+            // a text instead of a count
+            ("cycles", "\"6\""),
+            ("containers", "\"6\""),
+            // a count that is not at least 0, and one that is not a whole number
+            ("cycles", "-1"),
+            ("containers", "1.5"),
+            // a word the schema does not know
+            ("cyclesHow", "\"maybe\""),
+            ("containersHow", "null"),
+            // a key the schema does not allow
+            ("why", "\"cpu\""),
+        ] {
+            slots_with(&h, key, value);
+            assert!(!copied(&h), "slots with {key}: {value} was copied");
+        }
+
+        // The derivation of one `auto`: a bound outside its four words, and
+        // keys of their own at the wrong type or one of them too many.
+        for (key, value) in [
+            ("bound", "\"disk\""),
+            ("slots", "\"six\""),
+            ("cpus", "\"24\""),
+            ("floored", "\"false\""),
+            ("why", "\"cpu\""),
+        ] {
+            cycle_with(&h, key, value);
+            assert!(!copied(&h), "cycle with {key}: {value} was copied");
+        }
+    }
+
+    #[test]
+    fn the_slots_shape_refuses_a_value_that_is_not_the_schema() {
+        // The shape the dispatcher's own writer emits is accepted: both sides,
+        // neither side, and a null count for a host that gave no reading.
+        for text in [
+            r#"{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
+                "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false},
+                "container":{"bound":"memory","slots":2,"cpus":null,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":true}}"#,
+            r#"{"cycles":6,"containers":6,"cyclesHow":"auto","containersHow":"auto",
+                "cycle":{"bound":"cpu","slots":6,"cpus":24,"cycleCpus":"4","containerMemory":"8g","ceiling":"16","floored":false}}"#,
+            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed"}"#,
+        ] {
+            assert!(slots_shape(&J::parse(text).unwrap()), "{text}");
+        }
+        // A text, a count, nothing, an object with a key the schema does not
+        // name, and one that is missing a key it requires.
+        for text in [
+            r#""auto""#,
+            r#"6"#,
+            r#"null"#,
+            r#"{"cycles":1,"containers":2,"cyclesHow":"number","containersHow":"fixed","extra":1}"#,
+            r#"{"cycles":1,"containers":2,"cyclesHow":"number"}"#,
+        ] {
+            assert!(!slots_shape(&J::parse(text).unwrap()), "{text}");
+        }
     }
 
     /// The report of a poll, at `at`, as the dispatcher's own type writes it:
