@@ -887,7 +887,7 @@ fn blob_shape() {
             .collect(),
         body: body.as_bytes(),
     };
-    let r = handle(&req, &parse_keys(k).unwrap(), &env.dirs, "v9.9.9");
+    let r = handle(&req, &parse_keys(k, "").unwrap(), &env.dirs, "v9.9.9");
     let v: Value = serde_json::from_slice(&r.body).unwrap();
     let res = &v["result"];
     assert_eq!(res["content"][1]["type"], "resource", "{v}");
@@ -1786,7 +1786,7 @@ fn a_third_search_waits_as_a_third_log_does() {
             .collect(),
         body: body.as_bytes(),
     };
-    let r = handle(&req, &parse_keys(k).unwrap(), &env.dirs, "v9.9.9");
+    let r = handle(&req, &parse_keys(k, "").unwrap(), &env.dirs, "v9.9.9");
     let v: Value = serde_json::from_slice(&r.body).unwrap();
     assert_eq!(v["result"]["structuredContent"]["api"], 1);
     assert_eq!(

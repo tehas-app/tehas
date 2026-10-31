@@ -6,6 +6,7 @@
 
 use crate::decisions;
 use crate::events;
+use crate::keys::Scope;
 use crate::logs::{self, LogGuard};
 use crate::outcomes;
 use crate::outcomes_schema;
@@ -15,10 +16,17 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tehas_core::mask::mask;
 use tehas_core::time::days_from_civil;
 
 /// The most of a console a call returns, and the default.
 pub const CONSOLE_MAX: u64 = 65536;
+/// The most of the dispatcher's line of a hold an answer gives.
+const HOLD_MAX: usize = 400;
+/// The one value of `why` that says nothing holds: the empty word the
+/// dispatcher writes when cycles may start. Anything else is a reason, and a
+/// file that holds no such word at all says nothing and is answered as nothing.
+const HOLD_FREE: &str = "";
 /// A poll older than this is stale, as on the dashboard.
 pub(crate) const STALE_SECS: i64 = 600;
 
@@ -247,6 +255,28 @@ fn status_schema() -> Value {
                     ("fetchedAt", given("When it was fetched, UTC.")),
                 ],
                 "The platform the host runs: its release, or its checkout against origin.",
+            ),
+        ),
+        (
+            "hold",
+            obj(
+                vec![
+                    (
+                        "why",
+                        prop(
+                            "string",
+                            "The one reason nothing starts, as the poll's report words it: slice, unreadable, resources, disk, limit, red, unknown-gate, count, awaiting, room, pressure, full or lane.",
+                        ),
+                    ),
+                    (
+                        "text",
+                        prop(
+                            "string",
+                            "That reason in a line, masked and cut to 400 characters, such as \"holding: 5 cycles are running (limit 5)\".",
+                        ),
+                    ),
+                ],
+                "Why the dispatcher starts nothing. Left out when nothing holds.",
             ),
         ),
     ])
@@ -701,6 +731,21 @@ fn stats_schema() -> Value {
     ])
 }
 
+/// The tools a dashboard key is served: the four that copy from the live
+/// files and read no other directory, so the key that faces strangers sees
+/// only what the public dashboard shows. `factory_console` is under `live/`
+/// too and is not one of them: a console is a model's output, and nothing
+/// that wants a summary needs it. `factory_issue` reads the private sessions
+/// snapshot as well, so it is not one either. The test beside `call_held`
+/// proves that every name here is in `CALLED`, is listed by `list`, and is
+/// answered by an arm that reads nothing but `live`.
+pub const DASHBOARD: [&str; 4] = [
+    "factory_status",
+    "factory_issues",
+    "factory_endings",
+    "factory_stats",
+];
+
 /// The tools, in a fixed order.
 pub fn list() -> Value {
     let none = json!({"type": "object", "properties": {}, "additionalProperties": false});
@@ -825,6 +870,25 @@ pub fn known(name: &str) -> bool {
     CALLED.contains(&name)
 }
 
+/// The tools of a `tools/list` for a key of this scope: every one of them for
+/// a full key, as it has always been, and the four of `DASHBOARD` in the
+/// order `list` gives them for a dashboard key. The entries are the same
+/// objects, so a tool is described the same way to either key.
+pub fn list_scoped(scope: Scope) -> Value {
+    if scope == Scope::Full {
+        return list();
+    }
+    let listed = list();
+    let listed = listed.as_array().expect("a list of tools");
+    Value::Array(
+        listed
+            .iter()
+            .filter(|t| DASHBOARD.contains(&t["name"].as_str().unwrap_or_default()))
+            .cloned()
+            .collect(),
+    )
+}
+
 /// The structured content of one call, with "api": 1.
 pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> {
     call_held(dirs, name, args).map(|(out, _)| out)
@@ -918,6 +982,10 @@ pub fn spec_of(name: &str) -> Option<Value> {
             "demand": {"waiting": true, "oldest": true, "time": true},
             "platform": {"commit": true, "release": true, "newest": true, "behind": true,
                          "upstream": true, "fetchedAt": true},
+            // The two keys of `hold`, copied from the poll's own report below.
+            // An empty `why` is refused by `held`, so the word is never served
+            // and needs no arm of its own in the answer.
+            "hold": {"why": true, "text": true},
         }),
         "factory_issues" => {
             let mut s = Map::new();
@@ -1103,7 +1171,62 @@ fn status(live: &Path) -> Result<Map<String, Value>, ToolError> {
         "platform",
         pick(&checks["platform"], &spec["platform"]),
     );
+    // "why is nothing starting" is the most useful thing to say to someone
+    // waiting, and dispatch.json is published already: the hold is copied from
+    // it, and left out when the poll said nothing held.
+    put(&mut out, "hold", held(live, &spec["hold"]));
     Ok(out)
+}
+
+/// The two keys of the answer, in the two names of the file: `why` of the
+/// poll's report is served as `why`, and its `hold` as `text`, which is the
+/// tool's word for it and the one that does not read as the file's own name
+/// for the same line. The pair is one list, so a key of the answer is named
+/// with the key of the file it comes from beside it.
+const HOLD_KEYS: [(&str, &str); 2] = [("why", "why"), ("text", "hold")];
+
+/// What the dispatcher's last poll says holds, or None when it says nothing
+/// holds. The line of the file is `hold`; the answer calls it `text`, like the
+/// free text of the tool's other answers, and masks it before it cuts it, so a
+/// cut never leaves part of a secret the mask would have known whole.
+fn held(live: &Path, spec: &Value) -> Option<Value> {
+    // A poll that is not on record leaves `hold` out like any other field
+    // without a value, rather than failing the tool: the rest of the answer
+    // stands on its own.
+    let report = std::fs::read(live.join("dispatch.json")).ok()?;
+    let report = serde_json::from_slice::<Value>(&report).ok()?;
+    // Only a poll that named a reason holds. The dispatcher writes the empty
+    // word, not no word, when nothing holds, so `pick` alone would answer the
+    // two the same.
+    if report["why"].as_str() == Some(HOLD_FREE) {
+        return None;
+    }
+    // The two keys of the file, each copied under the name the answer gives
+    // it, and only while the spec above names both: a key the schema does not
+    // describe is never served, and an answer of one of the two alone would
+    // name a reason the holder cannot read.
+    let mut hold = Map::new();
+    for (of_answer, of_file) in HOLD_KEYS {
+        if spec.get(of_answer) != Some(&json!(true)) {
+            return None;
+        }
+        // Both are a line of the poll's words: a number or a map is no reason
+        // and no line, and is no hold at all. `pick` takes a scalar alone, so
+        // the check is the one thing the tool adds to it.
+        let Some(text) = report[of_file].as_str() else {
+            return None; // not a line of words at all
+        };
+        if of_answer != "text" {
+            hold.insert(of_answer.into(), json!(text));
+            continue;
+        }
+        let text = mask(text).chars().take(HOLD_MAX).collect::<String>();
+        if text.is_empty() {
+            return None;
+        }
+        hold.insert(of_answer.into(), json!(text));
+    }
+    Some(Value::Object(hold))
 }
 
 fn issues(live: &Path, args: &Value) -> Result<Map<String, Value>, ToolError> {
@@ -1342,6 +1465,80 @@ mod tests {
         }
     }
 
+    // The four of `DASHBOARD` are served to a dashboard key, so the list may
+    // not name a tool the server does not have, and may not name one that
+    // reads a directory but `live`: the scope is the promise that such a key
+    // sees only what the public dashboard shows. `factory_console` and
+    // `factory_issue` are the two neighbours that do not qualify, and are
+    // named here so the list cannot quietly grow to take them in.
+    #[test]
+    fn the_dashboard_list_is_four_live_only_tools() {
+        let listed = list();
+        let listed: Vec<&str> = listed
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|t| t["name"].as_str().expect("a name"))
+            .collect();
+        for name in DASHBOARD {
+            // In `CALLED`, so the dispatch answers it, and listed, so the
+            // server publishes it.
+            assert!(known(name), "{name} is not called");
+            assert!(listed.contains(&name), "{name} is not listed");
+            assert!(spec_of(name).is_some(), "{name} has no answer allowlist");
+            // Its answer is copied from the live files and built by the arms
+            // of the dispatch that take only `live`, the `pick` list beside
+            // them being the tool's whole spec. `factory_issue` is the one
+            // live-file tool that opens the snapshot, and is not in the list.
+            assert!(
+                [
+                    "factory_status",
+                    "factory_issues",
+                    "factory_endings",
+                    "factory_stats"
+                ]
+                .contains(&name),
+                "{name} is not a live-only tool"
+            );
+        }
+        for name in ["factory_console", "factory_issue"] {
+            assert!(!DASHBOARD.contains(&name), "{name} is not dashboard-only");
+        }
+        // A dashboard key is served exactly these four, in the order `list`
+        // gives them, and a full key is served all fifteen.
+        let scoped = list_scoped(Scope::Dashboard);
+        let scoped: Vec<&str> = scoped
+            .as_array()
+            .expect("a list of tools")
+            .iter()
+            .map(|t| t["name"].as_str().expect("a name"))
+            .collect();
+        let want: Vec<&str> = listed
+            .iter()
+            .filter(|n| DASHBOARD.contains(n))
+            .copied()
+            .collect();
+        assert_eq!(scoped, want);
+        assert_eq!(list_scoped(Scope::Full), list());
+        // The entries of the shorter list are the entries of the longer one:
+        // the same description and the same two schemas.
+        for name in DASHBOARD {
+            let of = |tools: &Value| {
+                tools
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|t| t["name"] == json!(name))
+                    .cloned()
+            };
+            assert_eq!(
+                of(&list_scoped(Scope::Dashboard)),
+                of(&list_scoped(Scope::Full)),
+                "{name} is described differently to the two keys"
+            );
+        }
+    }
+
     // Every name `known` admits is answered by an arm of the dispatch, and
     // no arm answers a name the allowlist does not admit. The arms and
     // `CALLED` are written out twice on purpose: reading them apart is the
@@ -1386,6 +1583,36 @@ mod tests {
                 "{name} is dispatched by no arm"
             );
         }
+    }
+
+    // The hold of the poll's report, and only when the poll named a reason.
+    #[test]
+    fn a_hold_is_copied_and_a_free_poll_is_not() {
+        let spec = spec_of("factory_status").expect("a known tool")["hold"].clone();
+        let held = |report: Value| {
+            let dir = std::env::temp_dir().join(format!(
+                "mcp-hold-{}-{}",
+                std::process::id(),
+                report.to_string().len()
+            ));
+            let _ = std::fs::create_dir_all(&dir);
+            std::fs::write(dir.join("dispatch.json"), report.to_string()).unwrap();
+            let v = self::held(&dir, &spec);
+            let _ = std::fs::remove_dir_all(&dir);
+            v
+        };
+        assert_eq!(
+            held(json!({"why": "count", "hold": "holding: 5"})),
+            Some(json!({"why": "count", "text": "holding: 5"}))
+        );
+        assert_eq!(held(json!({"why": "", "hold": ""})), None);
+        assert_eq!(held(json!({"hold": "holding: 5"})), None);
+        assert_eq!(held(json!({"why": "count", "hold": ""})), None);
+        // A file of another shape is no report, and no hold: not an answer of
+        // one key of the two.
+        assert_eq!(held(json!({"why": "count"})), None);
+        assert_eq!(held(json!([])), None);
+        assert_eq!(held(json!({"why": 7, "hold": "x"})), None);
     }
 
     // Dirs of the fixtures, for tests that ask the dispatch which side of it
