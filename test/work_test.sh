@@ -463,4 +463,93 @@ t_eq "$(cat "$T/home/tehas/work/widget-7/notes.txt")" keep
 t_eq "$(find "$T/home/tehas/work" -maxdepth 1 -name '*.before-retry' | wc -l)" 0
 rm -rf "$T/home/tehas/work"
 
+t_case "the watch loop stops a cycle by the cycle clock, not the wall clock"
+fresh
+# The wall clock stands still and the cycle clock goes forward past the stall
+# of 60 s while the limit of 600 s is still ahead: the cycle ends on its own,
+# neither stalled nor timed out. On the wall clock of before the change, where
+# the pass that finds a newer log set the stall's mark to the wall's now, this
+# same pass was the one the loop stopped the cycle on.
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf '%s\n' 1000 1010 1020 1030 1040 1050 >"$T/clock.now"
+container 'says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_lacks "$t_out" "time limit of 600s passed"
+t_lacks "$t_out" "stopping it as stalled"
+rm -f "$T/clock.now" "$T/clock.n"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "logs that stand still do not move the stall's mark, and the mark is a clock reading"
+fresh
+rm -f "$T/clock.calls"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+seq 5000 10 5200 >"$T/clock.now"
+printf 'ok\n' >"$T/clock.check"
+container '"$nap" 1; exit 10'
+t_run "$work 7"
+since=$(sed -n 's/.*--since \([0-9]*\).*/\1/p' "$T/clock.calls" | sort -u)
+t_eq "$(wc -l <"$T/clock.calls" | awk '{print ($1 >= 3)}')" "1"
+t_eq "$(echo "$since" | wc -l | awk '{print ($1 <= 2)}')" "1"
+t_eq "$(echo "$since" | awk '$1 > 6000' | wc -l | tr -d ' ')" "0"
+rm -f "$T/clock.check" "$T/clock.now" "$T/clock.n" "$T/clock.calls"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "the cycle clock saying stalled stops the cycle as stalled"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.stalled"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf 'stalled\n' >"$T/clock.check"
+container "$hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "none of the cycle's logs changed for 60s, stopping it as stalled"
+t_contains "$t_out" "status=stalled"
+t_lacks "$t_out" "time limit"
+rm -f "$T/clock.check"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "the cycle clock saying over stops the cycle at its time limit"
+fresh
+rm -f "$T/home/tehas/state/cycles/7.timed"
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf 'over\n' >"$T/clock.check"
+container "$hold; $gone"
+t_run "$work 7"
+t_eq "$t_rc" 2
+t_contains "$t_out" "time limit of 600s passed"
+t_contains "$t_out" "status=timeout"
+t_lacks "$t_out" "stalled"
+rm -f "$T/clock.check"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "a cycle clock that answers unknown stops nothing: the cycle ends on its own"
+fresh
+t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHAS_WORK_STALL=60 TEHAS_VERIFY_TIMEOUT=1
+T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
+printf 'unknown\n' >"$T/clock.check"
+container 'says handoff; exit 10'
+t_run "$work 7"
+t_eq "$t_rc" 10
+t_lacks "$t_out" "time limit of 600s passed"
+t_lacks "$t_out" "stopping it as stalled"
+t_lacks "$t_out" "status=timeout"
+rm -f "$T/clock.check"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+T_ENV=("${env_ok[@]}")
+
+t_case "the container is given a deadline of the wall clock, and the mark is the cycle's"
+fresh
+t_run "$work 7"
+t_eq "$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p' | awk '{print ($1 > 0 && $1 % 1000 == 0)}')" "1"
+t_eq "$(cat "$T/home/tehas/state/cycles/7.clock" | tr -cd 0-9 | wc -c | tr -d ' ' | awk '{print ($1 > 0)}')" "1"
+
 t_done

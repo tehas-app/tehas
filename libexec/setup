@@ -35,7 +35,7 @@
 #      gives it the bot's name and noreply address, unless it has one. The
 #      helper is checked first: the identity is of no use on a host whose git
 #      cannot authenticate, and the two are read from two different programs
-#   4. clones the product to ~/tehas/repos/<name> when it is not there
+#   4. clones the product to ~/tehas/repos/<name>; an app's first run installs first
 #   5. runs install.sh beside this command, then tehas labels
 #   6. builds the sandbox image unless it is there, and runs the product's
 #      gates in it with tehas check-product --sandbox where that is installed
@@ -82,9 +82,8 @@ read -r build kind bot bot_id <<<"$files"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
 
-# From here gh acts as the app through the shim, which reads the app from the
-# files just written, as every later command on the host does. Without one it
-# acts with the token just written.
+# From here gh acts as the app through the shim, as every later command on the
+# host does. Without one it acts with the token just written.
 if [ "$kind" = app ]; then
   # shellcheck source=lib/github-app.sh
   . "$here/../lib/github-app.sh"
@@ -160,19 +159,20 @@ fi
 
 tehas_load || exit 78
 tehas_require_instance_settings
+step() { # <name> <command...>
+  local name=$1 rc=0
+  shift
+  "$@" || rc=$?
+  [ "$rc" = 0 ] || die "$name failed (exit $rc); fix it and run tehas setup again" "$rc"
+}
+# The app's gh and helper are the install's; the install below reads the clone.
+[ "$kind" != app ] || [ -x "$TEHAS_HOME/shim/gh" ] || [ ! -x "$here/../install.sh" ] || step install.sh "$here/../install.sh"
 if [ ! -d "$TEHAS_WORK_REPO/.git" ]; then
   mkdir -p "$(dirname "$TEHAS_WORK_REPO")"
   gh repo clone "$TEHAS_REPO" "$TEHAS_WORK_REPO" -- -q || die "could not clone $TEHAS_REPO to $TEHAS_WORK_REPO"
   echo "tehas setup: cloned $TEHAS_REPO to $TEHAS_WORK_REPO"
 fi
 
-step() { # <name> <command...>
-  local name=$1 rc
-  shift
-  "$@"
-  rc=$?
-  [ "$rc" = 0 ] || die "$name failed (exit $rc); fix it and run tehas setup again" "$rc"
-}
 if [ -x "$here/../install.sh" ]; then
   step install.sh "$here/../install.sh"
 else
