@@ -431,14 +431,14 @@ tehas_load() {
   [ -r "$file" ] || { tehas_err "no instance.env in $dir (run tehas setup, or copy instances/example and fill it in)"; return 78; }
 
   # TEHAS_ENERGY, TEHAS_ENERGY_URL, the model endpoints' tokens,
-  # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and TEHAS_MCP_KEYS are
-  # host choices in ~/.config/tehas/env, which env.sh reads before this.
+  # TEHAS_MODEL_KEY_*, and the MCP server's TEHAS_MCP and the two lists of keys
+  # are host choices in ~/.config/tehas/env, which env.sh reads before this.
   for v in ${!TEHAS_@} ${!PI_ENSEMBLE_@}; do
     case "$v" in
       TEHAS_HOME | TEHAS_INSTANCE_DIR | TEHAS_WORK_CMD | TEHAS_STATUS_CMD | TEHAS_CONSOLE_CMD | TEHAS_INDEX_CMD | TEHAS_PLAN_CMD | \
         TEHAS_PLAN_START_CMD | TEHAS_INDEX_START_CMD | TEHAS_INDEX_LOCK_WAIT | TEHAS_CYCLE_START_CMD | TEHAS_CYCLE_STOP_CMD | TEHAS_CYCLE_START_WAIT | TEHAS_CGROUP_ROOT | TEHAS_SLICE_WAIT | TEHAS_DISK_WAIT | \
         TEHAS_PREFLIGHT_WAIT | TEHAS_STOP_WAIT | TEHAS_FETCH_WAIT | TEHAS_CHECK_WAIT | TEHAS_CONSOLE_WAIT | TEHAS_WORK_GRACE | TEHAS_CAPS_WAIT | TEHAS_TEXT_WAIT | TEHAS_BUILD_TIMEOUT | \
-        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_DISPATCH_CMD | TEHAS_HEALTH_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS) ;;
+        TEHAS_CYCLE_RETRY_WAIT | TEHAS_CYCLE_STOP_GH_WAIT | TEHAS_CYCLE_FROM | TEHAS_CYCLE_ATTEMPT | TEHAS_TIDY_CMD | TEHAS_DISPATCH_CMD | TEHAS_HEALTH_CMD | TEHAS_TIDY_WAIT | TEHAS_ANALYTICS_WAIT | TEHAS_GITHUB_API | TEHAS_GITHUB_APP_KEY | TEHAS_GITHUB_RENEW_EVERY | TEHAS_ENERGY | TEHAS_ENERGY_URL | TEHAS_MODEL_KEY_* | TEHAS_MCP | TEHAS_MCP_KEYS | TEHAS_MCP_DASHBOARD_KEYS) ;;
       TEHAS_* | PI_ENSEMBLE_*) unset "$v" ;;
     esac
   done
@@ -456,8 +456,8 @@ tehas_load() {
         tehas_err "$file sets a TEHAS_MODEL_KEY_ token: put it in ~/.config/tehas/env"
         return 78
         ;;
-      TEHAS_MCP_KEYS=*)
-        tehas_err "$file sets TEHAS_MCP_KEYS: put the keys in ~/.config/tehas/env"
+      TEHAS_MCP_KEYS=* | TEHAS_MCP_DASHBOARD_KEYS=*)
+        tehas_err "$file sets MCP keys: put TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS in ~/.config/tehas/env"
         return 78
         ;;
     esac

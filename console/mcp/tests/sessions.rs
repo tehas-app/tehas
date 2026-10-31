@@ -2,7 +2,7 @@
 
 use mcp::sessions::{find, links};
 use mcp::snapshot::Snapshot;
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -251,7 +251,7 @@ fn a_how_filter_of_either_millwright_word_matches_both() {
 fn the_how_schema_accepts_every_word_of_the_filter() {
     // The accepted words come from the tool's own schema, so a word dropped
     // from the filter's list shows up here instead of failing at runtime.
-    let tool = list()
+    let tool = list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
@@ -599,7 +599,7 @@ fn allowlist() {
 }
 
 fn schema_of(name: &str) -> Value {
-    list()
+    list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
@@ -629,7 +629,7 @@ fn schema_matches_output() {
 #[test]
 fn inputs_described() {
     for name in ["factory_sessions", "factory_session", "factory_failures"] {
-        let tool = list()
+        let tool = list_scoped(Scope::Full)
             .as_array()
             .unwrap()
             .iter()

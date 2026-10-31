@@ -23,10 +23,23 @@ fn fixture(name: &str) -> String {
 }
 
 fn run_once(keys: Option<&str>, args: &[&str]) -> (i32, String) {
+    run_once_with(keys, None, args)
+}
+
+/// The binary with the two key settings: `keys` for TEHAS_MCP_KEYS and
+/// `dashboard` for TEHAS_MCP_DASHBOARD_KEYS, each left unset when None. A test
+/// of one of the two must not inherit the other from the environment of the
+/// run, so both are named every time.
+fn run_once_with(keys: Option<&str>, dashboard: Option<&str>, args: &[&str]) -> (i32, String) {
     let mut c = Command::new(BIN);
-    c.args(args).env_remove("TEHAS_MCP_KEYS");
+    c.args(args)
+        .env_remove("TEHAS_MCP_KEYS")
+        .env_remove("TEHAS_MCP_DASHBOARD_KEYS");
     if let Some(k) = keys {
         c.env("TEHAS_MCP_KEYS", k);
+    }
+    if let Some(k) = dashboard {
+        c.env("TEHAS_MCP_DASHBOARD_KEYS", k);
     }
     let out = c.output().unwrap();
     (
@@ -55,7 +68,21 @@ impl Server {
     }
 
     fn start_with(live: &str, sessions: &str, logs: &str, extra: &[&str]) -> Self {
-        let mut child = Command::new(BIN)
+        Self::start_env(live, sessions, logs, extra, K1, None)
+    }
+
+    /// `keys` and `dashboard` are the two settings; the second is left unset
+    /// when None, so a server of one list is not given the other by chance.
+    fn start_env(
+        live: &str,
+        sessions: &str,
+        logs: &str,
+        extra: &[&str],
+        keys: &str,
+        dashboard: Option<&str>,
+    ) -> Self {
+        let mut command = Command::new(BIN);
+        command
             .args([
                 "--live",
                 live,
@@ -69,10 +96,15 @@ impl Server {
                 "v1.2.3",
             ])
             .args(extra)
-            .env("TEHAS_MCP_KEYS", K1)
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .env("TEHAS_MCP_KEYS", keys)
+            .stderr(Stdio::piped());
+        // The second list, when the test has one. Both settings are named to
+        // the child every time, so a server of one list never inherits the
+        // other from the environment of the run.
+        if let Some(d) = dashboard {
+            command.env("TEHAS_MCP_DASHBOARD_KEYS", d);
+        }
+        let mut child = command.spawn().unwrap();
         let mut log = BufReader::new(child.stderr.take().unwrap());
         let mut first = String::new();
         log.read_line(&mut first).unwrap();
@@ -93,6 +125,37 @@ impl Server {
             log,
             first,
         }
+    }
+
+    /// The same, with headers of the client's own beside the key.
+    fn post_with(
+        &self,
+        auth: Option<&str>,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> (u16, String) {
+        let mut s = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
+        let mut req = format!(
+            "POST /mcp HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+            body.len()
+        );
+        if let Some(a) = auth {
+            req.push_str(&format!("Authorization: {a}\r\n"));
+        }
+        for (k, v) in headers {
+            req.push_str(&format!("{k}: {v}\r\n"));
+        }
+        req.push_str("\r\n");
+        s.write_all(req.as_bytes()).unwrap();
+        let _ = s.write_all(body);
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        let status = out
+            .split_whitespace()
+            .nth(1)
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0);
+        (status, out)
     }
 
     fn post(&self, auth: Option<&str>, body: &[u8]) -> (u16, String) {
@@ -247,6 +310,160 @@ fn a_bad_key_is_78_and_not_printed() {
     );
     assert_eq!(rc, 78);
     assert!(!err.contains(bad), "{err}");
+}
+
+// The second list is a setting of its own, with the rules of the first: a key
+// of the same shape, at least one key in one list or the other, and a key of
+// both refused so that no key's scope is a guess. The line names the settings
+// and the positions and never the value.
+#[test]
+fn the_two_lists_of_keys_are_checked() {
+    let args = &[
+        "--live",
+        "/x",
+        "--sessions",
+        "/x",
+        "--logs",
+        "/x",
+        "--listen",
+        "127.0.0.1:1",
+        "--server-version",
+        "v",
+    ];
+    let d = "qwertyuiopasdfghjklzxcvbnm012345";
+    let d2 = "zyxwvutsrqponmlkjihgfedcba9876543210";
+    let bad = "abcdefghijklmnopqrstuvwxyz01234+";
+
+    // Neither list: 78, and the line names both settings.
+    let (rc, err) = run_once_with(None, None, args);
+    assert_eq!(rc, 78);
+    assert!(err.contains("TEHAS_MCP_KEYS"), "{err}");
+    assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
+
+    // A dashboard key alone is enough to start: the server comes up and
+    // answers it with the four.
+    let s = Server::start_env(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &[],
+        "",
+        Some(d),
+    );
+    let (status, out) = s.post(Some(&format!("Bearer {d}")), LEGACY_LIST);
+    assert_eq!(status, 200, "{out}");
+    drop(s);
+
+    // A short or ill-shaped key of the second list is refused by name, and
+    // its value is not printed.
+    for bad_key in [&bad[..31], bad] {
+        let (rc, err) = run_once_with(Some(K1), Some(bad_key), args);
+        assert_eq!(rc, 78);
+        assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
+        assert!(err.contains("key 1"), "{err}");
+        assert!(!err.contains(bad_key), "{err}");
+    }
+
+    // A key of both lists stops the server with 78 and names the settings and
+    // the two positions, never the key.
+    let (rc, err) = run_once_with(Some(&format!("{K1} {d}")), Some(&format!("{d} {d2}")), args);
+    assert_eq!(rc, 78);
+    assert!(err.contains("TEHAS_MCP_KEYS"), "{err}");
+    assert!(err.contains("TEHAS_MCP_DASHBOARD_KEYS"), "{err}");
+    assert!(err.contains("key 2"), "{err}");
+    assert!(err.contains("key 1"), "{err}");
+    assert!(!err.contains(d), "{err}");
+    assert!(!err.contains(d2), "{err}");
+    assert!(!err.contains(K1), "{err}");
+
+    // Two lists of keys that are not the same: the server starts, and names
+    // both counts on its first line.
+    let s = Server::start_env(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &[],
+        K1,
+        Some(d),
+    );
+    assert!(s.first.contains("listening on"), "{}", s.first);
+    drop(s);
+}
+
+// The journal's line names the scope of the key that made the request, in the
+// server's own word, as the field after the key. A request without a key names
+// neither key nor scope.
+#[test]
+fn the_line_names_the_scope_of_the_key() {
+    let d = "qwertyuiopasdfghjklzxcvbnm012345";
+    let mut s = Server::start_env(
+        &fixture("live"),
+        &fixture("sessions"),
+        &fixture("logs"),
+        &[],
+        K1,
+        Some(d),
+    );
+    // The first line of a call of each key, read field by field.
+    // Two requests, and the line of the second: the first is the handshake a
+    // client makes before it asks anything, and every request writes a line of
+    // its own, so both are read and the second is the one looked at.
+    let mut scope_of = |key: &str| -> Vec<String> {
+        let (status, out) = s.post(Some(&format!("Bearer {key}")), LEGACY_LIST);
+        assert_eq!(status, 200, "{out}");
+        // A tools/list of the legacy handshake: the header names the revision
+        // and the body carries no _meta to mirror.
+        let (status, out) = s.post_with(
+            Some(&format!("Bearer {key}")),
+            &[("MCP-Protocol-Version", "2025-11-25")],
+            br#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        );
+        assert_eq!(status, 200, "{out}");
+        // Both requests of this key are answered 200 and each writes a line of
+        // its own, so two are read and the second is the one of the list. Both
+        // name the scope the key was listed under, whatever the method.
+        let want = format!("scope={}", if key == K1 { "full" } else { "dashboard" });
+        let hand = s.log_line();
+        assert_eq!(
+            hand.split_whitespace().nth(4),
+            Some(want.as_str()),
+            "{hand}"
+        );
+        let line = s.log_line();
+        assert_eq!(
+            line.split_whitespace().nth(4),
+            Some(want.as_str()),
+            "{line}"
+        );
+        line.split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    let full = scope_of(K1);
+    assert_eq!(full[0], "POST");
+    assert!(
+        full[2].strip_suffix("ms").unwrap().parse::<u64>().is_ok(),
+        "{full:?}"
+    );
+    assert_eq!(full[3].strip_prefix("key=").unwrap().len(), 8);
+    assert_eq!(full[4], "scope=full");
+    assert_eq!(full.len(), 5, "{full:?}");
+
+    let dash = scope_of(d);
+    assert_eq!(dash[3].strip_prefix("key=").unwrap().len(), 8);
+    assert_eq!(dash[4], "scope=dashboard");
+    assert_eq!(dash.len(), 5, "{dash:?}");
+    // The two keys are named apart, and neither line holds a key.
+    assert_ne!(full[3], dash[3], "{full:?} {dash:?}");
+    let log = format!("{full:?} {dash:?}");
+    assert!(!log.contains(K1) && !log.contains(d), "{log}");
+
+    // A request with no key: the dash for the key, and no scope at all.
+    assert_eq!(s.post(None, LEGACY_LIST).0, 401);
+    let line = s.log_line();
+    assert_eq!(line.split_whitespace().nth(3), Some("key=-"));
+    assert!(!line.contains("scope="), "{line}");
+    s.stop();
 }
 
 #[test]
@@ -521,20 +738,42 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
             fp == "-" || (fp.len() == 8 && fp.chars().all(|c| c.is_ascii_hexdigit())),
             "{key}"
         );
+        // The scope follows the key it belongs to, and only when the key was
+        // read at all: a request refused for want of one names neither.
+        let (scope, rest) = match rest.split_first() {
+            Some((s, rest)) => (
+                Some(
+                    s.strip_prefix("scope=")
+                        .unwrap_or_else(|| panic!("{s} is not a scope")),
+                ),
+                rest,
+            ),
+            None => (None, rest),
+        };
+        if fp == "-" {
+            assert!(scope.is_none(), "{log:?} names a scope of no key");
+        } else {
+            assert!(
+                scope == Some("full") || scope == Some("dashboard"),
+                "{log:?} has no scope of the server's own words"
+            );
+        }
         assert!(
             rest.len() <= 1,
             "{log:?} carries {} parts after the key",
             rest.len()
         );
-        // The one optional field, and only that: a part the line does not
-        // know, in any position, fails rather than shifting into a masked slot.
+        // The one optional field after the scope, and only that: a part the
+        // line does not know, in any position, fails rather than shifting into
+        // a masked slot.
         let tool = rest
             .first()
             .map(|p| p.strip_prefix("tool=").expect("a tool field"))
             .unwrap_or("<none>");
         format!(
-            "POST {status} <ms>ms key={} tool={}",
+            "POST {status} <ms>ms key={} scope={} tool={}",
             if fp == "-" { "-" } else { "<fp>" },
+            scope.unwrap_or("<none>"),
             tool
         )
     };
@@ -552,7 +791,10 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=factory_issues");
+    assert_eq!(
+        shaped(&log),
+        "POST 200 <ms>ms key=<fp> scope=full tool=factory_issues"
+    );
     assert!(!log.contains(K1), "{log}");
     assert!(!log.contains(secret) && !log.contains("queued"), "{log}");
 
@@ -570,7 +812,7 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=?");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> scope=full tool=?");
     assert!(!log.contains("987"), "{log}");
 
     // A name that is not text is logged as -, so a client that sends a
@@ -587,7 +829,7 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200, "the answer before the line");
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=-");
+    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> scope=full tool=-");
     assert!(!log.contains("987"), "{log}");
 
     // A request that is not a call logs no tool, and neither does one refused
@@ -607,7 +849,10 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 200);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 200 <ms>ms key=<fp> tool=<none>");
+    assert_eq!(
+        shaped(&log),
+        "POST 200 <ms>ms key=<fp> scope=full tool=<none>"
+    );
 
     let (status, _) = s.raw(
         &post_raw("POST", "/mcp", None, &[], "{}"),
@@ -615,7 +860,10 @@ fn the_line_of_a_call_names_the_tool_and_no_argument() {
     );
     assert_eq!(status, 401);
     let log = s.log_line();
-    assert_eq!(shaped(&log), "POST 401 <ms>ms key=- tool=<none>");
+    assert_eq!(
+        shaped(&log),
+        "POST 401 <ms>ms key=- scope=<none> tool=<none>"
+    );
     assert!(!log.contains("tool="), "{log}");
 
     // A name of another shape than a word of letters stays one line with no
@@ -718,7 +966,7 @@ fn every_method_and_tool_needs_a_key() {
             vec![("Mcp-Method", method.to_string())],
         ));
     }
-    let tools = mcp::tools::list();
+    let tools = mcp::tools::list_scoped(mcp::tools::Scope::Full);
     let names: Vec<&str> = tools
         .as_array()
         .unwrap()
