@@ -686,9 +686,11 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
         Some(s) => Some(verbs::sha256(s).ok_or("has a title_sha256 that is not a sha256")?),
     };
     let mut input = Map::new();
-    // `park_lifted` (#1130) is the one entry of a millwright start that says
-    // why a park's hold let it through; the shape of a note is what the
-    // dispatcher wrote, so it is kept as it came.
+    if m.get("park_lifted")
+        .is_some_and(|v| !crate::approval::lifted_note(v))
+    {
+        return Err("has a park_lifted that is no note".to_string());
+    }
     for k in [
         "links",
         "comment_links",
