@@ -13,10 +13,23 @@ empty one above it.
 
 ### Changes
 
+- An idle poll runs `tehasbot status` only when its file is five minutes old,
+  not on every poll (#1153).
+- A poll reads the comments of blocked issues side by side and the states of
+  their blockers in one call, not one or two calls per issue in turn (#1161).
+- `analytics sessions --out` and `analytics outcomes --out` write their file
+  only when a run changed. Each leaves a `.stamp` file beside its output to
+  tell (#1162).
+- The watch loop of `tehas work` reads a cycle's step and notice from the
+  console, not from seven processes every 10 s (#1082).
+- Health no longer calls a cycle failed when it ended closed because its issue
+  shipped (#1133).
+- One lock probe in tehas-core answers for the store, the dispatcher, the
+  health page and the cleaner, so they agree about one lock (#1098).
 - `tehas-merge` says `model: true` on every stop after a session and only then,
   takes `--head` and `--base` in upper case, and no longer prints `calls`. A
   command that fills its pipe no longer waits out the 900 s bound, and output
-  it cannot read whole refuses the merge.
+  it cannot read whole refuses the merge (#1149).
 
 ### Adopter action
 
