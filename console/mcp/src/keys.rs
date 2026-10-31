@@ -6,7 +6,7 @@
 //! place. `TEHAS_MCP_KEYS` holds the full keys, which are given every tool.
 //! `TEHAS_MCP_DASHBOARD_KEYS` holds the keys of a program that must not reach
 //! the sessions and their logs: such a key is served only the four of
-//! [`crate::tools::serves`], beside the catalog of the tools. A key in both
+//! [`crate::tools::DASHBOARD`], beside the catalog of the tools. A key in both
 //! lists is refused, so no key's scope is a guess.
 //!
 //! The shape a key must have is the rule of [`listed`] alone; the check in
@@ -214,7 +214,7 @@ impl Authenticated {
         self.scope
     }
 
-    /// Whether this key is served the tool: the rule of [`tools::serves`]
+    /// Whether this key is served the tool: the rule of `tools::serves`
     /// over the scope of the key that made the request.
     pub fn may_call(&self, name: &str) -> bool {
         tools::serves(self.scope, name)
@@ -424,10 +424,10 @@ mod tests {
             // A full key is unchanged: it is served every tool of the server.
             assert!(full.may_call(name), "{name}");
         }
-        // A name the server has not is answered the same to either key; that
-        // is the dispatch's guard, `known`, and tests/rpc.rs pins the answer.
-        for scope in [Scope::Full, Scope::Dashboard] {
-            assert!(!tools::known("factory_delete"), "{scope:?}");
+        // A name the server has not is served to neither key; tests/rpc.rs
+        // pins the answer.
+        for setting in Setting::ALL {
+            assert!(!holder(setting).may_call("factory_delete"), "{setting:?}");
         }
         for name in [
             "factory_console",

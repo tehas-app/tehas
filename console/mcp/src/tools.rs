@@ -779,9 +779,9 @@ impl Scope {
 /// full key, and the four of `DASHBOARD` for a dashboard key. The single
 /// reader of that list: `list_scoped` filters the published entries by it, so
 /// what a key may call and what it is told exists cannot say different things.
-pub fn serves(scope: Scope, name: &str) -> bool {
+pub(crate) fn serves(scope: Scope, name: &str) -> bool {
     match scope {
-        Scope::Full => true,
+        Scope::Full => known(name),
         Scope::Dashboard => DASHBOARD.contains(&name),
     }
 }
@@ -969,8 +969,9 @@ pub fn call(dirs: &Dirs, name: &str, args: &Value) -> Result<Output, ToolError> 
 }
 
 /// As `call`, with the place of a log being sent, to keep until the answer
-/// is written.
-pub fn call_held(
+/// is written. Crate-private: a request reaches it only past
+/// `Authenticated::may_call`.
+pub(crate) fn call_held(
     dirs: &Dirs,
     name: &str,
     args: &Value,
