@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
 # The read-only MCP server: run it, or make a key for it.
 #
-# The server answers agents outside this host with what the dashboard
-# publishes under live/, and the sessions of the last 30 days and their logs,
-# behind the keys in TEHAS_MCP_KEYS. It is the binary install.sh builds as
-# libexec/tehas-mcp, run in a container that is given live/, mcp/ (the
-# sessions snapshot) and logs/ read-only, the binary, its port, the keys and
-# the host's private names to mask, and nothing else: no
-# other part of the home, no settings, no token, no Docker socket, no
-# capability, not root. Its network, tehas-mcp, has no masquerade, so the
-# container reaches nothing beyond the host. That container is a security
-# boundary; do not widen it.
+# The server answers agents outside this host with what the dashboard publishes
+# under live/, and the sessions of the last 30 days and their logs, behind the
+# keys of two settings: TEHAS_MCP_KEYS gives every tool, TEHAS_MCP_DASHBOARD_KEYS
+# the four that copy from live/ (a scope of the program, not the mounts). The
+# binary install.sh builds as libexec/tehas-mcp runs in a container given only
+# live/, mcp/ (the sessions snapshot) and logs/ read-only, and holding nothing
+# else: no settings, token, socket or root, no route out of tehas-mcp, its
+# network, which has no masquerade.
 #
-# TEHAS_MCP and TEHAS_MCP_KEYS are host choices in ~/.config/tehas/env, never
-# in the instance directory, which is in a repository. TEHAS_MCP=1 turns the
-# server on; unset or 0 removes a container left running and exits 0. The keys
-# are separated by spaces, each at least 32 characters of A-Za-z0-9_-. They
-# reach the container by name from the environment, so no command line holds
-# them. The port is 8082 on TEHAS_HOST_ADDR, the loopback address without it.
+# TEHAS_MCP, TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS are host choices in
+# ~/.config/tehas/env, never in the instance directory, which is in a
+# repository. TEHAS_MCP=1 turns the server on; unset or 0 removes a container
+# left running and exits 0. Keys are space-separated, 32 characters of
+# A-Za-z0-9_- at least, and reach the container by name. Port 8082 on
+# TEHAS_HOST_ADDR, else the loopback.
 #
 # Usage: tehasbot mcp serve    run the server in the foreground (the service)
 #        tehas mcp key         print a new key; writes nothing
@@ -27,12 +25,10 @@
 #         network named tehas-mcp exists that lets the container out, or
 #         ~/tehas/mcp cannot be made;
 #       64 an unknown argument;
-#       78 the instance settings, TEHAS_MCP or TEHAS_MCP_KEYS are missing or
-#          malformed.
+#       78 the instance settings, TEHAS_MCP or the two lists of keys are
+#          malformed: the line names the setting, never a key.
 set -uo pipefail
-
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-
 key() {
   # 32 random bytes, base64url without padding.
   head -c 32 /dev/urandom | base64 -w0 | tr '+/' '-_' | tr -d '='
@@ -56,15 +52,24 @@ serve() {
     1) ;;
     *) tehas_err "TEHAS_MCP is 0 or 1 (in ~/.config/tehas/env)"; exit 78 ;;
   esac
-  local keys=() k n=0
-  read -r -a keys <<<"${TEHAS_MCP_KEYS:-}"
-  [ "${#keys[@]}" != 0 ] || { tehas_err "TEHAS_MCP_KEYS is empty: give at least one key (tehas mcp key makes one)"; exit 78; }
-  for k in "${keys[@]}"; do
-    n=$((n + 1))
-    [[ $k =~ ^[A-Za-z0-9_-]{32,}$ ]] ||
-      { tehas_err "TEHAS_MCP_KEYS: key $n is not at least 32 characters of A-Za-z0-9_-"; exit 78; }
-  done
-
+  # Each list is checked where it is written, so the line of a bad key names its
+  # own setting and the key's place in that list: a position counted over both
+  # would sit in neither. The server tells the lists apart, refuses a key of
+  # both (whose scope is a guess) and of neither, and reads nothing from blanks.
+  check_keys() { # <setting> <value>: 0 when the setting holds a key
+    local name=$1 list=() i
+    read -r -a list <<<"$2"
+    [[ ${list[0]-} =~ ^[^A-Za-z0-9_-]*$ ]] && return 1
+    for i in "${!list[@]}"; do
+      [[ ${list[i]} =~ ^[A-Za-z0-9_-]{32,}$ ]] ||
+        { tehas_err "$name: key $((i + 1)) is not at least 32 characters of A-Za-z0-9_-"; exit 78; }
+    done
+    [ "${#list[@]}" != 0 ]
+  }
+  local any=0
+  check_keys TEHAS_MCP_KEYS "${TEHAS_MCP_KEYS:-}" && any=1
+  check_keys TEHAS_MCP_DASHBOARD_KEYS "${TEHAS_MCP_DASHBOARD_KEYS:-}" && any=1
+  [ "$any" = 1 ] || { tehas_err "TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS are both empty: give at least one key in either (tehas mcp key makes one)"; exit 78; }
   local bin=$TEHAS_HOME/libexec/tehas-mcp digest version
   [ -x "$bin" ] || { tehas_err "no $bin: run install.sh"; exit 1; }
   # The image is only a root file system for a static binary. The Caddy image
@@ -72,7 +77,6 @@ serve() {
   digest=$(sed -n 's/^CADDY_DIGEST=//p' "$TEHAS_HOME/versions.env" 2>/dev/null | head -n 1)
   [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { tehas_err "no CADDY_DIGEST in $TEHAS_HOME/versions.env: run install.sh"; exit 1; }
   version=$(head -n 1 "$TEHAS_HOME/docs/version.txt" 2>/dev/null | tr -cd 'A-Za-z0-9._+-')
-
   # A network made by hand under this name is used only if it lets nothing out.
   local masq
   if masq=$(docker network inspect --format '{{index .Options "com.docker.network.bridge.enable_ip_masquerade"}}' tehas-mcp 2>/dev/null); then
@@ -82,27 +86,24 @@ serve() {
     docker network create --driver bridge -o com.docker.network.bridge.enable_ip_masquerade=false tehas-mcp >/dev/null ||
       { tehas_err "could not make the network tehas-mcp"; exit 1; }
   fi
-
   # Made here, so Docker does not make it as root. The snapshot in it is
   # private: it holds what the agents saw.
   if ! mkdir -p "$TEHAS_HOME/mcp" || ! chmod 700 "$TEHAS_HOME/mcp"; then
     tehas_err "could not make $TEHAS_HOME/mcp"; exit 1
   fi
-
   # The logs are masked with the names the console hides (lib/private.sh).
   local private=() private_name
   while IFS= read -r private_name; do
     private+=(--private "$private_name")
   done < <(tehas_private_names "$(tehas_models_file)" "$(git config --global user.email || true)")
-
   docker rm -f tehas-mcp >/dev/null 2>&1
-  export TEHAS_MCP_KEYS
+  export TEHAS_MCP_KEYS TEHAS_MCP_DASHBOARD_KEYS
   exec docker run --rm --init --name tehas-mcp --user "$(id -u):$(id -g)" --network tehas-mcp --read-only --cap-drop ALL \
     --security-opt no-new-privileges:true --memory 256m --pids-limit 64 \
     -p "${TEHAS_HOST_ADDR:-127.0.0.1}:8082:8082" \
     -v "$TEHAS_HOME/live:/live:ro" -v "$TEHAS_HOME/mcp:/sessions:ro" -v "$TEHAS_HOME/logs:/logs:ro" \
     -v "$bin:/tehas-mcp:ro" \
-    -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp "caddy@$digest" \
+    -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS --entrypoint /tehas-mcp "caddy@$digest" \
     --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version "${version:-unknown}" \
     "${private[@]}"
 }

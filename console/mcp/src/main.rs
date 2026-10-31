@@ -5,8 +5,11 @@
 //!
 //! A log is masked as the console masks it, the names given with --private
 //! included. A name is not a secret.
-//! The keys come from TEHAS_MCP_KEYS in the environment, never from an
-//! argument. One line per request on stderr names the key by fingerprint.
+//! The keys come from TEHAS_MCP_KEYS and TEHAS_MCP_DASHBOARD_KEYS in the
+//! environment, never from an argument: the second list holds the keys that
+//! are served only the four tools of `mcp::tools::DASHBOARD`. One of the two
+//! must hold a key, and no key may be in both. One line per request on stderr
+//! names the key by fingerprint and the key's scope.
 //! Exit 78 when the keys or the arguments are wrong, 1 when it cannot listen.
 
 use mcp::keys::{parse_keys, Keys};
@@ -96,7 +99,10 @@ fn main() {
     if let Err(why) = tehas_core::mask::set_private(&private) {
         usage(&why);
     }
-    let keys = match parse_keys(&std::env::var("TEHAS_MCP_KEYS").unwrap_or_default()) {
+    let keys = match parse_keys(
+        &std::env::var("TEHAS_MCP_KEYS").unwrap_or_default(),
+        &std::env::var("TEHAS_MCP_DASHBOARD_KEYS").unwrap_or_default(),
+    ) {
         Ok(k) => k,
         Err(why) => usage(&why),
     };
