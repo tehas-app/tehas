@@ -268,7 +268,10 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
             // cycle that says nothing the loop reads the same file each tick.
             // A now file that cannot be written ends the console as an
             // unwritable console file does, and the work script says so.
-            let next = written.as_ref().unwrap_or(&now::Now::default()).later(&now::read(&fresh));
+            let next = written
+                .as_ref()
+                .unwrap_or(&now::Now::default())
+                .later(&now::read(&fresh));
             if written.as_ref() != Some(&next) {
                 now::write(path, &next)?;
                 written = Some(next);
