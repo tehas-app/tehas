@@ -1,9 +1,10 @@
 // The protocol: MCP 2026-07-28 over Streamable HTTP, and the 2025-11-25
 // handshake for older clients.
 
-use mcp::keys::parse_keys;
+use mcp::keys::{parse_keys, Setting};
 use mcp::rpc::{handle, Request, Response};
 use mcp::tools::Dirs;
+use mcp::tools::Scope;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -20,7 +21,7 @@ fn dirs() -> Dirs {
 }
 
 fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
-    let keys = parse_keys(K1, "").unwrap();
+    let keys = full_keys(K1);
     let req = Request {
         method,
         headers: headers
@@ -30,6 +31,16 @@ fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
         body,
     };
     handle(&req, &keys, &dirs(), "v9.9.9")
+}
+
+// The two raw lists of a call to `parse_keys`, so the pair is written once:
+// a full key alone, and the four of the dashboard.
+fn of<'a>(full: &'a str, dashboard: &'a str) -> [(&'static Setting, &'a str); 2] {
+    [(&Setting::Full, full), (&Setting::Dashboard, dashboard)]
+}
+
+fn full_keys(full: &str) -> mcp::keys::Keys {
+    parse_keys(of(full, "")).unwrap()
 }
 
 fn json_of(r: &Response) -> Value {
@@ -166,7 +177,7 @@ fn tools_list_is_cacheable_and_in_order() {
 #[test]
 fn a_dashboard_key_sees_four_tools_and_no_more() {
     let d = "0123456789abcdefghijklmnopqrstuvwxyz";
-    let keys = parse_keys(K1, d).unwrap();
+    let keys = parse_keys(of(K1, d)).unwrap();
     let ask = |key: &str, method: &str, params: Value| -> Response {
         let mut params = params;
         params["_meta"] = json!({"io.modelcontextprotocol/protocolVersion": MODERN});
@@ -282,13 +293,10 @@ fn a_dashboard_key_sees_four_tools_and_no_more() {
     }
     // The access-log fields say the scope, and the key's fingerprint only.
     assert_eq!(
-        ask(d, "tools/list", json!({})).scope.as_deref(),
-        Some("dashboard")
+        ask(d, "tools/list", json!({})).scope,
+        Some(Scope::Dashboard)
     );
-    assert_eq!(
-        ask(K1, "tools/list", json!({})).scope.as_deref(),
-        Some("full")
-    );
+    assert_eq!(ask(K1, "tools/list", json!({})).scope, Some(Scope::Full));
     for r in [
         ask(d, "tools/list", json!({})),
         ask(K1, "tools/list", json!({})),
@@ -304,7 +312,7 @@ fn a_dashboard_key_sees_four_tools_and_no_more() {
 #[test]
 fn a_dashboard_key_is_a_key_of_the_server() {
     let d = "0123456789abcdefghijklmnopqrstuvwxyz";
-    let keys = parse_keys("", d).unwrap();
+    let keys = parse_keys(of("", d)).unwrap();
     let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {
         "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
     .to_string();
@@ -326,7 +334,7 @@ fn a_dashboard_key_is_a_key_of_the_server() {
         ("Mcp-Method", "tools/list"),
     ]);
     assert_eq!(r.status, 200);
-    assert_eq!(r.scope.as_deref(), Some("dashboard"));
+    assert_eq!(r.scope, Some(Scope::Dashboard));
     // A request without it is refused before its body is read, as any other.
     let r = post(vec![]);
     assert_eq!(r.status, 401);

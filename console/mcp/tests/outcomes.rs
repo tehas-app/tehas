@@ -3,7 +3,7 @@
 // program writes it: a header, then one entry per line, counts only.
 
 use mcp::outcomes_schema;
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -343,7 +343,7 @@ fn the_counts_hold_no_issue_number_or_cause() {
 
 #[test]
 fn the_tool_is_listed_with_a_schema_that_matches_the_answer() {
-    let tool = list()
+    let tool = list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
