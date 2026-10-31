@@ -13,6 +13,29 @@ empty one above it.
 
 ### Changes
 
+None.
+
+### Adopter action
+
+None.
+
+## v0.19.1 (2026-10-31)
+
+### Changes
+
+- `tehas setup` with a GitHub App runs `install.sh` before it clones on a first
+  install. The app's `gh` and git helper come from the install, so the clone
+  had no login and setup stopped (#1154).
+- The settings check refuses `auto` for the cycle and container counts until
+  cycles can use it (#1107).
+- The GitHub token renewer runs in Rust, logs a failed renewal and tries again
+  sooner (#1079).
+- A cycle tries its end comment three times and exits non-zero when its end is
+  not on record (#1080).
+- One report type in tehas-core names the fields and why words of
+  `live/dispatch.json` (#1097).
+- The watch loop stops a cycle by the cycle's own clock, not the wall clock
+  (#1070).
 - The shell tests build their binaries with no debug info
   (`CARGO_PROFILE_DEV_DEBUG=0` on that one cargo command), which is most of
   the size of `console/target/shell`. The gate's own `cargo test` keeps its
@@ -20,7 +43,8 @@ empty one above it.
 
 ### Adopter action
 
-None.
+Replace `auto` in `TEHAS_TICKET_CONCURRENCY` or `TEHAS_SLICE_CONTAINERS` with a
+number, if an instance has it. Otherwise none.
 
 ## v0.19.0 (2026-10-30)
 
