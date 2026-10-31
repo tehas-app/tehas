@@ -30,6 +30,27 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// How long a held dispatcher lock may last before it is said to hang.
 const HANG: u64 = 1800;
 
+/// How old `live/status.json` may be before a poll refreshes it at its start:
+/// five minutes, a timer's stretch of polls. Below it the file is the reading
+/// of a poll that just ran, and the snapshot of a poll that starts nothing
+/// would not change it.
+const STATUS_AGE: i64 = 300;
+
+/// Whether this poll runs the status at its start: yes when
+/// `live/status.json` under `home` is missing, cannot be read, or was written
+/// `STATUS_AGE` seconds ago or longer ago. `now` is the poll's second, so a
+/// test asks the question of any age without sleeping. A file whose time the
+/// host would not answer is treated as one too old: the status is then the way
+/// to find out what it holds.
+pub fn status_due(home: &Path, now: i64) -> bool {
+    let made = std::fs::metadata(home.join("live/status.json"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    made.map_or(true, |made| now.saturating_sub(made) >= STATUS_AGE)
+}
+
 fn env(k: &str) -> String {
     std::env::var(k).unwrap_or_default()
 }
@@ -546,7 +567,7 @@ fn body(
             }
         }
     }
-    if !dry {
+    if !dry && status_due(home, w.before) {
         let mut printed = Vec::new();
         w.status(&mut printed);
         pass(&printed);
@@ -738,5 +759,76 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
             f.get("word").and_then(Value::as_str).unwrap_or(""),
             f.get("line").and_then(Value::as_str).unwrap_or("")
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A scratch home of this test, with `live/` in it. Each test has its own
+    /// name, so the tests of the same file run side by side.
+    fn home_of(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tehas-poll-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("live")).unwrap();
+        dir
+    }
+
+    /// The status file of `home`, written now and then given the time of
+    /// `made`: no sleeping, and the age a test asks for.
+    fn status_at(home: &Path, made: i64) {
+        let file = home.join("live/status.json");
+        std::fs::write(&file, b"{}").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(made.max(0) as u64))
+            .unwrap();
+    }
+
+    const NOW: i64 = 1_800_000_000;
+
+    #[test]
+    fn a_poll_with_no_status_file_runs_the_status() {
+        let home = home_of("missing");
+        assert!(!home.join("live/status.json").exists());
+        assert!(status_due(&home, NOW));
+    }
+
+    #[test]
+    fn a_poll_whose_status_file_is_fresh_runs_none() {
+        let home = home_of("fresh");
+        // The file of the poll that just ran: the queue of an idle poll is the
+        // same one it wrote, so a second reading is the same file.
+        status_at(&home, NOW - STATUS_AGE + 1);
+        assert!(!status_due(&home, NOW));
+        status_at(&home, NOW);
+        assert!(!status_due(&home, NOW));
+        // A file of the future is a fresh one whatever the clock of the host.
+        status_at(&home, NOW + 10);
+        assert!(!status_due(&home, NOW));
+    }
+
+    #[test]
+    fn a_poll_whose_status_file_is_old_runs_the_status() {
+        let home = home_of("old");
+        status_at(&home, NOW - STATUS_AGE);
+        assert!(status_due(&home, NOW));
+        status_at(&home, NOW - STATUS_AGE - 3600);
+        assert!(status_due(&home, NOW));
+    }
+
+    #[test]
+    fn a_status_file_that_cannot_be_read_is_an_old_one() {
+        let dir = home_of("unreadable");
+        // Not a file at all: the time of it cannot be had, and the poll asks
+        // the status what it holds rather than trusting a file it cannot read.
+        std::fs::create_dir_all(dir.join("live/status.json")).unwrap();
+        assert!(status_due(&dir, NOW));
+        let dir = home_of("epoch");
+        status_at(&dir, 0);
+        assert!(status_due(&dir, NOW));
     }
 }
