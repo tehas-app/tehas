@@ -13,7 +13,10 @@ empty one above it.
 
 ### Changes
 
-None.
+- `tehas-merge` says `model: true` on every stop after a session and only then,
+  takes `--head` and `--base` in upper case, and no longer prints `calls`. A
+  command that fills its pipe no longer waits out the 900 s bound, and output
+  it cannot read whole refuses the merge.
 
 ### Adopter action
 

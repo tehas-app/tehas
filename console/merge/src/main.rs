@@ -13,27 +13,46 @@
 //! or second pull request is ever made.
 //!
 //! Answers one JSON line on standard output: {ok, sha, conflicts, settled,
-//! model, pushed, why, pr, issue, calls}. The answer is the library's
-//! `Report`, so the line a host reads and the one the cases read are one
-//! shape. The lines of the commands that ran go to standard error, so the
-//! container's log holds them beside the rest of the run, which is why a
-//! host's `calls` is the empty list: the runner of a host keeps none.
+//! model, pushed, why, pr, issue}. The commands that ran are said to the log.
 //!
 //! Exit: 0 the merge commit was pushed; 1 it was not, with `why` naming why;
 //! 64 an argument it does not know; 78 an argument it cannot do without.
 
-use std::io::Write as _;
+use std::io::{Read, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{channel, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tehas_merge::{normalise_commit, report, Plan, Runner};
 
 /// How long one command may take: git's own work is seconds, and the model's
 /// turn is the long one. The container is bounded by the unit that started it,
 /// so this is the bound of a single call, not of the run.
 const BOUND: Duration = Duration::from_secs(900);
+
+/// The most of one stream a command may write. What the merge reads is names
+/// and lines.
+const KEPT: usize = 1 << 20;
+
+const SCRUBBED: [&str; 15] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_MERGE_AUTOEDIT",
+    "GIT_PAGER",
+    "PAGER",
+    "CARGO",
+    "RUSTC_WRAPPER",
+    "BASH_ENV",
+    "ENV",
+];
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -123,41 +142,13 @@ impl Runner for Real {
                 .collect::<Vec<_>>()
                 .join(" ")
         ));
-        let mut cmd = Command::new(program);
-        cmd.args(args)
-            .current_dir(tree)
-            // A few settings change what git or cargo do without naming them
-            // in the call, and the merge cannot read the tree it is told about
-            // through one of them. They are taken from this command's own
-            // environment before it starts anything: the container is given
-            // what a cycle is given, and a mount or a token is added by none of
-            // this. Everything else the caller passed stays, because git reads
-            // its credentials from it.
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .env_remove("GIT_CONFIG")
-            .env_remove("GIT_CONFIG_GLOBAL")
-            .env_remove("GIT_CONFIG_SYSTEM")
-            .env_remove("GIT_OBJECT_DIRECTORY")
-            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-            .env_remove("GIT_MERGE_AUTOEDIT")
-            .env_remove("GIT_PAGER")
-            .env_remove("PAGER")
-            .env_remove("CARGO")
-            .env_remove("RUSTC_WRAPPER")
-            .env_remove("BASH_ENV")
-            .env_remove("ENV")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        match cmd.spawn() {
+        match command(program, args, tree).spawn() {
             Err(e) => tehas_merge::Done {
                 status: None,
                 out: String::new(),
                 err: format!("cannot run {program}: {e}"),
             },
-            Ok(child) => match wait(child) {
+            Ok(child) => match wait(child, BOUND) {
                 Ok((status, out, err)) => tehas_merge::Done { status, out, err },
                 Err(why) => tehas_merge::Done {
                     status: None,
@@ -169,63 +160,83 @@ impl Runner for Real {
     }
 }
 
-/// The lines a command wrote, read with the bound of the command that wrote
-/// them: a child that has exited with a full pipe keeps a reader blocked, and
-/// a read outside the bound would hold the merge past it with no answer.
-fn read_bounded(mut r: impl std::io::Read + Send + 'static) -> String {
-    let (tx, rx) = std::sync::mpsc::channel();
-    if let Err(e) = thread::Builder::new()
-        .name("read-the-answer".to_string())
-        .spawn(move || {
-            let mut buf = Vec::new();
-            // A command's answer is read whole up to 1 MiB: what the merge
-            // reads is names and lines, and more than that is no answer.
-            let _ = r.read_to_end(&mut buf);
-            let kept = String::from_utf8_lossy(&buf[..buf.len().min(1 << 20)]).into_owned();
-            let _ = tx.send(kept);
-        })
-    {
-        return format!("the answer could not be read: {e}");
+/// One command, stripped of the settings that would point git or cargo at
+/// another tree or run something else in their place. `GIT_CONFIG_COUNT` and
+/// its keys stay: they carry the container's credential helper.
+fn command(program: &str, args: &[String], tree: &Path) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .current_dir(tree)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for name in SCRUBBED {
+        cmd.env_remove(name);
     }
-    match rx.recv_timeout(BOUND) {
+    cmd
+}
+
+/// Reads one stream as it is written, so a child never stops on a full pipe.
+/// A stream past `KEPT` is read to its end and answered as an error, as is one
+/// that cannot be read: the merge decides from these lines, so it never
+/// decides from part of them.
+fn reader(
+    mut stream: impl Read + Send + 'static,
+) -> std::io::Result<Receiver<Result<String, String>>> {
+    let (tx, rx) = channel();
+    thread::Builder::new().spawn(move || {
+        let mut buf = Vec::new();
+        let read = (&mut stream)
+            .take(KEPT as u64 + 1)
+            .read_to_end(&mut buf)
+            .and_then(|_| std::io::copy(&mut stream, &mut std::io::sink()));
+        let answer = match read {
+            Err(e) => Err(format!("its output could not be read: {e}")),
+            Ok(_) if buf.len() > KEPT => Err(format!("it wrote more than {KEPT} bytes")),
+            Ok(_) => Ok(String::from_utf8_lossy(&buf).into_owned()),
+        };
+        let _ = tx.send(answer);
+    })?;
+    Ok(rx)
+}
+
+/// Wait for a command out to its bound, reading what it writes meanwhile. A
+/// command that does not end is killed and said so: a merge that hangs is one
+/// that did not happen, and the full refresh is the answer to that. The bound
+/// holds for the reads too: a child that left a process behind on its pipes
+/// has ended, but its streams have not.
+fn wait(
+    mut child: std::process::Child,
+    bound: Duration,
+) -> Result<(Option<i32>, String, String), String> {
+    let deadline = Instant::now() + bound;
+    let late = format!("it did not end in {}s", bound.as_secs());
+    let give_up = |child: &mut std::process::Child, why: String| {
+        let _ = child.kill();
+        let _ = child.wait();
+        why
+    };
+    let streams = match (child.stdout.take(), child.stderr.take()) {
+        (Some(out), Some(err)) => reader(out).and_then(|o| Ok((o, reader(err)?))),
+        _ => Err(std::io::Error::other("a stream was not opened")),
+    };
+    let (out, err) = match streams {
         Ok(s) => s,
-        Err(_) => format!("the answer was not written in {}s", BOUND.as_secs()),
-    }
-}
-
-/// The two streams of a child that has ended, read at once so a full pipe
-/// cannot hold the merge past its bound.
-fn drain(mut child: std::process::Child) -> (String, String) {
-    let out = child.stdout.take().map(read_bounded);
-    let err = child.stderr.take().map(read_bounded);
-    (
-        out.unwrap_or_default(),
-        err.unwrap_or_else(|| "the error answer could not be read".to_string()),
-    )
-}
-
-/// Wait for a command out to its bound, then read what it wrote. A command
-/// that does not end is killed and said so: a merge that hangs is one that
-/// did not happen, and the full refresh is the answer to that.
-fn wait(mut child: std::process::Child) -> Result<(Option<i32>, String, String), String> {
-    let began = std::time::Instant::now();
-    loop {
+        Err(e) => return Err(give_up(&mut child, format!("cannot read it: {e}"))),
+    };
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                let (out, err) = drain(child);
-                return Ok((status.code(), out, err));
-            }
-            Ok(None) => {
-                if began.elapsed() >= BOUND {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!("it did not end in {}s", BOUND.as_secs()));
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => return Err(format!("waiting failed: {e}")),
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() >= deadline => return Err(give_up(&mut child, late)),
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(e) => return Err(give_up(&mut child, format!("waiting failed: {e}"))),
         }
-    }
+    };
+    let collect = |rx: Receiver<Result<String, String>>| {
+        rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(|_| late.clone())?
+    };
+    Ok((status.code(), collect(out)?, collect(err)?))
 }
 
 fn main() {
@@ -338,11 +349,70 @@ fn main() {
         log: PathBuf::from(log),
     };
     let answer = report(&mut plan, &mut runner);
-    // The one answer of the library, so the host's line and the one under test
-    // cannot drift apart: the same keys, and the same `calls`, which a host's
-    // `Real` answers empty because it says the commands to the log instead.
     println!("{}", answer.json());
     if !answer.outcome.ok() {
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    fn sh(script: &str, bound: Duration) -> Result<(Option<i32>, String, String), String> {
+        let args = ["-c".to_string(), script.to_string()];
+        let child = command("sh", &args, Path::new("/")).spawn().unwrap();
+        wait(child, bound)
+    }
+
+    #[test]
+    fn a_child_that_fills_its_pipe_still_ends() {
+        // The pipe holds 64 KiB, so a parent that reads only after the exit
+        // holds this child until the bound kills it.
+        let began = Instant::now();
+        let (status, out, _) = sh("head -c 200000 /dev/zero", Duration::from_secs(20)).unwrap();
+        assert_eq!(status, Some(0));
+        assert_eq!(out.len(), 200_000);
+        assert!(began.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn an_answer_of_exactly_the_limit_is_kept_and_one_byte_more_is_refused() {
+        let at = format!("head -c {KEPT} /dev/zero");
+        assert_eq!(sh(&at, BOUND).unwrap().1.len(), KEPT);
+        let over = format!("head -c {} /dev/zero", KEPT + 1);
+        let why = sh(&over, BOUND).unwrap_err();
+        assert!(why.contains("more than"), "{why}");
+    }
+
+    #[test]
+    fn a_child_that_does_not_end_is_killed_at_the_bound() {
+        let why = sh("sleep 5", Duration::from_millis(200)).unwrap_err();
+        assert!(why.contains("did not end"), "{why}");
+    }
+
+    #[test]
+    fn a_process_left_on_the_pipes_cannot_hold_the_merge_past_the_bound() {
+        let began = Instant::now();
+        let why = sh("sleep 5 & exit 0", Duration::from_millis(300)).unwrap_err();
+        assert!(why.contains("did not end"), "{why}");
+        assert!(began.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn a_command_loses_the_settings_that_move_it_and_keeps_its_credentials() {
+        let cmd = command("git", &[], Path::new("/"));
+        let removed: Vec<&OsStr> = cmd
+            .get_envs()
+            .filter(|(_, v)| v.is_none())
+            .map(|(k, _)| k)
+            .collect();
+        for name in SCRUBBED {
+            assert!(removed.contains(&OsStr::new(name)), "{name} stays");
+        }
+        assert!(!SCRUBBED.iter().any(|n| n.starts_with("GIT_CONFIG_COUNT")
+            || n.starts_with("GIT_CONFIG_KEY")
+            || n.starts_with("GIT_CONFIG_VALUE")));
     }
 }
