@@ -637,6 +637,18 @@ Written on the issue by the fixer, the account that decided to start this cycle 
 > Run the gate before review.
 > ## Not a section"
 
+t_case "the note the dispatcher records, under the millwright's source, reaches a cycle given files alone"
+# The polls write millwright:<id>. A record of before the rename says fixer:<id>.
+images_on TEHAS_MILLWRIGHT_LOGIN=tehas-fixer TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=1
+issue_is "Words." NONE
+record_is alice "Words."
+fixer_record alice
+record_edit '.retry_context = [{source: "millwright:81", by: "tehas-fixer", at: "2026-10-15T00:00:00Z", text: "Run only the named tests."}]'
+t_run "$work 7"
+t_eq "$(manifest .retryContext)" '"retry-context.md"'
+t_contains "$(cat "$imgs/retry-context.md")" "## millwright 81, by tehas-fixer, 2026-10-15T00:00:00Z"
+t_contains "$(cat "$imgs/retry-context.md")" "> Run only the named tests."
+
 # REST names an App <slug>[bot] and GraphQL <slug>: either form of the setting
 # takes the note of either form, and no other account's.
 for pair in 'acme-millwright acme-millwright[bot]' 'acme-millwright[bot] acme-millwright[bot]' 'acme-millwright[bot] acme-millwright'; do
