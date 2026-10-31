@@ -489,6 +489,21 @@ fn a_nested_key_that_spells_an_aliased_key_is_not_named_twice() {
 }
 
 #[test]
+fn a_record_whose_park_lifted_is_no_note_is_held() {
+    let h = host("lift-shape");
+    let start = t("2026-10-14T10:00:00Z");
+    put(&h, "cycles/7.taken", "", start);
+    let record = format!(
+        r#"{{"at":"2026-10-14T09:59:00Z","by":"bob","how":"label","body_sha256":"{SHA}","links":[],
+            "park_lifted":[{{"source":"millwright:9","by":"a","at":"b","text":"c"}}]}}"#
+    );
+    put(&h, "cycles/7.approved.json", &record, start - 1);
+    let (code, why) = import(&h, false).unwrap_err();
+    assert_eq!(code, 1, "{why}");
+    assert!(why.contains("has a park_lifted that is no note"), "{why}");
+}
+
+#[test]
 fn a_record_that_marks_its_answer_twice_is_held() {
     // The same answer marked under both names and unequally: the import cannot
     // know which mark the record meant, so the plan file is held.
