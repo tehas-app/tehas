@@ -127,7 +127,10 @@ with a token; remove the token from `~/.config/tehas/env` after.
   poll's record.
 - A cycle's container is given `~/tehas/state/github` read-only, never the key.
   The image's own `gh` reads the token there at every call, and `tehas work`
-  renews it every 5 minutes while the cycle runs.
+  renews it every 5 minutes while the cycle runs. A failed renewal is one line
+  in the cycle's work log, never a token, and is tried again after 30 seconds,
+  so two failures in a row no longer let the token run out. The renewer is
+  `tehas-cycle renew` (`console/cycle/src/renew.rs`).
 - The dispatcher, the refresh and the Protolab take the bot's login from
   `TEHAS_BOT_LOGIN`, because an installation token cannot ask GitHub who it is.
 

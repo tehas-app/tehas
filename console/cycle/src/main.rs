@@ -52,6 +52,14 @@
 //!                                     is stopped on a guess. It reads no wall
 //!                                     clock, so a VM that was saved is not
 //!                                     counted against a cycle
+//!   tehas-cycle renew --cmd <path> --every <s> --retry <s>
+//!                                     the renewer of a cycle's GitHub token:
+//!                                     run <path> with its output discarded,
+//!                                     wait --every seconds after a success
+//!                                     and --retry after a failure, and say
+//!                                     one line on standard error for each
+//!                                     failure, never the command's output
+//!                                     (src/renew.rs). It ends 0 on TERM.
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -74,11 +82,12 @@
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
-use tehas_cycle::{pin, report, shadow, Facts};
+use tehas_cycle::{pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -207,6 +216,26 @@ fn main() {
             }
             pinned(&home, "plan", n, &format!("libexec/{program}"), rest)
         }
+        ["renew", rest @ ..] => {
+            let mut cmd = None;
+            let mut every = None;
+            let mut retry = None;
+            let secs = |v: &str| v.parse::<u64>().unwrap_or_else(|_| wrong(&args));
+            let mut it = rest.iter();
+            while let Some(flag) = it.next() {
+                let v = it.next().unwrap_or_else(|| wrong(&args));
+                match *flag {
+                    "--cmd" => cmd = Some(PathBuf::from(v)),
+                    "--every" => every = Some(secs(v)),
+                    "--retry" => retry = Some(secs(v)),
+                    _ => wrong(&args),
+                }
+            }
+            let (Some(cmd), Some(every), Some(retry)) = (cmd, every, retry) else {
+                wrong(&args)
+            };
+            renew_verb(&cmd, every, retry);
+        }
         ["compare", n] => {
             let n = issue(n, &args);
             if on() {
@@ -217,6 +246,20 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The renewer of a cycle's GitHub token: it runs to the end of the cycle and
+/// ends 0 when a signal asks it to stop. The flag is what `renew` counts its
+/// waits against, as `console`'s review does.
+fn renew_verb(cmd: &Path, every: u64, retry: u64) -> ! {
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        if signal_hook::flag::register(signal, Arc::clone(&stop)).is_err() {
+            fail(format!("cannot listen for signal {signal}"));
+        }
+    }
+    renew::renew(cmd, every, retry, &stop, renew::epoch_seconds);
+    std::process::exit(0);
 }
 
 /// Runs `program` of the copy of the install made for this `kind` of `n`,
