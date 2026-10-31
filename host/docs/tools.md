@@ -653,6 +653,29 @@ cannot be read stop the retry: `ERROR: the comments on the pull request of
 #N could not be read`, exit 1, and the tick stays. Only conversation comments
 are read, not review comments or reviews.
 
+### Pull request titles
+
+The title of a factory pull request says its state. A factory pull request is
+one from a `feature/issue-<n>` branch by the bot's login; the number is its
+linked issue. A person's pull request is never touched.
+
+| The title starts with | When |
+| --- | --- |
+| `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
+| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+Each poll sets the title from what it read already, through
+`console pr-title poll`, and a cycle's end sets it once with
+`console pr-title sync <pr>`, so it is right before the next poll. A cycle
+that opens a pull request gets `WIP: ` on the next poll. Only a title that
+differs is written, through the REST endpoint `repos/<repo>/pulls/<n>`. When a
+read fails the title stays as it is, and a failed read or write is a `WARN` in
+the log and holds nothing. The bash poll (`TEHAS_DISPATCHER=bash`) does not
+set titles; a cycle's end still does.
+
+The preview page shows the prefix too, as it shows the title.
+
 ## tehas work
 
 One pi-rukas `/work` cycle, headless, in the sandbox image.
@@ -2064,7 +2087,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```

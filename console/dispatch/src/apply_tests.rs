@@ -167,6 +167,7 @@ fn world() -> World {
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
             health_cmd: s("health"),
+            console_cmd: s("console"),
             tidy_cmd: s("tidy"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
