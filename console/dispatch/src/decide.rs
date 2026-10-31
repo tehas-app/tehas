@@ -49,6 +49,11 @@ pub(crate) fn named_blockers(comments: &Value) -> Vec<u64> {
 /// The label that chooses the lean driver for one issue.
 pub(crate) const LEAN: &str = "tehas:lean";
 
+/// The label that holds an issue out of rule 6 until its blockers are closed.
+/// Spelled once so the read that batchs its reads and the rule that waits on
+/// it cannot drift apart.
+pub(crate) const BLOCKED: &str = "tehas:blocked";
+
 /// The driver a start runs, as `Poll::driver` reads it.
 enum Driver {
     Classic,
@@ -204,7 +209,9 @@ pub fn decide(s: &Snapshot, c: &Settings, dry: bool) -> Decision {
     p.d
 }
 
-fn has(labels: &[String], l: &str) -> bool {
+/// The label vocabulary of a cycle: a label is present when an issue's own
+/// list holds it exactly.
+pub(crate) fn has(labels: &[String], l: &str) -> bool {
     labels.iter().any(|x| x == l)
 }
 
