@@ -14,6 +14,7 @@
 #   tehas init-product [--dry-run]   propose the missing contract files
 #   tehas status [--json]            print the state of the factory
 #   tehas api [--json]               what this factory speaks, for a program
+#   tehas disk [--full] [--json]     how full this host is, and what fills it
 #   tehas limit [set ...|clear]      an outside cap on what this factory starts
 #   tehas drain [--wait S] [--json]  start nothing new, wait for running cycles
 #   tehas history [--json] [--after C] [--issue N]  the cycles that ended
@@ -47,7 +48,8 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | labels | top | pause | resume | stop | api | limit | drain | history | export | state | mcp | check-product | init-product) echo "$libexec/$1" ;;
+    dispatch | work | plan | dev | index | setup | update | labels | top | pause | resume | stop | api | disk | limit | drain | history | export | state | mcp | check-product | init-product)
+      echo "$libexec/$1" ;;
     status) echo "$libexec/summary" ;;
     analytics) echo "$libexec/analytics-cmd" ;;
   esac

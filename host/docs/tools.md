@@ -24,6 +24,7 @@ tehas check-product [--sandbox]  # check the product against the contract
 tehas init-product [--dry-run]   # propose the missing contract files
 tehas status [--json]            # print the state of the factory
 tehas api [--json]               # what this factory speaks, for a program
+tehas disk [--full] [--json]     # how full this host is, and what fills it
 tehas limit [set ...|clear]      # an outside cap on what this factory starts
 tehas drain [--wait S] [--json]  # start nothing new, wait for running cycles
 tehas history [--json] [--after C] [--issue N]  # what ended, oldest first
@@ -94,6 +95,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_REFRESH_EVERY`          | `10`                                     | Minutes between two runs of `tehasbot refresh`, from 1 to 1440 |
 | `TEHAS_REFRESH_SLOTS`          | `1`                                      | Refreshes side by side in a lane of their own, from 0 to 8. They do not count against `TEHAS_TICKET_CONCURRENCY`, and new cycles leave room in the slice for them (see [refreshes](/operating#refreshes)). 0 has refreshes share the cycles' slots |
 | `TEHAS_CLEAN_AFTER`            | `24`                                     | Hours a thing must have gone unused before `tehasbot clean` removes it: build output in a kept workspace, Docker's build cache and host scratch. A whole number of at least 1, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
+| `TEHAS_DISK_WAIT`              | `10`                                     | The seconds one read of the host's space may take: `df`, `docker info` and `docker ps`, and one walk of `tehas disk --full` over one place at twice that. A call not answered in the time is no answer, and its figure is null with the reason rather than a command that stops; a tree that stopped answering is no figure and its place says `cut: time`. A whole number from 1 to 99. The dispatcher's hold, the previews' measure and `tehas disk` read under it (see [`tehas disk`](/api#tehas-disk)) |
 | `TEHAS_CLEAN_MIN_FREE`          | `30g`                                    | Free disk space below which `tehasbot clean` takes the build output of a kept workspace and Docker's build cache whatever their age, instead of waiting for `TEHAS_CLEAN_AFTER` hours: the smaller of the file system of `~/tehas` and the one Docker keeps its images on, read with `df`. Space that cannot be read changes nothing, and a lock a cycle holds is never removed under. Host scratch and the old images keep the age. It sits above `TEHAS_CYCLE_MIN_FREE`, so space goes before the poll stops starting cycles. A size such as `512m` or `30g`, else every command stops with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_CLEAN_DIRS`             | `target node_modules __pycache__ .venv .pytest_cache .mypy_cache .next .turbo .gradle` | The directory names `tehasbot clean` removes anywhere in a kept workspace, separated by single spaces. Names, not paths: one with a `/`, a bare `.` or `..`, or a dot-name in the family of the two a workspace keeps, stops every command with 78 (see [tehasbot clean](#tehasbot-clean)) |
 | `TEHAS_BRANCH_CHECK`           | empty                                    | Optional. The name of a check that runs on every push to `TEHAS_BRANCH`, as `verify`. While it failed on the branch's head commit no new cycle starts (see [Limits that hold work back](/operating#limits-that-hold-work-back)). Words of letters, digits and `._()/-` separated by single spaces, else every command stops with 78. Empty: the poll does not ask |
@@ -2107,6 +2109,59 @@ store that cannot answer being no poll on record; no network, no git, and it
 writes nothing. Exit 0, 64 on an argument it does not know, 78 when the
 settings are missing or malformed.
 
+## tehas disk
+
+```
+tehas disk                 # one line per file system
+tehas disk --json          # the same as one object
+tehas disk --full          # and what fills them, biggest first
+tehas disk --publish       # also write live/disk.json
+```
+
+```
+disk      /home/boss/tehas: overlay, 20814 GiB of 28614 GiB free (27% used)
+disk      /var/lib/docker: df answered nothing
+disk      /tmp: tmpfs, 5.0 GiB of 6.0 GiB free (15% used)
+          one file system also holds /tmp
+fills     /home/boss/tehas/logs: 0.4 GiB
+fills     /home/boss/tehas/dev/alpha.state/target: 0.1 GiB
+fills     docker system df: read
+```
+
+How full this host is, and what fills it. One entry per file system the factory
+cares about: this instance's home, the directory Docker keeps its images in as
+Docker itself names it, `/tmp`, and `TEHAS_SCRATCH_DIR` when the instance sets
+one. Two paths on one file system are one entry that names both, so the same
+free bytes are not counted twice; the line of the second says so rather than
+repeating the figures. A figure that cannot be read is no figure and the reason
+under it, never 0, which is the rule the dispatcher's hold reads by: no figure
+is never the same as plenty.
+
+`--full` adds what fills them, biggest first: the entries of `~/tehas` and of
+`~/.pi/agent`, each clone's `~/tehas/dev/<name>.state/target` in place of the
+clone's own tree, what the scratch disk holds, and `docker system df`. Every outside call and every walk runs under a bound
+(`TEHAS_DISK_WAIT`, the one the dispatcher's hold already reads the host's
+space under, doubled for a walk) and a place that ran out of its bound
+says which one rather than saying nothing. The command reads and removes
+nothing: it is what a person looks at before deciding what `tehasbot clean` or
+a hand full of `rm` calls should take.
+
+`--publish` also writes the answer to `~/tehas/live/disk.json`, whole, through
+a side file renamed into place, so a reader sees a whole answer or the last
+one. It is the only form that writes anything and no timer runs it; the
+[`factory_disk`](/mcp-server#the-tools) tool of the MCP server reads that file
+and so asks the host's disk nothing. The reading, the bounds and the printing
+are the console's (`~/tehas/libexec/console disk`, `console/src/disk.rs`);
+it reads the home, the scratch disk and the bound of the wait from the
+instance's own file, so `libexec/disk` names no path, loads nothing, and hands
+the arguments straight over. See
+[`tehas disk`](/api#tehas-disk) for every field of `--json`.
+
+Exit 0 when it printed, and with the file written; 1 when the published file
+could not be written, which leaves the last answer where it was; 64 on an
+argument it does not know; 78 when the settings are missing or malformed or no
+console stands beside the command, before any `df`, `docker` or walk.
+
 ## tehas top
 
 ```
@@ -2593,7 +2648,8 @@ first, with GitHub's count of its sub-issues and how many are closed, and its
 sub-issues in their order with their state. Only sub-issues of the instance's
 repository are named; one elsewhere is counted in `more` and not named. A closed
 epic is not read, so it leaves the file at the next poll. The console makes the
-read and writes the file (`console epics`, `console/src/epics.rs`): one GraphQL
+read and writes the file (`console epics`, `console/src/epics.rs`), under the
+home and repository of the instance it is run for: one GraphQL
 call for each hundred open issues, under the same 60 seconds. A read that fails
 writes nothing and the file of the run before stays.
 
