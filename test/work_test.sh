@@ -150,8 +150,8 @@ printf 'step 3 of the cycle' >"$T/now.text"
 rm -f "$T"/calls/*
 t_run "$work 7"
 t_contains "$(t_calls console | grep -e '^--progress ')" "--now $live/console-7.txt.now"
-t_eq "$(cat "$live/console-7.txt.now")" "develop
-step 3 of the cycle"
+# The end of the cycle takes it away: nothing else clears live/.
+t_eq "$(find "$live" -maxdepth 1 -name '*.now' | wc -l)" 0
 t_eq "$(find "$live" -maxdepth 1 -name '*.now.new' | wc -l)" 0
 
 # Without the file the step is starting and the notice empty: tehas status of
