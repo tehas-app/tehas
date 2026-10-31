@@ -1,6 +1,6 @@
 // factory_park over a snapshot and a logs dir written by the tests.
 
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -401,7 +401,7 @@ fn schema_paths(s: &Value, prefix: &str, out: &mut BTreeSet<String>) {
 
 #[test]
 fn the_answer_is_its_schema() {
-    let tool = list()
+    let tool = list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()

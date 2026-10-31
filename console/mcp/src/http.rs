@@ -34,13 +34,20 @@ pub fn serve(
     write(&mut stream, &r);
     // The line's fields are named, in the order the manual shows them. Only
     // bytes of the server's own go into it: `method` comes from `parse_head`,
-    // which keeps capitals, and `tool` from the allowlist of `tools::known`.
+    // which keeps capitals; `scope` is the word of the server's own `Scope`,
+    // rendered here and nowhere else; and `tool` from the allowlist of
+    // `tools::known`.
     let mut line = format!(
         "{method} {} {}ms key={}",
         r.status,
         started.elapsed().as_millis(),
         r.key.as_deref().unwrap_or("-")
     );
+    // The scope of the key, the server's own word, and only after the key it
+    // belongs to: a refused request names neither.
+    if let Some(s) = &r.scope {
+        line.push_str(&format!(" scope={}", s.as_str()));
+    }
     if let Some(t) = &r.tool {
         // A field of the line, not the client's text: `known` admits only the
         // words of `CALLED`, so no name, space or control byte of a request
@@ -78,11 +85,12 @@ fn exchange(
     };
     let key = match rpc::gate(&req, keys) {
         Ok(k) => k,
-        Err(r) => return (method.clone(), r),
+        Err(r) => return (method.clone(), r.into_response()),
     };
     let refuse = |status| {
         let mut r = Response::empty(status);
-        r.key = Some(key.clone());
+        r.key = Some(key.fingerprint().to_string());
+        r.scope = Some(key.scope());
         (method.clone(), r)
     };
     if path != ENDPOINT {
@@ -113,8 +121,9 @@ fn exchange(
     }
     body.truncate(len);
     req.body = &body;
-    let mut r = rpc::answer(&req, dirs, version);
-    r.key = Some(key);
+    let mut r = rpc::answer(&req, &key, dirs, version);
+    r.key = Some(key.fingerprint().to_string());
+    r.scope = Some(key.scope());
     (method.clone(), r)
 }
 

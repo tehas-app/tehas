@@ -20,7 +20,8 @@ reset() {
   printf 'CADDY_VERSION=2.8.4\nCADDY_DIGEST=%s\n' "$digest" >"$th/versions.env"
   echo "v0.7.30+abc1234" >"$th/docs/version.txt"
   # The network the server runs on exists, and lets nothing out.
-  t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac'
+  t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac
+[ "$1" != run ] || printf "%s\n%s\n" "${TEHAS_MCP_KEYS:-none}" "${TEHAS_MCP_DASHBOARD_KEYS:-none}" >"$T/keys.seen"'
   t_instance "${T_MINIMAL[@]}"
   t_env
 }
@@ -34,16 +35,60 @@ for setting in "" TEHAS_MCP=0; do
   t_eq "$(t_calls docker)" "rm -f tehas-mcp"
 done
 
-t_case "on with no keys, a short key or a key with other characters: 78, no docker call, the key not said"
-for keys in "" "   " "${key1:0:31}" "${key1:0:31}+" "$key1 ${key2:0:31}+"; do
+# Both settings go through the one check of their shape, since a key of either
+# reaches the same program: at least one key stands in one list or the other,
+# and every key of the right shape. The name of a setting is said and never the
+# value of a key. That the server reads the two lists apart, refuses a host with
+# no key at all, and refuses a key of both lists whose scope would be a guess,
+# are the server's own rules and are tested of the binary.
+#
+# One run per row of: full list, dashboard list, the status, a word the line
+# must hold, and a key of neither that the line must not hold. The keys reach
+# the container by name, from the environment, so the two files the stub writes
+# are read as the values it was given.
+t_case "the keys of both lists are checked, and both reach the container by name"
+# The row's last field is the two values the container was given, which is also
+# how the run is said to have started at all: a run of no keys never got there.
+check() { # <full> <dashboard> <rc> <a word the line must hold> <the two values>
   reset
-  t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$keys"
+  t_env TEHAS_MCP=1 "TEHAS_MCP_KEYS=$1" "TEHAS_MCP_DASHBOARD_KEYS=$2"
   t_run "$mcp serve"
-  t_eq "$t_rc" 78
-  t_contains "$t_out" "TEHAS_MCP_KEYS"
-  t_eq "$(t_calls docker)" ""
-  [ -z "${keys// /}" ] || t_lacks "$t_out" "${keys##* }"
-done
+  t_eq "$t_rc" "$3"
+  [ -z "$4" ] || t_contains "$t_out" "$4"
+  [ -z "$5" ] || t_eq "$(cat "$T/keys.seen" 2>/dev/null)" "$5"
+  [ -z "$1" ] || t_lacks "$t_out" "$1"
+  [ -z "$2" ] || t_lacks "$t_out" "$2"
+}
+check "$key1" "" 0 "" "$key1
+none"
+check "" "$key1" 0 "" "none
+$key1"
+check "$key1" "$key2" 0 "" "$key1
+$key2"
+check "" "" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
+check "   " "   " 78 "TEHAS_MCP_KEYS" ""
+check "${key1:0:31}" "" 78 "TEHAS_MCP_KEYS" ""
+check "........" "$key2" 78 "TEHAS_MCP_KEYS: key 1" ""
+check "$key1" "${key2:0:31}+" 78 "TEHAS_MCP_DASHBOARD_KEYS" ""
+check "$key1" "$key1" 0 "" "$key1
+$key1"
+check "$key1 $key2" "$key2" 0 "" "$key1 $key2
+$key2"
+check "$key1 $key2" "$key1" 0 "" "$key1 $key2
+$key1"
+reset
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1 $key2" TEHAS_MCP_DASHBOARD_KEYS="$key2"
+t_run "$mcp serve"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls docker)" "$key2"
+# The run line of a server that started names both settings and holds no key of
+# either, which the rows above say of the checks that refused to start.
+reset
+t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1" TEHAS_MCP_DASHBOARD_KEYS="$key2"
+t_run "$mcp serve"
+t_contains "$(t_calls docker)" "-e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS --entrypoint"
+t_lacks "$(t_calls docker)" "$key1"
+t_lacks "$(t_calls docker)" "$key2"
 
 t_case "a value of TEHAS_MCP other than 0 or 1 is 78"
 reset
@@ -76,7 +121,7 @@ t_run "$mcp serve"
 t_eq "$t_rc" 0
 t_eq "$(t_calls docker)" "network inspect --format {{index .Options \"com.docker.network.bridge.enable_ip_masquerade\"}} tehas-mcp
 rm -f tehas-mcp
-run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/mcp:/sessions:ro -v $th/logs:/logs:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS --entrypoint /tehas-mcp caddy@$digest --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com"
+run --rm --init --name tehas-mcp --user $(id -u):$(id -g) --network tehas-mcp --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 256m --pids-limit 64 -p 192.0.2.9:8082:8082 -v $th/live:/live:ro -v $th/mcp:/sessions:ro -v $th/logs:/logs:ro -v $th/libexec/tehas-mcp:/tehas-mcp:ro -e TEHAS_MCP_KEYS -e TEHAS_MCP_DASHBOARD_KEYS --entrypoint /tehas-mcp caddy@$digest --live /live --sessions /sessions --logs /logs --listen 0.0.0.0:8082 --server-version v0.7.30+abc1234 --private gpu1 --private 192.0.2.10 --private models.lan --private bot@example.com"
 t_lacks "$(t_calls docker)" "$key1"
 t_lacks "$(t_calls docker)" "$key2"
 rm -rf "$T/home/.pi" "$T/home/.gitconfig"
@@ -126,14 +171,6 @@ t_run "$mcp serve"
 t_eq "$t_rc" 1
 t_contains "$t_out" "tehas-mcp"
 t_lacks "$(t_calls docker)" "run "
-
-t_case "the keys reach the container by name, from the environment"
-reset
-t_stub docker 'case "$*" in "network inspect"*) echo false ;; esac
-[ "$1" != run ] || printf "%s\n" "$TEHAS_MCP_KEYS" >"$T/keys.seen"'
-t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
-t_run "$mcp serve"
-t_eq "$(cat "$T/keys.seen")" "$key1"
 
 t_case "without a host address it binds the loopback address"
 reset

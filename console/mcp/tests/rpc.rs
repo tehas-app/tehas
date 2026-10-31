@@ -1,9 +1,10 @@
 // The protocol: MCP 2026-07-28 over Streamable HTTP, and the 2025-11-25
 // handshake for older clients.
 
-use mcp::keys::parse_keys;
+use mcp::keys::{parse_keys, Setting};
 use mcp::rpc::{handle, Request, Response};
 use mcp::tools::Dirs;
+use mcp::tools::Scope;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -20,7 +21,7 @@ fn dirs() -> Dirs {
 }
 
 fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
-    let keys = parse_keys(K1).unwrap();
+    let keys = full_keys(K1);
     let req = Request {
         method,
         headers: headers
@@ -30,6 +31,16 @@ fn send(method: &str, headers: &[(&str, &str)], body: &[u8]) -> Response {
         body,
     };
     handle(&req, &keys, &dirs(), "v9.9.9")
+}
+
+// The two raw lists of a call to `parse_keys`, so the pair is written once:
+// a full key alone, and the four of the dashboard.
+fn of<'a>(full: &'a str, dashboard: &'a str) -> [(&'static Setting, &'a str); 2] {
+    [(&Setting::Full, full), (&Setting::Dashboard, dashboard)]
+}
+
+fn full_keys(full: &str) -> mcp::keys::Keys {
+    parse_keys(of(full, "")).unwrap()
 }
 
 fn json_of(r: &Response) -> Value {
@@ -157,6 +168,185 @@ fn tools_list_is_cacheable_and_in_order() {
     assert_eq!(res["cacheScope"], "private");
     assert_eq!(res["tools"][0]["name"], "factory_status");
     assert_eq!(res["tools"].as_array().unwrap().len(), 15);
+}
+
+// A dashboard key is a key of the second list: it is served the four tools
+// that copy from live/, and every other tool is refused exactly as one the
+// server does not have, so the scope cannot be probed tool by tool. A full key
+// is unchanged.
+#[test]
+fn a_dashboard_key_sees_four_tools_and_no_more() {
+    let d = "0123456789abcdefghijklmnopqrstuvwxyz";
+    let keys = parse_keys(of(K1, d)).unwrap();
+    let ask = |key: &str, method: &str, params: Value| -> Response {
+        let mut params = params;
+        params["_meta"] = json!({"io.modelcontextprotocol/protocolVersion": MODERN});
+        let name = params["name"].as_str().map(str::to_string);
+        let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
+        let auth = format!("Bearer {key}");
+        let text = body.to_string();
+        let mut h = vec![
+            ("Authorization", auth.as_str()),
+            ("MCP-Protocol-Version", MODERN),
+            ("Mcp-Method", method),
+        ];
+        if let Some(n) = name.as_deref() {
+            h.push(("Mcp-Name", n));
+        }
+        let req = Request {
+            method: "POST",
+            headers: h
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            body: text.as_bytes(),
+        };
+        handle(&req, &keys, &dirs(), "v9.9.9")
+    };
+    let names = |r: Response| -> Vec<String> {
+        json_of(&r)["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // The four, in the order of the full list, and each described as it is to
+    // a full key.
+    assert_eq!(
+        names(ask(d, "tools/list", json!({}))),
+        [
+            "factory_status",
+            "factory_issues",
+            "factory_endings",
+            "factory_stats"
+        ]
+    );
+    let full = names(ask(K1, "tools/list", json!({})));
+    assert_eq!(full.len(), 15);
+    // The same names, in the order the full list gives them, and the same
+    // entries: `list_scoped` takes the entries of `list` and does not rewrite
+    // a description or a schema for the shorter answer.
+    let want: Vec<String> = full
+        .iter()
+        .filter(|n| mcp::tools::DASHBOARD.contains(&n.as_str()))
+        .cloned()
+        .collect();
+    assert_eq!(names(ask(d, "tools/list", json!({}))), want);
+    for name in mcp::tools::DASHBOARD {
+        let entry_of = |key: &str| {
+            json_of(&ask(key, "tools/list", json!({})))
+                .pointer("/result/tools")
+                .and_then(Value::as_array)
+                .and_then(|a| a.iter().find(|t| t["name"] == json!(name)).cloned())
+        };
+        assert_eq!(
+            entry_of(d),
+            entry_of(K1),
+            "{name} is described differently to the two keys"
+        );
+        assert!(entry_of(d).is_some(), "{name} is not listed at all");
+    }
+    // A tool of the other eleven is answered as an unknown one, byte for byte,
+    // and is answered before its arguments are read: the same refusal for the
+    // one the server has and the one it has not.
+    let unknown = json_of(&ask(
+        K1,
+        "tools/call",
+        json!({"name": "factory_delete", "arguments": {}}),
+    ));
+    for name in [
+        "factory_console",
+        "factory_issue",
+        "factory_sessions",
+        "factory_session",
+        "factory_log",
+        "factory_search",
+        "factory_events",
+        "factory_failures",
+        "factory_outcomes",
+        "factory_park",
+        "factory_decisions",
+    ] {
+        let r = ask(
+            d,
+            "tools/call",
+            json!({"name": name, "arguments": {"issue": 7}}),
+        );
+        assert_eq!(r.status, 200, "{name}");
+        assert_eq!(json_of(&r), unknown, "{name} is refused as an unknown tool");
+        // The line still says which name was asked for, so a probe of the
+        // scope is visible in the journal while the answer cannot tell one.
+        assert_eq!(r.tool.as_deref(), Some(name), "{name}");
+    }
+    // And the four are answered to a dashboard key, and to a full key.
+    for name in mcp::tools::DASHBOARD {
+        for key in [K1, d] {
+            let r = ask(key, "tools/call", json!({"name": name, "arguments": {}}));
+            assert_eq!(r.status, 200, "{name} of {key}");
+            assert_eq!(
+                json_of(&r)["result"]["structuredContent"]["api"],
+                json!(1),
+                "{name} of {key}"
+            );
+        }
+    }
+    // The access-log fields say the scope, and the key's fingerprint only.
+    assert_eq!(
+        ask(d, "tools/list", json!({})).scope,
+        Some(Scope::Dashboard)
+    );
+    assert_eq!(ask(K1, "tools/list", json!({})).scope, Some(Scope::Full));
+    for r in [
+        ask(d, "tools/list", json!({})),
+        ask(K1, "tools/list", json!({})),
+    ] {
+        let fp = r.key.clone().unwrap();
+        assert_eq!(fp.len(), 8, "{fp}");
+        assert!(!fp.contains(K1) && !fp.contains(d));
+    }
+}
+
+// The other methods are answered to a dashboard key as to a full one: the
+// scope is of the tools, not of the protocol.
+#[test]
+fn a_dashboard_key_is_a_key_of_the_server() {
+    let d = "0123456789abcdefghijklmnopqrstuvwxyz";
+    let keys = parse_keys(of("", d)).unwrap();
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {
+        "_meta": {"io.modelcontextprotocol/protocolVersion": MODERN}}})
+    .to_string();
+    let auth = format!("Bearer {d}");
+    let post = |headers: Vec<(&str, &str)>| -> Response {
+        let req = Request {
+            method: "POST",
+            headers: headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            body: body.as_bytes(),
+        };
+        handle(&req, &keys, &dirs(), "v9.9.9")
+    };
+    let r = post(vec![
+        ("Authorization", auth.as_str()),
+        ("MCP-Protocol-Version", MODERN),
+        ("Mcp-Method", "tools/list"),
+    ]);
+    assert_eq!(r.status, 200);
+    assert_eq!(r.scope, Some(Scope::Dashboard));
+    // A request without it is refused before its body is read, as any other.
+    let r = post(vec![]);
+    assert_eq!(r.status, 401);
+    assert!(r.body.is_empty());
+    assert_eq!(r.key, None);
+    assert_eq!(r.scope, None);
+    // And a full key is refused for the same 401 as the dashboard one.
+    let r = post(vec![(
+        "Authorization",
+        "Bearer wrongwrongwrongwrongwrongwrongx",
+    )]);
+    assert_eq!(r.status, 401);
 }
 
 #[test]
