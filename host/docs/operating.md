@@ -734,11 +734,13 @@ The millwright's own `tehas:ready` is the one label a park lets through without
 a change to the body, when its comment says the next run is not the run that
 stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
 the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
-`TEHAS_WORK_FILES=1`, since the note reaches a cycle nowhere else), and that
-same account wrote a comment carrying `<!-- tehas:millwright issue=<n>
-action=change -->` in the ten minutes before the label and saved it by nobody
-after. `action=retry` lifts nothing: that ask is the run again, and its box is
-never held. The start the lift let through counts against
+`TEHAS_WORK_FILES=1`, since the note reaches a cycle nowhere else), and the note
+the record would take from that account is one carrying `<!-- tehas:millwright
+issue=<n> action=change -->`: its newest marked comment of the ten minutes
+before the label, saved by nobody after the label and by no other account. A
+newer `action=retry` comment takes the lift away: that ask is the run again.
+Comments that cannot be read keep the hold for that poll, nothing is said on the
+issue, and the log says why. The start the lift let through counts against
 `TEHAS_MILLWRIGHT_MAX_RETRIES` as any millwright start does, and it is held
 when the grant itself refuses, which a start of no person's approval or a body
 changed since the approval is. The poll's log says

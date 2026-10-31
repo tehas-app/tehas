@@ -1353,10 +1353,8 @@ declare -A recorded_at=()
 # A refresh's: the pull request to mark, its address, and what it refreshes.
 # The store counts the refreshes and the fixer's starts from the approvals.
 declare -A refresh_pr=() refresh_url=() refresh_of=()
-# The issues whose park's hold the fixer's own guidance comment lifted, as
-# {links, context} with the one entry of it. park_holds finds it, the fixer note
-# below gives it to the record as the note of the start, and tehas_approval_shape
-# names it park_lifted on the view; rests_on keeps naming the person's approval.
+# The note, as fixer_note gives it, whose comment lifted the issue's park:
+# approved_record gives it to the start and names it park_lifted on the record.
 declare -A park_lifted=()
 
 # approved_record <issue>: record the approval of a start in the state store,
@@ -1381,11 +1379,8 @@ approved_record() {
       retry=$(pr_comments "$n" "${given_since[$n]:-}" "${given_at[$n]}") ||
         { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
   fi
-  # The comment that lifted the park is the fixer's note of the start, so it is
-  # given as such and named on the record as park_lifted too
-  [ -z "${park_lifted[$n]:-}" ] || retry=${park_lifted[$n]}
   [ "${given_how[$n]}" != millwright ] ||
-    retry=$(fixer_note "$n" "${given_at[$n]}") ||
+    retry=${park_lifted[$n]:-$(fixer_note "$n" "${given_at[$n]}")} ||
       { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   # When the approval was given, as GitHub said. A refresh and the retry after
@@ -1408,7 +1403,7 @@ approved_record() {
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
       + if $how == "refresh" then {refresh_of: $of} else {} end
-      + (if ($lifted | type) == "array" and ($lifted | length) > 0 then {park_lifted: ($lifted | last)} else {} end)' \
+      + if $lifted == null then {} else {park_lifted: $lifted.context[-1]} end' \
     <<<"${text_of[$n]}" >"$input" 2>/dev/null; then
     rm -f "$input"
     return 1
