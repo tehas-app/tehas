@@ -1,0 +1,346 @@
+{
+  "suite": "console/dispatch/src/decide.rs: a plan with no open points starts a cycle",
+  "later": [],
+  "not_ported": [],
+  "cases": [
+    {
+      "case": "the bot's tehas:ready starts the issue on the record of its plan, credited to who applied tehas:plan",
+      "planned": {"7": {"by": "alice"}},
+      "expect": {
+        "exit": 0,
+        "picked": [7],
+        "log": ["start #7 (planned by alice)"],
+        "actions": [
+          {
+            "start": 7, "by": "alice", "given": "label", "at": "2026-10-01T00:20:01Z",
+            "approved_label": "tehas:plan", "remove": ["tehas:ready"],
+            "how": "`tehas:plan` label, on a plan with no open points"
+          }
+        ],
+        "no_actions": [{"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "a dry run says so and writes nothing",
+      "dry": true,
+      "planned": {"7": {"by": "alice"}},
+      "expect": {"log": ["would run a cycle for #7 (planned by alice)"], "nothing": true}
+    },
+    {
+      "case": "an App's login reads as one account in the page's form and the REST form",
+      "settings": {"TEHAS_BOT_LOGIN": "tehas-bot[bot]"},
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "renamed", "actor": {"login": "tehas-bot[bot]"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"}
+            ]
+          }
+        }
+      },
+      "expect": {"picked": [7], "log": ["start #7 (planned by alice)"]}
+    },
+    {
+      "case": "the bot's tehas:ready with no record is still taken off",
+      "ready_at": {"7": ["tehas-bot", "2026-10-01T00:20:01Z"]},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready was applied by 'tehas-bot', not an allowed account"],
+        "actions": [
+          {"issue": 7, "remove": ["tehas:ready"], "log": "clear #7: tehas:ready off, applied by 'tehas-bot' who may not authorise work here"}
+        ]
+      }
+    },
+    {
+      "case": "the record of one issue starts no other",
+      "ready_at": {"7": ["tehas-bot", "2026-10-01T00:20:01Z"]},
+      "planned": {"8": {"by": "alice"}},
+      "expect": {
+        "picked": [],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}],
+        "no_actions": [{"start": 7}, {"start": 8}]
+      }
+    },
+    {
+      "case": "an account outside the list that applies tehas:ready gets nothing from the record",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"},
+              {"event": "unlabeled", "label": {"name": "tehas:ready"}, "actor": {"login": "mallory"}, "created_at": "2026-10-01T00:21:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "mallory"}, "created_at": "2026-10-01T00:22:00Z"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready was applied by 'mallory', not an allowed account"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"], "log": "clear #7: tehas:ready off, applied by 'mallory' who may not authorise work here"}]
+      }
+    },
+    {
+      "case": "an allowed account's own tehas:ready on the plan is an ordinary start",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "renamed", "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:21:00Z"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "picked": [7],
+        "log": ["start #7 (labelled by alice)"],
+        "actions": [{"start": 7, "by": "alice", "how": "`tehas:ready` label"}]
+      }
+    },
+    {
+      "case": "an outsider's edit after the label builds nothing and takes the label and the record off",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "edit": {"body": "## Plan\n\nAnd mine.", "lastEditedAt": "2026-10-01T00:30:00Z", "editor": {"login": "mallory"}}
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: its text was changed by 'mallory' after the plan was written; apply `tehas:ready` to approve it"],
+        "actions": [
+          {"issue": 7, "remove": ["tehas:ready"], "fail": "WARN: label change on #7 failed: --remove-label tehas:ready"},
+          {"plan_start_drop": 7}
+        ],
+        "no_actions": [{"start": 7}]
+      }
+    },
+    {
+      "case": "an outsider's edit between the update and the label builds nothing: the time cannot tell, the text does",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "edit": {"body": "## Plan\n\nAnd mine.", "lastEditedAt": "2026-10-01T00:20:01Z", "editor": {"login": "mallory"}}
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready from the bot starts nothing: its title or text is not the plan tehas wrote"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}],
+        "no_actions": [{"start": 7}]
+      }
+    },
+    {
+      "case": "an outsider's rename after the label builds nothing",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "renamed", "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"},
+              {"event": "renamed", "actor": {"login": "mallory"}, "created_at": "2026-10-01T00:30:00Z"}
+            ],
+            "edit": {"title": "feat: mine"}
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: its text was changed by 'mallory' after the plan was written"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "an allowed account's edit needs that account's own tehas:ready",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "edit": {"body": "## Plan\n\nBetter.", "lastEditedAt": "2026-10-01T00:30:00Z", "editor": {"login": "alice"}}
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready from the bot starts nothing: its title or text is not the plan tehas wrote"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "an account taken off the list since builds nothing",
+      "settings": {"TEHAS_ALLOWED_LABELERS": "bob"},
+      "planned": {"7": {"by": "alice"}},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready from the bot starts nothing: no allowed person's `tehas:plan` is on record for it"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "the millwright's tehas:plan builds nothing, even on the list",
+      "settings": {"TEHAS_ALLOWED_LABELERS": "alice mill-bot", "TEHAS_MILLWRIGHT_LOGIN": "mill-bot"},
+      "planned": {"7": {"by": "mill-bot"}},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready from the bot starts nothing: no allowed person's `tehas:plan` is on record for it"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "a record the label events do not bear out builds nothing",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "mallory"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "renamed", "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "no tehas:plan among the events names nobody, and nobody builds",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "renamed", "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "a label someone took off does not come back on the record: the bot's second application starts nothing",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "events": [
+              {"event": "labeled", "label": {"name": "tehas:plan"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:00:00Z"},
+              {"event": "renamed", "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:20:01Z"},
+              {"event": "unlabeled", "label": {"name": "tehas:ready"}, "actor": {"login": "alice"}, "created_at": "2026-10-01T00:30:00Z"},
+              {"event": "labeled", "label": {"name": "tehas:ready"}, "actor": {"login": "tehas-bot"}, "created_at": "2026-10-01T00:31:00Z"}
+            ]
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: tehas:ready from the bot starts nothing: `tehas:ready` was taken off or applied again since the plan was written"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "a record that cannot be read builds nothing",
+      "planned": {"7": {"by": "alice"}},
+      "after": {"issues": {"7": {"plan_start": null}}},
+      "expect": {
+        "picked": [],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}, {"plan_start_drop": 7}]
+      }
+    },
+    {
+      "case": "said once on the issue, in words a person can act on",
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "edit": {"body": "changed", "lastEditedAt": "2026-10-01T00:30:00Z", "editor": {"login": "mallory"}}
+          }
+        }
+      },
+      "expect": {
+        "picked": [],
+        "actions": [
+          {
+            "issue": 7,
+            "say": "Tehas took `tehas:ready` off this issue and started nothing: its text was changed since the plan was written. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it."
+          }
+        ]
+      }
+    },
+    {
+      "case": "a dry run of a refusal changes nothing",
+      "dry": true,
+      "planned": {"7": {"by": "alice"}},
+      "after": {
+        "issues": {
+          "7": {
+            "edit": {"body": "changed", "lastEditedAt": "2026-10-01T00:20:01Z", "editor": {"login": "mallory"}}
+          }
+        }
+      },
+      "expect": {"log": ["would take tehas:ready off #7"], "nothing": true}
+    },
+    {
+      "case": "the other guards of a start still hold it: an epic is never started",
+      "planned": {"7": {"by": "alice"}},
+      "work": {"7": {"sub_issues_summary": {"total": 2, "completed": 1}}},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: it is an epic with 1 sub-issue open, and an epic is never started"],
+        "actions": [{"issue": 7, "remove": ["tehas:ready"]}]
+      }
+    },
+    {
+      "case": "the other guards of a start still hold it: an open pull request",
+      "planned": {"7": {"by": "alice"}},
+      "after": {"issues": {"7": {"prs": [{"url": "https://github.com/acme/widget/pull/9", "state": "OPEN"}]}}},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: pull request https://github.com/acme/widget/pull/9 is open and closes it"]
+      }
+    },
+    {
+      "case": "a plan that waits for room counts as demand, as a person's label does",
+      "planned": {"7": {"by": "alice"}},
+      "hold": [9],
+      "expect": {"picked": [], "demand": {"waiting": 1}, "no_actions": [{"plan_start_drop": 7}]}
+    },
+    {
+      "case": "the bot's label with no record is no demand",
+      "ready_at": {"7": ["tehas-bot", "2026-10-01T00:20:01Z"]},
+      "hold": [9],
+      "expect": {"demand": {"waiting": 0}}
+    },
+    {
+      "case": "while its session is open the record starts nothing",
+      "planned": {"7": {"by": "alice"}},
+      "snapshot": {"plan_open": [{"issue": 7, "pending": true}]},
+      "expect": {
+        "picked": [],
+        "log": ["skip #7: a planning session is open on it; end it first"],
+        "no_actions": [{"start": 7}, {"plan_start_drop": 7}]
+      }
+    }
+  ]
+}

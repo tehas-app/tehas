@@ -305,4 +305,67 @@ t_eq "$t_rc" 0
 t_eq "$(t_calls gh | grep -c "^$refresh_unmark")" 3
 t_contains "$t_out" "WARN: label change on pull request #9 failed"
 
+# The title's cases run the real console against the stub gh. REST names an
+# app <slug>[bot], and pull.json is the bot's unless a case says otherwise.
+titled_pr() { # <title> <issue's labels as JSON> [<author>]
+  t_console || t_bad "no console: $t_console_why"
+  T_ENV+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+  echo "https://github.com/acme/widget/pull/9" >"$fx/pr.txt"
+  echo '{"login":"tehas-bot"}' >"$fx/user.json"
+  jq -n --arg title "$1" --arg by "${3:-tehas-bot[bot]}" \
+    '{number: 9, state: "open", title: $title, head: {ref: "feature/issue-7-x"}, user: {login: $by}, labels: []}' >"$fx/pull.json"
+  jq -n --argjson labels "$2" '{number: 7, state: "open", labels: $labels}' >"$fx/issue-7.json"
+}
+title_write="api -X PATCH repos/acme/widget/pulls/9 -f title="
+
+t_case "a handoff on a cap leaves STUCK: on the pull request's title"
+reset
+ended handoff lens-review feature/issue-7-x review-incomplete
+titled_pr "chore(work): a change" '[{"name":"needs-human-attention"}]'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "${title_write}STUCK: chore(work): a change"
+
+t_case "awaiting-human-merge leaves no prefix on the pull request's title"
+reset
+ended handoff commit-pr feature/issue-7-x
+titled_pr "WIP: chore(work): a change" '[]'
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "${title_write}chore(work): a change"
+
+t_case "a title already right gets no write at the end of a cycle"
+reset
+ended handoff commit-pr feature/issue-7-x
+titled_pr "chore(work): a change" '[]'
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "$title_write"
+
+t_case "a person's pull request on the branch keeps its title"
+reset
+ended handoff commit-pr feature/issue-7-x
+titled_pr "WIP: my change" '[]' alice
+t_run "$cycle 7"
+t_lacks "$(t_calls gh)" "$title_write"
+
+t_case "a title that could not be written is a warning and the cycle ends as it would"
+reset
+ended handoff commit-pr feature/issue-7-x
+titled_pr "WIP: chore(work): a change" '[]'
+: >"$fx/title-fails"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the title of pull request #9 was not kept"
+t_contains "$t_out" "done #7 rc=10 status=handoff"
+
+t_case "a pull request that cannot be read keeps its title"
+reset
+ended handoff commit-pr feature/issue-7-x
+titled_pr "WIP: chore(work): a change" '[]'
+rm -f "$fx/pull.json"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the title of pull request #9 was not kept"
+t_lacks "$(t_calls gh)" "$title_write"
+
 t_done
