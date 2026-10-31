@@ -45,13 +45,12 @@ pub trait Runner {
 
 /// A command the merge could not settle, in the words it refuses with: the
 /// rule's own sentence and, where the command said something, what it said.
-/// A refusal also says whether a session of `pi` had been asked by then, so
-/// the answer the dispatcher reads cannot lose that fact on a path that
-/// carries no outcome.
+/// A refusal also says whether a session of `pi` had been asked by then: it
+/// carries no outcome, and the dispatcher reads that fact from the answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Why {
     pub why: String,
-    pub asked_model: bool,
+    asked_model: bool,
 }
 
 /// What one easy merge did, in the words its caller reads: the pull request,
@@ -62,10 +61,9 @@ pub struct Report {
     pub pr: u64,
     pub issue: u64,
     pub outcome: Outcome,
-    /// The commands that ran, named as the plan named them: the program's
-    /// last part and its arguments. What a host's log holds, and what a case
-    /// says `no model turn` from — a session asked is one line beginning
-    /// `pi -p`, whatever path the image holds pi at.
+    /// The commands the runner recorded, by the last part of the program.
+    /// Not in the answer: a host's runner records none and says them to its
+    /// log. A case reads them.
     pub calls: Vec<String>,
 }
 
@@ -74,7 +72,6 @@ impl Report {
         let mut v = self.outcome.json();
         v["pr"] = json!(self.pr);
         v["issue"] = json!(self.issue);
-        v["calls"] = json!(self.calls);
         v
     }
 }
@@ -87,10 +84,8 @@ impl Why {
         }
     }
 
-    /// A refusal raised after the session was asked: the merge still says a
-    /// model was spent on the pull request.
-    fn asked(mut self) -> Why {
-        self.asked_model = true;
+    fn with_model(mut self, asked: bool) -> Why {
+        self.asked_model = asked;
         self
     }
 
@@ -293,8 +288,6 @@ pub fn short_calls(calls: &[String]) -> Vec<String> {
 pub fn report(plan: &mut Plan, r: &mut dyn Runner) -> Report {
     let pr = plan.pr;
     let issue = plan.issue;
-    // A refusal carries whether a session was asked, so the answer never
-    // comes from the calls the runner holds: on a host `Real` records none.
     let outcome = match merge_and_settle(plan, r) {
         Ok(out) if out.why.is_empty() => out,
         Ok(out) => {
@@ -326,12 +319,6 @@ fn abandon(plan: &mut Plan, r: &mut dyn Runner) {
 }
 
 fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why> {
-    // Past the point where a session is asked, every refusal must still say a
-    // model was spent, so each read or write below carries its error through
-    // `Why::asked`. One of them missing would answer `model: false` for a
-    // merge that did spend a session, which is what the dispatcher falls back
-    // on a full cycle for.
-    //
     // The head the pull request was at when this merge was asked for: the
     // point the outsider check measures from. A tree at any other commit is
     // not the pull request this decision was made about. git's answer is read
@@ -403,20 +390,30 @@ fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why>
                 left.len()
             )));
         }
-        // Answered before the session is asked: the turn below may fail or
-        // leave a marker behind and the answer still says a model was spent.
         out.model = true;
-        ask_model(plan, r, &left).map_err(Why::asked)?;
+        ask_model(plan, r, &left).map_err(|why| why.with_model(true))?;
     }
+    // Whichever way the rest stops, the answer says what was spent up to here.
+    let model = out.model;
+    finish(plan, r, out, &conflicts).map_err(|why| why.with_model(model))
+}
+
+/// Check the settled tree, commit it and push the commit.
+fn finish(
+    plan: &mut Plan,
+    r: &mut dyn Runner,
+    mut out: Outcome,
+    conflicts: &[String],
+) -> Result<Outcome, Why> {
     // The whole tree is read for a marker, not just the files that conflicted:
     // a marker written anywhere by a rule or by the model is one the merge
     // must not push, and the outsider check below has no reason to excuse one.
-    let marked = markers(r, &plan.tree).map_err(Why::asked)?;
+    let marked = markers(r, &plan.tree)?;
     if !marked.is_empty() {
         out.why = format!("conflict markers are left in {}", marked.join(", "));
         return Ok(out);
     }
-    commit(plan, r).map_err(Why::asked)?;
+    commit(plan, r)?;
     let sha = plan
         .git_of(r, &["rev-parse", "HEAD"])
         .let_say("the merge commit could not be read")?;
@@ -425,9 +422,7 @@ fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why>
     // else.
     let sha = match normalise_commit(&sha) {
         Some(sha) => sha,
-        None => {
-            return Err(Why::asked(Why::new("the merge commit is not a commit")));
-        }
+        None => return Err(Why::new("the merge commit is not a commit")),
     };
     // The merge commit is two parents; what it changed is what it wrote over
     // the pull request's head, which is exactly the files that conflicted plus
@@ -436,16 +431,14 @@ fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why>
     // one. `HEAD^1` is the pull request's head, `HEAD^2` the branch's commit.
     let changed = plan
         .git_of(r, &["diff", "--name-only", &format!("{sha}^1"), &sha])
-        .let_say("what the merge changed could not be read")
-        .map_err(Why::asked)?;
+        .let_say("what the merge changed could not be read")?;
     let changed: Vec<String> = changed.lines().map(|l| l.trim().to_string()).collect();
     let outsiders: Vec<String> = changed
         .iter()
-        .filter(|f| !is_path(&conflicts, f) && rule_of(f).is_none())
+        .filter(|f| !is_path(conflicts, f) && rule_of(f).is_none())
         .cloned()
         .collect();
     if !outsiders.is_empty() {
-        let mut out = Outcome::started(conflicts.clone());
         out.sha = Some(sha);
         out.why = format!(
             "the merge commit changed a file that did not conflict: {}",
@@ -464,7 +457,6 @@ fn merge_and_settle(plan: &mut Plan, r: &mut dyn Runner) -> Result<Outcome, Why>
         ],
     );
     if !push.ok() {
-        let mut out = Outcome::started(conflicts.clone());
         out.sha = Some(sha);
         out.why = "the push of the merge commit failed".to_string();
         return Ok(out.said(push));

@@ -29,6 +29,9 @@ struct Fake {
     /// The programs that ran, by their last part, one entry per call: what a
     /// case counts when it asks whether a model was asked at all.
     asked: Vec<String>,
+    /// A call that fails once the merge commit is written, for a read the
+    /// merge also makes before it.
+    fail_after_commit: Option<String>,
 }
 
 impl Fake {
@@ -39,6 +42,7 @@ impl Fake {
             replies: Vec::new(),
             calls: Vec::new(),
             asked: Vec::new(),
+            fail_after_commit: None,
         }
     }
 
@@ -108,6 +112,19 @@ impl Fake {
     /// it, the program without its path, so `pi -p ...` is scripted by
     /// `pi -p` however the plan spells the program's name.
     fn reply(&self, named: &str) -> Reply {
+        let committed = self.calls.iter().any(|c| c.contains("commit --no-edit"));
+        if committed
+            && self
+                .fail_after_commit
+                .as_deref()
+                .is_some_and(|f| named.starts_with(f))
+        {
+            return Reply {
+                prefix: String::new(),
+                status: 1,
+                out: "it failed".to_string(),
+            };
+        }
         // The scripted answers win, in the order a case wrote them, so the
         // narrower name is written first: `pi -p` before `pi`.
         // The scripted answers win, and the broadest name wins among them: a
@@ -684,6 +701,78 @@ fn a_refusal_at_the_commit_after_the_model_still_says_the_model_ran() {
     );
 }
 
+/// A session answered and the merge then stopped at `step`, which answered
+/// `status` and `said`.
+fn stopped_after_the_session(step: &str, status: i32, said: &str) -> Report {
+    let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+    f.answers(step, status, said);
+    let mut silent = Silent::over(f);
+    report(&mut p, &mut silent)
+}
+
+#[test]
+fn every_stop_after_the_session_says_the_model_ran() {
+    for (step, status, said, why) in [
+        ("grep ", 0, "src/app.rs\n", "conflict markers"),
+        ("grep ", 2, "it failed", "for its markers"),
+        ("git commit", 1, "it failed", "could not be written"),
+        (
+            "git push",
+            1,
+            "it failed",
+            "the push of the merge commit failed",
+        ),
+    ] {
+        let r = stopped_after_the_session(step, status, said);
+        assert!(!r.outcome.ok(), "{step} went through");
+        assert!(r.outcome.why.contains(why), "{step}: {}", r.outcome.why);
+        assert!(r.outcome.model, "{step}: {}", r.outcome.why);
+    }
+}
+
+#[test]
+fn the_reads_of_the_merge_commit_say_the_model_ran() {
+    for (step, why) in [
+        ("git rev-parse HEAD", "the merge commit could not be read"),
+        ("git diff --name-only 9", "what the merge changed could not"),
+    ] {
+        let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
+        // The head is read first; only the read after the commit may fail.
+        f.fail_after_commit = Some(step.to_string());
+        let mut silent = Silent::over(f);
+        let r = report(&mut p, &mut silent);
+        assert!(r.outcome.why.starts_with(why), "{}", r.outcome.why);
+        assert!(r.outcome.model, "{step}: {}", r.outcome.why);
+    }
+}
+
+#[test]
+fn a_file_outside_the_conflict_after_the_session_says_the_model_ran() {
+    let (mut p, f) = merged(&["src/app.rs"], &["src/app.rs", "src/other.rs"]);
+    let mut silent = Silent::over(f);
+    let r = report(&mut p, &mut silent);
+    assert!(
+        r.outcome.why.contains("did not conflict"),
+        "{}",
+        r.outcome.why
+    );
+    assert!(r.outcome.model);
+    assert_eq!(r.outcome.sha.as_deref(), Some(MERGE));
+}
+
+#[test]
+fn a_refusal_of_a_merge_the_rules_settled_says_no_model_ran() {
+    for step in ["git commit", "git push"] {
+        let (mut p, mut f) = merged(&["Cargo.lock"], &["Cargo.lock"]);
+        f.answers(step, 1, "it failed");
+        let mut silent = Silent::over(f);
+        let r = report(&mut p, &mut silent);
+        assert!(!r.outcome.ok(), "{step} went through");
+        assert!(!r.outcome.model, "{step}: {}", r.outcome.why);
+        assert!(!silent.inner.asked_model());
+    }
+}
+
 #[test]
 fn the_answer_names_the_pull_request_and_what_ran() {
     let (mut p, mut f) = merged(&["src/app.rs"], &["src/app.rs"]);
@@ -694,7 +783,8 @@ fn the_answer_names_the_pull_request_and_what_ran() {
     assert_eq!(v["ok"], true);
     assert_eq!(v["model"], true);
     assert_eq!(v["pushed"], true);
-    assert!(v["calls"].as_array().unwrap().len() >= 5, "{}", v["calls"]);
+    assert!(v.get("calls").is_none(), "{v}");
+    assert!(r.calls.len() >= 5, "{:?}", r.calls);
     assert!(v["conflicts"]
         .as_array()
         .unwrap()
