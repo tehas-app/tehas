@@ -39,7 +39,7 @@ use crate::flags::{self, epoch};
 use crate::jq::{first, obj, J, NULL};
 use crate::store::{self, bounded, merged, Refusal};
 use serde_json::Value;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
@@ -1020,10 +1020,16 @@ fn demand(live: &Path, now: i64) -> J {
     J::Obj(f)
 }
 
-/// Whether some process holds the lock: a lock no one holds is taken for a
-/// moment and given back when the file closes, as `flock -n` does.
+/// Whether some process holds the lock, or it cannot be told apart from one
+/// that is: core's probe answers, and anything but no lock and a lock it took
+/// is a turn in flight. `flock -n` fails on a lock it cannot open as it does on
+/// a lock another process holds, and a name that is no lock file says nothing
+/// about the turn, which is the worse thing to read as an ended one.
 fn held(lock: &Path) -> bool {
-    File::open(lock).is_ok_and(|f| f.try_lock().is_err())
+    matches!(
+        tehas_core::lock::probe(lock),
+        tehas_core::lock::Probe::Held | tehas_core::lock::Probe::Unknown(_)
+    )
 }
 
 /// The planning turns in flight, each {issue, turn, startedAt}: the sessions
@@ -1046,7 +1052,7 @@ fn plans(home: &Path, sessions: &J) -> J {
         }
         let lock = state.join(format!("plan-{n}.json.lock"));
         let rc = state.join(format!("plan-{n}.json.rc"));
-        if !lock.is_file() || rc.exists() || !held(&lock) {
+        if rc.exists() || !held(&lock) {
             continue;
         }
         let turns = match s.get("turns") {
@@ -1433,6 +1439,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::path::PathBuf;
 
     const NOW: i64 = 1_792_245_620; // 2026-10-17T14:00:20Z
@@ -1837,6 +1844,65 @@ mod tests {
             h.report(&g).at(&["checks", "plans"]).dump(),
             r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#
         );
+        h.write("state/plan-7.json.rc", "0");
+        assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+    }
+
+    #[test]
+    fn a_planning_turn_whose_lock_cannot_be_opened_is_in_flight() {
+        let g = Given {
+            sessions: Some(
+                r#"{"sessions":[{"issue":7,"running":true,"turns":1,"started_at":1792245000}]}"#
+                    .into(),
+            ),
+            ..Given::default()
+        };
+        let in_flight = r#"[{"issue":7,"turn":2,"startedAt":"2026-10-17T13:50:00Z"}]"#;
+        // A lock no one can open is not a turn that ended: the page says the
+        // turn is in flight rather than read a probe it could not make as free.
+        let h = home("plans-mode");
+        h.write("state/plan-7.json.lock", "");
+        fs::set_permissions(
+            h.0.join("state/plan-7.json.lock"),
+            fs::Permissions::from_mode(0o000),
+        )
+        .unwrap();
+        if File::open(h.0.join("state/plan-7.json.lock")).is_ok() {
+            // Root, or a mode that binds nobody: the case cannot be made here.
+            fs::set_permissions(
+                h.0.join("state/plan-7.json.lock"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        } else {
+            assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
+            fs::set_permissions(
+                h.0.join("state/plan-7.json.lock"),
+                fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+            assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+        }
+        // A name at the lock path that is no lock file says nothing of the
+        // turn, which is the worse thing to read as an ended one.
+        let h = home("plans-shapes");
+        fs::create_dir(h.0.join("state/plan-7.json.lock")).unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
+        fs::remove_dir(h.0.join("state/plan-7.json.lock")).unwrap();
+        std::os::unix::fs::symlink(
+            h.0.join("state/elsewhere.lock"),
+            h.0.join("state/plan-7.json.lock"),
+        )
+        .unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
+        // No lock at all is the one shape that is not in flight, and so is the
+        // exit status a turn left beside a lock that is held.
+        fs::remove_file(h.0.join("state/plan-7.json.lock")).unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
+        h.write("state/plan-7.json.lock", "");
+        let lock = File::open(h.0.join("state/plan-7.json.lock")).unwrap();
+        lock.lock().unwrap();
+        assert_eq!(h.report(&g).at(&["checks", "plans"]).dump(), in_flight);
         h.write("state/plan-7.json.rc", "0");
         assert_eq!(h.report(&g).at(&["checks", "plans"]).len(), 0);
     }

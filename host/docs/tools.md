@@ -431,7 +431,13 @@ other turn. To count the running cycles the poll asks the state store once,
 `store locks-held`, which tries every lock under `state/cycles` in one process
 and names each one held or that it could not try. A held lock counts whether or
 not the store has the cycle on record, and an old lock file costs no process of
-its own. Without the store, the lock files are tried one by one. When the turn ends the unit leaves `state/dispatch.again`, which
+its own. Without the store, the lock files are tried one by one. The one probe
+is the library's (`tehas_core::lock`, `console/core/src/lock.rs`), and the
+dispatcher, the health page, the cleaner and the store all ask it the same
+question, so they answer the same way for one lock: no file and a file the probe
+took are free, and a lock that is held, a lock that cannot be opened, and a name
+at the path that is no regular file - a link or a directory - are all read as a
+lock that holds. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
 As the poll takes up a turn that ended, it records it in the factory's
 analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended> --facts
@@ -2714,7 +2720,10 @@ issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn and `startedAt` of every planning turn
 in flight: a session the state store has running (`plan-show --open`) whose
-lock (`state/plan-<issue>.json.lock`) its unit holds. A store that does not
+lock (`state/plan-<issue>.json.lock`) its unit holds. The page asks the one
+probe, so a lock it cannot open, or a name at that path that is no lock file, is
+a turn in flight too: the page reads a probe it could not make as a turn that has
+not ended, never as one that has. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
 when it is not installed or cannot be used. The publish of the report is tried
 three times while the store is busy, within 30 s of its own, so that a store
@@ -3264,8 +3273,12 @@ starting cycles:
    get, since it is reported as `nothing to remove in #<issue>`, and the line a
    lock that exists but could not be taken does not get either, since that removal
    is reported by its warning. A lock held by a cycle is asked for first, before
-   the age, and is `kept the build output of #<issue>: its lock is held`. The lock
-   is taken
+   the age, and is `kept the build output of #<issue>: its lock is held`. A link
+   or a directory at the lock path, and a lock no one can open, are asked of the
+   one probe the library keeps (`tehas_core::lock`, `console/core/src/lock.rs`),
+   which the dispatcher and the health page ask too, and answer the same as a lock
+   a cycle holds: kept. A dangling link is not free, so nothing of the issue goes
+   under it. The lock is taken
    for the instant of each removal. A manual session's build output,
    `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
    directory under `~/tehas/dev` for build-output names, and that tree is a
