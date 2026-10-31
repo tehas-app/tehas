@@ -621,7 +621,7 @@ fn run_suite(name: &str) {
         if let Some(x) = e.get("report") {
             let ok = match (x, &d.report) {
                 (Value::Null, None) => true,
-                (x, Some(r)) => within(x, r),
+                (x, Some(r)) => within(x, &r.to_value()),
                 _ => false,
             };
             if !ok {
@@ -644,7 +644,7 @@ fn run_suite(name: &str) {
         {
             if d.report
                 .as_ref()
-                .is_some_and(|r| r.get(x.as_str().unwrap()).is_some())
+                .is_some_and(|r| r.to_value().get(x.as_str().unwrap()).is_some())
             {
                 bad.push(format!("the report has {x}"));
             }

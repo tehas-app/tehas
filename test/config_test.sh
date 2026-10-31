@@ -338,7 +338,7 @@ for bad in "TEHAS_REPO=widget" "TEHAS_REPO=a/b/c" "TEHAS_CONTROL_ISSUE=abc" "TEH
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
-for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
+for bad in "TEHAS_CONCURRENCY=auto" "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=two" "TEHAS_MAX_AWAITING=-1" "TEHAS_WORK_TIMEOUT=soon" "TEHAS_WORK_STALL=0" "TEHAS_WORK_STALL=1h" "TEHAS_HOST_ADDR=not an address" \
   "TEHAS_BRANCH=two words" "TEHAS_INDEXING=yes" "TEHAS_WORK_IMAGES=yes" "TEHAS_WORK_IMAGES=2" "TEHAS_WORK_ZIPS=yes" "TEHAS_WORK_ZIPS=2" "TEHAS_WORK_DESCRIBE=yes" "TEHAS_WORK_FILES=yes" "TEHAS_WORK_FILES=2" "TEHAS_WORK_COMMENTS=yes" "TEHAS_TOP=yes" "TEHAS_TOP=2" "TEHAS_ANALYTICS_SRC=http://plain.example/ea.js" \
   "TEHAS_ANALYTICS_SRC=https://a.example/x.js\" onload=\"x" "TEHAS_ANALYTICS_SITE=two words" \
   "TEHAS_ANALYTICS_COOKIE=yes" "TEHAS_THEME=neon" "TEHAS_THEME=../pixel" "TEHAS_LAYOUT=game" "TEHAS_LAYOUT=../business" "TEHAS_PROTOLAB_URL=https://lab.example/" "TEHAS_PROTOLAB_URL=lab.example" \
@@ -359,6 +359,8 @@ for bad in "TEHAS_CONCURRENCY=0" "TEHAS_TICKET_CONCURRENCY=0" "TEHAS_TICKET_CONC
   printf '%s\n' "${T_MINIMAL[@]}" "${bad%%=*}='${bad#*=}'" >"$TEHAS_INSTANCE_DIR/instance.env"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
+  # The suffix belongs to `auto` alone, and that count is TEHAS_CONCURRENCY.
+  [ "${bad%%=*}" = TEHAS_CONCURRENCY ] || t_lacks "$t_out" "auto is not usable yet"
   t_contains "$t_out" "tehas: ${bad%%=*} is not valid"
 done
 
@@ -476,22 +478,30 @@ for bad in "TEHAS_REFRESH_CONFLICTS=yes" "TEHAS_REFRESH_CONFLICTS=2" "TEHAS_REVI
   t_contains "$t_out" "rc=78"
 done
 
-t_case "the slice holds four containers unless the instance says another number from 2 to 16, or auto"
+t_case "the slice holds four containers unless the instance says another number from 2 to 16"
 t_instance "${T_MINIMAL[@]}"
 t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
 t_eq "$t_out" "[4]"
-for good_n in 2 6 16 auto; do
+for good_n in 2 6 16; do
   t_instance "${T_MINIMAL[@]}" TEHAS_SLICE_CONTAINERS=$good_n
   t_run "$load && echo \"[\$TEHAS_SLICE_CONTAINERS]\""
   t_eq "$t_out" "[$good_n]"
 done
-# `auto` is the poll's word, refused by lib/slice.sh at every start
-# (test/slice_test.sh and the Rust slice's own test). Anything else is no count.
-for bad in 1 0 17 06 1.5 -4 99999999999999999999 AUTO; do
+# `auto` is the poll's word: the dispatcher answers it, but the cycle refuses
+# it (lib/slice.sh), so a cycle started under it parks. The loader refuses it
+# with the rest until the cycle can use the count the poll decided by.
+for bad in 1 0 17 06 1.5 -4 auto AUTO 99999999999999999999; do
   t_case "loading rejects TEHAS_SLICE_CONTAINERS=$bad"
   t_instance "${T_MINIMAL[@]}" "TEHAS_SLICE_CONTAINERS=$bad"
   t_run "$load; echo rc=\$?"
   t_contains "$t_out" "rc=78"
+  # The suffix is for `auto` alone: it is not said of a number out of range.
+  if [ "$bad" = auto ]; then
+    t_contains "$t_out" "TEHAS_SLICE_CONTAINERS is not valid: expected a whole number (auto is not usable yet)"
+  else
+    t_contains "$t_out" "TEHAS_SLICE_CONTAINERS is not valid: expected a whole number from 2 to 16"
+    t_lacks "$t_out" "auto is not usable yet"
+  fi
 done
 
 # The hold of rule 6: unset, the dispatcher never asks the measure, so nothing
@@ -1079,38 +1089,50 @@ t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=4 TEHAS_MAX_AWAITING=3
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
 
-for bad in two 0 -1 1.5 99999999999999999999; do
+for bad in two 0 -1 1.5 AUTO 99999999999999999999; do
   t_case "a concurrency that is no number is refused, not added to: $bad"
   t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=$bad
   t_run "$load"
   t_eq "$t_rc" 78
   t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid"
+  # AUTO is another word, not the poll's: only `auto` gets its reason named.
+  [ "$bad" = AUTO ] || t_lacks "$t_out" "auto is not usable yet"
 done
 
-# `auto` is a value the dispatcher answers, not one the loader works out: it
-# reaches the environment as written, and nothing here runs nproc for it.
-t_case "auto for both counts is kept as written, and no nproc is asked for it"
+# `auto` is refused by its own case, with the words that say why.
+t_case "a concurrency of auto is refused with the reason"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto
+t_run "$load"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_TICKET_CONCURRENCY is not valid: expected a whole number (auto is not usable yet)"
+
+# The poll answers `auto` (console/dispatch/src/slots.rs) and the cycle does
+# not, so the loader refuses both counts before a poll spends its approval.
+t_case "auto for either count is refused with 78"
 rm -f "$T/bin/nproc"
 t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_SLICE_CONTAINERS=auto
-t_run "$load && echo \"\$TEHAS_TICKET_CONCURRENCY \$TEHAS_SLICE_CONTAINERS\""
-t_eq "$t_rc" 0
-t_eq "$t_out" "auto auto"
+t_run "$load; echo rc=\$?"
+t_contains "$t_out" "rc=78"
+t_eq "$(grep -c '^tehas:' <<<"$t_out")" 1
+t_contains "$t_out" "(auto is not usable yet)"
 t_eq "$(t_calls nproc)" ""
 t_stub nproc 'echo 8'
 
-t_case "auto with the lane off holds a review cap of three, the floor the setting has"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto
+t_case "a review cap of three is the floor below the host's cycles"
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "3"
-t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=auto TEHAS_MAX_AWAITING=9
+t_instance "${T_MINIMAL[@]}" TEHAS_TICKET_CONCURRENCY=1 TEHAS_MAX_AWAITING=9
 t_run "$load && echo \"\$TEHAS_MAX_AWAITING\""
 t_eq "$t_out" "9"
 
-t_case "auto is refused with several workstreams: one axis of parallelism"
-t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=auto
+# One axis of parallelism still holds with numbers: several cycles of one
+# workstream are refused.
+t_case "several workstreams with several cycles are refused: one axis of parallelism"
+t_instance "${T_MINIMAL[@]}" TEHAS_CONCURRENCY=2 TEHAS_TICKET_CONCURRENCY=4
 t_run "$load"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (auto) are both above 1"
+t_contains "$t_out" "TEHAS_CONCURRENCY (2) and TEHAS_TICKET_CONCURRENCY (4) are both above 1"
 
 # The three the poll reads for `auto` are not the loader's: nothing is exported
 # and nothing is checked, and the poll holds the rule and the default of each

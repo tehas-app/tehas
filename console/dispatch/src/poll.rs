@@ -679,8 +679,8 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
     let Some(report) = &d.report else {
         return;
     };
-    let mut v = report.clone();
-    v["time"] = json!(iso_now());
+    let mut v = report.to_value();
+    v[tehas_core::hold::KEY_TIME] = json!(iso_now());
     let file = home.join("live/dispatch.json");
     let made = w.scratch("dispatch").and_then(|p| {
         let mut f: File = OpenOptions::new()
@@ -707,7 +707,7 @@ fn report(home: &Path, w: &mut Writer, d: &crate::Decision, snap: &Value) {
         }
     }
     let before = snap.get("last_why").and_then(Value::as_str).unwrap_or("");
-    if report.get("why").and_then(Value::as_str).unwrap_or("") != before {
+    if report.why.map_or("", |w| w.as_str()) != before {
         let mut printed = Vec::new();
         w.status(&mut printed);
         pass(&printed);

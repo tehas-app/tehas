@@ -360,6 +360,17 @@ t_lacks "$(t_calls shim)" "installation/repositories"
 t_eq "$(cat "$T/gh-token")" "ghs_shim"
 t_lacks "$(cat "$T"/calls/*)" "ghs_minted"
 
+t_case "a first app run installs before it clones, because the app's gh is the install's"
+fresh
+mv "$T/home/tehas/shim/gh" "$T/shim-gh"
+printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\nmkdir -p "$T/home/tehas/shim"\ncp "$T/shim-gh" "$T/home/tehas/shim/gh"\n' >"$plat/install.sh"
+run_setup "${app_args[@]}" --no-build
+t_eq "$t_rc" 0
+t_eq "$(grep -c '^install.sh' "$T/calls/steps")" 2
+t_contains "$(t_calls shim)" "repo clone acme/widget"
+printf '#!/usr/bin/env bash\necho install.sh $* >>"$T/calls/steps"\n' >"$plat/install.sh"
+chmod +x "$plat/install.sh"
+
 t_case "a second app run changes nothing and makes no issue"
 before=$(cd "$cfg" && sha256sum instance.env models.json github-app.pem; git config -f "$T/home/.gitconfig" -l)
 stub_all

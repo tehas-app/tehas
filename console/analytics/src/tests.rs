@@ -2193,6 +2193,41 @@ fn a_sample_reads_the_live_files_of_the_poll() {
 }
 
 #[test]
+fn a_sample_reads_the_report_the_dispatcher_writes() {
+    // The dispatcher's own type, taken through to_value and stamped with the
+    // poll's time: the bytes libexec/dispatch publishes. The sampler reads its
+    // held word and its cycle limit from those bytes by the core's key names.
+    let home = scratch("sample-written");
+    let now = 1_792_000_000;
+    live(&home, now - 30, "awaiting", None);
+    let r = tehas_core::hold::Report {
+        why: Some(tehas_core::hold::Why::Limit),
+        hold: "holding: the limit allows 3 cycles at once and 2 are running".into(),
+        count: 2,
+        room: 4,
+        committed: 0,
+        max: 0,
+        reserve: "2g".into(),
+        free: 5,
+        await_room: None,
+        limit_room: Some(1),
+        refresh_room: Some(2),
+        endpoint: Some("backup".into()),
+        slots: Some(json!({"cycles": 6, "cyclesHow": "auto"})),
+    };
+    let mut v = r.to_value();
+    v[tehas_core::hold::KEY_TIME] = json!(iso(now - 20));
+    put(&home, "live/dispatch.json", &v.to_string());
+    execute(&home, &Cmd::Sample, now).unwrap();
+    // The limit of tehas limit is the lower ceiling: count plus limitRoom,
+    // three, though count plus free would give seven.
+    assert_eq!(
+        sample_row(&home),
+        format!("{now} 3 2 1 0 2 3 1 [limit] 412.5")
+    );
+}
+
+#[test]
 fn a_live_file_that_is_missing_stale_a_link_or_malformed_gives_null_columns() {
     let now = 1_792_000_000;
     let nothing = |at: i64| format!("{at} - - - - - - - - -");
