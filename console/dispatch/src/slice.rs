@@ -386,7 +386,10 @@ mod tests {
     /// A reading that passes every check but the ones a case names.
     fn host() -> Reading {
         let mut show = Map::new();
-        show.insert("FragmentPath".into(), Value::from("/etc/systemd/system/tehas.slice"));
+        show.insert(
+            "FragmentPath".into(),
+            Value::from("/etc/systemd/system/tehas.slice"),
+        );
         show.insert("ActiveState".into(), Value::from("active"));
         show.insert("MemoryMax".into(), Value::from("34359738368"));
         Reading {

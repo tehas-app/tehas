@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use tehas_core::hold;
 use tehas_core::time;
 
 /// A queue snapshot older than this is not news.
@@ -959,38 +960,45 @@ fn platform(live: &Path) -> J {
     }
 }
 
-/// The slice as the last poll left it, when that poll is young enough.
+/// The slice as the last poll left it, when that poll is young enough. The
+/// keys are tehas-core's: the dispatcher writes the file through `hold::Report`,
+/// so a key named here is a key that type declares.
 fn slice(live: &Path, now: i64) -> J {
     let d = snapshot(&live.join("dispatch.json"));
-    let young = age_of(d.get("time"), now).is_some_and(|a| a < POLL_MAX_AGE);
-    if !matches!(d, J::Obj(_)) || d.get("why").as_str().is_none() || !young {
+    let young = age_of(d.get(hold::KEY_TIME), now).is_some_and(|a| a < POLL_MAX_AGE);
+    if !matches!(d, J::Obj(_)) || d.get(hold::KEY_WHY).as_str().is_none() || !young {
         return J::Null;
     }
     let mut f = get_fields(
         &d,
         &[
-            "time",
-            "why",
-            "hold",
-            "count",
-            "room",
-            "committed",
-            "max",
-            "reserve",
+            hold::KEY_TIME,
+            hold::KEY_WHY,
+            hold::KEY_HOLD,
+            hold::KEY_COUNT,
+            hold::KEY_ROOM,
+            hold::KEY_COMMITTED,
+            hold::KEY_MAX,
+            hold::KEY_RESERVE,
         ],
     );
-    for k in ["free", "awaitRoom", "limitRoom", "refreshRoom"] {
+    for k in [
+        hold::KEY_FREE,
+        hold::KEY_AWAIT_ROOM,
+        hold::KEY_LIMIT_ROOM,
+        hold::KEY_REFRESH_ROOM,
+    ] {
         if !d.get(k).is_null() {
             f.push((k.to_string(), d.get(k).clone()));
         }
     }
     // What the two counts are when an instance says `auto`: the poll derived
     // them from the host on this very poll, and the reason says which reading
-    // gave them. Left out, as every other optional field is, when the poll
-    // wrote none: a factory with numbers for both settings reports nothing
-    // new.
-    if !d.get("slots").is_null() {
-        f.push(("slots".to_string(), d.get("slots").clone()));
+    // gave them. The report nests them under `slots`, and they are left out,
+    // as every other optional field is, when the poll wrote none: a factory
+    // with numbers for both settings reports nothing new.
+    if !d.get(hold::KEY_SLOTS).is_null() {
+        f.push((hold::KEY_SLOTS.to_string(), d.get(hold::KEY_SLOTS).clone()));
     }
     J::Obj(f)
 }
@@ -1202,8 +1210,17 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
             .and_then(epoch)
             .unwrap_or(0)
     });
-    let no_start = !slice.is_null() && in_list(slice.get("why"), &["slice", "disk", "unreadable"]);
-    let no_resources = !slice.is_null() && slice.get("why").as_str() == Some("resources");
+    let no_start = !slice.is_null()
+        && in_list(
+            slice.get(hold::KEY_WHY),
+            &[
+                hold::Why::Slice.as_str(),
+                hold::Why::Disk.as_str(),
+                hold::Why::Unreadable.as_str(),
+            ],
+        );
+    let no_resources = !slice.is_null()
+        && slice.get(hold::KEY_WHY).as_str() == Some(hold::Why::Resources.as_str());
     let old_queue = queue_age.is_some_and(|a| a > QUEUE_MAX_AGE);
     let paused = !flag.is_null() || label || lifted;
     let limit_holds = in_list(limit.get("state"), &["expired", "unreadable"]);
@@ -1261,7 +1278,7 @@ fn report(home: &Path, g: &Given, now: i64) -> J {
                 .to_string()
         }
     } else if no_start || no_resources {
-        let hold = slice.get("hold");
+        let hold = slice.get(hold::KEY_HOLD);
         if no_resources {
             let h = hold.text_or_empty();
             let h = match h.strip_prefix("holding: no resources: ") {
@@ -1638,6 +1655,83 @@ mod tests {
         assert_eq!(
             r.at(&["checks", "slice"]).dump(),
             r#"{"time":"2026-10-17T14:00:00Z","why":"","hold":null,"count":null,"room":1,"committed":null,"max":null,"reserve":null,"free":1}"#
+        );
+    }
+
+    /// The report of a poll, at `at`, as the dispatcher's own type writes it:
+    /// the bytes of `Report::to_value` with the poll's time stamped on them,
+    /// which is exactly what `libexec/dispatch` publishes as live/dispatch.json.
+    fn poll_report(h: &Home, at: &str, r: &hold::Report) {
+        let mut v = r.to_value();
+        v[hold::KEY_TIME] = serde_json::json!(at);
+        h.write("live/dispatch.json", &v.to_string());
+    }
+
+    #[test]
+    fn the_slice_reads_the_report_the_dispatcher_writes() {
+        // The one contract between the two programs: a Report the dispatcher
+        // builds, taken through to_value, and read back by the page. Every
+        // field of the check is there, and the derived counts are found under
+        // `slots`, where the report writes them and not at the top level.
+        let h = home("written");
+        let r = hold::Report {
+            why: Some(hold::Why::Slice),
+            hold: "holding: tehas.slice has no room for another cycle".into(),
+            count: 2,
+            room: 0,
+            committed: 21_474_836_480,
+            max: 21_474_836_480,
+            reserve: "2g".into(),
+            free: 1,
+            await_room: Some(3),
+            limit_room: Some(0),
+            refresh_room: Some(1),
+            endpoint: Some("backup".into()),
+            slots: Some(serde_json::json!({
+                "cycles": 6, "containers": 6, "cyclesHow": "auto",
+                "containersHow": "auto",
+                "cycle": {"bound": "cpu", "slots": 6, "cpus": 24, "cycleCpus": "4",
+                          "containerMemory": "8g", "ceiling": "16", "floored": false}
+            })),
+        };
+        poll_report(&h, "2026-10-17T14:00:00Z", &r);
+        let got = h.report(&Given::default());
+        let slice = got.at(&["checks", "slice"]);
+        for (path, want) in [
+            (vec![hold::KEY_TIME], "2026-10-17T14:00:00Z"),
+            (vec![hold::KEY_WHY], "slice"),
+            (
+                vec![hold::KEY_HOLD],
+                "holding: tehas.slice has no room for another cycle",
+            ),
+            (vec![hold::KEY_RESERVE], "2g"),
+            (vec![hold::KEY_SLOTS, "cycle", "bound"], "cpu"),
+        ] {
+            assert_eq!(slice.at(&path).as_str(), Some(want), "{path:?}");
+        }
+        for (key, want) in [
+            (hold::KEY_COUNT, 2.0),
+            (hold::KEY_ROOM, 0.0),
+            (hold::KEY_COMMITTED, 21_474_836_480.0),
+            (hold::KEY_MAX, 21_474_836_480.0),
+            (hold::KEY_FREE, 1.0),
+            (hold::KEY_AWAIT_ROOM, 3.0),
+            (hold::KEY_LIMIT_ROOM, 0.0),
+            (hold::KEY_REFRESH_ROOM, 1.0),
+        ] {
+            assert_eq!(slice.get(key).as_f64(), Some(want), "{key}");
+        }
+        assert_eq!(
+            slice.at(&[hold::KEY_SLOTS, "containersHow"]).as_str(),
+            Some("auto")
+        );
+        // A reason that holds every start warns with the poll's own line.
+        assert_eq!(
+            said(&got),
+            (
+                "warn".into(),
+                "holding: tehas.slice has no room for another cycle".into()
+            )
         );
     }
 

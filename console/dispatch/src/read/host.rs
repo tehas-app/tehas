@@ -209,12 +209,18 @@ pub fn requests(home: &Path) -> Vec<(u64, Value)> {
     out
 }
 
-/// The why of the last live/dispatch.json, empty when it cannot be read.
+/// The why of the last live/dispatch.json, empty when it cannot be read. The
+/// key is the core report's, as is the word: a reader that kept its own copy
+/// of either would go on reading a field the poll no longer writes.
 pub fn last_why(home: &Path) -> String {
     fs::read_to_string(home.join("live/dispatch.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .and_then(|v| v.get("why").and_then(Value::as_str).map(str::to_string))
+        .and_then(|v| {
+            v.get(tehas_core::hold::KEY_WHY)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_default()
 }
 

@@ -8,7 +8,9 @@
 //!   labelled tehas:plan or tehas:planning, left out by a status.json from
 //!   before it was kept; paused is 1 or 0.
 //! - live/dispatch.json (libexec/dispatch, report_hold, on a poll that gets
-//!   as far as rule 3): {time, why, count, free, limitRoom, ...}. held is
+//!   as far as rule 3): the report of `tehas_core::hold::Report`, {time, why,
+//!   count, free, limitRoom, ...}, whose keys the sampler names by that type.
+//!   held is
 //!   why: the one word of the hold, empty when nothing holds. cycle_limit is
 //!   the cycles allowed at once: count plus free (TEHAS_TICKET_CONCURRENCY,
 //!   or the count the poll derived from the host when that setting is
@@ -65,15 +67,24 @@ pub fn read(home: &Path, now: i64) -> Sample {
             .and_then(Value::as_i64)
             .filter(|n| *n >= 0);
     }
-    if let Some(d) = fresh("dispatch.json", "time", STALE_DISPATCH) {
+    if let Some(d) = fresh("dispatch.json", tehas_core::hold::KEY_TIME, STALE_DISPATCH) {
         let n = |k: &str| d.get(k).and_then(Value::as_i64);
-        s.held = d.get("why").and_then(Value::as_str).and_then(|w| {
-            let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
-            ok.then(|| w.to_string())
-        });
-        if let (Some(count), Some(free)) = (n("count"), n("free")) {
+        s.held = d
+            .get(tehas_core::hold::KEY_WHY)
+            .and_then(Value::as_str)
+            .and_then(|w| {
+                // The word is open by shape, not by the core's list: a row
+                // with a word a future poll added is a held poll, and dropping
+                // it would read as no hold at all.
+                let ok = w.len() <= 40 && w.bytes().all(|b| b.is_ascii_lowercase() || b == b'-');
+                ok.then(|| w.to_string())
+            });
+        if let (Some(count), Some(free)) = (
+            n(tehas_core::hold::KEY_COUNT),
+            n(tehas_core::hold::KEY_FREE),
+        ) {
             let mut limit = count + free;
-            if let Some(room) = n("limitRoom") {
+            if let Some(room) = n(tehas_core::hold::KEY_LIMIT_ROOM) {
                 limit = limit.min(count + room);
             }
             s.cycle_limit = Some(limit.max(0));

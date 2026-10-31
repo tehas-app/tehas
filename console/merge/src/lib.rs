@@ -199,7 +199,9 @@ impl Outcome {
     /// issue's comment and to the poll's log, and what the command said is the
     /// part a person can act on. One line, cut to 300 characters.
     fn said(mut self, d: Done) -> Outcome {
-        if let Some(w) = first_line(&d.err).or_else(|| first_line(&d.out)).filter(|w| !w.is_empty())
+        if let Some(w) = first_line(&d.err)
+            .or_else(|| first_line(&d.out))
+            .filter(|w| !w.is_empty())
         {
             self.why = format!("{}: {}", self.why, trim(&w));
         }
