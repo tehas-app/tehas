@@ -59,7 +59,6 @@ serve() {
   check_keys() { # <setting> <value>: 0 when the setting holds a key
     local name=$1 list=() i
     read -r -a list <<<"$2"
-    [[ ${list[0]-} =~ ^[^A-Za-z0-9_-]*$ ]] && return 1
     for i in "${!list[@]}"; do
       [[ ${list[i]} =~ ^[A-Za-z0-9_-]{32,}$ ]] ||
         { tehas_err "$name: key $((i + 1)) is not at least 32 characters of A-Za-z0-9_-"; exit 78; }
