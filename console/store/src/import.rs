@@ -686,7 +686,16 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
         Some(s) => Some(verbs::sha256(s).ok_or("has a title_sha256 that is not a sha256")?),
     };
     let mut input = Map::new();
-    for k in ["links", "comment_links", "retry_context", "refresh_of"] {
+    // `park_lifted` (#1130) is the one entry of a millwright start that says
+    // why a park's hold let it through; the shape of a note is what the
+    // dispatcher wrote, so it is kept as it came.
+    for k in [
+        "links",
+        "comment_links",
+        "retry_context",
+        "refresh_of",
+        "park_lifted",
+    ] {
         if let Some(v) = m.get(k) {
             input.insert(k.to_string(), v.clone());
         }

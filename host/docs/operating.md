@@ -728,6 +728,23 @@ outage is held by its own rule instead, and a park of a cycle started by hand,
 which no approval bound to a body, holds nothing. A park that cannot be read
 holds the issue for that poll.
 
+The millwright's own `tehas:ready` is the one label a park lets through without
+a change to the body, when its comment says the next run is not the run that
+stopped. The hold is lifted when the label came from `TEHAS_MILLWRIGHT_LOGIN`,
+the instance gives a cycle images or files (`TEHAS_WORK_IMAGES=1` or
+`TEHAS_WORK_FILES=1`, since the note reaches a cycle nowhere else), and that
+same account wrote a comment carrying `<!-- tehas:millwright issue=<n>
+action=change -->` in the ten minutes before the label and saved it by nobody
+after. `action=retry` lifts nothing: that ask is the run again, and its box is
+never held. The start the lift let through counts against
+`TEHAS_MILLWRIGHT_MAX_RETRIES` as any millwright start does, and it is held
+when the grant itself refuses, which a start of no person's approval or a body
+changed since the approval is. The poll's log says
+`lift #<n>: ... lifted on the fixer's guidance comment` and the approval record
+carries the comment under `park_lifted`, beside the `retry_context` the cycle is
+given; `rests_on` still names the person's approval the refresh reads. The hold
+and its comment are unchanged for anyone else's label.
+
 An issue closed since its cycle stopped is not work. Neither the tick nor a new
 `tehas:ready` starts anything on it, and the poll's log says so.
 
@@ -1704,7 +1721,9 @@ the new names.
   nobody after, goes into the record as `retry_context`. Where the instance
   gives a cycle images or files, `tehas work` writes it to
   `retry-context.md` beside them, quoted, under a head that says a model
-  wrote it. No mount and no variable more: elsewhere it reaches no cycle.
+  wrote it. No mount and no variable more: elsewhere it reaches no cycle. The
+  park's hold is lifted by the `action=change` one of them alone, which is why
+  [parking](#5-when-a-cycle-stops) asks for that setting too.
 - **It may answer a planning question**, by a tick or a reply, only when
   no person has answered the same question: a person's tick or reply wins,
   whichever came first. And only in a session an allowed account's

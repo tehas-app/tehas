@@ -66,7 +66,7 @@ fn page_query() -> String {
 
 const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
       repository(owner: $owner, name: $name) { issue(number: $number) {
-        comments(last: 100) { nodes { databaseId author { login } body createdAt lastEditedAt editor { login }
+        comments(last: 100) { nodes { databaseId id author { login } body createdAt lastEditedAt editor { login }
           userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }"#;
 
 const PULL: &str = r#"query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {

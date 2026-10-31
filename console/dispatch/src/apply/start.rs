@@ -156,7 +156,12 @@ fn issue_alone(a: &Value, log: &mut Vec<String>, n: u64) -> bool {
 /// lists them, those an allowed account wrote at or after `since` and at or
 /// before `at`, and that nobody edited after `at`, in the order written.
 /// None when the answer is not a list of comments.
-fn window(list: &Value, since: &str, at: &str, who: &dyn Fn(&str) -> bool) -> Option<Vec<Value>> {
+pub(crate) fn window(
+    list: &Value,
+    since: &str,
+    at: &str,
+    who: &dyn Fn(&str) -> bool,
+) -> Option<Vec<Value>> {
     let all = list.as_array()?;
     let s = |c: &Value, k: &str| c.get(k).and_then(Value::as_str).map(str::to_string);
     let mut out: Vec<Value> = all
@@ -212,7 +217,7 @@ fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
 
 /// A comment as retry_context has it: its first 4000 characters, without
 /// carriage returns.
-fn context(c: &Value, source: &str) -> Value {
+pub(crate) fn context(c: &Value, source: &str) -> Value {
     let body: String = c
         .get("body")
         .and_then(Value::as_str)
@@ -239,6 +244,87 @@ fn names_issue(pr: &Value, n: u64) -> bool {
         r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{n}([^0-9]|$)"
     ))
     .is_ok_and(|re| re.is_match(body))
+}
+
+/// The millwright's comment of the ten minutes before its `tehas:ready` that
+/// the park rule lifts its hold for: the newest one carrying the
+/// `action=change` marker, as `retry_context` has a note. `action=retry` asks
+/// for the same run again and lifts nothing. The window, the newest alone and
+/// the edited-after test are the writer's own, so the comment the hold is
+/// lifted for is the comment the start is given (#1130).
+///
+/// <list> is the answer of the poll's read of the issue's comments, which
+/// names the comments GraphQL-style (`nodes`, `author`, `createdAt`,
+/// `lastEditedAt`); they are put in the shape `window` and `context` read them
+/// as REST lists them, so the one rule serves both. None when the answer is
+/// not a list of comments or none of them qualifies.
+pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: i64) -> Option<Value> {
+    let nodes = list
+        .pointer("/data/repository/issue/comments/nodes")
+        .and_then(Value::as_array)
+        .or_else(|| list.as_array())?;
+    let since = iso(u64::try_from(at - 600).ok()?);
+    let until = iso(u64::try_from(at).ok()?);
+    let marker = regex::Regex::new(&format!(
+        "<!-- tehas:millwright issue={n} action=change -->"
+    ))
+    .ok()?;
+    let rest: Vec<Value> = nodes
+        .iter()
+        .filter_map(|x| {
+            let id = x
+                .get("databaseId")
+                .or_else(|| x.get("id"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let login = x
+                .pointer("/author/login")
+                .or_else(|| x.pointer("/user/login"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let (body, created) = (
+                x.get("body").and_then(Value::as_str)?,
+                x.get("createdAt")
+                    .or_else(|| x.get("created_at"))
+                    .and_then(Value::as_str)?,
+            );
+            // GitHub answers a comment nobody saved after it with no stamp at
+            // all, and REST with a stamp equal to the first: either is the
+            // comment as its author wrote it.
+            let edited = x
+                .get("lastEditedAt")
+                .or_else(|| x.get("updated_at"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let editor = x
+                .pointer("/editor/login")
+                .and_then(Value::as_str)
+                .unwrap_or(login);
+            let mut c = json!({"id": id, "body": body, "user": {"login": login},
+                "created_at": created});
+            c["updated_at"] = if edited.is_null() {
+                json!(created)
+            } else {
+                edited
+            };
+            c["editor"] = if editor == login {
+                Value::Null
+            } else {
+                json!({"login": editor})
+            };
+            Some(c)
+        })
+        .collect();
+    let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
+    // A comment saved by another account after the label is not the fixer's
+    // ask: it is held as the writer holds a note an outsider edited.
+    window(&Value::Array(rest), &since, &until, &who)
+        .and_then(|w| {
+            w.into_iter()
+                .rev()
+                .find(|x| marker.is_match(x.get("body").and_then(Value::as_str).unwrap_or("")))
+        })
+        .map(|x| context(&x, "millwright"))
 }
 
 impl Writer {
@@ -638,6 +724,25 @@ impl Writer {
                 "refresh_of".into(),
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
+        }
+        // The reason a park's hold let this start through: the millwright's
+        // guidance comment, named on the record so a reader can say why the
+        // start was allowed. It is not the person's approval, which `rests_on`
+        // keeps naming (#1130).
+        // The bash poll's note arrives as the one-entry list retry_context
+        // has; the Rust decide builds the entry itself. Either is stored as the
+        // single object, so a reader sees one shape.
+        let lifted = match a.get("park_lifted") {
+            Some(o) if o.is_object() => Some(o.clone()),
+            Some(v) => v
+                .as_array()
+                .and_then(|l| l.last())
+                .filter(|o| o.is_object())
+                .cloned(),
+            None => None,
+        };
+        if let Some(o) = lifted {
+            input.insert("park_lifted".into(), o);
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,
