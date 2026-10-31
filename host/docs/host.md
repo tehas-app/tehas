@@ -83,7 +83,12 @@ all, and the answer is used only when it names an existing directory under
 symlink, and enters no dot-name, which is what
 keeps those trees out of the removal. It holds the issue's lock while it removes,
 so no cycle starts under it, and it removes nothing for an issue whose lock file
-is not there to hold. When the age rule passes, an issue is left alone for one of
+is not there to hold, or whose lock the probe cannot tell: a link, a directory or
+a lock no one can open is read as a lock a cycle holds, because a lock is held by
+descriptor and a name of its own proves nothing about the file that was locked.
+The probe is the one the library keeps (`tehas_core::lock`,
+`console/core/src/lock.rs`), the same one the dispatcher, the health page and the
+store ask, so the four of them agree about one lock. When the age rule passes, an issue is left alone for one of
 two reasons and the log line names which: `kept the build output of #<issue>:
 no lock to hold, so nothing of it was removed` when its trees held build output and no
 lock could be taken, and `nothing to remove in #<issue>` when none of its trees held
@@ -484,7 +489,9 @@ Five installed files are compiled, not copied: the console of a running cycle,
 the analytics program, the MCP server, the state store and the attachment
 checker, Rust programs in the Cargo workspace `console/` (the others are in
 `console/analytics/`, `console/mcp/`, `console/store/` and `console/attach/`,
-and the library all but the attachment checker share is in `console/core/`).
+and the library all but the attachment checker share is in `console/core/`,
+which holds the one probe of a lock file that the store, the dispatcher, the
+health page and the cleaner ask).
 A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and

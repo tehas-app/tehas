@@ -4,24 +4,23 @@
 
 use super::run::run;
 use serde_json::{json, Value};
-use std::fs::{self, File};
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-/// Whether a lock file is held by someone: it is there, and cannot be taken.
+/// Whether a lock file is held by someone, or cannot be told apart from one
+/// that is: anything but no lock and a lock the probe took counts as held, as
+/// `flock -n` finds. The probe is core's, the one every reader of a lock asks.
+///
+/// A lock of a whole file is held by descriptor and one process holds only one
+/// of those per file, so the probe's own open takes a lock the same process
+/// already holds: a caller that holds the lock itself is told it is free. The
+/// callers ask about a lock another process took.
 pub fn held(path: &Path) -> bool {
-    // A lock file that is there and cannot be opened cannot be taken either,
-    // as flock -n finds.
-    let Ok(f) = File::open(path) else {
-        return path.exists();
-    };
-    match f.try_lock() {
-        Ok(()) => {
-            let _ = f.unlock();
-            false
-        }
-        Err(_) => true,
-    }
+    matches!(
+        tehas_core::lock::probe(path),
+        tehas_core::lock::Probe::Held | tehas_core::lock::Probe::Unknown(_)
+    )
 }
 
 /// tehas_cycles_running: the issues whose cycle holds its lock.
@@ -457,11 +456,89 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::BufRead;
+    use std::path::PathBuf;
+
+    struct Dir(PathBuf);
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A home of this case's own, with its `state`.
+    fn home(name: &str) -> Dir {
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let d = std::env::temp_dir().join(format!(
+            "tehas-dispatch-host-{}-{name}-{}",
+            std::process::id(),
+            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(d.join("state")).unwrap();
+        Dir(d)
+    }
 
     #[test]
     fn times_read_as_fromdateiso8601_reads_them() {
         assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(epoch("2026-10-31T00:00:00Z"), Some(1_793_404_800));
         assert_eq!(epoch("2026-10-31 00:00:00"), None);
+    }
+
+    #[test]
+    fn no_lock_and_one_the_probe_took_are_not_held() {
+        let h = home("free");
+        let lock = h.0.join("state/plan-7.json.lock");
+        assert!(!held(&lock), "no lock file");
+        fs::write(&lock, "").unwrap();
+        assert!(!held(&lock), "a lock no one holds");
+    }
+
+    #[test]
+    fn a_directory_at_a_planning_lock_path_is_held() {
+        let h = home("directory");
+        let lock = h.0.join("state/plan-7.json.lock");
+        fs::create_dir(&lock).unwrap();
+        assert!(held(&lock), "a name that is no lock file");
+    }
+
+    #[test]
+    fn a_link_at_a_planning_lock_path_is_held() {
+        let h = home("link");
+        let target = h.0.join("elsewhere.lock");
+        fs::write(&target, "").unwrap();
+        let lock = h.0.join("state/plan-7.json.lock");
+        std::os::unix::fs::symlink(&target, &lock).unwrap();
+        assert!(held(&lock), "a lock asked by a name of its own");
+    }
+
+    #[test]
+    fn a_lock_held_by_another_process_is_held() {
+        let h = home("held");
+        let lock = h.0.join("state/plan-7.json.lock");
+        fs::write(&lock, "").unwrap();
+        // The holder is a process of its own, so the probe's open is not the one
+        // that already holds the lock. It prints when it holds, waits for a line,
+        // and gives the lock up when the pipe closes.
+        let mut child = std::process::Command::new("flock")
+            .arg("-x")
+            .arg(&lock)
+            .arg("-c")
+            .arg("echo held; read _")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut said = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut said)
+            .unwrap();
+        assert_eq!(said.trim(), "held", "the holder never took the lock");
+        assert!(held(&lock), "a lock another process holds");
+        drop(child.stdin.take().unwrap());
+        child.wait().unwrap();
+        assert!(!held(&lock), "the lock was given back");
     }
 }

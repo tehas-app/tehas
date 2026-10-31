@@ -498,13 +498,13 @@ impl Poll<'_> {
             if count >= 3 {
                 return;
             }
-            if self.running(n) {
-                continue;
-            }
             if !l.lock_ok {
                 self.log(format!(
                     "WARN: the lock of #{n} is no lock file, so nothing of it was removed"
                 ));
+                continue;
+            }
+            if self.running(n) {
                 continue;
             }
             if l.young {

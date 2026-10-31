@@ -3,9 +3,8 @@
 //! writes `cycle_locks`.
 
 use crate::verbs::{j, obj};
-use std::fs::{self, File, TryLockError};
+use std::fs;
 use std::io::ErrorKind;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -87,38 +86,21 @@ pub fn probe(home: &Path, issue: i64, open_row: bool) -> Lock {
 
 /// Steps 2 to 4 of the probe for one lock file, by its path: None when there
 /// is no such file. The cycle lock and the planning turn's lock
-/// (`state/plan-<n>.json.lock`) are probed the same way.
+/// (`state/plan-<n>.json.lock`) are probed the same way. The answer is core's:
+/// absent is no file, free is rc 0, held is rc 1 and unknown is rc 2 with the
+/// reason the probe gave, so the store and the readers that ask core directly
+/// cannot disagree about one lock.
 pub fn probe_file(file: &Path) -> Option<Lock> {
-    let name = file
-        .file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let before = match fs::symlink_metadata(file) {
-        Ok(m) if m.file_type().is_file() => m,
-        Ok(_) => return Some(Lock::unknown(true, format!("{name} is not a regular file"))),
-        Err(e) if e.kind() == ErrorKind::NotFound => return None,
-        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
-    };
-    let f = match File::open(file) {
-        Ok(f) => f,
-        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
-    };
-    match f.metadata() {
-        Ok(m) if m.dev() == before.dev() && m.ino() == before.ino() => {}
-        Ok(_) => return Some(Lock::unknown(true, format!("{name} was replaced"))),
-        Err(e) => return Some(Lock::unknown(true, format!("{name}: {e}"))),
-    }
-    Some(match f.try_lock() {
-        Ok(()) => {
-            let _ = f.unlock();
-            Lock::free(true)
-        }
-        Err(TryLockError::WouldBlock) => Lock {
+    match tehas_core::lock::probe(file) {
+        tehas_core::lock::Probe::Absent => None,
+        tehas_core::lock::Probe::Free => Some(Lock::free(true)),
+        tehas_core::lock::Probe::Held => Some(Lock {
             rc: 1,
             file: true,
             why: None,
-        },
-        Err(TryLockError::Error(e)) => Lock::unknown(true, format!("{name}: {e}")),
-    })
+        }),
+        tehas_core::lock::Probe::Unknown(why) => Some(Lock::unknown(true, why)),
+    }
 }
 
 /// The issues named by lock files in `state/cycles`. A missing directory lists
