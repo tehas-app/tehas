@@ -5,7 +5,9 @@
 //!   console plan outcome <runner exit> <session> <keep> [refine]
 //!       the runner's JSON document on standard input. A drafted plan (exit
 //!       12) is kept in <keep>/draft.json for update. Only a refine session
-//!       offers to file it as a new issue.
+//!       offers to file it as a new issue. A plan session's draft with no open
+//!       points is marked `clear`: the dispatcher decides whether it needs the
+//!       tick its question asks for.
 //!   console plan update <session> <keep>
 //!       the issue's {title, body} on standard input, as gh issue view gives
 //!       them, and the draft in <keep>/draft.json.
@@ -21,9 +23,8 @@
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::Path;
+use tehas_core::plan::{clip, made, text_of, APPLY_READY, CLIP};
 
-/// A GitHub comment holds 65,536 characters; the plan is cut well before.
-const CLIP: usize = 40_000;
 /// pi-rukas keeps a plan's title to 72 characters in all, its prefix included,
 /// and its longest prefix, `research: `, is 10 of them.
 const TITLE_BUDGET: usize = 62;
@@ -87,25 +88,6 @@ fn usage() -> u8 {
     2
 }
 
-fn clip(s: &str, what: &str) -> String {
-    match s.char_indices().nth(CLIP) {
-        Some((at, _)) => format!(
-            "{}\n\n(cut: {what} is longer than a comment holds)",
-            &s[..at]
-        ),
-        None => s.to_string(),
-    }
-}
-
-/// A value as jq's `(. // "") | tostring` gives it.
-fn text_of(v: Option<&Value>) -> String {
-    match v {
-        None | Some(Value::Null) | Some(Value::Bool(false)) => String::new(),
-        Some(Value::String(s)) => s.clone(),
-        Some(v) => v.to_string(),
-    }
-}
-
 fn filed_ok(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://github.com/") else {
         return false;
@@ -135,6 +117,17 @@ fn document(session: &str, text: &str, question: &Value, filed: &[String], more:
         out += &format!(",\"filed\":{}", json!(filed));
     }
     out + more + "}"
+}
+
+/// A drafted plan needs no tick only when the planner lists no open points in
+/// so many words and the issue can hold the plan whole. No list is not an
+/// empty list, and an entry that is no question is still left open.
+fn clear(d: &Value, spec: &str) -> bool {
+    d.get("questions")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+        && !spec.trim().is_empty()
+        && spec.chars().count() <= CLIP
 }
 
 pub fn outcome(
@@ -176,6 +169,7 @@ pub fn outcome(
     let said = text_of(d.get("text"));
     let ask = |q: String| json!({"question": q, "options": []});
     let mut filed = Vec::new();
+    let mut more = "";
     let (text, question) = match rc {
         0 => {
             let url = d.get("url").filter(|u| !u.is_null()).or(d.get("issueUrl"));
@@ -211,6 +205,9 @@ pub fn outcome(
                 options.push(json!({"label": "File as a new issue", "description": "file the plan above as one new issue"}));
                 DRAFTED_REFINE
             } else {
+                if clear(&d, &spec) {
+                    more = ",\"clear\":true";
+                }
                 DRAFTED
             };
             (
@@ -232,7 +229,7 @@ pub fn outcome(
     if text.is_empty() && question.is_null() && filed.is_empty() {
         return Err("the turn said and asked nothing".into());
     }
-    Ok(document(session, &text, &question, &filed, ""))
+    Ok(document(session, &text, &question, &filed, more))
 }
 
 /// The first line of the brief, which is its `# ` heading, without the marker.
@@ -299,30 +296,12 @@ pub fn update(session: &str, keep: &Path, was: &str) -> Result<String, String> {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .ok_or("no drafted plan is kept")?;
-    let spec = text_of(draft.get("spec"));
-    if spec.is_empty() {
-        return Err("the drafted plan has no text".into());
-    }
-    let mut title = text_of(draft.get("title"));
-    if title.is_empty() {
-        title = text_of(was.get("title"));
-    }
-    let old = format!(
-        "# {}\n\n{}",
-        text_of(was.get("title")),
-        text_of(was.get("body"))
-    );
-    let quoted = clip(&old, "the text")
-        .split('\n')
-        .map(|l| format!("> {l}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let text = format!("This issue now holds the plan. Apply `tehas:ready` to build it.\n\n<details><summary>The text it replaced</summary>\n\n{quoted}\n\n</details>");
+    let plan = made(&draft, &was, APPLY_READY)?;
     let more = format!(
         ",\"update\":{}",
-        json!({"title": title, "body": clip(&spec, "the plan")})
+        json!({"title": plan.title, "body": plan.body})
     );
-    Ok(document(session, &text, &Value::Null, &[], &more))
+    Ok(document(session, &plan.text, &Value::Null, &[], &more))
 }
 
 #[cfg(test)]
@@ -365,6 +344,60 @@ mod tests {
             "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
         );
         assert!(out.starts_with("{\"session\":\"abc\",\"text\":"));
+    }
+
+    const CLEAR: &str = r#"{"text":"Drafted.","title":"Fast","spec":"Do it.","questions":[]}"#;
+
+    #[test]
+    fn a_draft_with_no_open_points_is_clear_and_still_carries_its_question() {
+        let k = keep();
+        let v = parsed(&outcome(12, "abc", &k, CLEAR, false).unwrap());
+        assert_eq!(v["clear"], true);
+        // What the dispatcher posts when the start is not allowed: today's.
+        assert_eq!(v["question"]["question"], DRAFTED);
+        assert_eq!(
+            std::fs::read_to_string(k.join("draft.json")).unwrap(),
+            "{\"spec\":\"Do it.\",\"title\":\"Fast\"}\n"
+        );
+    }
+
+    #[test]
+    fn only_a_plan_session_that_says_it_has_no_open_points_is_clear() {
+        let k = keep();
+        let not = |doc: &str, refine: bool| {
+            assert!(
+                parsed(&outcome(12, "abc", &k, doc, refine).unwrap())
+                    .get("clear")
+                    .is_none(),
+                "{doc}"
+            )
+        };
+        not(DRAFT, false);
+        not(CLEAR, true);
+        // No list is not an empty list, and an entry that is no question is
+        // still something the planner left open.
+        not(r#"{"title":"Fast","spec":"Do it."}"#, false);
+        not(
+            r#"{"title":"Fast","spec":"Do it.","questions":null}"#,
+            false,
+        );
+        not(r#"{"title":"Fast","spec":"Do it.","questions":[7]}"#, false);
+        // Nothing to write, and a plan the issue could not hold whole.
+        not(
+            r#"{"text":"t","title":"Fast","spec":" \n","questions":[]}"#,
+            false,
+        );
+        let big = json!({"title": "Big", "spec": "x".repeat(40_001), "questions": []});
+        not(&big.to_string(), false);
+    }
+
+    #[test]
+    fn only_a_drafted_plan_is_clear() {
+        let k = keep();
+        for rc in [0, 10, 11] {
+            let v = parsed(&outcome(rc, "abc", &k, CLEAR, false).unwrap());
+            assert!(v.get("clear").is_none(), "{rc}");
+        }
     }
 
     #[test]

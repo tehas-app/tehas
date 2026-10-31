@@ -59,6 +59,9 @@ pub struct Issue {
     /// state/refresh/<n>.json, as written; and what <n>.said holds.
     pub request: Option<Value>,
     pub refresh_said: Option<String>,
+    /// state/plan-start/<n>.json: what lets the bot's tehas:ready start this
+    /// one issue. Null when it is there and cannot be read.
+    pub plan_start: Option<Value>,
 }
 
 /// A running cycle as cycle-show --running has it. 0 is none on record.
@@ -371,6 +374,7 @@ fn issue(v: &Value) -> Issue {
             .get("refresh_said")
             .and_then(Value::as_str)
             .map(str::to_string),
+        plan_start: v.get("plan_start").cloned(),
     }
 }
 

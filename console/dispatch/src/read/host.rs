@@ -5,8 +5,9 @@
 use super::run::run;
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tehas_core::file::{read_regular, ReadError};
 
 /// Whether a lock file is held by someone, or cannot be told apart from one
 /// that is: anything but no lock and a lock the probe took counts as held, as
@@ -206,6 +207,22 @@ pub fn requests(home: &Path) -> Vec<(u64, Value)> {
         .collect();
     out.sort_by_key(|(n, _)| *n);
     out
+}
+
+/// Where the record of a plan's start is kept. No container is given the state
+/// directory, and only the dispatcher writes here.
+pub fn plan_start_file(home: &Path, n: u64) -> PathBuf {
+    home.join(format!("state/plan-start/{n}.json"))
+}
+
+/// The record of a plan's start of an issue, None when it has none, and Null
+/// when one is there and cannot be read: not a file, or not JSON.
+pub fn plan_start(home: &Path, n: u64) -> Option<Value> {
+    match read_regular(&plan_start_file(home, n), 4096) {
+        Ok((bytes, _)) => Some(serde_json::from_slice(&bytes).unwrap_or(Value::Null)),
+        Err(ReadError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => Some(Value::Null),
+    }
 }
 
 /// The why of the last live/dispatch.json, empty when it cannot be read. The
@@ -478,6 +495,26 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(d.join("state")).unwrap();
         Dir(d)
+    }
+
+    #[test]
+    fn a_plans_record_is_there_or_not_and_what_cannot_be_read_counts_for_nothing() {
+        let h = home("plan-start");
+        assert_eq!(plan_start(&h.0, 7), None);
+        fs::create_dir_all(h.0.join("state/plan-start")).unwrap();
+        assert_eq!(plan_start(&h.0, 7), None);
+        let file = plan_start_file(&h.0, 7);
+        fs::write(&file, r#"{"by":"alice"}"#).unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(json!({"by": "alice"})));
+        assert_eq!(plan_start(&h.0, 8), None);
+        fs::write(&file, "not json").unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
+        // A link is no record, whatever it points at.
+        fs::remove_file(&file).unwrap();
+        let there = h.0.join("elsewhere.json");
+        fs::write(&there, r#"{"by":"alice"}"#).unwrap();
+        std::os::unix::fs::symlink(&there, &file).unwrap();
+        assert_eq!(plan_start(&h.0, 7), Some(Value::Null));
     }
 
     #[test]
