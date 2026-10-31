@@ -7,7 +7,7 @@ use super::cmd::Scratch;
 use super::plan::{body, title, Plan};
 use super::run::{has_commits, issue_branch_of, pull_for_issue, pull_named};
 use super::{finish, Finished};
-use crate::finish::cmd::{Done, Live};
+use crate::finish::cmd::{asked, asked_of_git, Done, Live};
 use crate::finish::Host;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -155,6 +155,9 @@ impl World {
             &self.origin.display().to_string(),
             &ws.display().to_string(),
         ]);
+        // A real host has its identity in the user's config; a rebase needs one.
+        git_in(&ws, &["config", "user.name", "tehas"]);
+        git_in(&ws, &["config", "user.email", "tehas@invalid"]);
         git_in(&ws, &["checkout", "--quiet", "-b", branch, "origin/main"]);
         for (name, text) in files {
             fs::write(ws.join(name), text).unwrap();
@@ -380,6 +383,22 @@ exit 0
         }
     }
 
+    /// A hook of the kept workspace, as an agent that wrote the tree leaves one:
+    /// under `<workspace>/.git/hooks`, named for the command that runs it, said
+    /// to have run by the file it touches and refused by the status it ends with.
+    /// The pins of a call of git are what keeps it from running.
+    fn plant(&self, name: &str, touch: &str, status: i32) {
+        let dir = self.workspace.join(".git/hooks");
+        fs::create_dir_all(&dir).unwrap();
+        let hook = dir.join(name);
+        fs::write(
+            &hook,
+            format!("#!/bin/sh\ntouch '{touch}'\nexit {status}\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
     /// What the stub was asked, one call per line.
     fn calls(&self) -> Vec<String> {
         fs::read_to_string(self.dir.join("gh.calls"))
@@ -428,6 +447,17 @@ struct Case {
 
 impl Host for Case {
     fn run(&mut self, program: &str, args: &[String], dir: &Path) -> Done {
+        // The pins are part of the ask and not of the host, so a case reads them
+        // the way the host does and answers a git call made without them the way
+        // `Live` does. A rule that built one is a rule that would let the
+        // workspace's own hooks run on a host.
+        if program == "git" && !asked_of_git(args) {
+            return Done {
+                status: None,
+                out: String::new(),
+                err: "a call of git was asked without the pins".to_string(),
+            };
+        }
         let program = match program {
             "git" => &self.git,
             "gh" => &self.gh.to_string_lossy().into_owned(),
@@ -493,14 +523,14 @@ impl Host for Case {
                 {
                     let _ = self.run(
                         "git",
-                        &[
+                        &asked(vec![
                             "-C".into(),
                             workspace.display().to_string(),
                             "worktree".into(),
                             "remove".into(),
                             "--force".into(),
                             tree.display().to_string(),
-                        ],
+                        ]),
                         dir,
                     );
                 }
@@ -983,6 +1013,16 @@ fn a_body_closes_an_issue_only_when_a_word_of_closing_names_it() {
         ("Fixes #7x", false),
         ("Fixes#7", false),
         ("unfixes #7", false),
+        ("This does not fix #7.", false),
+        ("not fixed #7", false),
+        ("no test fixes #7", false),
+        ("never resolved #7", false),
+        ("This doesn't fix #7.", false),
+        ("it isn't fixed #7", false),
+        // A word of nothing further back is the case's own claim and not a
+        // denial of the closing word: the factory's bodies put that word at the
+        // end of what they say.
+        ("nothing here, but it fixes #7", true),
         ("##7", false),
         ("", false),
     ] {
@@ -1033,6 +1073,35 @@ fn the_draft_s_words_name_the_issue_the_stopped_cycle_and_the_gate() {
     assert!(b.contains("cap"), "{b}");
     assert!(b.contains("failing checks"), "{b}");
     assert_eq!(title(7), "Finish issue #7 from a stopped cycle");
+}
+
+#[test]
+fn the_pins_of_a_call_are_its_own_words_and_no_call_of_git_goes_without_them() {
+    // The pins answer the tree's config, so they are part of the words of git
+    // and not of the environment of the host: `asked` is the one place a call of
+    // git is built, the host reads them back, and a rule that built one bare is
+    // refused rather than run.
+    let dir = root("pins");
+    assert!(asked_of_git(&asked(vec!["status".to_string()])));
+    // The words of git stand after the pins, so a call built bare is no call,
+    // and one that opens with a `-c` of its own is no call either.
+    assert!(!asked_of_git(&["status".to_string()]));
+    assert!(!asked_of_git(&["-c".to_string(), "x=y".to_string()]));
+    let says = dir.join("says");
+    fs::write(&says, "#!/bin/sh\nprintf 'x\\n'\n").unwrap();
+    fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut h = live(&says, &says);
+    // A call without them prints nothing and is not run: a run cannot decide
+    // from an empty stream, and a git of the workspace run that way would
+    // honour the tree's own hooks. The two cases below are what show the
+    // difference, each planting a hook that must not run -- one under the
+    // workspace's `.git`, one in a directory outside the tree the tree's config
+    // names.
+    let bare = h.run("git", &["status".to_string()], &dir);
+    assert_eq!(bare.status, None, "{bare:?}");
+    assert!(bare.err.contains("without the pins"), "{bare:?}");
+    assert_eq!(bare.out, "", "a refused call reads nothing: {bare:?}");
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -1103,7 +1172,7 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
     .unwrap();
     fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
     let mut h = live(&says, &says);
-    let got = h.run("git", &["for-each-ref".to_string()], &dir);
+    let got = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(got.status, Some(0), "{got:?}");
     assert_eq!(got.out, "feature/issue-7-flaky\n", "{got:?}");
     assert_eq!(got.err, "a word of its own\n", "{got:?}");
@@ -1119,7 +1188,7 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
     fs::write(&quiet, "#!/bin/sh\nprintf 'nothing of an issue\\n'\n").unwrap();
     fs::set_permissions(&quiet, fs::Permissions::from_mode(0o755)).unwrap();
     let mut h = live(&quiet, &quiet);
-    let said = h.run("git", &["for-each-ref".to_string()], &dir);
+    let said = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(said.out, "nothing of an issue\n", "{said:?}");
     assert_eq!(
         issue_branch_of(&said.out, 7),
@@ -1130,24 +1199,108 @@ fn a_call_carries_what_the_program_printed_on_both_its_streams() {
 }
 
 #[test]
+fn a_hook_of_the_workspace_outside_the_tree_is_not_run_either() {
+    // The workspace is a directory a cycle's container wrote, and an agent can
+    // write anything into the tree it works in, hooks and git configuration
+    // included. The factory pushes the cycle's commits and not the scripts
+    // somebody left beside them, so a hook of the tree runs for nobody: not the
+    // one a checkout calls, nor the one a push does, nor the one the tree's own
+    // config points at a program of the host's outside the tree.
+    let w = World::new("workspace-hooks");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    w.plant(
+        "post-checkout",
+        &w.dir.join("ran-checkout").display().to_string(),
+        0,
+    );
+    w.plant("pre-push", &w.dir.join("ran-push").display().to_string(), 1);
+    // Hooks of the tree's own config, in a directory of the host's outside the
+    // tree: `core.hooksPath` moves every hook git runs, so the pin of the path
+    // is what answers it and not where the hooks happen to stand.
+    let outside = w.dir.join("outside-hooks");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(
+        outside.join("post-checkout"),
+        format!("#!/bin/sh\ntouch '{}'\n", w.dir.join("ran-path").display()),
+    )
+    .unwrap();
+    fs::set_permissions(
+        outside.join("post-checkout"),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    git_in(
+        &w.workspace,
+        &["config", "core.hooksPath", &outside.display().to_string()],
+    );
+    w.stub("", "https://github.com/acme/widget/pull/33");
+    let git = PathBuf::from(git_program());
+    let mut h = live(&git, &w.gh);
+    let got = finish(&w.plan(), &mut h);
+    assert_eq!(got.why, "", "the run refused: {}", got.why);
+    assert_eq!(got.url, "https://github.com/acme/widget/pull/33");
+    assert!(
+        w.remote_has("finish/issue-7"),
+        "a hook of the workspace stopped the push"
+    );
+    for name in ["ran-checkout", "ran-push", "ran-path"] {
+        assert!(
+            !w.dir.join(name).exists(),
+            "a hook of the workspace ran: {name}"
+        );
+    }
+    assert_eq!(w.left(), Vec::<String>::new(), "the tree was left");
+}
+
+#[test]
+fn the_hooks_of_the_workspace_are_asked_of_nobody_and_the_push_goes() {
+    // The kept workspace of a real host is a clone, so the hooks git would run
+    // for it live under its own `.git`, as the cleaner's case plants its
+    // `core.fsmonitor` (`test/clean_test.sh`): the file is container-writable,
+    // so anything of the tree's git settings is. A `pre-push` of the workspace
+    // that refuses is the shape that matters most, because it lets a script
+    // somebody left answer for whether the factory's push goes through. The
+    // case's own host is the host of every other case here and runs the real
+    // git, so the pins are what stands between the tree and a program of it.
+    let w = World::new("live-host-hooks");
+    w.kept("feature/issue-7-default", &[("a.txt", "x\n")]);
+    let ran = w.dir.join("ran-push").display().to_string();
+    w.plant("pre-push", &ran, 1);
+    // The tree's own config, pointed at a program of it as well: the default
+    // path of the hooks and the path the config gives are two different doors.
+    git_in(&w.workspace, &["config", "core.hooksPath", ".git/hooks"]);
+    w.stub("", "https://github.com/acme/widget/pull/33");
+    let git = PathBuf::from(git_program());
+    let mut h = live(&git, &w.gh);
+    let got = finish(&w.plan(), &mut h);
+    assert_eq!(got.why, "", "the run refused: {}", got.why);
+    assert_eq!(got.url, "https://github.com/acme/widget/pull/33");
+    assert!(
+        w.remote_has("finish/issue-7"),
+        "a hook of the workspace stopped the push"
+    );
+    assert!(!w.dir.join("ran-push").exists(), "the hook was run");
+}
+
+#[test]
 fn a_run_asks_its_programs_by_their_names_and_the_host_decides_where_they_are() {
     // The names a run gives a host are `git` and `gh` and never a path, so the
     // host alone chooses which program answers: a case stands in for GitHub by
     // putting its own script where gh would be, and a run that named a path could
     // reach past that choice.
     let dir = root("names");
-    let asked = dir.join("asked");
+    let seen = dir.join("asked");
     let says = dir.join("says");
     let script = format!(
         "#!/bin/sh\nprintf '%s %s\\n' \"$0\" \"$*\" >>\"{}\"\n",
-        asked.display()
+        seen.display()
     );
     fs::write(&says, script).unwrap();
     fs::set_permissions(&says, fs::Permissions::from_mode(0o755)).unwrap();
     let mut h = live(&says, &says);
-    h.run("git", &["status".to_string()], &dir);
+    h.run("git", &asked(vec!["status".to_string()]), &dir);
     h.run("gh", &["pr".to_string(), "list".to_string()], &dir);
-    let names = fs::read_to_string(&asked).unwrap_or_default();
+    let names = fs::read_to_string(&seen).unwrap_or_default();
     // The host answers the name with a program of its own, and the program the
     // run reached is the one the host was given: both calls are of `says`.
     let lines: Vec<&str> = names.lines().collect();
@@ -1186,7 +1339,7 @@ fn a_program_busy_under_a_writer_is_asked_again_and_is_run() {
         .spawn()
         .unwrap();
     let mut h = live(&says, &says);
-    let got = h.run("git", &["for-each-ref".to_string()], &dir);
+    let got = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(
         got.status,
         Some(0),
@@ -1212,7 +1365,7 @@ fn a_program_busy_past_its_bound_is_a_call_that_could_not_be_run() {
     // No child is forked, so this process itself is the writer and stays one for
     // the whole call: the asks run out and the call is refused.
     let mut h = live(&says, &says);
-    let got = h.run("git", &["for-each-ref".to_string()], &dir);
+    let got = h.run("git", &asked(vec!["for-each-ref".to_string()]), &dir);
     assert_eq!(got.status, None, "{got:?}");
     assert!(got.err.contains("could not be run"), "{got:?}");
     assert_eq!(got.out, "", "a refused call reads nothing: {got:?}");
