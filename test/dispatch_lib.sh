@@ -365,7 +365,7 @@ dispatch_json=$T/home/tehas/live/dispatch.json
 t_after='t_no_old_state "$T/home/tehas"'
 
 reset() {
-  rm -f "$T"/calls/* "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails
+  rm -f "$T"/calls/* "$fx"/pulls.json "$fx"/edit-* "$fx"/start-* "$fx"/events-* "$fx"/comments-* "$fx"/icomments-* "$fx"/prs.json "$fx"/prlist.json "$fx"/pr-fails "$fx"/issue-* "$fx"/work-* "$fx"/post-fails "$fx"/patch-fails "$fx"/plan-fails "$fx"/plan-runs "$fx"/image.during "$fx"/slice-* "$fx"/orphan-* "$fx"/prs-* "$fx"/blockers* "$fx"/blocked.json "$fx"/checks* "$fx"/mark-fails "$fx"/mark-fails-times "$fx"/unmark-fails "$fx"/label-missing "$fx"/gh-stderr "$fx"/gh-stderr-fails
   rm -rf "$T/home/tehas/libexec" "$T/home/tehas/state/cycles" "$T"/home/tehas/state/plan-* "$T/home/tehas/live" "$T/home/tehas/state/pause.json" "$T/home/tehas/state/limit.json" "$T/home/tehas/state/branch-check" \
     "$T"/home/tehas/work/widget-plan-* "$T"/home/tehas/tmp/plan-*
   # The state store a poll runs, with nothing on record.
@@ -860,6 +860,7 @@ done | jq -cs .)
 jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(read_or "$fx/control.json" "" '{"labels":[]}')" \
   --argjson repo "$(read_or "$fx/repo.json" "" '{}')" --argjson locked "$locked" \
   --argjson dropped "$([ -e "$fx/page-drops-events" ] && echo true || echo false)" \
+  --argjson pulls "$(read_or "$fx/pulls.json" "" null)" \
   --argjson running '{"__typename":"LabeledEvent","createdAt":"2026-01-01T00:00:00Z","actor":{"login":"tehas-bot"},"label":{"name":"tehas:running"}}' '
   def labels($n): [$lists[][] | select((.number | tonumber?) == $n) | (.labels // [])[].name]
     + (if $n == 1 then [$control.labels[].name] else [] end)
@@ -886,7 +887,9 @@ jq -n --argjson lists "$lists" --argjson items "$items" --argjson control "$(rea
             elif .event == "unlabeled" then "UnlabeledEvent" else "RenamedTitleEvent" end),
           createdAt: .created_at, actor: actor, label: .label}] + [select(any($locked[]; . == $i.n) and ($dropped | not)) | $running])},
         closedByPullRequestsReferences: {nodes: (.p.data.repository.issue.closedByPullRequestsReferences.nodes // [])}}]},
-    closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}}}'
+    closedRunning: {nodes: [$lists[][] | select(.state == "CLOSED") | {number}]}}
+    # The open pull requests, when a case wrote them.
+    + (if $pulls == null then {} else {openPulls: {nodes: $pulls}} end)}}'
 STUB
 chmod +x "$T/page-stub"
 

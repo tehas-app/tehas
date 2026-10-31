@@ -24,7 +24,7 @@
 #   api         1
 #   tehas       v0.8.0 (cb6912a)
 #   repo        tehas-app/tehas
-#   features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
+#   features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title
 #   millwright  none
 #   poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 #
@@ -49,7 +49,7 @@ tehas_require TEHAS_REPO
 
 # What this release can do. A feature is added here in the release that
 # brings it, and never taken out within api 1.
-features='["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "clean"]'
+features='["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "pr-title", "clean"]'
 
 # Read without a pipe: under pipefail the first head can die of SIGPIPE when
 # the second has its line, and the version would be lost. The last poll is

@@ -653,6 +653,29 @@ cannot be read stop the retry: `ERROR: the comments on the pull request of
 #N could not be read`, exit 1, and the tick stays. Only conversation comments
 are read, not review comments or reviews.
 
+### Pull request titles
+
+The title of a factory pull request says its state. A factory pull request is
+one from a `feature/issue-<n>` branch by the bot's login; the number is its
+linked issue. A person's pull request is never touched.
+
+| The title starts with | When |
+| --- | --- |
+| `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
+| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+Each poll sets the title from what it read already, through
+`console pr-title poll`, and a cycle's end sets it once with
+`console pr-title sync <pr>`, so it is right before the next poll. A cycle
+that opens a pull request gets `WIP: ` on the next poll. Only a title that
+differs is written, through the REST endpoint `repos/<repo>/pulls/<n>`. When a
+read fails the title stays as it is, and a failed read or write is a `WARN` in
+the log and holds nothing. The bash poll (`TEHAS_DISPATCHER=bash`) does not
+set titles; a cycle's end still does.
+
+The preview page shows the prefix too, as it shows the title.
+
 ## tehas work
 
 One pi-rukas `/work` cycle, headless, in the sandbox image.
@@ -1091,8 +1114,11 @@ answer that ticked **File as a new issue** runs `plan --resume <id> --confirm`, 
 plan as it was shown and nothing else. One that ticked **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
-dispatcher, which writes it onto the issue and ends the session. Any other
-answer runs `--answer`. The first
+dispatcher, which writes it onto the issue and ends the session. A plan with no
+open points may need no such answer: the dispatcher then reads the issue and
+`draft.json` itself and no turn runs, see
+[A plan with no open points](/operating#a-plan-with-no-open-points).
+Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
@@ -1167,7 +1193,10 @@ runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
 the planner's proposals and offers **Update this issue**. A refine session
-also offers **File as a new issue**, since it exists to file one. The `console` beside the command shapes it, and
+also offers **File as a new issue**, since it exists to file one. Without
+`--kind refine`, a plan the runner lists an empty list of open points for and
+that was not cut adds `"clear": true`. That says only that no point is open; the
+dispatcher decides whether it starts, and posts the question otherwise. The `console` beside the command shapes it, and
 without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the
@@ -2065,6 +2094,8 @@ api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
 features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move clean
+
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
