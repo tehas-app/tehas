@@ -147,6 +147,13 @@ Run `tehas dispatch --dry-run` and read what it prints.
   when that label came from such an account. With only the `skip` line, the poll was
   a dry run or the label change failed (`WARN: label change on #N failed`), and
   the next poll tries again.
+- `skip #N: tehas:ready from the bot starts nothing: ...`: a plan with no open
+  points was to start, and something changed since it was written. The line
+  says what. The dispatcher took the label off and said so on the issue. Read
+  the plan, and an allowed account applies `tehas:ready`.
+- `planning #N asks: ...`: a plan with no open points did not start on its own.
+  The line says why, and the session asks as it does for any plan. See
+  [A plan with no open points](/operating#a-plan-with-no-open-points).
 - `skip #N: pull request <url> is open and closes it`: the work is in that
   pull request already. The dispatcher took `tehas:ready` off and said so on
   the issue. Merge or close the pull request, then apply `tehas:ready` if work

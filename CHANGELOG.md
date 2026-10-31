@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- A factory pull request's title says `WIP: ` while a cycle works on it,
+  `STUCK: ` when it waits for a person and nothing when it is ok to merge. Each
+  poll and each cycle's end keep it true, and `tehas api` names the feature
+  `pr-title` (#1179).
 - An idle poll runs `tehasbot status` only when its file is five minutes old,
   not on every poll (#1153).
 - A poll reads the comments of blocked issues side by side and the states of
@@ -30,10 +34,16 @@ empty one above it.
   takes `--head` and `--base` in upper case, and no longer prints `calls`. A
   command that fills its pipe no longer waits out the 900 s bound, and output
   it cannot read whole refuses the merge (#1149).
+- A `tehas:plan` session from an allowed person that drafts a plan with no open
+  points makes it the issue's text and starts a cycle, with no tick. This
+  changes who approves a build: that person's `tehas:plan` does, and nobody
+  reads the plan first. With any open point, in a `tehas:refine` session, or
+  from the millwright, it asks as before (#1178).
 
 ### Adopter action
 
-None.
+Tell whoever applies `tehas:plan` on your instance that the label can now start
+a cycle.
 
 ## v0.19.1 (2026-10-31)
 

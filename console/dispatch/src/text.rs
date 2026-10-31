@@ -3,7 +3,7 @@
 //! attachments it links or promises (lib/attachments.sh).
 
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
@@ -68,6 +68,23 @@ pub fn title_sha256(issue: &Value) -> Option<String> {
     let title = issue.get("title")?.as_str()?.replace(['\r', '\n'], "");
     let sum = Sha256::digest(title.as_bytes());
     Some(sum.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// What a plan's start binds: the title and the body together, without the
+/// white space at their ends and the carriage returns, which GitHub may change
+/// on its own.
+pub fn plan_sum(issue: &Value) -> String {
+    let part = |k: &str| {
+        issue
+            .get(k)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .replace('\r', "")
+            .trim()
+            .to_string()
+    };
+    let sum = Sha256::digest(json!([part("title"), part("body")]).to_string().as_bytes());
+    sum.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// tehas_attachment_placeholder: the first unfilled placeholder of a text.
@@ -145,7 +162,6 @@ pub fn promise(answer: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn the_hash_drops_carriage_returns() {
@@ -167,6 +183,27 @@ mod tests {
             body_sha256(&json!({"body": "a\r\nb"})),
             "7e18f737311b2dc3b2f269dd78396b0351f14fb66efa879f768cb23181883c78"
         );
+    }
+
+    #[test]
+    fn a_plans_sum_binds_title_and_body_as_github_may_trim_them() {
+        let sum = plan_sum(&json!({"title": "Fast", "body": "## Plan\n\nDo it."}));
+        for same in [
+            json!({"title": " Fast\n", "body": "## Plan\r\n\r\nDo it.\n"}),
+            json!({"title": "Fast", "body": "\n## Plan\n\nDo it.  "}),
+        ] {
+            assert_eq!(plan_sum(&same), sum, "{same}");
+        }
+        for other in [
+            json!({"title": "Fast", "body": "## Plan\n\nDo it, and more."}),
+            json!({"title": "Faster", "body": "## Plan\n\nDo it."}),
+            // The break between the two is part of what is summed.
+            json!({"title": "Fast\n## Plan", "body": "Do it."}),
+            json!({"body": "## Plan\n\nDo it."}),
+            json!({}),
+        ] {
+            assert_ne!(plan_sum(&other), sum, "{other}");
+        }
     }
 
     #[test]
