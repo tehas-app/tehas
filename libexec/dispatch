@@ -996,6 +996,16 @@ deny_label() {
   log "$1 $(tehas_label_denied "$2" "$3" "$who")"
 }
 
+# tehas_label_off <issue> <label> [more gh issue edit options]: take a label
+# off, 1 with gh's reason logged when GitHub refused. Each caller warns with the
+# options it asked for.
+tehas_label_off() {
+  local why
+  why=$(gh issue edit "$1" --repo "$repo" --remove-label "$2" "${@:3}" 2>&1 >/dev/null) && return 0
+  log "WARN: gh issue edit #$1: ${why%%$'\n'*}"
+  return 1
+}
+
 # approval <issue> <label>: who applied the label most recently, and when, in
 # $who and $at; the issue's events in $events. Returns 1, with the reason
 # logged, unless that was an allowed account and the text is still what it
@@ -1028,16 +1038,10 @@ approval() {
 # must not say the same once more.
 clear_unauthorised() {
   local n=$1 name=$2 by=$3
-  if [ "$dry" = 1 ]; then
-    log "would take $name off #$n: it was applied by '$by'"
-    return
-  fi
-  if gh issue edit "$n" --repo "$repo" --remove-label "$name" >/dev/null 2>&1; then
-    log "clear #$n: $name off, applied by '$by' who may not authorise work here"
-    say "$n" "Tehas took \`$name\` off this issue. It was applied by \`$by\`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`$name\`."
-  else
-    log "WARN: label change on #$n failed: --remove-label $name"
-  fi
+  [ "$dry" = 1 ] && { log "would take $name off #$n: it was applied by '$by'"; return; }
+  tehas_label_off "$n" "$name" || { log "WARN: label change on #$n failed: --remove-label $name"; return 1; }
+  log "clear #$n: $name off, applied by '$by' who may not authorise work here"
+  say "$n" "Tehas took \`$name\` off this issue. It was applied by \`$by\`, an account that may not authorise work in this factory, so nothing was started and the issue is not queued. To ask again, an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`$name\`."
 }
 
 # epic_ok <issue>: is that number work this factory starts? An issue with open
@@ -1081,11 +1085,8 @@ epic_ok() {
     log "would take $ask off #$n: it is an epic"
     return 1
   fi
-  if gh issue edit "$n" --repo "$repo" --remove-label $ask >/dev/null 2>&1; then
-    say "$n" "Tehas took \`$ask\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
-  else
-    log "WARN: label change on #$n failed: --remove-label $ask"
-  fi
+  tehas_label_off "$n" "$ask" || { log "WARN: label change on #$n failed: --remove-label $ask"; return 1; }
+  say "$n" "Tehas took \`$ask\` off this issue and started nothing. It has $open $word open, so it is an epic: a plan, not a change. An epic is never started. Apply \`tehas:ready\` to one of its sub-issues instead."
   return 1
 }
 
@@ -1162,11 +1163,9 @@ size_ok() {
       log "would take $ask off #$n and add needs-human-attention: its body names $files files, more than TEHAS_SIZE_MAX_FILES ($TEHAS_SIZE_MAX_FILES)"
       return 1
     fi
-    if gh issue edit "$n" --repo "$repo" --remove-label $ask --add-label needs-human-attention >/dev/null 2>&1; then
-      say "$n" "Tehas took \`$ask\` off this issue, put \`needs-human-attention\` on it and started nothing. Its body names $files files, more than the $TEHAS_SIZE_MAX_FILES of \`TEHAS_SIZE_MAX_FILES\`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply \`tehas:ready\` again to start one of them."
-    else
-      log "WARN: label change on #$n failed: --remove-label $ask --add-label needs-human-attention"
-    fi
+    tehas_label_off "$n" "$ask" --add-label needs-human-attention ||
+      { log "WARN: label change on #$n failed: --remove-label $ask --add-label needs-human-attention"; return 1; }
+    say "$n" "Tehas took \`$ask\` off this issue, put \`needs-human-attention\` on it and started nothing. Its body names $files files, more than the $TEHAS_SIZE_MAX_FILES of \`TEHAS_SIZE_MAX_FILES\`, so one cycle would be asked for too many changes at once. Narrow this issue to the part of it one cycle can make, or split it into issues of that size, and apply \`tehas:ready\` again to start one of them."
     return 1
   }
 }
@@ -1193,11 +1192,8 @@ clear_pr_open() {
   local n=$1
   log "skip #$n: pull request $pr_url is open and closes it"
   [ "$dry" = 0 ] || return 0
-  if gh issue edit "$n" --repo "$repo" --remove-label $ask >/dev/null 2>&1; then
-    say "$n" "Tehas took \`$ask\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
-  else
-    log "WARN: label change on #$n failed: --remove-label $ask"
-  fi
+  tehas_label_off "$n" "$ask" || { log "WARN: label change on #$n failed: --remove-label $ask"; return 1; }
+  say "$n" "Tehas took \`$ask\` off this issue and started nothing: $pr_url is open and closes it. Merge or close that pull request, then apply \`tehas:ready\` if work is still needed."
 }
 
 # fixer_ok <issue>: the fixer applied tehas:ready, at $at. 0 when its grant
@@ -1230,11 +1226,8 @@ fixer_ok() {
     log "would take tehas:ready off #$n"
     return 1
   fi
-  if gh issue edit "$n" --repo "$repo" --remove-label tehas:ready >/dev/null 2>&1; then
-    say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: $tehas_millwright_why. A person decides now: an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`tehas:ready\` to start a cycle."
-  else
-    log "WARN: label change on #$n failed: --remove-label tehas:ready"
-  fi
+  tehas_label_off "$n" tehas:ready || { log "WARN: label change on #$n failed: --remove-label tehas:ready"; return 1; }
+  say "$n" "Tehas took \`tehas:ready\` off this issue and started nothing. The fixer applied it, and the fixer may not start this issue: $tehas_millwright_why. A person decides now: an account named in \`TEHAS_ALLOWED_LABELERS\` applies \`tehas:ready\` to start a cycle."
   return 1
 }
 
@@ -1267,13 +1260,17 @@ fixer_answer_ok() {
   jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 1
   log "skip #$n: the fixer's answer runs no turn: $why"
   [ "$dry" = 0 ] || return 1
-  if plan_store plan-note "$n" --kind millwright-refused --id "$id"; then
-    [ "$(tehas_store_get .said)" != true ] ||
-      say "$n" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question."
-  else
+  plan_note_once "$n" millwright-refused "$id" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question." ||
     log "WARN: the record of #$n could not be updated ($tehas_store_word)"
-  fi
   return 1
+}
+
+# plan_note_once <issue> <kind> <id> <text once>: note an id on the session's
+# record and say the text on the issue once, when the record says it has not
+# been said. 1 when the record could not be written, for the caller's warning.
+plan_note_once() { # <issue> <kind> <id> <text>
+  plan_store plan-note "$1" --kind "$2" --id "$3" || return 1
+  [ "$(tehas_store_get .said)" != true ] || say "$1" "$4"
 }
 
 # fixer_held <issue> <session> <answer>: the fixer saved the ticked question
@@ -1287,12 +1284,8 @@ fixer_held() {
   jq -e --argjson id "$id" '(.held // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 0
   log "skip #$n: the fixer saved the question after another account did, so who ticked it is not known"
   [ "$dry" = 0 ] || return 0
-  if plan_store plan-note "$n" --kind held --id "$id"; then
-    [ "$(tehas_store_get .said)" != true ] ||
-      say "$n" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies."
-  else
+  plan_note_once "$n" held "$id" "Tehas did not take the box ticked in this question as an answer: the fixer saved the comment after another account did, and GitHub does not say who ticked it. A person ticks the box again or replies." ||
     log "WARN: the record of #$n could not be updated ($tehas_store_word)"
-  fi
 }
 
 # unchanged_since <issue> <time> <what happened then> [how to approve again]
@@ -1367,6 +1360,9 @@ declare -A recorded_at=()
 # A refresh's: the pull request to mark, its address, and what it refreshes.
 # The store counts the refreshes and the fixer's starts from the approvals.
 declare -A refresh_pr=() refresh_url=() refresh_of=()
+# The note, as fixer_note gives it, whose comment lifted the issue's park:
+# approved_record gives it to the start and names it park_lifted on the record.
+declare -A park_lifted=()
 
 # approved_record <issue>: record the approval of a start in the state store,
 # its inputs with it, and its time in recorded_at. Returns 1 when it could not
@@ -1391,7 +1387,7 @@ approved_record() {
         { log "ERROR: the comments on the pull request of #$n could not be read"; return 1; }
   fi
   [ "${given_how[$n]}" != millwright ] ||
-    retry=$(fixer_note "$n" "${given_at[$n]}") ||
+    retry=${park_lifted[$n]:-$(fixer_note "$n" "${given_at[$n]}")} ||
       { log "ERROR: the comments of #$n could not be read for the fixer's"; return 1; }
   [ "${given_how[$n]}" != refresh ] || retry=$(refresh_note "$n") || return 1
   # When the approval was given, as GitHub said. A refresh and the retry after
@@ -1409,10 +1405,12 @@ approved_record() {
   [ -d "$dir" ] && [ ! -L "$dir" ] && input=$(mktemp "$dir/approval-input.XXXXXX" 2>/dev/null) || return 1
   if ! jq --argjson comments "$comments" --argjson from "$from" --argjson retry "$retry" \
     --arg how "${given_how[$n]}" --argjson of "${refresh_of[$n]:-null}" \
+    --argjson lifted "${park_lifted[$n]:-null}" \
     "$(tehas_attachment_links)"'{links: (.data.repository.issue.body // "" | links | reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end))}
       + if $comments == 1 then {comment_links: ($from + ($retry.links // []))} else {} end
       + if $retry == null or ($retry.context | length) == 0 then {} else {retry_context: $retry.context} end
-      + if $how == "refresh" then {refresh_of: $of} else {} end' \
+      + if $how == "refresh" then {refresh_of: $of} else {} end
+      + if $lifted == null then {} else {park_lifted: $lifted.context[-1]} end' \
     <<<"${text_of[$n]}" >"$input" 2>/dev/null; then
     rm -f "$input"
     return 1
@@ -1487,11 +1485,11 @@ pr_comments() {
 }
 
 # fixer_note <issue> <label time>: the fixer's comment behind its tehas:ready,
-# as {links: [], context}: the newest comment of TEHAS_MILLWRIGHT_LOGIN with the
-# fixer's marker for this issue, written in the ten minutes before the label and
-# edited by nobody after it. The fixer comments and then labels, so an older one
-# is an earlier decision's. context is [] when there is none; fails when the
-# comments cannot be read.
+# as {links: [], context, edited}: the newest comment of
+# TEHAS_MILLWRIGHT_LOGIN with the fixer's marker for this issue, written in the
+# ten minutes before the label and edited by nobody after it. The fixer comments
+# and then labels, so an older one is an earlier decision's. context is [] when
+# there is none; fails when the comments cannot be read.
 fixer_note() {
   local list since
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
@@ -1503,7 +1501,7 @@ fixer_note() {
         and .created_at >= $since and .created_at <= $at and .updated_at <= $at
         and (.body | test("<!-- tehas:millwright issue=" + $n + " action=(retry|change) -->")))]
     | sort_by(.created_at, .id) | .[-1:]
-    | {links: [], context: map({source: "millwright:\(.id)", by: .user.login, at: .created_at,
+    | {links: [], edited: any(.[]; .updated_at != .created_at), context: map({source: "millwright:\(.id)", by: .user.login, at: .created_at,
         text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
 }
 
@@ -1623,10 +1621,8 @@ units_ok() {
   local loadstate
   [ -z "${TEHAS_CYCLE_START_CMD:-}" ] || return 0
   loadstate=$(systemctl --user show -p LoadState --value "tehas-cycle@$1.service" 2>/dev/null) || loadstate=""
-  if [ "$loadstate" != loaded ]; then
-    log "ERROR: systemd cannot load tehas-cycle@.service (LoadState: ${loadstate:-no answer}): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"
-    return 1
-  fi
+  [ "$loadstate" = loaded ] ||
+    { log "ERROR: systemd cannot load tehas-cycle@.service (LoadState: ${loadstate:-no answer}): run install.sh and its units step, and run tehas dispatch as the tehas user's own session"; return 1; }
 }
 
 # start_cycle <issue> <attempt before>: 0 once the cycle's start is on record:
@@ -2018,10 +2014,12 @@ refresh_ok() {
 # (park-told), and the log carries the hold after it. Called once an issue is
 # picked, where the text of the issue is the answer unchanged_since passed it,
 # so no read of GitHub is spent on an issue this would hold in any case. A park
-# that could not be read holds the issue for this poll. Returns 0 when the
-# issue is held.
+# that could not be read holds the issue for this poll. The fixer's own label
+# is lifted by its note of the start, fixer_note's, when that note says
+# action=change and the instance gives a cycle images or files; the note goes on
+# the record as park_lifted. Returns 0 when the issue is held.
 park_holds() {
-  local n=$1 sum told cap now
+  local n=$1 sum told cap now note
   [ -n "${text_of[$n]:-}" ] || return 1
   if ! tehas_store park-show "$n"; then
     if [ "$tehas_store_rc" = 1 ]; then
@@ -2039,6 +2037,21 @@ park_holds() {
   now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
   [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$now" = "$sum" ] || return 1
+  # The way round a park open to the fixer alone, its grant reached already. A
+  # read that failed proves no note either way: the hold stays, untold, and the
+  # next poll asks again. REST names no editor, so any edit of the note holds.
+  if [ "${by_fixer:-0}" = 1 ] && { [ "$TEHAS_WORK_IMAGES" = 1 ] || [ "$TEHAS_WORK_FILES" = 1 ]; }; then
+    if ! [[ $at =~ ^[0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]] || ! note=$(fixer_note "$n" "$at"); then
+      log "hold #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since, and the fixer's comments could not be read"
+      return 0
+    fi
+    note=$(jq -c --arg m "<!-- tehas:millwright issue=$n action=change -->" 'select((.edited | not) and (.context[-1].text // "" | contains($m)))' <<<"$note")
+    if [ -n "$note" ]; then
+      park_lifted[$n]=$note
+      log "lift #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since, lifted on the fixer's guidance comment"
+      return 1
+    fi
+  fi
   if [ "$told" != true ] && [ "$dry" = 0 ]; then
     say "$n" "Not started: the last cycle parked on \`${cap:-nothing}\` and the issue text has not changed since. Edit the body, or tick Retry in the park comment."
     # The record of the tell follows the comment: a park nobody was told about
@@ -2263,14 +2276,10 @@ quiet_bound=1200 quiet_retry=600 quiet_asks=6
 quiet_due() {
   local next=$(($2 + quiet_retry))
   [ "$1" -le "$quiet_asks" ] || next=$(($2 + quiet_retry * quiet_asks))
-  if [ "$1" = 0 ]; then
-    echo stop
-  elif [ "$now" -lt $((next - 1)) ]; then
-    echo wait
-  elif [ "$1" -lt "$quiet_asks" ]; then
-    echo again
-  else
-    echo line
+  if [ "$1" = 0 ]; then echo stop
+  elif [ "$now" -lt $((next - 1)) ]; then echo wait
+  elif [ "$1" -lt "$quiet_asks" ]; then echo again
+  else echo line
   fi
 }
 
@@ -2302,12 +2311,9 @@ running_starts() {
   fi
   while read -r line; do
     [[ $line =~ ^([1-9][0-9]{0,9})\ ([0-9]{1,12})\ ([a-z-]*)\ ([A-Za-z0-9_.:-]{1,64})\ ([0-9]{1,12})\ ([0-9]{1,12})\ ([0-9]{1,6})\ ([0-9]{1,12})$ ]] || continue
-    took_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]}
-    took_how[${BASH_REMATCH[1]}]=${BASH_REMATCH[3]}
-    quiet_for[${BASH_REMATCH[1]}]=${BASH_REMATCH[4]}
-    quiet_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[5]}
-    quiet_asked[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]}
-    quiet_times[${BASH_REMATCH[1]}]=${BASH_REMATCH[7]}
+    took_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[2]} took_how[${BASH_REMATCH[1]}]=${BASH_REMATCH[3]}
+    quiet_for[${BASH_REMATCH[1]}]=${BASH_REMATCH[4]} quiet_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[5]}
+    quiet_asked[${BASH_REMATCH[1]}]=${BASH_REMATCH[6]} quiet_times[${BASH_REMATCH[1]}]=${BASH_REMATCH[7]}
     heard_at[${BASH_REMATCH[1]}]=${BASH_REMATCH[8]}
   done < <(tehas_store_get '.cycles[] | "\(.issue) \(.cycle
     | if . != null and .ended_at == null
@@ -2519,7 +2525,7 @@ for n in $marked; do
       continue
     fi
     log "clear #$n: it is closed, marked tehas:running, and no cycle holds its lock"
-    gh issue edit "$n" --repo "$repo" --remove-label tehas:running >/dev/null 2>&1 || log "WARN: label change on #$n failed"
+    tehas_label_off "$n" tehas:running || log "WARN: label change on #$n failed"
     continue
   fi
   # The list was read before this loop. A cycle that ended since has taken
@@ -2536,11 +2542,9 @@ for n in $marked; do
     continue
   fi
   log "park #$n: it is marked tehas:running and no cycle holds its lock"
-  if gh issue edit "$n" --repo "$repo" --remove-label tehas:running --add-label needs-human-attention >/dev/null 2>&1; then
-    say "$n" "Tehas found this issue marked \`tehas:running\` with no cycle behind it on \`$(hostname)\`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is \`~/tehas/logs/dispatch-work-$n.log\` there. To retry, apply \`tehas:ready\`. If it is on the issue already, nothing more is needed."
-  else
-    log "WARN: label change on #$n failed"
-  fi
+  tehas_label_off "$n" tehas:running --add-label needs-human-attention ||
+    { log "WARN: label change on #$n failed"; continue; }
+  say "$n" "Tehas found this issue marked \`tehas:running\` with no cycle behind it on \`$(hostname)\`: the cycle ended without changing the label, or never started. Look for a pull request it may have opened. The run log is \`~/tehas/logs/dispatch-work-$n.log\` there. To retry, apply \`tehas:ready\`. If it is on the issue already, nothing more is needed."
 done
 
 # A pull request marked tehas:refreshing whose refresh is not running: its
@@ -2694,13 +2698,8 @@ sweep_workspaces() {
     said=0
     for e in "${files[@]}"; do
       [ -e "$e" ] || [ -L "$e" ] || continue
-      if flock -n "$lock" rm -rf -- "$e" 8>&-; then
-        said=1
-      else
-        log "WARN: could not remove ${e#"$TEHAS_HOME"/} of #$n"
-        said=0
-        break
-      fi
+      flock -n "$lock" rm -rf -- "$e" 8>&- || { log "WARN: could not remove ${e#"$TEHAS_HOME"/} of #$n"; said=0; break; }
+      said=1
     done
     if [ "$said" = 1 ]; then
       log "removed what #$n left on this host: no cycle has run on it for 7 days"
@@ -3077,12 +3076,10 @@ for n in $asking; do
         # The record goes only with the label: while the label stays, the
         # next poll reads the same tick and tries again.
         if [ "$dry" = 0 ]; then
-          if gh issue edit "$n" --repo "$repo" --remove-label tehas:question >/dev/null 2>&1; then
-            tehas_store_try 3 question-answered "$n" --id "$qid" --by "$by" ||
-              log "WARN: could not record the answer to the question of #$n ($tehas_store_word)"
-          else
-            log "WARN: label change on #$n failed: --remove-label tehas:question"
-          fi
+          tehas_label_off "$n" tehas:question ||
+            { log "WARN: label change on #$n failed: --remove-label tehas:question"; continue; }
+          tehas_store_try 3 question-answered "$n" --id "$qid" --by "$by" ||
+            log "WARN: could not record the answer to the question of #$n ($tehas_store_word)"
         fi
         continue
       fi

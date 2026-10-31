@@ -33,8 +33,8 @@ pub struct Issue {
     pub prs: Option<Vec<Value>>,
     /// The call worked but its answer is no list of pull requests.
     pub prs_unreadable: bool,
-    /// The issue's last 100 comments, for tehas:blocked; None when the call
-    /// failed.
+    /// The issue's last 100 comments, for tehas:blocked and a park's lift; None
+    /// when the call failed or was not asked.
     pub comments: Option<Value>,
     /// The states of the issues its blocker comment names, by number: OPEN,
     /// CLOSED or MERGED. A number missing is one GitHub gave no state for.

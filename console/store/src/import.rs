@@ -686,7 +686,18 @@ fn approval_in(g: &Got) -> Result<ApprovalIn, String> {
         Some(s) => Some(verbs::sha256(s).ok_or("has a title_sha256 that is not a sha256")?),
     };
     let mut input = Map::new();
-    for k in ["links", "comment_links", "retry_context", "refresh_of"] {
+    if m.get("park_lifted")
+        .is_some_and(|v| !crate::approval::lifted_note(v))
+    {
+        return Err("has a park_lifted that is no note".to_string());
+    }
+    for k in [
+        "links",
+        "comment_links",
+        "retry_context",
+        "refresh_of",
+        "park_lifted",
+    ] {
         if let Some(v) = m.get(k) {
             input.insert(k.to_string(), v.clone());
         }

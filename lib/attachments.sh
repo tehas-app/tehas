@@ -932,7 +932,7 @@ tehas_retry_context() { # <record> [<comments: 0 or 1>]
       and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z")))];
     def quoted: map("\n## \(.source | sub(":"; " ")), by \(.by), \(.at)\n\n"
       + (.text | gsub("\r"; "") | .[0:4000] | split("\n") | map("> " + .) | join("\n")) + "\n") | join("");
-    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("fixer")[] | select($fixer != "" and (.by | rtrimstr("[bot]")) == ($fixer | rtrimstr("[bot]")))][0:1] as $f
+    (if $comments == 1 then ok("pr-comment") else [] end) as $c | [ok("(fixer|millwright)")[] | select($fixer != "" and (.by | rtrimstr("[bot]")) == ($fixer | rtrimstr("[bot]")))][0:1] as $f
     | [select(.how == "refresh") | (.retry_context // [])[] | select(type == "object" and .source == "refresh" and (.text | type) == "string")
        | .text | gsub("\r"; "") | .[0:4000]][0:1] as $r
     | select(($c | length) + ($f | length) + ($r | length) > 0)

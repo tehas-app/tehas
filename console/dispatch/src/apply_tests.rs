@@ -300,6 +300,17 @@ fn a_label_change_that_worked_is_followed_by_its_line_and_comment() {
 }
 
 #[test]
+fn a_refused_label_change_logs_gh_reason() {
+    let mut t = world();
+    t.fail("gh", "issue edit|HTTP 403");
+    let a = t.apply(json!([label()]));
+    assert_eq!(
+        a.log,
+        vec!["WARN: label change on #7 failed: --remove-label tehas:ready --add-label needs-human-attention: HTTP 403"]
+    );
+}
+
+#[test]
 fn a_failed_label_change_logs_its_line_and_says_nothing() {
     let mut t = world();
     t.fail("gh", "issue edit");
@@ -1272,6 +1283,20 @@ fn a_millwright_start_names_its_note_of_the_ten_minutes_before_the_label() {
         json!([{"source": "millwright:3", "by": "mill-bot", "at": "2026-10-26T09:55:00Z", "text": format!("the one {marker}")}])
     );
     assert!(input.get("comment_links").is_none());
+}
+
+#[test]
+fn a_lifted_start_is_given_the_note_that_lifted_it_and_reads_no_comment_again() {
+    let mut t = world();
+    let note = json!({"source": "millwright:3", "by": "mill-bot", "at": "2026-10-26T09:55:00Z", "text": "the one"});
+    let mut start = start_of(7, "millwright");
+    start["park_lifted"] = note.clone();
+    t.apply(json!([start]));
+    assert!(!t.calls().iter().any(|c| c.contains("/comments")));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["park_lifted"], note);
+    assert_eq!(input["retry_context"], json!([note]));
 }
 
 #[test]

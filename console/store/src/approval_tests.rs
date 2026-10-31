@@ -577,6 +577,42 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
             "holds refresh_of of another type",
         ),
         (
+            write_file(&home, "lift-list.json", br#"{"park_lifted":[]}"#),
+            "holds park_lifted of another type",
+        ),
+        (
+            write_file(&home, "lift-null.json", br#"{"park_lifted":null}"#),
+            "holds park_lifted of another type",
+        ),
+        (
+            write_file(&home, "lift-empty.json", br#"{"park_lifted":{}}"#),
+            "holds park_lifted of another type",
+        ),
+        (
+            write_file(
+                &home,
+                "lift-source.json",
+                br#"{"park_lifted":{"source":"comment:9","by":"a","at":"b","text":"c"}}"#,
+            ),
+            "holds park_lifted of another type",
+        ),
+        (
+            write_file(
+                &home,
+                "lift-more.json",
+                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":"c","x":1}}"#,
+            ),
+            "holds park_lifted of another type",
+        ),
+        (
+            write_file(
+                &home,
+                "lift-text.json",
+                br#"{"park_lifted":{"source":"millwright:9","by":"a","at":"b","text":1}}"#,
+            ),
+            "holds park_lifted of another type",
+        ),
+        (
             write_file(&home, "driver.json", br#"{"driver":"classic"}"#),
             "holds driver of another type",
         ),
@@ -595,6 +631,13 @@ fn approval_record_refuses_an_input_file_it_cannot_take() {
     assert_eq!(count(&home, "issues WHERE issue = 41"), 0);
     let null_of = write_file(&home, "null.json", br#"{"refresh_of":null}"#);
     assert!(record_with(&home, 41, 5, &null_of).is_ok());
+    let note =
+        json!({"park_lifted": {"source": "millwright:9", "by": "a", "at": "b", "text": "c"}});
+    let lifted = write_file(&home, "lifted.json", note.to_string().as_bytes());
+    assert_eq!(
+        record_with(&home, 42, 5, &lifted).unwrap()["approval"]["input"],
+        note
+    );
 }
 
 #[test]
