@@ -936,6 +936,13 @@ impl Run {
 
     // --- 2. Docker's build cache, the whole host's, by its age alone.
     fn build_cache(&mut self) -> bool {
+        if self.dry {
+            let hours = self.build_after;
+            self.log(&format!(
+                "would prune docker's build cache of {hours} hours and older, whose size is not known beforehand"
+            ));
+            return true;
+        }
         let until = format!("until={}h", self.build_after);
         let (rc, said) = merged(
             bounded("30", "600", "docker")
@@ -945,7 +952,7 @@ impl Run {
         match rc {
             0 => {
                 self.log(&format!(
-                    "docker builder prune: {}, whose size is not known beforehand",
+                    "docker builder prune: {}",
                     first_line(&said, "docker gave no answer")
                 ));
                 true
@@ -1312,11 +1319,13 @@ impl Run {
         let act = if self.dry { "would remove" } else { "removed" };
         for n in v["logs"].as_array().into_iter().flatten() {
             let n = n.as_str().map_or_else(|| n.to_string(), String::from);
-            // The store answers names, not sizes, and a dry run does not walk
-            // the logs directory for them: the figure of the run leaves them out.
-            self.log(&format!(
-                "{act} logs/{n}: a log 7 days old, whose size is not known beforehand"
-            ));
+            // The store answers names, not sizes: a dry run's figure leaves them out.
+            let size = if self.dry {
+                ", whose size is not known beforehand"
+            } else {
+                ""
+            };
+            self.log(&format!("{act} logs/{n}: a log 7 days old{size}"));
         }
         if !self.dry {
             let kept = json!({"backup": v["backup"], "prune": v["prune"]});
@@ -1377,37 +1386,17 @@ mod tests {
         assert_eq!(ended(&args[..2]), 64);
     }
 
-    /// The access and change times of every name under <root>, root included,
-    /// to an hour of the past: the age rule reads the tree itself, so a fixture
-    /// written now is a young tree. `utimensat` with `AT_SYMLINK_NOFOLLOW` is
-    /// what `touch -d` uses, and takes no link.
+    /// The times of every file and directory under <root>, root included, set
+    /// to some hours ago: the age rule reads the tree itself.
     fn age_tree(root: &Path, hours: u64) {
-        let at = time::now() - hours as i64 * 3600;
-        let ts = [
-            libc::timespec {
-                tv_sec: at as libc::time_t,
-                tv_nsec: 0,
-            },
-            libc::timespec {
-                tv_sec: at as libc::time_t,
-                tv_nsec: 0,
-            },
-        ];
+        let at = std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 3600);
+        let times = fs::FileTimes::new().set_accessed(at).set_modified(at);
         let mut stack = vec![root.to_path_buf()];
         while let Some(d) = stack.pop() {
-            let c = std::ffi::CString::new(d.as_os_str().as_bytes()).unwrap();
-            // A name that went between the walk and the call is no error here.
-            unsafe {
-                libc::utimensat(
-                    libc::AT_FDCWD,
-                    c.as_ptr(),
-                    ts.as_ptr(),
-                    libc::AT_SYMLINK_NOFOLLOW,
-                )
-            };
             if let Ok(entries) = fs::read_dir(&d) {
                 stack.extend(entries.flatten().map(|e| e.path()));
             }
+            fs::File::open(&d).unwrap().set_times(times).unwrap();
         }
     }
 
@@ -1436,8 +1425,9 @@ mod tests {
         age_tree(&works, 72);
         age_tree(&home.join("state/cycles"), 72);
         // No scratch disk; the image names are empty, so neither image step is
-        // asked of docker, and no store stands in this home, so step 6 only
-        // reports itself.
+        // asked of docker, and no store stands in this home, so step 6 fails
+        // and reports itself. A dry run asks docker nothing; the real run below
+        // calls only the workspaces' step, so no case prunes the host's docker.
         let run = Run {
             dry: true,
             home,
@@ -1467,7 +1457,7 @@ mod tests {
         assert_eq!(
             run.main(30 * 1024, "30g", ""),
             1,
-            "only the steps that need docker or the store failed"
+            "only the store's step failed"
         );
         let said = fs::read_to_string(&run.logfile).unwrap();
         // The bytes on the path it names, and in the closing word of the run.
@@ -1496,16 +1486,13 @@ mod tests {
         one_issue_tree(&root);
         run.dry = false;
         run.freed = 0;
-        let rc = run.main(30 * 1024, "30g", "");
-        assert_eq!(rc, 1, "only the steps that need docker or the store failed");
+        assert!(run.workspaces());
         assert_eq!(
             run.freed,
             known,
             "{}",
             fs::read_to_string(&run.logfile).unwrap()
         );
-        let said = fs::read_to_string(&run.logfile).unwrap();
-        assert!(said.contains(&format!("freed {known} bytes")), "{said}");
         assert!(!tree.join("target").exists(), "a real run left it");
         assert!(tree.join("src/main.rs").exists());
         fs::remove_dir_all(&root).unwrap();

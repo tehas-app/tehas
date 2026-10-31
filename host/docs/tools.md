@@ -3290,7 +3290,7 @@ starting cycles:
    This is the build cache of the whole host's Docker daemon: tehas
    is one project on one host, and the cache of anything else on it is made
    again too. The next sandbox build is slower after a prune. No image and no
-   volume is removed.
+   volume is removed. A dry run does not prune: it says what it would.
 3. **Host scratch.** Files under `~/tehas/tmp/dl` and
    `~/tehas/tmp/node-compile-cache`, `~/tehas/tmp/analytics-facts.*` and
    `~/tehas/tmp/health.*` files, and
