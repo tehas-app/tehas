@@ -1,14 +1,15 @@
 # What the console, analytics, the MCP server and the store share: the mask,
-# the clock and civil dates, the read of a host file, the argument grammars
-# and the slow notices a cycle's record keeps. A library member of the
-# workspace in ../Cargo.toml. The mask, and the questions with the park
-# signature, are a feature.
+# the clock and civil dates, the read of a host file, the one lock probe, the
+# argument grammars and the slow notices a cycle's record keeps. A library
+# member of the workspace in ../Cargo.toml. The mask, and the questions with
+# the park signature, are a feature.
 [package]
 name = "tehas-core"
 version = "0.1.0"
 edition = "2021"
-# The oldest compiler that knows what the source uses (LazyLock).
-rust-version = "1.80"
+# The oldest compiler that knows what the source uses: the lock probe's
+# File::try_lock (1.89), and the mask's LazyLock (1.80).
+rust-version = "1.89"
 publish = false
 
 [lib]
