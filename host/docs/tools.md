@@ -2754,7 +2754,12 @@ the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
-refreshed at every poll and at the end of every cycle. The poll that runs it
+refreshed at every poll and at the end of every cycle. When the poll of the
+dispatcher is the one that ran the status script, the script does not: it holds
+the poll's GitHub token in its environment as `TEHAS_GH_TOKEN`, which is how it
+knows, and the poll runs health itself a moment after the status ends. So one
+poll refreshes the file once, not twice; a `tehasbot status` a person or a
+cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
 bounds its own store calls only one at a time; one cut off leaves the file as
 the last writer left it, and the poll says
