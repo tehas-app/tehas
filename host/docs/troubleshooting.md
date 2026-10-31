@@ -486,8 +486,12 @@ Read the rest of the comment with three things in mind:
   `tehas-<issue>.before-retry` until the next retry. See step 5 of
   [Operating](/operating).
 - The workspace was written by the cycle's container, its git settings and
-  hooks included. tehas never runs git in it on the host: git there runs what
-  the cycle left in those settings. Read its files instead.
+  hooks included. tehas runs no git in it on the host to read it: git there
+  would run what the cycle left in those settings. Read its files instead. The
+  one host command that works in it is [tehas-cycle finish](/tools#the-pull-request-of-a-stopped-cycle),
+  which cannot read the branch without git: every call it makes pins
+  `core.hooksPath` and `core.fsmonitor` off on its own command line, so a hook
+  or a helper the cycle left runs for nobody.
 
 A retry approves the issue text as it is then, so change the issue first when
 the cap asks for it. A cap posted on a pull request came from the review

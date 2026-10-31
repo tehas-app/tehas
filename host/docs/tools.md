@@ -2260,6 +2260,44 @@ one number; a mark file of more than 32 bytes, or one that is not a regular
 file, is no mark. The glue that calls it from `tehas work` is a later change;
 on a host today these three verbs are the whole of it.
 
+**The pull request of a stopped cycle.** `tehas-cycle finish <issue> --home
+<dir> --repo <owner/name> --default <branch> --reason <text>` takes what a
+stopped cycle left and opens it as a draft pull request, so the factory does
+the push and nobody outside the host needs write access to the code. It finds
+the kept workspace `$TEHAS_WORK_DIR-<issue>`, which is
+`~/tehas/work/<name>-<issue>` for a host that keeps its settings in `~/tehas`,
+and the branch `feature/issue-<issue>-*` in it.
+It fetches, rebases the branch's commits onto `origin/<branch>` in a temporary
+worktree of that repository, pushes them to a new branch `finish/issue-<issue>`
+with no force, and opens the draft with `gh pr create --draft`. It prints the
+URL. The kept workspace is only ever read, the cycle's own branch never moves,
+and the worktree and the body file go on every path, the refusals included.
+Every call of git is asked of that workspace with `core.hooksPath=/dev/null`
+and `core.fsmonitor=false` on its own command line, as the cleaner's one call
+into a workspace is: the tree was written by the cycle's container, and a hook
+or a `core.hooksPath` it left there runs neither, so no script the cycle planted
+runs as the factory on the host or answers for whether the push goes through.
+The draft's body says `Fixes #<issue>.`, that the factory opened it from a
+stopped cycle, and that its gate did not pass, with the `--reason` as the asker
+put it: whether the failure was outside the change is the asker's judgement, and
+the draft never says the gate was green. Of the settings it reads only
+`TEHAS_WORK_DIR`, the name the workspace was given by; the rest it is given, so
+what it works on is what the caller named. It asks no authorisation: who asked
+is what the poll's step of the next change checks before it calls this.
+
+It refuses with one line on standard error and exit 1, and changes nothing,
+when: the workspace or the branch is missing or is no git repository, the
+working tree holds work that was never committed (nobody has checked it), the
+branch holds no commit over `origin/<branch>`, `origin/<branch>` is not a branch
+of the remote, `finish/issue-<issue>` already stands on the remote, the issue
+already has an open pull request of its branch or one whose body closes it (a
+body that denies the closing word, `this does not fix #<n>`, names no pull
+request of the issue), or the rebase conflicts. A push the remote refuses is not
+tried again. A refusal
+names the rule and, where the command said something, its first line. The ask
+that runs this verb, the marked comment and the label that carries it, is the
+next change: on a host today the verb is run by hand.
+
 It runs [tehas work](#tehas-work) for the issue, reads the runner's result
 that `tehas work` left in `~/tehas/state/cycles/<issue>.result.json` (status,
 the step it stopped in, cap, branch, token usage), finds the pull request the
