@@ -22,7 +22,8 @@ What exists today: [`tehas api`](#tehas-api),
 [`tehas drain`](#tehas-drain), [`tehas history`](#tehas-history),
 [`tehas export`](#tehas-export),
 [`tehas state`](#tehas-state),
-[`tehas analytics export`](#tehas-analytics-export) and
+[`tehas analytics export`](#tehas-analytics-export),
+[`tehasbot clean`](#tehasbot-clean) and
 [`tehas:all-hands`](/operating#all-hands). The design of the rest is in
 the spec, `docs/specs/2026-10-17-factories.md` in the source; a command is
 listed here when a release has it.
@@ -101,7 +102,7 @@ tehas api [--json]
   "tehas": "v0.8.0",
   "commit": "cb6912a",
   "repo": "tehas-app/tehas",
-  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move"],
+  "features": ["status", "millwright-grant", "fixer-grant", "all-hands", "limit", "drain", "history", "export", "refresh-conflicts", "analytics", "state-move", "clean"],
   "millwright": null,
   "fixer": null,
   "poll": {
@@ -126,7 +127,7 @@ tehas api [--json]
 | `tehas` | The release tag the factory was installed from: `v0.10.2` for a release install, `v0.8.0` for a checkout one. `null` when the install came from a checkout with no tag, or not from a git checkout |
 | `commit` | The commit it was installed from, seven characters; `null` for a release install, which records only the tag, and when not from a git checkout |
 | `repo` | `TEHAS_REPO`, the product repository |
-| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)) and `state-move` ([`tehas state`](#tehas-state)) |
+| `features` | What this release has, so a program can tell a factory that predates a feature from one where it failed. Today `status`, `millwright-grant` ([the millwright's grant](/operating#the-millwrights-grant)), `fixer-grant`, `all-hands`, `limit`, `drain`, `history` ([`tehas history`](#tehas-history)), `export` ([`tehas export`](#tehas-export)), `refresh-conflicts` (the factory refreshes its own pull requests that conflict, [refreshes](/operating#refreshes)), `analytics` ([`tehas analytics export --json`](#tehas-analytics-export)), `state-move` ([`tehas state`](#tehas-state)) and `clean` ([`tehasbot clean`](#tehasbot-clean)) |
 | `millwright` | `TEHAS_MILLWRIGHT_LOGIN`, or `null` when the instance has no millwright |
 | `fixer` | The same as `millwright`. It and the feature `fixer-grant` are the old names, kept for as long as API version 1; a program reads `millwright` and `millwright-grant` |
 | `poll` | What the polls of this factory cost, or `null` when no poll is on record or the state store cannot answer. `last` is the poll that most recently held the dispatcher's lock and `hour` is the sums of the polls that ended in the last hour; both are in the fields below, so a program that keeps a copy of them can add the cost of many hosts up. See [What a poll costs](/operating#what-a-poll-costs) for what each figure counts |
@@ -519,3 +520,38 @@ It does not say analytics is on: exit 0; 64 on a bad argument; 69 when the
 instance has `TEHAS_ANALYTICS=off` or the program is not installed, which
 writes nothing; 70 when the database cannot be read; 73 when `<file>` exists or
 cannot be made; 78 without an instance.
+
+## tehasbot clean
+
+```
+tehasbot clean                # one run
+tehasbot clean --dry-run      # name what it would remove, and remove nothing
+```
+
+Reclaims what the host can make again, of anything untouched for
+`TEHAS_CLEAN_AFTER` hours: build output in a kept workspace, Docker's build
+cache, host scratch, old sandbox and base images, and old logs and the state
+store's upkeep. The six steps, their age and lock rules and what they never
+touch are on
+[tehasbot clean](/tools#tehasbot-clean); this page names the command only as
+far as a program needs it.
+
+It is not `--json`: one line per removal goes to `~/tehas/logs/clean.log` and is
+printed as well, and the log lines are the contract. A real run closes with
+`clean: freed <n> bytes`. A dry run measures each path it names with the same
+figure a real run counts, on `clean: would remove <path>: <what>, <n> bytes`,
+and closes with `clean: would free <n> bytes, which leaves out the build cache,
+the image tags and the store's upkeep, whose size is not known beforehand`. The
+three steps that cannot size themselves beforehand - Docker's build cache, the
+image tags of steps 4 and 5, which share layers with tags that stay, and the
+store's upkeep, which answers names and not sizes - say so on their own line.
+A dry run removes
+nothing, takes no issue's lock and backs the store up not at all, so its figure
+is an estimate of a tree that is moving while it is measured.
+
+The feature `clean` in [`tehas api`](#tehas-api) says the command exists.
+Exit 0 when every step worked; 1 when a step failed or the log could not be
+written, with what could be removed removed; 3 when another run holds the
+cleaner's lock, which changes nothing; 64 on an argument the command does not
+know; 78 when the settings are missing or malformed or no console is installed
+beside the command, before any Docker, find or rm call.

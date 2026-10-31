@@ -698,7 +698,12 @@ old_base "$base1"
 t_contains "$t_out" "would remove $base_image: a base image of that age"
 t_lacks "$t_out" "image prune"
 t_lacks "$t_out" "rmi $image_name"
-t_contains "$t_out" "freed 0 bytes"
+# The dry run names the bytes it would free, so it never closes at 0: the
+# figure is the paths of the file system, and the line says the docker and store
+# steps are not in it.
+t_contains "$t_out" "would remove $workdir-7/target: build output of #7, untouched for 24 hours, "
+t_contains "$t_out" "clean: would free "
+t_lacks "$t_out" "freed 0 bytes"
 t_lacks "$t_out" "clean: removed"
 
 # --- 1b. the roots of an issue that sit beside the workspace ------------------

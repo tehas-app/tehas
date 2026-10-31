@@ -2064,7 +2064,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move clean
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -3211,7 +3211,7 @@ missing, malformed or name no app.
 
 ```
 tehasbot clean                # one run; one line per removal in ~/tehas/logs/clean.log
-tehasbot clean --dry-run      # log what it would remove and remove nothing
+tehasbot clean --dry-run      # log what it would remove, with its size, and remove nothing
 systemctl --user enable --now tehas-clean.timer
 tail ~/tehas/logs/clean.log
 journalctl --user -u tehas-clean
@@ -3319,6 +3319,20 @@ starting cycles:
    `store upkeep`, and says one line per log removed and then
    `clean: store upkeep: <answer>`. A dry run names the logs and leaves the
    store alone.
+
+A dry run measures what it names. Each path it would take is logged as
+`clean: would remove <path>: <what>, <n> bytes`, with the same figure
+`bytes_of` counts for the real removal, and the run closes with
+`clean: would free <n> bytes, which leaves out the build cache, the image tags
+and the store's upkeep, whose size is not known beforehand` rather than
+`clean: freed 0 bytes`. Three steps cannot give a size beforehand - Docker's
+build cache, the image tags of steps 4
+and 5, which share layers with tags that stay so no tag's removal frees the
+size docker reports for its image, and step 6, whose store answers names and not
+sizes - and each says so on its own line. A dry run removes nothing, so it takes no
+issue's lock, and backs the state store up not at all. Its figure is an estimate
+of a tree that moves while it is measured: a workspace a cycle writes between
+two dry runs answers with two figures.
 
 Preview images are `tehasbot preview`'s and no step here touches them. Docker
 volumes are never touched (see [the host](/host#what-a-container-may-not-do),
