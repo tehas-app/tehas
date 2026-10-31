@@ -5,9 +5,11 @@
 //! says where the two differ. `pin` gives a cycle its own copy of the code.
 //! `clock` measures a cycle on a clock that stops while the VM is saved.
 //! `renew` keeps a cycle's GitHub token fresh and says what went wrong.
+//! `finish` opens a pull request from what a cycle that stopped left.
 
 pub mod clock;
 pub mod facts;
+pub mod finish;
 pub mod host;
 pub mod last_attempt;
 pub mod pin;

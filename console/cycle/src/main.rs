@@ -60,6 +60,20 @@
 //!                                     one line on standard error for each
 //!                                     failure, never the command's output
 //!                                     (src/renew.rs). It ends 0 on TERM.
+//!   tehas-cycle finish <issue> --home <dir> --repo <owner/name> --default <branch>
+//!       --reason <text>
+//!                                     the factory opens the draft pull
+//!                                     request of a stopped cycle: the kept
+//!                                     workspace `<home>/work/<name>-<issue>`,
+//!                                     its branch `feature/issue-<issue>-*`
+//!                                     rebased onto `origin/<branch>` in a
+//!                                     temporary worktree, pushed as
+//!                                     `finish/issue-<issue>`, and opened with
+//!                                     `gh pr create --draft`. The workspace and
+//!                                     its branch never move. It prints the URL,
+//!                                     or one line on standard error and exits 1
+//!                                     for a refusal that changed nothing
+//!                                     (src/finish.rs)
 //!   tehas-cycle -h|--help             print this text
 //!
 //! shadow and compare do nothing while $TEHAS_HOME/state/cycle-shadow.on is
@@ -77,8 +91,13 @@
 //!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
-//! `stalled`; 2 `clock check` said `over`; 3 `clock check` said `unknown`;
-//! 64 an argument it does not know; 78 run without an absolute TEHAS_HOME.
+//! `stalled`, or `finish` refused; 2 `clock check` said `over`; 3 `clock check`
+//! said `unknown`; 64 an argument it does not know; 78 run without an absolute
+//! TEHAS_HOME.
+//!
+//! finish is asked the whole of its words and reads no setting of its own, so it
+//! takes no TEHAS_HOME: part 2's poll step, the only caller today, passes the
+//! four it needs. Its reason is one argument and never a file of the asker's.
 
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -87,7 +106,7 @@ use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
 use tehas_cycle::report::{to_json, Given};
-use tehas_cycle::{pin, renew, report, shadow, Facts};
+use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -236,6 +255,7 @@ fn main() {
             };
             renew_verb(&cmd, every, retry);
         }
+        ["finish", n, rest @ ..] => finish_verb(issue(n, &args), &args, rest),
         ["compare", n] => {
             let n = issue(n, &args);
             if on() {
@@ -246,6 +266,59 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The ask of part 2's poll step: the words of one finish, and the run of them.
+///
+/// The kept workspace is `TEHAS_WORK_DIR` with the issue's number on the end,
+/// the name `tehas work` gave the tree the cycle worked in and the name the poll
+/// keeps when the cycle stops. The rest are given, so the command reads no
+/// setting but that one, and it is refused when the host has none — the poll
+/// step of part 2 has it, as every command that works on a workspace has.
+fn finish_verb(n: u64, args: &[String], rest: &[&str]) -> ! {
+    let mut home = None;
+    let mut repo = None;
+    let mut default = None;
+    let mut reason = None;
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let Some(v) = it.next() else { wrong(args) };
+        let v = v.to_string();
+        match *flag {
+            "--home" => home = Some(PathBuf::from(v)),
+            "--repo" => repo = Some(v),
+            "--default" => default = Some(v),
+            "--reason" => reason = Some(v),
+            _ => wrong(args),
+        }
+    }
+    let (Some(home), Some(repo), Some(default), Some(reason)) = (home, repo, default, reason)
+    else {
+        wrong(args)
+    };
+    let work_dir = match std::env::var("TEHAS_WORK_DIR") {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => fail("TEHAS_WORK_DIR is not set".to_string()),
+    };
+    let plan = finish::Plan {
+        issue: n,
+        repo,
+        home,
+        work_dir,
+        default,
+        reason,
+    };
+    let mut host = match finish::Live::new() {
+        Ok(host) => host,
+        Err(e) => fail(e),
+    };
+    let done = finish::finish(&plan, &mut host);
+    if done.url.is_empty() {
+        finish::say(n, &done.why);
+        std::process::exit(1);
+    }
+    println!("{}", done.url);
+    std::process::exit(0);
 }
 
 /// The renewer of a cycle's GitHub token: it runs to the end of the cycle and
