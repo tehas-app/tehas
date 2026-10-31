@@ -1099,8 +1099,14 @@ fn in_list(v: &J, words: &[&str]) -> bool {
     v.as_str().is_some_and(|s| words.contains(&s))
 }
 
+/// A cycle that ended without failing the factory: its work shipped, it is
+/// waiting for review, or its issue closed while it ran (rc 2), which usually
+/// means the pull request merged first or a person closed the issue by hand.
 fn ended_well(c: &J) -> bool {
-    in_list(c.get("status").or(&J::str("")), &["merged", "handoff"])
+    in_list(
+        c.get("status").or(&J::str("")),
+        &["merged", "handoff", "closed"],
+    )
 }
 
 /// One cycle as the health file lists it.
@@ -1528,6 +1534,18 @@ mod tests {
             r.at(&["checks", "cycle", "startedAt"]).text(),
             "1970-01-01T00:05:00Z"
         );
+    }
+
+    #[test]
+    fn a_last_cycle_that_ended_closed_is_not_a_failure() {
+        let h = home("closed");
+        h.write(
+            "live/running.json",
+            r#"{"cycles":[],"last":{"issue":1106,"running":false,"status":"closed","step":"review","startedAt":100,"updatedAt":200}}"#,
+        );
+        let r = h.report(&Given::default());
+        assert_eq!(said(&r), ("pass".into(), "Idle, taking work.".into()));
+        assert_eq!(r.at(&["checks", "failed"]).len(), 0);
     }
 
     #[test]
