@@ -236,6 +236,12 @@ Another issue.' | jq -s .)"
 holds "Words."
 t_lacks "$t_out" "lift #7"
 
+t_case "a parked issue that asks no question has its comments read, and the note lifts the hold"
+millwright_parked
+with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
+no_question
+lifts
+
 t_case "a change note saved again before the label lifts only where the poll can see its own account did"
 # GraphQL names the editor. REST does not, so the bash poll takes any edit as another's.
 millwright_parked
