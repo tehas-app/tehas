@@ -183,7 +183,7 @@ impl Report {
         m.insert(
             KEY_AWAIT_ROOM.into(),
             self.await_room
-                .map_or(serde_json::Value::Null, |n| serde_json::Value::from(n)),
+                .map_or(serde_json::Value::Null, serde_json::Value::from),
         );
         if let Some(n) = self.limit_room {
             m.insert(KEY_LIMIT_ROOM.into(), serde_json::Value::from(n));

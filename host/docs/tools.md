@@ -431,7 +431,13 @@ other turn. To count the running cycles the poll asks the state store once,
 `store locks-held`, which tries every lock under `state/cycles` in one process
 and names each one held or that it could not try. A held lock counts whether or
 not the store has the cycle on record, and an old lock file costs no process of
-its own. Without the store, the lock files are tried one by one. When the turn ends the unit leaves `state/dispatch.again`, which
+its own. Without the store, the lock files are tried one by one. The one probe
+is the library's (`tehas_core::lock`, `console/core/src/lock.rs`), and the
+dispatcher, the health page, the cleaner and the store all ask it the same
+question, so they answer the same way for one lock: no file and a file the probe
+took are free, and a lock that is held, a lock that cannot be opened, and a name
+at the path that is no regular file - a link or a directory - are all read as a
+lock that holds. When the turn ends the unit leaves `state/dispatch.again`, which
 starts a poll, as the end of a cycle does.
 As the poll takes up a turn that ended, it records it in the factory's
 analytics: `~/tehas/libexec/analytics plan <issue> --rc <how it ended> --facts
@@ -646,6 +652,29 @@ and their text, the first 20 cut at 4000 characters each, goes to
 cannot be read stop the retry: `ERROR: the comments on the pull request of
 #N could not be read`, exit 1, and the tick stays. Only conversation comments
 are read, not review comments or reviews.
+
+### Pull request titles
+
+The title of a factory pull request says its state. A factory pull request is
+one from a `feature/issue-<n>` branch by the bot's login; the number is its
+linked issue. A person's pull request is never touched.
+
+| The title starts with | When |
+| --- | --- |
+| `WIP: ` | The linked issue carries `tehas:running`, or the pull request carries `tehas:refreshing` |
+| `STUCK: ` | No cycle runs and the linked issue carries `needs-human-attention` |
+| nothing | Anything else: it is ok to merge. A person clearing the label clears the prefix |
+
+Each poll sets the title from what it read already, through
+`console pr-title poll`, and a cycle's end sets it once with
+`console pr-title sync <pr>`, so it is right before the next poll. A cycle
+that opens a pull request gets `WIP: ` on the next poll. Only a title that
+differs is written, through the REST endpoint `repos/<repo>/pulls/<n>`. When a
+read fails the title stays as it is, and a failed read or write is a `WARN` in
+the log and holds nothing. The bash poll (`TEHAS_DISPATCHER=bash`) does not
+set titles; a cycle's end still does.
+
+The preview page shows the prefix too, as it shows the title.
 
 ## tehas work
 
@@ -1085,8 +1114,11 @@ answer that ticked **File as a new issue** runs `plan --resume <id> --confirm`, 
 plan as it was shown and nothing else. One that ticked **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
-dispatcher, which writes it onto the issue and ends the session. Any other
-answer runs `--answer`. The first
+dispatcher, which writes it onto the issue and ends the session. A plan with no
+open points may need no such answer: the dispatcher then reads the issue and
+`draft.json` itself and no turn runs, see
+[A plan with no open points](/operating#a-plan-with-no-open-points).
+Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
@@ -1161,7 +1193,10 @@ runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
 the planner's proposals and offers **Update this issue**. A refine session
-also offers **File as a new issue**, since it exists to file one. The `console` beside the command shapes it, and
+also offers **File as a new issue**, since it exists to file one. Without
+`--kind refine`, a plan the runner lists an empty list of open points for and
+that was not cut adds `"clear": true`. That says only that no point is open; the
+dispatcher decides whether it starts, and posts the question otherwise. The `console` beside the command shapes it, and
 without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the
@@ -2058,7 +2093,7 @@ tehas api [--json]
 api         1
 tehas       v0.8.0 (cb6912a)
 repo        tehas-app/tehas
-features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move
+features    status millwright-grant fixer-grant all-hands limit drain history export refresh-conflicts analytics state-move pr-title
 millwright  none
 poll        last 24 s wall, 1.5 s CPU, 12 gh; last hour 14 polls, 41 s CPU
 ```
@@ -2479,8 +2514,11 @@ call.
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
-`~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
-changed the queue, and a cycle when it ends.
+`~/tehas/live/status.json`; the dispatcher runs it at the start of a poll only
+when that file is five minutes old or missing, and after any poll that changed
+the queue, and a cycle when it ends. An idle poll whose file the last poll wrote
+keeps it, so the reading a person sees is at most five minutes older than the
+last poll that had anything to report.
 Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
 and `closedAt`.
 Completed means closed by a merged pull request, by the close event's closer or
@@ -2630,8 +2668,7 @@ What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time
 and the work script says so when the console is missing or ends with an error.
 At the end of a cycle the console is given 30 seconds to stop; one that takes
 longer is killed, and the work script says so.
-The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, goes through
-the same mask (`console --mask`); without a console it is left empty.
+The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, is the two lines the console keeps beside that file in `~/tehas/live/console-<issue>.txt.now`: the step of the last step the cycle started, and the first line of the driver's last notice. The console masks them as it writes, through the same mask as the console file, and rewrites the file only when one of the two changed; the work script reads them and starts nothing to get them. Without the file the step is `starting` and the notice empty. At the end of the cycle the same two lines name the step the cycle was in for the record, when the runner's result names none.
 
 ### The live view
 
@@ -2647,7 +2684,7 @@ poll call it. A running cycle not heard from for two minutes whose lock is
 free is shown as `lost`, and its end is kept as lost when the issue starts
 again.
 
-The console, and the mask of the status line, also mask in any case the names
+The console, the now file of the status line, and the mask of a log, also mask in any case the names
 the host knows that an agent can print: each name and address in
 `PI_ENSEMBLE_HOST_ALIASES`, the hosts of the model provider's `baseUrl` and
 `backupBaseUrl` in `models.json`, and the bot's git email. The work script gives them with
@@ -2714,7 +2751,10 @@ issue, status, step and times of every running cycle; `checks.cycle` is the
 first of them, or the cycle that finished last when none is running.
 `checks.plans` has the issue, the turn and `startedAt` of every planning turn
 in flight: a session the state store has running (`plan-show --open`) whose
-lock (`state/plan-<issue>.json.lock`) its unit holds. A store that does not
+lock (`state/plan-<issue>.json.lock`) its unit holds. The page asks the one
+probe, so a lock it cannot open, or a name at that path that is no lock file, is
+a turn in flight too: the page reads a probe it could not make as a turn that has
+not ended, never as one that has. A store that does not
 answer writes no health file: `tehasbot health` exits 1 when it was busy, 78
 when it is not installed or cannot be used. The publish of the report is tried
 three times while the store is busy, within 30 s of its own, so that a store
@@ -3264,8 +3304,12 @@ starting cycles:
    get, since it is reported as `nothing to remove in #<issue>`, and the line a
    lock that exists but could not be taken does not get either, since that removal
    is reported by its warning. A lock held by a cycle is asked for first, before
-   the age, and is `kept the build output of #<issue>: its lock is held`. The lock
-   is taken
+   the age, and is `kept the build output of #<issue>: its lock is held`. A link
+   or a directory at the lock path, and a lock no one can open, are asked of the
+   one probe the library keeps (`tehas_core::lock`, `console/core/src/lock.rs`),
+   which the dispatcher and the health page ask too, and answer the same as a lock
+   a cycle holds: kept. A dangling link is not free, so nothing of the issue goes
+   under it. The lock is taken
    for the instant of each removal. A manual session's build output,
    `~/tehas/dev/<name>.state/target`, is not in this step: the cleaner walks no
    directory under `~/tehas/dev` for build-output names, and that tree is a

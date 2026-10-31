@@ -262,4 +262,113 @@ t_contains "$t_out" "did not happen (it was never attempted); this poll decides 
 t_contains "$t_out" "start #7 (labelled by alice)"
 t_eq "$(TEHAS_HOME=$home "$st" journal-open | jq -c .actions)" "[]"
 
+# The poll's own GraphQL page holds the open pull requests, as this list: the
+# author as GraphQL names an app, with no [bot].
+pulls() { # one "<number>|<title>|<head>|<author>|<label>" per argument
+  printf '%s\n' "$@" | jq -Rn '[inputs | split("|") | {number: (.[0] | tonumber), title: .[1], headRefName: .[2],
+    author: {login: .[3]}, labels: {nodes: ([.[4] // empty | select(. != "")] | map({name: .}))}}]' >"$fx/pulls.json"
+}
+issue_with() { # <number> <label>
+  jq -n --argjson n "$1" --arg l "$2" '{number: $n, state: "open", labels: [{name: $l}]}' >"$fx/work-$1.json"
+}
+title_of() { # <pull request> <title>: the line of the write
+  printf 'api -X PATCH repos/acme/widget/pulls/%s -f title=%s' "$1" "$2"
+}
+titles() { t_console || t_bad "no console: $t_console_why"; T_ENV+=(TEHAS_CONSOLE_CMD="$T_CONSOLE"); }
+
+t_case "a poll gives each factory pull request the prefix of its state"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+issue_with 11 tehas:running
+issue_with 12 needs-human-attention
+issue_with 13 tehas:awaiting-merge
+pulls '31|chore(work): running|feature/issue-11-a|tehas-bot' \
+  '32|chore(work): handed off|feature/issue-12-b|tehas-bot' \
+  '33|STUCK: chore(work): awaiting|feature/issue-13-c|tehas-bot'
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "$(title_of 31 'WIP: chore(work): running')"
+t_contains "$(t_calls gh)" "$(title_of 32 'STUCK: chore(work): handed off')"
+t_contains "$(t_calls gh)" "$(title_of 33 'chore(work): awaiting')"
+
+t_case "tehas:refreshing on the pull request is WIP, and WIP wins over STUCK"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+issue_with 12 needs-human-attention
+jq -n '{number: 13, state: "open", labels: [{name: "tehas:running"}, {name: "needs-human-attention"}]}' >"$fx/work-13.json"
+pulls '32|handed off|feature/issue-12-b|tehas-bot|tehas:refreshing' \
+  '33|STUCK: both|feature/issue-13-c|tehas-bot'
+t_run "$rpoll"
+t_contains "$(t_calls gh)" "$(title_of 32 'WIP: handed off')"
+t_contains "$(t_calls gh)" "$(title_of 33 'WIP: both')"
+
+t_case "the bot's login is matched in the form REST gives it"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+echo '{"login":"tehas-bot[bot]"}' >"$fx/user.json"
+issue_with 11 tehas:running
+pulls '31|a change|feature/issue-11-a|tehas-bot'
+t_run "$rpoll"
+t_contains "$(t_calls gh)" "$(title_of 31 'WIP: a change')"
+
+t_case "a person's pull request gets no call, and a title already right gets no write"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+issue_with 11 tehas:running
+pulls '31|WIP: right already|feature/issue-11-a|tehas-bot' \
+  '32|a person, on a factory branch|feature/issue-11-b|alice' \
+  '33|the bot, on no factory branch|renovate/x|tehas-bot'
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_lacks "$(t_calls gh)" "pulls/3"
+
+t_case "a poll with no factory pull request makes no extra call"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+t_run "$rpoll"
+without=$(t_calls gh | wc -l)
+reset
+titles
+echo '[]' >"$fx/ready.json"
+pulls '32|a person|feature/issue-11-b|alice'
+t_run "$rpoll"
+t_eq "$(t_calls gh | wc -l)" "$without"
+
+t_case "an issue that is not open is read once, and a failed read leaves the title alone"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+echo '{"number":21,"state":"closed","labels":[]}' >"$fx/work-21.json"
+: >"$fx/work-22-fails"
+pulls '41|STUCK: closed|feature/issue-21-a|tehas-bot' '42|STUCK: unread|feature/issue-22-b|tehas-bot'
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "$(title_of 41 'closed')"
+t_lacks "$(t_calls gh)" "pulls/42"
+t_contains "$t_out" "WARN: the title of pull request #42 was not kept"
+
+t_case "a failed write is a warning and holds nothing"
+reset
+titles
+issue_with 11 tehas:running
+pulls '31|a change|feature/issue-11-a|tehas-bot'
+: >"$fx/patch-fails"
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$t_out" "WARN: the title of pull request #31 was not kept"
+t_contains "$t_out" "start #7 (labelled by alice)"
+
+t_case "a dry run writes no title"
+reset
+titles
+issue_with 11 tehas:running
+pulls '31|a change|feature/issue-11-a|tehas-bot'
+t_run "$rpoll --dry-run"
+t_lacks "$(t_calls gh)" "pulls/31"
+
 t_done

@@ -666,19 +666,24 @@ impl Run {
             .join(format!("{n}.lock"))
     }
 
-    /// A cycle holds the issue's lock, or the probe could not open it.
+    /// A cycle holds the issue's lock, or the probe could not tell: the cases
+    /// the cleaner reads as a cycle at work. Core answers for the probe.
     fn cycle_running(&self, n: &str) -> bool {
-        let lock = self.cycle_lock(n);
-        lock.exists() && File::open(&lock).map_or(true, |f| f.try_lock().is_err())
+        matches!(
+            tehas_core::lock::probe(&self.cycle_lock(n)),
+            tehas_core::lock::Probe::Held | tehas_core::lock::Probe::Unknown(_)
+        )
     }
 
     /// Only when the probe can tell the lock is free: no lock, or one it took.
+    /// A link or a directory at the path, and a lock that cannot be opened, are
+    /// not free: a lock is held by descriptor, so a name of its own proves
+    /// nothing about the file the cycle locked.
     fn lock_free(&self, n: &str) -> bool {
-        let lock = self.cycle_lock(n);
-        if !lock.exists() {
-            return true;
-        }
-        plain_file(&lock) && File::open(&lock).is_ok_and(|f| f.try_lock().is_ok())
+        matches!(
+            tehas_core::lock::probe(&self.cycle_lock(n)),
+            tehas_core::lock::Probe::Absent | tehas_core::lock::Probe::Free
+        )
     }
 
     /// The issue's lock, held for the one removal, as the sweep holds it. A
@@ -1359,6 +1364,78 @@ mod tests {
         let mode = fs::metadata(&made).unwrap().permissions().mode();
         assert_eq!(mode & 0o7777, 0o1777);
         assert_eq!(scratch_made(&["scratch".to_string(), "w".to_string()]), 78);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    enum LockShape {
+        None,
+        File,
+        Directory,
+        Link,
+        Dangling,
+    }
+
+    /// What the two lock rules of the run answer for one issue whose lock is
+    /// <lock>: whether a cycle is taken as running, and whether the lock counts
+    /// as free. The second is what a removal is tried under, so it is the rule
+    /// that must not read a link, a directory or an unopenable lock as free.
+    fn lock_rules(root: &Path, lock: LockShape) -> (bool, bool) {
+        let _ = fs::remove_dir_all(root);
+        let home = root.join("home");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        let path = home.join("state/cycles/7.lock");
+        match lock {
+            LockShape::None => {}
+            LockShape::File => fs::write(&path, "").unwrap(),
+            LockShape::Directory => fs::create_dir(&path).unwrap(),
+            LockShape::Link => {
+                let target = root.join("elsewhere.lock");
+                fs::write(&target, "").unwrap();
+                std::os::unix::fs::symlink(&target, &path).unwrap();
+            }
+            LockShape::Dangling => {
+                std::os::unix::fs::symlink(root.join("nothing"), &path).unwrap();
+            }
+        }
+        let run = Run {
+            dry: false,
+            home,
+            works: String::new(),
+            base: "tehas".to_string(),
+            after: 24,
+            build_after: 24,
+            dirs: Vec::new(),
+            sandbox: String::new(),
+            pulled: String::new(),
+            logfile: root.join("clean.log"),
+            tmp_disk: String::new(),
+            freed: 0,
+            rc: 0,
+        };
+        (run.cycle_running("7"), run.lock_free("7"))
+    }
+
+    #[test]
+    fn a_lock_that_is_a_link_is_not_free() {
+        let root = std::env::temp_dir().join(format!("clean-link-lock-{}", std::process::id()));
+        // A lock is held by descriptor, so a link, a directory, or a lock no one
+        // can open proves nothing about the file a cycle locked. Neither rule
+        // may call such a lock free: the first keeps the issue's build output,
+        // the second is the one a removal is tried under.
+        for shape in [LockShape::Directory, LockShape::Link, LockShape::Dangling] {
+            let (running, free) = lock_rules(&root, shape);
+            assert!(running, "a lock that is no lock file read as no cycle");
+            assert!(!free, "a lock that is no lock file read as free");
+        }
+        // A lock the probe took is free, and so is no lock at all: the second
+        // is free of any lock. The run asks whether the lock is there before it
+        // removes anything, since taking one that is not there would make it.
+        let (running, free) = lock_rules(&root, LockShape::File);
+        assert!(!running);
+        assert!(free);
+        let (running, free) = lock_rules(&root, LockShape::None);
+        assert!(!running);
+        assert!(free);
         fs::remove_dir_all(&root).unwrap();
     }
 

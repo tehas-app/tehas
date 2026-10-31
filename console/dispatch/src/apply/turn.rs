@@ -187,6 +187,7 @@ impl Writer {
             let _ = std::fs::remove_file(&out);
             let _ = std::fs::remove_file(self.st(n, ".rc"));
             let _ = std::fs::remove_dir_all(&keep);
+            self.plan_start_drop(n);
             undo = vec!["plan-begin".into(), n.to_string(), "--undo".into()];
             input = file;
         } else {

@@ -35,6 +35,7 @@ t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "drain"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "refresh-conflicts"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "analytics"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "state-move"
+t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "pr-title"
 t_contains "$(jq -r '.features | join(" ")' <<<"$t_out")" "mcp-dashboard-keys"
 t_eq "$(t_calls gh)$(t_calls git)" ""
 

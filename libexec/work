@@ -911,7 +911,12 @@ echo "tehas work: issue $issue started, log $log"
 live=$TEHAS_HOME/live
 mkdir -p "$live"
 console=$live/console-$issue.txt
+# The step and the notice the status is made from, in a file the console
+# writes and now_file reads. Both go first: stale lines of a cycle before this
+# one are no better than none, and the step reads as starting without the file.
+console_now=$console.now
 : >"$console"
+rm -f "${console_now:?}"
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
@@ -921,7 +926,7 @@ while IFS= read -r private_name; do
   private+=(--private "$private_name")
 done < <(tehas_private_names "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
-  --runs "$runs" --out "$console" --since "$((started - 5))" "${private[@]}" >/dev/null 2>"$log.console" &
+  --runs "$runs" --out "$console" --since "$((started - 5))" --now "$console_now" "${private[@]}" >/dev/null 2>"$log.console" &
 cpid=$!
 # A heartbeat or a publish that fails is said once a cycle: the cycle runs on
 # without its place on the page, and the poll's stuck rule counts it as heard
@@ -932,13 +937,13 @@ beat_attempt=()
 now_file() { # running? status
   local step="" text="" state=--ended
   [ "$1" = true ] && state=--running
-  # The step and the driver's last notice, from the stable progress lines, in
-  # one pass over the log. The notice is the driver's words and the page shows
-  # it: it goes through the console's mask, and without a console it is not
-  # published at all.
-  { read -r step; read -r text; } < <(tehas_headless_now "$log")
+  # The step and the notice, from the two lines the console keeps beside its
+  # file, which it masks as it writes. Absent gives nothing: bash would name
+  # the file on stderr, and the step reads as starting without a line.
+  if [ -f "$console_now" ]; then
+    { read -r step && read -r text; } <"$console_now"
+  fi
   [ -n "$step" ] || step=starting
-  text=$(printf '%s' "$text" | "$here/console" --mask "${private[@]}" 2>/dev/null)
   if ! tehas_store cycle-heartbeat "$issue" "${beat_attempt[@]}" "$state" --status "$2" \
     --step "$step" --text "$text" && [ "$beat_said" = 0 ]; then
     echo "tehas work: the heartbeat of #$issue is not on record ($tehas_store_word): $tehas_store_line" >&2
@@ -1065,9 +1070,12 @@ if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" !
   case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
 fi
 inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
-# A result that names no step leaves the log to say which step the runner was
-# in: one pass over it gives the last step it says it started.
-[ -n "$inflight" ] || { read -r inflight; } < <(tehas_headless_now "$log")
+# A result that names no step leaves the two lines to say which step the runner
+# was in: the console read the same log, so its step is that pass's answer. No
+# file and no step of the result leaves the dash below.
+if [ -z "$inflight" ] && [ -f "$console_now" ]; then
+  { read -r inflight || inflight=""; } <"$console_now"
+fi
 inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
 inflight=${inflight:--}
 if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
@@ -1145,6 +1153,7 @@ step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first 
 step=${step:--}
 [ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
 now_file false "$status"
+rm -f "${console_now:?}"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
 tehas_headless_progress "$log" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
