@@ -19,12 +19,48 @@ t_stub sleep '"$(command -pv sleep)" 0.1'
 nap=$(command -pv sleep)
 
 # The script as a host has it: beside the console, a compiled program that a
-# checkout does not hold. A stub stands in for it, and it is not on PATH.
+# checkout does not hold. A stub stands in for it, and it is not on PATH. The
+# stub is the console of the cycle: it records its arguments and keeps the two
+# lines beside its file as the console does (console/src/now.rs), read from the
+# log it was given with --progress. A case that means two lines of its own
+# writes $T/now.step and $T/now.text, which the stub copies instead of the log;
+# a case that means no now file at all writes $T/now.off.
 tree=$T/tree
 mkdir -p "$tree/libexec"
 ln -s "$T_ROOT/lib" "$tree/lib"
 ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
-t_stub console
+t_stub console 'prev=
+for a in "$@"; do
+  case $prev in
+    --progress) log=$a ;;
+    --now) now=$a ;;
+  esac
+  prev=$a
+done
+[ -n "${now:-}" ] || exit 0
+[ -e "$T/now.off" ] && exit 0
+if [ -e "$T/now.step" ] || [ -e "$T/now.text" ]; then
+  step=$(cat "$T/now.step" 2>/dev/null)
+  text=$(cat "$T/now.text" 2>/dev/null)
+elif [ -f "$log" ]; then
+  # The two lines of the log as the console reads them (console/src/now.rs):
+  # the step of the last stable step-started, the first line of the last
+  # stable log that is no driver-event line. The programs are files, so the
+  # brackets and quotes of jq reach it as they were written.
+  step=$(jq -r -s "$(cat "$T/now.step.jq")" "$log" 2>/dev/null)
+  text=$(jq -r -s "$(cat "$T/now.text.jq")" "$log" 2>/dev/null)
+else
+  exit 0
+fi
+printf '"'"'%s\n%s\n'"'"' "$step" "$text" >"$now.new"
+mv "$now.new" "$now"'
+# The two reads above, as files: one per line of the log, its stable lines only.
+printf '%s\n' '[.[] | objects | select(.v == 1 and (.unstable // false) == false)
+  | select(.kind == "step-started") | .event.step | strings] | last // ""' >"$T/now.step.jq"
+printf '%s\n' '[.[] | objects | select(.v == 1 and (.unstable // false) == false)
+  | select(.kind == "log") | .message | strings
+  | [.[] | split("\u000a") | .[0]]
+  | map(select(. != "" and (startswith("pi-rukas:driver-event") | not))) | last // ""' >"$T/now.text.jq"
 mv "$T/bin/console" "$tree/libexec/console"
 # The cycle clock of tehas work, in $tree/libexec/tehas-cycle. By default it
 # keeps the seconds tehas work's own start was marked at and counts on with
