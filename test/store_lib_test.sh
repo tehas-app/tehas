@@ -320,6 +320,29 @@ t_eq "$t_out" "$(jq -S . <<<'{"at":"2026-10-21T12:00:00Z","by":"tehas-fixer","ho
   "links":[],"retry_context":[{"source":"comment:9","by":"tehas-fixer","at":"2026-10-21T11:59:00Z","text":"Try the other way."}],
   "rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"'"$SUM"'"},"fixer_starts":1}')"
 
+t_case "tehas_approval_view: the note that lifted a park's hold is in the view, and none is no key"
+# A start a park's lift let through keeps rests_on as the person's approval and
+# names the millwright's comment of guidance under its own key (#1130). The
+# record is fresh here: the cases before this one started their own cycles.
+t_store_home "$home"
+input '{"links":[],"retry_context":[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}],"park_lifted":{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}}'
+record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
+start 7
+record 7 --at 1792584000 --by tehas-fixer --how fixer --label tehas:ready --body-sha "$SUM" \
+  --input-file "$T/input.json"
+start 7
+lib 'f=$(tehas_approval_view 7 2) && jq -Sc "{park_lifted, retry_context, rests_on}" "$f"'
+t_eq "$t_out" "$(jq -Sc . <<<'{"park_lifted":{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."},"retry_context":[{"source":"millwright:81","by":"tehas-fixer","at":"2026-10-21T11:55:00Z","text":"Do not run the whole suite."}],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"'"$SUM"'"}}')"
+# The start the lift did not let through reads no park_lifted at all.
+t_store_home "$home"
+input '{"links":[]}'
+record 7 --at 1792497600 --by alice --how label --label tehas:ready --body-sha "$SUM"
+record 7 --at 1792584000 --by tehas-fixer --how fixer --label tehas:ready --body-sha "$SUM" \
+  --input-file "$T/input.json"
+start 7
+lib 'f=$(tehas_approval_view 7 1) && jq -c "has(\"park_lifted\")" "$f"'
+t_eq "$t_out" "false"
+
 t_case "approval-record takes the millwright's word, and the shape and the cap read it"
 # The store writes the row under its own word whichever spelling was sent, and
 # answers the count under both keys: `fixer` above, `millwright` below, both read

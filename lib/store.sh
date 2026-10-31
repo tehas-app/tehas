@@ -179,6 +179,7 @@ tehas_approval_shape='def iso: if type == "number" then todate else error("not a
       + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
       + (if $in.driver == null then {} else {driver: $in.driver} end)
       + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
+      + (if $in | has("park_lifted") then {park_lifted: $in.park_lifted} else {} end)
       + (if $how == "fixer" then {rests_on: $base, fixer_starts: $starts} else {} end)
       + (if $how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
            + (if $base == null then {} else {at: $base.at, by: $base.by} end)

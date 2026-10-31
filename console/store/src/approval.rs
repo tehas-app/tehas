@@ -54,12 +54,27 @@ pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
-/// approval. Each list is a JSON array and `refresh_of` an object or null; the
-/// readers check the entries. `driver` is written only when it is `DRIVER`: no
-/// driver means classic, which is every record written before it existed.
+/// approval. Each list is a JSON array, `refresh_of` an object or null, and
+/// `park_lifted` a `lifted_note`; the readers check the entries. `driver` is
+/// written only when it is `DRIVER`: no driver means classic, which is every
+/// record written before it existed.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
 const INPUT_BOUND: u64 = 1 << 20;
 const DRIVER: &str = "lean";
+
+/// The one note that lifted a park's hold off a start (#1130), as a
+/// `retry_context` entry has it: {source: "millwright:<id>", by, at, text}.
+pub fn lifted_note(v: &Value) -> bool {
+    let Value::Object(m) = v else {
+        return false;
+    };
+    let id = v["source"]
+        .as_str()
+        .and_then(|s| s.strip_prefix("millwright:"));
+    m.len() == 4
+        && ["by", "at", "text"].iter().all(|k| v[*k].is_string())
+        && id.is_some_and(|i| !i.is_empty() && i.bytes().all(|b| b.is_ascii_digit()))
+}
 
 /// The kinds of approval a person gave, which a fixer or refresh start rests on.
 const BASES: &str = "('label', 'retry-tick', 'outage-retry')";
@@ -228,6 +243,8 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
             value.is_array()
         } else if key == "refresh_of" {
             value.is_object() || value.is_null()
+        } else if key == "park_lifted" {
+            lifted_note(value)
         } else if key == "driver" {
             value == DRIVER
         } else {

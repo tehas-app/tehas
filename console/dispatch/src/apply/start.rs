@@ -157,7 +157,12 @@ fn issue_alone(a: &Value, log: &mut Vec<String>, n: u64) -> bool {
 /// lists them, those an allowed account wrote at or after `since` and at or
 /// before `at`, and that nobody edited after `at`, in the order written.
 /// None when the answer is not a list of comments.
-fn window(list: &Value, since: &str, at: &str, who: &dyn Fn(&str) -> bool) -> Option<Vec<Value>> {
+pub(crate) fn window(
+    list: &Value,
+    since: &str,
+    at: &str,
+    who: &dyn Fn(&str) -> bool,
+) -> Option<Vec<Value>> {
     let all = list.as_array()?;
     let s = |c: &Value, k: &str| c.get(k).and_then(Value::as_str).map(str::to_string);
     let mut out: Vec<Value> = all
@@ -213,7 +218,7 @@ fn comment_links(comments: &[Value], source: &str) -> Vec<Value> {
 
 /// A comment as retry_context has it: its first 4000 characters, without
 /// carriage returns.
-fn context(c: &Value, source: &str) -> Value {
+pub(crate) fn context(c: &Value, source: &str) -> Value {
     let body: String = c
         .get("body")
         .and_then(Value::as_str)
@@ -240,6 +245,81 @@ fn names_issue(pr: &Value, n: u64) -> bool {
         r"(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+#{n}([^0-9]|$)"
     ))
     .is_ok_and(|re| re.is_match(body))
+}
+
+/// The comment that lifts a park's hold off the millwright's `tehas:ready` at
+/// `at`: the note `fixer_note` would put on the record, when it carries the
+/// `action=change` marker within the text a cycle is given and no other
+/// account saved it. `action=retry` asks for the same run again, so a newer
+/// one of those takes the lift away (#1130).
+///
+/// <list> is the poll's GraphQL read of the issue's comments, put here in the
+/// REST shape `window` and `context` read. None when that read or `at` is no
+/// answer, so a failed read is never taken for no note.
+pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
+    let nodes = list
+        .pointer("/data/repository/issue/comments/nodes")
+        .and_then(Value::as_array)
+        .or_else(|| list.as_array())?;
+    let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
+    let marker = regex::Regex::new(&format!(
+        "<!-- tehas:millwright issue={n} action=(retry|change) -->"
+    ))
+    .ok()?;
+    let rest: Vec<Value> = nodes
+        .iter()
+        .filter_map(|x| {
+            let id = x
+                .get("databaseId")
+                .or_else(|| x.get("id"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let login = x
+                .pointer("/author/login")
+                .or_else(|| x.pointer("/user/login"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let (body, created) = (
+                x.get("body").and_then(Value::as_str)?,
+                x.get("createdAt")
+                    .or_else(|| x.get("created_at"))
+                    .and_then(Value::as_str)?,
+            );
+            // GitHub answers a comment nobody saved after it with no stamp at
+            // all, and REST with a stamp equal to the first: either is the
+            // comment as its author wrote it.
+            let edited = x
+                .get("lastEditedAt")
+                .or_else(|| x.get("updated_at"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let editor = x
+                .pointer("/editor/login")
+                .and_then(Value::as_str)
+                .unwrap_or(login);
+            let mut c = json!({"id": id, "body": body, "user": {"login": login},
+                "created_at": created});
+            c["updated_at"] = if edited.is_null() {
+                json!(created)
+            } else {
+                edited
+            };
+            c["outsider"] = json!(account(editor) != account(login));
+            Some(c)
+        })
+        .collect();
+    let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
+    let Some(newest) = window(&Value::Array(rest), &since, at, &who)?
+        .into_iter()
+        .rfind(|c| marker.is_match(c.get("body").and_then(Value::as_str).unwrap_or("")))
+    else {
+        return Some(None);
+    };
+    let note = context(&newest, "millwright");
+    let change = format!("<!-- tehas:millwright issue={n} action=change -->");
+    let lifts = newest["outsider"] == json!(false)
+        && note["text"].as_str().is_some_and(|t| t.contains(&change));
+    Some(lifts.then_some(note))
 }
 
 impl Writer {
@@ -601,7 +681,9 @@ impl Writer {
         // request, so nothing of the earlier cycle goes with it: the note of
         // the fixer or of a refresh stays out of its record whatever asks.
         if !issue_alone(a, log, n) {
-            if given == "millwright" {
+            if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
+                retry = json!({"links": [], "context": [note]});
+            } else if given == "millwright" {
                 let Some(r) = self.fixer_note(n, &given_at) else {
                     log.push(format!(
                         "ERROR: the comments of #{n} could not be read for the fixer's"
@@ -641,6 +723,11 @@ impl Writer {
                 "refresh_of".into(),
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
+        }
+        // Why a park's hold let this start through. `rests_on` keeps naming
+        // the person's approval (#1130).
+        if let Some(note) = a.get("park_lifted") {
+            input.insert("park_lifted".into(), note.clone());
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,

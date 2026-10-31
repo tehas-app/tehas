@@ -47,6 +47,13 @@ pub struct Settings {
     pub size_max_bytes: usize,
     pub size_max_lines: usize,
     pub work_images: bool,
+    /// TEHAS_WORK_FILES: 1 gives a cycle the text files its issue links, in the
+    /// directory `TEHAS_WORK_IMAGES` uses too. With it or `work_images` the
+    /// record's `retry_context` reaches a cycle as `retry-context.md`; else
+    /// where the instance gives a cycle neither, a millwright's comment of
+    /// guidance reaches none, and the park's hold of the unchanged body stays
+    /// (#1130).
+    pub work_files: bool,
     /// PI_ENSEMBLE_SUBAGENT_MODEL and PI_ENSEMBLE_IMAGE.
     pub model: String,
     pub image: String,
@@ -117,6 +124,7 @@ impl Settings {
             size_max_bytes: n("TEHAS_SIZE_MAX_BYTES", 131_072) as usize,
             size_max_lines: n("TEHAS_SIZE_MAX_LINES", 1000) as usize,
             work_images: s("TEHAS_WORK_IMAGES", "0") == "1",
+            work_files: s("TEHAS_WORK_FILES", "0") == "1",
             model: s("PI_ENSEMBLE_SUBAGENT_MODEL", ""),
             image: s("PI_ENSEMBLE_IMAGE", ""),
             refresh_max: n("TEHAS_REFRESH_MAX", 2),
@@ -182,6 +190,23 @@ mod tests {
             (none.fixer_max_retries, none.fixer_max_plan_answers),
             (2, 3)
         );
+    }
+
+    #[test]
+    fn the_lift_needs_images_or_files_and_no_other_setting_gives_it() {
+        // Neither: a millwright's comment of guidance reaches no cycle, so the
+        // park's hold stays, and the lift is off.
+        let none = Settings::parse(&json!({}));
+        assert!(!(none.work_images || none.work_files));
+        // Either one is enough: both write retry-context.md in the directory
+        // the instance already mounts.
+        let images = Settings::parse(&json!({"TEHAS_WORK_IMAGES": "1"}));
+        assert!(images.work_images && !images.work_files);
+        let files = Settings::parse(&json!({"TEHAS_WORK_FILES": "1"}));
+        assert!(files.work_files && !files.work_images);
+        // Only `1` is on, as for every setting of this family.
+        let other = Settings::parse(&json!({"TEHAS_WORK_FILES": "yes"}));
+        assert!(!other.work_files);
     }
 
     #[test]

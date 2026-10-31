@@ -149,6 +149,11 @@ struct Start {
     /// A start of the fixer's: the person's approval it rests on, and its
     /// starts with this one.
     fixer: Option<(Value, u64)>,
+    /// The millwright's guidance comment that lifted the park's hold off this
+    /// start's label: the one entry the record names `park_lifted`, so the
+    /// reason the start was allowed is on it (#1130). A person's label lifts
+    /// nothing.
+    park_lifted: Option<Value>,
     /// What a start of its kind adds to the action: the comment of a retry
     /// tick, the pull request of a refresh.
     extra: Map<String, Value>,
@@ -1673,8 +1678,16 @@ impl<'a> Poll<'a> {
     }
 
     /// park_holds: a fresh label on the very body the last cycle parked on
-    /// starts nothing. Said on the issue once a park.
-    fn park_holds(&mut self, n: u64) -> Step<bool> {
+    /// starts nothing. Said on the issue once a park. The millwright's own
+    /// label, applied at `fixer_at` within its grant, is lifted by a fresh
+    /// `action=change` comment when the instance gives a cycle the note
+    /// (#1130): `lift` then carries that comment for the start.
+    fn park_holds(
+        &mut self,
+        n: u64,
+        fixer_at: Option<&str>,
+        lift: &mut Option<Value>,
+    ) -> Step<bool> {
         let Some(park) = self.s.issues.get(&n).and_then(|i| i.park.clone()) else {
             self.need("park");
             return Ok(true);
@@ -1722,6 +1735,32 @@ impl<'a> Poll<'a> {
             .unwrap_or("")
             .trim_matches([' ', '\t']);
         let cap = if cap.is_empty() { "nothing" } else { cap }.to_string();
+        // The way round a park open to the millwright alone: its own guidance
+        // comment says the next run is not the run that stopped. The grant was
+        // reached before this, and the note reaches a cycle only where the
+        // instance gives it images or files. A read that failed proves no note
+        // either way: the hold stays, untold, and the next poll asks again.
+        if let Some(at) = fixer_at.filter(|_| self.c.work_images || self.c.work_files) {
+            let read = self
+                .s
+                .issues
+                .get(&n)
+                .and_then(|i| i.comments.as_ref())
+                .and_then(|list| crate::apply::start::change_note(list, n, &self.c.millwright, at));
+            let Some(found) = read else {
+                self.log(format!(
+                    "hold #{n}: its last cycle parked on {cap} and the body has not changed since, and the fixer's comments could not be read"
+                ));
+                return Ok(true);
+            };
+            if let Some(note) = found {
+                *lift = Some(note);
+                self.log(format!(
+                    "lift #{n}: its last cycle parked on {cap} and the body has not changed since, lifted on the fixer's guidance comment"
+                ));
+                return Ok(false);
+            }
+        }
         let told = !p.get("told_at").unwrap_or(&Value::Null).is_null();
         if !told && !self.dry {
             self.act(json!({
@@ -2165,7 +2204,13 @@ impl<'a> Poll<'a> {
                 }
                 continue;
             }
-            if !self.image_ok(n)? || !self.image_missing_ok(n) || self.park_holds(n)? {
+            // The start a lift lets through is held back here and built with
+            // the note below, so the record says why the hold let it go.
+            let mut lift = None;
+            if !self.image_ok(n)?
+                || !self.image_missing_ok(n)
+                || self.park_holds(n, fixer.as_ref().map(|_| at.as_str()), &mut lift)?
+            {
                 continue;
             }
             if kind == 'x' && !self.low_gate(n) {
@@ -2202,6 +2247,7 @@ impl<'a> Poll<'a> {
                 given_how: "label".into(),
                 remove,
                 fixer: None,
+                park_lifted: None,
                 extra: Map::new(),
             };
             if let Some((base, count)) = fixer {
@@ -2227,6 +2273,9 @@ impl<'a> Poll<'a> {
                     )
                 };
                 st.given_how = "millwright".into();
+                if let Some(note) = lift.take() {
+                    st.park_lifted = Some(note);
+                }
                 st.fixer = Some((base, count));
             }
             if planned {
@@ -2294,6 +2343,9 @@ impl<'a> Poll<'a> {
         if let Some((base, count)) = st.fixer {
             a["rests_on"] = base;
             a["fixer_starts"] = json!(count);
+        }
+        if let Some(note) = st.park_lifted {
+            a["park_lifted"] = note;
         }
         for (k, v) in st.extra {
             a[k] = v;
