@@ -2,7 +2,7 @@
 // dispatch.log, as `grep -E ' (start|skip|wait|drop the refresh of) #' | tail -n N`
 // shows.
 
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::io::Write;
@@ -239,7 +239,7 @@ fn an_empty_log_has_no_decisions() {
 // both schemas says what it is.
 #[test]
 fn the_schema_describes_the_answer() {
-    let tool = list()
+    let tool = list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
