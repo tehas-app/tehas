@@ -915,7 +915,8 @@ console=$live/console-$issue.txt
 # writes and now_file reads. Both go first: stale lines of a cycle before this
 # one are no better than none, and the step reads as starting without the file.
 console_now=$console.now
-rm -f "${console:?}" "${console_now:?}"
+: >"$console"
+rm -f "${console_now:?}"
 # The cycle does not depend on it: without a console it runs all the same,
 # and this says why the dashboard shows none.
 [ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
@@ -1152,6 +1153,7 @@ step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first 
 step=${step:--}
 [ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
 now_file false "$status"
+rm -f "${console_now:?}"
 cp "$result_file" "$log.result.json" 2>/dev/null || true
 tehas_headless_progress "$log" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
 cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
