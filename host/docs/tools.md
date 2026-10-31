@@ -2479,8 +2479,11 @@ call.
 ## tehasbot status and the console
 
 Feed the [factory floor](/) and the [plain dashboard](/dashboard). `tehasbot status` writes the queue snapshot to
-`~/tehas/live/status.json`; the dispatcher runs it at the start of every poll and after the work that
-changed the queue, and a cycle when it ends.
+`~/tehas/live/status.json`; the dispatcher runs it at the start of a poll only
+when that file is five minutes old or missing, and after any poll that changed
+the queue, and a cycle when it ends. An idle poll whose file the last poll wrote
+keeps it, so the reading a person sees is at most five minutes older than the
+last poll that had anything to report.
 Each issue in its lists has `number`, `title`, `url`, `createdAt`, `updatedAt`
 and `closedAt`.
 Completed means closed by a merged pull request, by the close event's closer or
