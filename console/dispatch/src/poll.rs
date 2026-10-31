@@ -48,7 +48,7 @@ pub fn status_due(home: &Path, now: i64) -> bool {
         .ok()
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64);
-    made.map_or(true, |made| now.saturating_sub(made) >= STATUS_AGE)
+    made.is_none_or(|made| now.saturating_sub(made) >= STATUS_AGE)
 }
 
 fn env(k: &str) -> String {
