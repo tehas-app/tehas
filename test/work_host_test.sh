@@ -120,7 +120,17 @@ cat >&2 <<'LINES'
 {"v":1,"kind":"log","unstable":true,"message":"not this"}
 LINES
 EOF
-t_stub console 'if [ "$1" = --mask ]; then sed "s/cycle/[masked]/"; fi'
+# The console of the cycle keeps the two lines the status is read from, after
+# its mask of the names it was given: this stub is the mask, and the page's
+# line is what the console of the cycle left in the now file.
+t_stub console 'now= prev=
+for a in "$@"; do [ "$prev" = --now ] && now=$a; prev=$a; done
+[ -n "$now" ] || exit 0
+sed "s/cycle/[masked]/" >"$now.new" <<NOTICE
+develop
+step 3 of the cycle
+NOTICE
+mv "$now.new" "$now"'
 mv "$T/bin/console" "$tree/libexec/console"
 # The view is published from the cycle's heartbeats, so its start is on record.
 under_cycle

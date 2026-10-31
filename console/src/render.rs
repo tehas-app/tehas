@@ -121,7 +121,7 @@ fn short(v: &Value) -> String {
 const MAX_ELAPSED: u64 = 7 * 86400 * 1000;
 
 /// The version of the runner's NDJSON this reads, and of its stable subset.
-const NDJSON_VERSION: u64 = 1;
+pub const NDJSON_VERSION: u64 = 1;
 
 /// The idempotency key of a progress line: a resumed cycle writes its earlier
 /// events again, and a line whose key was seen gives no second entry.
