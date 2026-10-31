@@ -54,10 +54,13 @@ pub const FIXER: &str = tehas_core::grammar::MILLWRIGHT_WORDS[1];
 pub const MILLWRIGHT_WORDS: [&str; 2] = tehas_core::grammar::MILLWRIGHT_WORDS;
 
 /// The keys `--input-file` may hold: what the cycle is given with the
-/// approval. Each list is a JSON array and `refresh_of` an object or null; the
-/// readers check the entries. `driver` is written only when it is `DRIVER`: no
-/// driver means classic, which is every record written before it existed.
+/// approval. Each list is a JSON array, `refresh_of` an object or null, and
+/// `park_lifted` the one object naming the millwright's comment that lifted a
+/// park's hold off the start (#1130); the readers check the entries. `driver`
+/// is written only when it is `DRIVER`: no driver means classic, which is
+/// every record written before it existed.
 const INPUT_LISTS: [&str; 3] = ["links", "comment_links", "retry_context"];
+const INPUT_OBJECTS: [&str; 2] = ["refresh_of", "park_lifted"];
 const INPUT_BOUND: u64 = 1 << 20;
 const DRIVER: &str = "lean";
 
@@ -226,8 +229,11 @@ fn read_input(path: &Path, issue: i64) -> Result<String, Fail> {
     for (key, value) in map {
         let fits = if INPUT_LISTS.contains(&key.as_str()) {
             value.is_array()
-        } else if key == "refresh_of" {
-            value.is_object() || value.is_null()
+        } else if INPUT_OBJECTS.contains(&key.as_str()) {
+            // A park's lift is the one comment that lifted it; the dispatcher
+            // that writes it builds the entry itself, so it is an object and
+            // never the empty or the null refresh_of may be.
+            value.is_object() || (key == "refresh_of" && value.is_null())
         } else if key == "driver" {
             value == DRIVER
         } else {

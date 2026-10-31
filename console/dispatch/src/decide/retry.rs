@@ -582,6 +582,7 @@ impl Poll<'_> {
                     given_how: "retry-tick".into(),
                     remove,
                     fixer: None,
+                    park_lifted: None,
                     extra,
                 },
             );
@@ -718,6 +719,7 @@ impl Poll<'_> {
                     given_how: "outage-retry".into(),
                     remove,
                     fixer: None,
+                    park_lifted: None,
                     extra,
                 },
             );
@@ -1021,6 +1023,7 @@ impl Poll<'_> {
             given_how: "refresh".into(),
             remove,
             fixer: None,
+            park_lifted: None,
             extra,
         }))
     }
