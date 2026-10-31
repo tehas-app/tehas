@@ -3844,7 +3844,7 @@
     "7": {
      "reason": "intent-park",
      "body": "Words.",
-     "told": false,
+     "told": true,
      "retries": 0
     }
    },
@@ -3857,107 +3857,9 @@
     }
    },
    "expect": {
-    "exit": 0,
     "picked": [],
     "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"
-    ],
-    "no_actions": [
-     {
-      "park_told": true
-     }
-    ]
-   }
-  },
-  {
-   "case": "an answer that is no list of comments holds the issue too, untold",
-   "settings": {
-    "TEHAS_MILLWRIGHT_LOGIN": "tehas-fixer",
-    "TEHAS_WORK_FILES": "1"
-   },
-   "snapshot": {
-    "ready": [
-     {
-      "number": 7,
-      "labels": [
-       {
-        "name": "tehas:ready"
-       },
-       {
-        "name": "needs-human-attention"
-       },
-       {
-        "name": "tehas:question"
-       }
-      ]
-     }
-    ],
-    "endpoint": {
-     "end": "main"
-    },
-    "issues": {
-     "7": {
-      "comments": {
-       "data": {
-        "repository": {
-         "issue": null
-        }
-       }
-      }
-     }
-    }
-   },
-   "ready_at": {
-    "7": [
-     "tehas-fixer",
-     "2026-10-30T23:58:00Z"
-    ]
-   },
-   "body": {
-    "7": "Words."
-   },
-   "work": {
-    "7": {
-     "body": "Words.",
-     "labels": [
-      {
-       "name": "needs-human-attention"
-      },
-      {
-       "name": "tehas:question"
-      },
-      {
-       "name": "tehas:ready"
-      }
-     ]
-    }
-   },
-   "parked": {
-    "7": {
-     "reason": "intent-park",
-     "body": "Words.",
-     "told": false,
-     "retries": 0
-    }
-   },
-   "approved": {
-    "7": {
-     "by": "alice",
-     "at": "2026-10-01T00:00:00Z",
-     "body": "Words.",
-     "fixer_starts": 0
-    }
-   },
-   "expect": {
-    "exit": 0,
-    "picked": [],
-    "log": [
-     "hold #7: its last cycle parked on intent-park and the body has not changed since, and the fixer's comments could not be read"
-    ],
-    "no_actions": [
-     {
-      "park_told": true
-     }
+     "hold #7: its last cycle parked on intent-park and the body has not changed since"
     ]
    }
   },

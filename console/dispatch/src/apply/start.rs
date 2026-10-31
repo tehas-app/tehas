@@ -247,27 +247,23 @@ fn names_issue(pr: &Value, n: u64) -> bool {
     .is_ok_and(|re| re.is_match(body))
 }
 
-/// The millwright's comment of the ten minutes before its `tehas:ready` that
-/// the park rule lifts its hold for: the newest one carrying the
-/// `action=change` marker, as `retry_context` has a note. `action=retry` asks
-/// for the same run again and lifts nothing. The window, the newest alone and
-/// the edited-after test are the writer's own, so the comment the hold is
-/// lifted for is the comment the start is given (#1130).
+/// The comment that lifts a park's hold off the millwright's `tehas:ready` at
+/// `at`: the note `fixer_note` would put on the record, when it carries the
+/// `action=change` marker within the text a cycle is given and no other
+/// account saved it. `action=retry` asks for the same run again, so a newer
+/// one of those takes the lift away (#1130).
 ///
-/// <list> is the answer of the poll's read of the issue's comments, which
-/// names the comments GraphQL-style (`nodes`, `author`, `createdAt`,
-/// `lastEditedAt`); they are put in the shape `window` and `context` read them
-/// as REST lists them, so the one rule serves both. None when the answer is
-/// not a list of comments or none of them qualifies.
-pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: i64) -> Option<Value> {
+/// <list> is the poll's GraphQL read of the issue's comments, put here in the
+/// REST shape `window` and `context` read. None when that read or `at` is no
+/// answer, so a failed read is never taken for no note.
+pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: &str) -> Option<Option<Value>> {
     let nodes = list
         .pointer("/data/repository/issue/comments/nodes")
         .and_then(Value::as_array)
         .or_else(|| list.as_array())?;
-    let since = iso(u64::try_from(at - 600).ok()?);
-    let until = iso(u64::try_from(at).ok()?);
+    let since = iso(u64::try_from(epoch(at)? - 600).ok()?);
     let marker = regex::Regex::new(&format!(
-        "<!-- tehas:millwright issue={n} action=change -->"
+        "<!-- tehas:millwright issue={n} action=(retry|change) -->"
     ))
     .ok()?;
     let rest: Vec<Value> = nodes
@@ -308,24 +304,22 @@ pub(crate) fn change_note(list: &Value, n: u64, fixer: &str, at: i64) -> Option<
             } else {
                 edited
             };
-            c["editor"] = if editor == login {
-                Value::Null
-            } else {
-                json!({"login": editor})
-            };
+            c["outsider"] = json!(account(editor) != account(login));
             Some(c)
         })
         .collect();
     let who = |l: &str| !fixer.is_empty() && account(l) == fixer;
-    // A comment saved by another account after the label is not the fixer's
-    // ask: it is held as the writer holds a note an outsider edited.
-    window(&Value::Array(rest), &since, &until, &who)
-        .and_then(|w| {
-            w.into_iter()
-                .rev()
-                .find(|x| marker.is_match(x.get("body").and_then(Value::as_str).unwrap_or("")))
-        })
-        .map(|x| context(&x, "millwright"))
+    let Some(newest) = window(&Value::Array(rest), &since, at, &who)?
+        .into_iter()
+        .rfind(|c| marker.is_match(c.get("body").and_then(Value::as_str).unwrap_or("")))
+    else {
+        return Some(None);
+    };
+    let note = context(&newest, "millwright");
+    let change = format!("<!-- tehas:millwright issue={n} action=change -->");
+    let lifts = newest["outsider"] == json!(false)
+        && note["text"].as_str().is_some_and(|t| t.contains(&change));
+    Some(lifts.then_some(note))
 }
 
 impl Writer {
