@@ -30,9 +30,10 @@ each given to it read only:
 
 - `~/tehas/live/`, the files the docs server publishes under `/live/` and at
   `/health`;
-- `~/tehas/mcp/`, the two files `tehasbot status` writes on each poll: the
-  sessions snapshot `sessions.jsonl` and the outcomes counts
-  `outcomes.jsonl`. Both are private to the tehas user and never published;
+- `~/tehas/mcp/`, the two files `tehasbot status` asks `analytics` to write on
+  each poll: the sessions snapshot `sessions.jsonl` and the outcomes counts
+  `outcomes.jsonl`, each with a `.stamp` line beside it. Both are private to the
+  tehas user and never published;
 - `~/tehas/logs/`, where each cycle and planning turn leaves its logs, and
   where the dispatcher and refresh write `dispatch.log` and `refresh.log`.
 
@@ -206,12 +207,15 @@ the same JSON as text.
 
 The links are built from the `repo` the dashboard publishes, and only when it
 is `owner/name`. Without a valid repo a session has no links and a cause has no
-issues. The session tools read `sessions.jsonl`, which `tehasbot status`
-rewrites on each poll; `stale` is true when it is more than ten minutes old. A
+issues. The session tools read `sessions.jsonl`, which `tehasbot status` asks
+for on each poll and which `analytics` leaves alone when nothing a poll could
+answer for has changed (see [Sessions](/analytics#sessions)); `stale` is true
+when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
 
 `factory_outcomes` reads `outcomes.jsonl` from the same directory, which
-`tehasbot status` rewrites on each poll from `analytics outcomes`; `stale` is
+`tehasbot status` asks for on each poll from `analytics outcomes`, and which is
+left alone the same way; `stale` is
 true when it is more than a day old, the writer being a daily one. The file is
 the whole of the analytics retention, and `days` is what the file itself says
 that reach is, so the tool answers where the 30-day tools

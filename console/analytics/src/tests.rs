@@ -5138,10 +5138,12 @@ fn outcomes_out_is_a_directory_written_by_the_program_alone() {
         text.contains("\"parkReasons\":{\"needs-human\":1}"),
         "{text}"
     );
-    // The unfiltered command prints the same and writes nothing new.
+    // The unfiltered command prints the same and writes nothing new: the
+    // directory holds the file and the line that says it was written, and no
+    // third name.
     let printed = parse(&["outcomes".to_string()]).unwrap();
     execute(&home, &printed, now).unwrap();
-    assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
 }
 
 // The build time of an image is kept once per image id, so every run of that
@@ -5356,4 +5358,500 @@ fn the_build_time_options_are_read() {
     ] {
         assert_eq!(parse(&args(&bad)), None, "{bad}");
     }
+}
+
+// ---- the files the host is sent, and the line that says they were written ----
+
+/// One ended run of the kind `id` names, as both commands read it. The id
+/// carries the kind, so a test that runs both commands adds one run each.
+fn one_ended_run(conn: &Connection, id: &str, at: i64) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started, ended, outcome) VALUES (?1, ?2, 1, ?3, ?3, 'pr')",
+        rusqlite::params![id, if id.starts_with("plan") { "plan" } else { "work" }, at],
+    )
+    .unwrap();
+}
+
+/// A run of the kind `id` names that has not ended.
+fn one_live_run(conn: &Connection, id: &str, at: i64) {
+    conn.execute(
+        "INSERT INTO runs (id, kind, issue, started) VALUES (?1, ?2, 1, ?3)",
+        rusqlite::params![
+            id,
+            if id.starts_with("plan") {
+                "plan"
+            } else {
+                "work"
+            },
+            at
+        ],
+    )
+    .unwrap();
+}
+
+/// The plain `sessions --out <home>/mcp` command.
+fn sessions_cmd(home: &Path) -> Cmd {
+    out_command(home, "sessions").0
+}
+
+/// The plain `outcomes --out <home>/mcp` command.
+fn outcomes_cmd(home: &Path) -> Cmd {
+    out_command(home, "outcomes").0
+}
+
+/// The command `<what> --out <home>/mcp`, and the directory it writes.
+fn out_command(home: &Path, what: &str) -> (Cmd, PathBuf) {
+    let dir = home.join("mcp");
+    let cmd = parse(&[
+        what.to_string(),
+        "--out".to_string(),
+        dir.to_str().unwrap().to_string(),
+    ])
+    .unwrap();
+    (cmd, dir)
+}
+
+/// The name of the file `<what> --out` writes.
+fn out_file(what: &str) -> &'static str {
+    match what {
+        "sessions" => crate::sessions::FILE,
+        _ => crate::outcomes::FILE,
+    }
+}
+
+/// The state of the two files of a skip's directory that belong to the command
+/// `what`: the bytes of the file, and the line that says it was written - none,
+/// when it is not there, which is what a live run leaves.
+fn written(dir: &Path, what: &str) -> (Vec<u8>, Option<Vec<u8>>) {
+    (
+        fs::read(dir.join(out_file(what))).unwrap(),
+        fs::read(dir.join(crate::publish::stamp_name(out_file(what)))).ok(),
+    )
+}
+
+/// The directory of a skip's test: both commands are asked for in turn, so it
+/// holds the two files and the two lines before a test looks at it. A test that
+/// means to watch a missing file or a missing stamp takes it away itself.
+fn out_setup(home: &Path, now: i64) -> PathBuf {
+    let dir = home.join("mcp");
+    for what in ["sessions", "outcomes"] {
+        let (cmd, here) = out_command(home, what);
+        assert_eq!(here, dir, "{what} was asked for another directory");
+        execute(home, &cmd, now).unwrap();
+    }
+    dir
+}
+
+/// The bytes of a file and the time it was last written.
+fn file_and_mtime(dir: &Path, name: &str) -> (Vec<u8>, std::time::SystemTime) {
+    let file = dir.join(name);
+    (
+        fs::read(&file).unwrap(),
+        fs::metadata(&file).unwrap().modified().unwrap(),
+    )
+}
+
+/// A scratch home of one ended run, made at `at`, with both files and both
+/// lines already written by a call of the same time.
+fn home_of_one_ended_run(name: &str, at: i64) -> (PathBuf, PathBuf) {
+    let home = scratch(name);
+    let (conn, _) = db::open(&db::path(&home), at).unwrap();
+    one_ended_run(&conn, "work-1-a", at - 3600);
+    drop(conn);
+    let dir = out_setup(&home, at);
+    (home, dir)
+}
+
+#[test]
+fn out_writes_the_file_and_its_stamp_the_first_time() {
+    let (home, dir) = home_of_one_ended_run("out-first", 1_792_000_000);
+    let now = 1_792_000_000;
+    // Neither file is there, so both are written, each with a line of its own
+    // beside it: four names in a directory that held none.
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 4);
+    for what in ["sessions", "outcomes"] {
+        let (body, stamp) = written(&dir, what);
+        assert!(!body.is_empty(), "{what} was written empty");
+        assert!(
+            stamp.is_some(),
+            "{what} was written without a line to say so"
+        );
+        // The mode of both is the private one: the reader is the MCP server of
+        // this host and no one else.
+        assert_eq!(
+            fs::metadata(dir.join(out_file(what)))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "{what} is readable by another account"
+        );
+        assert_eq!(
+            fs::metadata(dir.join(crate::publish::stamp_name(out_file(what))))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "the line of {what} is readable by another account"
+        );
+    }
+    // The line is the whole fingerprint and nothing else: the count of runs,
+    // the latest end, and the day the window closes on.
+    let conn = Connection::open(db::path(&home)).unwrap();
+    assert_eq!(
+        String::from_utf8(written(&dir, "sessions").1.unwrap()).unwrap(),
+        format!(
+            "{}\n",
+            crate::publish::fingerprint(&conn, now).unwrap().unwrap()
+        ),
+        "the line is not the fingerprint of this database"
+    );
+}
+
+#[test]
+fn out_of_two_calls_with_no_change_touches_nothing() {
+    let (home, dir) = home_of_one_ended_run("out-unchanged", 1_792_000_000);
+    // The middle of a UTC day, so that the minute added below stays inside the
+    // day the line names. The call that crosses midnight is
+    // out_of_a_new_day_writes_the_file_again.
+    let now = 1_792_000_000i64 - 1_792_000_000i64.rem_euclid(86_400) + 43_200;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    conn.execute("DELETE FROM runs", []).unwrap();
+    one_ended_run(&conn, "work-1-a", now - 3600);
+    drop(conn);
+    // A poll: the snapshot is asked for and then the counts, as libexec/status
+    // asks them. Both are asked at a minute apart, so that an mtime of one poll
+    // cannot be mistaken for that of the other.
+    let poll = |at: i64| {
+        execute(&home, &sessions_cmd(&home), at).unwrap();
+        execute(&home, &outcomes_cmd(&home), at).unwrap();
+    };
+    let mtimes = || {
+        (
+            fs::metadata(dir.join(crate::sessions::FILE))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            fs::metadata(dir.join(crate::outcomes::FILE))
+                .unwrap()
+                .modified()
+                .unwrap(),
+        )
+    };
+    poll(now);
+    let before = (
+        mtimes(),
+        written(&dir, "sessions"),
+        written(&dir, "outcomes"),
+    );
+    // The poll a minute on reads the whole database and writes neither file:
+    // no run started or ended in between, and the day of the window has not
+    // moved. The mtimes are the proof, because a file that was written would
+    // carry the time of the call that wrote it, and the words of a snapshot
+    // name the second it was read, so a rewrite of the same words would still
+    // be seen there.
+    poll(now + 60);
+    assert_eq!(
+        (
+            mtimes(),
+            written(&dir, "sessions"),
+            written(&dir, "outcomes")
+        ),
+        before,
+        "a poll of nothing new wrote one of the files"
+    );
+    // And the line of each says the runs of the database and this day, which
+    // is what the next call compares and finds the same.
+    for what in ["sessions", "outcomes"] {
+        let conn = Connection::open(db::path(&home)).unwrap();
+        assert_eq!(
+            written(&dir, what).1.unwrap(),
+            format!(
+                "{}\n",
+                crate::publish::fingerprint(&conn, now + 60)
+                    .unwrap()
+                    .unwrap()
+            )
+            .into_bytes(),
+            "the line of {what} says other runs or another day than this holds"
+        );
+    }
+    // A poll that does write moves them, so the pair above can fail: the same
+    // poll of the next day finds another day in the line and writes both files
+    // again, and neither is written a third time.
+    poll(now + 60 + DAY);
+    let moved = mtimes();
+    assert_ne!(moved, before.0, "a poll of a new day left the files alone");
+    poll(now + 120 + DAY);
+    assert_eq!(
+        mtimes(),
+        moved,
+        "a poll of nothing new wrote one of the files of the new day"
+    );
+}
+
+#[test]
+fn out_of_a_new_run_writes_the_file_again() {
+    let (home, dir) = home_of_one_ended_run("out-new-run", 1_792_000_000);
+    let now = 1_792_000_000;
+    let before = [written(&dir, "sessions"), written(&dir, "outcomes")];
+    let snapshot = fs::read(dir.join(crate::sessions::FILE)).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    one_ended_run(&conn, "work-2-a", now - 600);
+    drop(conn);
+    // One new run, and both files are written again: each answers to the runs
+    // of the database, whatever it holds of them.
+    execute(&home, &sessions_cmd(&home), now).unwrap();
+    execute(&home, &outcomes_cmd(&home), now).unwrap();
+    assert_ne!(
+        written(&dir, "sessions"),
+        before[0],
+        "the snapshot skipped a new run"
+    );
+    assert_ne!(
+        written(&dir, "outcomes"),
+        before[1],
+        "the counts skipped a new run"
+    );
+    // And the snapshot names it.
+    let now_held = fs::read(dir.join(crate::sessions::FILE)).unwrap();
+    assert_ne!(
+        now_held, snapshot,
+        "the snapshot of a new run holds the old only"
+    );
+    assert!(
+        String::from_utf8(now_held).unwrap().contains("work-2-a"),
+        "the new run is not in the snapshot"
+    );
+}
+
+#[test]
+fn out_of_a_live_run_leaves_no_line_and_writes_again() {
+    // The logs of a running cycle grow with no row changing, so there is
+    // nothing to compare and no line is left to compare with: every poll of a
+    // live run writes both files again.
+    let home = scratch("out-live-run");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    one_live_run(&conn, "work-1-a", now - 600);
+    drop(conn);
+    let dir = home.join("mcp");
+    execute(&home, &sessions_cmd(&home), now).unwrap();
+    execute(&home, &outcomes_cmd(&home), now).unwrap();
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
+    assert_eq!(written(&dir, "sessions").1, None, "a live run was stamped");
+    assert_eq!(written(&dir, "outcomes").1, None, "a live run was stamped");
+    let before = [
+        fs::read(dir.join(crate::sessions::FILE)).unwrap(),
+        fs::read(dir.join(crate::outcomes::FILE)).unwrap(),
+    ];
+    // The day moves under a run that never ends, and both files follow it.
+    execute(&home, &sessions_cmd(&home), now + DAY).unwrap();
+    execute(&home, &outcomes_cmd(&home), now + DAY).unwrap();
+    assert_ne!(
+        fs::read(dir.join(crate::sessions::FILE)).unwrap(),
+        before[0],
+        "a poll skipped a live run"
+    );
+    assert_ne!(
+        fs::read(dir.join(crate::outcomes::FILE)).unwrap(),
+        before[1],
+        "a poll skipped a live run"
+    );
+}
+
+#[test]
+fn out_of_a_missing_output_file_writes_it_again() {
+    // The reader opens the file by name, so a stamp that matches one the
+    // directory no longer holds must not be believed.
+    let (home, dir) = home_of_one_ended_run("out-file-gone", 1_792_000_000);
+    let now = 1_792_000_000;
+    for what in ["sessions", "outcomes"] {
+        fs::remove_file(dir.join(out_file(what))).unwrap();
+    }
+    let before = fs::read_dir(&dir).unwrap().count();
+    execute(&home, &sessions_cmd(&home), now).unwrap();
+    execute(&home, &outcomes_cmd(&home), now).unwrap();
+    assert!(
+        dir.join(crate::sessions::FILE).is_file(),
+        "the snapshot stayed away"
+    );
+    assert!(
+        dir.join(crate::outcomes::FILE).is_file(),
+        "the counts stayed away"
+    );
+    // The two lines were kept: a file written again needs no new line, whose
+    // words are those of the stamp that was already believed.
+    assert_eq!(fs::read_dir(&dir).unwrap().count(), before + 2);
+}
+
+#[test]
+fn out_of_a_missing_stamp_writes_the_file_again() {
+    let (home, dir) = home_of_one_ended_run("out-stamp-gone", 1_792_000_000);
+    let now = 1_792_000_000;
+    for what in ["sessions", "outcomes"] {
+        fs::remove_file(dir.join(crate::publish::stamp_name(out_file(what)))).unwrap();
+    }
+    let before = [
+        file_and_mtime(&dir, crate::sessions::FILE),
+        file_and_mtime(&dir, crate::outcomes::FILE),
+    ];
+    execute(&home, &sessions_cmd(&home), now + 1).unwrap();
+    execute(&home, &outcomes_cmd(&home), now + 2).unwrap();
+    assert_ne!(
+        file_and_mtime(&dir, crate::sessions::FILE),
+        before[0],
+        "the snapshot kept its mtime"
+    );
+    assert_ne!(
+        file_and_mtime(&dir, crate::outcomes::FILE),
+        before[1],
+        "the counts kept their mtime"
+    );
+    // Each line is there again, and holds the runs of the database.
+    for what in ["sessions", "outcomes"] {
+        let line =
+            fs::read_to_string(dir.join(crate::publish::stamp_name(out_file(what)))).unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "{}\n",
+                crate::publish::fingerprint(&Connection::open(db::path(&home)).unwrap(), now + 1)
+                    .unwrap()
+                    .unwrap()
+            ),
+            "the line of {what} says other runs than the database holds"
+        );
+    }
+}
+
+#[test]
+fn out_of_a_stamp_of_the_other_command_leaves_the_file_too() {
+    // One line each, so a stamp left for sessions never speaks for outcomes
+    // and the other way round: the names keep them apart.
+    let home = scratch("out-two-stamps");
+    let now = 1_792_000_000;
+    let (conn, _) = db::open(&db::path(&home), now).unwrap();
+    // One run of the work the snapshot keeps and one of the outcome the
+    // counts group by, so the two files hold different words at one and the
+    // same time: which line was believed is then told by the file it was read
+    // back from, and not only by the time of it.
+    one_ended_run(&conn, "work-1-a", now - 3600);
+    one_ended_run(&conn, "plan-2-a", now - 1800);
+    drop(conn);
+    let dir = home.join("mcp");
+    execute(&home, &sessions_cmd(&home), now).unwrap();
+    execute(&home, &outcomes_cmd(&home), now).unwrap();
+    let sessions_stamp = dir.join(crate::publish::stamp_name(crate::sessions::FILE));
+    let outcomes_stamp = dir.join(crate::publish::stamp_name(crate::outcomes::FILE));
+    let line = fs::read(&sessions_stamp).unwrap();
+    // The line the counts would write, held aside: what is put in front of them
+    // next is that same line under the other name, and the file is held while
+    // it is, so a match of the counts' own words - which is what the two lines
+    // are - is proved not to be the reason the file stands. What separates a
+    // line that belongs to a file from one that does not is its name, and the
+    // name is what the two stamps are made of.
+    let counts = fs::read(dir.join(crate::outcomes::FILE)).unwrap();
+    assert_eq!(
+        line,
+        fs::read(&outcomes_stamp).unwrap(),
+        "the two lines differ, so the test below would prove nothing"
+    );
+    fs::remove_file(&outcomes_stamp).unwrap();
+    fs::write(&sessions_stamp, "not a line of ours").unwrap();
+    let before = file_and_mtime(&dir, crate::outcomes::FILE);
+    // The counts are asked for with the line of the snapshot in front of them,
+    // and no line of their own: nothing of this directory speaks for them, so
+    // the file is written again even though no run has changed. The time of it
+    // is what tells, put moving it for a write and no write leaving it - the
+    // words cannot, since no run came or went and a file names the second it
+    // was read, which this call carries as the file it compares with does.
+    execute(&home, &outcomes_cmd(&home), now).unwrap();
+    assert_ne!(
+        file_and_mtime(&dir, crate::outcomes::FILE),
+        before,
+        "the counts believed the line of the snapshot"
+    );
+    // And what they wrote is again the counts, not the snapshot the line came
+    // from: the reader opens the file by name, so a line of another file may
+    // cost a write and may not answer for what is in it.
+    assert_eq!(
+        fs::read(dir.join(crate::outcomes::FILE)).unwrap(),
+        counts,
+        "the counts were answered with the words of the snapshot"
+    );
+    // The line of the counts is there again, and the line of the snapshot was
+    // left as it was found: no command writes another's line.
+    assert_eq!(fs::read(&outcomes_stamp).unwrap(), line);
+    assert_eq!(
+        fs::read_to_string(&sessions_stamp).unwrap(),
+        "not a line of ours",
+        "the counts wrote the line of the snapshot"
+    );
+}
+
+#[test]
+fn out_of_a_stamp_of_other_words_writes_the_file_again() {
+    // A line of any other shape is no line: not one with a second line after
+    // it, not one with a mark taken away, not one of another day.
+    let (home, dir) = home_of_one_ended_run("out-stamp-words", 1_792_000_000);
+    let now = 1_792_000_000;
+    let stamp = dir.join(crate::publish::stamp_name(crate::sessions::FILE));
+    let held = fs::read_to_string(&stamp).unwrap();
+    let conn = Connection::open(db::path(&home)).unwrap();
+    let line = crate::publish::fingerprint(&conn, now).unwrap().unwrap();
+    for bad in [
+        held.trim_end().to_string(),
+        format!("{held}extra\n"),
+        format!("{}{held}", line),
+        held.replace("runs=1", "runs=0"),
+        String::new(),
+    ] {
+        fs::write(&stamp, &bad).unwrap();
+        let before = file_and_mtime(&dir, crate::sessions::FILE);
+        execute(&home, &sessions_cmd(&home), now).unwrap();
+        assert_ne!(
+            file_and_mtime(&dir, crate::sessions::FILE),
+            before,
+            "a line of {bad:?} was believed"
+        );
+    }
+}
+
+#[test]
+fn out_of_a_new_day_writes_the_file_again() {
+    // The window moves on its own, so the day is part of what is compared: a
+    // snapshot of one day is not a snapshot of the next.
+    let (home, dir) = home_of_one_ended_run("out-new-day", 1_792_000_000);
+    let now = 1_792_000_000;
+    let before = [written(&dir, "sessions"), written(&dir, "outcomes")];
+    for what in ["sessions", "outcomes"] {
+        let cmd = match what {
+            "sessions" => sessions_cmd(&home),
+            _ => outcomes_cmd(&home),
+        };
+        execute(&home, &cmd, now + DAY).unwrap();
+        assert_ne!(
+            written(&dir, what),
+            before[if what == "sessions" { 0 } else { 1 }],
+            "{what} kept yesterday's file"
+        );
+    }
+    // The snapshot names the day it was read, which is the words a stamp
+    // cannot tell the two days apart by.
+    let header: Value = serde_json::from_str(
+        String::from_utf8(file_and_mtime(&dir, crate::sessions::FILE).0)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        header["generatedAt"],
+        iso(now + DAY),
+        "the snapshot of the new day still names the old one"
+    );
 }
