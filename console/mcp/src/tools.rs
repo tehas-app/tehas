@@ -1270,8 +1270,9 @@ impl Held {
 /// holds, and None for a report that is not one: no file, no JSON, no reason
 /// of the thirteen words, or no line of either field. The line of the file is
 /// `hold`; the answer calls it `text`, like the free text of the tool's other
-/// answers, and masks both fields before it cuts the line, so a cut never
-/// leaves part of a secret the mask would have known whole.
+/// answers, and masks it before it cuts it, so a cut never leaves part of a
+/// secret the mask would have known whole. `why` needs no mask: the answer
+/// holds the word of [`hold::Why`], never the file's bytes.
 fn held(live: &Path) -> Option<Held> {
     // A poll that is not on record leaves `hold` out like any other field
     // without a value, rather than failing the tool: the rest of the answer
