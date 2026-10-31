@@ -35,7 +35,8 @@
 #
 # The test files and the lint of each shell script run side by side, at most
 # TEHAS_TEST_JOBS at once [the CPUs nproc counts, or the CPU quota of the
-# cgroup it runs in, rounded up, when that is less]: each test file keeps
+# cgroup it runs in, rounded up, when that is less, and at most two a GiB of
+# the cgroup's memory ceiling]: each test file keeps
 # everything under a scratch directory of its own (test/lib.sh). Each task is
 # While the host's load is its CPUs or more, from other runners or a build,
 # the next task waits for one to end; one task always runs, so the run goes
@@ -101,7 +102,20 @@ cpus() {
   fi
   echo "$n"
 }
-jobs=${TEHAS_TEST_JOBS:-$(cpus)}
+# The tasks this run's memory holds, at two a GiB, when that is less than $1.
+# One shellcheck can reach 2 GiB: at 4 tasks a GiB the kernel killed them in a
+# cycle's container. TEHAS_TEST_MEMORY_MAX names the file read in place of the
+# cgroup's.
+memory_jobs() { # jobs
+  local max n=$1
+  if read -r max 2>/dev/null <"${TEHAS_TEST_MEMORY_MAX:-/sys/fs/cgroup/memory.max}" &&
+    [[ $max =~ ^[1-9][0-9]*$ ]] && [ $((max >> 29)) -lt "$n" ]; then
+    n=$((max >> 29))
+  fi
+  [ "$n" -ge 1 ] || n=1
+  echo "$n"
+}
+jobs=${TEHAS_TEST_JOBS:-$(memory_jobs "$(cpus)")}
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || jobs=1
 host_cpus=$(nproc 2>/dev/null) || host_cpus=1
 loadavg=${TEHAS_TEST_LOADAVG:-/proc/loadavg}
