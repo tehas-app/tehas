@@ -16,6 +16,13 @@
 //! --private, as text in any case. A name is not a secret: it is on the
 //! command line.
 //!
+//!   console --progress <ndjson> ... --now <file>
+//!
+//! With --now the console also keeps the cycle's step and the driver's last
+//! notice in that file, two lines rewritten whenever they change, so the
+//! watch loop of tehas work reads them instead of starting processes over the
+//! log every tick, see src/now.rs.
+//!
 //!   console --mask [--private <name>]...
 //!
 //! The mask alone: standard input to standard output, for libexec/work's own
@@ -111,6 +118,7 @@ mod frame;
 mod health;
 mod jq;
 mod notice;
+mod now;
 mod plan;
 mod preview;
 mod protolab;
@@ -147,6 +155,8 @@ struct Args {
     runs: String,
     out: String,
     since: SystemTime,
+    // The file of the step and the notice, when one was asked for.
+    now: Option<String>,
 }
 
 // Takes every `--private <name>` out of the arguments.
@@ -186,6 +196,12 @@ fn args(given: &[String]) -> Result<Args, String> {
         runs: value("runs")?,
         out: value("out")?,
         since,
+        now: given
+            .iter()
+            .position(|a| *a == "--now")
+            .and_then(|i| given.get(i + 1))
+            .filter(|v| !v.is_empty())
+            .cloned(),
     })
 }
 
@@ -220,6 +236,9 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
     let mut out = open_out(&args.out)?;
     let mut follower = tail::Follower::default();
     let mut seen: HashSet<String> = HashSet::new();
+    // The last two lines written, so a tick that changed nothing writes the
+    // file again not at all.
+    let mut written: Option<now::Now> = None;
     write(
         &mut out,
         &Entry::new("tehas", "console attached, waiting for the cycle", None),
@@ -229,14 +248,30 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
         // followed by one more pass, so the last lines are not lost.
         let stopping = stop.load(Ordering::Relaxed);
         out = reopened(out, &args.out)?;
-        for line in follower.new_lines(&args.progress) {
-            if let Some(key) = render::progress_key(&line) {
+        // The progress lines are read once a pass and given to both readers:
+        // the console file and, for --now, the step and the notice. Reading the
+        // log again for those two would read the same bytes twice, and the
+        // follower is what knows which lines are new.
+        let fresh = follower.new_lines(&args.progress);
+        for line in &fresh {
+            if let Some(key) = render::progress_key(line) {
                 if !seen.insert(key) {
                     continue;
                 }
             }
-            if let Some(entry) = render::progress_line(&line) {
+            if let Some(entry) = render::progress_line(line) {
                 write(&mut out, &entry)?;
+            }
+        }
+        if let Some(path) = &args.now {
+            // Written only when this pass moved one of the two lines: with a
+            // cycle that says nothing the loop reads the same file each tick.
+            // A now file that cannot be written ends the console as an
+            // unwritable console file does, and the work script says so.
+            let next = written.as_ref().unwrap_or(&now::Now::default()).later(&now::read(&fresh));
+            if written.as_ref() != Some(&next) {
+                now::write(path, &next)?;
+                written = Some(next);
             }
         }
         for transcript in follower.transcripts(&args.runs, args.since) {

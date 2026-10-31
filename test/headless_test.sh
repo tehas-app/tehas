@@ -169,11 +169,6 @@ ln -s "$sx/result.json" "$T/link.json"
 t_eq "$(tehas_headless_progress "$nx/progress.jsonl" "$T/link.json" 7 | jq -c .from)" '{"roles":"progress","failure":"progress"}'
 t_eq "$(tehas_headless_progress /dev/null /dev/null 7 | jq -c '[.roles, .reason, .failure]')" '[[],"",null]'
 
-t_case "the live line is the last stable step and the driver's last notice, without its marker line"
-t_eq "$(tehas_headless_now "$fx/progress.jsonl" | head -n 1)" handoff
-t_eq "$(tehas_headless_now "$fx/progress.jsonl" | sed -n 2p)" "⚠ pi-rukas /work for issue #7 — HANDOFF DISPATCH INCOMPLETE"
-t_eq "$(tehas_headless_now /dev/null | tr '\n' ,)" ",,"
-
 # The log of a run whose runner died: one line per stable step-started line, in
 # the order the runner wrote them. A file of them, so a case names the steps.
 steps_log() { # <name> <step...>: the path of a log of those steps

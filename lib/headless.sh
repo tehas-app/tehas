@@ -59,9 +59,6 @@
 #       it pushed. Prints nothing and returns 1 when <issue> is not a number or
 #       <ndjson> is no file it can read; an empty log gives three lines, the
 #       first two empty and `whole`.
-#   tehas_headless_now <ndjson>
-#       the step of the last stable step-started line and the message of the
-#       last stable log line, as two lines.
 #   tehas_headless_progress <ndjson> [<result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
@@ -249,16 +246,6 @@ tehas_headless_run() { # <ndjson> <issue>
   [ "$at" -lt "$n" ] || branch=""
   [[ $branch =~ $pattern ]] || branch=""
   printf '%s\n%s\n%s\n' "$last" "$branch" "$cut"
-}
-
-tehas_headless_now() { # <ndjson>
-  tail -c 200000 "$1" 2>/dev/null | jq -R -r -s '
-    [split("\n")[] | fromjson? | objects | select(.v == 1 and (.unstable // false) == false)] as $l
-    | def line: gsub("[\u0000-\u001f\u007f\u2028\u2029]"; "");
-      ([$l[] | select(.kind == "step-started") | .event.step | strings] | last // "" | line),
-      ([$l[] | select(.kind == "log") | .message | strings] | last // ""
-       | [split("\n")[] | select(length > 0 and (startswith("pi-rukas:driver-event") | not))] | first // "" | line)' \
-    2>/dev/null | head -n 2
 }
 
 tehas_headless_progress() { # <ndjson> [<result> <issue>]
