@@ -431,24 +431,47 @@ pub fn execute(home: &Path, cmd: &Cmd, now: i64) -> Result<(), (u8, String)> {
         }
         Cmd::Orders => orders::write(&home.join("live"), &conn, now),
         Cmd::Sessions(to) => {
-            let lines = sessions::lines(&conn, home, now)
-                .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;
             match to {
-                None => println!("{}", lines.join("\n")),
+                None => {
+                    let lines = sessions::lines(&conn, home, now)
+                        .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;
+                    println!("{}", lines.join("\n"));
+                }
                 // The host's snapshot: written here, so the host runs no
-                // writer of its own and reads the file no second time.
-                Some(dir) => sessions::write(dir, &lines).map_err(|e| (73, e))?,
+                // writer of its own and reads the file no second time. When
+                // no run has started or ended since the last write, and the
+                // day of the window has not moved, the file stands.
+                Some(dir) => {
+                    let print = publish::fingerprint(&conn, now).map_err(db_err)?;
+                    if publish::unchanged(dir, sessions::FILE, &print) {
+                        return Ok(());
+                    }
+                    let lines = sessions::lines(&conn, home, now)
+                        .map_err(|e| (70, format!("the sessions could not be read: {e}")))?;
+                    sessions::write(dir, &lines).map_err(|e| (73, e))?;
+                    publish::stamp(dir, sessions::FILE, &print).map_err(|e| (73, e))?;
+                }
             }
             Ok(())
         }
         Cmd::Outcomes(f, to) => {
-            let lines = outcomes::lines(&conn, now, f)
-                .map_err(|e| (70, format!("the outcomes could not be read: {e}")))?;
             match to {
-                None => println!("{}", lines.join("\n")),
+                None => {
+                    let lines = outcomes::lines(&conn, now, f)
+                        .map_err(|e| (70, format!("the outcomes could not be read: {e}")))?;
+                    println!("{}", lines.join("\n"));
+                }
                 // The host's file: written here, so what the reader checks is
                 // what this wrote, and the host runs no second reader of it.
-                Some(dir) => outcomes::write(dir, &conn, now, f).map_err(|e| (73, e))?,
+                // The skip is the same as the sessions'.
+                Some(dir) => {
+                    let print = publish::fingerprint(&conn, now).map_err(db_err)?;
+                    if publish::unchanged(dir, outcomes::FILE, &print) {
+                        return Ok(());
+                    }
+                    outcomes::write(dir, &conn, now, f).map_err(|e| (73, e))?;
+                    publish::stamp(dir, outcomes::FILE, &print).map_err(|e| (73, e))?;
+                }
             }
             Ok(())
         }

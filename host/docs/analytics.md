@@ -427,6 +427,15 @@ moved into place: the modes are the program's, not the caller's umask. This is
 how `tehasbot status` asks for the snapshot (see [The
 host](/host#what-is-in-the-home)).
 
+Before reading the runs the command compares the database with a line it leaves
+beside the file, `<directory>/sessions.jsonl.stamp`, mode 600: `runs=<count>;
+ended=<latest end>;day=<YYYY-MM-DD>`. When that line is what the database says
+now, the day of the window has not moved and the file is there, the command
+writes neither the file nor the line and leaves both mtimes alone. The line is
+left away while any run has no end, because the logs of a live run grow with no
+row changing to say so, and every poll of one writes again. A missing file, a
+missing line or a line of other words each writes both again.
+
 ## Outcomes
 
 ```
@@ -467,7 +476,9 @@ no time, is an error. The command exits 70 when the database cannot be read.
 
 With `--out` the lines go to `<directory>/outcomes.jsonl` instead of standard
 output, mode 600 in a directory of mode 700, made from a name of this run and
-moved into place, as the sessions' `--out` does.
+moved into place, as the sessions' `--out` does. It is skipped and written by
+the same line beside it, `<directory>/outcomes.jsonl.stamp`, as the snapshot
+is: the two have a line each, so neither answer speaks for the other file.
 
 `tehasbot status` writes what the unfiltered command prints to
 `~/tehas/mcp/outcomes.jsonl`, mode 600 in a 700 directory, beside the
