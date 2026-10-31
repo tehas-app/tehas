@@ -153,11 +153,10 @@ t_eq "$(approval '[.by, .how, .fixer_starts, .rests_on.by, .rests_on.how]')" \
   '["tehas-fixer","fixer",1,"alice","label"]'
 # The lift is its own field: rests_on keeps naming alice's approval, the
 # refresh's base, and the note is the comment the cycle is given.
-t_eq "$(approval '(.park_lifted | if type == "array" then .[0] else . end)')" \
+t_eq "$(approval .park_lifted)" \
   "$(sorted '{"source":"millwright:81","by":"tehas-fixer","at":"'"$(lift_at 180)"'","text":"<!-- tehas:millwright issue=7 action=change -->\nDo not run the whole suite."}')"
 t_eq "$(approval '.rests_on.body_sha256 == .body_sha256')" true
-t_eq "$(approval '.retry_context')" \
-  "$(approval '[(.park_lifted | if type == "array" then .[0] else . end)]')"
+t_eq "$(approval .retry_context)" "$(approval '[.park_lifted]')"
 
 t_case "the lift needs the instance to give a cycle the note: images lift it, neither setting holds"
 millwright_parked TEHAS_WORK_IMAGES=1
@@ -188,7 +187,7 @@ with_notes "$(
   echo ']'
 )"
 lifts
-t_eq "$(approval '(.park_lifted | if type == "array" then .[0].source else .source end)')" 'millwright:82'
+t_eq "$(approval .park_lifted.source)" 'millwright:82'
 
 t_case "a change note outside the ten minutes, or none at all, lifts nothing"
 millwright_parked

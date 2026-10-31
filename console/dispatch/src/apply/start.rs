@@ -687,7 +687,9 @@ impl Writer {
         // request, so nothing of the earlier cycle goes with it: the note of
         // the fixer or of a refresh stays out of its record whatever asks.
         if !issue_alone(a, log, n) {
-            if given == "millwright" {
+            if let Some(note) = a.get("park_lifted").filter(|_| given == "millwright") {
+                retry = json!({"links": [], "context": [note]});
+            } else if given == "millwright" {
                 let Some(r) = self.fixer_note(n, &given_at) else {
                     log.push(format!(
                         "ERROR: the comments of #{n} could not be read for the fixer's"
@@ -728,24 +730,10 @@ impl Writer {
                 a.get("refresh_of").cloned().unwrap_or(Value::Null),
             );
         }
-        // The reason a park's hold let this start through: the millwright's
-        // guidance comment, named on the record so a reader can say why the
-        // start was allowed. It is not the person's approval, which `rests_on`
-        // keeps naming (#1130).
-        // The bash poll's note arrives as the one-entry list retry_context
-        // has; the Rust decide builds the entry itself. Either is stored as the
-        // single object, so a reader sees one shape.
-        let lifted = match a.get("park_lifted") {
-            Some(o) if o.is_object() => Some(o.clone()),
-            Some(v) => v
-                .as_array()
-                .and_then(|l| l.last())
-                .filter(|o| o.is_object())
-                .cloned(),
-            None => None,
-        };
-        if let Some(o) = lifted {
-            input.insert("park_lifted".into(), o);
+        // Why a park's hold let this start through. `rests_on` keeps naming
+        // the person's approval (#1130).
+        if let Some(note) = a.get("park_lifted") {
+            input.insert("park_lifted".into(), note.clone());
         }
         let at = match given.as_str() {
             "refresh" | "outage-retry" => None,
