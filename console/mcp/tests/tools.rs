@@ -1,7 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
 use mcp::snapshot::Snapshot;
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -134,7 +134,7 @@ fn spec_paths_of(name: &str) -> BTreeSet<String> {
 }
 
 fn schema_of(name: &str) -> Value {
-    list()
+    list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
@@ -161,7 +161,7 @@ fn args(name: &str) -> Value {
 
 #[test]
 fn the_tools_are_listed_in_order_with_their_schemas() {
-    let tools = list();
+    let tools = list_scoped(Scope::Full);
     let names: Vec<&str> = tools
         .as_array()
         .unwrap()
@@ -226,6 +226,138 @@ fn status_says_the_queue_and_that_an_old_poll_is_stale() {
         out["platform"]["commit"],
         "9b1b7dc11b73b93f7296b5f3131fcc6ef6b964e9"
     );
+}
+
+// "why is nothing starting" is the most useful thing to say to someone
+// waiting, and dispatch.json is published already: the hold of the poll is
+// copied from it, in its two keys.
+#[test]
+fn status_copies_the_hold_of_the_poll() {
+    let out = call(&live(), "factory_status", &json!({})).unwrap();
+    assert_eq!(out["hold"]["why"], "count");
+    assert_eq!(
+        out["hold"]["text"],
+        "holding: 5 cycles are running (limit 5)"
+    );
+    // The rest of the poll's report is not served: only the two keys it names.
+    // The words are those of the hold's own line, so `limit` is asked for with
+    // its dot and the rest by whole word. The file's time is the poll's stamp,
+    // and is left out as the file's own name that no answer gives.
+    let text = out["hold"].to_string();
+    for bad in [
+        "\"room\"",
+        "\"committed\"",
+        "\"reserve\"",
+        "\"free\"",
+        "\"time\"",
+        "2026-10-20",
+        ".ts.net",
+    ] {
+        assert!(!text.contains(bad), "{bad}: {text}");
+    }
+    for bad in ["room", "committed", "reserve", "free"] {
+        assert!(!text.contains(&format!("{bad}:")), "{bad}: {text}");
+    }
+}
+
+// A poll that found nothing holding writes the empty word, and an answer with
+// no hold at all reads better than one of an empty line.
+#[test]
+fn status_leaves_hold_out_when_nothing_holds() {
+    for (name, report) in [
+        ("nothing", json!({"why": "", "hold": "", "count": 0})),
+        ("no-line", json!({"why": "count", "hold": ""})),
+        ("no-why", json!({"hold": "holding: 5 cycles are running"})),
+        ("not-json", json!("{")),
+    ] {
+        let c = Copy::new(&format!("hold-{name}"));
+        std::fs::write(c.0.join("dispatch.json"), report.to_string()).unwrap();
+        let out = call(&c.0, "factory_status", &json!({})).unwrap();
+        assert!(out.get("hold").is_none(), "{name}: {}", out["hold"]);
+        // The rest of the answer stands on its own.
+        assert_eq!(out["queue"]["inLine"], 2, "{name}");
+    }
+    // No file at all: a host whose dispatcher never polled is answered.
+    let c = Copy::new("hold-gone");
+    std::fs::remove_file(c.0.join("dispatch.json")).unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hold").is_none());
+    assert_eq!(out["status"], "pass");
+    // A report of another shape is no report either: a link is not a regular
+    // file, and a file over the bound of one poll's report is not read at all,
+    // so no client can cost the answer more than a fixed number of bytes.
+    let c = Copy::new("hold-link");
+    let file = c.0.join("dispatch.json");
+    std::fs::remove_file(&file).unwrap();
+    std::fs::write(c.0.join("report.json"), r#"{""why":""}"#).unwrap();
+    std::os::unix::fs::symlink(c.0.join("report.json"), &file).unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hold").is_none(), "a link is read");
+    let c = Copy::new("hold-huge");
+    let text = "x".repeat(64 * 1024 + 8);
+    std::fs::write(
+        c.0.join("dispatch.json"),
+        format!(r#"{{"why":"count","hold":"{text}"}}"#),
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hold").is_none(), "a file over the bound is read");
+    // The same file, one byte under the bound, is a report and is answered, so
+    // the bound is the file's size and not the length of the line.
+    let c = Copy::new("hold-under-bound");
+    let line = "y".repeat(64 * 1024 - 40);
+    std::fs::write(
+        c.0.join("dispatch.json"),
+        format!(r#"{{"why":"count","hold":"{line}"}}"#),
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert_eq!(out["hold"]["why"], "count");
+    assert_eq!(out["hold"]["text"].as_str().unwrap().chars().count(), 400);
+}
+
+// A hold is free text of the dispatcher's, masked like the tool's other free
+// text and cut to 400 characters. The cut is of the masked text, so no secret
+// is left in part.
+//
+// The mask of a process also hides, wherever they appear, the values of the
+// environment whose names say they are secret; a fixture line is not free of
+// them on every host, so the hold asserted here is one that no pattern of the
+// mask rewrites: the github token, whose `ghp_` the mask leaves and whose rest
+// it cuts, is what says the mask ran.
+#[test]
+fn a_hold_is_masked_then_cut() {
+    let c = Copy::new("hold-masked");
+    std::fs::write(
+        c.0.join("dispatch.json"),
+        json!({
+            "why": "limit",
+            "hold": format!(
+                "the limit expired at {} with ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij and {}",
+                "2020-01-01T00:00:00Z",
+                "x".repeat(500)
+            ),
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    let text = out["hold"]["text"].as_str().unwrap();
+    // Masked: the token's secret half is gone, its prefix kept, as the mask
+    // words it, and no line of the mask's own words is in the fixture.
+    assert!(
+        !text.contains("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"),
+        "{text}"
+    );
+    assert!(text.contains("ghp_***"), "{text}");
+    assert!(
+        text.starts_with("the limit expired at 2020-01-01T00:00:00Z "),
+        "{text}"
+    );
+    // Then cut to 400 characters of the masked text.
+    assert_eq!(text.chars().count(), 400, "{}", text.len());
+    assert!(text.ends_with('x'), "{text}");
+    assert_eq!(out["hold"]["why"], "limit");
 }
 
 // A host that runs a release names it instead of a commit: pick drops the
@@ -399,6 +531,9 @@ fn every_key_is_listed() {
                 "platform.behind",
                 "platform.upstream",
                 "platform.fetchedAt",
+                "hold",
+                "hold.why",
+                "hold.text",
             ],
         ),
         (
@@ -672,7 +807,7 @@ fn schema_matches_output() {
 #[test]
 fn inputs_and_outputs_are_described() {
     for name in NAMES {
-        let tool = list()
+        let tool = list_scoped(Scope::Full)
             .as_array()
             .unwrap()
             .iter()
