@@ -446,7 +446,7 @@ jq -n --slurpfile issues <(printf '%s' "$issues") --slurpfile shipped <(printf '
     } end)' >"$live/status.json.$$.new" 2>"$live/status.json.$$.err.new" && mv "$live/status.json.$$.new" "$live/status.json" && written=1
 [ "$written" = 1 ] || log "WARN status.json not written: $(head -n 1 "$live/status.json.$$.err.new")"
 rm -f "$live/status.json.$$.new" "$live/status.json.$$.err.new"
-timeout -k 1 "$search_wait" "$console" epics "$repo" "$live/epics.json"
+timeout -k 1 "$search_wait" "$console" epics "$repo"
 
 # An issue this read finds shipped carries the label whatever the reason, and
 # the read names its labels, so an issue that already holds it is not asked for

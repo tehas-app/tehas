@@ -1,7 +1,10 @@
 //! The open epics of the repository, for the dashboard's epics panel.
 //!
-//!   console epics <owner/name> <out>
+//!   console epics <owner/name> [<out>]
 //!
+//! <out> is the file the panel reads, and a run that names none writes
+//! `<home>/live/epics.json` of the home in the environment (`tehasbot status`
+//! is the only caller, and it has the settings loaded).
 //! An epic is an open issue with sub-issues, GitHub's own links, as the
 //! dispatcher reads them (dispatch/src/decide.rs, epic_ok). This reads the open
 //! issues a page at a time with gh, keeps the ones with sub-issues and writes
@@ -25,7 +28,7 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tehas_core::time;
 
@@ -46,10 +49,45 @@ const QUERY: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
 }"#;
 
 pub fn main(given: &[String]) -> u8 {
-    let [repo, out] = given else {
-        eprintln!("usage: console epics <owner/name> <out>");
-        return 64;
+    // The file the panel reads: named by the caller, or the one beside the
+    // home. A run given no home of its own is the status command's, and asks
+    // the instance for the repository whose epics are read.
+    let (named_repo, named_out) = match given {
+        [repo, out] => (Some(repo.clone()), Some(out.clone())),
+        [repo] => (Some(repo.clone()), None),
+        [] => (None, None),
+        _ => {
+            eprintln!("usage: console epics [<owner/name>] [<out>]");
+            return 64;
+        }
     };
+    let home = std::env::var_os("TEHAS_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|v| !v.is_empty())
+                .map(|h| PathBuf::from(h).join("tehas"))
+        });
+    let out = match named_out {
+        Some(out) => out,
+        None => match &home {
+            Some(home) => home.join("live/epics.json").to_string_lossy().into_owned(),
+            None => {
+                eprintln!("console epics: no <out> named and no home to write it under");
+                return 78;
+            }
+        },
+    };
+    let repo = match named_repo {
+        Some(repo) => repo,
+        None => crate::disk::instance_setting("TEHAS_REPO").unwrap_or_default(),
+    };
+    if repo.is_empty() {
+        eprintln!("console epics: no <owner/name> named and no TEHAS_REPO to read");
+        return 78;
+    }
+    let (repo, out) = (repo.as_str(), out.as_str());
     let Some((owner, name)) = repo.split_once('/') else {
         eprintln!("console epics: {repo} is not owner/name");
         return 64;

@@ -523,7 +523,7 @@ files=(
 for f in tehas tehasbot; do
   files+=("bin/$f|$TEHAS_HOME/bin/$f|755")
 done
-for f in analytics-cmd api check-product clean cycle dev dev-login dispatch drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh review resume setup state status stop summary tidy top top-publish update work; do
+for f in analytics-cmd api check-product clean cycle dev dev-login dispatch disk drain energy export github-token health history improve index init-product labels limit mcp pause plan preview protolab refresh review resume setup state status stop summary tidy top top-publish update work; do
   files+=("libexec/$f|$TEHAS_HOME/libexec/$f|755")
 done
 # The polyfills of pi-rukas features (scripts/polyfills.sh) are a glob, not a

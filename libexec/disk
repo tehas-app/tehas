@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# tehas disk: how full this host is, and what fills it. One entry per file
+# system the factory cares about - this instance's home, the directory Docker
+# keeps its images in, /tmp, and TEHAS_SCRATCH_DIR when the instance sets it -
+# each with its mount and its free and total bytes, and with --full the places
+# that fill them, biggest first. A figure that cannot be read is null with the
+# reason it could not, never 0: no figure is never the same as plenty, which is
+# what the dispatcher holds a host on. The command reads and removes nothing.
+#
+# Usage: tehas disk [--full] [--json] [--publish]
+#
+# Without --json, one line each, as tehas status words its lines; with --json
+# the same as one object, whose fields host/docs/api.md writes out. --publish
+# also writes that object to $TEHAS_HOME/live/disk.json, whole, through a side
+# file renamed into place, for factory_disk of the MCP server to read: it is
+# the only form that writes anything, and no timer runs it, so a person or a
+# program decides when the file is refreshed.
+#
+# The reading, its bounds, the settings of it and the printing are all the
+# console's: `console disk` (console/src/disk.rs) reads the home, the scratch
+# disk and TEHAS_DISK_WAIT from the instance's own file, calls df, docker and
+# du under them, and says 78 when they cannot be read. This loads nothing and
+# names no path, so it hands the arguments over and does nothing else.
+#
+# Exit: that of the console: 0 printed, and written with --publish; 1 the file
+# could not be written; 64 a bad argument, which writes nothing; 78 the
+# instance settings are missing or malformed, or no console stands beside this
+# command, which write nothing.
+set -uo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+console=${TEHAS_CONSOLE:-$here/console}
+[ -x "$console" ] || { echo "tehas disk: no console at $console: run install.sh" >&2; exit 78; }
+exec "$console" disk "$@"
