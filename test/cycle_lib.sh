@@ -76,6 +76,9 @@ case "$1 $2" in
     # The body of the issue, written. $fx/patch-fails makes it fail.
     elif api_rest PATCH 7; then
       fails patch-fails
+    # The title of the pull request, written. $fx/title-fails makes it fail.
+    elif [ "$rest_verb" = PATCH ] && [ "$rest_path" = repos/acme/widget/pulls/9 ]; then
+      fails title-fails
     else
       exit 1
     fi ;;
@@ -117,6 +120,9 @@ case "$1 $2" in
       if [ "$left" -gt 0 ]; then echo $((left - 1)) >"$T/fx/comment-fails-times"; exit 1; fi
     fi
     [ ! -e "$T/fx/comment-fails" ] || exit 1 ;;
+  # Who the token is, and one pull request as REST gives it.
+  "api user") cat "$T/fx/user.json" || exit 1 ;;
+  "api repos/acme/widget/pulls/"*) cat "$T/fx/pull.json" || exit 1 ;;
   # What the number is. An open issue, unless a case writes the fixture.
   "api repos/acme/widget/issues/"[0-9]*)
     n=${2#repos/acme/widget/issues/}

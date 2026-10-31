@@ -68,11 +68,13 @@ case "$name $1" in
   "gh issue") case "$2 $*" in
       "view "*"--json labels"*) cat "$d/labels-$3" 2>/dev/null || echo '{"labels":[]}' ;;
       "view "*"--json body"*) cat "$d/body-$3" 2>/dev/null || echo '{"body":""}' ;;
+      "view "*"--json title"*) cat "$d/view-$3" 2>/dev/null || echo '{}' ;;
     esac ;;
   "gh api") case "$*" in *"-X POST"*/comments*) echo 99 ;; esac
     case "$2" in
       repos/*/issues/[0-9]*) case "$2" in
           */comments*) ;;
+          */events*) f=${2#*/issues/}; cat "$d/events-${f%%/*}" 2>/dev/null || echo '{}' ;;
           *) f=${2#*/issues/}; if [ -f "$d/issue-$f" ]; then cat "$d/issue-$f"; else echo '{"id":555}'; fi ;;
         esac ;;
     esac
@@ -167,6 +169,7 @@ fn world() -> World {
             start_wait: Duration::from_secs(2),
             status_cmd: s("status"),
             health_cmd: s("health"),
+            console_cmd: s("console"),
             tidy_cmd: s("tidy"),
             analytics: None,
             analytics_wait: Duration::from_secs(5),
@@ -1389,8 +1392,7 @@ fn a_quiet_stop_that_cannot_write_its_reason_still_stops_the_unit() {
     fs::set_permissions(&cycles, fs::Permissions::from_mode(0o700)).unwrap();
     let said: Vec<&str> = a.log.iter().map(String::as_str).collect();
     assert!(
-        said.iter()
-            .any(|l| *l == "WARN: could not write the reason for #7"),
+        said.contains(&"WARN: could not write the reason for #7"),
         "{said:?}"
     );
     assert!(t.calls().contains(&"start 7".to_string()));
@@ -1828,6 +1830,372 @@ fn a_plan_chosen_for_its_issue_is_written_onto_it_and_ends_the_session() {
     ));
     assert!(!w.iter().any(|c| c.contains("issues/7/comments")));
     assert!(!t.w.home.join("state/plan-7.json.out").exists());
+}
+
+const PLAN_LABELLED: &str = "2026-10-01T00:00:00Z";
+const PLAN_DRAFT: &str = r###"{"title":"feat: faster search","spec":"## Outcome\n\nFast."}"###;
+const LABEL_OFF: &str = "gh issue edit 7 --repo example-owner/example-product --remove-label tehas:question --remove-label tehas:planning --remove-label tehas:plan --remove-label needs-human-attention --add-label tehas:ready";
+
+/// The poll a drafted plan with no open points ends in, up to the store's
+/// `clear`: a session of `by`, its `tehas:plan` by `labeller`, the issue open
+/// and the draft kept.
+fn clear_plan(t: &World, session: Value, labeller: &str) {
+    plan_row(t, session);
+    turn_ended(
+        t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Drafted.", "clear": true,
+            "question": {"question": "Tick.", "options": [{"label": "Update this issue"}]}}),
+    );
+    let keep = t.dir.join("works/tehas-work-plan-7.keep");
+    fs::create_dir_all(&keep).unwrap();
+    fs::write(keep.join("draft.json"), PLAN_DRAFT).unwrap();
+    fs::write(
+        t.dir.join("events-7"),
+        json!([{"event": "labeled", "label": {"name": "tehas:plan"},
+            "actor": {"login": labeller}, "created_at": PLAN_LABELLED}])
+        .to_string(),
+    )
+    .unwrap();
+    fs::write(
+        t.dir.join("view-7"),
+        json!({"title": "search", "body": "make it fast", "state": "OPEN", "labels": []})
+            .to_string(),
+    )
+    .unwrap();
+}
+
+fn alices_session() -> Value {
+    json!({"turns": 1, "session": "s-1", "label": "tehas:plan", "by": "alice", "answers": []})
+}
+
+fn the_record(t: &World) -> PathBuf {
+    t.w.home.join("state/plan-start/7.json")
+}
+
+/// Today's question, and nothing else of the plan.
+fn asks(t: &World) {
+    let w = t.writes();
+    assert!(
+        w.iter()
+            .any(|c| c.starts_with("gh api -X POST") && c.contains("issues/7/comments")),
+        "{w:?}"
+    );
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --remove-label tehas:planning --add-label tehas:question".to_string()), "{w:?}");
+    assert!(!w.iter().any(|c| c.contains("--title")), "{w:?}");
+    assert!(
+        !w.iter().any(|c| c.contains("--add-label tehas:ready")),
+        "{w:?}"
+    );
+    assert!(!the_record(t).exists());
+}
+
+#[test]
+fn a_plan_with_no_open_points_from_an_allowed_account_updates_and_starts() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    let w = t.writes();
+    assert!(w.contains(&"gh issue edit 7 --repo example-owner/example-product --title feat: faster search --body-file - <<< ## Outcome".to_string()), "{w:?}");
+    assert!(w.contains(&LABEL_OFF.to_string()), "{w:?}");
+    assert!(w.contains(&"store plan-end 7 --close".to_string()), "{w:?}");
+    assert!(
+        w.iter().any(|c| c.starts_with("gh issue comment 7")
+            && c.contains("no open points")
+            && c.contains("@alice's `tehas:plan`")),
+        "{w:?}"
+    );
+    // No question: nothing to tick.
+    assert!(!w.iter().any(|c| c.contains("issues/7/comments")), "{w:?}");
+    assert!(!w.iter().any(|c| c.contains("--add-label tehas:question")));
+    assert!(a.log.iter().any(|l| l.contains("alice")), "{:?}", a.log);
+    let record: Value = serde_json::from_str(&fs::read_to_string(the_record(&t)).unwrap()).unwrap();
+    assert_eq!(record["by"], "alice");
+    assert_eq!(
+        record["sum"],
+        crate::text::plan_sum(
+            &json!({"title": "feat: faster search", "body": "## Outcome\n\nFast."})
+        )
+    );
+    use std::os::unix::fs::PermissionsExt as _;
+    assert_eq!(
+        fs::metadata(the_record(&t)).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // The poll that starts it comes at once, not at the next timer.
+    assert!(t.w.home.join("state/dispatch.again").exists());
+    assert!(!t.w.home.join("state/plan-7.json.out").exists());
+}
+
+#[test]
+fn the_plan_goes_on_with_the_issues_words_folded_as_the_tick_does() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    t.apply(json!([{"plan_collect": 7}]));
+    let all = fs::read_to_string(t.dir.join("calls.log")).unwrap();
+    assert!(
+        all.contains("<summary>The text it replaced</summary>"),
+        "{all}"
+    );
+    assert!(all.contains("> # search"), "{all}");
+    assert!(all.contains("> make it fast"), "{all}");
+}
+
+#[test]
+fn a_plan_that_could_not_be_written_is_written_by_the_next_poll_on_the_same_terms() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    t.fail("gh", "--title");
+    let a = t.apply(json!([{"plan_collect": 7}]));
+    assert!(a.log.iter().any(|l| l.contains("could not be written")));
+    assert!(!t.writes().contains(&LABEL_OFF.to_string()));
+    assert!(!t.writes().iter().any(|c| c.contains("plan-end 7 --close")));
+    // The record goes first, so no label is ever on with none behind it.
+    assert!(the_record(&t).exists());
+    fs::remove_file(t.dir.join("fail-gh")).unwrap();
+    // The issue moved on: what was decided is what is written.
+    fs::remove_file(t.dir.join("view-7")).unwrap();
+    t.apply(json!([{"plan_post": 7}]));
+    assert!(t.writes().contains(&LABEL_OFF.to_string()));
+    assert!(the_record(&t).exists());
+}
+
+#[test]
+fn a_plan_with_open_points_asks() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-2", "text": "Drafted.",
+            "question": {"question": "Open points.", "options": [{"label": "Update this issue"}]}}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    // Not even asked of GitHub.
+    assert!(!t.calls().iter().any(|c| c.contains("/events")));
+}
+
+#[test]
+fn a_refine_session_asks_whatever_its_outcome_says() {
+    let mut t = world();
+    let mut row = alices_session();
+    row["label"] = json!("tehas:refine");
+    clear_plan(&t, row, "alice");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn an_automatic_session_asks() {
+    let mut t = world();
+    let mut row = alices_session();
+    row["auto"] = json!(true);
+    clear_plan(&t, row, "alice");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn the_millwrights_tehas_plan_asks_even_on_the_list() {
+    let mut t = world();
+    t.w.host.allowed.push("mill-bot".into());
+    let mut row = alices_session();
+    row["by"] = json!("mill-bot");
+    clear_plan(&t, row, "mill-bot");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    let mut t = world();
+    t.w.host.allowed.push("mill-bot".into());
+    let mut row = alices_session();
+    row["by"] = json!("mill-bot[bot]");
+    clear_plan(&t, row, "mill-bot[bot]");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn a_plan_the_millwright_answered_for_asks() {
+    let mut t = world();
+    let mut row = alices_session();
+    row["answers"] = json!([{"turn": 1, "by": "alice", "millwright": false},
+        {"turn": 2, "by": "mill-bot", "millwright": true}]);
+    clear_plan(&t, row, "alice");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn an_account_outside_the_list_asks() {
+    let mut t = world();
+    let mut row = alices_session();
+    row["by"] = json!("mallory");
+    clear_plan(&t, row, "mallory");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn a_session_the_label_events_do_not_bear_out_asks() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "mallory");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn an_unknown_labeller_asks() {
+    // No account on record.
+    let mut t = world();
+    let mut row = alices_session();
+    row["by"] = Value::Null;
+    clear_plan(&t, row, "alice");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    // Events that name nobody.
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    fs::write(t.dir.join("events-7"), "[]").unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    // An answer that is no list of events.
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    fs::write(t.dir.join("events-7"), "{}").unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    // Events that could not be read.
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    t.fail("gh", "/events");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn an_issue_that_cannot_be_read_or_is_not_waiting_asks() {
+    let view = |extra: Value| {
+        let mut v =
+            json!({"title": "search", "body": "make it fast", "state": "OPEN", "labels": []});
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v.to_string()
+    };
+    for (what, answer) in [
+        ("no answer", "{}".to_string()),
+        ("closed", view(json!({"state": "CLOSED"}))),
+        (
+            "already approved",
+            view(json!({"labels": [{"name": "tehas:ready"}]})),
+        ),
+    ] {
+        let mut t = world();
+        clear_plan(&t, alices_session(), "alice");
+        fs::write(t.dir.join("view-7"), answer).unwrap();
+        t.apply(json!([{"plan_collect": 7}]));
+        eprintln!("{what}");
+        asks(&t);
+    }
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    t.fail("gh", "--json title");
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn a_draft_that_is_gone_asks() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    fs::remove_file(t.dir.join("works/tehas-work-plan-7.keep/draft.json")).unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+}
+
+#[test]
+fn a_plan_that_links_an_attachment_the_issue_did_not_asks() {
+    let mut t = world();
+    clear_plan(&t, alices_session(), "alice");
+    let link = "https://github.com/user-attachments/assets/abc";
+    fs::write(
+        t.dir.join("works/tehas-work-plan-7.keep/draft.json"),
+        json!({"title": "t", "spec": format!("See {link} there")}).to_string(),
+    )
+    .unwrap();
+    // On the issue now is not approved: an outsider may have put it there.
+    fs::write(
+        t.dir.join("view-7"),
+        json!({"title": "s", "body": format!("Look: {link}"), "state": "OPEN", "labels": []})
+            .to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    asks(&t);
+    // One in the brief was approved with it.
+    let mut t = world();
+    let mut row = alices_session();
+    row["brief"] = json!(format!("# search\n\nLook: {link}\n"));
+    clear_plan(&t, row, "alice");
+    fs::write(
+        t.dir.join("works/tehas-work-plan-7.keep/draft.json"),
+        json!({"title": "t", "spec": format!("See {link} there")}).to_string(),
+    )
+    .unwrap();
+    t.apply(json!([{"plan_collect": 7}]));
+    assert!(the_record(&t).exists());
+}
+
+#[test]
+fn a_tick_on_update_this_issue_starts_nothing() {
+    let mut t = world();
+    plan_row(&t, alices_session());
+    turn_ended(
+        &t,
+        7,
+        "0",
+        json!({"session": "s-1", "text": "This issue now holds the plan.", "question": null,
+               "update": {"title": "feat: faster search", "body": "## Outcome\n\nFast."}}),
+    );
+    t.apply(json!([{"plan_collect": 7}]));
+    assert!(!t
+        .writes()
+        .iter()
+        .any(|c| c.contains("--add-label tehas:ready")));
+    assert!(!the_record(&t).exists());
+}
+
+#[test]
+fn a_start_spends_the_record_and_one_refused_drops_it() {
+    let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/plan-start")).unwrap();
+    fs::write(the_record(&t), "{}").unwrap();
+    let mut s = start_of(7, "label");
+    s["approved_label"] = json!("tehas:plan");
+    t.apply(json!([s]));
+    assert!(!the_record(&t).exists());
+    let w = t.writes();
+    let rec = w
+        .iter()
+        .find(|c| c.starts_with("store approval-record"))
+        .unwrap();
+    assert!(rec.contains("--how label --"), "{rec}");
+    assert!(rec.contains("--label tehas:plan"), "{rec}");
+
+    fs::write(the_record(&t), "{}").unwrap();
+    t.apply(json!([{"plan_start_drop": 7}]));
+    assert!(!the_record(&t).exists());
+}
+
+#[test]
+fn a_new_session_spends_the_record_of_the_old() {
+    let mut t = world();
+    fs::create_dir_all(t.w.home.join("state/plan-start")).unwrap();
+    fs::write(the_record(&t), "{}").unwrap();
+    t.apply(json!([first_turn(7)]));
+    assert!(!the_record(&t).exists());
 }
 
 #[test]

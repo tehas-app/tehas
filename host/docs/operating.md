@@ -227,7 +227,9 @@ compute on the issue.
   by the bot or anyone else is no one's request for a cycle: the dispatcher
   takes it off the issue, says in a comment on the issue who applied it, and
   logs it. An account in `TEHAS_ALLOWED_LABELERS` applies it again to ask for
-  a cycle. GitHub has no permission per label: any account that can write to
+  a cycle. There is one exception, for one issue at a time:
+  [a plan with no open points](#a-plan-with-no-open-points). GitHub has no
+  permission per label: any account that can write to
   the repository can apply any label, so the list is enforced here, at the
   next poll, and not by GitHub.
 - Add **`tehas:urgent`** as well to move it ahead of other ready issues. It is
@@ -832,7 +834,8 @@ planner work on them, and build that same issue: the discussion stays in the
 comments, and the issue's text becomes the plan. The agent is
 not asked to build code, and the awaiting-merge limit does not hold a planning
 turn back. Its container has the same access as a work cycle's, token
-included, so treat `tehas:plan` as you treat `tehas:ready`.
+included, so treat `tehas:plan` as you treat `tehas:ready`. It can start a
+build: see [A plan with no open points](#a-plan-with-no-open-points).
 
 An issue is in one flow at a time. Applying `tehas:ready` to an issue with an
 open planning session starts nothing until the session is ended. The
@@ -870,7 +873,9 @@ dispatcher's log says so.
    running work cycle does not hold an answer back. A poll also handles one
    answer or one planning start and then stops, and it does nothing while the
    model endpoint does not list the model.
-5. The planner shows you a drafted plan before anything is written: one
+5. A drafted plan with open points, or one of the cases under
+   [A plan with no open points](#a-plan-with-no-open-points), is shown to you
+   before anything is written: one
    comment holds its title and spec and lists its open points with the
    planner's proposals, and the comment after it holds the question and the
    boxes, among them **Update this issue**. Reply to change the plan, and
@@ -885,10 +890,42 @@ dispatcher's log says so.
      files the plan as shown as one new issue that replaces this one. A
      session files once.
 
-   Nothing is started on its own: read the plan and apply `tehas:ready` to
-   the issue you want built. The label approves the text as it is when you
-   apply it. A `tehas:ready` from any account outside the list, the bot's
-   included, is taken off.
+   After either box nothing is started on its own: read the plan and apply
+   `tehas:ready` to the issue you want built. The label approves the text as
+   it is when you apply it. A `tehas:ready` from any account outside the list,
+   the bot's included, is taken off.
+
+### A plan with no open points
+
+A `tehas:plan` session from an allowed person that drafts a plan with no open
+points needs no tick. The bot makes the plan the issue's title and text, as
+**Update this issue** does, ends the session and starts a cycle. The cycle is
+credited to you: your `tehas:plan` approved this build, so apply it only to
+what you would apply `tehas:ready` to. The plan is not shown first, and no
+person reads it before the cycle starts. The pull request still waits for a
+person. To stop the cycle before it starts, take `tehas:ready` off.
+
+The session asks, as in step 5, when:
+
+- the plan has an open point, or is too long for the issue to hold whole;
+- the session is a `tehas:refine` one;
+- `tehas:plan` came from the millwright, or the millwright answered in the
+  session;
+- the label events do not name the allowed account the session is on record
+  for, or cannot be read;
+- the issue is closed or carries `tehas:ready`;
+- the plan links an attachment the issue's text did not.
+
+The poll logs `planning #N asks:` with the reason.
+
+The bot's `tehas:ready` counts only on the record the poll wrote for that one
+issue, `~/tehas/state/plan-start/<issue>.json`: the account and a sum of the
+title and text. No container is given that directory, and nobody can write it
+from GitHub. The poll that starts the cycle checks the label events again, and
+any change to the title or text since the plan was written, by anyone, stops it.
+So does `tehas:ready` taken off and applied again. The bot then takes the label
+off and says why, and you read the plan and apply `tehas:ready` yourself. All
+the other checks of a start apply, and a start spends the record.
 
 pi-rukas's record of a session is kept on the host, in
 `~/tehas/work/<name>-plan-<issue>.keep/plan-sessions`, and carried into each

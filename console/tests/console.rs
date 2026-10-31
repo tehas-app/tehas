@@ -454,7 +454,7 @@ fn the_now_file_holds_the_step_and_the_notice_and_is_written_again_when_they_cha
     // would be read again in full, not left behind.
     append(
         &progress,
-        &format!("{{\"v\":1,\"kind\":\"log\",\"message\":\"and again\"}}\n"),
+        "{\"v\":1,\"kind\":\"log\",\"message\":\"and again\"}\n",
     );
     wait_for(&out, 4);
     assert_eq!(fs::metadata(&now).unwrap().modified().unwrap(), written);
@@ -462,11 +462,9 @@ fn the_now_file_holds_the_step_and_the_notice_and_is_written_again_when_they_cha
     // The step and the notice of the next step are written again.
     append(
         &progress,
-        &format!(
-            "{{\"v\":1,\"kind\":\"step-started\",\"event\":{{\"step\":\"review\"}}}}\n\
-             {{\"v\":1,\"kind\":\"log\",\"message\":\"pi-rukas:driver-event hidden\"}}\n\
-             {{\"v\":1,\"kind\":\"log\",\"message\":\"the handoff\"}}\n"
-        ),
+        "{\"v\":1,\"kind\":\"step-started\",\"event\":{\"step\":\"review\"}}\n\
+             {\"v\":1,\"kind\":\"log\",\"message\":\"pi-rukas:driver-event hidden\"}\n\
+             {\"v\":1,\"kind\":\"log\",\"message\":\"the handoff\"}\n",
     );
     held("review\nthe handoff\n");
 

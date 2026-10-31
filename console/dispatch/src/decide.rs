@@ -3,9 +3,10 @@
 //! so the two can be compared line by line.
 
 use crate::events::{
-    first_unallowed_rename, label_actor, label_state, pause_holds, Event, Events, UNKNOWN_ACTOR,
+    first_unallowed_rename, label_actor, label_state, pause_holds, plan_credit, sole_application,
+    Event, Events, UNKNOWN_ACTOR,
 };
-use crate::settings::Settings;
+use crate::settings::{account, Settings};
 use crate::slice::{self, gib};
 use crate::slots::{self, Probe, Slots};
 use crate::snapshot::{Issues, Listed, Snapshot};
@@ -72,6 +73,17 @@ impl Driver {
             extra.insert("driver".into(), json!("lean"));
         }
     }
+}
+
+/// What the record of a plan's start makes of a queued issue, as `plan_start`
+/// reads it.
+enum Planned {
+    /// Nothing: the label is judged as any other.
+    No,
+    /// The bot's label came off, and nothing starts.
+    Refused,
+    /// The account and the time a start is credited with.
+    Go(String, String),
 }
 
 /// Who made the choice of driver that does not count: applied tehas:lean, or
@@ -481,7 +493,7 @@ impl<'a> Poll<'a> {
                 _ => return Value::Null,
             };
             let (by, at) = label_actor(ev, "tehas:ready");
-            if !self.c.allowed(&by) && !self.c.is_millwright(&by) {
+            if !self.c.allowed(&by) && !self.c.is_millwright(&by) && !self.planned(n, &by) {
                 continue;
             }
             waiting += 1;
@@ -1262,6 +1274,80 @@ impl<'a> Poll<'a> {
         } else {
             Ok(Err(String::new()))
         }
+    }
+
+    /// The bot applied `tehas:ready` here, and the issue has the record of a
+    /// plan's start. Nothing more: `plan_start` judges what that is worth.
+    fn planned(&self, n: u64, who: &str) -> bool {
+        !who.is_empty()
+            && account(who) == account(&self.d.bot)
+            && self
+                .s
+                .issues
+                .get(&n)
+                .is_some_and(|i| i.plan_start.is_some())
+    }
+
+    /// plan_start: a tehas:ready from the bot never approves anything, except
+    /// on the record the dispatcher left for this one issue when it wrote a
+    /// plan with no open points. The start is the record's account's, so the
+    /// account is held to everything its own label would be: the events still
+    /// name it, the list still does and the text is what was written. That
+    /// label must be the bot's one application since. Any other answer takes
+    /// the label off and the record with it, so a person decides.
+    fn plan_start(&mut self, n: u64, ask: &str) -> Step<Planned> {
+        if ask != "tehas:ready" {
+            return Ok(Planned::No);
+        }
+        let ev = self.events(n)?;
+        let (who, at) = label_actor(&ev, ask);
+        if !self.planned(n, &who) {
+            return Ok(Planned::No);
+        }
+        let record = self.s.issues[&n].plan_start.clone().unwrap_or(Value::Null);
+        let by = record.get("by").and_then(Value::as_str).unwrap_or("");
+        let c = self.c;
+        let credit = plan_credit(&ev, by, &|l| c.allowed(l), &|l| c.is_millwright(l));
+        let Some(since) = credit else {
+            return Ok(self.plan_refused(n, "no allowed person's `tehas:plan` is on record for it"));
+        };
+        let bot = account(&self.d.bot).to_string();
+        if !sole_application(&ev, ask, &since, &|l| account(l) == bot) {
+            return Ok(self.plan_refused(
+                n,
+                "`tehas:ready` was taken off or applied again since the plan was written",
+            ));
+        }
+        if !self.unchanged_since(n, &at, "the plan was written", "apply `tehas:ready`")? {
+            return Ok(self.plan_taken_off(n, "its text was changed since the plan was written"));
+        }
+        // The time cannot see a change made before the label went on.
+        if record.get("sum").and_then(Value::as_str) != Some(&text::plan_sum(&self.text(n))) {
+            return Ok(self.plan_refused(n, "its title or text is not the plan tehas wrote"));
+        }
+        Ok(Planned::Go(by.to_string(), at))
+    }
+
+    fn plan_refused(&mut self, n: u64, why: &str) -> Planned {
+        self.log(format!(
+            "skip #{n}: tehas:ready from the bot starts nothing: {why}"
+        ));
+        self.plan_taken_off(n, why)
+    }
+
+    /// The bot's label and the record it stood on go, and the issue says why.
+    fn plan_taken_off(&mut self, n: u64, why: &str) -> Planned {
+        if self.dry {
+            self.log(format!("would take tehas:ready off #{n}"));
+        } else {
+            self.act(json!({
+                "issue": n, "remove": ["tehas:ready"],
+                "fail": Self::label_fail(n, &["tehas:ready"], &[]),
+                "say": format!("Tehas took `tehas:ready` off this issue and started nothing: {why}. Read it, and an account named in `TEHAS_ALLOWED_LABELERS` applies `tehas:ready` to build it."),
+            }));
+            self.act(json!({"plan_start_drop": n}));
+        }
+        Planned::Refused
     }
 
     /// clear_unauthorised: a label from an account outside the list comes off,
@@ -2071,25 +2157,35 @@ impl<'a> Poll<'a> {
                 "tehas:blocked"
             };
             let mut fixer = None;
-            let (who, at) = match self.approval(n, ask)? {
-                Ok(a) => a,
-                Err(refused) => {
-                    if ask == "tehas:ready" && !refused.is_empty() && self.c.is_millwright(&refused)
-                    {
-                        let ev = self.events(n)?;
-                        let (_, at) = label_actor(&ev, "tehas:ready");
-                        match self.fixer_ok(n, &at, &labels)? {
-                            Some(grant) => fixer = Some(grant),
-                            None => continue,
-                        }
-                        (refused, at)
-                    } else {
-                        if ask == "tehas:ready" && !refused.is_empty() {
-                            self.clear_unauthorised(n, "tehas:ready", &refused);
-                        }
-                        continue;
-                    }
+            let mut planned = false;
+            let (who, at) = match self.plan_start(n, ask)? {
+                Planned::Refused => continue,
+                Planned::Go(who, at) => {
+                    planned = true;
+                    (who, at)
                 }
+                Planned::No => match self.approval(n, ask)? {
+                    Ok(a) => a,
+                    Err(refused) => {
+                        if ask == "tehas:ready"
+                            && !refused.is_empty()
+                            && self.c.is_millwright(&refused)
+                        {
+                            let ev = self.events(n)?;
+                            let (_, at) = label_actor(&ev, "tehas:ready");
+                            match self.fixer_ok(n, &at, &labels)? {
+                                Some(grant) => fixer = Some(grant),
+                                None => continue,
+                            }
+                            (refused, at)
+                        } else {
+                            if ask == "tehas:ready" && !refused.is_empty() {
+                                self.clear_unauthorised(n, "tehas:ready", &refused);
+                            }
+                            continue;
+                        }
+                    }
+                },
             };
             if has(&labels, "tehas:blocked") && !self.blocked_ok(n)? {
                 continue;
@@ -2193,6 +2289,12 @@ impl<'a> Poll<'a> {
                     st.park_lifted = Some(note);
                 }
                 st.fixer = Some((base, count));
+            }
+            if planned {
+                st.verb = "planned".into();
+                st.how = "`tehas:plan` label, on a plan with no open points".into();
+                st.extra
+                    .insert("approved_label".into(), json!("tehas:plan"));
             }
             driver.bind(&mut st.extra);
             self.starts.push((n, st));
