@@ -2636,8 +2636,7 @@ What the console itself complains about goes to `~/tehas/logs/work-<issue>-<time
 and the work script says so when the console is missing or ends with an error.
 At the end of a cycle the console is given 30 seconds to stop; one that takes
 longer is killed, and the work script says so.
-The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, goes through
-the same mask (`console --mask`); without a console it is left empty.
+The work script's own status line, recorded with the cycle's heartbeat and published in `~/tehas/live/cycles/<issue>.json` and `~/tehas/live/running.json`, is the two lines the console keeps beside that file in `~/tehas/live/console-<issue>.txt.now`: the step of the last step the cycle started, and the first line of the driver's last notice. The console masks them as it writes, through the same mask as the console file, and rewrites the file only when one of the two changed; the work script reads them and starts nothing to get them. Without the file the step is `starting` and the notice empty. At the end of the cycle the same two lines name the step the cycle was in for the record, when the runner's result names none.
 
 ### The live view
 
@@ -2653,7 +2652,7 @@ poll call it. A running cycle not heard from for two minutes whose lock is
 free is shown as `lost`, and its end is kept as lost when the issue starts
 again.
 
-The console, and the mask of the status line, also mask in any case the names
+The console, the now file of the status line, and the mask of a log, also mask in any case the names
 the host knows that an agent can print: each name and address in
 `PI_ENSEMBLE_HOST_ALIASES`, the hosts of the model provider's `baseUrl` and
 `backupBaseUrl` in `models.json`, and the bot's git email. The work script gives them with
