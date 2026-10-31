@@ -42,6 +42,7 @@ pub struct Host {
     pub status_cmd: String,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
+    pub console_cmd: String,
     /// TEHAS_TIDY_CMD, run by the end of every poll past the bot's login.
     pub tidy_cmd: String,
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
