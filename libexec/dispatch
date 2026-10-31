@@ -1243,8 +1243,8 @@ fixer_answer_ok() {
   else
     return 0
   fi
-  log "skip #$n: the fixer's answer runs no turn: $why"
   if [ "$said" = tick ]; then
+    log "skip #$n: the fixer's answer runs no turn: $why"
     [ "$dry" = 1 ] || untick "$n" "$ans" "The fixer's tick was not taken as an answer: $why. It was unticked. A person answers this question." ||
       log "WARN: could not untick the question on #$n"
     return 1
@@ -1252,6 +1252,7 @@ fixer_answer_ok() {
   id=$(jq -r '.fixer_reply.id | tostring' <<<"$ans")
   [[ $id =~ ^[1-9][0-9]{0,15}$ ]] || return 1
   jq -e --argjson id "$id" '(.fixer_refused // []) | type == "array" and index($id) == null' "$view" >/dev/null 2>&1 || return 1
+  log "skip #$n: the fixer's answer runs no turn: $why"
   [ "$dry" = 0 ] || return 1
   plan_note_once "$n" millwright-refused "$id" "Tehas did not take the fixer's reply as an answer: $why. A person answers this question." ||
     log "WARN: the record of #$n could not be updated ($tehas_store_word)"
