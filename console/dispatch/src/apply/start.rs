@@ -42,6 +42,7 @@ pub struct Host {
     pub status_cmd: String,
     /// TEHAS_HEALTH_CMD, run after the poll wrote the demand.
     pub health_cmd: String,
+    pub console_cmd: String,
     /// TEHAS_TIDY_CMD, run by the end of every poll past the bot's login.
     pub tidy_cmd: String,
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
@@ -570,6 +571,8 @@ impl Writer {
         }
         *marked = true;
         self.starts += 1;
+        // A record starts one cycle, and any start of the issue spends it.
+        self.plan_start_drop(n);
         if park_now {
             if let Err(f) = self.store_try(3, &["park-retry", &n.to_string()]) {
                 if word(&f) != "unparked" {
@@ -770,7 +773,11 @@ impl Writer {
             f,
         ];
         if matches!(given.as_str(), "label" | "millwright") {
-            args.extend(["--label".into(), "tehas:ready".into()]);
+            let label = a
+                .get("approved_label")
+                .and_then(Value::as_str)
+                .unwrap_or("tehas:ready");
+            args.extend(["--label".into(), label.into()]);
         }
         if let Some(t) = a.get("title_sha256").and_then(Value::as_str) {
             args.extend(["--title-sha".into(), t.into()]);

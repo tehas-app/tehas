@@ -51,17 +51,25 @@ const PAGE: &str = r#"query($owner: String!, $name: String!, $cursor: String) {
         closedByPullRequestsReferences(first: 20) { nodes { url state } }
       }
     }
-    closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }
+    closedRunning: issues(states: CLOSED, labels: ["tehas:running"], first: 100) { nodes { number } }{OPEN_PULLS}
   }
 }"#;
+
+/// The open pull requests, on the first page alone: the titles need no call of
+/// their own. Last in the page, and small, for the budget `ISSUE_PAGE` names.
+const OPEN_PULLS: &str = r#"
+    openPulls: pullRequests(states: OPEN, first: 100, orderBy: {field: CREATED_AT, direction: DESC}) {
+      nodes { number title headRefName author { login } labels(first: 20) { nodes { name } } }
+    }"#;
 
 // The page above names `tehas:running` inside a GraphQL string, where the
 // constant cannot reach it; this test is what ties the word in the query to
 // `RUNNING`.
 
 /// The queue's page as it is sent, its page size filled in from `ISSUE_PAGE`.
-fn page_query() -> String {
+fn page_query(first: bool) -> String {
     PAGE.replace("{ISSUE_PAGE}", &ISSUE_PAGE.to_string())
+        .replace("{OPEN_PULLS}", if first { OPEN_PULLS } else { "" })
 }
 
 const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) {
@@ -82,12 +90,13 @@ pub struct Open {
     pub node: Value,
 }
 
-/// The open issues, the repository's name and the closed issues still marked
-/// tehas:running.
+/// The open issues, the repository's name, the closed issues still marked
+/// tehas:running and the open pull requests, as the first page gave them.
 pub struct Queue {
     pub repo: Option<String>,
     pub open: Vec<Open>,
     pub closed_running: Vec<u64>,
+    pub open_pulls: Option<Value>,
 }
 
 fn names(v: Option<&Value>) -> Vec<String> {
@@ -113,10 +122,11 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
         repo: None,
         open: Vec::new(),
         closed_running: Vec::new(),
+        open_pulls: None,
     };
     let mut cursor: Option<String> = None;
     loop {
-        let query = format!("query={}", page_query());
+        let query = format!("query={}", page_query(cursor.is_none()));
         let cur = cursor.as_ref().map(|c| format!("cursor={c}"));
         let mut args = vec!["api", "graphql", "-F", &owner, "-F", &name, "-f", &query];
         if let Some(c) = cur.as_deref() {
@@ -147,6 +157,7 @@ pub fn queue(calls: &mut Calls, repo: &str) -> Result<Queue, GhFail> {
             });
         }
         if cursor.is_none() {
+            q.open_pulls = r.pointer("/openPulls/nodes").cloned();
             q.closed_running = r
                 .pointer("/closedRunning/nodes")
                 .and_then(Value::as_array)
@@ -664,11 +675,18 @@ mod tests {
     }
 
     #[test]
+    fn only_the_first_page_asks_for_the_open_pull_requests() {
+        assert!(page_query(true).contains("openPulls: pullRequests(states: OPEN"));
+        assert!(!page_query(false).contains("pullRequests"));
+        assert!(!page_query(false).contains("{OPEN_PULLS}"));
+    }
+
+    #[test]
     fn the_page_asks_for_the_page_size_the_guard_rests_on() {
         // `first:` is not a tuning number: a page over GitHub's budget for
         // nested items answers with timelines cut short and no error. An edit
         // to the constant is caught here and in the shell poll test.
-        let q = page_query();
+        let q = page_query(true);
         assert!(
             q.contains(&format!("first: {ISSUE_PAGE}, after: $cursor")),
             "the queue's page does not ask for ISSUE_PAGE: {q}"

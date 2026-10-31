@@ -106,6 +106,11 @@
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
 //!
+//!   console pr-title sync|poll ...
+//!
+//! A factory pull request's title, kept true by the prefix of its state, see
+//! src/pr_title.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
@@ -120,6 +125,7 @@ mod jq;
 mod notice;
 mod now;
 mod plan;
+mod pr_title;
 mod preview;
 mod protolab;
 mod render;
@@ -268,7 +274,10 @@ fn run(args: &Args, stop: &AtomicBool) -> io::Result<()> {
             // cycle that says nothing the loop reads the same file each tick.
             // A now file that cannot be written ends the console as an
             // unwritable console file does, and the work script says so.
-            let next = written.as_ref().unwrap_or(&now::Now::default()).later(&now::read(&fresh));
+            let next = written
+                .as_ref()
+                .unwrap_or(&now::Now::default())
+                .later(&now::read(&fresh));
             if written.as_ref() != Some(&next) {
                 now::write(path, &next)?;
                 written = Some(next);
@@ -347,6 +356,7 @@ fn main() -> ExitCode {
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),
             Some("tidy") => return ExitCode::from(tidy::main(&given[1..])),
             Some("plan") => return ExitCode::from(plan::main(&given[1..])),
+            Some("pr-title") => return ExitCode::from(pr_title::main(&given[1..])),
             Some("protolab") => return ExitCode::from(protolab::main(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
             _ => {}

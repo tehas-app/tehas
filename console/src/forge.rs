@@ -77,7 +77,7 @@ const ISSUE_MAX: u64 = 9_007_199_254_740_992;
 /// it, so the two readers of one issue wait the same time for an answer. The
 /// same number is in `console/dispatch/src/read/run.rs`; both are 30 and
 /// neither reads the other's.
-const CALL_BOUND: Duration = Duration::from_secs(30);
+pub(crate) const CALL_BOUND: Duration = Duration::from_secs(30);
 
 /// What one verb asks of the forge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,7 +206,7 @@ fn issue_of(word: &str) -> Option<u64> {
 /// setting for, under this command's own ceiling for a part. A setting that is
 /// no repository is no repository to ask, which is the 78 of a run that cannot
 /// reach GitHub and never a request aimed at something else.
-fn repo_shaped(repo: &str) -> bool {
+pub(crate) fn repo_shaped(repo: &str) -> bool {
     let part = |p: &str| {
         !p.is_empty()
             && p.len() <= REPO_PART_MAX
@@ -223,7 +223,7 @@ fn repo_shaped(repo: &str) -> bool {
 /// `TEHAS_REPO`, trimmed: the repository of the instance, or None when the name
 /// is unset, empty, or nothing but space. Nothing here asks GitHub, runs a
 /// program or writes a file.
-fn repo() -> Option<String> {
+pub(crate) fn repo() -> Option<String> {
     match env::var("TEHAS_REPO") {
         Ok(v) => {
             let v = v.trim();
@@ -254,7 +254,7 @@ fn which(program: &str, path: &str) -> Option<String> {
 /// `PATH`, because it is the program that takes the bot's token and keeps the
 /// write log the poll's cost record reads (#649): a run that reached GitHub
 /// past it would be unmeasured and still exit 0.
-fn gh_program(home: Option<&str>, path: &str) -> Option<String> {
+pub(crate) fn gh_program(home: Option<&str>, path: &str) -> Option<String> {
     if let Some(home) = home.filter(|h| !h.is_empty()) {
         let shim = Path::new(home).join("shim").join("gh");
         if runnable(&shim) {

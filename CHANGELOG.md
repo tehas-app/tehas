@@ -13,14 +13,37 @@ empty one above it.
 
 ### Changes
 
+- A factory pull request's title says `WIP: ` while a cycle works on it,
+  `STUCK: ` when it waits for a person and nothing when it is ok to merge. Each
+  poll and each cycle's end keep it true, and `tehas api` names the feature
+  `pr-title` (#1179).
+- An idle poll runs `tehasbot status` only when its file is five minutes old,
+  not on every poll (#1153).
+- A poll reads the comments of blocked issues side by side and the states of
+  their blockers in one call, not one or two calls per issue in turn (#1161).
+- `analytics sessions --out` and `analytics outcomes --out` write their file
+  only when a run changed. Each leaves a `.stamp` file beside its output to
+  tell (#1162).
+- The watch loop of `tehas work` reads a cycle's step and notice from the
+  console, not from seven processes every 10 s (#1082).
+- Health no longer calls a cycle failed when it ended closed because its issue
+  shipped (#1133).
+- One lock probe in tehas-core answers for the store, the dispatcher, the
+  health page and the cleaner, so they agree about one lock (#1098).
 - `tehas-merge` says `model: true` on every stop after a session and only then,
   takes `--head` and `--base` in upper case, and no longer prints `calls`. A
   command that fills its pipe no longer waits out the 900 s bound, and output
-  it cannot read whole refuses the merge.
+  it cannot read whole refuses the merge (#1149).
+- A `tehas:plan` session from an allowed person that drafts a plan with no open
+  points makes it the issue's text and starts a cycle, with no tick. This
+  changes who approves a build: that person's `tehas:plan` does, and nobody
+  reads the plan first. With any open point, in a `tehas:refine` session, or
+  from the millwright, it asks as before (#1178).
 
 ### Adopter action
 
-None.
+Tell whoever applies `tehas:plan` on your instance that the label can now start
+a cycle.
 
 ## v0.19.1 (2026-10-31)
 

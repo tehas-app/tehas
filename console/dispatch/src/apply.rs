@@ -239,6 +239,8 @@ impl Writer {
             self.plan_post(n, log);
         } else if let Some(n) = a.get("plan_close").and_then(Value::as_u64) {
             self.plan_close(n, log);
+        } else if let Some(n) = a.get("plan_start_drop").and_then(Value::as_u64) {
+            self.plan_start_drop(n);
         } else if let Some(n) = a.get("units").and_then(Value::as_u64) {
             if !self.units(n, log) {
                 self.ended = Some(1);
