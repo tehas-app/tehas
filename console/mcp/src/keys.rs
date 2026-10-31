@@ -72,11 +72,26 @@ impl std::fmt::Debug for Keys {
 }
 
 /// The keys of both settings: each one's raw value, either of which may be
-/// empty, paired with the setting it was read from. At least one of the two
-/// must hold a key. The error names the setting and a key by its position,
-/// never by its value.
+/// empty, paired with the setting it was read from, in either order. At least
+/// one of the two must hold a key. The error names the setting and a key by
+/// its position, never by its value.
 pub fn parse_keys(of: [(&'static Setting, &str); 2]) -> Result<Keys, String> {
-    let (full_list, dashboard_list) = (listed(of[0].1, *of[0].0)?, listed(of[1].1, *of[1].0)?);
+    let [first, second] = of;
+    if first.0 == second.0 {
+        return Err(format!(
+            "{} is given twice: a list goes with its own setting",
+            first.0.name()
+        ));
+    }
+    // By the setting, never by the place: a swapped pair must not give the
+    // dashboard list the scope of the full one.
+    let (full, dashboard) = if *first.0 == Setting::Full {
+        (first.1, second.1)
+    } else {
+        (second.1, first.1)
+    };
+    let full_list = listed(full, Setting::Full)?;
+    let dashboard_list = listed(dashboard, Setting::Dashboard)?;
     if full_list.is_empty() && dashboard_list.is_empty() {
         return Err(format!(
             "{} and {} are both empty: give at least one key in either",
@@ -294,6 +309,30 @@ mod tests {
             keys.check(Some(&format!("Bearer {D1}"))).unwrap().scope(),
             Scope::Dashboard
         );
+    }
+
+    // The setting a list is paired with decides its keys' scope, not the place
+    // of the pair: a swap must not give a dashboard key every tool.
+    #[test]
+    fn a_swapped_pair_keeps_each_list_its_own_scope() {
+        let keys = parse_keys([(&Setting::Dashboard, D1), (&Setting::Full, K1)]).unwrap();
+        assert_eq!(
+            keys.check(Some(&format!("Bearer {D1}"))).unwrap().scope(),
+            Scope::Dashboard
+        );
+        assert_eq!(
+            keys.check(Some(&format!("Bearer {K1}"))).unwrap().scope(),
+            Scope::Full
+        );
+    }
+
+    #[test]
+    fn a_setting_given_twice_is_refused() {
+        for setting in &Setting::ALL {
+            let err = parse_keys([(setting, K1), (setting, D1)]).unwrap_err();
+            assert!(err.contains(setting.name()), "{err}");
+            assert!(!err.contains(K1) && !err.contains(D1), "{err}");
+        }
     }
 
     #[test]
