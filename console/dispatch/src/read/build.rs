@@ -8,7 +8,7 @@ use super::{github, host, models, store};
 use crate::events::{pause_holds, Events};
 use crate::settings::Settings;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -477,6 +477,57 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         i["comments"] = comments;
     }
 
+    // The blocked candidates read their comments and their blockers too, and
+    // both reads are asked of the whole list rather than of one issue at a time:
+    // one run of the comment read answers every blocked candidate, and one call
+    // reads the states of the blockers the whole queue names (#1161). The list
+    // is the candidates that carry the label, in the order the rules take them.
+    // An issue the question read above already gave keeps that answer, so its
+    // own comments are not asked for twice.
+    let blocked: Vec<u64> = candidates
+        .iter()
+        .copied()
+        .filter(|n| {
+            has(
+                &q.open
+                    .iter()
+                    .find(|o| o.number == *n)
+                    .map(|o| o.labels.clone())
+                    .unwrap_or_default(),
+                "tehas:blocked",
+            )
+        })
+        .collect();
+    let read = github::comments_of(calls, &c.repo, &blocked);
+    let mut comments: BTreeMap<u64, Value> = blocked.iter().copied().zip(read).collect();
+    // What each blocked issue's own comment names, and the sorted union of all
+    // of them: one call reads the states of every blocker the queue names, and
+    // each issue is given below only the numbers its own comment named, so its
+    // answer is what it was when the issue asked for them alone. A queue that
+    // names no blocker is a list of none, and the poll pays no call for it.
+    let mut named: BTreeMap<u64, Vec<u64>> = blocked
+        .iter()
+        .map(|n| {
+            let c = match comments.get(n) {
+                Some(c) => c.clone(),
+                None => issues
+                    .get(&n.to_string())
+                    .and_then(|i| i.get("comments"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({"failed": true})),
+            };
+            (*n, crate::decide::named_blockers(&c))
+        })
+        .collect();
+    let union: Vec<u64> = named
+        .values()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let states = github::blocker_states(calls, &c.repo, &union);
+
     // The candidates of rule 6: what their start rests on.
     for n in candidates {
         let labels = q
@@ -491,15 +542,24 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
         i["park"] = park;
         i["approval"] = shaped;
         if has(&labels, "tehas:blocked") {
-            let comments = match i.get("comments") {
+            let comments = match issues.get(&n.to_string()).and_then(|i| i.get("comments")) {
                 Some(c) => c.clone(),
-                None => github::comments(calls, &c.repo, n),
+                None => comments
+                    .remove(&n)
+                    .unwrap_or_else(|| json!({"failed": true})),
             };
-            let named = crate::decide::named_blockers(&comments);
-            let states = github::blocker_states(calls, &c.repo, &named);
+            let own = named.remove(&n).unwrap_or_default();
             let i = entry(&mut issues, n);
             i["comments"] = comments;
-            i["blockers"] = Value::Object(states);
+            i["blockers"] = Value::Object(
+                own.iter()
+                    .filter_map(|b| {
+                        states
+                            .get(&b.to_string())
+                            .map(|v| (b.to_string(), v.clone()))
+                    })
+                    .collect(),
+            );
         }
     }
 
@@ -604,4 +664,368 @@ fn uri(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::read::models::Models;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// What separates two calls in a stub's record: a word of nothing that no
+    /// argument of a real gh or store call contains, named once so that neither
+    /// the body of a stub nor the reader of the record spells an escape.
+    const RECORD_SEP: &str = "«tehas-record-separator»";
+
+    /// The blocked world of a poll: issues #21 and #22, open on the queue's page
+    /// and both carrying `tehas:blocked`, each held by the marker of its own
+    /// newest comment. #21 names #11 alone; #22 names #11 and #12. The page
+    /// gives no timeline for the blocked label, so the poll reads each issue's
+    /// events by name and the rules trust those.
+    fn world() -> Value {
+        let node = |n: u64| {
+            json!({
+                "number": n, "title": format!("issue {n}"), "body": "a body",
+                "createdAt": "2026-10-01T00:00:00Z", "author": {"login": "alice"},
+                "lastEditedAt": null, "editor": null,
+                "labels": {"nodes": [{"name": "tehas:blocked"}]},
+                // The page's timeline holds the label's event, so the poll
+                // trusts the page: no read by name is paid for these issues.
+                "timelineItems": {"nodes": [
+                    {"__typename": "LabeledEvent",
+                     "createdAt": "2026-10-02T00:00:00Z",
+                     "actor": {"login": "alice"}, "label": {"name": "tehas:blocked"}}
+                ]},
+                "closedByPullRequestsReferences": {"nodes": []}
+            })
+        };
+        let comment = |body: &str| {
+            json!({"data": {"repository": {"issue": {"comments": {"nodes": [
+                {"databaseId": 500, "author": {"login": "tehas-bot"}, "body": body,
+                 "createdAt": "2026-10-03T00:00:00Z", "lastEditedAt": null, "editor": null,
+                 "userContentEdits": {"totalCount": 0, "nodes": []}}
+            ]}}}}})
+        };
+        let labeled = || {
+            json!([{"event": "labeled", "label": {"name": "tehas:blocked"},
+                    "actor": {"login": "alice"}, "created_at": "2026-10-02T00:00:00Z"}])
+        };
+        json!({
+            "queue": {"data": {"repository": {
+                "nameWithOwner": "acme/widget",
+                "issues": {"pageInfo": {"hasNextPage": false, "endCursor": null},
+                           "nodes": [node(21), node(22)]},
+                "closedRunning": {"nodes": []}
+            }}},
+            // The two issues are the candidates of rule 6. The control issue is
+            // not in the page, so its labels and its events are read by name,
+            // and nothing of it holds the pause.
+            "blocked": [{"number": 21, "labels": [{"name": "tehas:blocked"}]},
+                        {"number": 22, "labels": [{"name": "tehas:blocked"}]}],
+            "control": {"labels": []},
+            "events": {"21": labeled(), "22": labeled()},
+            "comments": {"21": comment("<!-- tehas:blocked by=11 -->"),
+                         "22": comment("<!-- tehas:blocked by=11,12 -->")},
+            "states": {"data": {"repository": {
+                "b11": {"state": "OPEN"}, "b12": {"state": "CLOSED"}}}}
+        })
+    }
+
+    /// The home of a case: a stub `gh` and a stub `store` that record the
+    /// arguments they are given and answer the world. The world travels in files
+    /// beside the programs, so no answer of a case is part of the source of a
+    /// program, and a poll is a directory of its own, so nothing of one case is
+    /// there for another to read.
+    fn host(world: &Value) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("tehas-build-{}", std::process::id()))
+            .join(format!(
+                "poll-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+        std::fs::create_dir_all(dir.join("state/cycles")).unwrap();
+        std::fs::create_dir_all(dir.join("state/refresh")).unwrap();
+        std::fs::create_dir_all(dir.join("logs")).unwrap();
+
+        // A gh call is told apart by the word only its own arguments carry. The
+        // words are asked in the order below and the first one a call's
+        // arguments hold picks the answer, so the order is the disambiguation:
+        // `issue(number:` is the comment query's own, `issueOrPullRequest` the
+        // blocker query's, `hasNextPage` the queue page's. An answer is held in
+        // `w-<place>` beside the programs, and holds either the bytes of the
+        // answer or the name of the fixture to read: the comment read and the
+        // events read answer one issue at a time, so their fixture name is a
+        // prefix and the number in the call picks the file. A new read of the
+        // poll costs a line here and a word in the stub.
+        for (n, answer) in [
+            ".issues-",
+            r#"{"check_runs":[]}"#,
+            ".events-",
+            ".control",
+            ".states",
+            ".queue",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            std::fs::write(dir.join(format!("w-{}", n + 1)), answer).unwrap();
+        }
+        fixture(&dir, "queue", &world["queue"]);
+        fixture(&dir, "states", &world["states"]);
+        fixture(&dir, "control", &world["control"]);
+        for (n, events) in world["events"].as_object().into_iter().flatten() {
+            fixture(&dir, &format!("events-{n}"), events);
+        }
+        for (n, comments) in world["comments"].as_object().into_iter().flatten() {
+            fixture(&dir, &format!("issues-{n}"), comments);
+        }
+
+        stub(
+            &dir.join("bin"),
+            "gh",
+            r#"i=0
+for word in 'issue(number:' check-runs 'events?per_page=100' \
+            'issue view' issueOrPullRequest hasNextPage; do
+  i=$((i + 1))
+  a=$(cat "$here/../w-$i")
+  case "$line" in
+    *"$word"*)
+      case "$a" in
+        .*) key=$(printf '%s' "$line" | sed -n 's|.*/issues/\([0-9]*\)/events.*|\1|p')
+            [ -n "$key" ] || key=$(printf '%s' "$line" | sed -n 's/.*number=\([0-9]*\).*/\1/p')
+            cat "$here/../$a$key" >"$out" ;;
+        *) printf '%s' "$a" >"$out" ;;
+      esac
+      answer ;;
+  esac
+done
+printf '{}' >"$out""#,
+        );
+        // The store says it holds nothing. `batch` answers its own request the
+        // way the store does: the shape of that answer is the store's contract,
+        // tested beside the store, so here a quiet host's store is enough.
+        stub(
+            &dir.join("bin"),
+            "store",
+            r#"case "$line" in
+  batch) printf '%s' "${line#batch }" >"$args.req"
+    jq -c '[ .[] | {rc: 0, out: (
+        if .[0] == "plan-show" then
+          "{\"api\":1,\"ok\":true,\"verb\":\"plan-show\",\"planning\":null}"
+        elif .[0] == "park-show" then
+          "{\"api\":1,\"ok\":true,\"verb\":\"park-show\",\"park\":null}"
+        elif .[0] == "history-show" then
+          "{\"api\":1,\"ok\":true,\"verb\":\"history-show\",\"rows\":[]}"
+        else
+          "{\"api\":1,\"ok\":true,\"verb\":\"approval-current\",\"current\":null}"
+        end)}]' "$args.req" >"$out"
+    answer ;;
+  plan-show*) printf '%s' '{"api":1,"ok":true,"verb":"plan-show","sessions":[]}' >"$out" ;;
+  cycle-show*) printf '%s' '{"api":1,"ok":true,"verb":"cycle-show","cycles":[]}' >"$out" ;;
+  history-show*) printf '%s' '{"api":1,"ok":true,"verb":"history-show","rows":[]}' >"$out" ;;
+  park-show*) printf '%s' '{"api":1,"ok":true,"verb":"park-show","parks":[]}' >"$out" ;;
+  approval-current*) printf '%s' '{"api":1,"ok":true,"verb":"approval-current","current":null}' >"$out" ;;
+  *) printf '%s' "{\"api\":1,\"ok\":true,\"verb\":\"$1\"}" >"$out" ;;
+esac"#,
+        );
+        dir
+    }
+
+    /// One answer of the world, as the file the stub reads for it.
+    fn fixture(dir: &Path, name: &str, v: &Value) {
+        std::fs::write(dir.join(format!(".{name}")), v.to_string()).unwrap();
+    }
+
+    /// A stub program of `name` in `bin`. It records the arguments it is given
+    /// and then runs `body`, which reads them from `$line` and writes its answer
+    /// to a file of its own that only `answer` reads. The poll runs its calls
+    /// side by side, so nothing of a call is shared: `mktemp` gives the arguments
+    /// and the answer each a path of their own, no call waits for another --
+    /// which is the point of the batching this file is about -- and no call
+    /// reads what another left behind. `RECORD_SEP` separates the calls in the
+    /// record, held in a name so that neither this program nor its reader spells
+    /// an escape.
+    fn stub(bin: &Path, name: &str, body: &str) {
+        let mut lines: Vec<String> = [
+            "#!/bin/sh".to_string(),
+            format!("here='{}'", bin.display()),
+            "args=$(mktemp \"$here/{name}-args.XXXXXX\")".to_string(),
+            "out=$(mktemp \"$here/{name}-out.XXXXXX\")".to_string(),
+            format!(
+                "printf '%s{sep}' \"$*\" >>\"$here/{name}-calls\"; printf '%s' \"$*\" >\"$args\"",
+                sep = RECORD_SEP
+            ),
+            "line=$(cat \"$args\")".to_string(),
+            "rm -f \"$args\"".to_string(),
+            // The body writes `$out` and leaves through `answer`, which prints
+            // it. A body that finds nothing writes `{}` and answers that.
+            "answer() {".to_string(),
+            "  cat \"$out\"".to_string(),
+            "  rm -f \"$out\"".to_string(),
+            "  exit 0".to_string(),
+            "}".to_string(),
+        ]
+        .to_vec();
+        lines.extend(body.lines().map(str::to_string));
+        lines.push("answer".to_string());
+        std::fs::write(bin.join(name), lines.join("\n") + "\n").unwrap();
+        std::fs::set_permissions(bin.join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// The calls the stub of `name` recorded, in the order it wrote them.
+    fn calls_of(dir: &Path, name: &str) -> Vec<String> {
+        std::fs::read_to_string(dir.join("bin").join(format!("{name}-calls")))
+            .unwrap_or_default()
+            .split(RECORD_SEP)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn sources(dir: &Path) -> Sources<'_> {
+        Sources {
+            home: dir,
+            calls: run::Calls {
+                home: Some(dir.to_string_lossy().into_owned()),
+                bound: Duration::from_secs(10),
+                store_bound: Duration::from_secs(10),
+                gh: dir.join("bin").join("gh").to_string_lossy().into_owned(),
+                store: dir.join("bin").join("store").to_string_lossy().into_owned(),
+                gh_count: 0,
+                gh_token: None,
+            },
+            systemctl: "true".into(),
+            now: 1_793_404_800,
+            models: Models {
+                file: Value::Null,
+                used: Vec::new(),
+                provider: String::new(),
+                model: String::new(),
+            },
+            endpoint: (String::new(), String::new()),
+            gate: false,
+        }
+    }
+
+    fn settings() -> Settings {
+        Settings::parse(&json!({
+            "TEHAS_REPO": "acme/widget",
+            "TEHAS_CONTROL_ISSUE": 1,
+            "TEHAS_BOT_LOGIN": "tehas-bot",
+            "TEHAS_ALLOWED_LABELERS": "alice",
+        }))
+    }
+
+    /// The gh calls of the poll that read the comments of issue `n`.
+    fn comment_reads(calls: &[String], n: u64) -> usize {
+        calls
+            .iter()
+            .filter(|c| c.starts_with("api graphql") && c.contains(&format!("number={n}")))
+            .count()
+    }
+
+    /// The gh calls of the poll that read the states of blockers.
+    fn blocker_reads(calls: &[String]) -> usize {
+        calls
+            .iter()
+            .filter(|c| c.starts_with("api graphql") && c.contains("issueOrPullRequest"))
+            .count()
+    }
+
+    /// Two blocked issues that share a blocker read their comments side by side
+    /// and their blockers once: the poll pays one call for the two comments and
+    /// one call for the states of both blockers, and each issue is given only
+    /// the numbers its own comment names (#1161).
+    #[test]
+    fn the_blocked_issues_read_their_comments_side_by_side_and_their_blockers_once() {
+        let w = world();
+        let dir = host(&w);
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.0),
+        };
+        let calls = calls_of(&dir, "gh");
+
+        // One run of the comment read stood for the whole list: the record
+        // holds one comment call per blocked issue, and no more.
+        assert_eq!(
+            comment_reads(&calls, 21) + comment_reads(&calls, 22),
+            2,
+            "the two blocked issues are read once each: {calls:?}"
+        );
+        assert_eq!(
+            blocker_reads(&calls),
+            1,
+            "the states of the blockers are one call: {calls:?}"
+        );
+        // The one call asked for the union of the numbers both comments name.
+        let union = calls
+            .iter()
+            .find(|c| c.contains("issueOrPullRequest"))
+            .expect("the blockers are read");
+        assert!(
+            union.contains("b11: issueOrPullRequest(number: 11)")
+                && union.contains("b12: issueOrPullRequest(number: 12)"),
+            "the one call names both blockers: {union}"
+        );
+
+        // Each issue holds its own numbers, from that one answer.
+        assert_eq!(snap["issues"]["21"]["blockers"], json!({"11": "OPEN"}));
+        assert_eq!(
+            snap["issues"]["22"]["blockers"],
+            json!({"11": "OPEN", "12": "CLOSED"})
+        );
+        for n in ["21", "22"] {
+            assert_eq!(
+                snap["issues"][n]["comments"], w["comments"][n],
+                "issue {n} keeps its own comments"
+            );
+        }
+        // The store is still asked once for the per-issue reads: batching the
+        // two reads of rule 6 did not turn one run of `store batch` into two.
+        assert_eq!(
+            calls_of(&dir, "store")
+                .iter()
+                .filter(|c| c.starts_with("batch"))
+                .count(),
+            1,
+            "the per-issue reads are one run of the store"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A comment that names nothing asks nothing of the blockers: the poll pays
+    /// no call for a list of none.
+    #[test]
+    fn a_blocked_issue_with_nothing_to_name_asks_nothing_of_the_blockers() {
+        let mut world = world();
+        // The one blocked issue of the queue, and its newest comment names no
+        // blocker at all.
+        world["queue"]["data"]["repository"]["issues"]["nodes"] =
+            json!([world["queue"]["data"]["repository"]["issues"]["nodes"][0]]);
+        world["blocked"] = json!([{"number": 21, "labels": [{"name": "tehas:blocked"}]}]);
+        world["events"] = json!({"21": world["events"]["21"]});
+        world["comments"] = json!({"21": {"data": {"repository": {"issue": {"comments":
+                {"nodes": [{"body": "no marker here"}]}}}}}});
+        let dir = host(&world);
+        let mut src = sources(&dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.0),
+        };
+        let calls = calls_of(&dir, "gh");
+        assert!(
+            !calls.iter().any(|c| c.contains("issueOrPullRequest")),
+            "no blocker is named, so none is asked: {calls:?}"
+        );
+        assert_eq!(snap["issues"]["21"]["blockers"], json!({}));
+        assert_eq!(snap["issues"]["21"]["comments"], world["comments"]["21"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
