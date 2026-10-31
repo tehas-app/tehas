@@ -539,7 +539,9 @@ t_instance "${T_MINIMAL[@]}" TEHAS_WORK_TIMEOUT=600 TEHAS_CHILD_TIMEOUT=600 TEHA
 T_ENV=("${env_ok[@]}" TEHAS_WORK_GRACE=0)
 seq 5000 10 5200 >"$T/clock.now"
 printf 'ok\n' >"$T/clock.check"
-container '"$nap" 1; exit 10'
+# The container stays until the loop has passed three times, however loaded the
+# host is, and gives up after 30 s.
+container 'for _ in $(seq 1 300); do [ "$(wc -l <"$T/clock.calls" 2>/dev/null || echo 0)" -ge 3 ] && break; "$nap" 0.1; done; exit 10'
 t_run "$work 7"
 since=$(sed -n 's/.*--since \([0-9]*\).*/\1/p' "$T/clock.calls" | sort -u)
 t_eq "$(wc -l <"$T/clock.calls" | awk '{print ($1 >= 3)}')" "1"
