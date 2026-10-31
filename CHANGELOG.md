@@ -13,6 +13,10 @@ empty one above it.
 
 ### Changes
 
+- A factory pull request's title says `WIP: ` while a cycle works on it,
+  `STUCK: ` when it waits for a person and nothing when it is ok to merge. Each
+  poll and each cycle's end keep it true, and `tehas api` names the feature
+  `pr-title` (#1179).
 - An idle poll runs `tehasbot status` only when its file is five minutes old,
   not on every poll (#1153).
 - A poll reads the comments of blocked issues side by side and the states of

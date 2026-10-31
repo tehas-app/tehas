@@ -143,6 +143,16 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     } else {
         json!({"login": c.bot_login})
     };
+    // What the titles of the open pull requests rest on (console pr-title).
+    if let Some(pulls) = &q.open_pulls {
+        s["open_pulls"] = pulls.clone();
+        s["open_labels"] = q
+            .open
+            .iter()
+            .map(|o| (o.number.to_string(), json!(o.labels)))
+            .collect::<Map<_, _>>()
+            .into();
+    }
     let open: BTreeSet<u64> = q.open.iter().map(|o| o.number).collect();
     let mut issues = Map::new();
     for o in &q.open {
