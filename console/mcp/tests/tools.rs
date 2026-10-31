@@ -1,7 +1,7 @@
 // The tools against live files with planted keys that must never come out.
 
 use mcp::snapshot::Snapshot;
-use mcp::tools::{list, Dirs, Output, ToolError};
+use mcp::tools::{list_scoped, Dirs, Output, Scope, ToolError};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -134,7 +134,7 @@ fn spec_paths_of(name: &str) -> BTreeSet<String> {
 }
 
 fn schema_of(name: &str) -> Value {
-    list()
+    list_scoped(Scope::Full)
         .as_array()
         .unwrap()
         .iter()
@@ -161,7 +161,7 @@ fn args(name: &str) -> Value {
 
 #[test]
 fn the_tools_are_listed_in_order_with_their_schemas() {
-    let tools = list();
+    let tools = list_scoped(Scope::Full);
     let names: Vec<&str> = tools
         .as_array()
         .unwrap()
@@ -241,14 +241,16 @@ fn status_copies_the_hold_of_the_poll() {
     );
     // The rest of the poll's report is not served: only the two keys it names.
     // The words are those of the hold's own line, so `limit` is asked for with
-    // its dot and the rest by whole word.
+    // its dot and the rest by whole word. The file's time is the poll's stamp,
+    // and is left out as the file's own name that no answer gives.
     let text = out["hold"].to_string();
     for bad in [
         "\"room\"",
         "\"committed\"",
         "\"reserve\"",
         "\"free\"",
-        "SECRET",
+        "\"time\"",
+        "2026-10-20",
         ".ts.net",
     ] {
         assert!(!text.contains(bad), "{bad}: {text}");
@@ -281,6 +283,37 @@ fn status_leaves_hold_out_when_nothing_holds() {
     let out = call(&c.0, "factory_status", &json!({})).unwrap();
     assert!(out.get("hold").is_none());
     assert_eq!(out["status"], "pass");
+    // A report of another shape is no report either: a link is not a regular
+    // file, and a file over the bound of one poll's report is not read at all,
+    // so no client can cost the answer more than a fixed number of bytes.
+    let c = Copy::new("hold-link");
+    let file = c.0.join("dispatch.json");
+    std::fs::remove_file(&file).unwrap();
+    std::fs::write(c.0.join("report.json"), r#"{""why":""}"#).unwrap();
+    std::os::unix::fs::symlink(c.0.join("report.json"), &file).unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hold").is_none(), "a link is read");
+    let c = Copy::new("hold-huge");
+    let text = "x".repeat(64 * 1024 + 8);
+    std::fs::write(
+        c.0.join("dispatch.json"),
+        format!(r#"{{"why":"count","hold":"{text}"}}"#),
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert!(out.get("hold").is_none(), "a file over the bound is read");
+    // The same file, one byte under the bound, is a report and is answered, so
+    // the bound is the file's size and not the length of the line.
+    let c = Copy::new("hold-under-bound");
+    let line = "y".repeat(64 * 1024 - 40);
+    std::fs::write(
+        c.0.join("dispatch.json"),
+        format!(r#"{{"why":"count","hold":"{line}"}}"#),
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_status", &json!({})).unwrap();
+    assert_eq!(out["hold"]["why"], "count");
+    assert_eq!(out["hold"]["text"].as_str().unwrap().chars().count(), 400);
 }
 
 // A hold is free text of the dispatcher's, masked like the tool's other free
@@ -774,7 +807,7 @@ fn schema_matches_output() {
 #[test]
 fn inputs_and_outputs_are_described() {
     for name in NAMES {
-        let tool = list()
+        let tool = list_scoped(Scope::Full)
             .as_array()
             .unwrap()
             .iter()

@@ -966,7 +966,7 @@ fn every_method_and_tool_needs_a_key() {
             vec![("Mcp-Method", method.to_string())],
         ));
     }
-    let tools = mcp::tools::list();
+    let tools = mcp::tools::list_scoped(mcp::tools::Scope::Full);
     let names: Vec<&str> = tools
         .as_array()
         .unwrap()

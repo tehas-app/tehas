@@ -1,1 +1,13 @@
-{"why":"count","hold":"holding: 5 cycles are running (limit 5)","count":5,"room":3,"committed":1024,"max":4096,"reserve":"2g","free":0,"awaitRoom":1,"time":"2026-10-20T08:46:07Z","secretKey":"SECRET"}
+{
+    "why": "count",
+    "hold": "holding: 5 cycles are running (limit 5)",
+    "count": 5,
+    "room": 3,
+    "committed": 1024,
+    "max": 4096,
+    "reserve": "2g",
+    "free": 0,
+    "awaitRoom": 1,
+    "time": "2026-10-20T08:46:07Z",
+    "secretKey": "SECRET"
+}
