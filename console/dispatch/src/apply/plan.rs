@@ -1,18 +1,25 @@
 //! The end of a planning turn, as lib/planning.sh does it: the turn's exit
 //! status collected (plan_collect, plan_finish), its question posted
-//! (plan_post), a plan written onto its issue (plan_update), a refine that
-//! filed replacing its issue (plan_replace), a
+//! (plan_post) unless its plan needs none (plan_clear), a plan written onto
+//! its issue (plan_update), a refine that filed replacing its issue
+//! (plan_replace), a
 //! turn cut off (plan_recover) or a session Pi lost (plan_lost), and a
 //! session ended (plan_end, plan_close). The start of a turn is the next
 //! part of #254.
 
 use super::{text, word, Writer, Wrote};
 use crate::decide::{iso, shape};
+use crate::events::{plan_credit, Events};
+use crate::read::build::rest_events;
+use crate::read::host::plan_start_file;
+use crate::settings::account;
+use crate::text::{link_list, plan_sum};
 use regex::Regex;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tehas_core::plan::made;
 use tehas_core::question::{self, Kind, MAX_OPTIONS};
 
 /// plan_filed_re: an address of an issue a turn filed.
@@ -586,7 +593,13 @@ impl Writer {
         };
         let failed = p.get("failed") == Some(&json!(true));
         let label = text(&p, "label").to_string();
-        let out = self.outcome(n);
+        let mut out = self.outcome(n);
+        if comment.is_empty() && out.get("clear") == Some(&json!(true)) {
+            match self.plan_clear(n, &p, &out) {
+                Ok(next) => out = next,
+                Err(why) => log.push(format!("planning #{n} asks: {why}")),
+            }
+        }
         let mut filed: Vec<&str> = out
             .get("filed")
             .and_then(Value::as_array)
@@ -602,7 +615,7 @@ impl Writer {
             out.pointer("/update/title").and_then(Value::as_str),
             out.pointer("/update/body").and_then(Value::as_str),
         ) {
-            return self.plan_update(n, title, body, s(&out, "/text"), log);
+            return self.plan_update(n, title, body, s(&out, "/text"), out.get("start"), log);
         }
         if !what.is_empty() && label == "tehas:refine" {
             return self.plan_replace(n, &what, &out, log);
@@ -659,17 +672,132 @@ impl Writer {
         true
     }
 
-    /// plan_update: a drafted plan the operator chose becomes the issue's
-    /// text, and the session is over. Writing it again is harmless, so a
-    /// poll that fails halfway is repeated whole.
+    /// A drafted plan with no open points, in a plan session: the outcome that
+    /// makes it the issue's text and starts it, kept for the poll that writes
+    /// it, or why this one asks as any other does. What is decided here is
+    /// decided once: a poll that fails after it writes the outcome it left.
+    /// The turn's text and the planner's fields come from a container, so
+    /// nothing here reads them for who may start: only `clear` on the
+    /// console's own document, the session on record and the label events.
+    fn plan_clear(&mut self, n: u64, p: &Value, out: &Value) -> Result<Value, String> {
+        if text(p, "label") != "tehas:plan" || p.get("auto") == Some(&json!(true)) {
+            return Err("it is no plan session a person started".into());
+        }
+        // The millwright steered this plan: its text is not what a person's
+        // label and answers asked for.
+        let answers = p.get("answers").and_then(Value::as_array);
+        if answers.is_none_or(|a| a.iter().any(|x| x.get("millwright") == Some(&json!(true)))) {
+            return Err("the millwright answered in this session".into());
+        }
+        let repo = self.repo.clone();
+        let Events::Read(events) = Events::parse(&rest_events(&mut self.calls, &repo, n)) else {
+            return Err("the issue's label events could not be read".into());
+        };
+        let by = text(p, "by").to_string();
+        let (allowed, mill) = (self.host.allowed.clone(), self.host.millwright.clone());
+        plan_credit(&events, &by, &|l| allowed.iter().any(|a| a == l), &|l| {
+            !mill.is_empty() && account(l) == mill
+        })
+        .ok_or_else(|| format!("no allowed person's `tehas:plan` names '{by}'"))?;
+        let was = self
+            .calls
+            .gh(&[
+                "issue",
+                "view",
+                &n.to_string(),
+                "--repo",
+                &repo,
+                "--json",
+                "title,body,state,labels",
+            ])
+            .map_err(|_| "the issue could not be read".to_string())?;
+        if s(&was, "/state") != "OPEN" {
+            return Err("the issue is not open".into());
+        }
+        let on = was.get("labels").and_then(Value::as_array);
+        if on.is_none_or(|l| l.iter().any(|x| s(x, "/name") == "tehas:ready")) {
+            return Err("it carries `tehas:ready`, which approves the text it replaces".into());
+        }
+        let draft = std::fs::read_to_string(self.keep(n).join("draft.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .ok_or("no drafted plan is kept")?;
+        let plan = made(
+            &draft,
+            &was,
+            &format!("This issue now holds the plan, which has no open points. A cycle starts on @{by}'s `tehas:plan` when there is room. Take `tehas:ready` off to stop it."),
+        )?;
+        // tehas:plan approved the brief's links; the planner cannot add one.
+        let approved = link_list(text(p, "brief"));
+        if link_list(&plan.body).iter().any(|l| !approved.contains(l)) {
+            return Err("the plan links an attachment the issue did not".into());
+        }
+        let update = json!({"title": plan.title, "body": plan.body});
+        let next = json!({"session": out.get("session"), "text": plan.text, "question": null,
+            "update": update, "start": {"by": by, "sum": plan_sum(&update)}});
+        let new = self.st(n, ".out.new");
+        let moved = std::fs::write(&new, format!("{next}\n"))
+            .and_then(|()| std::fs::rename(&new, self.st(n, ".out")));
+        if moved.is_err() {
+            let _ = std::fs::remove_file(&new);
+            return Err("the plan could not be kept for the next poll".into());
+        }
+        Ok(next)
+    }
+
+    /// The record that lets the bot's tehas:ready start this one issue: the
+    /// account it is credited to and the sum of the text it binds. Only the
+    /// tehas user's, as a turn's other files are.
+    fn plan_start_keep(&self, n: u64, start: &Value) -> bool {
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let file = plan_start_file(&self.home, n);
+        let new = file.with_extension("json.new");
+        let kept = file
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|()| {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(&new)
+            })
+            .and_then(|mut f| f.write_all(format!("{start}\n").as_bytes()))
+            .and_then(|()| std::fs::rename(&new, &file));
+        if kept.is_err() {
+            let _ = std::fs::remove_file(&new);
+        }
+        kept.is_ok()
+    }
+
+    /// The record is spent: its start began, or it was refused.
+    pub(super) fn plan_start_drop(&self, n: u64) {
+        let _ = std::fs::remove_file(plan_start_file(&self.home, n));
+    }
+
+    /// plan_update: a drafted plan the operator chose, or one that needed no
+    /// choice, becomes the issue's text, and the session is over. Writing it
+    /// again is harmless, so a poll that fails halfway is repeated whole. With
+    /// `start` the record comes first, so `tehas:ready` is never on with
+    /// nothing behind it, and the label goes on in the one change that takes
+    /// the session's off.
     fn plan_update(
         &mut self,
         n: u64,
         title: &str,
         body: &str,
         said: &str,
+        start: Option<&Value>,
         log: &mut Vec<String>,
     ) -> bool {
+        if start.is_some_and(|x| !self.plan_start_keep(n, x)) {
+            log.push(format!(
+                "WARN: the start of the plan of #{n} could not be kept; the next poll tries again"
+            ));
+            return false;
+        }
         let args = vec![
             "issue".into(),
             "edit".into(),
@@ -690,7 +818,18 @@ impl Writer {
             ));
             return false;
         }
-        self.plan_end(n, said, false, false, log)
+        let Some(by) = start.map(|x| text(x, "by")) else {
+            return self.plan_end(n, said, false, false, log);
+        };
+        log.push(format!(
+            "planning #{n}: no open points, the plan starts on {by}'s tehas:plan"
+        ));
+        if !self.plan_wind_up(n, said, false, false, true, log) {
+            return false;
+        }
+        // The poll that starts it, now and not at the next timer.
+        let _ = std::fs::write(self.home.join("state/dispatch.again"), "");
+        true
     }
 
     /// post_question: the turn's text, then its question comment, and the
@@ -932,20 +1071,34 @@ impl Writer {
         hand: bool,
         log: &mut Vec<String>,
     ) -> bool {
+        self.plan_wind_up(n, said, lost, hand, false, log)
+    }
+
+    /// plan_end, with `ready` also putting tehas:ready on.
+    fn plan_wind_up(
+        &mut self,
+        n: u64,
+        said: &str,
+        lost: bool,
+        hand: bool,
+        ready: bool,
+        log: &mut Vec<String>,
+    ) -> bool {
         let person = if hand {
             "--add-label"
         } else {
             "--remove-label"
         };
-        if !self.edit_labels(
-            n,
-            &[
-                ("--remove-label", "tehas:question"),
-                ("--remove-label", "tehas:planning"),
-                ("--remove-label", "tehas:plan"),
-                (person, "needs-human-attention"),
-            ],
-        ) {
+        let mut flags = vec![
+            ("--remove-label", "tehas:question"),
+            ("--remove-label", "tehas:planning"),
+            ("--remove-label", "tehas:plan"),
+            (person, "needs-human-attention"),
+        ];
+        if ready {
+            flags.push(("--add-label", "tehas:ready"));
+        }
+        if !self.edit_labels(n, &flags) {
             log.push(format!(
                 "WARN: could not take the planning labels off #{n}, so its session is not ended yet"
             ));

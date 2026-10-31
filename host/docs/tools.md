@@ -1114,8 +1114,11 @@ answer that ticked **File as a new issue** runs `plan --resume <id> --confirm`, 
 plan as it was shown and nothing else. One that ticked **Update this issue**
 runs no container: the turn reads the issue's title and body and hands the
 drafted plan, kept in the `--keep` directory as `draft.json`, to the
-dispatcher, which writes it onto the issue and ends the session. Any other
-answer runs `--answer`. The first
+dispatcher, which writes it onto the issue and ends the session. A plan with no
+open points may need no such answer: the dispatcher then reads the issue and
+`draft.json` itself and no turn runs, see
+[A plan with no open points](/operating#a-plan-with-no-open-points).
+Any other answer runs `--answer`. The first
 turn runs `plan "<descriptor>" --start --context <brief>`, with
 `--issue <n>` when the image lists that flag for `plan`, so the planner does not
 take the issue for a duplicate of itself (pi-rukas v0.14.28 and later). A later
@@ -1190,7 +1193,10 @@ runs the turn again. On exit 0 the `--out` file holds the session id, what the
 turn says and what it asks. For a drafted plan the text holds the plan's title
 and spec, cut at 40000 characters, and the question lists its open points with
 the planner's proposals and offers **Update this issue**. A refine session
-also offers **File as a new issue**, since it exists to file one. The `console` beside the command shapes it, and
+also offers **File as a new issue**, since it exists to file one. Without
+`--kind refine`, a plan the runner lists an empty list of open points for and
+that was not cut adds `"clear": true`. That says only that no point is open; the
+dispatcher decides whether it starts, and posts the question otherwise. The `console` beside the command shapes it, and
 without one no turn starts: exit 78. Two or more
 questions are put together as one numbered question with no options, answered
 by a reply. On exit 2 it holds the session id alone when that is known, so the

@@ -412,6 +412,11 @@ pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let mut candidates: BTreeSet<u64> = numbers(&s["ready"]).into_iter().collect();
     candidates.extend(numbers(&s["blocked"]));
     let candidates: Vec<u64> = candidates.into_iter().collect();
+    for n in &candidates {
+        if let Some(record) = host::plan_start(home, *n) {
+            entry(&mut issues, *n)["plan_start"] = record;
+        }
+    }
     want(
         &mut per_issue,
         candidates
@@ -674,7 +679,7 @@ fn closed(issues: &mut Map<String, Value>, n: u64) {
 
 /// The label events of an issue or pull request as the bash reads them:
 /// the REST events, all pages; {"failed": true} when the call failed.
-fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
+pub fn rest_events(calls: &mut Calls, repo: &str, n: u64) -> Value {
     let path = format!("repos/{repo}/issues/{n}/events?per_page=100");
     calls
         .gh(&["api", &path, "--paginate"])
@@ -1190,6 +1195,30 @@ esac"#,
             1,
             "the per-issue reads are one run of the store"
         );
+    }
+
+    /// The record of a plan's start is read for the issues the rule can start,
+    /// each its own, and it reaches the type the rule reads.
+    #[test]
+    fn a_candidate_is_given_the_record_of_its_plan_and_no_other_is() {
+        let dir = host(&world(), &[]);
+        std::fs::create_dir_all(dir.dir.join("state/plan-start")).unwrap();
+        for n in [21, 99] {
+            let body = format!(r#"{{"by":"alice","sum":"{n}"}}"#);
+            std::fs::write(host::plan_start_file(&dir.dir, n), body).unwrap();
+        }
+        let mut src = sources(&dir.dir);
+        let snap = match snapshot(&mut src, &settings()) {
+            Ok(s) => s,
+            Err(f) => panic!("the stubs answer: {}", f.0),
+        };
+        let parsed = Snapshot::parse(&snap);
+        assert_eq!(
+            parsed.issues[&21].plan_start,
+            Some(json!({"by": "alice", "sum": "21"}))
+        );
+        assert_eq!(parsed.issues[&22].plan_start, None);
+        assert!(!parsed.issues.contains_key(&99), "no candidate, no read");
     }
 
     /// A comment that names nothing asks nothing of the blockers: the poll pays
