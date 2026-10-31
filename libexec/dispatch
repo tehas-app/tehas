@@ -1477,28 +1477,24 @@ pr_comments() {
     <<<"$all" 2>/dev/null
 }
 
-# fixer_note <issue> <label time> [action]: the fixer's comment behind its
-# tehas:ready, as {links: [], context}: the newest comment of
+# fixer_note <issue> <label time>: the fixer's comment behind its tehas:ready,
+# as {links: [], context, edited}: the newest comment of
 # TEHAS_MILLWRIGHT_LOGIN with the fixer's marker for this issue, written in the
 # ten minutes before the label and edited by nobody after it. The fixer comments
-# and then labels, so an older one is an earlier decision's. [action] narrows the
-# marker to one action, (retry|change) when unset: the park rule asks for change
-# alone, since an action=retry comment asks for the same run again and lifts
-# nothing (#1130). context is [] when there is none; fails when the comments
-# cannot be read.
-fixer_note() { # <issue> <label time> [action]
+# and then labels, so an older one is an earlier decision's. context is [] when
+# there is none; fails when the comments cannot be read.
+fixer_note() {
   local list since
   list=$(gh api "repos/$repo/issues/$1/comments?per_page=100" --paginate 2>/dev/null) || return 1
   since=$(date -u -d "$2 - 10 minutes" +%FT%TZ 2>/dev/null) || return 1
-  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}" \
-    --arg action "${3:-'(retry|change)'}" '
+  jq -cs --arg n "$1" --arg since "$since" --arg at "$2" --arg fixer "${TEHAS_MILLWRIGHT_LOGIN%\[bot\]}" '
     if any(.[]; type != "array") then error("not a list of comments") else . end
     | [add // [] | .[] | select(type == "object" and (.id | type) == "number" and (.body | type) == "string"
         and (.user.login // "" | rtrimstr("[bot]")) == $fixer and (.created_at | type) == "string" and (.updated_at | type) == "string"
         and .created_at >= $since and .created_at <= $at and .updated_at <= $at
-        and (.body | test("<!-- tehas:millwright issue=" + $n + " action=" + $action + " -->")))]
+        and (.body | test("<!-- tehas:millwright issue=" + $n + " action=(retry|change) -->")))]
     | sort_by(.created_at, .id) | .[-1:]
-    | {links: [], context: map({source: "millwright:\(.id)", by: .user.login, at: .created_at,
+    | {links: [], edited: any(.[]; .updated_at != .created_at), context: map({source: "millwright:\(.id)", by: .user.login, at: .created_at,
         text: (.body | gsub("\r"; "") | .[0:4000])})}' <<<"$list" 2>/dev/null
 }
 
@@ -2012,10 +2008,9 @@ refresh_ok() {
 # picked, where the text of the issue is the answer unchanged_since passed it,
 # so no read of GitHub is spent on an issue this would hold in any case. A park
 # that could not be read holds the issue for this poll. The fixer's own label
-# is lifted by a fresh action=change comment of guidance, when the instance
-# gives a cycle images or files: fixer_note narrowed to change is the rule, and
-# the entry it returns goes on the start's record as park_lifted. Returns 0 when
-# the issue is held.
+# is lifted by its note of the start, fixer_note's, when that note says
+# action=change and the instance gives a cycle images or files; the note goes on
+# the record as park_lifted. Returns 0 when the issue is held.
 park_holds() {
   local n=$1 sum told cap now note
   [ -n "${text_of[$n]:-}" ] || return 1
@@ -2035,15 +2030,11 @@ park_holds() {
   now=$(jq '.data.repository.issue // {}' <<<"${text_of[$n]}" | tehas_body_sha256 2>/dev/null) || now=""
   [[ $now =~ ^[0-9a-f]{64}$ ]] || return 1
   [ "$now" = "$sum" ] || return 1
-  # The way round a park that is open to the fixer alone: its own guidance
-  # comment says the next run is not the run that stopped. The grant was
-  # reached before this, so a start past the cap of retries or on no person's
-  # approval never asks, and a person's label never asks at all. fixer_note
-  # narrowed to change is the one rule that finds the comment, and it is the
-  # note of the start. The hold stays where the instance gives a cycle neither
-  # images nor files, since the note would reach no cycle.
+  # The way round a park open to the fixer alone, its grant reached already.
+  # REST names no editor, so any edit of the note holds.
   if [ "${by_fixer:-0}" = 1 ] && { [ "$TEHAS_WORK_IMAGES" = 1 ] || [ "$TEHAS_WORK_FILES" = 1 ]; }; then
-    note=$(fixer_note "$n" "$at" change 2>/dev/null | jq -c 'select((.context // []) | length > 0) | {links: [], context: [.context[-1]]}' 2>/dev/null) || note=''
+    note=$(fixer_note "$n" "$at" 2>/dev/null |
+      jq -c --arg m "<!-- tehas:millwright issue=$n action=change -->" 'select((.edited | not) and (.context[-1].text // "" | contains($m)))' 2>/dev/null) || note=''
     if [ -n "$note" ]; then
       park_lifted[$n]=$note
       log "lift #$n: its last cycle parked on ${cap:-nothing} and the body has not changed since, lifted on the fixer's guidance comment"

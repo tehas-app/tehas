@@ -209,6 +209,33 @@ Saved after the label.'
 holds "Words."
 t_contains "$t_out" "hold #7: its last cycle parked on intent-park and the body has not changed since"
 
+t_case "a newer action=retry comment takes the lift away: the note on record would ask for the same run"
+millwright_parked
+with_notes "$(
+  echo '['
+  change_note 81 tehas-fixer "$(lift_at 180)" "Guidance."
+  echo ','
+  icomment 82 tehas-fixer "$(lift_at 60)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=retry -->
+Once more.'
+  echo ']'
+)"
+holds "Words."
+t_lacks "$t_out" "lift #7"
+
+t_case "a change note whose marker names another issue lifts nothing"
+millwright_parked
+with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 180)" '<!-- tehas:millwright issue=77 action=change -->
+Another issue.' | jq -s .)"
+holds "Words."
+t_lacks "$t_out" "lift #7"
+
+t_case "a change note saved again before the label lifts only where the poll can see its own account did"
+# GraphQL names the editor. REST does not, so the bash poll takes any edit as another's.
+millwright_parked
+with_notes "$(icomment 81 tehas-fixer "$(lift_at 180)" "$(lift_at 60)" '<!-- tehas:millwright issue=7 action=change -->
+Second thoughts.' | jq -s .)"
+if bash_reads; then holds "Words."; else lifts; fi
+
 t_case "a person's tehas:ready on the parked body is held whatever comments exist"
 millwright_parked
 with_notes "$(change_note 81 tehas-fixer "$(lift_at 180)" "Guidance." | jq -s .)"
