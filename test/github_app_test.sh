@@ -350,12 +350,24 @@ t_run ". $T/home/tehas/env.sh; command -v gh; echo \"token=\${GH_TOKEN:-none}\""
 t_eq "$t_out" "$T/home/tehas/bin/gh
 token=ghp_user"
 
-t_case "the renewer makes a new token when the kept one runs low, and stops when killed"
+t_case "the renewer is tehas-cycle renew, starts at once, and stops when killed"
 reset
-keep 300
-t_run "$lib && TEHAS_GITHUB_RENEW_EVERY=1; pid=\$(tehas_github_renew); for _ in \$(seq 1 50); do grep -q fresh '$kept' 2>/dev/null && break; sleep 0.1; done; kill \$pid; sleep 0.3; kill -0 \$pid 2>/dev/null && echo alive || echo stopped"
-t_eq "$(cat "$kept")" "$(grep -o 'ghs_fresh[0-9]*' "$kept")"
-t_contains "$t_out" "stopped"
+mkdir -p "$T/home/tehas/libexec"
+cat >"$T/home/tehas/libexec/tehas-cycle" <<STUB
+#!/bin/bash
+printf '%s\n' "\$*" >"$T/renew.args"
+exec sleep 20
+STUB
+chmod 755 "$T/home/tehas/libexec/tehas-cycle"
+start=$SECONDS
+t_run "$lib && pid=\$(tehas_github_renew 2>/dev/null); echo \"\$pid\""
+t_eq "$(((SECONDS - start) < 10))" "1"
+pid=$t_out
+for _ in $(seq 1 50); do [ -s "$T/renew.args" ] && break; sleep 0.1; done
+t_eq "$(cat "$T/renew.args")" "renew --cmd $T/home/tehas/libexec/github-token --every 300 --retry 30"
+kill "$pid" 2>/dev/null
+sleep 0.3
+t_eq "$(kill -0 "$pid" 2>/dev/null && echo alive || echo stopped)" "stopped"
 
 t_case "without an app the renewer starts nothing"
 reset
