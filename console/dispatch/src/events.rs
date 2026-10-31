@@ -99,6 +99,41 @@ pub fn label_actor(events: &[Event], label: &str) -> (String, String) {
     }
 }
 
+/// The time of the `tehas:plan` a plan's start is credited to: `by` applied it
+/// last, as the events say and not only the session's record, is allowed and
+/// is not the millwright, who may be on the list and is no person. None when
+/// any of that fails, an unknown account included.
+pub fn plan_credit(
+    events: &[Event],
+    by: &str,
+    allowed: &dyn Fn(&str) -> bool,
+    millwright: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let (who, at) = label_actor(events, "tehas:plan");
+    (!by.is_empty() && who == by && allowed(by) && !millwright(by)).then_some(at)
+}
+
+/// Whether the only event of `label` after `since` is one application by the
+/// account `who` names. An event with no time counts as after, as a veto does:
+/// a label taken off or applied again is no longer the one a plan's record
+/// stood for.
+pub fn sole_application(
+    events: &[Event],
+    label: &str,
+    since: &str,
+    who: &dyn Fn(&str) -> bool,
+) -> bool {
+    let mut after = events.iter().filter(|e| {
+        (e.event == "labeled" || e.event == "unlabeled")
+            && e.label == label
+            && e.at.as_deref().is_none_or(|at| at > since)
+    });
+    match (after.next(), after.next()) {
+        (Some(e), None) => e.event == "labeled" && who(&e.actor),
+        _ => false,
+    }
+}
+
 /// The newest labeled or unlabeled event of one label: tehas_label_state.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LabelState {
@@ -204,6 +239,98 @@ pub fn first_unallowed_rename(
         };
         (!allowed(&who)).then_some(who)
     })
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::{plan_credit, sole_application, Event};
+
+    fn event(event: &str, label: &str, actor: &str, at: Option<&str>) -> Event {
+        Event {
+            event: event.into(),
+            label: label.into(),
+            actor: actor.into(),
+            at: at.map(str::to_string),
+        }
+    }
+
+    const T: &str = "2026-10-01T00:00:00Z";
+    const L: &str = "2026-10-01T00:20:00Z";
+
+    fn credit(events: &[Event], by: &str) -> Option<String> {
+        plan_credit(events, by, &|w| w == "alice" || w == "mill", &|w| {
+            w == "mill"
+        })
+    }
+
+    #[test]
+    fn a_plan_is_credited_to_the_allowed_person_the_events_name() {
+        let ev = [event("labeled", "tehas:plan", "alice", Some(T))];
+        assert_eq!(credit(&ev, "alice").as_deref(), Some(T));
+    }
+
+    #[test]
+    fn nobody_else_is_credited() {
+        let alice = [event("labeled", "tehas:plan", "alice", Some(T))];
+        assert_eq!(credit(&alice, "bob"), None);
+        assert_eq!(credit(&alice, ""), None);
+        assert_eq!(credit(&[], "alice"), None);
+        // Allowed, and the millwright all the same.
+        let mill = [event("labeled", "tehas:plan", "mill", Some(T))];
+        assert_eq!(credit(&mill, "mill"), None);
+        // On record, and the events name another account.
+        let bob = [event("labeled", "tehas:plan", "bob", Some(T))];
+        assert_eq!(credit(&bob, "alice"), None);
+        // The last application decides, and a refine is no plan.
+        let later = [
+            event("labeled", "tehas:plan", "alice", Some(T)),
+            event("labeled", "tehas:plan", "bob", Some(L)),
+        ];
+        assert_eq!(credit(&later, "alice"), None);
+        let refine = [event("labeled", "tehas:refine", "alice", Some(T))];
+        assert_eq!(credit(&refine, "alice"), None);
+    }
+
+    #[test]
+    fn the_bots_one_application_since_is_sole() {
+        let bot = |w: &str| w == "bot";
+        let once = [
+            event(
+                "labeled",
+                "tehas:ready",
+                "alice",
+                Some("2026-09-01T00:00:00Z"),
+            ),
+            event(
+                "unlabeled",
+                "tehas:ready",
+                "alice",
+                Some("2026-09-02T00:00:00Z"),
+            ),
+            event("labeled", "tehas:ready", "bot", Some(L)),
+        ];
+        assert!(sole_application(&once, "tehas:ready", T, &bot));
+        assert!(!sole_application(&[], "tehas:ready", T, &bot));
+        let again = [
+            event("labeled", "tehas:ready", "bot", Some(L)),
+            event("unlabeled", "tehas:ready", "alice", Some(L)),
+            event(
+                "labeled",
+                "tehas:ready",
+                "bot",
+                Some("2026-10-02T00:00:00Z"),
+            ),
+        ];
+        assert!(!sole_application(&again, "tehas:ready", T, &bot));
+        let theirs = [event("labeled", "tehas:ready", "mallory", Some(L))];
+        assert!(!sole_application(&theirs, "tehas:ready", T, &bot));
+        // An event with no time is later than any when it must veto.
+        let unstamped = [
+            event("labeled", "tehas:ready", "bot", Some(L)),
+            event("unlabeled", "tehas:ready", "mallory", None),
+        ];
+        assert!(!sole_application(&unstamped, "tehas:ready", T, &bot));
+    }
 }
 
 #[cfg(test)]

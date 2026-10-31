@@ -37,6 +37,31 @@ fn current(home: &Path, issue: i64) -> Value {
 }
 
 #[test]
+fn a_plan_with_no_open_points_is_recorded_as_the_tehas_plan_that_approved_it() {
+    let home = home("approval-planned");
+    let v = ok(
+        &home,
+        &[
+            "approval-record",
+            "10",
+            "--at",
+            "1791000000",
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--label",
+            "tehas:plan",
+            "--body-sha",
+            SHA,
+        ],
+    );
+    assert_eq!(v["approval"]["label"], "tehas:plan");
+    assert_eq!(v["approval"]["by"], "alice");
+    assert_eq!(v["approval"]["how"], "label");
+}
+
+#[test]
 fn approval_record_stores_every_field() {
     let home = home("approval");
     let v = ok(

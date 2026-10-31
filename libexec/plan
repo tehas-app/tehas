@@ -8,8 +8,8 @@
 # operator: questions, or a drafted plan to confirm. This command writes what
 # the turn said and asked to a file and stops. The dispatcher posts it on the
 # issue and, when an answer has come, runs the next turn in the same session.
-# After a drafted plan, a tick on "Update this issue" makes it the issue's
-# text. A refine session also offers "File as a new issue", which files it.
+# A tick on "Update this issue" makes a drafted plan the issue's text. One with
+# no open points may need no tick. A refine also offers "File as a new issue".
 #
 # Usage:
 #   tehas plan <issue-number> --out <file> --keep <dir> --brief <file> [--kind refine]
@@ -69,10 +69,10 @@
 # for each runner exit as follows:
 #   11 questions      the planner's questions; one is asked as it is, two or
 #                     more as one numbered text. Answered by a reply.
-#   12 shown          the drafted plan, its title and spec, after the turn's
-#                     text; its open points with the planner's proposed
-#                     resolutions; the option "Update this issue", and
-#                     "File as a new issue" with --kind refine.
+#   12 shown          the drafted plan, title and spec, after the turn's text;
+#                     its open points with the planner's proposals; the option
+#                     "Update this issue", "File as a new issue" with --kind
+#                     refine; without it, "clear": true when no point is open.
 #   10 duplicate-risk the turn's text; answered by a reply.
 #    0 filed          the issue the confirm filed, under "filed".
 # "filed" holds the issues this session filed; with none there is no such key.
