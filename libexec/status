@@ -156,8 +156,7 @@ analytics_publish() {
 analytics_sessions() { analytics_publish sessions "$TEHAS_HOME/mcp/sessions.jsonl"; }
 # shellcheck disable=SC2329  # the EXIT trap below calls it
 analytics_outcomes() { analytics_publish outcomes "$TEHAS_HOME/mcp/outcomes.jsonl"; }
-# Whatever happens below, write the report, and refresh the health file unless
-# the poll ran this: it runs health itself a moment later.
+# Write the report, and refresh health unless the poll ran this: it runs health next.
 trap 'analytics_report; analytics_sessions; analytics_outcomes; [ -n "$from_poll" ] || "$here/health" 2>/dev/null || true' EXIT
 
 fetch_every=3600
