@@ -37,7 +37,12 @@
 //! 6. `store upkeep`: old logs, a daily backup of the state store, prune.
 //!
 //! One line per removal and a closing line with the bytes freed go to the log
-//! and to standard output; a warning goes to the log and standard error.
+//! and to standard output; a warning goes to the log and standard error. A dry
+//! run names each path it would take with the bytes `bytes_of` counts for it,
+//! and closes with `would free <n> bytes`; the figure leaves out what only
+//! docker or the store can measure (the build cache, the image tags and the
+//! store's upkeep), and says so. A dry run takes no issue's lock: it removes
+//! nothing, so it holds nothing.
 
 use crate::store::{self, bounded, merged};
 use serde_json::json;
@@ -618,7 +623,13 @@ impl Run {
             self.rc = 1;
         }
         let freed = self.freed;
-        self.log(&format!("freed {freed} bytes"));
+        if self.dry {
+            self.log(&format!(
+                "would free {freed} bytes, which leaves out the build cache, the image tags and the store's upkeep, whose size is not known beforehand"
+            ));
+        } else {
+            self.log(&format!("freed {freed} bytes"));
+        }
         self.rc
     }
 
@@ -643,11 +654,14 @@ impl Run {
             }
             let p = e.path();
             let shown = p.display().to_string();
+            let size = bytes_of(&p);
             if self.dry {
-                self.log(&format!("would remove {shown}: a cycle's scratch"));
+                self.log(&format!(
+                    "would remove {shown}: a cycle's scratch, {size} bytes"
+                ));
+                self.freed += size;
                 continue;
             }
-            let size = bytes_of(&p);
             if self.remove_under_lock(&n, &p) {
                 self.freed += size;
                 self.log(&format!("removed {shown}: a cycle's scratch, {size} bytes"));
@@ -879,18 +893,21 @@ impl Run {
                 }
                 met = true;
                 let shown = found.display().to_string();
+                let kb = bytes_of(&found);
                 if self.dry {
                     let hours = self.build_after;
                     self.log(&format!(
-                        "would remove {shown}: {what}, untouched for {hours} hours"
+                        "would remove {shown}: {what}, untouched for {hours} hours, {kb} bytes"
                     ));
+                    // The figure of the dry run is the sum of what it names, so
+                    // the same line moves the same counter a real run moves.
+                    self.freed += kb;
                     continue;
                 }
                 if lock_refusal != 0 {
                     refused = true;
                     continue;
                 }
-                let kb = bytes_of(&found);
                 if self.remove_under_lock(&n, &found) {
                     took = true;
                     self.freed += kb;
@@ -919,6 +936,13 @@ impl Run {
 
     // --- 2. Docker's build cache, the whole host's, by its age alone.
     fn build_cache(&mut self) -> bool {
+        if self.dry {
+            let hours = self.build_after;
+            self.log(&format!(
+                "would prune docker's build cache of {hours} hours and older, whose size is not known beforehand"
+            ));
+            return true;
+        }
         let until = format!("until={}h", self.build_after);
         let (rc, said) = merged(
             bounded("30", "600", "docker")
@@ -949,11 +973,12 @@ impl Run {
 
     fn remove_scratch(&mut self, f: &Path, would: &str, what: &str) -> bool {
         let shown = f.display().to_string();
+        let kb = bytes_of(f);
         if self.dry {
-            self.log(&format!("would remove {shown}: {would}"));
+            self.log(&format!("would remove {shown}: {would}, {kb} bytes"));
+            self.freed += kb;
             return true;
         }
-        let kb = bytes_of(f);
         if remove(f) {
             self.freed += kb;
             self.log(&format!("removed {shown}: {what}, {kb} bytes"));
@@ -1114,8 +1139,11 @@ impl Run {
                 continue;
             }
             if self.dry {
+                // Docker's own figure, and one a dry run does not ask for: it
+                // would be the size of the image, not of what the tag's removal
+                // frees, since a layer a kept tag shares stays.
                 self.log(&format!(
-                    "would remove {s}:{tag}: a sandbox image of that age"
+                    "would remove {s}:{tag}: a sandbox image of that age, whose size is not known beforehand"
                 ));
                 continue;
             }
@@ -1245,7 +1273,9 @@ impl Run {
         }
         for (name, kb) in cands {
             if self.dry {
-                self.log(&format!("would remove {name}: a base image of that age"));
+                self.log(&format!(
+                    "would remove {name}: a base image of that age, whose size is not known beforehand"
+                ));
                 continue;
             }
             match Self::rmi(&name) {
@@ -1289,7 +1319,13 @@ impl Run {
         let act = if self.dry { "would remove" } else { "removed" };
         for n in v["logs"].as_array().into_iter().flatten() {
             let n = n.as_str().map_or_else(|| n.to_string(), String::from);
-            self.log(&format!("{act} logs/{n}: a log 7 days old"));
+            // The store answers names, not sizes: a dry run's figure leaves them out.
+            let size = if self.dry {
+                ", whose size is not known beforehand"
+            } else {
+                ""
+            };
+            self.log(&format!("{act} logs/{n}: a log 7 days old{size}"));
         }
         if !self.dry {
             let kept = json!({"backup": v["backup"], "prune": v["prune"]});
@@ -1348,6 +1384,118 @@ mod tests {
         assert_eq!(ended(&args), 0);
         fs::remove_dir_all(&root).unwrap();
         assert_eq!(ended(&args[..2]), 64);
+    }
+
+    /// The times of every file and directory under <root>, root included, set
+    /// to some hours ago: the age rule reads the tree itself.
+    fn age_tree(root: &Path, hours: u64) {
+        let at = std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 3600);
+        let times = fs::FileTimes::new().set_accessed(at).set_modified(at);
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(d) = stack.pop() {
+            if let Ok(entries) = fs::read_dir(&d) {
+                stack.extend(entries.flatten().map(|e| e.path()));
+            }
+            fs::File::open(&d).unwrap().set_times(times).unwrap();
+        }
+    }
+
+    /// A workspace of one issue whose build output is a tree of a size this
+    /// test knows, with the steps beside it that need docker or the store
+    /// absent: the empty names make those steps report and change nothing, as
+    /// the whole of a clean run does. The bytes of a directory are what
+    /// `bytes_of` counts, so the figure asserted is the sum of the tree named
+    /// here.
+    fn one_issue_tree(root: &Path) -> (Run, u64) {
+        let _ = fs::remove_dir_all(root);
+        let works = root.join("work");
+        let home = root.join("home");
+        let d = works.join("widget-7");
+        fs::create_dir_all(home.join("state/cycles")).unwrap();
+        fs::create_dir_all(d.join("target")).unwrap();
+        fs::create_dir_all(d.join("src")).unwrap();
+        fs::write(d.join("src").join("main.rs"), "keep").unwrap();
+        fs::write(d.join("target").join("console"), vec![b'x'; 4096]).unwrap();
+        fs::write(d.join("target").join("build"), vec![b'y'; 3072]).unwrap();
+        // The cycle's lock: a removal is tried only under one that is there.
+        fs::write(home.join("state/cycles/7.lock"), "").unwrap();
+        // The age rule reads the workspace, its lock and each tree of the
+        // issue: all of them are three days old, as the shell fixture dates
+        // what it writes.
+        age_tree(&works, 72);
+        age_tree(&home.join("state/cycles"), 72);
+        // No scratch disk; the image names are empty, so neither image step is
+        // asked of docker, and no store stands in this home, so step 6 fails
+        // and reports itself. A dry run asks docker nothing; the real run below
+        // calls only the workspaces' step, so no case prunes the host's docker.
+        let run = Run {
+            dry: true,
+            home,
+            works: works.display().to_string(),
+            base: "widget".to_string(),
+            after: 24,
+            build_after: 24,
+            dirs: vec!["target".to_string()],
+            sandbox: String::new(),
+            pulled: String::new(),
+            logfile: root.join("clean.log"),
+            tmp_disk: String::new(),
+            freed: 0,
+            rc: 0,
+        };
+        (run, bytes_of(&d.join("target")))
+    }
+
+    #[test]
+    fn a_dry_run_names_the_bytes_it_would_free_and_removes_nothing() {
+        let root = std::env::temp_dir().join(format!("clean-dry-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (mut run, known) = one_issue_tree(&root);
+        let tree = root.join("work/widget-7");
+        assert!(known > 0);
+        // The closing line is the run's, so the dry figure is read after one.
+        assert_eq!(
+            run.main(30 * 1024, "30g", ""),
+            1,
+            "only the store's step failed"
+        );
+        let said = fs::read_to_string(&run.logfile).unwrap();
+        // The bytes on the path it names, and in the closing word of the run.
+        assert!(
+            said.contains(&format!(
+                "would remove {}/target: build output of #7, untouched for 24 hours, {known} bytes",
+                tree.display()
+            )),
+            "{said}"
+        );
+        assert!(
+            said.contains(&format!("would free {known} bytes")),
+            "{said}"
+        );
+        assert!(!said.contains("freed 0 bytes"), "{said}");
+        // The figure is not the whole of the run: docker's steps and the
+        // store's upkeep are not known beforehand, and the line says so.
+        assert!(
+            said.contains(
+                "which leaves out the build cache, the image tags and the store's upkeep"
+            ),
+            "{said}"
+        );
+        assert!(tree.join("target/console").exists(), "a dry run removed");
+        // The same tree under a real run frees exactly that figure.
+        one_issue_tree(&root);
+        run.dry = false;
+        run.freed = 0;
+        assert!(run.workspaces());
+        assert_eq!(
+            run.freed,
+            known,
+            "{}",
+            fs::read_to_string(&run.logfile).unwrap()
+        );
+        assert!(!tree.join("target").exists(), "a real run left it");
+        assert!(tree.join("src/main.rs").exists());
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

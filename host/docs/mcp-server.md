@@ -22,8 +22,32 @@ one of your keys.
 
 ## What it shows
 
+### The two kinds of key
+
 A key holder sees the public dashboard's data, plus the sessions of the last
 30 days and their logs, masked. A request without a key sees nothing.
+
+Which tools a key may call is decided by the list it stands in, and by nothing
+else:
+
+| Setting | Called | May call |
+| --- | --- | --- |
+| `TEHAS_MCP_KEYS` | full | every tool of the [table](#the-tools) |
+| `TEHAS_MCP_DASHBOARD_KEYS` | dashboard | the four that copy from `live/`: `factory_status`, `factory_issues`, `factory_endings`, `factory_stats` |
+
+A dashboard key is for a program that shows the factory and must not read the
+logs: the sessions of the last 30 days, the lines of their logs and the
+dispatcher's and refresh's events are the private half of what the server
+holds, and those four tools name none of them. A dashboard key that asks for
+another tool gets what the server gives any name it does not serve, the same
+words a full key gets for a name that is no tool: the scope is no secret, and
+a caller that cannot tell the four from the rest learns nothing it should not
+know.
+
+The scope is the program's, not the container's. The server is one process
+given the same three directories whatever the two lists hold, so a dashboard
+key is kept out of the sessions and the logs by the tools it may call, not by
+a mount of its own.
 
 The key is the boundary, not the dashboard. Its inputs are three directories,
 each given to it read only:
@@ -41,9 +65,12 @@ It reads nothing else on the host and calls nothing: not GitHub, not Docker,
 not git, not a model. Each tool copies only the keys it names from those
 files. A key the files gain later is not served until a release names it.
 
-On a factory that works on a private repository, a key gives its holder that
-repository's code, issue text and model output as the agents saw them, in the
-logs. Give a key only to someone who may read the repository. The mask takes
+On a factory that works on a private repository, a full key gives its holder
+that repository's code, issue text and model output as the agents saw them, in
+the logs. Give one only to someone who may read the repository. The four tools
+of a dashboard key copy the dashboard's own numbers and issue titles, which is
+what the dashboard publishes, and no log line: give one where the logs are what
+you would rather keep on the host. The mask takes
 out tokens, keys, passwords and private addresses it knows, but it is a net
 for accidents, not a wall.
 
@@ -56,7 +83,9 @@ for accidents, not a wall.
    ```
 
    It prints a new key and writes nothing. A key reads the factory's logs: on
-   a private repository, give one only to someone who may read it.
+   a private repository, give one only to someone who may read it. A key of
+   `TEHAS_MCP_DASHBOARD_KEYS` reads no log, so it is the one to give a program
+   that only shows the factory.
 
 2. Put the switch and the keys in `~/.config/tehas/env`, beside the host's
    other secrets, never in the instance directory, which is in a repository:
@@ -64,12 +93,20 @@ for accidents, not a wall.
    ```
    TEHAS_MCP=1
    TEHAS_MCP_KEYS="<key> <key>"
+   TEHAS_MCP_DASHBOARD_KEYS="<key>"
    ```
 
    Keys are separated by spaces, each at least 32 characters of
-   `A-Za-z0-9_-`. With `TEHAS_MCP=1`, an empty list or a key that is not like
-   that stops the server with exit 78 and one line that names the setting.
-   A `TEHAS_MCP_KEYS` line in `instance.env` is refused the same way.
+   `A-Za-z0-9_-`. At least one key stands in one list or the other, and no key
+   stands in both: the scope of a key of both would be a guess. The server
+   enforces both rules itself when it starts, so the check the `tehas mcp`
+   command makes of the two settings is a fast reading of the same rules before
+   it asks Docker for a container, and names the same line of the same shape.
+   With `TEHAS_MCP=1`, a host with no key at all, a key that is not like that,
+   or a key of both lists stops the server with exit 78 and one line that names
+   the settings, never a key. `TEHAS_MCP_DASHBOARD_KEYS` may be left out, which
+   leaves a server of full keys only, as it was. A line for either setting in
+   `instance.env` is refused the same way.
 
 3. Start it, and have it start with the host:
 
@@ -96,15 +133,16 @@ for accidents, not a wall.
    It serves `/mcp` only and answers any other path with 404. This page is at
    `/mcp-server`, so the route takes no page of the manual with it.
 
-To remove a key, take it out of the list and run
+To remove a key, take it out of its list and run
 `systemctl --user restart tehas-mcp.service`. The journal names each request's
 key by the first 8 hex characters of its sha256, never by the key, so you can
 tell which agent is calling.
 
 One line goes to the journal per request: the method, the status, the time it
-took and the key, and for a `tools/call` the tool as well, as
-`POST 200 4ms key=3511bfc5 tool=factory_log`. The line goes to the unit's
-journal on the host, not to the client: read it with
+took, the key and that key's own scope, and for a `tools/call` the tool as
+well, as
+`POST 200 4ms key=3511bfc5 scope=full tool=factory_log`. The line goes to the
+unit's journal on the host, not to the client: read it with
 `journalctl --user -u tehas-mcp`. The name of the tool only: the arguments are
 never logged, as one can carry an issue number or text from a private
 repository. `tool=?` is a name the server does not have, which is what a probe
@@ -113,9 +151,11 @@ the 2025-11-25 handshake can carry one, as a modern request must mirror its
 name in `Mcp-Name` and no text equals a number: so a dash tells a client that
 is broken from one that is probing, except for a probe whose name never reached
 the server as text, which is a dash too. A request that is not a `tools/call`
-logs no `tool=`. The fields are the server's own words, never the client's
-text, so the line the unit writes stays one field per space-separated part: do
-not add a field to it without naming where its bytes come from.
+logs no `tool=`. `scope=` is the server's own word for the list the key was
+read from, `full` or `dashboard`; a request refused for want of a key has no
+key, and names neither field. The fields are the server's own words, never the
+client's text, so the line the unit writes stays one field per space-separated
+part: do not add a field to it without naming where its bytes come from.
 
 ## How it runs
 
@@ -124,7 +164,8 @@ the server, `~/tehas/libexec/tehas-mcp`, in a container of its own. The
 container runs as the tehas user, not root, with a read-only root, no
 capabilities, `no-new-privileges`, 256 MB of memory and 64 processes. It is
 given `~/tehas/live`, `~/tehas/mcp` and `~/tehas/logs` read only, the binary,
-the keys as an environment variable, the host's names to mask as arguments
+both lists of keys as environment variables, the host's names to mask as
+arguments
 (names, not secrets) and port 8082 on `TEHAS_HOST_ADDR` (the loopback address
 without it), and nothing else: no Docker socket, no SSH key, no token, nothing from
 `~/.config/tehas` but the keys. It is on a network of its own, `tehas-mcp`,
@@ -164,7 +205,9 @@ example: your client's file and field names may differ.
 
 Every request needs a key, whatever its method, path or tool. A request with
 no key, a wrong key or another scheme gets 401 and an empty body, before any
-of its body is read. A request with a key that is not a POST gets 405. A request with an `Origin` header gets
+of its body is read. A request with a key that is not a POST gets 405. A key
+of either list is a key: the list it stands in decides which tools it may call,
+and nothing else about the request. A request with an `Origin` header gets
 403: no browser is a client of this server. A body needs a `Content-Length`
 (411 without one, or when chunked), and over 64 KB gets 413. A head over 8 KB
 gets 431. A request must arrive whole within 10 seconds, however slowly it
@@ -178,6 +221,13 @@ from 1 to 3600, and keeps the default without it. `tehasbot mcp serve` never
 passes it, so the server on a host always waits the 10 seconds. The flag is
 there for the tests, which would otherwise wait out the deadline itself.
 
+`tools/list` and `server/discover` answer with `ttlMs` of 30000 and a
+`cacheScope` of `private`. The answer itself carries no `ETag` or
+`Cache-Control` and every answer closes its connection, so the hint belongs to
+the client alone: a program that asks the list again inside the 30 seconds is
+answered the same bytes by the server, which holds the list and does not build
+it twice.
+
 The `2025-11-25` handshake is there because neither Hermes nor OpenClaw says
 yet which version it speaks. It goes once both speak `2026-07-28`.
 
@@ -189,7 +239,7 @@ the same JSON as text.
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt) |
+| `factory_status` | none | `status` (pass, warn, fail), `output`, `time`, `stale` (no report for ten minutes), `generatedAt`, `repo`, `paused`, `planning`, `limit.state`, `queue` (`inLine`, `building`, `review`, `stopped`, `time`), `cycles` (issue, running, status, step, startedAt, time), `demand` (waiting, oldest, time), `platform` (commit, behind, upstream, fetchedAt), `hold` (`why`, `text`) when something holds |
 | `factory_issues` | `stage`, optional: `queued`, `planning`, `running`, `awaiting`, `stopped` or `completed` | Per stage, the issues the dashboard lists: number, title, url, updatedAt, and closedAt when closed. `planning` is a count and issue numbers, without titles |
 | `factory_endings` | none | `endings`, the cycles that ended last (issue, status, step, startedAt, updatedAt), and `failed`, the failed ones among them (issue, status, step, startedAt, time) |
 | `factory_console` | `issue`, and `bytes` from 1 to 65536 | One running cycle's issue, step, status, statusText, startedAt, updatedAt, and the last `bytes` of its console, 64 KB without it. Only those bytes are read, however large the console |
@@ -212,6 +262,17 @@ for on each poll and which `analytics` leaves alone when nothing a poll could
 answer for has changed (see [Sessions](/analytics#sessions)); `stale` is true
 when it is more than ten minutes old. A
 session older than 30 days, or an id that is not in it, is a tool error.
+
+`factory_status` answers `hold` from `live/dispatch.json`, the poll's own
+report, which the dashboard publishes already: `why` is the one reason the poll
+gave (`slice`, `disk`, `limit`, `red` and the rest of its words) and `text` the
+line that says it. Both are copied from that file and nothing is added: the
+line is masked, then cut to 400 characters, so a cut never leaves part of a
+secret the mask would have known whole. The field is left out when the poll
+named no reason, which is how "nothing holds" is answered, and left out when
+the report is missing, unreadable or of another shape: the rest of the answer
+stands on its own, and a caller is not told the poll is not on record by a
+field that is not there.
 
 `factory_outcomes` reads `outcomes.jsonl` from the same directory, which
 `tehasbot status` asks for on each poll from `analytics outcomes`, and which is

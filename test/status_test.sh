@@ -575,6 +575,26 @@ t_eq "$t_rc" 0
 t_eq "$(cksum <"$live/status.json")" "$before"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
+t_case "given the poll's token, status leaves the health file to the poll"
+reset
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "unset TEHAS_GH_TOKEN; $status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+rm "$live/health.json"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+t_eq "$t_rc" 0
+t_eq "$([ -e "$live/health.json" ] && echo written)" ""
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=; $status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+
+t_case "the poll's token leaves the analytics of the trap alone"
+reset
+t_stub_analytics 'printf "%s\n" "{\"report\":1}"'
+T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+t_eq "$t_rc" 0
+t_eq "$(wc -l <"$T/calls/analytics")" 4
+
 t_case "with GitHub down for three hours, health warns and the queue line says how old it is"
 reset
 t_run "$status"
