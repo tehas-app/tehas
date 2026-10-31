@@ -1275,6 +1275,20 @@ fn a_millwright_start_names_its_note_of_the_ten_minutes_before_the_label() {
 }
 
 #[test]
+fn a_lifted_start_is_given_the_note_that_lifted_it_and_reads_no_comment_again() {
+    let mut t = world();
+    let note = json!({"source": "millwright:3", "by": "mill-bot", "at": "2026-10-26T09:55:00Z", "text": "the one"});
+    let mut start = start_of(7, "millwright");
+    start["park_lifted"] = note.clone();
+    t.apply(json!([start]));
+    assert!(!t.calls().iter().any(|c| c.contains("/comments")));
+    let input: Value =
+        serde_json::from_str(&fs::read_to_string(t.dir.join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["park_lifted"], note);
+    assert_eq!(input["retry_context"], json!([note]));
+}
+
+#[test]
 fn a_unit_that_did_not_start_is_stopped_when_its_approval_stays() {
     let mut t = world();
     // The wait for the start's record is the thing under test, not its length.
