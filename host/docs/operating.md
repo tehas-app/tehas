@@ -584,9 +584,12 @@ A report that differed is kept whole, with what the bash did, in
 and the bash differently in the seconds between their asks, so one
 difference is not yet a fault; the same one cycle after cycle is.
 `jq -c 'select(.same | not)' ~/tehas/logs/cycle-shadow.log` lists them. `touch
-~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it. A
-host where `libexec/tehas-cycle` is not installed, or the file is not there,
-reports as before; the shadow failing never fails the report.
+~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it.
+Without that file the bash report runs alone, and the shadow failing never
+fails the report. A host needs `libexec/tehas-cycle` all the same: without it
+the cycle still reports and ends on record, with one line `WARN: what follows
+the end of #N did not run`, and the live view, the run in the analytics, the
+improvement record, the clean, the status and the next poll do not happen.
 
 ## 4. Review and merge
 
