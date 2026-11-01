@@ -198,10 +198,9 @@ t_run "$work 7"
 t_eq "$t_rc" 4
 
 # A measure that answers other than the four counts is no line: the ledger
-# holds rows a reader can count on, or none. $tree/lib is the checkout's lib
-# through a link, so the case works from its own tree: a directory of its own
-# holding its own lib, with the broken measure beside the rest of it, and the
-# work of the same tree. Nothing of the checkout is written.
+# holds rows a reader can count on, or none. The case works from a tree of its
+# own: the lib of the checkout through a link, a console that answers junk
+# beside the work of the same tree. Nothing of the checkout is written.
 t_case "a measure that answers junk records no line, and says the measure gave up"
 size_case "$size_body"
 # The ledger of the start before, held on disk: what a broken measure must not
@@ -211,9 +210,10 @@ printf '{"at":"2026-01-01T00:00:00Z","issue":6,"files":1,"tests":0,"deliverables
 t_eq "$(size_lines)" "1"
 broken=$T/tree-broken
 mkdir -p "$broken/libexec"
-cp -R "$T_ROOT/lib" "$broken/lib"
+ln -s "$T_ROOT/lib" "$broken/lib"
 ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
-printf '%s\n' 'tehas_issue_size() { printf "%s\n" '"'"'{oops}'"'"'; }' >>"$broken/lib/sizing.sh"
+printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' >"$broken/libexec/console"
+chmod +x "$broken/libexec/console"
 t_run "$broken/libexec/work 7"
 t_eq "$t_rc" 2
 t_contains "$t_out" "could not record the size of #7 in $sizes (measure)"

@@ -66,6 +66,11 @@
 //! How full this host is and what fills it, for tehas disk and the MCP tool
 //! factory_disk, see src/disk.rs.
 //!
+//!   console size measure | record <issue> <ledger>
+//!
+//! The measure of an issue body and the ledger of what approved starts
+//! measured, see src/size.rs.
+//!
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
@@ -138,6 +143,7 @@ mod render;
 mod review;
 mod setup;
 mod shipped;
+mod size;
 mod snapshot;
 mod state;
 mod status;
@@ -357,6 +363,7 @@ fn main() -> ExitCode {
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
+            Some("size") => return ExitCode::from(size::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),

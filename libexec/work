@@ -402,7 +402,7 @@ forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
 # The ledger of the sizes tehas work records at an approved start, kept by
-# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
+# tehas_size_record (console/src/size.rs), which says what it holds and how long.
 sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # The manifest of the last fetch, kept.
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
@@ -662,7 +662,7 @@ fi
 # What the cycle starts with, measured. Only a start that had the approval
 # record to check is measured: the body is the one in $issue_now, already read
 # above, so this asks GitHub nothing more, and a run by hand, which has no
-# approved body, records nothing. lib/sizing.sh says what the ledger is and
+# approved body, records nothing. console/src/size.rs says what the ledger is and
 # keeps it bounded. A line that cannot be written is one word on this command's
 # error stream: the measure is a record of the start, never a reason to stop
 # one.

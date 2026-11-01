@@ -249,7 +249,7 @@ _tehas_valid() {
       done
       ;;
     # What tehas work measures of an approved body, and no further: the two
-    # bounds of lib/sizing.sh, each holding what the other leaves unbounded (a
+    # bounds of console/core/src/size.rs, each holding what the other leaves unbounded (a
     # body of one huge line, a body of many short ones). Both must be numbers.
     TEHAS_SIZE_MAX_BYTES | TEHAS_SIZE_MAX_LINES)
       [[ $v =~ ^[1-9][0-9]{0,7}$ ]] || { echo "expected a whole number of at least 1"; return 1; }
@@ -510,7 +510,7 @@ tehas_load() {
   # Over the medians of the idle polls of the last hour, health warns.
   export TEHAS_POLL_BUDGET=${TEHAS_POLL_BUDGET:-cpu=5,wall=30,writes=0}
   # The two bounds of the measure tehas work makes of an approved body, in
-  # bytes and in lines (lib/sizing.sh).
+  # bytes and in lines (console/core/src/size.rs).
   export TEHAS_SIZE_MAX_BYTES=${TEHAS_SIZE_MAX_BYTES:-131072} TEHAS_SIZE_MAX_LINES=${TEHAS_SIZE_MAX_LINES:-1000}
   # The factory's own 365 days of runs, events and samples in state/analytics.db
   # (lib/analytics.sh), not the visitor analytics above: on unless the instance
@@ -606,7 +606,7 @@ tehas_load() {
     export PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS=$PI_ENSEMBLE_VERIFY_TIMEOUT_MS
   fi
   # The most files an issue's own body may name before the dispatcher holds it
-  # instead of starting a cycle (libexec/dispatch, lib/sizing.sh): unset, it never
+  # instead of starting a cycle (libexec/dispatch, console/core/src/size.rs): unset, it never
   # asks, and an empty value stays empty rather than become a ceiling.
   export TEHAS_SIZE_MAX_FILES="${TEHAS_SIZE_MAX_FILES-}"
   # Agents get neither the host Docker socket nor SSH keys: not a setting here.
