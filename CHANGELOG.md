@@ -40,9 +40,10 @@ None.
   `action=retry` and `action=change` notes now reach the cycle. Before, they
   were all lost. A failed read of a parked issue's comments keeps the hold and
   says nothing on the issue (#1130).
-- `tehas disk` and the MCP tool `factory_disk` say how full a host is and what
-  fills it. `factory_disk` reads what `tehas disk --publish` last wrote, and
-  nothing refreshes that file (#1110).
+- `tehas disk` says how full a host is and what fills it, and
+  `tehas disk --publish` writes that to `live/disk.json`. It leaves out
+  `TEHAS_SCRATCH_DIR` for now (#1201). The MCP tool `factory_disk` is described
+  in the manual but not served yet (#1200) (#1110).
 - The MCP server has a key that sees only what the dashboard shows. A full key
   now serves only known tools, and a setting given twice is refused (#1146).
 - `tehasbot clean --dry-run` prunes nothing. Before, it really ran
