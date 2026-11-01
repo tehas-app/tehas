@@ -474,7 +474,6 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
-  "lib/top.sh|$TEHAS_HOME/lib/top.sh|644"
   "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
   "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   # The key a release signature is checked with. It is here so the copy an
@@ -550,8 +549,6 @@ for f in \
   status \
   stop \
   tidy \
-  top \
-  top-publish \
   update \
   with-settings \
   work; do
@@ -1227,14 +1224,17 @@ for f in \
   libexec/pause \
   libexec/state \
   libexec/summary \
+  libexec/top \
+  libexec/top-publish \
+  lib/top.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f
   [ -e "$to" ] || continue
   old+=("$to")
   changed+=("$f")
-  # A running sampler is the old file calling itself; only a restart moves it
-  # on, and the units step is what restarts it.
+  # A running sampler or publisher is the old file calling itself; only a
+  # restart moves it on, and the units step is what restarts it.
   if [ "$check" = 1 ]; then note "stale: $to"; else record_step "$f"; fi
 done
 
