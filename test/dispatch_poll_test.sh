@@ -292,6 +292,28 @@ t_contains "$(t_calls gh)" "$(title_of 31 'WIP: chore(work): running')"
 t_contains "$(t_calls gh)" "$(title_of 32 'STUCK: chore(work): handed off')"
 t_contains "$(t_calls gh)" "$(title_of 33 'chore(work): awaiting')"
 
+t_case "STUCK comes off a pull request proven fine to merge, and stays on open HIGH findings"
+reset
+titles
+echo '[]' >"$fx/ready.json"
+issue_with 12 needs-human-attention
+issue_with 13 needs-human-attention
+pulls '32|STUCK: fine|feature/issue-12-a|tehas-bot' '33|STUCK: high|feature/issue-13-b|tehas-bot'
+for n in 32 33; do
+  echo '{"draft":false,"mergeable":true,"mergeable_state":"clean","head":{"sha":"abc"}}' >"$fx/pull-$n.json"
+done
+echo '{"commit":{"committer":{"date":"2026-11-01T10:00:00Z"}}}' >"$fx/checks.json"
+review() { # <pull request> <finding>
+  jq -n --arg b "$2"$'\n<!-- pi-rukas:lens-residuals branch=b patch=p -->' \
+    '[{user: {login: "tehas-bot[bot]"}, created_at: "2026-11-01T11:00:00Z", body: $b}]' >"$fx/icomments-$1.json"
+}
+review 32 '- [LOW] a.rs:1 x'
+review 33 '- [HIGH] a.rs:1 x'
+t_run "$rpoll"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "$(title_of 32 'fine')"
+t_lacks "$(t_calls gh)" "pulls/33 -f title"
+
 t_case "tehas:refreshing on the pull request is WIP, and WIP wins over STUCK"
 reset
 titles

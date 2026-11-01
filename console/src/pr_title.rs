@@ -1,8 +1,9 @@
 //! A factory pull request's title says its state: `WIP: ` while a cycle works
 //! on it, `STUCK: ` when it waits for a person, no prefix when it is ok to
-//! merge. Only a pull request from a `feature/issue-<n>` branch by the
-//! factory's login is touched, and only when its title differs. A state that
-//! cannot be read writes nothing.
+//! merge. A pull request whose issue waits for a person loses `STUCK: ` only
+//! when it is proven fine to merge, see `fine_to_merge`. Only a pull request
+//! from a `feature/issue-<n>` branch by the factory's login is touched, and
+//! only when its title differs. A state that cannot be read writes nothing.
 //!
 //!   console pr-title sync <pr>
 //!     Read one pull request and its linked issue and set the title, for the
@@ -30,6 +31,8 @@ use tehas_core::forge::{Bounded, GhRunner};
 const RUNNING: &str = "tehas:running";
 const REFRESHING: &str = "tehas:refreshing";
 const ATTENTION: &str = "needs-human-attention";
+const REVIEW_MARK: &str = "<!-- pi-rukas:lens-residuals ";
+const COMMENTS_PAGE: usize = 100;
 const USAGE: &str = "usage: console pr-title sync <pr> | poll <file>";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +69,67 @@ fn state(pull: &[String], issue: &[String]) -> State {
     } else {
         State::Clear
     }
+}
+
+fn read(gh: &mut dyn GhRunner, path: &str) -> Result<Value, String> {
+    let out = gh.run(&["api", path])?;
+    serde_json::from_str(out.trim()).map_err(|_| format!("the answer for {path} is not JSON"))
+}
+
+/// Whether a review comment lists only findings a merge may carry. A severity
+/// not known here blocks, so a new one cannot pass unread.
+fn nothing_blocks(body: &str) -> bool {
+    body.lines()
+        .filter_map(|line| line.strip_prefix("- ["))
+        .filter_map(|rest| rest.split(']').next())
+        .all(|severity| severity == "MEDIUM" || severity == "LOW")
+}
+
+/// When the last review of `bot` was written, if it left nothing that blocks.
+/// A full page may hide a later review, so it proves nothing.
+fn passed_review<'a>(comments: &'a Value, bot: &str) -> Option<&'a str> {
+    let comments = comments.as_array().filter(|c| c.len() < COMMENTS_PAGE)?;
+    let review = comments.iter().rev().find(|c| {
+        let by = c.pointer("/user/login").and_then(Value::as_str);
+        let body = c.get("body").and_then(Value::as_str);
+        by.is_some_and(|by| account(by) == account(bot))
+            && body.is_some_and(|b| b.contains(REVIEW_MARK))
+    })?;
+    review
+        .get("body")
+        .and_then(Value::as_str)
+        .filter(|body| nothing_blocks(body))?;
+    review.get("created_at").and_then(Value::as_str)
+}
+
+/// Whether a pull request that waits for a person is proven fine to merge:
+/// GitHub calls it clean, and the factory's last review came after its head
+/// and left no finding above MEDIUM. Anything short of that is not proof.
+/// Err when a read failed, so the title stays as it is.
+fn fine_to_merge(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<bool, String> {
+    let pull = read(gh, &format!("repos/{repo}/pulls/{n}"))?;
+    let clean = pull.get("draft") == Some(&Value::Bool(false))
+        && pull.get("mergeable") == Some(&Value::Bool(true))
+        && pull.get("mergeable_state").and_then(Value::as_str) == Some("clean");
+    let Some(head) = pull
+        .pointer("/head/sha")
+        .and_then(Value::as_str)
+        .filter(|_| clean)
+    else {
+        return Ok(false);
+    };
+    let comments = read(
+        gh,
+        &format!("repos/{repo}/issues/{n}/comments?per_page={COMMENTS_PAGE}"),
+    )?;
+    let Some(reviewed) = passed_review(&comments, bot) else {
+        return Ok(false);
+    };
+    let commit = read(gh, &format!("repos/{repo}/commits/{head}"))?;
+    Ok(commit
+        .pointer("/commit/committer/date")
+        .and_then(Value::as_str)
+        .is_some_and(|committed| reviewed >= committed))
 }
 
 /// The title wanted: every prefix at the start off, the one of `state` on.
@@ -162,8 +226,12 @@ fn keep(
     repo: &str,
     pull: &Pull,
     issue: &[String],
+    bot: &str,
 ) -> Result<Option<State>, String> {
-    let wanted = state(&pull.labels, issue);
+    let mut wanted = state(&pull.labels, issue);
+    if wanted == State::Stuck && fine_to_merge(gh, repo, pull.number, bot)? {
+        wanted = State::Clear;
+    }
     let title = titled(&pull.title, wanted);
     if title == pull.title {
         return Ok(None);
@@ -203,7 +271,7 @@ fn sync(gh: &mut dyn GhRunner, repo: &str, n: u64, bot: &str) -> Result<(), Stri
         return Ok(());
     };
     let labels = issue_labels(gh, repo, issue)?;
-    keep(gh, repo, &pull, &labels).map(|_| ())
+    keep(gh, repo, &pull, &labels, &bot).map(|_| ())
 }
 
 fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value) -> Vec<String> {
@@ -222,7 +290,7 @@ fn poll(gh: &mut dyn GhRunner, repo: &str, given: &Value) -> Vec<String> {
             Some(labels) => Ok(labels),
             None => issue_labels(gh, repo, issue),
         }
-        .and_then(|labels| keep(gh, repo, &pull, &labels));
+        .and_then(|labels| keep(gh, repo, &pull, &labels, bot));
         match kept {
             Ok(None) => {}
             Ok(Some(s)) => lines.push(format!("pull request #{} is now {}", pull.number, s.word())),
@@ -398,6 +466,185 @@ mod tests {
         assert_eq!(state(&labels(&[REFRESHING]), &attention), State::Wip);
     }
 
+    const BOT: &str = "tehas-app-bot[bot]";
+    const HEAD_AT: &str = "2026-11-01T11:14:57Z";
+    const AFTER: &str = "2026-11-01T11:39:51Z";
+    const BEFORE: &str = "2026-11-01T10:47:50Z";
+
+    fn merge_read(draft: bool, mergeable: Value, merge_state: &str) -> String {
+        json!({"draft": draft, "mergeable": mergeable, "mergeable_state": merge_state,
+            "head": {"sha": "abc"}})
+        .to_string()
+    }
+
+    fn review(by: &str, at: &str, findings: &str) -> Value {
+        json!({"user": {"login": by}, "created_at": at, "body": format!(
+            "## Six-pass review — residual findings (round disclosure)\n\n{findings}\n\n\
+             <!-- pi-rukas:lens-residuals branch=b patch=p -->")})
+    }
+
+    fn commit() -> String {
+        json!({"commit": {"committer": {"date": HEAD_AT}}}).to_string()
+    }
+
+    fn fine(answers: Vec<Result<&str, &str>>) -> Result<bool, String> {
+        fine_to_merge(&mut Fake::of(answers), REPO, 9, BOT)
+    }
+
+    #[test]
+    fn a_clean_pull_reviewed_since_its_head_with_nothing_high_is_fine() {
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review(
+            BOT,
+            AFTER,
+            "- [MEDIUM] a.rs:1 — x\n- [LOW] a.rs:2 — y"
+        )]);
+        let comments = comments.to_string();
+        let commit = commit();
+        let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments), Ok(&commit)]);
+        assert_eq!(fine_to_merge(&mut gh, REPO, 9, BOT), Ok(true));
+        assert_eq!(
+            gh.calls,
+            [
+                "api repos/acme/widget/pulls/9",
+                "api repos/acme/widget/issues/9/comments?per_page=100",
+                "api repos/acme/widget/commits/abc",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pull_git_hub_does_not_call_clean_is_not_fine_and_costs_one_read() {
+        for pull in [
+            merge_read(true, json!(true), "clean"),
+            merge_read(false, json!(false), "clean"),
+            merge_read(false, Value::Null, "unknown"),
+            merge_read(false, json!(true), "blocked"),
+            merge_read(false, json!(true), "unstable"),
+            merge_read(false, json!(true), "dirty"),
+            "{}".to_string(),
+        ] {
+            let mut gh = Fake::of(vec![Ok(&pull)]);
+            assert_eq!(fine_to_merge(&mut gh, REPO, 9, BOT), Ok(false), "{pull}");
+            assert_eq!(gh.calls.len(), 1);
+        }
+    }
+
+    #[test]
+    fn a_review_must_prove_it_and_only_the_last_one_counts() {
+        let clean = merge_read(false, json!(true), "clean");
+        let low = review(BOT, AFTER, "- [LOW] a.rs:1 — x");
+        let high = review(BOT, AFTER, "- [HIGH] a.rs:1 — x");
+        let cases = [
+            ("no comment", json!([])),
+            (
+                "a person's words",
+                json!([{"user": {"login": "alice"},
+                "created_at": AFTER, "body": "lgtm"}]),
+            ),
+            ("a high", json!([high])),
+            (
+                "a critical",
+                json!([review(BOT, AFTER, "- [CRITICAL] a.rs:1 — x")]),
+            ),
+            (
+                "a severity not known",
+                json!([review(BOT, AFTER, "- [SEVERE] a.rs:1 — x")]),
+            ),
+            ("clean, then a high", json!([low, high])),
+            (
+                "a marker only another account wrote",
+                json!([review("alice", AFTER, "")]),
+            ),
+            (
+                "a full page may hide the last",
+                json!(vec![low.clone(); 100]),
+            ),
+        ];
+        for (what, comments) in cases {
+            let comments = comments.to_string();
+            assert_eq!(fine(vec![Ok(&clean), Ok(&comments)]), Ok(false), "{what}");
+        }
+        let comments = json!([high, low]).to_string();
+        let commit = commit();
+        assert_eq!(
+            fine(vec![Ok(&clean), Ok(&comments), Ok(&commit)]),
+            Ok(true),
+            "a high a later round cleared is gone"
+        );
+    }
+
+    #[test]
+    fn a_review_older_than_the_head_proves_nothing() {
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review(BOT, BEFORE, "- [LOW] a.rs:1 — x")]).to_string();
+        let commit = commit();
+        assert_eq!(
+            fine(vec![Ok(&clean), Ok(&comments), Ok(&commit)]),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn a_read_that_fails_is_no_answer() {
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review(BOT, AFTER, "- [LOW] a.rs:1 — x")]).to_string();
+        assert!(fine(vec![Err("HTTP 502")]).is_err());
+        assert!(fine(vec![Ok("not json")]).is_err());
+        assert!(fine(vec![Ok(&clean), Err("HTTP 502")]).is_err());
+        assert!(fine(vec![Ok(&clean), Ok(&comments), Err("HTTP 502")]).is_err());
+    }
+
+    #[test]
+    fn poll_clears_stuck_from_a_pull_that_is_fine_and_keeps_the_label_alone() {
+        let given = json!({"bot": BOT,
+            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "issues": {"7": [ATTENTION]}});
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review(BOT, AFTER, "- [LOW] a.rs:1 — x")]).to_string();
+        let commit = commit();
+        let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments), Ok(&commit), Ok("{}")]);
+        let lines = poll(&mut gh, REPO, &given);
+        assert_eq!(gh.calls[3], format!("{WRITE} title=a"));
+        assert_eq!(gh.calls.len(), 4);
+        assert_eq!(lines, ["pull request #9 is now without a prefix"]);
+    }
+
+    #[test]
+    fn poll_keeps_stuck_on_open_high_findings_and_writes_nothing() {
+        let given = json!({"bot": BOT,
+            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "issues": {"7": [ATTENTION]}});
+        let clean = merge_read(false, json!(true), "clean");
+        let comments = json!([review(BOT, AFTER, "- [HIGH] a.rs:1 — x")]).to_string();
+        let mut gh = Fake::of(vec![Ok(&clean), Ok(&comments)]);
+        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert_eq!(gh.calls.len(), 2);
+    }
+
+    #[test]
+    fn a_running_cycle_is_wip_however_fine_the_pull_looks_and_asks_nothing() {
+        let given = json!({"bot": BOT,
+            "pulls": [node(9, "WIP: a", "feature/issue-7-a", "tehas-app-bot")],
+            "issues": {"7": [RUNNING, ATTENTION]}});
+        let mut gh = Fake::default();
+        assert!(poll(&mut gh, REPO, &given).is_empty());
+        assert!(gh.calls.is_empty());
+    }
+
+    #[test]
+    fn a_read_that_fails_leaves_a_stuck_title_as_it_is() {
+        let given = json!({"bot": BOT,
+            "pulls": [node(9, "STUCK: a", "feature/issue-7-a", "tehas-app-bot")],
+            "issues": {"7": [ATTENTION]}});
+        let mut gh = Fake::of(vec![Err("HTTP 502")]);
+        assert_eq!(
+            poll(&mut gh, REPO, &given),
+            ["WARN: the title of pull request #9 was not kept: HTTP 502"]
+        );
+        assert_eq!(gh.calls.len(), 1);
+    }
+
     #[test]
     fn the_branch_carries_the_issue() {
         assert_eq!(linked("feature/issue-1146-mcp-a-key"), Some(1146));
@@ -428,13 +675,15 @@ mod tests {
             "open",
         );
         let issue = json!({"labels": [{"name": ATTENTION}]}).to_string();
-        let mut gh = Fake::of(vec![Ok(&pull), Ok(&issue), Ok("{}")]);
+        // A pull request GitHub does not call clean: the second read of it.
+        let mut gh = Fake::of(vec![Ok(&pull), Ok(&issue), Ok(&pull), Ok("{}")]);
         assert_eq!(sync(&mut gh, REPO, 9, "tehas-app-bot[bot]"), Ok(()));
         assert_eq!(
             gh.calls,
             [
                 "api repos/acme/widget/pulls/9".to_string(),
                 "api repos/acme/widget/issues/7".to_string(),
+                "api repos/acme/widget/pulls/9".to_string(),
                 format!("{WRITE} title=STUCK: chore(work): a"),
             ]
         );
