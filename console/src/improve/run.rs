@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
 use tehas_core::models::host_path;
+use tehas_core::sandbox;
 use tehas_core::secret::secret;
 use tehas_core::{mask, time};
 
@@ -131,19 +132,6 @@ fn next_cap(exit: i32, cap: usize, took: usize) -> usize {
         _ => cap,
     };
     next.clamp(1, MAX_TAKE)
-}
-
-/// `date -u +%y%m%d-%H%M%S`.
-fn stamp_of(t: i64) -> String {
-    let (y, m, d) = time::civil_from_days(t.div_euclid(86_400));
-    let s = t.rem_euclid(86_400);
-    format!(
-        "{:02}{m:02}{d:02}-{:02}{:02}{:02}",
-        y.rem_euclid(100),
-        s / 3600,
-        s % 3600 / 60,
-        s % 60
-    )
 }
 
 /// `date -u -d '30 days ago' +%Y-%m-%d`.
@@ -273,6 +261,99 @@ struct Loop {
     max_open: i64,
 }
 
+// What the analyst's container is started with.
+struct Analyst<'a> {
+    image: &'a str,
+    provider: &'a str,
+    model: &'a str,
+    hosts: &'a [String],
+    keys: &'a [String],
+}
+
+impl Analyst<'_> {
+    // The docker command, in order.
+    fn words(&self, run: &str, ask: &str) -> Vec<String> {
+        let mut c: Vec<String> = [
+            "docker",
+            "run",
+            "--rm",
+            "--init",
+            "--name",
+            "tehas-improve",
+            "--cgroup-parent",
+            "tehas.slice",
+            "--cpus",
+            "1",
+            "--memory",
+            "2g",
+            "--memory-swap",
+            "2g",
+            "--pids-limit",
+            "1024",
+            "--cpu-shares",
+            "1024",
+            "-e",
+            "HOME=/home/vscode",
+        ]
+        .map(String::from)
+        .to_vec();
+        for k in self.keys {
+            c.extend(["-e".to_string(), k.clone()]);
+        }
+        c.extend(
+            [
+                "-w",
+                "/improve",
+                "-v",
+                &format!("{run}/in:/improve/in:ro"),
+                "-v",
+                &format!("{run}/out:/improve/out"),
+                "-v",
+                &format!("{run}/models.json:/home/vscode/.pi/agent/models.json:ro"),
+            ]
+            .map(String::from),
+        );
+        c.extend_from_slice(self.hosts);
+        c.extend(
+            [
+                self.image,
+                "pi",
+                "-p",
+                "--no-session",
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-context-files",
+                "--tools",
+                "read,grep,find,ls,write",
+                "--provider",
+                self.provider,
+                "--model",
+                self.model,
+                ask,
+            ]
+            .map(String::from),
+        );
+        c
+    }
+}
+
+/// This file's row of the table of runs, read off the arguments of the analyst.
+pub fn table() -> String {
+    let image = "PI_ENSEMBLE_IMAGE";
+    let given = Analyst {
+        image,
+        provider: "",
+        model: "",
+        hosts: &[],
+        keys: &[],
+    };
+    let words = given.words("", "");
+    let at = words.iter().position(|w| w == image);
+    let entry = at.map_or("", |i| &words[i + 1]);
+    format!("improve\t{image}\t{entry}")
+}
+
 /// Why `prepare` ended a run before it began.
 enum Stop {
     Quiet,
@@ -327,7 +408,7 @@ impl Loop {
             provider: need("PI_ENSEMBLE_SUBAGENT_PROVIDER")?,
             model: need("PI_ENSEMBLE_SUBAGENT_MODEL")?,
             image: need("PI_ENSEMBLE_IMAGE")?,
-            hosts: models::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()),
+            hosts: sandbox::hosts(&env::var("PI_ENSEMBLE_HOST_ALIASES").unwrap_or_default()),
             skip_rukas: need("TEHAS_IMPROVE_RUKAS_SKIP")?,
             max_open,
         })
@@ -476,33 +557,17 @@ impl Loop {
             return 1;
         };
         let Ok(err) = log.try_clone() else { return 1 };
-        let path = |p: &str| run.join(p).display().to_string();
+        let run = run.display().to_string();
+        let given = Analyst {
+            image: &self.image,
+            provider: &self.provider,
+            model: &self.model,
+            hosts: &self.hosts,
+            keys,
+        };
         let mut c = Command::new("timeout");
         c.args(["-k", "60", &BOUND.to_string()]);
-        c.args(["docker", "run", "--rm", "--init", "--name", "tehas-improve"]);
-        c.args(["--cgroup-parent", "tehas.slice", "--cpus", "1"]);
-        c.args(["--memory", "2g", "--memory-swap", "2g"]);
-        c.args(["--pids-limit", "1024", "--cpu-shares", "1024"]);
-        c.args(["-e", "HOME=/home/vscode"]);
-        for k in keys {
-            c.args(["-e", k]);
-        }
-        c.args(["-w", "/improve"]);
-        c.args(["-v", &format!("{}:/improve/in:ro", path("in"))]);
-        c.args(["-v", &format!("{}:/improve/out", path("out"))]);
-        c.args([
-            "-v",
-            &format!(
-                "{}:/home/vscode/.pi/agent/models.json:ro",
-                path("models.json")
-            ),
-        ]);
-        c.args(&self.hosts).arg(&self.image);
-        c.args(["pi", "-p", "--no-session", "--no-extensions", "--no-skills"]);
-        c.args(["--no-prompt-templates", "--no-context-files"]);
-        c.args(["--tools", "read,grep,find,ls,write"]);
-        c.args(["--provider", &self.provider, "--model", &self.model]);
-        c.arg(ask);
+        c.args(given.words(&run, ask));
         c.stdin(Stdio::null()).stdout(log).stderr(err);
         match c.status() {
             Ok(s) => s.code().unwrap_or_else(|| 128 + s.signal().unwrap_or(0)),
@@ -545,7 +610,7 @@ impl Loop {
             say("cycles=0, nothing to read");
             return 0;
         }
-        let stamp = stamp_of(time::now());
+        let stamp = time::stamp(time::now());
         let dir = self.base.join(format!("run-{stamp}"));
         let cap = cap_of(&self.capf);
         let recs = oldest(recs, cap);
@@ -1190,7 +1255,7 @@ mod tests {
         // 2026-10-10T20:01:40Z
         let t = 1_791_662_500;
         assert_eq!(time::iso(t), "2026-10-10T20:01:40Z");
-        assert_eq!(stamp_of(t), "261010-200140");
+        assert_eq!(time::stamp(t), "261010-200140");
         assert_eq!(month_ago(t), "2026-09-10");
     }
 
