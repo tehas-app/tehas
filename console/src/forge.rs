@@ -1,5 +1,6 @@
-//! The forge as a command: what `lib/labels.sh` asks of GitHub, asked through
-//! `tehas_core::forge`, so that bash holds no gh call, no REST path and no rule of its own (#800 part 2).
+//! The forge as a command: what `console label` asks of GitHub, asked through
+//! `tehas_core::forge`, so that bash holds no gh call, no REST path and no rule
+//! of its own (#800 part 2).
 //!
 //!   console forge labels <issue>
 //!     The labels the issue carries, one per line. It is the site's list, so a
@@ -276,7 +277,7 @@ enum Answer {
 /// The line of one answer: the fields of an event with tabs between them, the
 /// labels one to a line, and nothing at all for the answer of a term the site had
 /// nothing to say about. A tab and not a space: a caller reads the line the way
-/// `lib/labels.sh` writes one, with `IFS=$'\t' read`. Every arm names the pair it
+/// `console label` writes one, with `IFS=$'\t' read`. Every arm names the pair it
 /// prints, so a new term or a new answer fails to compile rather than print
 /// nothing.
 fn line_of(answer: &Answer) -> String {

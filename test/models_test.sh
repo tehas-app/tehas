@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for lib/models.sh: the token names models.json may give, which endpoint
-# a provider is picked on, and the models.json a container is given. A stub
-# curl answers each host from $T/fx/<host>.json and keeps the curl config it
+# Tests for console models: the token names models.json may give, which
+# endpoint a provider is picked on, and the models.json a container is given.
+# A stub curl answers each host from $T/fx/<host>.json and keeps the curl config it
 # was handed, where the token is.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
@@ -17,7 +17,11 @@ t_stub curl 'while [ "$#" -gt 0 ]; do
 done
 h=${url#*://}; h=${h%%/*}
 cat "$T/fx/$h.json" 2>/dev/null'
-lib=". $T_ROOT/lib/config.sh; tehas_load || exit 78; . $T_ROOT/lib/models.sh"
+t_console || t_bad "$t_console_why"
+lib=". $T_ROOT/lib/config.sh; tehas_load || exit 78
+tehas_model_keys_ok() { $T_CONSOLE models keys-ok; }
+tehas_endpoint_pick() { $T_CONSOLE models pick \"\$1\"; }
+tehas_models_resolve() { $T_CONSOLE models resolve \"\$1\"; }"
 file=$T/home/.pi/agent/models.json
 t_instance "${T_MINIMAL[@]}"
 T_ENV=(TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret)
@@ -49,11 +53,6 @@ models '{"baseUrl": "https://main.test/v1", "apiKey": "unused", "backupApiKey": 
 t_run "$lib; tehas_model_keys_ok"
 t_eq "$t_rc" 78
 t_contains "$t_out" "provider test-provider"
-
-t_case "the key names are listed once each"
-models "$both"
-t_run "$lib; tehas_model_key_names"
-t_eq "$t_out" $'TEHAS_MODEL_KEY_FLEET\nTEHAS_MODEL_KEY_MAIN'
 
 t_case "a provider without a backup is on its main endpoint, and nothing is asked"
 models '{"baseUrl": "https://main.test/v1", "apiKey": "unused"}'
@@ -96,8 +95,10 @@ t_eq "$t_out" main
 
 t_case "backupApiKey defaults to apiKey"
 models '{"baseUrl": "https://main.test/v1", "apiKey": "$TEHAS_MODEL_KEY_MAIN", "backupBaseUrl": "https://fleet.test/v1"}'
-t_run "$lib; tehas_endpoint_key test-provider backup"
-t_eq "$t_out" '$TEHAS_MODEL_KEY_MAIN'
+down main.test
+offers fleet.test
+t_run "$lib; tehas_models_resolve $T/out.json"
+t_eq "$(jq -r '.providers."test-provider".apiKey' "$T/out.json")" '$TEHAS_MODEL_KEY_MAIN'
 
 t_case "a word as the key sends no token"
 models '{"baseUrl": "https://main.test/v1", "apiKey": "unused", "backupBaseUrl": "https://fleet.test/v1"}'

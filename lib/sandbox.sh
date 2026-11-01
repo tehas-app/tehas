@@ -25,9 +25,6 @@
 # Source lib/config.sh and call tehas_load first, and set here to the directory
 # of the command: the settings are read from the environment it leaves.
 
-# shellcheck source=lib/models.sh
-. "$(dirname "${BASH_SOURCE[0]}")/models.sh"
-
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is
 # given it itself. Derived from TEHAS_HOME, not a setting.
@@ -80,12 +77,6 @@ tehas_sandbox_limits() { # <command> <what>
   esac
 }
 
-# models.json is the container's own, <state>/models.json: the host's with each
-# provider on the endpoint picked now (lib/models.sh). <state>/endpoints says
-# which providers are on their backup. The options are held until that is
-# written, so a run that could not write it is given none.
-tehas_sandbox_mounts() { # <kind> <tree> <host> <state> <runs>
-  local opts
-  mapfile -d '' -t opts < <("$here/tehas-cycle" sandbox mounts "$@")
-  wait "$!" && tehas_models_resolve "$4/models.json" >"$4/endpoints" && printf '%s\0' "${opts[@]}"
-}
+# Writes <state>/models.json and <state>/endpoints too. The options come last,
+# so a run that could not write those is given none.
+tehas_sandbox_mounts() { "$here/tehas-cycle" sandbox mounts "$@"; }

@@ -32,6 +32,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::parent_id;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths, HANDOFF_SECONDS};
 use tehas_core::slice::{self, Load};
 use tehas_core::{lock, time};
@@ -479,7 +480,7 @@ fn append(file: &Path, line: &str) -> bool {
 
 /// The mounts, with what they name made on the host, and the container's own
 /// models.json on the endpoint picked now. None when it could not be done, said.
-fn mounts(t: &Tree, tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
+fn mounts(tree: &str, state_dir: &str, runs: &str) -> Option<Vec<String>> {
     let work = env("TEHAS_WORK_DIR");
     let paths = Paths {
         tree: &work,
@@ -496,9 +497,9 @@ fn mounts(t: &Tree, tree: &str, state_dir: &str, runs: &str) -> Option<Vec<Strin
             return None;
         }
     };
-    let models = format!("{state_dir}/models.json");
-    let endpoints = format!("{state_dir}/endpoints");
-    ran(Command::new(&t.console).args(["improve", "models", &models, &endpoints])).then_some(words)
+    let state = Path::new(state_dir);
+    models::write_for_container(&state.join("models.json"), &state.join("endpoints"))
+        .map(|()| words)
 }
 
 /// The second step. Its exit status.
@@ -552,7 +553,7 @@ pub fn tree(home: &Path, t: &Tree) -> i32 {
         return STOPPED;
     }
     let runs = format!("{}/.pi/agent/ensemble-runs/issue-{}", env("HOME"), t.issue);
-    let Some(words) = mounts(t, &tree, &state_dir, &runs) else {
+    let Some(words) = mounts(&tree, &state_dir, &runs) else {
         eprintln!("tehas work: could not prepare the sandbox, not starting a cycle");
         return 78;
     };

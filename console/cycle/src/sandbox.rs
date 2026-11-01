@@ -5,6 +5,8 @@
 
 use std::env;
 use std::io::{self, Write};
+use std::path::Path;
+use tehas_core::models;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::slice::{self, Host, Load};
 
@@ -41,9 +43,18 @@ fn env_options(kind: Kind, tree: &str, name: &str, email: &str) -> i32 {
     ))
 }
 
+// The options are held until the container's models.json and endpoints are
+// written, so a run that could not write them is given none.
 fn mounts(kind: Kind, p: &Paths) -> i32 {
     match sandbox::prepared_mounts(kind, p) {
-        Ok(words) => print(&words),
+        Ok(words) => {
+            let state = Path::new(p.state);
+            let out = state.join("models.json");
+            match models::write_for_container(&out, &state.join("endpoints")) {
+                Some(()) => print(&words),
+                None => 1,
+            }
+        }
         Err(why) => {
             if !why.is_empty() {
                 eprintln!("{why}");

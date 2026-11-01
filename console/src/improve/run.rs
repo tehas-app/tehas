@@ -3,7 +3,6 @@
 
 use super::body::{self, Page, Said};
 use super::check::{self, Finding, Given, Plan, Recheck};
-use super::models;
 use super::pack::pack;
 use crate::flags;
 use crate::jq::J;
@@ -16,7 +15,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::SystemTime;
-use tehas_core::models::host_path;
+use tehas_core::models::{self, host_path};
 use tehas_core::sandbox;
 use tehas_core::secret::secret;
 use tehas_core::{mask, time};
@@ -689,10 +688,10 @@ impl Run<'_> {
                 .status();
         };
         remove_container();
-        let Some(keys) = models::write(&self.dir.join("models.json")) else {
+        let Some(written) = models::write(&self.dir.join("models.json")) else {
             return Err(self.fail(&format!("no usable {}: run install.sh", host_path())));
         };
-        let exit = l.analyst(&self.dir, &keys, ask);
+        let exit = l.analyst(&self.dir, &written.keys, ask);
         // A client that timeout killed leaves its container working on.
         if exit != 0 {
             remove_container();

@@ -172,9 +172,13 @@
 //!                                     separated
 //!   tehas-cycle sandbox hosts         the --add-host options, NUL separated
 //!   tehas-cycle sandbox mounts <kind> <tree> <host> <state> <runs>
-//!                                     make what the -v options name and print
-//!                                     them, NUL separated. Exit 1 with nothing
-//!                                     printed when it cannot
+//!                                     make what the -v options name, write
+//!                                     <state>/models.json, the host's with each
+//!                                     provider on the endpoint picked now, and
+//!                                     <state>/endpoints, the providers on their
+//!                                     backup, and print the options, NUL
+//!                                     separated. Exit 1 with nothing printed
+//!                                     when it cannot
 //!   tehas-cycle sandbox table         the rows of the containers tehas work
 //!                                     starts, for the table of runs
 //!   tehas-cycle sandbox retry <host>  the provider retry a container's Pi runs

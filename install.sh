@@ -181,14 +181,36 @@ lock_wait=$(tehas_update_lock_wait)
 dispatch_wait=$(tehas_dispatch_lock_wait)
 # shellcheck source=lib/cycles.sh
 . "$root/lib/cycles.sh"
-# shellcheck source=lib/models.sh
-. "$root/lib/models.sh"
 # A partial checkout is named as the missing file it is, as every other
 # checkout file this script needs is named: sourcing it under set -e would stop
 # the run with a bare bash error and a status this header does not document.
 [ -f "$root/lib/paths.sh" ] || { echo "tehas: $root/lib/paths.sh is missing from this checkout" >&2; exit 1; }
 # shellcheck source=lib/paths.sh
 . "$root/lib/paths.sh"
+
+# Every apiKey of a models.json is a word or a set TEHAS_MODEL_KEY_ name; else
+# one line, and 78. The rule of console/core/src/models.rs, here in jq because
+# this runs before a console is built or copied.
+model_keys_ok() { # <file>
+  local bad name
+  bad=$(jq -r '.providers // {} | to_entries[] | .key as $p | .value
+    | (.apiKey, .backupApiKey) | strings
+    | select(test("^[$][{]?TEHAS_MODEL_KEY_[A-Z0-9_]+[}]?$") or (test("[$!]") | not) | not)
+    | $p' "$1" 2>/dev/null | head -n 1)
+  if [ -n "$bad" ]; then
+    tehas_err "models.json: provider $bad has an apiKey that is neither a word nor \$TEHAS_MODEL_KEY_<NAME> (see $1)"
+    return 78
+  fi
+  while read -r name; do
+    [ -n "$name" ] || continue
+    if [ -z "${!name:-}" ]; then
+      tehas_err "models.json names $name and it is not set: put it in ~/.config/tehas/env"
+      return 78
+    fi
+  done < <(jq -r '.providers // {} | .[] | (.apiKey, .backupApiKey) | strings
+    | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$1" 2>/dev/null | sort -u)
+  return 0
+}
 
 # --- 1. Instance settings ---------------------------------------------------
 # Every finding is one line. Any finding stops a real run before it changes
@@ -237,7 +259,7 @@ instance_findings() {
         echo "tehas: models.json does not list model $model under provider $provider"
     done < <(tehas_models)
     # A token is named, never written: models.json is in a repository.
-    tehas_model_keys_ok "$models" 2>&1
+    model_keys_ok "$models" 2>&1
     # The session's model is named by the product, not the instance.
     if [ -r "$TEHAS_WORK_REPO/.pi/settings.json" ]; then
       product_model=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' "$TEHAS_WORK_REPO/.pi/settings.json" 2>/dev/null || echo "/")
@@ -450,7 +472,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
   "lib/github-app.sh|$TEHAS_HOME/lib/github-app.sh|644"
   "lib/rukas.sh|$TEHAS_HOME/lib/rukas.sh|644"
@@ -1199,6 +1220,7 @@ for f in \
   lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
+  lib/models.sh \
   lib/private.sh \
   libexec/analytics-cmd \
   libexec/api \
