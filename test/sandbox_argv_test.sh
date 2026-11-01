@@ -107,15 +107,18 @@ printf '# Faster search\n\nMake it fast.\n' >"$T/brief.md"
 printf 'yes\n' >"$T/answer.md"
 # One record for the improvement loop to read.
 rec=7-261010-200140
-echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"unused"}}}' >"$T/home/.pi/agent/models.json"
+# Two tokens by name, as a host's models.json has them, so their order is pinned.
+# No backupBaseUrl, so no run asks an endpoint.
+echo '{"providers":{"test-provider":{"baseUrl":"http://models.test/v1","apiKey":"$TEHAS_MODEL_KEY_MAIN","backupApiKey":"$TEHAS_MODEL_KEY_FLEET"}}}' >"$T/home/.pi/agent/models.json"
 
-# The instance of every case: all a container can be given by name.
+# The instance of every case, and the tokens of the host's environment: all a
+# container can be given by name. A container that takes no token shows it too.
 all=("${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_REVIEW=1 TEHAS_IMPROVE_REPO=acme/factory)
 clean() {
   fresh
   rm -f "$T/docker.n"
   t_instance "${all[@]}"
-  T_ENV=("${env_ok[@]}" TEHAS_INDEX_LOCK_WAIT=1)
+  T_ENV=("${env_ok[@]}" TEHAS_INDEX_LOCK_WAIT=1 TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret)
   slice_good
 }
 
