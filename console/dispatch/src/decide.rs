@@ -20,6 +20,7 @@ mod retry;
 
 pub(crate) use clean::{iso, quiet_due, QUIET_ASKS, QUIET_BOUND};
 pub(crate) use plan::shape;
+pub(crate) use retry::{hex40, refresh_why};
 
 /// The time now as log() writes it.
 pub fn iso_now() -> String {
