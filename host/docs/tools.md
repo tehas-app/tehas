@@ -1598,8 +1598,10 @@ behind the branch. What a cycle changes, in its workspace or its worktrees, is
 never in the index.
 
 The indexer may run for 30 minutes, and `tehas-index.service` for 40, so a hung
-indexer is stopped and the next poll starts the cycles. A container
-named `tehas-index` that a killed run left behind is removed before each run.
+indexer is stopped and the next poll starts the cycles. TERM, INT and HUP end a
+run at once: it puts back what it set aside, removes its clone and exits 128
+plus the signal. A container named `tehas-index` that a killed run left behind
+is removed before each run.
 When the indexer fails, `~/tehas/state/index.json` stays as it was and
 `~/tehas/state/index.failed` holds the tip that failed. Before a cycle that tip
 is not tried again: the dispatcher does not start the unit for it, and the
