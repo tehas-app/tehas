@@ -6,6 +6,7 @@
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/install_lib.sh
 . "$(dirname "$0")/install_lib.sh" || exit 1
+real_console
 
 t_case "--check on a home not made yet makes nothing, the marker neither"
 fresh

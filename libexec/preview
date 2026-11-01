@@ -517,15 +517,9 @@ run() {
   fi
   measure
   # A preview runs the pull request's own code. Nothing is built unless the
-  # network keeps it from the host: see edge_net_fault for what that takes. An
-  # old Docker is not asked to make the network: it does not know the option
-  # that keeps the host out, and what it makes of it was not tried.
-  if fault=$(edge_docker_fault); then
-    docker network inspect "$net" >/dev/null 2>&1 || edge_net_create "$net"
-    fault=$(edge_net_fault "$net")
-  fi
-  if [ -n "$fault" ]; then
-    echo "the network $net does not keep the host out ($fault); nothing was built"
+  # network keeps it from the host: console/src/edge.rs says what that takes.
+  if ! fault=$("$console" preview network ensure "$net"); then
+    echo "the network $net does not keep the host out (${fault:-the console did not answer}); nothing was built"
     write_list
     return 0
   fi

@@ -30,10 +30,11 @@
 //!
 //!   console preview tell ...
 //!   console preview choose <repo> [max] <pull requests
+//!   console preview network check|create|ensure <network>
 //!
 //! The notice tehasbot preview keeps in a pull request's description, see
-//! src/notice.rs, and which open pull requests get a preview, see
-//! src/preview.rs.
+//! src/notice.rs, which open pull requests get a preview, see src/preview.rs,
+//! and whether the previews' network keeps the host out, see src/edge.rs.
 //!
 //!   console plan outcome|update ...
 //!
@@ -151,6 +152,7 @@
 mod clean;
 mod commands;
 mod disk;
+mod edge;
 mod energy;
 mod epics;
 mod export;
