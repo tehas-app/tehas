@@ -1217,3 +1217,67 @@ fn plan_begin_takes_auto_with_a_refine_only() {
     assert!(why.starts_with("usage plan-begin: --auto"), "{why}");
     assert!(usage(&["plan-begin", "1", "--undo", "--auto"]).starts_with("usage plan-begin: "));
 }
+
+fn view(home: &Path, args: &[&str]) -> Value {
+    let mut all = vec!["plan-view"];
+    all.extend(args);
+    ok(home, &all)["view"].clone()
+}
+
+#[test]
+fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
+    let planning = json!({
+        "session": "s", "turns": 2, "options": ["a"], "pending": false, "failed": false,
+        "running": true, "started_at": 1792497600, "comment_id": 5, "lost": true,
+        "by": "alice", "label": "tehas:plan",
+        "answers": [{"turn": 2, "by": "bob", "millwright": true, "fixer": true}],
+        "filed": ["u"], "notes": {"millwright_refused": [1], "held": [2]}
+    });
+    assert_eq!(
+        crate::plan::view_of(&planning).unwrap(),
+        concat!(
+            r#"{"session":"s","turns":2,"options":["a"],"pending":false,"failed":false,"#,
+            r#""running":true,"startedAt":"2026-10-20T12:00:00Z","comment":5,"lost":true,"#,
+            r#""by":"alice","label":"tehas:plan","answers":[{"turn":2,"by":"bob","fixer":true}],"#,
+            r#""filed":["u"],"fixer_refused":[1],"held":[2]}"#
+        )
+    );
+}
+
+// Moved from test/store_lib_test.sh: it fed tehas_plan_shape a hand-made
+// answer, which is this function's input now.
+#[test]
+fn a_mark_that_is_not_a_boolean_is_not_renamed() {
+    let planning = json!({"answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]});
+    let v: Value = serde_json::from_str(&crate::plan::view_of(&planning).unwrap()).unwrap();
+    assert_eq!(
+        v,
+        json!({"session": "", "turns": null, "options": [], "pending": null, "failed": null,
+            "running": null, "answers": [{"turn": 1, "by": "alice", "millwright": "yes"}]})
+    );
+}
+
+#[test]
+fn a_time_that_is_no_time_is_no_view() {
+    let (rc, _) = crate::plan::view_of(&json!({"started_at": "soon"})).unwrap_err();
+    assert_eq!(rc, 78);
+}
+
+#[test]
+fn a_view_with_open_is_the_open_session_only() {
+    let home = home("plan-view-open");
+    assert_eq!(view(&home, &["7"]), Value::Null);
+    assert_eq!(view(&home, &["7", "--open"]), Value::Null);
+    begin(&home, 7);
+    assert_eq!(view(&home, &["7", "--open"])["by"], "alice");
+    ok(&home, &["plan-end", "7", "--close"]);
+    assert_eq!(view(&home, &["7", "--open"]), Value::Null);
+    assert_eq!(view(&home, &["7"])["by"], "alice");
+}
+
+#[test]
+fn a_view_names_one_issue() {
+    let home = home("plan-view-args");
+    let (rc, _) = call(&home, &["plan-view", "--open"]).unwrap_err();
+    assert_eq!(rc, 64);
+}

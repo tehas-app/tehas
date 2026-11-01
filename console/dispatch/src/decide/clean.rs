@@ -4,10 +4,10 @@
 //! cycle left on this host.
 
 use super::{has, or_unknown, Poll, Step};
-use crate::events::label_actor;
 use crate::snapshot::Cycle;
 use regex::Regex;
 use serde_json::{json, Value};
+use tehas_core::events::label_actor;
 
 pub(crate) const QUIET_BOUND: u64 = 1200;
 const QUIET_RETRY: u64 = 600;

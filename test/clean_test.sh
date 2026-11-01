@@ -52,8 +52,8 @@ mkdir -p "$fx"
 # those two calls is what the cleaner reads as "docker answered", so neither
 # branch may end on a test that ran nothing.
 t_stub docker 'case "$1" in
-  # Where the images live: the one question of lib/disk.sh this stub answers,
-  # since tehas_free_kb is pointed at that directory for the second of its two
+  # Where the images live: the one question of console disk free this stub answers,
+  # since the reading is pointed at that directory for the second of its two
   # readings. `docker info` is no question the five steps of the cleaner ask.
   # A case makes docker answer nothing of it with $fx/docker-down.
   info) case "$*" in
@@ -132,7 +132,7 @@ t_stub docker 'case "$1" in
   *) exit 1 ;;
 esac'
 
-# The free disk of the host, which the cleaner reads through lib/disk.sh: the
+# The free disk of the host, which the cleaner reads through console disk free: the
 # one df of ~/tehas, the one docker info of the images and the df of the file
 # system those answers name. The figure of every file system comes from
 # $fx/free, in kilobytes as df prints them; $fx/free-docker is the figure of
@@ -361,8 +361,8 @@ worktree() { # <suffix> [name] -> the path of the tree it made
 worktrees_dir=.worktrees
 
 # Which pi-rukas commit the host follows, so the base of step 5 is named the
-# way the build names it. tehas_base_image reads the pins from the installed
-# versions.env, which the cleaner reads beside lib/ in the home it is run in;
+# way the build names it. The console reads the pins from the installed
+# versions.env, in the home it is run in;
 # a pinned commit asks nothing upstream, which is what keeps every case below
 # free of the network. The pins are what a case's reset writes, the way any
 # other setting of the instance is a case's argument.
@@ -1762,7 +1762,7 @@ reset
 base_tags
 old_base "$sha_old1" "$sha_old2"
 # Another account on the same registry, whose tag reads exactly like a base's:
-# the listing is asked of the repository tehas_base_image names, so docker
+# the listing is asked of the repository the pins name, so docker
 # answers this fixture for it and the cleaner never sees the line.
 printf '%s\n' "ghcr.io/other-owner/pi-rukas sha-eeeeeeeeeeee sha256:$(printf 'e%.0s' {1..64})" \
   >>"$fx/base-images"
@@ -2007,6 +2007,28 @@ reset
 workspace
 t_run "$clean --yes"
 t_eq "$t_rc" 64
+t_eq "$(t_calls docker)" ""
+t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
+
+t_case "a second argument is 64 whatever the first, and runs nothing"
+reset
+workspace
+for args in "--dry-run --yes" "--help --yes"; do
+  t_run "$clean $args"
+  t_eq "$t_rc" 64
+  t_contains "$t_out" "tehasbot clean: unknown argument: --yes"
+  t_contains "$t_out" "Usage:"
+done
+t_eq "$(t_calls docker)" ""
+
+t_case "an image name docker cannot list is 78 before any docker call"
+reset
+workspace
+t_instance "${T_MINIMAL[@]}" "PI_ENSEMBLE_IMAGE=tehas/pi-rukas:a:b"
+t_run "$clean"
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas: PI_ENSEMBLE_IMAGE=tehas/pi-rukas:a:b names no image docker can list"
+t_contains "$t_out" "tehas clean: PI_ENSEMBLE_IMAGE=tehas/pi-rukas:a:b is not an image name"
 t_eq "$(t_calls docker)" ""
 t_eq "$([ -e "$workdir-7/target" ] && echo there)" "there"
 

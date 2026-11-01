@@ -180,7 +180,7 @@ import { analyticsView, dueToRead as dueAnalytics } from "/fun/analytics-data.js
     }
   }
 
-  // The host itself: /live/top.json, the snapshot libexec/top builds, written
+  // The host itself: /live/top.json, the snapshot of tehas top, written
   // by tehasbot top when TEHAS_TOP is 1. What the file means - the figures, the
   // words for how old a reading is, how many rows to draw - is worked out by the
   // same function the panel on the factory floor uses (host/fun/host-data.js);

@@ -415,7 +415,7 @@ pub fn tehas_version(home: &Path) -> (Option<String>, Option<String>) {
     )
 }
 
-/// The issue's entry of the result: what tehas_headless_outcome drops too.
+/// The issue's entry of the result: what `tehas-cycle runner outcome` drops too.
 fn read_entry(run: &mut Run, e: &Map<String, Value>) {
     if run.status.is_none() || run.status.as_deref() == Some("unknown") {
         run.status = word(e, "status", 40).or(run.status.take());
