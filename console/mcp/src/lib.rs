@@ -3,6 +3,7 @@
 //! and refresh's own logs among them.
 
 pub mod decisions;
+pub mod disk;
 pub mod events;
 pub mod http;
 pub mod keys;

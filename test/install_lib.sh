@@ -136,6 +136,7 @@ files="./.bashrc
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
+./tehas/libexec/disk
 ./tehas/libexec/drain
 ./tehas/libexec/energy
 ./tehas/libexec/export

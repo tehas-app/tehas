@@ -254,6 +254,7 @@ the same JSON as text.
 | `factory_outcomes` | all optional: `tehasVersion`, `rukasVersion` (both matched exactly), `since` and `until` (a day `YYYY-MM-DD`, or a full UTC time `YYYY-MM-DDTHH:MM:SSZ`), `by` (`version` or `week`) | How the factory has done further back than 30 days, as far back as the analytics reaches: 365 days. `by` (`version` without it), `days`, `generatedAt` and `stale`, and `entries`: grouped by version, one per tehas and pi-rukas pair with `tehasVersion`, `rukasVersion`, `runs`, `outcomes`, `failureKinds` and `parkReasons` as counts, the most runs first; grouped by week, the same counts per `week` (the Monday that opens the UTC week), newest first. A run is counted on its end, and one that never ended on its start. Counts only: no issue number, title, failure cause or log content |
 | `factory_park` | `issue`, an integer from 1 to 999999999 | Why the issue's last stopped work run of the last 30 days stopped: a run whose outcome is `handoff`, `parked`, `failed` or `refused`. `id`, `started`, `ended`, `outcome`, `status`, `exitCode`, `latest` (no later work run of the issue in the window), and as the park comment's `tehas:park` marker has them `step`, `kind` (the failure kind), `cap`, `reason` (the park reason), `cause`, `provider` and `sig`, and `forksRefused` and `oomKills` when the container refused a start of a process or had one killed for memory. From the run's `result` log: `result` (`read`, `none`, `gone` or `unreadable`), `errorCode` and `error` when the runner itself stopped, such as a crash, `message`, `causeClass`, `causeReason`, `userAction` and `checks`, the failing check lines, masked, at most 20 of 400 characters each, with `checksCut` when there were more. `days` and `stale` as the session tools. An issue with no stopped run in the window is a tool error that names it |
 | `factory_decisions` | `limit` from 1 to 200, optional (50 without it) | The dispatcher's last decisions, newest last: `decisions`, each with `time`, `decision` (`start`, `skip`, `wait` or `drop`; a drop is a refresh request the dispatcher dropped), `issue` as a number and `reason` as the dispatcher logs it, masked and cut to 400 characters; for a start the reason says who started it and how. `whole` is true when the read reached the start of the log. They are the last `limit` lines of the log that hold ` start #`, ` skip #`, ` wait #` or ` drop the refresh of #` after the time. Only the last 1 MiB of the log is read |
+| `factory_disk` | none | How full this host is and what fills it, as `tehas disk --publish` wrote it: `generatedAt` (when the answer was made), `dockerRoot`, and `filesystems`, one entry per file system the factory cares about - the instance's home, Docker's own directory, `/tmp` and `TEHAS_SCRATCH_DIR` when the instance sets one - each with `paths` (the watched paths that stand on it), `mount`, `freeBytes` and `totalBytes`. A file system whose figure could not be read has none and carries `why`: no figure is never published as 0. With `full`, what fills them: `places` (biggest first, each `path`, `bytes` and the `cut` the walk ran out of), `docker` (`state` and `lines`, what `docker system df` said) and `stoppedContainers`, how many the daemon holds back. The file is written only by a run a person or a program asked for, and nothing refreshes it, so `generatedAt` says how old the answer is; no file is a tool error that says so. The server asks the host's disk nothing: no `df`, no `docker`, no walk. See [`tehas disk`](/api#tehas-disk) |
 
 The links are built from the `repo` the dashboard publishes, and only when it
 is `owner/name`. Without a valid repo a session has no links and a cause has no
@@ -320,6 +321,19 @@ and `whole` is false. The time, the word and the issue of a decision are
 checked shapes; only the reason is free text, and it is masked before it is
 cut. A log that is missing, a link or not a plain file is a tool error that
 names it.
+
+`factory_disk` reads one file and asks the host nothing: `disk.json` in the
+live directory, which `tehas disk --publish` writes (see
+[`tehas disk`](/api#tehas-disk)). The server runs no `df`, no `docker`, and no
+walk of a tree, so the answer costs the host nothing to serve and no tool call
+can make it measure anything. No timer publishes the file: a person, or a
+program that asked, decides when it is refreshed, and `generatedAt` is how old
+what is served is. Only the fields the tool names are copied out of it, so no
+other key of the host's own file reaches an answer; the ids and commands of the
+containers the daemon holds back are not among them, and the answer gives their
+count. A file that is not there is a tool error that says it was not published;
+one that is not one object is refused rather than answered as a host with
+nothing on it.
 
 ### Logs
 

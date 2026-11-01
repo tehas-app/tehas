@@ -5,6 +5,7 @@
 //! until it is named here. Null values are left out.
 
 use crate::decisions;
+use crate::disk;
 use crate::events;
 use crate::logs::{self, LogGuard};
 use crate::outcomes;
@@ -996,6 +997,7 @@ pub(crate) fn call_held(
         "factory_outcomes" => outcomes::call(dirs, args)?,
         "factory_park" => park::call(dirs, args)?,
         "factory_decisions" => decisions::call(dirs, args)?,
+        "factory_disk" => disk::call(dirs)?,
         // The guard above admits only the names of `CALLED` and every one of
         // them has an arm, which the test beside it proves name by name.
         _ => unreachable!("known admits only the names matched above"),
@@ -1004,7 +1006,7 @@ pub(crate) fn call_held(
     Ok((Output::Json(Value::Object(out)), None))
 }
 
-fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
+pub(crate) fn read(live: &Path, file: &str) -> Result<Value, ToolError> {
     let err = |why: &str| ToolError::File {
         file: file.to_string(),
         why: why.to_string(),
@@ -1151,6 +1153,10 @@ pub fn spec_of(name: &str) -> Option<Value> {
             );
             Value::Object(s)
         }
+        // factory_disk is copied with the allowlist beside its own reading, in
+        // the module that makes the answer: the file is the host's own and the
+        // door it comes through is that one spec.
+        "factory_disk" => return Some(disk::spec()),
         _ => return None,
     })
 }
@@ -1206,7 +1212,7 @@ fn put(out: &mut Map<String, Value>, key: &str, v: Option<Value>) {
     }
 }
 
-fn merge(out: &mut Map<String, Value>, v: Option<Value>) {
+pub(crate) fn merge(out: &mut Map<String, Value>, v: Option<Value>) {
     if let Some(Value::Object(m)) = v {
         out.extend(m);
     }
