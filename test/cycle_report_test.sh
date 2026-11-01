@@ -24,7 +24,7 @@ for v in "" TEHAS_CYCLE_REPORT=bash; do
   ended aborted develop
   t_run "$cycle 7"
   t_eq "$t_rc" 0
-  t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "approved after "
+  t_eq "$(tr '\n' ' ' <"$T/calls/verbs")" "runner approved after "
   t_contains "$(t_calls gh)" "Tehas cycle stopped without a pull request"
 done
 
