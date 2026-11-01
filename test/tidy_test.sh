@@ -87,17 +87,6 @@ reads() { t_calls gh | grep '^api graphql' || true; }
 tehas_page_count() {
   "$T_CONSOLE" shipped page
 }
-# The names a poll asks GitHub for, read out of the one search of the last run.
-# Parsed rather than retyped: a case that wrote the list out again would pass on
-# a search that named a label the console never printed. The last grep closes the
-# pipe early, so pipefail of the library is off for the read.
-search_labels() {
-  (
-    set +o pipefail
-    t_calls gh | grep '^issue list' | sed -n 's/.* --search label:\(.*\) --limit .*/\1/p' |
-      tr -d '"' | tr ',' '\n' | grep .
-  ) || true
-}
 # One issue's node of the closer answer, as the batched search returns it. The
 # closer is the only part a case chooses, so the shape of the timeline is
 # written once.
