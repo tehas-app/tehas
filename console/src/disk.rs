@@ -235,15 +235,6 @@ pub struct Instance {
     pub wait: u64,
 }
 
-/// One setting of the instance of this run, read the way `lib/config.sh`
-/// reads it, or nothing when there is no file or no line for it. A caller that
-/// needs the value refuses rather than guesses it.
-pub fn instance_setting(name: &str) -> Option<String> {
-    let dir = instance_dir()?;
-    let text = fs::read_to_string(dir.join("instance.env")).ok()?;
-    setting(&text, name)
-}
-
 /// One `KEY=value` line of instance.env, whose value may be quoted as shell
 /// does, or nothing when the line names another setting or holds no `=`.
 pub fn setting(text: &str, name: &str) -> Option<String> {
