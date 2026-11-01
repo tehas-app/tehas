@@ -196,7 +196,7 @@ t_gh_fail 1
 # A host of the GitHub App, so the poll takes a token before its first call and
 # hands it to every gh child as TEHAS_GH_TOKEN. The kept token is ghs_poll and a
 # token the token program makes is ghs_fresh<n>, and neither is a word the poll
-# may print: its lines go to state/dispatch.last and logs/dispatch.log, which
+# may print: its lines go to logs/dispatch.log, which
 # tehasbot clean keeps, so a failure that echoed gh's own error through would
 # keep a token in a log. This is the first case to send gh's stderr into them.
 mkdir -p "$home/libexec" "$home/state/github"

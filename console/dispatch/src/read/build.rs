@@ -22,8 +22,7 @@ pub struct Sources<'a> {
     pub models: models::Models,
     /// The subagent provider's endpoint, url and key, as the probe found it.
     pub endpoint: (String, String),
-    /// Whether the low gate may be run: a poll's, never the shadow's, which
-    /// the poll has run already.
+    /// Whether the low gate may be run: a poll's, never `decide`'s.
     pub gate: bool,
 }
 
