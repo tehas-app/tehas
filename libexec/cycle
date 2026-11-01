@@ -255,8 +255,8 @@ workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
 console=${TEHAS_CONSOLE_CMD:-$here/console}
-# A pinned cycle runs its own copy.
-tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle
+# Beside this script: a pinned cycle runs its own copy.
+tc=$here/tehas-cycle
 cycles=$TEHAS_HOME/state/cycles
 
 # Run again by tehas-cycle for the report in bash: the lock is held already, and
@@ -393,7 +393,7 @@ fi
 # reader of the poll's log wants the one line that says what could not be read.
 [ "$no_result" = 0 ] ||
   log "WARN: the result of #$issue holds nothing, so its step is read from its run log"
-outcome=$("$TEHAS_HOME/libexec/tehas-cycle" runner outcome "$result" "$issue") || outcome='{}'
+outcome=$("$tc" runner outcome "$result" "$issue") || outcome='{}'
 # The result's fields in one read, kept apart until the steps below use them.
 # The handoff is this command's to post (tehas work gives a cycle
 # PI_ENSEMBLE_HANDOFF_CHANNEL=host); it loses pi-rukas's marker line, which goes
@@ -568,7 +568,7 @@ if [ -n "$ran_log" ]; then
   # whose steps stop at commit-pr, and a run that never got there all leave it
   # empty, so GitHub is asked about no branch of its own. tehas work writes no
   # branch of its own, so nothing else says it for a cycle that wrote no result.
-  { read -r log_step; read -r log_branch; read -r log_read; } < <("$TEHAS_HOME/libexec/tehas-cycle" runner run "$ran_log" "$issue")
+  { read -r log_step; read -r log_branch; read -r log_read; } < <("$tc" runner run "$ran_log" "$issue")
   # A log the helper answered nothing at all for (no file, no number for the
   # issue) is no log whose words were read, and says nothing of the cycle. The
   # third line is the only place its answer says that, and the one word the
@@ -1024,7 +1024,7 @@ park() {
   # second one on the same text offers no retry (#832, #833).
   retry=true
   if [ "$cap" = child-timeout:develop ] && [ "$signalled" = 0 ] && last=$(timeout 30 gh api "repos/$repo/issues/$issue" 2>/dev/null |
-    timeout 30 "$TEHAS_HOME/libexec/tehas-cycle" last-attempt "$issue" "$result" "$workdir" 2>/dev/null); then
+    timeout 30 "$tc" last-attempt "$issue" "$result" "$workdir" 2>/dev/null); then
     [ "$(jq -r .action <<<"$last")" != repeat ] || { retry=false && parked+=" $(jq -r .say <<<"$last")"; }
     [ "$(jq -r .action <<<"$last")" != edit ] || jq '{body}' <<<"$last" | gh_wait=30 gh_call api -X PATCH "repos/$repo/issues/$issue" --input - >/dev/null 2>&1 ||
       log "WARN: could not leave the last attempt's note in the body of #$issue"

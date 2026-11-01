@@ -534,17 +534,20 @@ t_stub systemctl
 
 t_case "a cycle that runs from its own copy of the code runs that copy's tehas-cycle"
 reset
-mkdir -p "$T/copy/libexec"
-printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$T/copy/libexec/tehas-cycle"
-chmod +x "$T/copy/libexec/tehas-cycle"
+copy=$T/home/tehas/run/cycle-7-1
+mkdir -p "$copy/libexec"
+ln -s "$T_ROOT/lib" "$copy/lib"
+ln -s "$T_ROOT/libexec/cycle" "$copy/libexec/cycle"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "$1" >>"$T/calls/copy"' "exec \"$T_CYCLE\" \"\$@\"" >"$copy/libexec/tehas-cycle"
+chmod +x "$copy/libexec/tehas-cycle"
 rm -f "$T/home/tehas/libexec/tehas-cycle"
-T_ENV+=("TEHAS_CODE=$T/copy")
-t_run "$cycle 7"
+t_run "$copy/libexec/cycle 7"
+rm -rf "$T/home/tehas/run"
 t_eq "$t_rc" 0
 if [ "${T_CYCLE_REPORT:-}" = rust ]; then
   t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle "
 else
-  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle approved after "
+  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "cycle runner approved after "
 fi
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
 
@@ -850,6 +853,7 @@ mkdir -p "$tree/libexec" "$tree/lib"
 cp "$cycle" "$tree/libexec/cycle"
 cp "$T_ROOT"/lib/*.sh "$tree/lib/"
 for name in work status; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
+cp "$T_CYCLE" "$tree/libexec/tehas-cycle"
 for name in tehas tehasbot tehas-work tehas-status; do t_stub "$name"; done
 t_run "$tree/libexec/cycle 7"
 t_eq "$t_rc" 0
