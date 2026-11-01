@@ -212,6 +212,7 @@ broken=$T/tree-broken
 mkdir -p "$broken/libexec"
 ln -s "$T_ROOT/lib" "$broken/lib"
 ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
+cp "$T_CYCLE" "$broken/libexec/tehas-cycle"
 printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' >"$broken/libexec/console"
 chmod +x "$broken/libexec/console"
 t_run "$broken/libexec/work 7"
