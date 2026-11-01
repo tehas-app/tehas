@@ -7,7 +7,7 @@
 //!                                     GitHub it holds under "github"
 //!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
-//!       --requeued 0|1 [--now <s>]
+//!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
 //!                                     libexec/cycle execs this where the
 //!                                     instance sets TEHAS_CYCLE_REPORT=rust:
 //!                                     report the cycle, every GitHub write
@@ -164,8 +164,8 @@
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
-//! report <issue> reads what shadow and after read, and TEHAS_CYCLE_RETRY_WAIT,
-//! TEHAS_CYCLE_STOP_GH_WAIT, TEHAS_CODE, TEHAS_CONSOLE_CMD and TEHAS_STATUS_CMD.
+//! report <issue> reads what shadow and after read, and TEHAS_CYCLE_RETRY_WAIT
+//! and TEHAS_CYCLE_STOP_GH_WAIT.
 //!
 //! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
 //! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
@@ -244,6 +244,9 @@ fn main() {
         ["after", n] => after_verb(&home, issue(n, &args), &args),
         ["report", n, rest @ ..] if !rest.is_empty() => {
             let start = start(issue(n, &args), &args, rest);
+            if start.console.is_empty() || start.status_cmd.is_empty() {
+                wrong(&args);
+            }
             std::process::exit(apply::run(&home, &start));
         }
         ["shadow", n, rest @ ..] => {
@@ -361,6 +364,8 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
         approval_at: String::new(),
         requeued: false,
         now: None,
+        console: String::new(),
+        status_cmd: String::new(),
     };
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -376,6 +381,8 @@ fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
             "--approval-at" => start.approval_at = v,
             "--requeued" => start.requeued = v == "1",
             "--now" => start.now = Some(num(&v)),
+            "--console" => start.console = v,
+            "--status-cmd" => start.status_cmd = v,
             _ => wrong(args),
         }
     }
