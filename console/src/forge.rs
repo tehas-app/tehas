@@ -1,4 +1,4 @@
-//! The forge as a command: what `libexec/tidy`, `libexec/status` and
+//! The forge as a command: what `libexec/status` and
 //! `lib/labels.sh` ask of GitHub, asked through `tehas_core::forge`, so that
 //! bash holds no gh call, no REST path and no rule of its own (#800 part 2).
 //!

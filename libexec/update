@@ -961,7 +961,7 @@ build_sandbox() {
 # the installed command loads the instance settings and calls gh for each label, so
 # those two are the whole of what this step asks of the host, and the status of the
 # labels command is the status of the step. install.sh makes the same call on a
-# first install, and libexec/labels answers a repository it cannot write with 1.
+# first install, and tehas labels answers a repository it cannot write with 1.
 run_labels() {
   local out rc
   if [ ! -x "$TEHAS_HOME/bin/tehas" ]; then

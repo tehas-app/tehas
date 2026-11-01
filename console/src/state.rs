@@ -88,7 +88,7 @@ fn io_fail(what: &str) -> impl Fn(io::Error) -> Fail + '_ {
     move |e| (1, format!("{what}: {e}"))
 }
 
-/// The release in use, read as libexec/api reads it: the first line of
+/// The release in use, read as `tehas api` reads it: the first line of
 /// docs/version.txt, its tag when it is "v1.2.3+abc1234", the whole when it is
 /// a bare tag or a bare commit.
 fn tag(home: &Path) -> Result<String, Fail> {

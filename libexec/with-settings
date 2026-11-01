@@ -6,19 +6,25 @@
 # Usage: with-settings tehas|tehasbot <command> [arguments]
 #
 # The console runs `check` on the same words first, so a bad argument is 64
-# whatever the settings hold. A command with no check passes it.
+# whatever the settings hold. A command with no check passes it. A check that
+# ends 99 was the whole answer, as a help text is. `needs` names the settings
+# it cannot run without.
 #
 # Exit: the console's; 78 the settings are missing or malformed, or no console
 # stands beside this file.
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# Named before the load: tehas_load clears the TEHAS_* of the host.
 console=${TEHAS_CONSOLE:-$here/console}
 [ -x "$console" ] || { echo "${*:1:2}: no console at $console: run install.sh" >&2; exit 78; }
-"$console" check "$@" || exit
+"$console" check "$@"
+rc=$?
+[ "$rc" != 99 ] || exit 0
+[ "$rc" = 0 ] || exit "$rc"
 
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 tehas_load || exit 78
+read -r -a needed <<<"$("$console" needs "$@")"
+tehas_require "${needed[@]}"
 exec "$console" "$@"

@@ -4,8 +4,8 @@
 //! shapes libexec/dispatch reads them.
 
 use super::run::{Calls, GhFail};
-use crate::events::Events;
 use serde_json::{json, Map, Value};
+use tehas_core::events::Events;
 
 /// The mark a cycle's owner wears: applied by the bot alone when a start is
 /// journaled, and taken off by the bot when the cycle ends. The rules that
@@ -15,8 +15,8 @@ use serde_json::{json, Map, Value};
 /// that starts deciding anything from the events of a label on this list has
 /// to take it off the list first.
 ///
-/// `libexec/labels` is where the label is created and described, and
-/// `libexec/dispatch`, `libexec/stop` and `libexec/tidy` name it in their
+/// `host/labels.tsv` is where the label is created and described, and
+/// `libexec/dispatch`, `console/src/stop.rs` and `console/src/tidy.rs` name it in their
 /// commands: a rename has to reach this constant and those sites, and the two
 /// tests below tie it to the queue's page and the guard's exemption.
 pub const RUNNING: &str = "tehas:running";
@@ -306,7 +306,9 @@ pub fn dropped_events(o: &Open, exempt: &[&str]) -> bool {
 /// is older than any.
 fn label_state_of(v: &Value, label: &str) -> String {
     match Events::parse(v) {
-        Events::Read(ev) => crate::events::label_state(&ev, label).event().to_string(),
+        Events::Read(ev) => tehas_core::events::label_state(&ev, label)
+            .event()
+            .to_string(),
         // Nothing of a timeline that cannot be read says the label holds.
         Events::Failed | Events::Unreadable => String::new(),
     }
