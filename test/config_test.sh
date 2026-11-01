@@ -1742,6 +1742,23 @@ t_run "unset TEHAS_SETTINGS_CMD; . \"\$T/tree/lib/config.sh\"; tehas_load; echo 
 t_contains "$t_out" "no console at $T/home/tehas/libexec/console"
 t_contains "$t_out" "rc=78"
 
+t_case "only the check of an update from before the console loses tehas_load, and only with no console"
+mkdir -p "$T/tree/lib"
+rm -f "$T/tree/libexec/console"
+kept='. "$1/lib/config.sh"; type -t tehas_load || echo gone'
+t_run "unset TEHAS_SETTINGS_CMD; bash -c '$kept' _ \"\$T/tree\""
+t_eq "$t_out" function
+asked="$kept # install.sh will check the settings itself"
+t_run "unset TEHAS_SETTINGS_CMD; bash -c '$asked' _ \"\$T/tree\""
+t_eq "$t_out" gone
+t_run "bash -c '$asked' _ \"\$T/tree\""
+t_eq "$t_out" function
+printf '#!%s\n' "$T_BASH" >"$T/tree/libexec/console"
+chmod +x "$T/tree/libexec/console"
+t_run "unset TEHAS_SETTINGS_CMD; bash -c '$asked' _ \"\$T/tree\""
+t_eq "$t_out" function
+rm -f "$T/tree/libexec/console"
+
 t_case "a console that cannot run or does not know the verb is 78, its words are not run, and the shell goes on"
 printf 'not a program\0\0\0' >"$T/garbage"
 chmod +x "$T/garbage"
