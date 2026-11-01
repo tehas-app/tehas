@@ -1352,12 +1352,13 @@ variable-in-another-file	1	unplaced		the image "$image" is assigned by no statem
 
 t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
-# the count is what the units hold today, one run for each of the eight units
-# that start a container, three for work (the check of a runner, the check of a
-# push, and the cycle), and one for preview, the run of the comment that names
-# docker run being read by neither.
+# the count is what the units hold today: three for work (the check of a runner,
+# the check of a push, and the cycle), two for plan (the check of a runner and the
+# turn), and one each for dev, review and preview, the run of the comment that
+# names docker run being read by neither. The runs of the programs are the rows
+# of the table below.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 11
+t_eq "$count" 8
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1371,7 +1372,7 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 9 unplaced 2 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 7 unplaced 1 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
 # the line it stands on. The two the units leave today are named by who and
 # where, and by no number that a third unplaced run could drift beside: one is
@@ -1380,21 +1381,25 @@ t_eq "$(records_account "$T_ROOT/libexec")" "placed 9 unplaced 2 bad 0"
 # fails here rather than holding the count. They are compared by unit, so an
 # edit above them passes, and the failure names the lines.
 unplaced=$(unplaced_of "$T_ROOT/libexec")
-[ "$(cut -d: -f1 <<<"$unplaced")" = $'mcp\npreview' ] ||
-  t_bad "the unplaced runs are not mcp and preview: $(tr '\n' ' ' <<<"$unplaced")"
+[ "$(cut -d: -f1 <<<"$unplaced")" = preview ] ||
+  t_bad "the unplaced run is not preview: $(tr '\n' ' ' <<<"$unplaced")"
 
 t_case "every container tehas starts runs an image and a command the image checks"
 records=$(records_of "$T_ROOT/libexec")
-# The one run the console starts has no line in a unit to scan: its row is read
-# off the arguments it is started with (console/src/product.rs). The row joins
-# the table and the check of the image below as a unit's would.
+# The runs the programs start have no line in a unit to scan: each row is read
+# off the arguments its run is started with. The rows join the table and the
+# check of the image below as a unit's would.
 t_console || t_bad "no console: $t_console_why"
-console_run=$("$T_CONSOLE" check-product table)
-records+=$'\n'"${console_run/$'\t'/$'\t0\t'}"$'\t'
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CYCLE" index table)
+while IFS= read -r row; do
+  records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
+done <<<"$program_runs"
 # The table is every run the units start, with the image and the command of
 # each, and no line number. A new docker run, or a run that changes its image
 # or its command, fails here until it is added to the table on purpose.
-t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$console_run"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
+t_eq "$({ run_table "$T_ROOT/libexec"; printf '%s\n' "$program_runs"; } | LC_ALL=C sort)" 'check-product	PI_ENSEMBLE_IMAGE	bash
 dev	PI_ENSEMBLE_IMAGE	pi
 improve	PI_ENSEMBLE_IMAGE	pi
 index	PI_ENSEMBLE_IMAGE	codebase-memory-mcp

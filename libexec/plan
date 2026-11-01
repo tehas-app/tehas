@@ -266,9 +266,9 @@ mapfile -d '' -t mounts < <(tehas_sandbox_mounts turn "$repo" "$tree" "$containe
   { echo "tehas plan: could not prepare the sandbox, not starting a turn" >&2; exit 78; }
 
 user="$(id -u):$(id -g)"
-exec "$console" plan run "$issue" "$session" "$kind" "$out" "$keep" "$tree" "$container" "$images_given" "$limit" "$log" "$name" -- \
-  docker run --rm --init --name "$name" \
+set -- docker run --rm --init --name "$name" \
   "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$user" \
   -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
   "${envs[@]}" "${hosts[@]}" \
   "$image" "$runner" "${run[@]}"
+exec "$console" plan run "$issue" "$session" "$kind" "$out" "$keep" "$tree" "$container" "$images_given" "$limit" "$log" "$name" -- "$@"
