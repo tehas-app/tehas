@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tehas_core::lock;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::settings;
-use tehas_core::slice::{self, Load, Reading};
+use tehas_core::slice::{self, Host, Load, Reading};
 
 /// What the words of the command ask for.
 #[derive(Debug, Default, PartialEq)]
@@ -298,13 +298,13 @@ fn running_said(view: &str) -> Option<String> {
 
 // What the room looks like now, with the cycles that hold a lock. The session's
 // own memory comes off it once its container runs.
-fn room_said(home: &str, mut reading: Reading, usable: &slice::Usable, load: &Load) -> String {
+fn room_said(home: &str, usable: &slice::Usable, load: &Load) -> String {
     let issues = lock::held_in(&Path::new(home).join("state/cycles"));
     let cids: Vec<String> = issues
         .iter()
         .map(|n| format!("{home}/state/cycles/{n}.cid"))
         .collect();
-    reading.read_scopes(&cids);
+    let reading = Reading::of_room(slice::root(), &cids);
     let room = slice::room(&reading, usable, &load.reserve, issues.len() as u64);
     let why = match room.why.as_str() {
         "pressure" => " (it is under memory pressure)".to_string(),
@@ -345,9 +345,8 @@ fn session(given: &Words) -> u8 {
     let var = |k: &str| env::var(k).unwrap_or_default();
     let name = given.name.as_str();
     // No container starts outside the slice, and none with half its limits.
-    let reading = Reading::probe();
     let load = Load::from_env();
-    let taken = match sandbox::take(&reading, &load, "tehas dev", "a session") {
+    let taken = match sandbox::take(&Host::here(), &load, "tehas dev", "a session") {
         Ok(taken) => taken,
         Err(line) => return refuse(line),
     };
@@ -471,7 +470,7 @@ fn session(given: &Words) -> u8 {
     if let Some(said) = running_said(&view) {
         println!("tehas dev: {said}");
     }
-    println!("{}", room_said(&home, reading, &taken.slice, &load));
+    println!("{}", room_said(&home, &taken.slice, &load));
 
     // Ctrl-C belongs to the session: it must not take the terminal's reset away.
     let interrupted = Arc::new(AtomicBool::new(false));

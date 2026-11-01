@@ -15,19 +15,20 @@
 use crate::improve::models;
 use crate::store;
 use serde_json::Value;
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use tehas_core::models::host_path;
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
-use tehas_core::slice::{Load, Reading};
+use tehas_core::slice::{Host, Load};
 use tehas_core::{mask, settings, time};
 
 // How far back a host that never reviewed anything reads.
@@ -235,12 +236,7 @@ fn review() -> u8 {
         Err(line) => return refuse(line),
     };
     // No container starts outside the slice, and none with half its limits.
-    let taken = sandbox::take(
-        &Reading::probe(),
-        &Load::from_env(),
-        "tehas review",
-        "a review",
-    );
+    let taken = sandbox::take(&Host::here(), &Load::from_env(), "tehas review", "a review");
     let taken = match taken {
         Ok(taken) => taken,
         Err(line) => return refuse(line),
@@ -353,21 +349,30 @@ fn review() -> u8 {
             works.display()
         ));
     }
+    // From here the two directories are this run's. A return removes them, and
+    // a signal is one at the next step.
+    let signalled = Arc::new(AtomicUsize::new(0));
+    for signal in [SIGTERM, SIGINT, SIGHUP] {
+        let flag = Arc::clone(&signalled);
+        if signal_hook::flag::register_usize(signal, flag, signal as usize).is_err() {
+            warn("cannot listen for signals, not starting a review");
+            return 2;
+        }
+    }
+    let workspace = Workspace(vec![tree.clone(), container.clone()]);
     let gone = |dir: &str| fs::remove_dir_all(dir).is_ok() || !Path::new(dir).exists();
     let made = fs::create_dir_all(works).is_ok()
         && fs::write(works.join(".tehas-workspaces"), "").is_ok()
         && gone(&tree)
         && gone(&container)
         && sandbox::clone(&src, &tree, &branch);
-    let clean = || {
-        let _ = fs::remove_dir_all(&tree);
-        let _ = fs::remove_dir_all(&container);
-    };
     if !made {
-        clean();
         return refuse(format!(
             "tehas review: could not make the workspace {tree}, not starting a review"
         ));
+    }
+    if let Some(rc) = ended(&signalled) {
+        return rc;
     }
 
     // The run's own copy of the host's code index, and a word when it is not of
@@ -402,14 +407,12 @@ fn review() -> u8 {
     let at = Path::new(&container);
     let models = models::write_for_container(&at.join("models.json"), &at.join("endpoints"));
     let (Ok(mounts), Some(())) = (mounts, models) else {
-        clean();
         return refuse(
             "tehas review: could not prepare the sandbox, not starting a review".to_string(),
         );
     };
     // The log's directory is made here; the document beside it by the run.
     if fs::create_dir_all(format!("{home}/logs")).is_err() {
-        clean();
         return refuse(format!(
             "tehas review: could not make {home}/logs, not starting a review"
         ));
@@ -433,7 +436,6 @@ fn review() -> u8 {
             .unwrap_or_else(|_| "60".into())
             .parse(),
     ) else {
-        clean();
         warn("TEHAS_PLAN_TIMEOUT or TEHAS_STOP_WAIT is not a number of seconds");
         return 2;
     };
@@ -452,8 +454,12 @@ fn review() -> u8 {
         name: NAME.to_string(),
         doc: doc.clone(),
         log,
-        remove: vec![tree, container],
+        signalled: Arc::clone(&signalled),
+        remove: workspace.0.clone(),
     };
+    if let Some(rc) = ended(&signalled) {
+        return rc;
+    }
     let rc = run(&args);
     if rc == 10 || rc == 20 {
         file_findings(Path::new(&home), &doc, &branch, &head, &private);
@@ -633,8 +639,28 @@ struct RunArgs {
     name: String,
     doc: String,
     log: String,
+    signalled: Arc<AtomicUsize>,
     remove: Vec<String>,
     command: Vec<String>,
+}
+
+/// The directories of a run, removed on every way out of it.
+struct Workspace(Vec<String>);
+
+impl Drop for Workspace {
+    fn drop(&mut self) {
+        for dir in &self.0 {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// The exit status of a run a signal ended, as a shell gives it.
+fn ended(signalled: &AtomicUsize) -> Option<u8> {
+    match signalled.load(Ordering::Relaxed) {
+        0 => None,
+        signal => Some(128 + signal as u8),
+    }
 }
 
 /// A docker call that may not answer: None when it was still going after
@@ -766,13 +792,6 @@ fn run(args: &RunArgs) -> u8 {
         eprintln!("{e}");
         return 2;
     }
-    let signalled = Arc::new(AtomicBool::new(false));
-    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
-        if signal_hook::flag::register(signal, Arc::clone(&signalled)).is_err() {
-            warn("cannot listen for signals, not starting a review");
-            return 2;
-        }
-    }
     // A container under this name outlived its client: the caller holds the
     // lock, so it is no review's.
     bounded(&["rm", "-f", &args.name], args.stop_wait);
@@ -806,7 +825,7 @@ fn run(args: &RunArgs) -> u8 {
             stop(args, 20);
             break reap(&mut child, args);
         }
-        if signalled.load(Ordering::Relaxed) {
+        if ended(&args.signalled).is_some() {
             stop(args, 10);
             break reap(&mut child, args);
         }
@@ -874,6 +893,30 @@ fn remove(args: &RunArgs) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_workspace_goes_on_every_way_out_and_a_missing_directory_is_no_fault() {
+        let at = env::temp_dir().join(format!("review-workspace-{}", std::process::id()));
+        let (tree, state) = (at.join("tree"), at.join("tree.state"));
+        fs::create_dir_all(tree.join("sub")).unwrap();
+        fs::create_dir_all(&state).unwrap();
+        let name = |p: &Path| p.display().to_string();
+        let way_out = |dirs: Vec<String>| -> u8 {
+            let _workspace = Workspace(dirs);
+            2
+        };
+        let gone = name(&at.join("never"));
+        assert_eq!(way_out(vec![name(&tree), gone, name(&state)]), 2);
+        assert!(!tree.exists() && !state.exists());
+        fs::remove_dir_all(at).unwrap();
+    }
+
+    #[test]
+    fn a_signal_ends_a_run_as_a_shell_says_it() {
+        assert_eq!(ended(&AtomicUsize::new(0)), None);
+        assert_eq!(ended(&AtomicUsize::new(15)), Some(143));
+        assert_eq!(ended(&AtomicUsize::new(2)), Some(130));
+    }
 
     #[test]
     fn the_wanted_names_are_the_builders_and_hold_no_token() {
