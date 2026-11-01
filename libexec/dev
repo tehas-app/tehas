@@ -1,153 +1,26 @@
 #!/usr/bin/env bash
-# Work by hand on the factory host: an interactive Pi session with pi-rukas,
-# in the sandbox image, in a clone of the product that is kept between
-# sessions, on the factory's models. Outside the queue: no labels, no comments.
-#
-# Usage: tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi arguments>]
-#        tehas dev --help
-#
-#   <name>     names the clone, $TEHAS_HOME/dev/<name>: letters, digits, _ and
-#              -. Without it the name is "main". The clone is made on first
-#              use, from the product checkout, and never removed or reset.
-#   --author   whose name the commits of this clone carry. Stored next to the
-#              clone and used from then on. Without one, the bot's.
-#   --issue    give the session the images and text files that issue links,
-#              by the rules a cycle is given them. Needs TEHAS_WORK_IMAGES=1
-#              or TEHAS_WORK_FILES=1.
-#   --         what follows is passed to pi, for example: tehas dev -- -r
-#
-# Exit status: the session's own, as docker reports it, or
-#             64 a wrong argument, a malformed author, no bot token or no git
-#                identity; no container was started.
-#              4 with --issue: an image or file the issue links could not be
-#                fetched, or the issue or its label events could not be read;
-#                no container was started.
-#             78 the instance settings are invalid, tehas.slice is not usable
-#                on this host, the clone's directory exists and is not a
-#                clone, its lock stayed held for five minutes, the build output
-#                directory cannot be made or is not a directory of the user the
-#                container runs as, or --issue was given and the instance gives
-#                no images or files; no container was started.
-#
-# The container is a cycle's container with a terminal: the same image, limits,
-# mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
-# lib/slice.sh and pinned by test/dev_test.sh. It differs in the tree it works
-# in, in git's identity, in TERM and COLORTERM, and in having no cid file. Not
-# the Docker socket, SSH keys, ~/.config/tehas or the rest of the host
-# environment.
-#
-# It runs in tehas.slice with a cycle's limits: a memory ceiling of a quarter
-# of the slice, no swap, the reserve as its floor, a CPU quota, a pids limit
-# and a CPU weight. The dispatcher counts its memory with the cycles', so a session can
-# keep a cycle from starting. Before it starts, the command says how many more
-# cycles the slice has room for. Without a usable slice no clone is made and
-# nothing starts.
-#
-# With --issue the container gets two things more, as a cycle does: the
-# issue's images and files in $TEHAS_HOME/dev/<name>.images, read-only at the
-# same path, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, which names it. The directory
-# is remade from the issue's text at every start with --issue, by the rules of
-# tehas work without an approval record. The person running this is not who
-# approved anything, so the issue's images are taken when an allowed account
-# applied its last tehas:ready, or else when an owner, member or collaborator
-# opened it. Nothing is said on the issue; what was given and left out is
-# printed. Without --issue the session is given neither, and an instance's
-# PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not passed on: it would name a path the
-# container does not have.
-#
-# The author is a label, not a login. Anyone on this account can give any
-# name, and the push and the pull request still go through the bot's token.
-#
-# The host runs git in the clone once, to make it. After that a container has
-# written it, hooks and git configuration included, so no git command is run
-# there again, not even to read it.
-#
-# Beside the clone is <name>.state, this clone's own: its memory, its Pi
-# sessions, its transcripts, its own code index and its cargo build output, made
-# by `console clean session` and mounted as the session's CARGO_TARGET_DIR. It
-# is kept with the clone, so a person resumes their sessions, keeps the index
-# their session built and does not build the workspace again from nothing,
-# and no cycle shares any of it. The host's index of the product is not copied
-# here: it is keyed to the path a cycle works at, which is not the path of this
-# clone. Its target is the one thing here the cleaner may take, under the
-# clone's lock, when the host is low on disk and the tree has gone unused; this
-# command holds that lock for the session's life.
-#
-# A session shares the model endpoint with a running cycle and does not hold
-# the queue, beyond the room its memory takes in the slice. One session per
-# clone: a second waits for the lock. It needs a terminal; docker refuses to
-# start without one.
+# tehas dev: an interactive Pi session on the factory host. The session is the
+# console's, and console/src/usage/dev.txt is the usage and its exit statuses.
+# This loads the settings, asks the console whether a session can start, gets
+# the bot's token and, with --issue, the issue's images and files, which
+# lib/attachments.sh fetches. A fault stops before GitHub is called and before
+# anything is written.
 set -uo pipefail
 
-# The usage is this file's own header comment.
-show_usage() {
-  sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
-}
-refuse() {
-  printf 'tehas dev: %s\n' "$1" >&2
-  show_usage >&2
-  exit 64
-}
-
-# Name <email>, on one line. Prints nothing; fails if it is anything else.
-author_ok() {
-  case "$1" in *[[:cntrl:]]*) return 1 ;; esac
-  [[ $1 =~ ^[^\<\>[:space:]]([^\<\>]*[^\<\>[:space:]])?\ \<[^\<\>[:space:]@]+@[^\<\>[:space:]@]+\>$ ]]
-}
-
-# Arguments are read before the instance settings, so --help answers on a host
-# with no instance yet and a mistyped argument makes no clone.
-name=main
-named=0
-author=""
-issue=""
-pi_args=()
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -h | --help)
-      show_usage
-      exit 0
-      ;;
-    --author)
-      [ "$#" -ge 2 ] || refuse "--author needs a value: \"Name <email>\""
-      author_ok "$2" || refuse "not an author, expected \"Name <email>\": $2"
-      author=$2
-      shift 2
-      ;;
-    --issue)
-      [ "$#" -ge 2 ] || refuse "--issue needs an issue number"
-      case "$2" in '' | *[!0-9]* | 0*) refuse "not an issue number: $2" ;; esac
-      issue=$2
-      shift 2
-      ;;
-    --)
-      shift
-      pi_args=("$@")
-      break
-      ;;
-    -* | '') refuse "unknown argument: $1" ;;
-    *)
-      [ "$named" = 0 ] || refuse "unknown argument: $1"
-      name=$1
-      named=1
-      shift
-      ;;
-  esac
-done
-# One plain word: it becomes a directory, a file name and a container name.
-case "$name" in
-  *[!A-Za-z0-9_-]* | [_-]*) refuse "not a name for a clone (letters, digits, _ and -): $name" ;;
-esac
-
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+console=$here/console
+[ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
+"$console" check tehas dev "$@"
+rc=$?
+[ "$rc" != 99 ] || exit 0
+[ "$rc" = 0 ] || exit "$rc"
+
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
 # shellcheck source=lib/labels.sh
@@ -156,109 +29,18 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/github-app.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
-tehas_sandbox_settings_ok || exit 78
+tehas_sandbox_ok || exit 78
 tehas_checkout || exit 78
-branch=$(tehas_branch) || exit 78
-# No container starts outside the slice, and none with half its limits.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas dev: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas dev: the container limits could not be made, not starting" >&2
-  exit 78
-fi
-devs=$TEHAS_HOME/dev
-tree=$devs/$name
-stored=$devs/$name.author
-# The issue's images, at the same path inside the container as on the host.
-images=$devs/$name.images
-# The clone's own state on the host: what this session writes and nothing a
-# cycle wrote. Kept with the clone.
-state=$devs/$name.state
-runs=$state/runs
-# Where the session's cargo build output lives, on the host and in the
-# container. The container's path comes from lib/sandbox.sh; no setting names
-# either.
-target_host=$state/target
-target_container=$(tehas_sandbox_target_dir)
+tehas_branch >/dev/null || exit 78
 
+slice=$("$console" dev ready "$@") || exit
 tehas_github_env || { echo "tehas dev: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
-if [ -n "$issue" ] && [ "$TEHAS_WORK_IMAGES" != 1 ] && [ "$TEHAS_WORK_FILES" != 1 ]; then
-  echo "tehas dev: this instance gives no images or files (TEHAS_WORK_IMAGES, TEHAS_WORK_FILES), so --issue has nothing to give" >&2
-  exit 78
-fi
-# Its path is this command's to give, not the instance's.
-unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS
 
-# Whose name the commits carry: the author given now, else the stored one,
-# else the bot's, which is the tehas user's own git identity.
-if [ -z "$author" ] && [ -e "$stored" ]; then
-  IFS= read -r author <"$stored" || true
-  author_ok "$author" ||
-    { echo "tehas dev: $stored does not hold \"Name <email>\"; give --author again" >&2; exit 64; }
-fi
-if [ -n "$author" ]; then
-  git_name=${author% <*}
-  git_email=${author##*<}
-  git_email=${git_email%>}
-  who="$author"
-else
-  git_name=$(git config --global user.name || true)
-  git_email=$(git config --global user.email || true)
-  [ -n "$git_name" ] && [ -n "$git_email" ] ||
-    { echo "tehas dev: git user.name and user.email are not set for $(id -un), and $name has no --author" >&2; exit 64; }
-  who="the bot, $git_name <$git_email>. Give --author \"Name <email>\" once to use your own"
-fi
-
-# An existing clone is known by its .git directory and by nothing git would
-# have to be run for. Anything else with files in it is somebody's, not ours.
-fresh=0
-if [ ! -d "$tree/.git" ]; then
-  if [ -e "$tree" ] && { [ ! -d "$tree" ] || [ -n "$(ls -A "$tree" 2>/dev/null)" ]; }; then
-    echo "tehas dev: $tree exists and is not a clone, not touching it" >&2
-    exit 78
-  fi
-  fresh=1
-fi
-
-mkdir -p "$devs" || exit 78
-if [ -n "$author" ]; then
-  printf '%s\n' "$author" >"$stored" || { echo "tehas dev: cannot write $stored" >&2; exit 78; }
-fi
-
-# The clone's lock, held on descriptor 9 for the session's life, so no session
-# meets a target half removed. `console clean session` makes the state and the
-# build output, refuses a wrong shape, and prints the lock's path.
-console=$here/console
-[ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
-lock=$("$console" clean session "$TEHAS_HOME" "$name" 300) ||
-  { echo "tehas dev: not starting a session of $name" >&2; exit 78; }
-exec 9>"$lock" || { echo "tehas dev: cannot open $lock, not starting a session" >&2; exit 78; }
-flock -w 300 9 || { echo "tehas dev: $lock is held, not starting a second session" >&2; exit 78; }
-# The cleaner may have taken it while this waited, and docker would make it root's.
-[ -d "$target_host" ] || mkdir "$target_host" ||
-  { echo "tehas dev: cannot make $target_host, not starting a session" >&2; exit 78; }
-
-if [ "$fresh" = 1 ]; then
-  # Made beside its place and moved there whole. A clone that stopped halfway
-  # has a .git directory too, and the next run would take it for a finished
-  # one. The name starts with a dot, which no clone's name can.
-  making=$devs/.$name.making
-  rm -rf "$making"
-  if ! { tehas_sandbox_clone "$TEHAS_WORK_REPO" "$making" "$branch" &&
-    { [ ! -d "$tree" ] || rmdir "$tree"; } && mv "$making" "$tree"; }; then
-    rm -rf "$making"
-    # Only empty ones: a state a person kept from an earlier clone stays.
-    rmdir "$target_host" "$state" 2>/dev/null
-    echo "tehas dev: could not make the clone $tree, not starting a session" >&2
-    exit 78
-  fi
-  echo "tehas dev: made $tree at the tip of $branch the product checkout last fetched"
-fi
-
-image_opts=()
-if [ -n "$issue" ]; then
+read -r name issue < <("$console" dev words "$@")
+if [ "$issue" != - ]; then
+  images=$TEHAS_HOME/dev/$name.images
+  mkdir -p "$TEHAS_HOME/dev" || exit 78
   approved=""
   tehas_label_allowed "$issue" tehas:ready
   case $? in
@@ -273,65 +55,6 @@ if [ -n "$issue" ]; then
   fi
   said=$(tehas_issue_images_said "$images" session "$(tehas_rukas_reads_images)")
   [ -z "$said" ] || printf '%s\n' "$said" | sed 's/^/tehas dev: /'
-  image_opts=(-v "$images:$images:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images")
 fi
 
-mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
-# Given after the shared list, so this is the one CARGO_TARGET_DIR the container has.
-mounts+=(-v "$target_host:$target_container")
-envs+=(-e "CARGO_TARGET_DIR=$target_container")
-mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-[ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
-  { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
-tehas_sandbox_security_take "tehas dev" "a session" || exit 78
-
-echo "tehas dev: $tree, commits as $who"
-# The running cycles, from the view or from the one object an earlier version wrote.
-running=$(jq -r '(if has("cycles") then .cycles else [select(.running == true)] end)[] | .issue' \
-  "$TEHAS_HOME/live/running.json" 2>/dev/null | paste -sd, - | sed 's/,/, /g') || running=""
-case "$running" in
-  '') ;;
-  *,*) echo "tehas dev: cycles are running on issues $running; the session shares the model endpoint with them" ;;
-  *) echo "tehas dev: a cycle is running on issue $running; the session shares the model endpoint with it" ;;
-esac
-
-# The room the dispatcher would find now, with the cycles that hold a lock.
-# The session's own memory comes off it once its container runs.
-cids=()
-count=0
-while IFS= read -r n; do
-  [ -n "$n" ] || continue
-  count=$((count + 1))
-  cids+=("$TEHAS_HOME/state/cycles/$n.cid")
-done < <(tehas_cycles_running)
-room=0
-why=""
-note=""
-read -r room _ _ _ why note < <(tehas_slice_room "$count" "${cids[@]}") || true
-[[ $room =~ ^[0-9]+$ ]] || { room=0 why=unreadable; }
-case "$why" in
-  pressure) why=" (it is under memory pressure)" ;;
-  full) why=" (it holds as many containers as their ceilings fit)" ;;
-  unreadable) why=" (its use could not be read${note:+: $note})" ;;
-  *) why="" ;;
-esac
-echo "tehas dev: tehas.slice has room for $room more cycles$why"
-
-# TERM and COLORTERM by name: Pi draws a terminal interface, and docker's own
-# default describes a plainer terminal than most people sit at.
-docker run --rm -it --init --name "tehas-dev-$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" \
-  -w "$tree" "${mounts[@]}" "${image_opts[@]}" \
-  "${envs[@]}" -e TERM -e COLORTERM "${hosts[@]}" \
-  "$PI_ENSEMBLE_IMAGE" pi "${pi_args[@]}" 9>&-
-rc=$?
-
-# Pi leaves the terminal on its alternate screen with the cursor hidden when
-# its container is killed. These do nothing to a terminal that is in order.
-if [ -t 1 ]; then
-  stty sane 2>/dev/null
-  tput rmcup 2>/dev/null
-  tput cnorm 2>/dev/null
-fi
-exit "$rc"
+TEHAS_DEV_SLICE=$slice exec "$console" dev run "$@"
