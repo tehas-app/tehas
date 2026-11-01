@@ -53,6 +53,19 @@ t_lacks "$t_out" "TEHAS_MODEL_KEY_MAIN"
 t_lacks "$t_out" "main-secret"
 T_ENV=("${T_ENV[@]:0:${#T_ENV[@]}-1}")
 
+t_case "an apiKey that is neither a word nor a TEHAS_MODEL_KEY_ name is a finding, as the console's own check"
+fresh
+instance
+for key in '$GH_TOKEN' '!cat /etc/passwd' 'pre$TEHAS_MODEL_KEY_MAIN'; do
+  jq --arg k "$key" '.providers."test-provider".backupApiKey = $k' "$TEHAS_INSTANCE_DIR/models.json" >"$T/m.json"
+  cp "$TEHAS_INSTANCE_DIR/models.json" "$T/good.json"
+  mv "$T/m.json" "$TEHAS_INSTANCE_DIR/models.json"
+  t_run "$install --check"
+  t_eq "$key:$t_rc" "$key:78"
+  t_contains "$t_out" "provider test-provider has an apiKey that is neither a word nor"
+  mv "$T/good.json" "$TEHAS_INSTANCE_DIR/models.json"
+done
+
 t_case "a model token in ~/.config/tehas/env is found when the shell running install.sh does not have it"
 # A first install has no env.sh, and an update runs under the loader of the
 # version before, which may drop the token.

@@ -1,4 +1,4 @@
-//! An issue's label events, read as lib/labels.sh reads them.
+//! An issue's label events.
 //!
 //! One rule for an event with no time, and it has two directions: an event
 //! with no `created_at` is older than any when it must not authorise something
@@ -82,6 +82,12 @@ impl Events {
         }
         Events::Read(out)
     }
+}
+
+/// Whether `login` is on the allowed list, logins with one space between them
+/// as lib/config.sh checks it. An empty name is nobody and is never allowed.
+pub fn allowed_in(list: &str, login: &str) -> bool {
+    !login.is_empty() && list.split(' ').any(|l| l == login)
 }
 
 /// Who applied `label` most recently, and when: tehas_label_actor. Events
@@ -239,6 +245,20 @@ pub fn first_unallowed_rename(
         };
         (!allowed(&who)).then_some(who)
     })
+}
+
+#[cfg(test)]
+mod allowed_tests {
+    use super::allowed_in;
+
+    #[test]
+    fn only_a_whole_login_of_the_list_is_allowed() {
+        assert!(allowed_in("alice bob", "bob"));
+        assert!(!allowed_in("alice bob", "bo"));
+        assert!(!allowed_in("alice bob", "alice bob"));
+        assert!(!allowed_in("alice bob", ""));
+        assert!(!allowed_in("", ""));
+    }
 }
 
 #[cfg(test)]

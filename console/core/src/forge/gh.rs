@@ -1,7 +1,7 @@
 //! The reading of gh's answers, and the rules that decide which of an issue's
 //! events answer a term.
 //!
-//! These are the rules `lib/labels.sh` states, kept where the tests can hold
+//! These are the rules of a label's events, kept where the tests can hold
 //! them without gh or a network. [`event_order`] is the one place the ordering
 //! of events is stated; the terms here read it and nothing restates it.
 //!
@@ -10,8 +10,8 @@
 //! site's answer that an issue carries no label, and a caller that took a
 //! broken answer for it would clear a label nobody took off.
 //!
-//! The three readers of label events in this workspace - this one,
-//! `console/dispatch/src/events.rs` and `lib/labels.sh` - order events by the
+//! The two readers of label events in this workspace - this one and
+//! `console/core/src/events.rs` - order events by the
 //! same rule, and the words [`why`] holds are the words `libexec/dispatch`'s
 //! `gh_json` greps. The dispatcher's `read::run::gh_why` keeps a regex copy of
 //! that list where its own caller is; `tehas-dispatch` already depends on this
@@ -76,8 +76,8 @@ fn last_of(of: &[&Event]) -> Option<super::LabelEvent> {
 /// than any stamped one (see [`Event`]). Of events the stamp cannot separate,
 /// the application sorts before the removal, so a label applied and taken off
 /// inside one second counts as gone; of two of one kind `sort_by`'s stability
-/// keeps the order the pages handed back, so the LAST one answers, as jq's
-/// stable `sort_by` answers in `lib/labels.sh`.
+/// keeps the order the pages handed back, so the LAST one answers, as a
+/// stable sort answers.
 ///
 /// The pause is the one reader of these rules that orders the tie the other
 /// way, so that a pause lifted in the second it was applied still holds the

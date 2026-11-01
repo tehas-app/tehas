@@ -17,7 +17,8 @@ for name in example tehas-tehas; do
   keep=("${T_ENV[@]}")
   while read -r k; do
     [ -z "$k" ] || T_ENV+=("$k=stand-in")
-  done < <(bash -c ". $T_ROOT/lib/models.sh; tehas_model_key_names $TEHAS_INSTANCE_DIR/models.json")
+  done < <(jq -r '.providers[] | (.apiKey, .backupApiKey) | strings
+    | select(startswith("$")) | ltrimstr("$") | ltrimstr("{") | rtrimstr("}")' "$TEHAS_INSTANCE_DIR/models.json")
   t_run "$install --check"
   t_lacks "$t_out" "INVALID"
   t_contains "$t_out" "Instance:     $T_ROOT/instances/$name OK"
