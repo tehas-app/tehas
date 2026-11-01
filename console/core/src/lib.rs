@@ -12,5 +12,7 @@ pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;
+#[cfg(feature = "mask")]
+pub mod size;
 pub mod slow;
 pub mod time;
