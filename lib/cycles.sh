@@ -12,9 +12,6 @@
 # state store's (lib/store.sh).
 #
 #   tehas_cycle_running <issue>   0 if that issue's cycle holds its lock
-#   tehas_cycle_lock_free <issue> 0 only when the poll can tell the lock is
-#                                 free: no lock file, or one it can take. It is
-#                                 not 0 when the probe could not tell.
 #   tehas_cycles_running          the issues with a running cycle, one per line:
 #                                 one call of the store's locks-held where
 #                                 lib/store.sh is sourced, else a probe a file
@@ -40,13 +37,6 @@
 tehas_cycle_running() {
   local lock=$TEHAS_HOME/state/cycles/$1.lock
   [ -e "$lock" ] && ! flock -n 9 9<"$lock"
-}
-
-tehas_cycle_lock_free() {
-  local lock=$TEHAS_HOME/state/cycles/$1.lock
-  [ -e "$lock" ] || return 0
-  [ -f "$lock" ] && [ ! -L "$lock" ] || return 1
-  flock -n 9 9<"$lock"
 }
 
 tehas_cycles_running() {

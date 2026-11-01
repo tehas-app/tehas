@@ -1,6 +1,6 @@
 //! What a snapshot asks of the model endpoints and the sandbox image, as
 //! libexec/dispatch asks it: mesh_check over lib/models.sh, image_ok's
-//! image and model, and tehas_refresh_continues. curl and docker do the
+//! image and model, and whether a refresh can continue. curl and docker do the
 //! asking, under the bash's bounds.
 
 use super::run::{run, run_input};
@@ -200,7 +200,7 @@ pub fn images(m: &Models, url: &str, key: &str) -> Value {
     json!({"rukas": reads, "commit": commit, "declares": declares, "answers": answers})
 }
 
-/// tehas_refresh_continues: whether the image's pi-rukas takes --continue-pr
+/// Whether the image's pi-rukas takes --continue-pr
 /// natively.
 pub fn continues() -> bool {
     let wait = std::env::var("TEHAS_CAPS_WAIT")

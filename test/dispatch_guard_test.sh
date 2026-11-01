@@ -32,47 +32,98 @@ t_run "$dispatch --dry-run"
 t_eq "$t_rc" 78
 git -C "$checkout" remote set-url origin "$upstream"
 
-# The settings without TEHAS_DISPATCHER, and a Rust poll that says it ran.
-dispatcher_unset() {
-  local v
-  unset_settings=()
-  for v in "${T_MINIMAL[@]}"; do [[ $v == TEHAS_DISPATCHER=* ]] || unset_settings+=("$v"); done
+# A Rust poll that says it ran.
+rust_poll() {
   printf '#!/bin/sh\necho "rust poll: $*"\n' >"$T/bin/rust-poll"
   chmod +x "$T/bin/rust-poll"
   keep_env=("${T_ENV_ALWAYS[@]}")
   T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/rust-poll")
 }
 
-t_case "with no TEHAS_DISPATCHER the poll is the Rust one, with its arguments"
+t_case "the poll is tehas-dispatch, with its arguments"
 reset
-dispatcher_unset
-t_instance "${unset_settings[@]}"
+rust_poll
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_eq "$t_out" "rust poll: poll --dry-run"
 t_eq "$(t_calls gh)" ""
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_eq "$t_out" "rust poll: poll"
 T_ENV_ALWAYS=("${keep_env[@]}")
 
-t_case "TEHAS_DISPATCHER=bash is the bash poll"
+t_case "TEHAS_DISPATCHER=rust is the same poll"
 reset
-dispatcher_unset
-t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=bash
-bash_poll_console
+rust_poll
+t_instance "${T_MINIMAL[@]}" TEHAS_DISPATCHER=rust
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
-t_lacks "$t_out" "rust poll"
-t_contains "$t_out" "would run a cycle for #7"
+t_eq "$t_out" "rust poll: poll --dry-run"
 T_ENV_ALWAYS=("${keep_env[@]}")
 
-t_case "a TEHAS_DISPATCHER of neither stops the poll with 78"
+for v in bash perl; do
+  t_case "TEHAS_DISPATCHER=$v stops the poll with 78 before it runs"
+  reset
+  rust_poll
+  t_instance "${T_MINIMAL[@]}" TEHAS_DISPATCHER=$v
+  t_run "$dispatch --dry-run"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_DISPATCHER is set and this version of tehas has no bash poll"
+  t_lacks "$t_out" "rust poll"
+  t_eq "$(t_calls gh)" ""
+  T_ENV_ALWAYS=("${keep_env[@]}")
+done
+
+t_case "a poll program that cannot run stops the poll with 78, and calls nothing"
 reset
-dispatcher_unset
-t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=perl
-t_run "$dispatch --dry-run"
+keep_env=("${T_ENV_ALWAYS[@]}")
+: >"$T/bin/plain-file"
+chmod 644 "$T/bin/plain-file"
+for program in "$T/bin/no-such-poll" "$T/bin/plain-file" "$T/bin"; do
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas: $program is not installed (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+rm -f "$T/bin/plain-file"
+for bytes in '' '\n' 'not a program\n' '\01\02\03\04\05'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "is not installed (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+for bytes in '\0177ELF\02\01\01' '#!/no/such/interpreter\n'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas: $T/bin/not-a-program cannot run (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+rm -f "$T/bin/not-a-program"
+T_ENV_ALWAYS=("${keep_env[@]}")
+
+t_case "with no TEHAS_DISPATCH_CMD the poll is the program beside the command"
+reset
+tree=$T/wrapper
+mkdir -p "$tree/libexec"
+ln -sfn "$T_ROOT/lib" "$tree/lib"
+cp "$dispatch" "$tree/libexec/dispatch"
+keep_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
+t_run "$tree/libexec/dispatch"
 t_eq "$t_rc" 78
-t_contains "$t_out" "TEHAS_DISPATCHER is not valid: expected bash or rust"
-t_lacks "$t_out" "rust poll"
-t_eq "$(t_calls gh)" ""
+t_contains "$t_out" "tehas: $tree/libexec/tehas-dispatch is not installed (run install.sh)"
+printf '#!/bin/sh\necho "beside it: $*"\n' >"$tree/libexec/tehas-dispatch"
+chmod +x "$tree/libexec/tehas-dispatch"
+t_run "$tree/libexec/dispatch --dry-run"
+t_eq "$t_rc" 0
+t_eq "$t_out" "beside it: poll --dry-run"
 T_ENV_ALWAYS=("${keep_env[@]}")
 
 t_case "a missing checkout stops before any label changes, even with TEHAS_BRANCH set"
@@ -101,18 +152,13 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "ERROR: gh repo view failed"
 t_lacks "$t_out" "nothing to do"
 
-# The first read of the poll: the bash's look-up of the repository, the
-# Rust's page of the queue.
-first_read="repo view"
-bash_reads || first_read="api graphql"
-
 t_case "a failed call names gh's error by words of a fixed list"
 reset
 echo 'HTTP 502: Bad Gateway for query with a sk-secret-looking body' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh $first_read failed: HTTP 502"
+t_contains "$t_out" "ERROR: gh api graphql failed: HTTP 502"
 t_lacks "$t_out" "sk-secret"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 
@@ -122,7 +168,7 @@ echo 'something an agent wrote' >"$fx/gh-stderr"
 : >"$fx/gh-stderr-fails"
 t_run "$dispatch"
 t_eq "$t_rc" 1
-t_contains "$t_out" "ERROR: gh $first_read failed"
+t_contains "$t_out" "ERROR: gh api graphql failed"
 t_lacks "$t_out" "an agent wrote"
 rm -f "$fx/gh-stderr" "$fx/gh-stderr-fails"
 
@@ -259,18 +305,6 @@ t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_contains "$t_out" "only applied it"
 t_eq "$(t_calls fake-start)" ""
-
-t_case "events that cannot be read start nothing"
-# The Rust poll reads the label events with its page, which fails as a whole.
-if bash_reads; then
-  reset
-  rm -f "$fx/events-1.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "gh api repos/acme/widget/issues/1/events?per_page=100 failed"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-fi
 
 t_case "events that cannot be understood start nothing"
 reset
@@ -451,9 +485,6 @@ t_case "a poll that fails after the bot's login still tidies, and keeps its exit
 reset
 rm "$fx/control.json"
 t_run "$dispatch"
-# The control issue is a read of the bash poll's own; the Rust poll's page
-# has it, so nothing fails there.
-bash_reads && t_eq "$t_rc" 1
 t_eq "$(t_calls fake-tidy | wc -l)" 1
 
 t_case "a failed tidy does not change the poll's exit status"
@@ -735,35 +766,31 @@ t_lacks "$t_out" "older tehas"
 t_eq "$(t_calls fake-start)" "7"
 rm -rf "$T/home/tehas/state/imported-20261024" "$T"/home/tehas/state/plan-5.* "$T/home/tehas/state/refined.jsonl" "$T"/home/tehas/state/cycles/5.*.new "$T"/home/tehas/state/cycles/shadow-5.*
 
-# No TEHAS_TIDY_CMD and a console beside the command, as on a host of
-# TEHAS_DISPATCHER=bash. The last case of the file: T_BASH_POLL stays in T_MINIMAL.
-bash_poll_host() {
-  local v tree=$T/bash-poll-tree
+# No TEHAS_TIDY_CMD and a console beside the poll, as on a host.
+host_poll() {
+  local v tree=$T/poll-tree
   # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
   t_console || t_bad "no console: $t_console_why"
-  mkdir -p "$tree/libexec"
-  ln -sfn "$T_ROOT/lib" "$tree/lib"
-  ln -sf "$T_ROOT"/libexec/* "$tree/libexec/"
-  rm -f "$tree/libexec/dispatch"
-  cp "$T_ROOT/libexec/dispatch" "$tree/libexec/dispatch"
-  cp "$T_CONSOLE" "$tree/libexec/console"
-  T_BASH_POLL=1 reset
+  reset
+  mkdir -p "$tree"
+  cp "$T_DISPATCH" "$tree/tehas-dispatch"
+  cp "$T_CONSOLE" "$tree/console"
   local -a kept=()
   for v in "${T_ENV[@]}"; do [[ $v == TEHAS_TIDY_CMD=* ]] || kept+=("$v"); done
   T_ENV=("${kept[@]}")
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$tree/tehas-dispatch" TEHAS_HEALTH_CMD=fake-health)
   echo '[{"number":44,"state":"CLOSED","labels":[{"name":"tehas:awaiting-merge"},{"name":"tehas:shipped"}]}]' >"$fx/closed.json"
-  bash_poll=$tree/libexec/dispatch
 }
 
-t_case "the bash poll runs the console's tidy on a host, and a dry run edits nothing"
-bash_poll_host
-t_run "$bash_poll --dry-run"
+t_case "the poll runs the console's tidy on a host, and a dry run edits nothing"
+host_poll
+t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tidy #44: would remove tehas:awaiting-merge"
 t_lacks "$t_out" "No such file"
 t_lacks "$(t_calls gh)" "issue edit"
-bash_poll_host
-t_run "$bash_poll"
+host_poll
+t_run "$dispatch"
 t_eq "$t_rc" 0
 t_contains "$t_out" "tidy #44: removed tehas:awaiting-merge"
 t_lacks "$t_out" "No such file"

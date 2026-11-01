@@ -14,8 +14,7 @@ t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
 t_health || t_bad "no console: $t_console_why"
 
 home=$T/home/tehas
-# The bash poll runs health from beside it; the binary is built elsewhere, so
-# it is named.
+# The binary is built elsewhere, so the health beside it is named.
 rpoll=". \"$T_ROOT/lib/config.sh\" && tehas_load && TEHAS_HEALTH_CMD=\"$T_HEALTH\" \"$T_DISPATCH\" poll"
 untimed() { sed -E 's/^[0-9T:-]+Z //' <<<"$1"; }
 
@@ -56,7 +55,7 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: records of an older tehas at $home/state/cycles/7.approved.json; run install.sh again"
 rm -f "$home/state/cycles/7.approved.json"
 
-t_case "a dry run logs what the bash poll's dry run logs"
+t_case "a dry run logs what a poll would do"
 reset
 echo '[]' >"$fx/ready.json"
 t_run "$dispatch --dry-run"
@@ -122,7 +121,7 @@ t_lacks "$(t_calls gh)" "issues/9/events?per_page=100 --paginate"
 release
 rm -f "$fx/page-drops-events"
 
-t_case "a poll that starts a cycle logs what the bash poll logs, line for line"
+t_case "a poll that starts a cycle logs its lines, line for line"
 reset
 t_run "$dispatch"
 b=$(untimed "$t_out")
@@ -140,7 +139,7 @@ t_eq "$([ -e "$home/state/dispatch.again" ] && echo kept)" kept
 t_run "$rpoll"
 t_eq "$([ -e "$home/state/dispatch.again" ] && echo kept)" ""
 
-t_case "a lock nothing used for 30 days is swept, and said as the bash says it"
+t_case "a lock nothing used for 30 days is swept, and said"
 reset
 echo '[]' >"$fx/ready.json"
 mkdir -p "$home/state/cycles"
@@ -160,7 +159,7 @@ t_eq "$(jq -r '.time | type' "$home/live/demand.json" 2>/dev/null)" string
 t_eq "$(jq -r .waiting "$home/live/demand.json" 2>/dev/null)" 1
 t_eq "$(TEHAS_HOME=$home "$home/libexec/store" poll-show | jq -r .last.starts)" 1
 
-t_case "a closed low gate holds the lowest issues as the bash poll holds them, the gate asked once"
+t_case "a closed low gate holds the lowest issues, the gate asked once"
 gate_once() {
   t_stub gate-run "echo ran >>\"$T/calls/gate-runs\"
 exit 1"
@@ -186,12 +185,8 @@ t_contains "$t_out" "low issues wait: TEHAS_LOW_GATE answered 1"
 
 t_case "a read the poll cannot make ends the poll with gh's own words"
 reset
-# Both halves of one contract, each beside the read that produces it: the Rust
-# poll's words come from the read of the queue (console/dispatch/src/read/run.rs,
-# gh and gh_all) and the bash poll's from gh_json (libexec/dispatch). The case
-# below is the Rust half and runs wherever the Rust poll runs; the bash half has
-# a case of its own further down for T_BASH_POLL=1, so the rule is never left to
-# one host alone and a t_skip says which half a given run proved.
+# The words come from the read of the queue (console/dispatch/src/read/run.rs,
+# gh and gh_all).
 t_gh_fail 1
 # A host of the GitHub App, so the poll takes a token before its first call and
 # hands it to every gh child as TEHAS_GH_TOKEN. The kept token is ghs_poll and a
@@ -221,34 +216,6 @@ t_lacks "$t_out" "TEHAS_GH_TOKEN"
 t_eq "$(started)" ""
 t_eq "$([ -e "$T/calls/tidy.after-start" ] && echo tidied)" ""
 t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
-
-# The same property of the bash poll, whose first read is its look-up of the
-# repository and whose words are gh_json's. Under the default run of the gate
-# the Rust poll answers instead, and that is what the skip says.
-t_case "the bash poll's failed first read ends it with gh_json's own words"
-reset
-if ! bash_reads; then
-  t_skip "this run is the Rust poll's: T_BASH_POLL=1 is the configuration that runs gh_json"
-else
-  t_gh_fail 1
-  mkdir -p "$home/libexec" "$home/state/github"
-  printf 'ghs_poll\n' >"$home/state/github/token"
-  echo $(($(date +%s) + 3000)) >"$home/state/github/token.expires"
-  printf '#!%s\nprintf "%%s\\n" ghs_poll\n' "$T_BASH" >"$home/libexec/github-token"
-  chmod +x "$home/libexec/github-token"
-  T_ENV+=(TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=174742089
-    "TEHAS_BOT_LOGIN=tehas-app-bot[bot]")
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh repo view failed"
-  t_contains "$(t_calls gh)" "repo view acme/widget --json nameWithOwner"
-  t_eq "$(head -1 "$T/calls/gh")" "repo view acme/widget --json nameWithOwner"
-  t_eq "$(cat "$T/gh-n")" 1
-  t_lacks "$t_out" "ghs_poll"
-  t_lacks "$t_out" "ghs_fresh"
-  t_eq "$(started)" ""
-  t_eq "$([ -e "$home/live/demand.json" ] && echo written)" ""
-fi
 
 t_case "a write a dead poll left in the journal is settled first, and decided again"
 reset

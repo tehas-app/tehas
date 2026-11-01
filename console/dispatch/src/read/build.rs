@@ -114,7 +114,7 @@ fn listed(open: &[github::Open], label: &str) -> Value {
     )
 }
 
-/// The snapshot, or the line the bash poll logs when a read it cannot do
+/// The snapshot, or the line the poll logs when a read it cannot do
 /// without failed.
 pub fn snapshot(src: &mut Sources, c: &Settings) -> Result<Value, GhFail> {
     let home = src.home;
