@@ -31,11 +31,8 @@
 tehas_index_dir() { printf '%s\n' "$TEHAS_HOME/state/index"; }
 
 # The github.com host, and the git config key that names its credential
-# helper. Two things read that key: the probe of tehas setup, which asks the
-# host's git whether it has a helper, and the environment-level config below,
-# which is what a container's git is given. A change here (another host,
-# another subsection spelling) moves both; no other github.com of the platform
-# is named by these.
+# helper, as console/core/src/sandbox.rs names them for the probe of tehas setup
+# and a container's git. test/work_caps_test.sh pins the spelling.
 tehas_git_github_host() { printf '%s\n' github.com; }
 tehas_git_credential_helper_key() {
   local h
