@@ -95,38 +95,18 @@ fn analytics(home: &Path, args: &[&str]) {
     }
 }
 
-/// `{at, how, driver}` of the approval an attempt used, null when there is
-/// none or it cannot be read: of the store's answer to approval-current.
-pub fn approval_of(answer: &Value, attempt: u64) -> J {
-    let time = |v: &Value| v.as_f64().map(|t| iso(t.floor() as i64));
-    let Some(c) = answer.get("current").filter(|c| !c.is_null()) else {
+/// `{at, how, driver}` of the store's approval-view, null when it has none.
+pub fn approval_of(answer: &Value) -> J {
+    let view = answer.get("view").filter(|v| v.is_object());
+    let Some(view) = view else {
         return J::null();
     };
-    if c.get("used_by").and_then(Value::as_u64) != Some(attempt) || !c.is_object() {
-        return J::null();
-    }
-    let rests = answer.get("rests_on").filter(|r| !r.is_null());
-    let (Some(mut at), rests_at) = (
-        c.get("at").and_then(time),
-        rests.map(|r| r.get("at").and_then(time)),
-    ) else {
-        return J::null();
-    };
-    if rests_at == Some(None) {
-        return J::null();
-    }
-    let how = match c.get("how") {
-        Some(Value::String(h)) if h == "millwright" => J::str("fixer"),
-        Some(h) => J::from(h),
-        None => J::null(),
-    };
-    if how == J::str("refresh") {
-        if let Some(Some(base)) = rests_at {
-            at = base;
-        }
-    }
-    let driver = c.pointer("/input/driver").map_or(J::null(), J::from);
-    J::obj(vec![("at", J::Str(at)), ("how", how), ("driver", driver)])
+    let field = |k: &str| view.get(k).map_or(J::null(), J::from);
+    J::obj(vec![
+        ("at", field("at")),
+        ("how", field("how")),
+        ("driver", field("driver")),
+    ])
 }
 
 /// What `tehas-cycle approved` prints.
@@ -134,8 +114,9 @@ pub fn approved(home: &Path, issue: u64, attempt: u64) -> String {
     if !analytics_on(home) {
         return "null".into();
     }
-    match host::store(home, &["approval-current", &issue.to_string()]) {
-        Ok(a) => approval_of(&a, attempt).compact(),
+    let (n, a) = (issue.to_string(), attempt.to_string());
+    match host::store(home, &["approval-view", &n, "--attempt", &a]) {
+        Ok(a) => approval_of(&a).compact(),
         Err(_) => "null".into(),
     }
 }
@@ -173,41 +154,42 @@ pub fn history_line(a: &After, at: &str) -> J {
 }
 
 /// The facts of a run: {line, attempt, approval, settings, rukas}. The
-/// settings and the commit are of this attempt's record, null when the store
-/// has none or could not answer.
-pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, record: Option<&Value>) -> J {
-    let cycle = record.and_then(|r| r.get("cycle")).filter(|c| {
-        !c.is_null() && attempt.is_some() && c.get("attempt").and_then(Value::as_u64) == attempt
-    });
-    let settings = cycle
-        .and_then(improve::settings)
-        .map_or(J::null(), |(c, h, n)| {
-            J::obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
-        });
-    let rukas = cycle
-        .and_then(|c| c.get("rukas_commit"))
-        .map_or(J::null(), J::from);
+/// settings and the commit are the store's settings-view of this attempt,
+/// null when it has none or could not answer.
+pub fn run_facts(line: &J, attempt: Option<u64>, approved: &str, view: Option<&Value>) -> J {
+    let view = view.filter(|_| attempt.is_some());
+    let settings = view.and_then(|v| v.get("view")).filter(|v| v.is_object());
+    let rukas = view.and_then(|v| v.get("rukas_commit"));
     J::obj(vec![
         ("line", line.clone()),
         ("attempt", attempt.map_or(J::null(), |n| J::int(n as i64))),
         ("approval", J::parse(approved).unwrap_or(J::null())),
-        ("settings", settings),
-        ("rukas", rukas),
+        (
+            "settings",
+            settings
+                .map(improve::ran_with)
+                .map_or(J::null(), |(c, h, n)| {
+                    J::obj(vec![("container", c), ("host", h), ("concurrentCycles", n)])
+                }),
+        ),
+        ("rukas", rukas.map_or(J::null(), J::from)),
     ])
 }
 
 /// The analytics' run: the facts in a new 0600 file for the call.
-fn analytics_run(home: &Path, a: &After, record: &Result<Value, String>) {
+fn analytics_run(home: &Path, a: &After) {
     if !analytics_on(home) {
         return;
     }
     let e = &a.ended;
     let at = iso(now());
+    let (n, attempt) = (e.issue.to_string(), a.attempt.to_string());
+    let view = host::store(home, &["settings-view", &n, "--attempt", &attempt]);
     let facts = run_facts(
         &history_line(a, &at),
         Some(a.attempt),
         &a.approved,
-        record.as_ref().ok(),
+        view.as_ref().ok(),
     );
     let dir = home.join("tmp");
     if !dir.exists() {
@@ -222,7 +204,6 @@ fn analytics_run(home: &Path, a: &After, record: &Result<Value, String>) {
         return;
     };
     let path = file.to_string_lossy().into_owned();
-    let n = e.issue.to_string();
     let mut args: Vec<&str> = vec!["run", &n, "--facts", &path];
     if !e.image.is_empty() {
         args.extend(["--image", &e.image]);
@@ -248,16 +229,11 @@ pub fn after(home: &Path, a: &After) {
             f.word, f.line
         ));
     }
-    let wanted = analytics_on(home) || !env("TEHAS_IMPROVE_REPO").is_empty();
-    let record = if wanted {
-        host::store(home, &["cycle-show", &n.to_string()])
-    } else {
-        Err("not read".to_string())
-    };
-    analytics_run(home, a, &record);
+    analytics_run(home, a);
     analytics(home, &["event", &n.to_string(), "ended"]);
     if !env("TEHAS_IMPROVE_REPO").is_empty() {
-        if let Err(said) = improve::write(home, e, &record, now()) {
+        let view = host::store(home, &["settings-view", &n.to_string()]);
+        if let Err(said) = improve::write(home, e, &view, now()) {
             if let Some(line) = said {
                 eprintln!("{line}");
             }
@@ -322,33 +298,18 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn the_approval_of_an_attempt_is_read_as_the_store_shape_gave_it() {
-        let a = json!({"current": {"at": 1792497600, "how": "millwright", "used_by": 2, "input": {"driver": "lean"}}});
+    fn the_approval_of_a_run_is_three_fields_of_the_view() {
+        let a = json!({"view": {"at": "T", "by": "alice", "how": "label", "links": [], "driver": "lean"}});
         assert_eq!(
-            approval_of(&a, 2).compact(),
-            r#"{"at":"2026-10-20T12:00:00Z","how":"fixer","driver":"lean"}"#
+            approval_of(&a).compact(),
+            r#"{"at":"T","how":"label","driver":"lean"}"#
         );
-        assert_eq!(approval_of(&a, 3), J::null());
-        assert_eq!(approval_of(&json!({"current": null}), 1), J::null());
-    }
-
-    #[test]
-    fn a_refresh_is_on_record_at_the_time_of_the_approval_it_rests_on() {
-        let a = json!({"current": {"at": 1792497600, "how": "refresh", "used_by": 1},
-                       "rests_on": {"at": 1792411200, "by": "alice"}});
+        let b = json!({"view": {"at": "T", "how": "label"}});
         assert_eq!(
-            approval_of(&a, 1).compact(),
-            r#"{"at":"2026-10-19T12:00:00Z","how":"refresh","driver":null}"#
+            approval_of(&b).compact(),
+            r#"{"at":"T","how":"label","driver":null}"#
         );
-    }
-
-    #[test]
-    fn a_time_that_is_no_number_is_no_approval() {
-        let a = json!({"current": {"at": "soon", "how": "label", "used_by": 1}});
-        assert_eq!(approval_of(&a, 1), J::null());
-        let b =
-            json!({"current": {"at": 1, "how": "label", "used_by": 1}, "rests_on": {"at": "x"}});
-        assert_eq!(approval_of(&b, 1), J::null());
+        assert_eq!(approval_of(&json!({"view": null})), J::null());
     }
 
     fn ended() -> After {
@@ -376,7 +337,7 @@ mod tests {
 
     #[test]
     fn an_attempt_that_is_no_number_makes_every_fact_of_the_record_null() {
-        let rec = json!({"cycle": {"attempt": 1, "rukas_commit": "abcdef1", "settings": {"TEHAS_X": "1"}}});
+        let rec = json!({"view": {"host": {"TEHAS_X": "1"}}, "rukas_commit": "abcdef1"});
         let line = history_line(&ended(), "T");
         assert_eq!(
             run_facts(&line, None, "null", Some(&rec)).compact(),
@@ -400,17 +361,16 @@ mod tests {
     }
 
     #[test]
-    fn the_record_of_another_attempt_gives_no_facts() {
-        let rec = json!({"cycle": {"attempt": 1, "rukas_commit": "abcdef1", "settings": {"TEHAS_X": "1"}}});
+    fn the_view_of_an_attempt_gives_its_facts() {
         let line = J::parse("{}").unwrap();
-        let other = run_facts(&line, Some(2), "null", Some(&rec)).compact();
+        let view = json!({"view": null, "rukas_commit": null});
         assert_eq!(
-            other,
+            run_facts(&line, Some(2), "null", Some(&view)).compact(),
             r#"{"line":{},"attempt":2,"approval":null,"settings":null,"rukas":null}"#
         );
-        let this = run_facts(&line, Some(1), "null", Some(&rec)).compact();
+        let view = json!({"view": {"concurrentCycles": null, "container": {}, "host": {"TEHAS_X": "1"}}, "rukas_commit": "abcdef1"});
         assert_eq!(
-            this,
+            run_facts(&line, Some(1), "null", Some(&view)).compact(),
             r#"{"line":{},"attempt":1,"approval":null,"settings":{"container":{},"host":{"TEHAS_X":"1"},"concurrentCycles":null},"rukas":"abcdef1"}"#
         );
     }
