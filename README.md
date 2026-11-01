@@ -186,7 +186,7 @@ host.
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
-| `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
+| `lib/attachments.sh` | Files attached to an issue: the way to `libexec/attach`, which fetches and judges them |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
 | `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |

@@ -1036,9 +1036,11 @@ a backslash, a link, a locked file, a method other than stored or deflated, a
 damaged file and more than 200 entries. It counts what it inflates, never what
 the archive claims, and a damaged entry's bytes count too; an entry that
 inflates past the size it claims, or shares its data with another entry, is
-damaged. An archive it does not unpack within 60 seconds, or that makes it
-fail, is left out with a reason; a program that is missing or fails in any
-other way stops the cycle. Every file it writes then goes through the checks of a
+damaged. It runs as a child of the program that fetched, with no token and no
+environment but `PATH`. An archive it does not unpack within 60 seconds, or that
+makes it fail, is left out with a reason; a program that is missing or fails in
+any other way stops the cycle, and with no program no cycle starts on an instance
+that gives attachments, whether or not the issue links any. Every file it writes then goes through the checks of a
 file the issue links: an image by its first bytes, a text file by its
 extension and by being valid UTF-8 with no NUL byte. The same program reads
 the bytes of every linked file, its size, its sha256, its image type and
@@ -3153,8 +3155,8 @@ The pass is the console's (`~/tehas/libexec/console protolab run`,
 `console/src/protolab.rs`): the calls to GitHub, the check of who applied the
 label, the downloads, the zips through `libexec/attach`, the pages and the
 dashboard's file. It escapes what came from GitHub, puts together every figure
-of a page, and reads the attachment links of a ticket, which is the one regular
-expression of `lib/attachments.sh`. The command beside it keeps the settings and
+of a page, and reads the attachment links of a ticket, by the one regular
+expression of `console/attach/src/given.rs`. The command beside it keeps the settings and
 the GitHub App's token, and refuses with exit 78 when no console stands beside
 it. Each call of gh is held to 30 seconds. A console with other bytes builds
 every page once more.
