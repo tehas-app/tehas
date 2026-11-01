@@ -383,20 +383,16 @@ fn the_mask_alone_is_standard_input_to_standard_output() {
 // arguments written here: this holds the two to each other.
 #[test]
 fn work_calls_the_console_by_the_arguments_it_takes() {
-    let work = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../libexec/work")).unwrap();
-    for call in [
-        "\"$here/console\" --progress \"$log\"",
-        "--runs \"$runs\" --out \"$console\" --since \"$((started - 5))\" --now \"$console_now\"",
-    ] {
-        assert!(work.contains(call), "libexec/work does not hold: {call}");
+    let watch =
+        fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/cycle/src/watch.rs")).unwrap();
+    for flag in ["--progress", "--runs", "--out", "--since", "--now"] {
+        let call = format!("\"{flag}\".into()");
+        assert!(watch.contains(&call), "the watch does not hold: {call}");
     }
-    assert!(
-        !work.contains("--mask"),
-        "libexec/work still asks for --mask"
-    );
+    assert!(!watch.contains("--mask"), "the watch still asks for --mask");
 }
 
-// The two lines the watch loop of libexec/work reads for the dashboard's
+// The two lines the watch of a cycle reads for the dashboard's
 // status, kept by the console and by no one else.
 #[test]
 fn the_now_file_holds_the_step_and_the_notice_and_is_written_again_when_they_change() {
