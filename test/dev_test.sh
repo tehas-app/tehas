@@ -821,7 +821,12 @@ t_eq "$(containers)" 0
 t_lacks "$(t_calls docker)" "run "
 t_contains "$t_out" "$T/home/tehas/state/dev/erin.lock is held"
 t_contains "$t_out" "waiting 1 seconds for it"
-t_contains "$t_out" "$sleep_holder"
+# fuser and ps are no part of what the gate needs. Without them the line stops
+# at "is held".
+if command -v fuser >/dev/null && command -v ps >/dev/null; then
+  t_contains "$t_out" "is held by $sleep_holder"
+  t_lacks "$t_out" "console"
+fi
 t_eq "$([ -e "$devs/erin" ] && echo there)" ""
 # The refusal neither makes the clone nor takes what an earlier session of it
 # left: the lock is asked for before the tree is made, and nothing is removed on

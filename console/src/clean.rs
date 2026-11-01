@@ -297,15 +297,17 @@ fn lock_holders(path: &Path) -> String {
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default();
+    // The asker has the file open too, and it is no holder.
+    let me = std::process::id().to_string();
     let pids: Vec<&str> = pids
         .split_whitespace()
-        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && *p != me)
         .collect();
     if pids.is_empty() {
         return String::new();
     }
     let named = Command::new(ps)
-        .arg("-o=user=,comm=")
+        .args(["-o", "user=,comm="])
         .args(pids)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
