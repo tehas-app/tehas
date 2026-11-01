@@ -17,7 +17,7 @@ cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
 # nothing.
 cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
 cp "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
-  "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
+  "$T_ROOT/lib/sandbox.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 # The sweep of old dated tags asks the console what is held.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)

@@ -1,10 +1,8 @@
 //! What closed an issue: the test that a merged pull request did, for
-//! `console tidy run` and `libexec/status`. The GraphQL read of status stays
-//! bash - `console shipped query` prints the document and the caller makes the
-//! call with gh - and the answer is handed here, so the acceptance rule has one
-//! statement. Two commands act on it: tidy (src/tidy.rs) puts tehas:shipped on
-//! in the edit that takes the state labels off, and tehasbot status
-//! (libexec/status) lists the shipped issues and gives them the label, and the
+//! `console tidy run` and `tehasbot status`. The acceptance rule has one
+//! statement here. Two commands act on it: tidy (src/tidy.rs) puts tehas:shipped
+//! on in the edit that takes the state labels off, and tehasbot status
+//! (src/queue.rs) lists the shipped issues and gives them the label, and the
 //! two must not disagree.
 //!
 //!   console shipped page
@@ -16,9 +14,8 @@
 //!
 //!   console shipped label
 //!     The name of the label of a merge, on a line of its own: the one word the
-//!     two commands print when they add it, and the one word tidy compares. The
-//!     bash that edits holds the name only as a fallback for a console of an
-//!     older tehas, so a rename reaches the add and the removal rule at once.
+//!     two commands print when they add it, and the one word tidy compares, so
+//!     a rename reaches the add and the removal rule at once.
 //!
 //!   console shipped query
 //!     The query: the last closed event of each issue the search $q names,
@@ -465,6 +462,13 @@ pub fn shipped_listed(
         Some(label) => nodes.into_iter().filter(|n| lacks(n, label)).collect(),
         None => nodes,
     })
+}
+
+/// The numbers of the shipped issues that do not carry `label`, for tehasbot
+/// status, which gives it to them. None of them when the answer is no answer.
+pub fn lacking(answer: &str, controls: &[String], label: &str) -> Vec<u64> {
+    let listed = shipped_listed(answer, controls, Some(label)).unwrap_or_default();
+    listed.iter().filter_map(number).collect()
 }
 
 /// The names a read gave under `labels`, or nothing when it named no list of
@@ -1253,7 +1257,7 @@ mod tests {
 
     #[test]
     fn the_query_asks_for_the_fields_the_shipped_list_shows() {
-        // libexec/status publishes each node it keeps as an item of `completed`,
+        // tehasbot status publishes each node it keeps as an item of `completed`,
         // and a field the query does not ask for is null on every one of them.
         assert!(QUERY.contains("number title url createdAt updatedAt closedAt labels("));
     }
@@ -1278,8 +1282,6 @@ mod tests {
 
     #[test]
     fn the_label_of_a_merge_is_the_one_word_the_callers_print() {
-        // libexec/status holds the name too, for a host whose console is older
-        // than this verb: the two must say the same word.
         assert_eq!(SHIPPED, "tehas:shipped");
         let given: Vec<String> = ["label"].iter().map(|s| s.to_string()).collect();
         assert_eq!(main(&given), 0);

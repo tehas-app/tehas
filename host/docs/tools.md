@@ -272,7 +272,7 @@ like any other. It is given no input and nothing of the poll's environment but
 `PATH`. The poll reads only its exit status: whatever the command prints goes to
 `~/tehas/logs/low-gate.log`, rewritten by every ask, which is where a gate that
 closes for a reason says that reason. The gate is not a sandbox: it runs as the
-tehas user, and what bounds it is that `lib/config.sh` refuses a command under
+tehas user, and what bounds it is that a load refuses a command under
 `~/tehas` or the instance directory, the trees a merged pull request writes and
 `install.sh` fills. Changing `TEHAS_LOW_GATE` in a real instance directory is a
 security change. It gets no memory or CPU ceiling of its own: a cycle runs in
@@ -410,7 +410,7 @@ from the cycle's own copy of the code.
 It does not wait for the cycle. If the unit does not come up within 30
 seconds, the issue gets `needs-human-attention`, the poll goes on to the
 remaining issues, and it ends with exit 1.
-The dispatcher runs the index, plan and status scripts from its own directory,
+The dispatcher runs the index and plan scripts and `tehasbot status` from its own directory,
 `~/tehas/libexec`, not by a name on `PATH`.
 
 The labels `tehas:plan`, `tehas:planning` and `tehas:question` exist in a
@@ -704,7 +704,9 @@ has not stopped `TEHAS_WORK_GRACE` seconds (300) later is stopped with
 from the workspace `~/tehas/work/<name>-<issue>`: the outcome is the runner's
 `--json` result, which goes to `~/tehas/state/cycles/<issue>.result.json`, and
 a copy beside the log. The contract is pi-rukas's `docs/headless.md`: exit
-codes v1, result schema 5, NDJSON progress with a stable subset.
+codes v1, result schema 5, NDJSON progress with a stable subset. The last step
+of `tehas work` is `tehas-cycle watch`, which it execs: the same process and the
+same lock start the container, watch it to its end and leave the cycle's notes.
 
 A start whose approval says driver `lean` stops first, with exit 78, the note
 `state/cycles/<issue>.lean-refused` and a line that says this tehas cannot run
@@ -1034,9 +1036,11 @@ a backslash, a link, a locked file, a method other than stored or deflated, a
 damaged file and more than 200 entries. It counts what it inflates, never what
 the archive claims, and a damaged entry's bytes count too; an entry that
 inflates past the size it claims, or shares its data with another entry, is
-damaged. An archive it does not unpack within 60 seconds, or that makes it
-fail, is left out with a reason; a program that is missing or fails in any
-other way stops the cycle. Every file it writes then goes through the checks of a
+damaged. It runs as a child of the program that fetched, with no token and no
+environment but `PATH`. An archive it does not unpack within 60 seconds, or that
+makes it fail, is left out with a reason; a program that is missing or fails in
+any other way stops the cycle, and with no program no cycle starts on an instance
+that gives attachments, whether or not the issue links any. Every file it writes then goes through the checks of a
 file the issue links: an image by its first bytes, a text file by its
 extension and by being valid UTF-8 with no NUL byte. The same program reads
 the bytes of every linked file, its size, its sha256, its image type and
@@ -2371,8 +2375,7 @@ that would run backwards (a mark ahead of the clock, as after the boot was
 redone), prints `unknown` and exits 3: a caller stops nothing on a guess. The
 seconds are whole seconds since boot truncated down, and one mark file holds
 one number; a mark file of more than 32 bytes, or one that is not a regular
-file, is no mark. The glue that calls it from `tehas work` is a later change;
-on a host today these three verbs are the whole of it.
+file, is no mark. `tehas-cycle watch` asks the same clock in its own process.
 
 **The pull request of a stopped cycle.** `tehas-cycle finish <issue> --home
 <dir> --repo <owner/name> --default <branch> --reason <text>` takes what a
@@ -2650,10 +2653,9 @@ names none. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded. Whatever labels the issue was left
 with: the query and the acceptance rule are the console's (`console shipped`,
 `console/src/shipped.rs`), the ones `console tidy run` reads too, so
-the two commands cannot disagree on what a merge closed. `tehasbot status` asks the console which shipped
-issues lack the label (`console shipped list --numbers --lacking <label>`),
-which names those whose labels do not hold it or could not be read, and gives
-each of them the label;
+the two commands cannot disagree on what a merge closed. `tehasbot status` reads from the same answer which shipped
+issues lack the label, those whose labels do not hold it or could not be read,
+and gives each of them the label;
 `console tidy run` is the one that logs the read, and both leave the control issue
 unlabelled. The read of the list goes under the same 60 seconds as the count
 below; one that times out or is refused writes no snapshot, and the file of the
@@ -2705,7 +2707,7 @@ answer, `tehasbot status` writes `~/tehas/live/analytics.json`, the ten-day
 report of the factory's analytics, from `~/tehas/libexec/analytics report
 --json`. It writes `analytics.json.new` and moves it into place, and keeps only
 the top-level keys it names, so a key the program adds later is not published
-until someone adds it to that list in `libexec/status`. The call has the same
+until someone adds it to that list in `console/src/publish.rs`. The call has the same
 5-second limit. A report that fails or is not one is a line `WARN analytics
 report: ...` on standard error; the file that is there stays while it is less
 than ten minutes old, so one poll that meets a locked database does not empty
@@ -2838,12 +2840,12 @@ curl -i http://tehas-tehas:8080/health
 Writes the factory's health from what is already on disk: the queue snapshot,
 the running cycles, the last one that finished, the planning turns in flight,
 what the dispatcher's last poll wrote about the slice and the demand, and this
-host's pause flag. The status script
-runs it on exit, so it is
+host's pause flag. `tehasbot status`
+runs it as it ends, so it is
 refreshed at every poll and at the end of every cycle. When the poll of the
-dispatcher is the one that ran the status script, the script does not: the poll
-gives it `TEHAS_FROM_POLL=1` in its environment, which the script reads before
-its load, and the poll runs health itself a moment after the status ends. The
+dispatcher is the one that ran `tehasbot status`, the command does not: the poll
+gives it `TEHAS_FROM_POLL=1` in its environment, one of the names the load of
+the settings keeps, and the poll runs health itself a moment after the status ends. The
 name says the poll ran it and nothing else: it is given whatever token the poll
 holds, so a host that acts as a machine user, or a poll whose token read
 failed, is still known and does not refresh the file twice. So one
@@ -3153,8 +3155,8 @@ The pass is the console's (`~/tehas/libexec/console protolab run`,
 `console/src/protolab.rs`): the calls to GitHub, the check of who applied the
 label, the downloads, the zips through `libexec/attach`, the pages and the
 dashboard's file. It escapes what came from GitHub, puts together every figure
-of a page, and reads the attachment links of a ticket, which is the one regular
-expression of `lib/attachments.sh`. The command beside it keeps the settings and
+of a page, and reads the attachment links of a ticket, by the one regular
+expression of `console/attach/src/given.rs`. The command beside it keeps the settings and
 the GitHub App's token, and refuses with exit 78 when no console stands beside
 it. Each call of gh is held to 30 seconds. A console with other bytes builds
 every page once more.
@@ -3938,7 +3940,7 @@ version to move to.
    no `minisign` on the host it stops (`sudo apt-get install minisign`);
 3. unpack it into `~/tehas/versions/<version>`, refusing a tarball that holds
    anything but files and directories under `tehas-<version>/`;
-4. check the instance against that version's own `lib/config.sh`. A setting it
+4. check the instance against that version's own console. A setting it
    requires and the instance lacks is named with the value of the release's
    `instances/example/instance.env`, and the update stops with 78 with nothing
    switched. A `TEHAS_` key in `instance.env` that the version never names is
@@ -3966,10 +3968,10 @@ An argument it does not know, or `--help` with another one, is refused with
 exit 64 before the settings are read. The settings are checked next against the required list in
 `lib/config.sh` (`tehas_require_instance_settings`), the same one install.sh and
 the dispatcher check, so an instance with a required line still commented out
-stops with 78 before git runs. After a fast-forward it checks them again with
-the library that came with the code it pulled: a change that adds a required
-setting stops with 78 before install.sh runs, rather than after the platform
-tree moved. The checkout must be on a branch and have nothing uncommitted, and
+stops with 78 before git runs. After a fast-forward the settings are checked
+by the code it pulled: a checkout has no console of its own yet, so install.sh
+builds it first and a change that adds a required setting stops with 78 there,
+before anything of the host changes. The checkout must be on a branch and have nothing uncommitted, and
 only a fast-forward is done: local commits of its own, or a branch that was
 rewritten on the remote, are left for a person. When the checkout sits on a
 branch that is not the remote's default, it says so and updates the branch it is
@@ -3989,9 +3991,13 @@ git, install.sh, Docker or systemd is called. The wait is
 refuse at once, at most 300; anything else is the default. It is read from the
 environment, not from `instance.env`, and the rule for it is
 `tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
-The update hands the lock to the install.sh it runs; the wait covers a run
-started right after one that failed and left the lock held a moment by
-something it had started. `--check` takes no lock.
+The update hands the lock to the install.sh it runs, and to nothing else; the
+wait covers a run started right after one that failed and left the lock held a
+moment by something it had started. `--check` takes no lock.
+
+`libexec/update` is a thin script: it holds that lock and runs install.sh, and
+the console does the rest. A console that does not start stops an update with
+exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
@@ -4008,10 +4014,10 @@ image yet, makes the update exit 1. `--check` runs `build.sh --check` and
 exits 1 when the commit moved. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
-The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
-prints as `next: <step line>` and this command runs as its own steps rather than
-as shell text. The arguments belong to the step, and `lib/update-steps.sh` says
-which ones each id accepts and which of them it requires:
+The follow-ups are steps named by id in the console, which install.sh prints as
+`next: <step line>` and this command runs as its own steps rather than as shell
+text. The arguments belong to the step, and the console says which ones each id
+accepts and which of them it requires:
 
 | Step                        | install.sh asks for it when         | tehas update runs it when                                        |
 | --------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
@@ -4042,15 +4048,17 @@ reporting the service as absent. Liveness is asked of Docker with `docker ps
 --filter label=com.docker.compose.project=...`, which needs the project name each
 compose file pins.
 
-A step line whose id or arguments are not ones `lib/update-steps.sh` defines is
+A step line whose id or arguments are not ones this version of tehas defines is
 not run: it is named in a `WARN:`, stays in the record of steps owed, and the
 command exits 1, so a producer and a consumer that have drifted apart cannot both
 stay green while a step nobody performed is treated as done. The units on a step
 line are checked as unit names and against the units this version of tehas
-installs - `tehas_units` - so a step line cannot name some other unit of the host's
-for an update to restart. The lines are checked with the checkout's
-`lib/update-steps.sh` once install.sh has run, so a unit the pulled version adds
-is restarted by the update that pulled it. A compose line that leaves out its flag is refused for
+installs, so a step line cannot name some other unit of the host's for an update
+to restart. Once install.sh has run, the console it installed reads its answer and
+runs the steps, so a unit the new version adds is restarted by the update that
+installed it. A `--to` below the release that moved this into the console installs
+one that cannot, and `libexec/console.prev`, which install.sh keeps, finishes that
+run. A compose line that leaves out its flag is refused for
 the same reason: `docker compose up -d` without `--force-recreate` is the weaker
 action, and running it would renew nothing while the step was counted as done.
 
@@ -4069,7 +4077,7 @@ leaves the rest owed instead of losing it with install.sh's one-shot report of
 what changed - the next run compares again and finds those files matching.
 `install.sh --check` reports the record as `Follow-ups: NOT DONE` and exits 1
 while any of it is left, including a step line no version of tehas here knows.
-Steps run in the order `lib/update-steps.sh` lists them - systemd first - whatever
+Steps run in a fixed order - systemd, the sandbox, docs, edge, labels - whatever
 order the lines were recorded in, so a step owed from an earlier run does not jump
 ahead of this run's unit reload. A hand-run install.sh leaves the same record
 behind; running `tehas update` finishes it, and repeating a renewal that has
@@ -4081,8 +4089,7 @@ what names them. There is no command that marks a follow-up done by hand; runnin
 
 **`--pending`.** `tehas update --pending` runs the lines that record holds and
 nothing else: it takes the update lock, reads `$TEHAS_HOME/state/update-pending`,
-runs each step in the order `lib/update-steps.sh` gives them, drops each line as
-it runs, and calls no git command and no `install.sh`. That is the half of an
+runs each step in that order, drops each line as it runs, and calls no git command and no `install.sh`. That is the half of an
 install a program can finish on a host the other three forms refuse: a checkout
 at a release tag has no branch to fast-forward, and a remote that is a local path
 can stop answering, while the copies `install.sh` made are already in place. It
@@ -4161,10 +4168,12 @@ runs in the slice and none starts without it. A real run installs either way and
 prints a `note:` line instead.
 
 After a real run it prints one `next: <step>` line per follow-up its changed
-files call for - the ids `lib/update-steps.sh` defines - and starts nothing
+files call for - the ids the console defines - and starts nothing
 itself; `tehas update` is what runs them. Each of those steps is also recorded in
-`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, so a
-run that dies partway still leaves its copies owed, and `--check` adds a
+`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, by the
+console this run installs, so a real run needs one that starts before its first
+copy: the release tree's, the one it built, or the one installed. A run that dies
+partway still leaves its copies owed, and `--check` adds a
 `Follow-ups: NOT DONE` line, and exits 1, while any of them is left. It asks
 systemd for nothing, but to reload before it removes the earlier layout: a copied unit file is not in effect until systemd has reloaded
 it, and that reload belongs to the `units` step, which cannot report a changed unit

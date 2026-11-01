@@ -14,10 +14,15 @@
 # their arguments.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
-# "next:" lines takes them from here, so the fixture is the text install.sh
+# "next:" lines takes them from the console, so the fixture is the text install.sh
 # produces rather than a copy of it someone could keep out of step.
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
+
+# The releases and the follow-ups are the console's, and it is no stub here.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
@@ -88,10 +93,10 @@ write_install() { # <what the stub prints> [<dir to write it in>]
 }
 
 # The follow-ups install.sh asks for when its units, its sandbox files and both
-# compose servers changed - taken from lib/update-steps.sh, in the order it
+# compose servers changed - taken from the console, in the order it
 # prints them (systemd first), which is the order an update runs them in.
 next_lines() {
-  tehas_steps_for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
+  "$T_CONSOLE" update steps for systemd/tehas-dispatch.timer sandbox/Dockerfile versions.env \
     edge/docs.compose.yaml edge/router.compose.yaml
 }
 

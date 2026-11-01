@@ -464,7 +464,7 @@ store as it ends, however it ends. A dry run records nothing.
 - **CPU**: user and system time of the poll and of the commands it waited for,
   from bash's `times`, `console tidy run` among them.
 - **gh**: the calls the dispatcher made to `gh` itself. Calls of the commands it
-  runs, such as `libexec/status` and `console tidy run`, and a call under
+  runs, such as `tehasbot status` and `console tidy run`, and a call under
   `timeout`, are not counted.
 - **writes**: the lines of the host shim's write log,
   `~/tehas/state/github-writes.log` (see [GitHub App identity](/github-app)),

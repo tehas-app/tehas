@@ -43,6 +43,26 @@ const REVIEW_LEAVES_OUT: [&str; 7] = [
     "PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS",
 ];
 
+// A cycle's own: `tehas work` gives these itself, or not at all, whatever the
+// instance says. An instance's image directory would name a path no one mounted.
+const CYCLE_LEAVES_OUT: [&str; 7] = [
+    "PI_ENSEMBLE_EXTRA_IMAGE_DIRS",
+    "PI_ENSEMBLE_HANDOFF_CHANNEL",
+    "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS",
+    "PI_ENSEMBLE_CYCLE_DEADLINE",
+    "PI_ENSEMBLE_CYCLE_BUDGET_MS",
+    "PI_ENSEMBLE_VERIFY_CONCURRENCY",
+    "PI_ENSEMBLE_SPAWN_TIMEOUT_MS",
+];
+
+/// The runner by its path in the image: the link to it on PATH does not find
+/// its own source (pi-rukas v0.12.80).
+pub const RUNNER: &str = "/opt/pi-rukas/bin/pi-rukas-headless";
+
+/// The handoff allowance of a cycle, in seconds: the one budget its handoff has,
+/// given to pi-rukas and kept clear of the stop by the deadline.
+pub const HANDOFF_SECONDS: u64 = 480;
+
 /// The containers that run an agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -151,7 +171,197 @@ pub fn ensemble(kind: Kind) -> Vec<String> {
         })
         .filter(|name| kind != Kind::Review || !REVIEW_LEAVES_OUT.contains(&name.as_str()))
         .filter(|name| kind != Kind::Session || name != "PI_ENSEMBLE_EXTRA_IMAGE_DIRS")
+        .filter(|name| kind != Kind::Cycle || !CYCLE_LEAVES_OUT.contains(&name.as_str()))
         .collect()
+}
+
+/// The -e options only a cycle has. pi-rukas posts no handoff comment itself:
+/// tehasbot cycle posts the one comment and labels the issue. `verify` is how
+/// many gate runs it makes at once, `child_seconds` one child's bound and
+/// `deadline` the time after which no step starts, in milliseconds since the
+/// epoch, when there is room for one.
+pub fn cycle_variables(verify: &str, child_seconds: u64, deadline: Option<i64>) -> Vec<String> {
+    let mut vars = vec![
+        "PI_ENSEMBLE_HANDOFF_CHANNEL=host".to_string(),
+        format!("PI_ENSEMBLE_HANDOFF_TIMEOUT_MS={}", HANDOFF_SECONDS * 1000),
+        format!("PI_ENSEMBLE_VERIFY_CONCURRENCY={verify}"),
+        format!("PI_ENSEMBLE_SPAWN_TIMEOUT_MS={}", child_seconds * 1000),
+    ];
+    vars.extend(deadline.map(|d| format!("PI_ENSEMBLE_CYCLE_DEADLINE={d}")));
+    pair("-e", vars)
+}
+
+/// The container that asks whether the sandbox can push, before a cycle spends
+/// an hour of model time: a dry run needs the same credentials a real push does
+/// and creates nothing. It is outside the slice: a container of a few seconds.
+pub fn push_check(
+    security: &[String],
+    user: &str,
+    env: &[String],
+    tree: &str,
+    host: &str,
+    image: &str,
+) -> Vec<String> {
+    let mut w = words(&["docker", "run", "--rm"]);
+    w.extend_from_slice(security);
+    w.extend(words(&["--user", user, "-e", "HOME=/home/vscode"]));
+    w.extend_from_slice(env);
+    w.extend(words(&["-w", tree, "-v", &format!("{host}:{tree}")]));
+    w.extend(words(&["--entrypoint", "git", image]));
+    w.extend(words(&["push", "--dry-run", "origin"]));
+    w.push("HEAD:refs/heads/tehas-preflight".to_string());
+    w
+}
+
+/// What a cycle's container is started from, beside its image.
+pub struct CycleRun<'a> {
+    pub name: &'a str,
+    pub limits: &'a [String],
+    pub security: &'a [String],
+    pub user: &'a str,
+    pub cid_file: &'a str,
+    pub tree: &'a str,
+    pub mounts: &'a [String],
+    /// The issue's images, read-only, and the variable that names them.
+    pub images: &'a [String],
+    pub env: &'a [String],
+    pub hosts: &'a [String],
+    pub image: &'a str,
+    pub issue: u64,
+    pub flags: &'a [String],
+}
+
+/// The whole command of a cycle's container. It has an init: Pi collects only
+/// its own children, and a process that outlives its parent would count against
+/// the pids limit until the container ends.
+pub fn cycle_run(c: &CycleRun) -> Vec<String> {
+    let mut w = words(&["docker", "run", "--rm", "--init", "--name", c.name]);
+    w.extend_from_slice(c.limits);
+    w.extend_from_slice(c.security);
+    w.extend(words(&[
+        "--user",
+        c.user,
+        "--cidfile",
+        c.cid_file,
+        "-w",
+        c.tree,
+    ]));
+    w.extend_from_slice(c.mounts);
+    w.extend_from_slice(c.images);
+    w.extend_from_slice(c.env);
+    w.extend_from_slice(c.hosts);
+    w.extend(words(&[c.image, RUNNER, "work", &c.issue.to_string()]));
+    w.extend_from_slice(c.flags);
+    w
+}
+
+/// The check of what an image supports.
+pub fn capabilities(image: &str) -> Vec<String> {
+    words(&[
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        image,
+        RUNNER,
+        "--capabilities",
+    ])
+}
+
+fn words(list: &[&str]) -> Vec<String> {
+    list.iter().map(|w| w.to_string()).collect()
+}
+
+/// `.a.b` as jq reads it: None where it would stop, on a value that is neither
+/// an object nor null.
+fn at<'a>(v: &'a serde_json::Value, path: &[&str]) -> Option<&'a serde_json::Value> {
+    use serde_json::Value;
+    static NULL: Value = Value::Null;
+    let mut cur = v;
+    for k in path {
+        cur = match cur {
+            Value::Object(o) => o.get(*k).unwrap_or(&NULL),
+            Value::Null => &NULL,
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+fn merged(a: serde_json::Value, b: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Object(mut a), Value::Object(b)) => {
+            for (k, v) in b {
+                let old = a.remove(&k).unwrap_or(Value::Null);
+                a.insert(k, merged(old, v));
+            }
+            Value::Object(a)
+        }
+        (_, b) => b,
+    }
+}
+
+fn first_json(file: &str) -> Option<serde_json::Value> {
+    use serde_json::Value;
+    let text = fs::read(file).ok()?;
+    let mut all = serde_json::Deserializer::from_slice(&text).into_iter::<Value>();
+    let first = all.next().transpose().ok()?;
+    match first.unwrap_or(Value::Null) {
+        Value::Null | Value::Bool(false) => Some(Value::Object(Default::default())),
+        v => Some(v),
+    }
+}
+
+/// The provider and agent retry and timeout a container's Pi runs with, as one
+/// line for the cycle's log: the host's settings.json that a container is
+/// mounted under the product's own .pi/settings.json in <host>, merged the way
+/// Pi merges them. A value neither sets is Pi's default.
+pub fn retry_line(host: &str) -> String {
+    use serde_json::Value;
+    let global = format!("{}/settings.json", agent_dir());
+    if !std::path::Path::new(&global).is_file() {
+        return format!("provider retry: unknown, {global} is missing");
+    }
+    let mut project = format!("{host}/.pi/settings.json");
+    if fs::File::open(&project).is_err() {
+        project = "/dev/null".to_string();
+    }
+    let not_json = || format!("provider retry: unknown, {global} or {project} is not JSON");
+    let (Some(g), Some(p)) = (first_json(&global), first_json(&project)) else {
+        return not_json();
+    };
+    if !g.is_object() || !p.is_object() {
+        return not_json();
+    }
+    let s = merged(g, p);
+    let v = |path: &[&str]| {
+        at(&s, path).map(|x| match x {
+            Value::Null => "unset".to_string(),
+            Value::String(t) => t.clone(),
+            other => other.to_string(),
+        })
+    };
+    let fields = [
+        ("timeoutMs", v(&["retry", "provider", "timeoutMs"])),
+        ("maxRetries", v(&["retry", "provider", "maxRetries"])),
+        (
+            "maxRetryDelayMs",
+            v(&["retry", "provider", "maxRetryDelayMs"]),
+        ),
+        ("httpIdleTimeoutMs", v(&["httpIdleTimeoutMs"])),
+        ("agentMaxRetries", v(&["retry", "maxRetries"])),
+        ("agentBaseDelayMs", v(&["retry", "baseDelayMs"])),
+        ("agentMaxDelayMs", v(&["retry", "maxAgentDelayMs"])),
+    ];
+    let mut line = "provider retry:".to_string();
+    for (name, value) in fields {
+        let Some(value) = value else {
+            return not_json();
+        };
+        line.push_str(&format!(" {name}={value}"));
+    }
+    line
 }
 
 /// The tokens models.json names that are set.
@@ -226,13 +436,12 @@ pub fn settings_ok() -> Result<(), String> {
             return Err(format!("tehas: no {agent}/{f}: run install.sh"));
         }
     }
-    let file = models::host_path();
-    models::keys_ok(&ModelFile::read(&file).json, &file, set).map_err(|e| format!("tehas: {e}"))
+    models::host_keys_ok().map_err(|e| format!("tehas: {e}"))
 }
 
 /// The -v options with what they name made on the host, because Docker would
 /// create a missing mount source as a root-owned directory. The caller makes
-/// <host> and writes <state>/models.json. Asks [`settings_ok`] again, and says
+/// <host>; `tehas-cycle sandbox mounts` writes <state>/models.json. Asks [`settings_ok`] again, and says
 /// why on Err.
 pub fn prepared_mounts(kind: Kind, p: &Paths) -> Result<Vec<String>, String> {
     if [p.tree, p.host, p.state, p.runs]

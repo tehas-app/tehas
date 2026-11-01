@@ -1102,6 +1102,23 @@ t_eq "$(jq -c '[(.images | length), (.leftOut | map([.link, .reason, .source]))]
 t_contains "$(cat "$T/calls/gh.comments")" "Tehas left out of your reply:
 - $A/0009: More than 8 images."
 
+t_case "with no attachment checker a reply that links nothing runs its turn"
+first_turn
+mv "$T/home/tehas/libexec/attach" "$T/attach.away"
+reply_is "No link, only https://example.com/x.png"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 0
+t_contains "$(cat "$T/calls/answer.seen")" "No link"
+t_eq "$(cat "$T/calls/gh.comments" 2>/dev/null)" ""
+
+t_case "with no attachment checker a reply that links a file runs no turn, and no host path is said: exit 4"
+reply_is "![b]($A/2222)"
+t_run "$plan 7 --out $T/out.json --keep $T/keep --session abc-123 --answer $T/answer.md --comment 4003"
+t_eq "$t_rc" 4
+t_contains "$(cat "$T/calls/gh.comments")" "the issue's files could not be checked (the attachment checker is not installed)"
+t_lacks "$(cat "$T/calls/gh.comments")" "$T/"
+mv "$T/attach.away" "$T/home/tehas/libexec/attach"
+
 t_case "a reply's link that cannot be fetched runs no turn and leaves the session's images as they were: exit 4"
 first_turn
 cp "$T/keep/images/manifest.json" "$T/manifest.before"

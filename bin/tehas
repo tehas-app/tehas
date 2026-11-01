@@ -32,7 +32,8 @@
 # one with the remaining arguments and loads no settings: with-settings does
 # that for a verb that needs them. The timers and services run tehasbot.
 #
-# Exit: the status of the command that ran; 64 a command this does not know.
+# Exit: the status of the command that ran; 64 a command this does not know;
+# 78 the text of a command the console holds, and no console.
 set -uo pipefail
 
 libexec=$(cd "$(dirname "${BASH_SOURCE[0]}")/../libexec" && pwd) ||
@@ -68,7 +69,10 @@ unknown() {
 
 # text <command>: print the text of a command and end.
 text() {
-  verb "$1" && exec "$console" usage "$1"
+  if verb "$1" || [ "$1" = update ]; then
+    [ -x "$console" ] || { echo "tehas $1: no console at $console, so no text to show: run install.sh" >&2; exit 78; }
+    exec "$console" usage "$1"
+  fi
   file=$(script "$1")
   [ -n "$file" ] || unknown "$1"
   usage_of "$file"

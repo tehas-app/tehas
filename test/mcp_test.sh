@@ -159,8 +159,8 @@ t_env TEHAS_MCP=1 TEHAS_MCP_KEYS="$key1"
 t_run "$mcp serve"
 t_eq "$t_rc" 0
 given=$(t_calls docker | grep -e '^run ' | grep -o -e '--private .*' | sed 's/--private //g')
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/models.sh'; tehas_load
-'$T_CYCLE' private \"\$(tehas_models_file)\" bot@example.com | grep -vx -e --private | tr '\n' ' '"
+t_run ". '$T_ROOT/lib/config.sh'; tehas_load
+'$T_CYCLE' private \"\$HOME/.pi/agent/models.json\" bot@example.com | grep -vx -e --private | tr '\n' ' '"
 t_eq "$given " "$t_out"
 t_contains "$given" "role.lan"
 rm -rf "$T/home/.pi" "$T/home/.gitconfig"

@@ -24,7 +24,7 @@
 //! CPU, 2g of memory and no swap.
 //!
 //!   records    $TEHAS_HOME/tmp/improve/window/<issue>-<stamp>, written when a
-//!              cycle ends (lib/improve.sh). A run takes the five oldest and
+//!              cycle ends (console/cycle/src/improve.rs). A run takes the five oldest and
 //!              leaves the rest for the next. An analyst stopped at its bound
 //!              halves that number for the next run, down to one, in
 //!              state/improve.cap; one that finishes in time doubles it again.
@@ -82,7 +82,6 @@
 
 mod body;
 mod check;
-pub mod models;
 mod pack;
 mod run;
 

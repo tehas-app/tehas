@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154  # here is the sourcing command's
-# The bash of what a sandbox container is given, and the tree it works in.
+# The bash of what a sandbox container is given.
 # Sourced by the commands that start one in bash: tehas work (a cycle) and tehas
 # plan (a planning turn), and by tehas dev for the check of Pi's files.
 # The docker options themselves are made in one
@@ -18,21 +18,12 @@
 #                                        make what the -v options name and the
 #                                        container's own models.json, and print
 #                                        the options NUL separated
-#   tehas_sandbox_retry <host>           the provider retry a container's Pi runs
-#                                        with, as one line
-#   tehas_sandbox_seed <state> [<index dir>]
-#                                        give <state> the host's code index
 #   tehas_index_dir                      where the host keeps the index
 #   tehas_git_github_host                the github.com host git authenticates to
 #   tehas_git_credential_helper_key      the config key of that host's helper
-#   tehas_sandbox_clone <src> <tree> <branch>
-#                                        make <tree>, a clone of <src>
 #
 # Source lib/config.sh and call tehas_load first, and set here to the directory
 # of the command: the settings are read from the environment it leaves.
-
-# shellcheck source=lib/models.sh
-. "$(dirname "${BASH_SOURCE[0]}")/models.sh"
 
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is
@@ -86,71 +77,6 @@ tehas_sandbox_limits() { # <command> <what>
   esac
 }
 
-# models.json is the container's own, <state>/models.json: the host's with each
-# provider on the endpoint picked now (lib/models.sh). <state>/endpoints says
-# which providers are on their backup. The options are held until that is
-# written, so a run that could not write it is given none.
-tehas_sandbox_mounts() { # <kind> <tree> <host> <state> <runs>
-  local opts
-  mapfile -d '' -t opts < <("$here/tehas-cycle" sandbox mounts "$@")
-  wait "$!" && tehas_models_resolve "$4/models.json" >"$4/endpoints" && printf '%s\0' "${opts[@]}"
-}
-
-# The provider and agent retry and timeout a container's Pi runs with: the host's
-# settings.json that a container is mounted, under the product's own
-# .pi/settings.json in <host>, merged the way Pi merges them. A value neither
-# sets is Pi's default. For the cycle's log, so a reader of it knows them.
-tehas_sandbox_retry() { # <host>
-  local global=$HOME/.pi/agent/settings.json project=$1/.pi/settings.json
-  [ -f "$global" ] || { echo "provider retry: unknown, $global is missing"; return 0; }
-  [ -r "$project" ] || project=/dev/null
-  jq -n -r --slurpfile g "$global" --slurpfile p "$project" '
-    (($g[0] // {}) * ($p[0] // {})) as $s
-    | def v($x): if $x == null then "unset" else ($x | tostring) end;
-    "provider retry: timeoutMs=\(v($s.retry.provider.timeoutMs))"
-    + " maxRetries=\(v($s.retry.provider.maxRetries))"
-    + " maxRetryDelayMs=\(v($s.retry.provider.maxRetryDelayMs))"
-    + " httpIdleTimeoutMs=\(v($s.httpIdleTimeoutMs))"
-    + " agentMaxRetries=\(v($s.retry.maxRetries))"
-    + " agentBaseDelayMs=\(v($s.retry.baseDelayMs))"
-    + " agentMaxDelayMs=\(v($s.retry.maxAgentDelayMs))"' 2>/dev/null ||
-    echo "provider retry: unknown, $global or $project is not JSON"
-}
-
-# Put the host's code index in <state>/cache, the copy this container is given.
-# The index is one sqlite file per tree that was indexed. Not copied: the
-# indexer's own logs, which a container has no use for, and what a run that
-# was stopped left behind (a staging file about half the size of the index it
-# was writing, read by nothing). Without that the copy would be several times
-# the index and grow with every interrupted run.
-# <index dir> is tehas_index_dir unless another is named. A host that never
-# indexed anything has nothing to give: that is not a failure, and a container
-# then searches by reading files.
-tehas_sandbox_seed() { # <state> [<index dir>]
-  local state=$1 src=${2:-$(tehas_index_dir)} f
-  mkdir -p "$state/cache" || return 1
-  [ -d "$src" ] || return 0
-  for f in "$src"/*; do
-    [ -e "$f" ] || continue
-    case "$f" in */logs | *.db.stage.* | *.tmp) continue ;; esac
-    cp -a "$f" "$state/cache/" || { rm -rf "$state/cache"; mkdir -p "$state/cache"; return 1; }
-  done
-}
-
-# Make <tree>: a clone at the tip the product checkout <src> last fetched for
-# <branch>, with the product's address as origin. Nothing is fetched from the
-# network. The host runs git in <tree> here and only here: once a container has
-# written a tree, anything in it, hooks and git configuration included, may be
-# an agent's. The caller decides whether <tree> may be made.
-tehas_sandbox_clone() { # <src> <tree> <branch>
-  local src=$1 tree=$2 branch=$3 base url
-  base=$(git -C "$src" rev-parse -q --verify "refs/remotes/origin/$branch^{commit}") ||
-    { tehas_err "$src has no origin/$branch"; return 1; }
-  url=$(git -C "$src" config --get remote.origin.url) || return 1
-  git init -q -b "$branch" "$tree" &&
-    git -C "$tree" remote add origin "$url" &&
-    timeout -k 10 300 git -C "$tree" fetch -q --no-tags "$src" '+refs/remotes/origin/*:refs/remotes/origin/*' &&
-    git -C "$tree" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$branch" &&
-    git -C "$tree" checkout -q -B "$branch" "$base" &&
-    git -C "$tree" branch -q --set-upstream-to="origin/$branch" "$branch"
-}
+# Writes <state>/models.json and <state>/endpoints too. The options come last,
+# so a run that could not write those is given none.
+tehas_sandbox_mounts() { "$here/tehas-cycle" sandbox mounts "$@"; }

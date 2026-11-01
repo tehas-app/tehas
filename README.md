@@ -186,18 +186,16 @@ host.
 | `libexec/` | The scripts behind them, all bash. Installed to `~/tehas/libexec` |
 | `console/` | The console of a running cycle, a Rust program. `install.sh` builds it and installs it as `~/tehas/libexec/console` |
 | `lib/config.sh` | Loads and checks the instance settings |
-| `lib/attachments.sh` | Files attached to an issue: which links count and how one is fetched |
+| `lib/attachments.sh` | Files attached to an issue: the way to `libexec/attach`, which fetches and judges them |
 | `lib/cycles.sh` | Which cycles are running, from the lock each one holds, and where a parked cycle's question is on record |
-| `lib/headless.sh` | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its NDJSON progress and its `--json` result. Every check of a pi-rukas feature asks its `tehas_headless_mode` |
 | `lib/polyfill-<feature>.sh` | What tehas does itself for a pi-rukas feature no release has yet, until one has it. Each names the upstream issue and pull request. None today |
-| `lib/improve.sh`, `lib/improve-prompt.md` | The improvement loop's shared parts, and the prompt its analyst reads |
+| `lib/improve-prompt.md` | The prompt the improvement loop's analyst reads |
 | `lib/labels.sh` | Who applied a label, read from the label events |
 | `lib/questions.sh` | The questions the factory asks on an issue |
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
-| `lib/status.sh` | The factory's state for `tehas status` |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
-| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
+| `lib/update-steps.sh` | What of the follow-up steps is read before the console can be asked: the record of steps owed, and the one wait `install.sh` and `tehas update` give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |

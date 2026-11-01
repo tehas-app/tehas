@@ -5,9 +5,8 @@
 //! for those things themselves, each in its own shape, so the forge is welded
 //! in. This module is the first half of the seam: one trait that says what
 //! tehas wants to know, and one adapter that answers it from GitHub's labels
-//! the way `lib/labels.sh` and `libexec/dispatch` do today. Nothing calls it
-//! yet; the next issues of #800 give bash a command for it and move
-//! `libexec/status` and `lib/labels.sh` onto that command.
+//! the way `libexec/dispatch` does today. Nothing calls it
+//! yet; the next issues of #800 give bash a command for it.
 //!
 //! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and putting a
@@ -32,7 +31,7 @@
 //! thing here that starts a process, and it is what the next issues of #800
 //! build once, with the instance's shim as its program.
 //!
-//! The reading of gh's answers, and the rules of `lib/labels.sh` that decide
+//! The reading of gh's answers, and the rules that decide
 //! which of an issue's events answer a term, are in [`gh`].
 
 mod gh;
@@ -210,6 +209,21 @@ pub trait Forge {
     fn remove_label(&mut self, issue: u64, label: &str) -> Result<(), ForgeError>;
 }
 
+/// gh's answer to the events call as [`crate::events`] reads events. Why not
+/// when it says nothing of them: an empty answer included.
+pub fn read_events(out: &str) -> Result<Vec<crate::events::Event>, String> {
+    Ok(gh::parse_events(out)?.into_iter().map(public).collect())
+}
+
+fn public(e: gh::Event) -> crate::events::Event {
+    crate::events::Event {
+        event: e.event,
+        label: e.label,
+        actor: e.actor,
+        at: e.at,
+    }
+}
+
 /// gh, behind a trait of its own, so the adapter's rules are read without gh,
 /// a token or a network: a test hands [`GitHub`] a stub that answers from
 /// fixtures, and what it decides is the rules alone.
@@ -289,16 +303,7 @@ impl Forge for GitHub {
     }
 
     fn label_events(&mut self, issue: u64) -> Result<Vec<crate::events::Event>, ForgeError> {
-        Ok(self
-            .events(issue)?
-            .into_iter()
-            .map(|e| crate::events::Event {
-                event: e.event,
-                label: e.label,
-                actor: e.actor,
-                at: e.at,
-            })
-            .collect())
+        Ok(self.events(issue)?.into_iter().map(public).collect())
     }
 
     fn applied_by(&mut self, issue: u64, label: &str) -> Result<Option<Approval>, ForgeError> {
