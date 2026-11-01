@@ -1,5 +1,4 @@
-//! The start of a planning turn, as lib/planning.sh's plan_turn and
-//! plan_launch do it, and the three spends of a park's retry rule 4a and 5a
+//! The start of a planning turn, and the three spends of a park's retry rule 4a and 5a
 //! make. A first turn's brief is written before the session begins on
 //! record; the issue is marked planning before the turn's unit starts.
 //!

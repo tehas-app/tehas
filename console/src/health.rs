@@ -1134,7 +1134,7 @@ fn held(lock: &Path) -> bool {
 
 /// The planning turns in flight, each {issue, turn, startedAt}: the sessions
 /// the store has running whose turn holds its lock and has not left its exit
-/// status (lib/planning.sh).
+/// status (console/dispatch/src/apply/turn.rs).
 fn plans(home: &Path, sessions: &J) -> J {
     let state = home.join("state");
     let mut out = Vec::new();

@@ -150,20 +150,17 @@ carrier '\.images\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.images.md"'
 carrier '\.retry-context\.md\b' 'cp "$images/x" "$TEHAS_HOME/state/cycles/7.retry-context.md"' \
   'libexec/work' \
   "what a reviewer said before a retry, mounted into the container"
-carrier '-plan-%s\.keep\b' 'plan_keep() { printf '"'"'%s-plan-%s.keep\n'"'"' "$TEHAS_WORK_DIR" "$1"; }' \
-  'lib/planning.sh' \
-  "the directory a planning container keeps its session in, beside the workspace"
 carrier '\$\{?st\}?\.rc\b|\.json\.rc\b' 'rc=$(cat "$st.rc" 2>/dev/null)' \
-  'lib/planning.sh console/src/health.rs' \
+  'console/src/health.rs' \
   "a planning turn's exit, from the turn to the poll that collects it"
 carrier '\$\{?st\}?\.lock\b|\.json\.lock\b' '[ -f "$st.lock" ]' \
-  'install.sh lib/planning.sh console/src/health.rs' \
+  'install.sh console/src/health.rs' \
   "the lock a planning turn holds while it runs; install.sh moves no .keep while it is held"
-carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(plan_filed "$st.out")' \
-  "lib/planning.sh $an/plan.rs $an/tests.rs" \
+carrier '\$\{?st\}?\.out\b|\.json\.out\b' 'what=$(cat "$st.out")' \
+  "$an/plan.rs $an/tests.rs" \
   "a planning container's output"
 carrier 'refined\.jsonl\b' 'ledger=$TEHAS_HOME/state/refined.jsonl' \
-  "lib/planning.sh $an/main.rs $an/report.rs $an/sessions.rs $an/tests.rs" \
+  "$an/main.rs $an/report.rs $an/sessions.rs $an/tests.rs" \
   "the ledger of refined issues, which the store does not hold"
 
 t_case "no code names the old file of a record on the store"
@@ -209,8 +206,8 @@ done
 t_case "no forbidden pattern takes a JSON field, a label or a kept name for a file"
 for line in 'jq -r .by <<<"$base"' '.branch // ""' 'tehas.rukas' '"$TEHAS_HOME/state/dispatch.taken"' \
   '$images/.taken' '.images.md' '"$st.out"' '"$st.rc"' '"$st.lock"' 'state/plan-<issue>.json.out' \
-  'plan_state() { printf '"'"'%s/state/plan-%s.json\n'"'"' "$TEHAS_HOME" "$1"; }' '.planning.answer // ""' \
-  '.planning.brief' "tehas_store_get '.planning.turn'" '"$keep/answer.md"' '"$(plan_state "$n").rc"' \
+  '.planning.answer // ""' \
+  '.planning.brief' "tehas_store_get '.planning.turn'" '"$keep/answer.md"' \
   'tehas_cycle_history "$1"' "q=\$(tehas_store_get '.park.question // empty')" ".park // \"\" | strings" \
   'park_holds "$n"' 'park-show "$n"' '<!-- tehas:park issue=7 -->' \
   'systemd-run --user --quiet --collect' 'quiet_running=$(tehas_cycles_running)' '.cycle.quiet'; do

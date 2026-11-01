@@ -2367,7 +2367,7 @@ fn an_event_is_stored_at_the_time_given_and_one_ahead_of_now_is_refused() {
     );
 }
 
-// A planning turn of issue 7 in flight: its record as lib/planning.sh leaves
+// A planning turn of issue 7 in flight: its record as the poll leaves
 // it when the turn has ended, as facts, and what libexec/plan wrote beside it.
 fn turn(home: &Path, record: Value, out: Option<Value>) {
     fs::write(facts_path(home, 7), record.to_string()).unwrap();

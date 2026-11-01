@@ -19,6 +19,12 @@
 //!
 //! and then removes each live/cycles/<number>.json that it did not write.
 //! It reads the rows and writes files; it writes no row.
+//!
+//! The factory floor, the plain dashboard, tehasbot health, tehas dev and the
+//! MCP server read these views. publish renders the cycle views from the
+//! heartbeats and from the ends cycle-end records. A running cycle not heard
+//! from for two minutes whose issue lock (state/cycles/<issue>.lock) is free
+//! is shown as lost.
 
 use crate::lock;
 use crate::verbs::{self, j, line, list, obj, refuse, Args, Fail, Kind, Q};

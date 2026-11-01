@@ -577,7 +577,7 @@ tehas_load() {
   # ceiling of a turn is written: the default below is that ceiling, the check
   # further down refuses more, and the tests pin the copies in libexec/plan,
   # libexec/dispatch and instances/example/optional.env against it. The unit of
-  # a turn gets RuntimeMaxSec = the limit + 900 (lib/planning.sh).
+  # a turn gets RuntimeMaxSec = the limit + 900 (console/dispatch/src/apply/turn.rs).
   local TEHAS_PLAN_TIMEOUT_MAX=7200
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20} TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-$TEHAS_PLAN_TIMEOUT_MAX}
   # Previews of pull requests and the names of the edge: off, and no names, unless
@@ -712,7 +712,7 @@ tehas_load() {
   # the whole cycle, and the cycle under what the unit outlives. Each is refused,
   # not clamped, and each name is a count by now (_tehas_is_count, in the sweep
   # above), so no [ -gt ] here reads a failed comparison as no refusal. The unit
-  # gets RuntimeMaxSec = TEHAS_PLAN_TIMEOUT + 900 (lib/planning.sh); 7200 + 900 is
+  # gets RuntimeMaxSec = TEHAS_PLAN_TIMEOUT + 900 (apply/turn.rs); 7200 + 900 is
   # 2h15, inside the unit's own bound, and beyond it a turn outlives its unit. The
   # length is bounded with the value: a count longer than the ceiling's digits
   # cannot be compared by [ ], and would wrap in that arithmetic.

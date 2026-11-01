@@ -104,10 +104,8 @@ files="./.bashrc
 ./tehas/lib/labels.sh
 ./tehas/lib/park-fields.jq
 ./tehas/lib/limit.sh
-./tehas/lib/live.sh
 ./tehas/lib/models.sh
 ./tehas/lib/paths.sh
-./tehas/lib/planning.sh
 ./tehas/lib/private.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
