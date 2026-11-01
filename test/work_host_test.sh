@@ -144,14 +144,27 @@ t_case "no command writes to Pi through a fifo"
 t_eq "$(grep -c '>&4' "$T_ROOT/libexec/work")" 0
 t_eq "$(grep -c '>&4' "$T_ROOT/libexec/plan")" 0
 
-t_case "without a console the status line is not published"
+t_case "without a console the command stops with 78 and publishes nothing of the cycle"
 mv "$tree/libexec/console" "$T/console.kept"
+under_cycle
+before=$(cat "$T/home/tehas/live/running.json")
+# Only the console of this tree may answer, as on a host.
+keep_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
+t_run "$work 7"
+T_ENV_ALWAYS=("${keep_env[@]}")
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command at $tree/libexec/console, run install.sh"
+t_eq "$(cat "$T/home/tehas/live/running.json")" "$before"
+t_stub console
+mv "$T/bin/console" "$tree/libexec/console"
+
+t_case "a console that writes no now file leaves the status line empty"
+touch "$T/now.off"
 under_cycle
 t_run "$work 7"
 t_eq "$(jq -r '.last.statusText, .last.status' "$T/home/tehas/live/running.json" | tr '\n' ,)" ",running,"
-t_stub console
-mv "$T/bin/console" "$tree/libexec/console"
-rm -f "$T/container.sh"
+rm -f "$T/now.off" "$T/container.sh"
 
 other() { # issue running status updatedAt: another cycle on the store
   local now

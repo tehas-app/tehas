@@ -642,6 +642,29 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "no console to build the pages with; run install.sh"
 t_eq "$(t_calls gh)" ""
 
+t_case "the console run alone: a setting left empty stops it with 78 before it writes or asks"
+# The command's own check stops this first, so the console is run bare. Run in
+# an empty directory: an empty TEHAS_HOME would make the paths relative to it.
+bare=$T/bare
+keep_t_env=("${T_ENV[@]}")
+T_ENV=(TEHAS_HOME="$bare/home" TEHAS_REPO=acme/widget TEHAS_ALLOWED_LABELERS=alice TEHAS_BOT_LOGIN=tehas-bot)
+for name in TEHAS_HOME TEHAS_REPO TEHAS_ALLOWED_LABELERS; do
+  rm -rf "$bare" "$T/calls/gh"
+  mkdir -p "$bare/cwd"
+  t_run "cd \"$bare/cwd\" && env $name= \"$T_CONSOLE\" protolab run"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "TEHAS_HOME, TEHAS_REPO and TEHAS_ALLOWED_LABELERS must be set"
+  t_eq "$(find "$bare" -mindepth 1 -not -path "$bare/cwd")" ""
+  t_eq "$(t_calls gh)" ""
+done
+# With all three the same run goes on and writes, so the check above is what stopped it.
+rm -rf "$bare" "$T/calls/gh"
+mkdir -p "$bare/cwd"
+t_run "cd \"$bare/cwd\" && \"$T_CONSOLE\" protolab run"
+t_eq "$t_rc" 0
+t_eq "$([ -d "$bare/home/protolab" ] && echo there)" there
+T_ENV=("${keep_t_env[@]}")
+
 t_case "a console with other bytes builds every page again"
 reset
 issues "$(issue 61 'Kept' 'no files')"

@@ -913,9 +913,6 @@ console=$live/console-$issue.txt
 console_now=$console.now
 : >"$console"
 rm -f "${console_now:?}"
-# The cycle does not depend on it: without a console it runs all the same,
-# and this says why the dashboard shows none.
-[ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
 # The names for the console to mask.
 mapfile -t private < <("$here/tehas-cycle" private "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
@@ -1140,7 +1137,7 @@ if kill -0 "$cpid" 2>/dev/null; then
 fi
 wait "$cpid" 2>/dev/null
 crc=$?
-[ "$crc" = 0 ] || [ ! -x "$here/console" ] || echo "tehas work: the console ended with $crc, see $log.console"
+[ "$crc" = 0 ] || echo "tehas work: the console ended with $crc, see $log.console"
 
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
 step=${step:--}
