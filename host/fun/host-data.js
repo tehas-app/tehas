@@ -5,7 +5,7 @@
 //
 // Pure: it opens no file, asks no command and reads no clock. A test hands it a
 // file and a moment (test/host_view_test.mjs). The published file itself is
-// written by libexec/top-publish; see host/docs/tools.md.
+// written by tehasbot top; see host/docs/tools.md.
 
 export const PERIOD = 5; // the publisher rewrites the file every five seconds
 export const STALE_AFTER = 30; // six missed publishes: the numbers are not the host's now

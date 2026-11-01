@@ -102,9 +102,8 @@ tehas_analytics_plan() {
   local issue=$1 record=null
   shift
   tehas_analytics_on || return 0
-  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets the shape
-  if tehas_store plan-show "$issue"; then
-    record=$(jq -c "$tehas_plan_shape" <<<"$tehas_store_out" 2>/dev/null) || record=null
+  if tehas_store plan-view "$issue"; then
+    record=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || record=null
   fi
   [ -n "$record" ] || record=null
   tehas_analytics_facts plan "$issue" "$record" "$@"

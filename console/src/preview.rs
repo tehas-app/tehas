@@ -1,14 +1,86 @@
-//! Which pull requests get a preview, for libexec/preview. The shell reads
-//! the pages from GitHub; this decides what is done with each.
+//! Keep a running preview of every open pull request: a container that serves
+//! the product as that pull request has it, reached through the edge router as
+//! uat-<number>.<TEHAS_DOMAIN> (edge/router.Caddyfile).
 //!
+//!   console preview run                    bring the previews in step
+//!   console preview sweep                  the three hour check
 //!   console preview choose <repo> [max] <pull requests
+//!   console preview network check|create|ensure <network>
 //!
-//! Standard input holds the open pull requests as GitHub answered them: the
-//! bytes of each page in turn, one JSON array per page, which is what the run
-//! keeps. Pages written over several lines are read as pages too. <repo> is
-//! the product repository, compared without regard to capitals as GitHub
-//! itself does. [max] is TEHAS_PREVIEW_MAX: the newest of them get a preview.
-//! A list that cannot be read chooses nothing, and says `nothing read`.
+//! `libexec/preview` loads the settings and starts `run` or `sweep`, under a
+//! lock of their own: `run` gives up when it is held, `sweep` waits.
+//!
+//!   which ones      Open pull requests whose head branch is in the product
+//!                   repository itself, opened by an owner, member or
+//!                   collaborator of the repository. A pull request from a
+//!                   fork is never built. Nor is one by anyone else: on a
+//!                   public repository anyone can open a pull request between
+//!                   two branches it already has.
+//!   what it is      The image that preview/Dockerfile of that commit builds,
+//!                   answering HTTP on port 8080. A commit without that file
+//!                   has no preview.
+//!   what it gets    Nothing of the host: no mount, no variable, no port, no
+//!                   token, a read-only root, and a network that has the
+//!                   router and the other previews on it and nothing else:
+//!                   not the internet and not the host. The build gets the
+//!                   commit as an archive on standard input and nothing else.
+//!   what it writes  Nothing on the host's disk but its output, which Docker
+//!                   keeps to two files of 10 MB. /tmp, /config and /data are
+//!                   in memory. A recipe that declares a volume anywhere else
+//!                   is not run: Docker would put that volume on the disk.
+//!   the default     The head of the repository's default branch has a preview
+//!   branch          of its own, beside those of the pull requests, at
+//!                   uat-main.<TEHAS_DOMAIN>: container tehas-preview-main,
+//!                   image tehas-preview:main, state in preview/main/, log
+//!                   preview-main.log. It is built under the same rules and
+//!                   limits as a pull request's, from the commit's own recipe,
+//!                   and a new commit is built while the old container serves.
+//!                   It does not count against TEHAS_PREVIEW_MAX, a full disk
+//!                   stops its builds too, it has no notice, and neither the
+//!                   run nor the sweep removes it: the branch is never closed.
+//!                   A GitHub call that fails leaves what runs.
+//!   how many        The newest TEHAS_PREVIEW_MAX. The rest say "over-limit".
+//!                   All the open pull requests are read, in pages of 100. A
+//!                   run that cannot read the list builds and removes nothing.
+//!   when it goes    At the next run after the pull request is merged or
+//!                   closed: the container, the image, the fetched ref and
+//!                   the state. Nothing is removed before GitHub is asked about
+//!                   that pull request by itself: a list read in pages is not
+//!                   one answer taken at one moment.
+//!   what it says    A notice at the top of the pull request's own description
+//!                   (src/notice.rs): the address, or "Unable to create a
+//!                   preview" with the reason, for a failed build and for a
+//!                   full disk. A pull request that falls over the limit or
+//!                   loses its recipe has that notice say there is no preview.
+//!   a full disk     Under TEHAS_PREVIEW_MIN_FREE of free space nothing is
+//!                   built. What serves stays, and removal still runs. The
+//!                   figures are in previews.json at every run, and tehasbot
+//!                   health reads them.
+//!
+//! Each pull request has a state in $TEHAS_HOME/preview/<number>/state.json,
+//! and the default branch one in preview/main/state.json: serving, building,
+//! no-recipe, build-failed, no-space or over-limit. Serving is a container that
+//! was still running a few seconds after its start. The list for the dashboard
+//! is $TEHAS_HOME/live/previews.json, the default branch first. A build's output
+//! is in $TEHAS_HOME/logs/preview-<number>.log. Deterministic, no model.
+//!
+//! The sweep is the second check that nothing of a merged or closed pull
+//! request stays on the host. It works from the containers, images, fetched
+//! refs and directories it finds, not from GitHub's list, and asks about each
+//! pull request by itself. It waits for a run to end and a run does not start
+//! while it works. A line "swept" in the log is something the five minute run
+//! missed.
+//!
+//! Exit of `run` and `sweep`: 0 done, or GitHub or Docker did not answer and
+//! what runs was left running; 1 it cannot write under $TEHAS_HOME; 78 a setting
+//! is missing or malformed.
+//!
+//! `choose` decides what is done with each open pull request. Standard input
+//! holds them as GitHub answered them: the bytes of each page in turn, one JSON
+//! array per page. Pages written over several lines are read as pages too.
+//! <repo> is the product repository, compared without regard to capitals as
+//! GitHub itself does. [max] is TEHAS_PREVIEW_MAX: the newest of them get a
+//! preview. A list that cannot be read chooses nothing, and says `nothing read`.
 //!
 //! The rules, each on its own line of the answer:
 //!
@@ -31,7 +103,13 @@
 //! removes nothing. Reading it as "an outsider's" would take a preview from a
 //! pull request that serves.
 //!
-//! Exit: 0 the choice was printed, whatever it is; 2 usage.
+//! Exit of `choose`: 0 the choice was printed, whatever it is; 2 usage.
+
+mod build;
+mod list;
+mod run;
+mod sweep;
+mod verdict;
 
 use serde_json::Value;
 use std::io::{self, Read};
@@ -337,10 +415,13 @@ pub fn choose_main(args: &[String]) -> u8 {
 pub fn main(given: &[String]) -> u8 {
     match given.first().map(String::as_str) {
         Some("choose") => choose_main(&given[1..]),
-        Some("tell") => crate::notice::main(given),
+        Some("run") if given.len() == 1 => run::main(false),
+        Some("sweep") if given.len() == 1 => run::main(true),
+        Some("network") => crate::edge::network_main(&given[1..]),
         _ => {
-            eprintln!("console preview: usage: tell <number> <time> <repo> <root> <address>");
+            eprintln!("console preview: usage: run|sweep");
             eprintln!("console preview choose: usage: <repo> [max] <pull requests");
+            eprintln!("console preview network: usage: check|create|ensure <network>");
             2
         }
     }

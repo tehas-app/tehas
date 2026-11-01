@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The GitHub App's installation token (lib/github-app.sh): print one that has
-# at least 10 minutes left, making one when the kept one has less. What the gh
-# shim and the git credential helper ask for.
+# The GitHub App's installation token, made by the console
+# (console/src/github.rs). The path the gh shim, the poll and tehas-cycle renew
+# ask, and what the git credential helper's gh ends in.
 #
 # Usage:
 #   tehasbot github-token           print the token, and nothing else
@@ -11,44 +11,4 @@
 # Exit: 0 a token, or a check that passed; 1 no token could be had, or the
 # token does not reach TEHAS_REPO; 64 an argument it does not know; 78 the
 # instance settings are missing or malformed, or name no GitHub App.
-#
-# Instance settings (lib/config.sh): TEHAS_GITHUB_APP_ID,
-# TEHAS_GITHUB_APP_INSTALLATION and TEHAS_BOT_LOGIN, required; TEHAS_REPO for
-# --check. The key is ~/.config/tehas/github-app.pem.
-set -uo pipefail
-
-check=0
-case "${1-}" in
-  "") ;;
-  --check) check=1 ;;
-  *) echo "usage: tehasbot github-token [--check]" >&2; exit 64 ;;
-esac
-[ "$#" -le 1 ] || { echo "usage: tehasbot github-token [--check]" >&2; exit 64; }
-
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# shellcheck source=lib/config.sh
-. "$here/../lib/config.sh"
-# shellcheck source=lib/github-app.sh
-. "$here/../lib/github-app.sh"
-tehas_load || exit 78
-tehas_require TEHAS_GITHUB_APP_ID TEHAS_GITHUB_APP_INSTALLATION TEHAS_BOT_LOGIN
-
-token=$(tehas_github_token) || exit 1
-if [ "$check" = 0 ]; then
-  printf '%s\n' "$token"
-  exit 0
-fi
-
-tehas_require TEHAS_REPO
-until=$(cat "$(tehas_github_dir)/token.expires" 2>/dev/null)
-echo "app $TEHAS_GITHUB_APP_ID, installation $TEHAS_GITHUB_APP_INSTALLATION, acting as $TEHAS_BOT_LOGIN"
-echo "token good until $(date -u -d "@$until" +%FT%TZ 2>/dev/null || echo "an expiry that cannot be read")"
-answer=$(curl -fsS --max-time 30 -H "Authorization: Bearer $token" -H 'Accept: application/vnd.github+json' \
-  "${TEHAS_GITHUB_API:-https://api.github.com}/installation/repositories?per_page=100" 2>/dev/null) ||
-  { echo "tehas github-token: the token could not list its repositories" >&2; exit 1; }
-if jq -e --arg repo "$TEHAS_REPO" 'any(.repositories[]?; .full_name == $repo)' <<<"$answer" >/dev/null 2>&1; then
-  echo "it reaches $TEHAS_REPO"
-else
-  echo "tehas github-token: the app's installation does not reach $TEHAS_REPO; install the app on it" >&2
-  exit 1
-fi
+exec "$(dirname "${BASH_SOURCE[0]}")/with-settings" tehasbot github-token "$@"

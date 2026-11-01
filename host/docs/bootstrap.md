@@ -120,7 +120,7 @@ reason. The unit names `/usr/bin/systemctl` by path: that is where Ubuntu's
 usr-merged systemd puts it.
 
 Memory going offline needs nothing of its own: the slice shrinks at the next
-reload. What reads the limit is `lib/slice.sh`, with one `systemctl show
+reload. What reads the limit is `console slice`, with one `systemctl show
 tehas.slice -p FragmentPath -p ActiveState -p MemoryMax` per poll, so the
 dispatcher's next poll after a reload sees the new number.
 

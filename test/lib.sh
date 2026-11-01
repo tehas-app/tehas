@@ -96,7 +96,7 @@
 #                                    QID on record when one is given
 #   t_plan HOME N JSON               on a fresh session of issue N, the planning
 #                                    session JSON describes in the shape its
-#                                    record file had (tehas_plan_shape): made
+#                                    record file had (plan-view): made
 #                                    by the planning verbs, as the dispatcher
 #                                    makes one. by [alice], label
 #                                    [tehas:plan], turns, session [abc-123],
@@ -424,7 +424,9 @@ t_stub_analytics() {
 #         retry fails for its own reason, so both are reported. The retry's own
 #         words are invented here, not captured from a real cargo: they only
 #         exercise the report of both attempts
-# Any other build is an ordinary build.
+# Any other build is an ordinary build. A console is a line of text that cannot
+# answer, unless CONSOLE_BIN names a real one to hand over, as STORE_BIN does
+# for the store: install.sh runs the console for the previews' network.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
   t_stub cargo 'pkg=console triple="" prev="" offline=""
@@ -463,6 +465,10 @@ if [ "$pkg" = store ]; then
   if [ -n "${STORE_BIN:-}" ]; then cp "$STORE_BIN" "$out"; exit 0; fi
   { cat "$T/store-stand-in"; echo "# a store built from ${CONSOLE_BUILD:-source}"; } >"$out"
   chmod 755 "$out"
+  exit 0
+fi
+if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
+  cp "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
   exit 0
 fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
@@ -643,17 +649,20 @@ t_console() {
   fi
   cp "$target/debug/console" "$T_CONSOLE"
 }
-# t_health: libexec/health as a host has it, beside the console that builds
-# its report (console/src/health.rs), in $T_HEALTH. A command whose settings
-# were loaded has no TEHAS_CONSOLE, so the console has to be beside it. The
-# command is a copy, not a symlink, so it finds its siblings beside itself.
+# t_health: tehasbot health as a host runs it, with-settings beside the console
+# that builds its report (console/src/health.rs), as the one command $T_HEALTH.
+# The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
+# siblings beside themselves.
 T_HEALTH=$T/health-tree/libexec/health
 t_health() {
   [ -x "$T_HEALTH" ] && return 0
   t_console || return 1
   mkdir -p "$T/health-tree/libexec"
   ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
-  cp "$T_ROOT/libexec/health" "$T_HEALTH"
+  cp "$T_ROOT/libexec/with-settings" "$T/health-tree/libexec/with-settings"
+  # shellcheck disable=SC2016  # expanded when the command runs
+  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/with-settings" tehasbot health\n' >"$T_HEALTH"
+  chmod +x "$T_HEALTH"
   cp "$T_CONSOLE" "$T/health-tree/libexec/console"
 }
 # t_attach_home <home>: the attachment checker where a command runs it.
@@ -698,7 +707,7 @@ t_store_home() {
 t_row() {
   local t_args=() t_got
   case ${1:-} in
-    cycle-show | park-show | question-known | approval-current | plan-show | history-show | check) ;;
+    cycle-show | park-show | question-known | approval-current | plan-show | plan-view | history-show | check) ;;
     *)
       t_bad "t_row reads, and ${1:-nothing} is not a read verb"
       return 64

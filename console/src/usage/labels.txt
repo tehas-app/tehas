@@ -1,0 +1,11 @@
+Create the tehas labels in the product repository, or bring their colours
+and descriptions back to the table in lib/labels.tsv. A setup step: run once
+for a new product, and again when a release changes the table.
+
+Usage: tehas labels          one line per label
+
+Exit: 0 every label is there; 1 a label could not be made; 64 an argument,
+this command takes none; 78 the instance settings are missing or malformed.
+
+Instance settings (lib/config.sh): TEHAS_REPO, required. Nothing else, so it
+runs before the rest of an instance is filled in.
