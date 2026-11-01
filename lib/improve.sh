@@ -1,10 +1,8 @@
 # shellcheck shell=bash
-# The improvement loop's shared parts: the switch and what a cycle ran with.
+# The improvement loop's shared parts: what a cycle ran with.
 # Sourced by tehas work. The record a cycle leaves for the loop is tehas-cycle's
 # (console/cycle/src/improve.rs).
 #
-#   tehas_improve_on       is the loop switched on for this instance?
-#   tehas_improve_dir      print where records wait
 #   tehas_improve_settings <file> <concurrent> <docker options>...
 #                          write what a cycle ran with, for its record: the
 #                          PI_ENSEMBLE_* variables the -e options give the
@@ -19,10 +17,6 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/attachments.sh"
 # shellcheck source=lib/store.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/store.sh"
-
-tehas_improve_on() { [ -n "${TEHAS_IMPROVE_REPO:-}" ]; }
-
-tehas_improve_dir() { printf '%s\n' "$TEHAS_HOME/tmp/improve"; }
 
 # The TEHAS_* settings a record carries: those that shape a cycle. Not every one:
 # the analyst's words are filed in public, and a host's addresses and the
