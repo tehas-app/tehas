@@ -20,8 +20,10 @@
 //!                                     that attempt used, or null: read
 //!                                     before cycle-end, which removes the
 //!                                     record of a start that never ran
-//!   tehas-cycle after <issue> --attempt <n> --started <s> --rc <n>
-//!       --status <word> --step <step> --cap <cap> --park-reason <word>
+//!   tehas-cycle after <issue>         standard input holds, each word ended
+//!                                     by a NUL as a status can pass what one
+//!                                     argument may hold: --attempt <n>
+//!       --started <s> --rc <n> --status <word> --step <step> --cap <cap> --park-reason <word>
 //!       --failure-kind <word> --failure-cause <word> --provider 0|1
 //!       --parked true|false --pr <url> --by <login> --how <how>
 //!       --approved <json> --image <id> --image-built <time>
@@ -228,7 +230,7 @@ fn main() {
                 .unwrap_or_else(|| wrong(&args));
             println!("{}", after::approved(&home, issue(n, &args), attempt));
         }
-        ["after", n, rest @ ..] => after_verb(&home, issue(n, &args), &args, rest),
+        ["after", n] => after_verb(&home, issue(n, &args), &args),
         ["shadow", n, rest @ ..] => {
             let n = issue(n, &args);
             let mut start = Start {
@@ -364,15 +366,19 @@ fn main() {
 }
 
 /// What follows a cycle's record, from what libexec/cycle holds of its end.
-fn after_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) {
+fn after_verb(home: &Path, n: u64, args: &[String]) {
+    let mut bytes = vec![];
+    let read = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes);
+    read.unwrap_or_else(|e| fail(format!("the words cannot be read: {e}")));
+    let text = String::from_utf8_lossy(&bytes);
     let mut a = After::default();
     a.ended.issue = n;
     let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(args));
-    let mut it = rest.iter();
+    let mut it = text.split_terminator('\0');
     while let Some(flag) = it.next() {
         let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
         let e = &mut a.ended;
-        match *flag {
+        match flag {
             "--attempt" => a.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(args)),
             "--started" => e.started = num(&v),
             "--rc" => e.rc = num(&v),

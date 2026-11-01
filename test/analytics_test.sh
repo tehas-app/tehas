@@ -114,8 +114,8 @@ home=$T/home/tehas
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 t_stub systemctl
 scall="$call; . \"\$T_ROOT/lib/store.sh\"
-run_facts() { \"\$T/cycle-bin\" after \"\$1\" --attempt \"\$2\" --started $((now - 600)) --rc 0 --status merged --how retry-tick --pr https://github.com/o/r/pull/3 \\
-  --approved \"\$(\"\$T/cycle-bin\" approved \"\$1\" \"\$2\")\" --oom 0 --forks \"\${3:-0}\" --signalled 1 --workdir /nowhere --console true --status-cmd true; }"
+run_facts() { \"\$T/cycle-bin\" after \"\$1\" < <(printf '%s\\0' --attempt \"\$2\" --started $((now - 600)) --rc 0 --status merged --how retry-tick --pr https://github.com/o/r/pull/3 \\
+  --approved \"\$(\"\$T/cycle-bin\" approved \"\$1\" \"\$2\")\" --oom 0 --forks \"\${3:-0}\" --signalled 1 --workdir /nowhere --console true --status-cmd true); }"
 
 t_case "a run's facts are the cycle's line and attempt, and the approval, the settings and the commit on record"
 rm -f "$T"/calls/*
