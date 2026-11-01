@@ -63,11 +63,15 @@
 # has grown.
 PROCS_MAX=405
 log=$T/home/tehas/state/github-writes.log
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+printf '#!%s\nexec "%s" tidy run "$@"\n' "$T_BASH" "$T_CONSOLE" >"$T/real-tidy"
+chmod +x "$T/real-tidy"
 
 # The world of a host that has been running: <locks> lock files of issues this
 # host once ran, dated nothing so no rule has a reason to open them beyond
 # counting them; <shipped> closed issues that carry tehas:shipped, which
-# libexec/tidy searches for once a poll and labels nothing; <blocked> open
+# console tidy run searches for once a poll and labels nothing; <blocked> open
 # issues the blocked label holds, which the poll reads with the ready ones and
 # starts none of. One issue waits, tehas:ready, and the control issue is
 # paused, so the poll starts nothing at all.
@@ -96,14 +100,14 @@ world() { # <locks> <shipped> <blocked>
 }
 
 # One poll of that world, run as the poll really runs: the real libexec/status
-# for the queue and the real libexec/tidy for the closed issues, both of which
+# for the queue and the real console tidy run for the closed issues, both of which
 # the other dispatch tests stand in for. The control issue is paused, so the
 # poll ends before its queue and starts nothing.
 idle_poll() {
   echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
   echo '[{"event":"labeled","label":{"name":"tehas:pause"},"actor":{"login":"alice"}}]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2
-    TEHAS_STATUS_CMD="$T_ROOT/libexec/status" TEHAS_TIDY_CMD="$T_ROOT/libexec/tidy"
+    TEHAS_STATUS_CMD="$T_ROOT/libexec/status" TEHAS_TIDY_CMD="$T/real-tidy"
     TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start
     TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_procs_reset
@@ -117,6 +121,8 @@ rm -f "$log"
 idle_poll
 t_eq "$t_rc" 0
 t_eq "$(t_calls fake-start)" ""
+# The settings reached the console through the poll: it made its search.
+t_contains "$(t_calls gh)" 'issue list --repo acme/widget --state closed --search label:"tehas:running"'
 # Every call is a read: no comment, no label, no edit, and no line of the
 # host's write log, which is the figure the poll's own record keeps. A call
 # starts its line; the lines of a GraphQL query that follow it are not calls.

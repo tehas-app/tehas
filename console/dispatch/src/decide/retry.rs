@@ -19,14 +19,14 @@ fn labels(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn hex40(v: Option<&Value>) -> bool {
+pub(crate) fn hex40(v: Option<&Value>) -> bool {
     v.and_then(Value::as_str)
         .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
 /// refreshed, empty when nothing does.
-fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
+pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
     let names = |v: &Value| -> Vec<String> {
         v.pointer("/labels/nodes")
             .and_then(Value::as_array)

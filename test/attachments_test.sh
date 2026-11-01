@@ -275,6 +275,23 @@ rm -f "$T/kept.json"
 t_run "$changed"
 t_eq "$t_rc$t_out" "0"
 
+t_case "a kept manifest that is no JSON holds nothing to compare"
+echo '{' >"$T/kept.json"
+t_run "$changed"
+t_eq "$t_rc$t_out" "0"
+
+t_case "with no program to hold a link to its bytes the start stops, and no path is said"
+cp "$T/images/manifest.json" "$T/kept.json"
+t_run "TEHAS_HOME=$T/nowhere; $changed"
+t_eq "$t_rc $t_out" "1 the kept manifest could not be compared"
+rm -f "$T/kept.json"
+
+t_case "with no program a record that is there is one that could not be read"
+t_run "TEHAS_HOME=$T/nowhere; $lib; export TEHAS_WORK_IMAGES=0 TEHAS_WORK_FILES=0; tehas_issue_images_left_out 7 $T/left.json $T/record.json"
+t_eq "$t_rc" "2"
+t_run "TEHAS_HOME=$T/nowhere; $lib; tehas_issue_images_left_out 7 $T/left.json $T/no-such-record"
+t_eq "$t_rc" "1"
+
 t_case "the text types a cycle may be given, and no other"
 t_run "$lib; for e in md txt log csv json yaml yml html css js; do tehas_text_type \$e; done | tr '\n' ' '"
 t_eq "$t_out" "text/markdown text/plain text/plain text/csv application/json application/yaml application/yaml text/html text/css text/javascript "

@@ -1,0 +1,34 @@
+One screen that shows what the factory is doing, and redraws it.
+
+It reads what the factory already writes under $TEHAS_HOME/live/ - the health
+file, the queue snapshot, the cycles, the energy sample and the console of a
+cycle - and asks systemctl --user about its units. It writes nothing, calls
+no GitHub, no model and no Docker, and loads no instance settings. What it
+shows is as old as those files, and every section that has an age prints it.
+
+The snapshot and the frame are drawn apart from each other: the console builds
+one JSON object, and the frame comes from that object and nothing else.
+`--json` prints the snapshot, so a section added to it appears there without
+anything else changing.
+
+A view that redraws hands the host reading of one frame to the next, so a
+redraw measures the seconds since the frame before it instead of waiting a
+second for a pair of readings. Only the first frame waits.
+
+Usage: tehas top [--once | --json] [--every <seconds>]
+
+  --once    one frame as plain text, no escape codes, then exit
+  --json    the snapshot as JSON, then exit
+  --every   seconds between redraws, 1 to 64 (default 2)
+
+With a terminal on standard output it draws a frame and draws it again every
+--every seconds. q or Ctrl-C ends it and leaves the terminal as it was: the
+cursor shown, the alternate screen left. Without one, or with --once, it
+prints one frame as plain text. The width and height of the terminal are
+followed, also after a resize; COLUMNS and LINES say what they are when the
+terminal cannot be asked. A frame never wraps and never scrolls: long lines
+are cut, and the console tail takes the rows that are left.
+
+Exit: 0 ended by q or a signal, or one frame or one snapshot printed;
+      1 there is no live directory at all;
+      64 an unknown argument, or a --every that is not a number from 1 to 64.

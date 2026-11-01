@@ -1,5 +1,5 @@
 //! What the poll reads off an issue's own text: the hash an approval binds
-//! (lib/attachments.sh), the files its body names (lib/sizing.sh), and the
+//! (lib/attachments.sh), the files its body names (tehas_core::size), and the
 //! attachments it links or promises (lib/attachments.sh).
 
 use regex::Regex;
@@ -14,32 +14,9 @@ pub fn body_sha256(issue: &Value) -> String {
     sum.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The files count of tehas_issue_size: distinct paths between two ticks on
-/// one line, cut to the front of the body on both bounds.
+/// The files count of the measure of a body.
 pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
-    static TICKS: OnceLock<Regex> = OnceLock::new();
-    static PATH: OnceLock<Regex> = OnceLock::new();
-    static SKIP: OnceLock<Regex> = OnceLock::new();
-    let ticks = TICKS.get_or_init(|| Regex::new("`([^`]+)`").unwrap());
-    let path = PATH.get_or_init(|| Regex::new(r"/|[.](sh|rs|md|json|toml|yml)$").unwrap());
-    let skip = SKIP.get_or_init(|| Regex::new("^(Not|Do not|Leave) ").unwrap());
-    let cut = &body.as_bytes()[..body.len().min(max_bytes)];
-    let cut = String::from_utf8_lossy(cut);
-    let mut lines: Vec<&str> = cut.split('\n').collect();
-    // head -n keeps that many lines, each with its newline.
-    if lines.len() > max_lines {
-        lines.truncate(max_lines);
-        lines.push("");
-    }
-    let mut paths: Vec<&str> = lines
-        .iter()
-        .filter(|l| !skip.is_match(l))
-        .flat_map(|l| ticks.captures_iter(l).map(|c| c.get(1).unwrap().as_str()))
-        .filter(|p| path.is_match(p))
-        .collect();
-    paths.sort_unstable();
-    paths.dedup();
-    paths.len()
+    tehas_core::size::measure(body.as_bytes(), max_bytes, max_lines).files
 }
 
 /// tehas_attachment_links: every attachment link in a text.

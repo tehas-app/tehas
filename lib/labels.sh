@@ -3,9 +3,8 @@
 # that the label is present (AGENTS.md rule 5), so every command that lets a
 # label decide something reads the same events the same way. Sourced by
 # the dispatcher (tehas:ready, tehas:plan, tehas:refine, tehas:urgent,
-# tehas:next, tehas:blocked), by tehasbot protolab (tehas:prototype), and by
-# tehas work and tehas plan (whether the label that started them approved an
-# issue's images).
+# tehas:next, tehas:blocked), and by tehas work and tehas plan (whether the
+# label that started them approved an issue's images).
 #
 #   tehas_label_actor <label>       stdin: one issue's events, as
 #                                   gh api repos/<repo>/issues/<n>/events?per_page=100

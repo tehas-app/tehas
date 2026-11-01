@@ -7,10 +7,8 @@
 # shellcheck disable=SC2034  # the variables here are read by the test files
 # The part has sourced test/lib.sh before this.
 
-# The command as a host has it: beside the console, which writes the notice in
-# a pull request's description and chooses which open pull requests get a
-# preview (console/src/notice.rs, console/src/preview.rs). The library is the
-# checkout's own.
+# The command as a host has it: beside the console, which does the work
+# (console/src/preview.rs). The library is the checkout's own.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$T/tree/libexec"

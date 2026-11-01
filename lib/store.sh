@@ -27,15 +27,11 @@
 #                                 state/tehas.db is a regular file and not a
 #                                 link: two tests, no process
 #   tehas_approval_view <issue> [<attempt>]
-#       The approval of the issue's latest start, in the shape .approved.json
-#       had, in a new 0600 file under $TEHAS_HOME/tmp; prints its path, and the
-#       caller removes it. With <attempt>, only the approval that start used.
-#       Returns 0 with a path, 1 when there is none on record, 2 when the store
-#       could not answer (and prints nothing).
-#   tehas_settings_shape          a jq filter: of a cycle as cycle-show answers
-#                                 tehas_improve_settings writes them:
-#                                 {container, host, concurrentCycles}; null when
-#                                 the cycle has none
+#       The store's approval-view of the issue's latest start in a new 0600 file
+#       under $TEHAS_HOME/tmp; prints its path, and the caller removes it. With
+#       <attempt>, only the approval that start used. Returns 0 with a path, 1
+#       when there is none on record, 2 when the store could not answer (and
+#       prints nothing).
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -132,44 +128,15 @@ tehas_store_ready() {
   [ -n "${TEHAS_HOME:-}" ] && [ -f "$bin" ] && [ -x "$bin" ] && [ -f "$db" ] && [ ! -L "$db" ]
 }
 
-# The approval as the dispatcher wrote .approved.json: its inputs, the driver it
-# bound, and for a millwright's or a refresh start the approval it rests on and
-# the starts counted on that. A refresh names the person's approval: its own at
-# is when the dispatcher decided (D5). mw is #686's alias: new words to the old.
-# shellcheck disable=SC2016  # a jq program
-tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
-  def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
-  def mw: if . == "millwright" then "fixer" else . end; # part 5 of #686
-  (.millwright_starts? // .fixer_starts? // 0) as $starts | .current as $c
-  | if $c == null or ($want != null and $c.used_by != $want) then null
-    elif ($c | type) != "object" then error("not an approval")
-    else ($c.input // {}) as $in | (.rests_on | person) as $base | ($c.how | mw) as $how
-    | {at: ($c.at | iso), by: $c.by, how: $how, body_sha256: $c.body_sha256, links: ($in.links // [])}
-      + (if $c.title_sha256 == null then {} else {title_sha256: $c.title_sha256} end)
-      + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
-      + (if $in.driver == null then {} else {driver: $in.driver} end)
-      + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
-      + (if $in | has("park_lifted") then {park_lifted: $in.park_lifted} else {} end)
-      + (if $how == "fixer" then {rests_on: $base, fixer_starts: $starts} else {} end)
-      + (if $how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
-           + (if $base == null then {} else {at: $base.at, by: $base.by} end)
-         else {} end)
-    end'
-
-tehas_approval_view() { # <issue> [<attempt>]
-  local want=null dir=${TEHAS_HOME:-}/tmp view file
-  # An empty attempt is a caller's mistake, not a wish for any start's approval.
-  if [ "$#" -ge 2 ]; then
-    want=$2
-    [[ $want =~ ^[1-9][0-9]{0,8}$ ]] || return 2
-  fi
-  tehas_store approval-current "$1" || return 2
-  view=$(jq -c --argjson want "$want" "$tehas_approval_shape" <<<"$tehas_store_out" 2>/dev/null) || return 2
+# The view of the last answer in a new file, as tehas_approval_view says.
+tehas_view_file() { # <name>
+  local dir=${TEHAS_HOME:-}/tmp view file
+  view=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || return 2
   [ -n "$view" ] || return 2
   [ "$view" != null ] || return 1
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
-  file=$(mktemp "$dir/approval.XXXXXX" 2>/dev/null) || return 2
+  file=$(mktemp "$dir/$1.XXXXXX" 2>/dev/null) || return 2
   printf '%s\n' "$view" >"$file" 2>/dev/null || {
     rm -f "$file"
     return 2
@@ -177,10 +144,8 @@ tehas_approval_view() { # <issue> [<attempt>]
   printf '%s\n' "$file"
 }
 
-# The prefix of a setting's name says which half it came from (cycle-image).
-# shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
-tehas_settings_shape='if (.settings | type) != "object" or (.settings | length) == 0 then null
-  else .settings as $s
-  | {container: ($s | with_entries(select(.key | startswith("PI_ENSEMBLE_")))),
-     host: ($s | with_entries(select(.key | startswith("TEHAS_")))),
-     concurrentCycles: ($s.concurrentCycles | if . == null then null else (tonumber? // null) end)} end'
+tehas_approval_view() { # <issue> [<attempt>]
+  tehas_store approval-view "$1" ${2+--attempt "$2"} || return 2
+  tehas_view_file approval
+}
+

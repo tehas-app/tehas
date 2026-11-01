@@ -351,26 +351,24 @@ Once an issue is closed, the next poll takes tehas's state labels off it:
 `tehas:refreshing`, `tehas:blocked`, `tehas:ready`, `tehas:plan` and
 `tehas:refine`.
 `needs-human-attention` and the labels a person chooses, such as `tehas:urgent`
-and `tehas:next`, stay. The list and the decision of what comes off which issue
-are the console's (`console tidy`, `console/src/tidy.rs`): `tehas tidy` keeps
-the settings, the two searches and the edits, and hands the answer of the search
-to the console.
+and `tehas:next`, stay. The list, the two searches, the decision of what comes
+off which issue and the edits are the console's (`console tidy run`,
+`console/src/tidy.rs`).
 
 The same edit puts `tehas:shipped` on an issue that a merged pull request
 closed: from the close event's merged pull request, or, when that event names no
 pull request as its closer, from a merged pull request GitHub lists as closing
 the issue. That list is what GitHub derives from the text and the links of the
 issue, not what the close event recorded, so a pull request that merely names
-the issue in its text is on it. `tehas tidy` reads what closed the issues it
+the issue in its text is on it. `console tidy run` reads what closed the issues it
 tidies and adds the label in the call that strips their state labels, so the
 label says one thing, that a merge closed the issue, whatever the queue's list
 happened to hold. Two commands
-put the label from a merged closer, and both read the one answer of
-`console shipped query` and hand it to the same console verb (`console shipped`,
-`console/src/shipped.rs`) that decides it: `tehas tidy` in the edit that takes the
-state labels off, and `tehasbot status` from its own read of the list for any
-issue missing it.
-`tehas tidy` is the one that says what it did in
+put the label from a merged closer, and both make the one read of
+`console shipped query` and go by the same rule (`console/src/shipped.rs`):
+`console tidy run` in the edit that takes the state labels off, and
+`tehasbot status` from its own read of the list for any issue missing it.
+`console tidy run` is the one that says what it did in
 `~/tehas/logs/dispatch.log`. Neither gives it to the control issue. An issue
 that already carries the label is not
 labelled again, and one that the read could not answer is never labelled on a
@@ -464,9 +462,9 @@ store as it ends, however it ends. A dry run records nothing.
 
 - **wall**: the time from when the poll took the lock to its end.
 - **CPU**: user and system time of the poll and of the commands it waited for,
-  from bash's `times`, `libexec/tidy` among them.
+  from bash's `times`, `console tidy run` among them.
 - **gh**: the calls the dispatcher made to `gh` itself. Calls of the commands it
-  runs, such as `libexec/status` and `libexec/tidy`, and a call under
+  runs, such as `libexec/status` and `console tidy run`, and a call under
   `timeout`, are not counted.
 - **writes**: the lines of the host shim's write log,
   `~/tehas/state/github-writes.log` (see [GitHub App identity](/github-app)),

@@ -121,7 +121,7 @@ use tehas_core::time::now;
 /// of the whole file, and bytes of one line. `report` and `sessions` read the
 /// ledgers beside the database, and a file one of them reads is the same file
 /// the other does. Both writers keep 500 lines of a few small counts --
-/// `tehas_size_record` trims `sizes.jsonl` and `plan_refined` trims
+/// `console size record` trims `sizes.jsonl` and `plan_refined` trims
 /// `refined.jsonl` -- so no ledger of their own making comes near the bound.
 pub const LEDGER_MAX_BYTES: u64 = 1 << 20;
 pub const LEDGER_MAX_LINE: usize = 100_000;

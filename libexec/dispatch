@@ -11,7 +11,7 @@
 # before cycles start, as tehas-index.service, and the cycles start on the
 # poll after it. A systemd timer runs a poll every two minutes, whatever the
 # cycles are doing, and a cycle that ends starts one.
-# Every poll that gets past the bot's login ends by running libexec/tidy,
+# Every poll that gets past the bot's login ends by running console tidy run,
 # which takes tehas's state labels off closed issues, with --dry-run on a dry
 # run.
 #
@@ -22,8 +22,8 @@
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
-# malformed, tehas-dispatch is not installed, or the state store is not
-# installed or cannot be used (before any call to GitHub when it is not
+# malformed, tehas-dispatch is not installed or cannot run, or the state store
+# is not installed or cannot be used (before any call to GitHub when it is not
 # installed); 1 a call to GitHub failed or its
 # answer could not be read, the state store could not be read, systemd cannot
 # load the cycle unit (before any label changes), or a cycle could not be
@@ -187,7 +187,7 @@
 #      a state GitHub does not give holds it too, and the log says why.
 #      Alone, on an issue in no other flow, it approves as tehas:ready does.
 #      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
-#      (lib/sizing.sh), and an issue whose body names more files than the
+#      (console/core/src/size.rs), and an issue whose body names more files than the
 #      setting is not started either: its tehas:ready comes off,
 #      needs-human-attention goes on, and the issue says the counts, the
 #      setting and the way out once. Unset, nothing here changes, and a refresh
@@ -259,7 +259,7 @@
 #   TEHAS_LOW_GATE_WAIT       seconds that command gets before its answer is a
 #                             closed gate, 1 to 600 [60]
 # From the environment, for tests: TEHAS_STATUS_CMD, TEHAS_INDEX_CMD,
-# TEHAS_TIDY_CMD (in place of libexec/tidy), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
+# TEHAS_TIDY_CMD (in place of console tidy run), TEHAS_PLAN_CMD, TEHAS_PLAN_START_CMD
 # and TEHAS_INDEX_START_CMD (in place of systemd-run: the first called with the
 # issue and the turn's command line, the second with the index run's),
 # TEHAS_CYCLE_START_CMD and TEHAS_CYCLE_STOP_CMD (in place of systemctl, with the
@@ -382,8 +382,20 @@ tehas_checkout || exit 78
 tehas_branch >/dev/null || exit 78
 
 poll=${TEHAS_DISPATCH_CMD:-$here/tehas-dispatch}
-if ! [ -f "$poll" ] || ! [ -x "$poll" ]; then
-  tehas_err "$poll is not installed (run install.sh)"
-  exit 78
+# bash runs a file with no magic number as a script of its own: an empty one
+# would be a poll that did nothing and exited 0.
+magic=
+if [ -f "$poll" ] && [ -x "$poll" ]; then
+  IFS= LC_ALL=C read -r -n 4 magic <"$poll"
 fi
+case $magic in
+  $'\x7f'ELF | '#!'*) ;;
+  *)
+    tehas_err "$poll is not installed (run install.sh)"
+    exit 78
+    ;;
+esac
+shopt -s execfail
 exec "$poll" poll "$@"
+tehas_err "$poll cannot run (run install.sh)"
+exit 78

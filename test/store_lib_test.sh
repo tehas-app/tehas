@@ -249,10 +249,10 @@ lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=1"
 
 t_case "tehas_approval_view: a store that could not answer is 2, and prints nothing"
-t_store_answers approval-current 1 "$BUSY"
+t_store_answers approval-view 1 "$BUSY"
 lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=2"
-t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"soon"}}'
+t_store_answers approval-view 78 'store: corrupt: a time on record is not a time'
 lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=2"
 t_eq "$(ls "$home/tmp" 2>/dev/null)" ""
@@ -276,7 +276,7 @@ t_eq "$(tail -n 2 <<<"$t_out" | tr '\n' ' ')" "600 700 "
 t_case "tehas_approval_view: a driver on the record is in the view, and none is no key"
 lib 'f=$(tehas_approval_view 7); jq -c "has(\"driver\")" "$f"'
 t_eq "$t_out" false
-t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":1792497600,"by":"alice","how":"label","body_sha256":"x","input":{"driver":"lean"}}}'
+t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"x","links":[],"driver":"lean"}}'
 lib 'f=$(tehas_approval_view 7); jq -r .driver "$f"'
 t_eq "$t_out" lean
 cp -f --remove-destination "$T_STORE" "$home/libexec/store"

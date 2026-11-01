@@ -336,39 +336,16 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
     v
 }
 
-/// tehas_free_kb: the free kilobytes of the disk of $TEHAS_HOME and of
-/// Docker's, the smaller; null when either cannot be read.
+/// The free kilobytes of the disk of $TEHAS_HOME and of Docker's, the smaller;
+/// null when either cannot be read.
 pub fn disk(home: &Path) -> Value {
     let wait = secs("TEHAS_DISK_WAIT", 10);
-    let kb = |p: &str| -> Option<u64> {
-        let r = run("df", &["-Pk".into(), p.into()], wait);
-        if !r.ok() {
-            return None;
-        }
-        let f = r.out.lines().nth(1)?.split_whitespace().nth(3)?;
-        (f == "0"
-            || (!f.starts_with('0') && f.len() <= 18 && f.bytes().all(|b| b.is_ascii_digit())))
-        .then(|| f.parse().ok())
-        .flatten()
-    };
-    let docker = run(
-        "docker",
-        &[
-            "info".into(),
-            "--format".into(),
-            "{{.DockerRootDir}}".into(),
-        ],
-        wait,
-    );
-    let dir = if docker.ok() && !docker.out.trim().is_empty() {
-        docker.out.trim().to_string()
-    } else {
-        "/var/lib/docker".into()
-    };
-    match (kb(&home.to_string_lossy()), kb(&dir)) {
-        (Some(a), Some(b)) => json!(a.min(b)),
-        _ => Value::Null,
-    }
+    let kb = tehas_core::disk::free_kb(&home.to_string_lossy(), |program, args| {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        let r = run(program, &args, wait);
+        r.ok().then_some(r.out)
+    });
+    kb.map_or(Value::Null, |kb| json!(kb))
 }
 
 /// What sweep_workspaces finds: each issue with something left on this host,

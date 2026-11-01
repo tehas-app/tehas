@@ -82,7 +82,7 @@ fn main() {
         );
     }
     // The deadline for the whole of a request, an argument so that a test cuts
-    // a trickling client off in a second. libexec/mcp never passes the flag,
+    // a trickling client off in a second. `tehasbot mcp serve` never passes the flag,
     // so the installed server keeps mcp::http::IO_TIMEOUT, which a test of
     // serve.rs asserts. The bound keeps a 0 from meaning no deadline.
     let io_timeout = match io_timeout {
