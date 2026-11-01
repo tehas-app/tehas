@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Tests for libexec/export: what a person reading a cycle is given, masked, and
+# Tests for tehas export: what a person reading a cycle is given, masked, and
 # the cursor a program keeps. Which files are copied, and under what names, is
 # the question here; what the mask matches is the console's own tests. The
-# console is this checkout's own, on the PATH as a checkout has it.
+# console is this checkout's own, named by TEHAS_CONSOLE as a checkout has it.
 # shellcheck disable=SC2016  # snippets and stub bodies are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-export_cmd="$T_ROOT/libexec/export"
+export_cmd="$T_ROOT/bin/tehas export"
 home=$T/home/tehas
 cycles=$home/state/cycles
 logs=$home/logs
@@ -26,7 +26,7 @@ iso() { date -u -d "@$1" +%FT%TZ; }
 
 reset() {
   rm -rf "$T"/calls/* "$T/instance" "$home" "$out" "$T/home/.pi"
-  T_ENV=()
+  T_ENV=(TEHAS_CONSOLE="$T/bin/console")
   t_instance "${T_MINIMAL[@]}"
   t_store_home "$home"
   # A case that takes the console away leaves it away, so every case gets it.
@@ -351,5 +351,63 @@ run_export --json --after $((T0 - 1))-12 "$out"
 t_run "flock '$cycles/12.lock' $run_line"
 t_eq "$t_rc" 0
 t_eq "$(jq -r '.cycles | length' <<<"$t_out")" 1
+
+t_case "every file is masked with the host's names: aliases, each role's endpoints, the email"
+reset
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=gpu-one:192.0.2.5,solo-host \
+  PI_ENSEMBLE_SUBAGENT_PROVIDER=alpha PI_ENSEMBLE_SUBAGENT_MODEL=m1 \
+  PI_ENSEMBLE_PROVIDER_OPS=beta PI_ENSEMBLE_MODEL_OPS=m2
+mkdir -p "$T/home/.pi/agent"
+printf '%s\n' '{"providers":{"alpha":{"baseUrl":"https://model-main.lan:8086/v1","backupBaseUrl":"http://model-backup.lan/v1"},"beta":{"baseUrl":"http://role-only.lan/v1"},"unused":{"baseUrl":"http://not-used.lan/v1"}}}' \
+  >"$T/home/.pi/agent/models.json"
+t_stub git 'echo bot@mail.example'
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+names='gpu-one SOLO-HOST model-main.lan Model-Backup.lan role-only.lan bot@mail.example'
+printf '%s\n' "$names" >"$logs/work-12-1760.jsonl"
+mkdir -p "$home/protolab/12"
+printf '%s\n' "$names" >"$home/protolab/12/index.md"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 0
+six='[private name] [private name] [private name] [private name] [private name] [private name]'
+t_eq "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "$six"
+t_eq "$(cat "$out/cycles/1760700000-12-1/protolab/index.md")" "$six"
+t_contains "$(t_calls git)" "config --global user.email"
+printf 'http://not-used.lan/v1\n' >"$logs/work-12-1760.jsonl"
+run_export --json --after $((T0 - 1))-12 "$out"
+t_contains "$(cat "$out/cycles/1760700000-12-1/logs/work-12-1760.jsonl")" "not-used.lan"
+t_stub git
+
+t_case "a repository that is not valid is exit 78 and makes nothing"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+t_instance "${T_MINIMAL[@]}" TEHAS_REPO=not-a-repo
+run_export --json --after $((T0 - 1))-12 "$out"
+t_eq "$t_rc" 78
+t_contains "$t_out" "TEHAS_REPO is not valid"
+t_eq "$([ -e "$out" ] && echo made)" ""
+
+t_case "a link into the home is refused, and makes no directory there"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+ln -s "$home" "$T/to-home"
+run_export --after $((T0 - 1))-12 "$T/to-home"
+t_eq "$t_rc" 64
+run_export --after $((T0 - 1))-12 "$T/to-home/backup/deeper"
+t_eq "$t_rc" 64
+t_contains "$t_out" "is in the factory's home ($home)"
+t_eq "$([ -e "$home/backup" ] && echo made)" ""
+t_eq "$([ -e "$home/cycles" ] && echo made)" ""
+rm -f "$T/to-home"
+
+t_case "a directory named in bytes that are not text is a bad argument, and a wide cursor one too"
+reset
+cycle 12 "$T0" '{"kind":"work","rc":0,"status":"merged"}'
+t_run "$export_cmd --after 1-1 \$'$out\\xff'"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehas export"
+run_export --after 12345678901-1 "$out"
+t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehas export"
+t_eq "$([ -e "$out" ] && echo made)" ""
 
 t_done

@@ -46,6 +46,20 @@ done
 t_eq "$([ -e "$th/lib/history-lines.jq" ] && echo there)" "there"
 t_eq "$([ -e "$th/lib/park-fields.jq" ] && echo there)" "there"
 
+t_case "the script of tehas export of before the console is named, then removed"
+fresh
+instance
+t_run "$install"
+rm -f "$th/state/update-pending"
+echo "# old" >"$th/libexec/export"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/libexec/export"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/libexec/export"
+t_eq "$([ -e "$th/libexec/export" ] && echo there)" ""
+
 # A cycle used to leave one empty file per issue number in state/cycles/. It
 # read nothing and the flag it fed is gone, so a host that ran cycles then has
 # the files to lose. Only a name of digits alone is one of them.

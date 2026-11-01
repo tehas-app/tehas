@@ -1,104 +1,256 @@
-//! What tehas export copies: each cycle of the history it is given, masked,
-//! into a directory of its own (libexec/export says what and why).
+//! `tehas export`: each cycle of the history after a cursor, masked, in a
+//! directory of its own. Its text is src/usage/export.txt, which says what is
+//! copied and every exit status. It runs under `libexec/with-settings`.
 //!
-//!   console export run <home> <runs dir> <to> <next> <text 0|1>
-//!     [--private <name>]... <lines
-//!
-//! Standard input holds the history's cycles, one JSON line each, as tehas
-//! history gave them; each is kept byte for byte as the cycle's history.json.
-//! <runs dir> is where the agents' transcripts are, one issue-<n>/ each. <to>
-//! is the archive, made already; its cycles/ is made here. With <text> 1 it
-//! prints a line for each cycle and one for the directory, <next> being the
-//! cursor to keep.
-//!
-//! Every file goes through the mask, with the names given by --private. A
+//! Every file goes through the mask, with the names of `mask::host_names`. A
 //! file of a Protolab page that is not UTF-8 is an image, a video or the like,
 //! which the mask would only corrupt: it is copied as it is. Anything else is
 //! masked whatever bytes it holds. A link is not followed and a file over
 //! 32 MiB is left out.
-//!
-//! Exit: 0 copied; 1 a cycle could not be written, said on standard error,
-//! the others are copied; 64 usage.
 
+use crate::history::{self, Cursor, Query};
+use crate::jq::J;
+use crate::review::git_global;
 use crate::store;
 use serde_json::Value;
+use std::env;
 use std::fs;
-use std::io::{self, Read};
-use std::os::unix::fs::PermissionsExt;
+use std::io::{self, Write};
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use tehas_core::mask;
+use tehas_core::{mask, models};
 
-const USAGE: &str =
-    "usage: console export run <home> <runs dir> <to> <next> <text 0|1> [--private <name>]... <lines";
+const USAGE: &str = "usage: tehas export [--json] --after CURSOR <dir>";
 
 const BIGGEST: u64 = 32 * 1024 * 1024;
 
-pub fn main(given: &[String]) -> u8 {
-    let (fixed, rest) = given.split_at(given.len().min(6));
-    if fixed.len() < 6 || fixed[0] != "run" || !matches!(fixed[5].as_str(), "0" | "1") {
+/// What the arguments ask.
+#[derive(Debug, PartialEq)]
+pub struct Asked {
+    json: bool,
+    after: Cursor,
+    dir: String,
+}
+
+/// A name that says nothing of where it leads. U+FFFD is how a word that was
+/// not text reaches `check`.
+fn refused_name(dir: &str) -> bool {
+    matches!(dir, "." | "..")
+        || dir.ends_with("/.")
+        || dir.ends_with("/..")
+        || dir.starts_with("./")
+        || dir.starts_with("../")
+        || dir.contains('\u{fffd}')
+}
+
+/// What to do, or 64 with the usage.
+pub fn words(given: &[String]) -> Result<Asked, u8> {
+    let bad = || {
         eprintln!("{USAGE}");
-        return 64;
-    }
-    let mut names = Vec::new();
-    let mut rest = rest.iter();
-    while let Some(flag) = rest.next() {
-        match (flag.as_str(), rest.next()) {
-            ("--private", Some(name)) => names.push(name.clone()),
-            _ => {
-                eprintln!("{USAGE}");
-                return 64;
+        64
+    };
+    let (mut json, mut after, mut dir) = (false, None, "");
+    let mut given = given.iter();
+    while let Some(word) = given.next() {
+        match word.as_str() {
+            "--json" if !json => json = true,
+            "--after" if after.is_none() => {
+                after = given.next().and_then(|c| Cursor::parse(c));
+                after.as_ref().ok_or_else(bad)?;
             }
+            w if w.starts_with('-') || !dir.is_empty() || refused_name(w) => return Err(bad()),
+            w => dir = w,
         }
     }
+    match after {
+        Some(after) if !dir.is_empty() => Ok(Asked {
+            json,
+            after,
+            dir: dir.to_string(),
+        }),
+        _ => Err(bad()),
+    }
+}
+
+/// Whether the name itself, or its cycles/, is in the home. This compares the
+/// parts of the name, so a doubled slash is no way past it.
+fn named_in(dir: &str, home: &Path) -> bool {
+    let dir = Path::new(dir);
+    dir.starts_with(home) || dir.join("cycles").starts_with(home)
+}
+
+/// Where a path comes to, what is not there yet taken as named: a link made by
+/// hand may lead into the home before the directory is made under it.
+fn comes_to(path: &Path) -> Option<PathBuf> {
+    let mut left = Vec::new();
+    let mut at = path;
+    loop {
+        let here = if at.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            at
+        };
+        if let Ok(real) = fs::canonicalize(here) {
+            return Some(left.iter().rev().fold(real, |p, name| p.join(name)));
+        }
+        left.push(at.file_name()?);
+        at = at.parent()?;
+    }
+}
+
+fn same_place(a: &Path, b: &Path) -> bool {
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// The working directory by the name the shell gave it, not its real path.
+fn working_directory() -> PathBuf {
+    let real = env::current_dir().unwrap_or_default();
+    match env::var_os("PWD").map(PathBuf::from) {
+        Some(named) if named.is_absolute() && same_place(&named, &real) => named,
+        _ => real,
+    }
+}
+
+/// A directory's path as `cd` and `pwd` give it: `.` gone, `..` taken off by
+/// name, and links kept. Where that is not the directory, its real path.
+fn logical(dir: &str, real: &Path) -> PathBuf {
+    let mut at = if dir.starts_with('/') {
+        PathBuf::from("/")
+    } else {
+        working_directory()
+    };
+    for part in dir.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                at.pop();
+            }
+            _ => at.push(part),
+        }
+    }
+    if same_place(&at, real) {
+        at
+    } else {
+        real.to_path_buf()
+    }
+}
+
+/// The directory to export into, made; or the line that says why not. Never
+/// the factory's home: copies there would stand where the dashboard and the
+/// units look for the originals. Both the name given and where it leads are
+/// compared, before the directory is made and after.
+fn target(dir: &str, home: &Path) -> Result<PathBuf, String> {
+    let in_home = || {
+        format!(
+            "{dir} is in the factory's home ({}), choose another directory",
+            home.display()
+        )
+    };
+    let real_home = fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+    if named_in(dir, home) || comes_to(Path::new(dir)).is_some_and(|p| p.starts_with(&real_home)) {
+        return Err(in_home());
+    }
+    if fs::create_dir_all(dir).is_err() {
+        return Err(format!("could not make {dir}"));
+    }
+    let entered = fs::metadata(Path::new(dir).join("."));
+    let Some(real) = entered.ok().and_then(|_| fs::canonicalize(dir).ok()) else {
+        return Err(format!("{dir} is not a directory"));
+    };
+    if real.starts_with(&real_home) {
+        return Err(in_home());
+    }
+    Ok(logical(dir, &real))
+}
+
+pub fn main(given: &[String]) -> u8 {
+    let asked = match words(given) {
+        Ok(asked) => asked,
+        Err(rc) => return rc,
+    };
+    let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
+    if !store::ready(&home) {
+        eprintln!("tehas export: ERROR: the state store is not installed (run install.sh)");
+        return 78;
+    }
+    let to = match target(&asked.dir, &home) {
+        Ok(to) => to,
+        Err(said) => {
+            eprintln!("tehas export: {said}");
+            return 64;
+        }
+    };
+    let query = Query {
+        after: Some(asked.after),
+        issue: None,
+    };
+    let repo = env::var("TEHAS_REPO").unwrap_or_default();
+    let listing = match history::listing(&home, &repo, &query) {
+        Ok(listing) => listing,
+        Err(no) => {
+            eprintln!("{}", no.said);
+            return no.rc;
+        }
+    };
+    // Without a name the mask still takes every token-shaped string, so a
+    // file of models that cannot be read stops nothing.
+    let names = mask::host_names(&models::host_path(), &git_global("user.email"));
     if let Err(e) = mask::set_private(&names) {
         eprintln!("{e}");
-        return 64;
-    }
-    let mut lines = String::new();
-    if io::stdin().read_to_string(&mut lines).is_err() {
-        eprintln!("tehas export: could not read the history");
         return 1;
     }
+    let user = PathBuf::from(env::var_os("HOME").unwrap_or_default());
     let run = Export {
-        home: PathBuf::from(&fixed[1]),
-        runs: PathBuf::from(&fixed[2]),
-        cycles: Path::new(&fixed[3]).join("cycles"),
+        home,
+        runs: user.join(".pi/agent/ensemble-runs"),
+        cycles: to.join("cycles"),
     };
-    if !make_dir(Path::new(&fixed[3])) || !make_dir(&run.cycles) {
+    let lines: Vec<String> = listing.cycles.iter().map(J::dump).collect();
+    let mut printed = String::new();
+    let mut ok = make_dir(&to) && make_dir(&run.cycles);
+    if ok {
+        let (copied, every) = run.all(&lines);
+        ok = every;
+        if !asked.json {
+            printed = text(&lines, copied, &to, listing.next.as_deref());
+        }
+    } else {
         eprintln!("tehas export: could not make {}", run.cycles.display());
-        return 1;
     }
-    let lines: Vec<&str> = lines.lines().filter(|l| !l.is_empty()).collect();
-    let mut copied = 0;
-    let mut failed = String::new();
-    for line in &lines {
-        match run.cycle(line) {
-            Ok(()) => copied += 1,
-            Err(Some(cursor)) => failed.push_str(&format!(" {cursor}")),
-            Err(None) => failed.push_str(" <unreadable>"),
+    if asked.json {
+        let mut object = listing.object();
+        if let J::Obj(fields) = &mut object {
+            fields.push(("to".to_string(), J::str(to.to_string_lossy())));
         }
+        printed = object.dump() + "\n";
     }
-    if !failed.is_empty() {
-        eprintln!("tehas export: could not write{failed}");
+    let mut out = io::stdout();
+    let written = out.write_all(printed.as_bytes()).and_then(|()| out.flush());
+    u8::from(!ok || written.is_err())
+}
+
+/// What the command prints without `--json`: a line for each cycle and one for
+/// the directory, with the cursor to keep.
+fn text(lines: &[String], copied: usize, to: &Path, next: Option<&str>) -> String {
+    let mut printed = String::new();
+    for line in lines {
+        let v: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+        printed.push_str(&format!(
+            "{}  {}  #{}\n",
+            raw(&v["cursor"]),
+            raw(&v["kind"]),
+            raw(&v["issue"])
+        ));
     }
-    if fixed[5] == "1" {
-        for line in &lines {
-            let v: Value = serde_json::from_str(line).unwrap_or(Value::Null);
-            println!(
-                "{}  {}  #{}",
-                raw(&v["cursor"]),
-                raw(&v["kind"]),
-                raw(&v["issue"])
-            );
-        }
-        let next = if fixed[4].is_empty() {
-            "none"
-        } else {
-            &fixed[4]
-        };
-        println!("exported  {copied} cycles to {} (next: {next})", fixed[3]);
-    }
-    u8::from(!failed.is_empty())
+    printed.push_str(&format!(
+        "exported  {copied} cycles to {} (next: {})\n",
+        to.display(),
+        next.unwrap_or("none")
+    ));
+    printed
 }
 
 /// A value as jq -r prints it.
@@ -109,7 +261,7 @@ fn raw(v: &Value) -> String {
     }
 }
 
-/// tehas history makes the cursor, of digits and dashes only.
+/// The history makes the cursor, of digits and dashes only.
 fn cursor_shaped(c: &str) -> bool {
     let parts: Vec<&str> = c.split('-').collect();
     parts.len() == 3
@@ -215,7 +367,7 @@ fn tree(dir: &Path, found: &mut Vec<PathBuf>) {
     }
 }
 
-/// Seconds since 1970 of a time as tehas history writes it; 0 when it is not.
+/// Seconds since 1970 of a time as the history writes it; 0 when it is not.
 fn epoch(v: &Value) -> f64 {
     v.as_str()
         .and_then(crate::snapshot::epoch)
@@ -229,6 +381,24 @@ struct Export {
 }
 
 impl Export {
+    /// Every cycle, each one history line: how many were copied, and whether
+    /// all were. One that could not be written is said on standard error.
+    fn all(&self, lines: &[String]) -> (usize, bool) {
+        let mut copied = 0;
+        let mut failed = String::new();
+        for line in lines {
+            match self.cycle(line) {
+                Ok(()) => copied += 1,
+                Err(Some(cursor)) => failed.push_str(&format!(" {cursor}")),
+                Err(None) => failed.push_str(" <unreadable>"),
+            }
+        }
+        if !failed.is_empty() {
+            eprintln!("tehas export: could not write{failed}");
+        }
+        (copied, failed.is_empty())
+    }
+
     /// One cycle: Err with its cursor when it could not be written, with
     /// None when the line holds no cursor.
     fn cycle(&self, line: &str) -> Result<(), Option<String>> {
@@ -354,6 +524,202 @@ impl Export {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strings(given: &[&str]) -> Vec<String> {
+        given.iter().map(|w| w.to_string()).collect()
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = env::temp_dir().join(format!("tehas-export-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("home/logs")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_arguments_are_those_of_the_script() {
+        let asked = words(&strings(&["--after", "5-1", "/a/b", "--json"])).unwrap();
+        assert!(asked.json);
+        assert_eq!(asked.after, Cursor::parse("5-1").unwrap());
+        assert_eq!(asked.dir, "/a/b");
+        assert!(!words(&strings(&["/a", "--after", "1-1-1"])).unwrap().json);
+        // An empty word is no directory, and the one after it is taken.
+        assert_eq!(
+            words(&strings(&["--after", "1-1", "", "x"])).unwrap().dir,
+            "x"
+        );
+        for dir in ["a/b", "a/../b", "a/", ".a", "..a", "a/.b", "...", "/"] {
+            assert!(words(&strings(&["--after", "1-1", dir])).is_ok(), "{dir}");
+        }
+        for bad in [
+            &[][..],
+            &["--json"],
+            &["--after", "1-1"],
+            &["/a"],
+            &["--json", "/a"],
+            &["--after"],
+            &["--after", "12", "/a"],
+            &["--after", "1-0", "/a"],
+            &["--after", "1-1-0", "/a"],
+            &["--after", "1-01", "/a"],
+            &["--after", "x", "/a"],
+            &["--after", "12345678901-1", "/a"],
+            &["--after", "1-1-1234567890123456", "/a"],
+            &["--after", "1-1", "--after", "1-2", "/a"],
+            &["--json", "--json", "--after", "1-1", "/a"],
+            &["--after", "1-1", "/a", "/b"],
+            &["--after", "1-1", "/a", ""],
+            &["--after", "1-1", "-x"],
+            &["--after", "1-1", "/a", "--help"],
+            &["--after", "1-1", "."],
+            &["--after", "1-1", ".."],
+            &["--after", "1-1", "/a/."],
+            &["--after", "1-1", "/a/.."],
+            &["--after", "1-1", "./a"],
+            &["--after", "1-1", "../a"],
+            &["--after", "1-1", "/a/\u{fffd}"],
+        ] {
+            assert_eq!(words(&strings(bad)), Err(64), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_name_of_the_home_or_of_anything_in_it_is_refused() {
+        let home = Path::new("/x/home");
+        for dir in [
+            "/x/home",
+            "/x/home/",
+            "/x/home/a",
+            "/x/home//a",
+            "/x//home/a",
+            "/x/home/.a",
+        ] {
+            assert!(named_in(dir, home), "{dir}");
+        }
+        for dir in ["/x/homes", "/x/home2/a", "/x", "/y/x/home", "home/a"] {
+            assert!(!named_in(dir, home), "{dir}");
+        }
+        // Its cycles/ would be the home.
+        assert!(named_in("/x", Path::new("/x/cycles")));
+    }
+
+    #[test]
+    fn a_link_into_the_home_is_refused_and_makes_nothing() {
+        let top = scratch("link");
+        let home = top.join("home");
+        std::os::unix::fs::symlink(&home, top.join("to-home")).unwrap();
+        let link = top.join("to-home");
+        let link = link.to_str().unwrap();
+        for dir in [link.to_string(), format!("{link}/new/deeper")] {
+            let no = target(&dir, &home).unwrap_err();
+            assert!(no.contains("is in the factory's home"), "{no}");
+        }
+        assert!(!home.join("new").exists());
+        // By a home that is itself a link, and to a level already there.
+        let named = top.join("home-link");
+        std::os::unix::fs::symlink(&home, &named).unwrap();
+        let in_logs = home.join("logs");
+        assert!(target(in_logs.to_str().unwrap(), &named).is_err());
+        fs::remove_dir_all(&top).unwrap();
+    }
+
+    #[test]
+    fn a_directory_is_made_and_a_file_is_refused() {
+        let top = scratch("target");
+        let home = top.join("home");
+        let made = top.join("a/b");
+        assert_eq!(target(made.to_str().unwrap(), &home).unwrap(), made);
+        assert!(made.is_dir());
+        let up_and_over = format!("{}/../c//", made.display());
+        assert_eq!(target(&up_and_over, &home).unwrap(), top.join("a/c"));
+        let other = top.join("other");
+        fs::create_dir(&other).unwrap();
+        let link = top.join("by-link");
+        std::os::unix::fs::symlink(&other, &link).unwrap();
+        // A link of the caller's keeps its name.
+        assert_eq!(target(link.to_str().unwrap(), &home).unwrap(), link);
+        let file = top.join("file");
+        fs::write(&file, "").unwrap();
+        let no = target(file.to_str().unwrap(), &home).unwrap_err();
+        assert!(no.starts_with("could not make"), "{no}");
+        fs::remove_dir_all(&top).unwrap();
+    }
+
+    #[test]
+    fn a_path_not_made_yet_comes_to_where_its_levels_lead() {
+        let top = scratch("comes");
+        let real = fs::canonicalize(&top).unwrap();
+        assert_eq!(comes_to(&top.join("no/such")), Some(real.join("no/such")));
+        std::os::unix::fs::symlink(top.join("home"), top.join("l")).unwrap();
+        assert_eq!(comes_to(&top.join("l/x")), Some(real.join("home/x")));
+        fs::remove_dir_all(&top).unwrap();
+    }
+
+    /// Run alone with the settings a host would give, as the variables can
+    /// only be set for a process of their own.
+    #[test]
+    fn the_names_are_the_aliases_every_role_s_endpoints_and_the_email() {
+        let Some(models) = env::var_os("TEHAS_TEST_NAMES_FILE") else {
+            let top = scratch("names");
+            let file = top.join("models.json");
+            fs::write(
+                &file,
+                r#"{"providers":{
+                  "alpha":{"baseUrl":"https://user:pw@main.lan:8086/v1","backupBaseUrl":"http://backup.lan/v1"},
+                  "beta":{"baseUrl":"http://[2001:db8::7]:8080/v1"},
+                  "gamma":{"baseUrl":"bare.lan:1234","backupBaseUrl":7},
+                  "unused":{"baseUrl":"http://unused.lan/v1"}}}"#,
+            )
+            .unwrap();
+            let done = std::process::Command::new(env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "export::tests::the_names_are_the_aliases_every_role_s_endpoints_and_the_email",
+                ])
+                .env("TEHAS_TEST_NAMES_FILE", &file)
+                .env(
+                    "PI_ENSEMBLE_HOST_ALIASES",
+                    "gpu-one:192.0.2.5,solo-host,x:y\nnot:this",
+                )
+                .env("PI_ENSEMBLE_SUBAGENT_PROVIDER", "alpha")
+                .env("PI_ENSEMBLE_SUBAGENT_MODEL", "m1")
+                .env("PI_ENSEMBLE_PROVIDER_OPS", "beta")
+                .env("PI_ENSEMBLE_MODEL_OPS", "m2")
+                .env("PI_ENSEMBLE_PROVIDER_CODE_REVIEW_SPECIALIST", "gamma")
+                .env("PI_ENSEMBLE_MODEL_CODE_REVIEW_SPECIALIST", "m3")
+                .status()
+                .unwrap();
+            fs::remove_dir_all(&top).unwrap();
+            assert!(done.success());
+            return;
+        };
+        assert_eq!(
+            mask::host_names(models.to_str().unwrap(), "bot@mail.example"),
+            [
+                "gpu-one",
+                "192.0.2.5",
+                "solo-host",
+                "main.lan",
+                "backup.lan",
+                "2001:db8::7",
+                "bare.lan",
+                "bot@mail.example"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_text_says_each_cycle_and_the_cursor_to_keep() {
+        let lines = [r#"{"cursor":"5-7-2","kind":"plan","issue":7}"#.to_string()];
+        assert_eq!(
+            text(&lines, 1, Path::new("/a"), Some("5-7-2")),
+            "5-7-2  plan  #7\nexported  1 cycles to /a (next: 5-7-2)\n"
+        );
+        assert_eq!(
+            text(&[], 0, Path::new("/a"), None),
+            "exported  0 cycles to /a (next: none)\n"
+        );
+    }
 
     #[test]
     fn a_cursor_is_three_numbers_and_the_last_two_never_start_with_naught() {
