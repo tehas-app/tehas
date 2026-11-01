@@ -30,9 +30,8 @@
 //!   limit     1 cycle at once, planning off, until 2026-10-17T14:05:00Z: held for alpha
 //!   {"api":1,"state":"ok","cycles":1,"plan":false,"until":"...","reason":"..."}
 //!
-//! `read` prints the same reading as one object with no `api`: the answer
-//! The reading the dispatcher, `tehasbot improve` and `tehasbot health` take,
-//! and the object `tehas status --json` publishes, so it keeps
+//! `read` prints the same reading as one object with no `api`: the object
+//! `tehas status --json` publishes, so it keeps
 //! exactly the fields it has today; with `--line` it prints the words of that
 //! reading instead, which is how the shell prints the line of a limit it has
 //! just read. `state` is `none` when no file is there,
@@ -312,7 +311,7 @@ impl Reading {
     }
 
     /// The reading as one compact object, `state` first: the order
-    /// the reading prints, which `tehas status --json` republishes.
+    /// `tehas status --json` republishes.
     fn text(&self) -> String {
         let mut parts = vec![format!("\"state\":\"{}\"", self.state)];
         parts.extend(
@@ -1170,7 +1169,7 @@ fn clear(file: &Path, json: bool) -> u8 {
     0
 }
 
-/// tehas_limit_read: the limit as every command which honours it reads it.
+/// The limit as every command which honours it reads it.
 /// A file which is not there is no limit; anything else which is not a limit
 /// of version 1 is unreadable, never none, so a reader holds every start
 /// rather than finding no limit where a file is.
@@ -1196,8 +1195,8 @@ fn parse(bytes: &[u8], now: i64) -> Reading {
         Ok(text) => text,
         Err(_) => return Reading::of("unreadable"),
     };
-    // The checks of tehas_limit_read, one jq select at a time, over the
-    // document it read. What an absent key reads as is part of the check:
+    // The checks of the limit, one jq select at a time, over the document
+    // read. What an absent key reads as is part of the check:
     // `.until == null` is true of a document with no until at all.
     let keys = match Skip::new(bytes).object() {
         Some(keys) => keys,
@@ -1910,6 +1909,34 @@ mod tests {
         // before it is not: jq's rule is `until <= now`.
         assert!(read(&file, NOW).text().starts_with(r#"{"state":"expired""#));
         assert!(read(&file, NOW - 1).text().starts_with(r#"{"state":"ok""#));
+    }
+
+    #[test]
+    fn what_a_reader_is_given_at_a_moment_of_its_own() {
+        let d = dir("reader");
+        let file = d.0.join("state/limit.json");
+        assert_eq!(read(&file, NOW).text(), r#"{"state":"none"}"#);
+        set_in(
+            &d,
+            &[
+                "--cycles",
+                "2",
+                "--plan",
+                "off",
+                "--until",
+                "2036-01-01T14:05:00Z",
+                "--reason",
+                "r",
+            ],
+        );
+        let until = epoch("2036-01-01T14:05:00Z").unwrap();
+        assert_eq!(
+            read(&file, until - 300).text(),
+            r#"{"state":"ok","cycles":2,"plan":false,"until":"2036-01-01T14:05:00Z","reason":"r"}"#
+        );
+        assert!(read(&file, until)
+            .text()
+            .starts_with(r#"{"state":"expired""#));
     }
 
     #[test]
