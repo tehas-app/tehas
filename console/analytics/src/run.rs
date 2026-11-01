@@ -30,9 +30,9 @@
 //!   startedAt, endedAt}], exitCode, usage: {input, output, cacheRead,
 //!   cacheWrite, cost, turns, dispatches, byRole: {<role>: {...}}}, cap,
 //!   failedStep, parkReason, failure: {kind, step, role, cause}}]}. Read
-//!   whole: lib/headless.sh reads schema 4 only, but the fields read here are
-//!   the same in both. libexec/cycle removes it as the next cycle starts.
-//! - state/cycles/<n>.progress.json (libexec/work, tehas_headless_progress):
+//!   whole: tehas-cycle reads its RESULT_SCHEMA only, but the fields read here
+//!   are the same in both. libexec/cycle removes it as the next cycle starts.
+//! - state/cycles/<n>.progress.json (tehas-cycle, progress.rs):
 //!   {roles: [{role, dispatches, turns, input, output, cacheRead}], reason,
 //!   failure, reviewHeld, from}. reviewHeld, and the roles where the result
 //!   has no byRole (v0.12.80).
