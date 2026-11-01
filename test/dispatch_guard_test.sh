@@ -57,6 +57,7 @@ t_case "TEHAS_DISPATCHER=bash is the bash poll"
 reset
 dispatcher_unset
 t_instance "${unset_settings[@]}" TEHAS_DISPATCHER=bash
+bash_poll_console
 t_run "$dispatch --dry-run"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "rust poll"
