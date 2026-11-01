@@ -41,6 +41,10 @@ empty one above it.
 - The Rust report says a repeat park, a develop timeout's last attempt and a quiet stop, has no outage fallback, and the shadow's log names the arm.
 - A poll and a cycle can write to GitHub through one journal, and a poll's settle leaves the actions of a running cycle.
 - tehas-cycle can report a cycle through the action journal, with TEHAS_CYCLE_REPORT=rust; the deadline is the time limit less the handoff allowance.
+- The poll is tehas-dispatch alone: the bash poll is removed, `TEHAS_DISPATCHER=bash` stops with 78, and a missing program stops with 78.
+- `lib/planning.sh` and `lib/live.sh` are removed, and an install takes them off a host.
+- The libraries lose the functions only the bash poll called.
+- The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
 
 ### Adopter action
 
