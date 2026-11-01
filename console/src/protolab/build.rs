@@ -696,7 +696,7 @@ fn attach(bin: &Path, zip: &Path, folder: &Path, most: i64, files: i64) -> Unpac
     read_attach(code, &out)
 }
 
-/// The answer of `attach unpack`, as tehas_unzip_into reads it.
+/// The answer of `attach unpack`.
 fn read_attach(code: i32, out: &str) -> Unpacked {
     let out = out.trim_end_matches('\n');
     if code == 0 && !out.contains('\n') {
