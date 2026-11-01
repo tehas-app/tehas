@@ -102,6 +102,7 @@ tehas_analytics_plan() {
   local issue=$1 record=null
   shift
   tehas_analytics_on || return 0
+  # shellcheck disable=SC2154  # lib/store.sh, which the caller sources, sets it
   if tehas_store plan-view "$issue"; then
     record=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || record=null
   fi
