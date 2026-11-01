@@ -1,10 +1,15 @@
 //! tehas.slice, the systemd slice every sandbox container runs in: whether it
-//! can be used and the room it has. The rule is written here once. The
-//! dispatcher answers it from a snapshot, the commands through `console slice`
-//! (console/src/slice.rs). A fault is never read as "no limit" or "an empty
-//! slice": the answer is then "not ok" or "no room".
+//! can be used, the limits of one container and the room it has. The rule is
+//! written here once. The dispatcher answers it from a snapshot, the commands
+//! that start a container with [`Host`] through `tehas-cycle sandbox`, and the
+//! bash through `console slice` (console/src/slice.rs). A fault is never read
+//! as "no limit" or "an empty slice": the answer is then "not ok" or "no room".
 
 use serde_json::{Map, Value};
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 const MIB: u64 = 1_048_576;
 const GIB: u64 = 1_073_741_824;
@@ -66,6 +71,196 @@ pub struct Scope {
     pub name: String,
     pub stat: Option<String>,
     pub low: Option<String>,
+}
+
+/// This host, asked when a check needs it. Each outside call is bounded by
+/// TEHAS_SLICE_WAIT, so that a silent one cannot block a command, and
+/// TEHAS_CGROUP_ROOT is the tests' seam for /sys/fs/cgroup.
+pub struct Host {
+    root: String,
+}
+
+impl Host {
+    pub fn here() -> Host {
+        Host { root: root() }
+    }
+}
+
+fn var_or(name: &str, default: &str) -> String {
+    env::var(name)
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default.into())
+}
+
+pub fn root() -> String {
+    var_or("TEHAS_CGROUP_ROOT", "/sys/fs/cgroup")
+}
+
+/// What a program printed under `timeout`, None when it failed.
+fn answer(program: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new("timeout")
+        .arg(var_or("TEHAS_SLICE_WAIT", "10"))
+        .arg(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+impl Probe for Host {
+    fn show(&self) -> Option<Map<String, Value>> {
+        let out = answer(
+            "systemctl",
+            &[
+                "show",
+                "tehas.slice",
+                "-p",
+                "FragmentPath",
+                "-p",
+                "ActiveState",
+                "-p",
+                "MemoryMax",
+            ],
+        )?;
+        if out.trim_end_matches('\n').is_empty() {
+            return None;
+        }
+        Some(shown(&out))
+    }
+
+    fn docker(&self) -> Option<String> {
+        answer(
+            "docker",
+            &["info", "--format", "{{.CgroupDriver}} {{.CgroupVersion}}"],
+        )
+    }
+
+    fn controllers(&self) -> Option<String> {
+        let t = text(&Path::new(&self.root).join("cgroup.controllers"))?;
+        Some(t.lines().next().unwrap_or("").trim().to_string())
+    }
+
+    fn cpus(&self) -> Option<String> {
+        let out = Command::new("nproc")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        out.status.success().then(|| {
+            String::from_utf8_lossy(&out.stdout)
+                .trim_end_matches('\n')
+                .to_string()
+        })
+    }
+
+    fn root(&self) -> &str {
+        &self.root
+    }
+}
+
+/// The three fields of `systemctl show`, each empty when it was not said: an
+/// answer without them is a slice with no file, not an answer that was not given.
+fn shown(out: &str) -> Map<String, Value> {
+    let mut map = Map::new();
+    for key in ["FragmentPath", "ActiveState", "MemoryMax"] {
+        let prefix = format!("{key}=");
+        let value = out.lines().rev().find_map(|l| l.strip_prefix(&prefix));
+        map.insert(key.into(), Value::from(value.unwrap_or("")));
+    }
+    map
+}
+
+impl Reading {
+    /// What decides the room left: the scopes under the slice, its pressure and
+    /// the id each cycle's cid file holds. No call, only files.
+    pub fn of_room(root: String, cid_files: &[String]) -> Reading {
+        let dir = Path::new(&root).join("tehas.slice");
+        Reading {
+            scopes: scopes(&dir),
+            pressure: text(&dir.join("memory.pressure")),
+            cids: cid_files.iter().filter_map(|f| cid(f)).collect(),
+            root,
+            ..Default::default()
+        }
+    }
+}
+
+fn text(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The children of the slice in the order a shell's glob gives them. A
+/// container that ended while it was read is gone, not unreadable. None when
+/// the directory is missing.
+fn scopes(dir: &Path) -> Option<Vec<Scope>> {
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".scope") && !n.starts_with('.'))
+        .collect();
+    names.sort();
+    let mut out = Vec::new();
+    for name in names {
+        let path = dir.join(&name);
+        if !path.is_dir() {
+            continue;
+        }
+        let (stat, low) = (
+            text(&path.join("memory.stat")),
+            text(&path.join("memory.low")),
+        );
+        if (stat.is_none() || low.is_none()) && !path.is_dir() {
+            continue;
+        }
+        out.push(Scope { name, stat, low });
+    }
+    Some(out)
+}
+
+/// The container id in a cid file, as `read` gives its first line.
+fn cid(file: &str) -> Option<String> {
+    let t = text(Path::new(file))?;
+    Some(t.lines().next().unwrap_or("").trim().to_string())
+}
+
+/// The settings a container's limits are made from.
+#[derive(Clone, Debug, Default)]
+pub struct Load {
+    /// TEHAS_CYCLE_RESERVE as the instance wrote it.
+    pub reserve: String,
+    /// TEHAS_SLICE_CONTAINERS.
+    pub containers: String,
+    /// TEHAS_TICKET_CONCURRENCY.
+    pub cycles: String,
+    /// TEHAS_REFRESH_CONFLICTS.
+    pub conflicts: String,
+    /// TEHAS_REFRESH_SLOTS.
+    pub slots: String,
+}
+
+impl Load {
+    /// As lib/config.sh leaves them in the environment.
+    pub fn from_env() -> Load {
+        let var = |k: &str| env::var(k).unwrap_or_default();
+        Load {
+            reserve: var("TEHAS_CYCLE_RESERVE"),
+            containers: var_or("TEHAS_SLICE_CONTAINERS", "4"),
+            cycles: var("TEHAS_TICKET_CONCURRENCY"),
+            conflicts: var("TEHAS_REFRESH_CONFLICTS"),
+            slots: var("TEHAS_REFRESH_SLOTS"),
+        }
+    }
 }
 
 /// A slice that can be used.
@@ -203,6 +398,95 @@ pub fn usable(r: &impl Probe, reserve: &str, containers: &str) -> Result<Usable,
         ceiling_mb: ceiling,
         cpus,
     })
+}
+
+/// The CPUs a container may use: all but one, never below one, one being left
+/// to the host's own services and the model backends.
+fn spare(cpus: u64) -> u64 {
+    if cpus > 1 {
+        cpus - 1
+    } else {
+        1
+    }
+}
+
+// One cycle's share of `spare` CPUs in hundredths, never below one CPU: what it
+// gets when every cycle side by side is busy. The cycles are counted at most
+// TEHAS_SLICE_CONTAINERS, with the refresh lane when it takes conflicts.
+fn share(spare: u64, load: &Load) -> Option<u64> {
+    let mut cycles = num(&load.cycles).filter(|n| *n > 0)?;
+    if load.conflicts == "1" {
+        cycles += num(&load.slots).unwrap_or(0);
+    }
+    let cycles = cycles.min(num(&load.containers).filter(|n| *n > 0)?);
+    Some((spare * 100 / cycles).max(100))
+}
+
+/// The CPU quota and the pids limit of one container. The quota is a ceiling,
+/// not a share that is held: a gate run alone gets the whole host, and the
+/// weight splits it when several are busy. The pids limit follows the share,
+/// 1024 for each CPU of it, from 2048 to 4096: a container's processes are
+/// mostly what its gate runs side by side, and 2048 is what the agents, their
+/// tools and git need around it.
+pub fn cpus(host: u64, load: &Load) -> Option<(String, u64)> {
+    if host == 0 {
+        return None;
+    }
+    let spare = spare(host);
+    let pids = share(spare, load)?.div_ceil(100) * 1024;
+    Some((format!("{spare}.00"), pids.clamp(2048, 4096)))
+}
+
+/// Exactly the fourteen words a container's limits are for docker run. None
+/// when one of them cannot be made.
+pub fn limits(s: &Usable, load: &Load) -> Option<Vec<String>> {
+    if s.ceiling_mb == 0 {
+        return None;
+    }
+    bytes(&load.reserve)?;
+    let (quota, pids) = cpus(s.cpus, load)?;
+    let memory = format!("{}m", s.ceiling_mb);
+    Some(
+        [
+            "--cgroup-parent",
+            "tehas.slice",
+            "--memory",
+            &memory,
+            "--memory-swap",
+            &memory,
+            "--memory-reservation",
+            &load.reserve,
+            "--cpus",
+            &quota,
+            "--pids-limit",
+            &pids.to_string(),
+            "--cpu-shares",
+            "1024",
+        ]
+        .map(String::from)
+        .to_vec(),
+    )
+}
+
+/// How many runs of the product's gate one container runs at once: one for
+/// each two whole CPUs of its share and each 2 GiB of its ceiling, the lower,
+/// at least one. The rule pi-rukas applies to a host, applied to the container.
+/// Read off the words of [`limits`]; None when they hold no quota or ceiling.
+pub fn verify(words: &[String], load: &Load) -> Option<u64> {
+    let word = |flag: &str| {
+        words
+            .windows(2)
+            .rfind(|w| w[0] == flag)
+            .map(|w| w[1].as_str())
+    };
+    let quota = word("--cpus")?;
+    let quota = num(quota.split('.').next().unwrap_or(""))?;
+    let memory = word("--memory")?;
+    let memory = num(memory.strip_suffix('m').unwrap_or(memory))?;
+    // Each run is sized for the share: the quota is the whole host less one,
+    // and every cycle side by side may be running its gate.
+    let cpus = share(quota, load).map_or(quota, |s| quota.min(s / 100));
+    Some((cpus / 2).min(memory / 2048).max(1))
 }
 
 /// What one child of the slice is charged with, in bytes: what it holds that
@@ -443,6 +727,24 @@ pub fn gib(b: u64) -> String {
 mod tests {
     use super::*;
 
+    fn load(cycles: u64) -> Load {
+        Load {
+            reserve: "2g".into(),
+            containers: "4".into(),
+            cycles: cycles.to_string(),
+            ..Load::default()
+        }
+    }
+
+    fn slice(cpus: u64, ceiling_mb: u64) -> Usable {
+        Usable {
+            max: ceiling_mb * 4 * MIB,
+            active: "active".into(),
+            ceiling_mb,
+            cpus,
+        }
+    }
+
     /// A reading that passes every check but the ones a case names.
     fn host() -> Reading {
         let mut show = Map::new();
@@ -528,5 +830,188 @@ mod tests {
             charged(whole, "1 2\n"),
             Err("d/memory.low is not a number".to_string())
         );
+    }
+
+    #[test]
+    fn the_limits_are_fourteen_words_with_a_quarter_of_the_max() {
+        let words = limits(&slice(8, 5120), &load(3)).unwrap();
+        assert_eq!(
+            words.join(" "),
+            "--cgroup-parent tehas.slice --memory 5120m --memory-swap 5120m \
+             --memory-reservation 2g --cpus 7.00 --pids-limit 3072 --cpu-shares 1024"
+        );
+        assert_eq!(words.len(), 14);
+    }
+
+    #[test]
+    fn the_limits_carry_the_reserve_as_the_instance_wrote_it() {
+        let mut l = load(1);
+        l.reserve = "512m".into();
+        assert_eq!(limits(&slice(8, 5120), &l).unwrap()[7], "512m");
+    }
+
+    #[test]
+    fn no_limits_without_a_ceiling_a_reserve_or_a_concurrency() {
+        assert_eq!(limits(&slice(8, 0), &load(1)), None);
+        let mut l = load(1);
+        l.reserve = "much".into();
+        assert_eq!(limits(&slice(8, 5120), &l), None);
+        let mut l = load(1);
+        l.cycles = String::new();
+        assert_eq!(limits(&slice(8, 5120), &l), None);
+        assert_eq!(cpus(0, &load(1)), None);
+    }
+
+    // From test/slice_test.sh: <host CPUs> <TEHAS_TICKET_CONCURRENCY> <quota>
+    // <pids limit>.
+    #[test]
+    fn the_quota_is_the_hosts_cpus_less_one_whatever_the_cycles_side_by_side() {
+        for (host, cycles, quota, pids) in [
+            (16, 4, "15.00", 4096),
+            (16, 15, "15.00", 4096),
+            (16, 1, "15.00", 4096),
+            (12, 4, "11.00", 3072),
+            (8, 3, "7.00", 3072),
+            (8, 7, "7.00", 2048),
+            (4, 3, "3.00", 2048),
+            (4, 20, "3.00", 2048),
+            (2, 1, "1.00", 2048),
+            (1, 1, "1.00", 2048),
+            (64, 4, "63.00", 4096),
+        ] {
+            assert_eq!(
+                cpus(host, &load(cycles)),
+                Some((quota.to_string(), pids)),
+                "{host} {cycles}"
+            );
+        }
+    }
+
+    // From test/slice_test.sh: the cycles side by side are counted at most
+    // TEHAS_SLICE_CONTAINERS, with the refresh lane when it takes conflicts.
+    #[test]
+    fn the_pids_limit_follows_the_share_with_the_refresh_lane() {
+        for (host, cycles, lane, on, n, quota, pids) in [
+            (8, 2, 1, "1", 4, "7.00", 3072),
+            (8, 2, 0, "1", 4, "7.00", 4096),
+            (8, 2, 1, "0", 4, "7.00", 4096),
+            (8, 4, 1, "1", 4, "7.00", 2048),
+            (8, 3, 2, "1", 4, "7.00", 2048),
+            (16, 5, 1, "1", 4, "15.00", 4096),
+            (16, 5, 1, "1", 6, "15.00", 3072),
+        ] {
+            let l = Load {
+                reserve: "2g".into(),
+                containers: n.to_string(),
+                cycles: cycles.to_string(),
+                conflicts: on.into(),
+                slots: lane.to_string(),
+            };
+            assert_eq!(
+                cpus(host, &l),
+                Some((quota.to_string(), pids)),
+                "{host} {cycles} {lane} {on} {n}"
+            );
+        }
+    }
+
+    // From test/slice_test.sh: <host CPUs> <TEHAS_TICKET_CONCURRENCY> <slice
+    // max in GiB> <gate runs at once>.
+    #[test]
+    fn a_container_runs_a_gate_for_each_two_cpus_of_its_share_and_2_gib_of_its_ceiling() {
+        for (host, cycles, gib, want) in [
+            (16, 4, 20, 1),
+            (16, 1, 20, 2),
+            (16, 1, 64, 7),
+            (16, 2, 64, 3),
+            (16, 4, 64, 1),
+            (12, 4, 64, 1),
+            (8, 1, 8, 1),
+            (2, 1, 64, 1),
+            (64, 1, 256, 31),
+        ] {
+            let words = limits(&slice(host, gib * 1024 / 4), &load(cycles)).unwrap();
+            assert_eq!(
+                verify(&words, &load(cycles)),
+                Some(want),
+                "{host} {cycles} {gib}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_limits_no_count_of_gate_runs() {
+        assert_eq!(verify(&[], &load(1)), None);
+        let words = ["--cpus", "x", "--memory", "2048m"].map(String::from);
+        assert_eq!(verify(&words, &load(1)), None);
+    }
+
+    #[test]
+    fn a_concurrency_that_is_no_number_leaves_the_quota_to_size_the_gate() {
+        let words = limits(&slice(16, 8192), &load(1)).unwrap();
+        let mut l = load(1);
+        l.cycles = String::new();
+        assert_eq!(verify(&words, &l), Some(4));
+    }
+
+    #[test]
+    fn the_refresh_lane_counts_only_with_refreshes_on_and_a_number() {
+        let mut l = load(2);
+        assert_eq!(share(8, &l), Some(400));
+        l.conflicts = "1".into();
+        l.slots = "1".into();
+        assert_eq!(share(8, &l), Some(266));
+        l.slots = "many".into();
+        assert_eq!(share(8, &l), Some(400));
+    }
+
+    #[test]
+    fn no_count_of_containers_no_share() {
+        for bad in ["auto", "0", ""] {
+            let mut l = load(2);
+            l.containers = bad.into();
+            assert_eq!(share(8, &l), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn verify_takes_the_last_of_a_word_given_twice_and_needs_both() {
+        let w = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let mut l = load(1);
+        l.cycles = String::new();
+        assert_eq!(
+            verify(
+                &w(&["--cpus", "1.00", "--cpus", "8.00", "--memory", "8192m"]),
+                &l
+            ),
+            Some(4)
+        );
+        assert_eq!(verify(&w(&["--cpus", "8.00"]), &l), None);
+        assert_eq!(verify(&w(&["--memory", "8192m", "--cpus"]), &l), None);
+    }
+
+    #[test]
+    fn an_answer_of_systemctl_without_a_field_leaves_that_field_empty() {
+        let m = shown("Id=tehas.slice\nActiveState=active\nActiveState=inactive\n");
+        assert_eq!(m["FragmentPath"], "");
+        assert_eq!(m["MemoryMax"], "");
+        assert_eq!(m["ActiveState"], "inactive");
+    }
+
+    #[test]
+    fn a_scope_gone_while_it_was_read_is_not_in_the_list() {
+        let dir = std::env::temp_dir().join(format!("tehas-slice-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("docker-b.scope")).unwrap();
+        fs::create_dir_all(dir.join("docker-a.scope")).unwrap();
+        fs::create_dir_all(dir.join("not-a-child")).unwrap();
+        fs::write(dir.join("file.scope"), "").unwrap();
+        fs::write(dir.join("docker-a.scope/memory.stat"), "anon 1\n").unwrap();
+        let listed = scopes(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+        let names: Vec<_> = listed.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["docker-a.scope", "docker-b.scope"]);
+        assert!(listed[0].stat.is_some() && listed[0].low.is_none());
+        assert_eq!(scopes(&dir).map(|s| s.len()), None);
     }
 }

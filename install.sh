@@ -795,12 +795,12 @@ else
       LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
   }
   # The console's source is all of console/ but its tests, analytics/, mcp/,
-  # store/, attach/, dispatch/ and cycle/, so a change to one of those alone
-  # does not build the console again.
+  # store/, attach/, dispatch/ and cycle/'s tests, so a change to one of those
+  # alone does not build the console again. It links the tehas-cycle library.
   # analytics reads its own directory, the workspace's manifest and lock, and the
   # shared library in core/, and so do the MCP server and the store.
   console_source=$(source_sum ! -path './tests/*' ! -path './analytics/*' ! -path './mcp/*' ! -path './store/*' \
-    ! -path './attach/*' ! -path './dispatch/*' ! -path './cycle/*') ||
+    ! -path './attach/*' ! -path './dispatch/*' ! -path './cycle/tests/*' ! -path './cycle/target/*') ||
     { echo "tehas: could not read the console's source in $root/console" >&2; exit 1; }
   analytics_source=$(source_sum \( \( -path './analytics/*' ! -path './analytics/tests/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||

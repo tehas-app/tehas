@@ -1,15 +1,12 @@
 # shellcheck shell=bash
 # The commands' way to tehas.slice, the systemd slice every sandbox container
 # runs in. The rules and the reads are `console slice`: console/src/slice.rs
-# says what each verb prints. Sourced by the commands that start a container
-# and by the dispatcher. Never by lib/config.sh or a login shell: it calls
-# systemctl and docker, and loading settings must not.
+# says what each verb prints. Sourced by the dispatcher and tehas improve. Never
+# by lib/config.sh or a login shell: it calls systemctl and docker, and loading
+# settings must not.
 #
-# A command starts with
-#   tehas_slice_ok || { echo "tehas x: $TEHAS_SLICE_WHY" >&2; exit 78; }
-#   tehas_slice_limits
-# and checks TEHAS_SLICE_LIMITS for fourteen words before it starts anything.
-# With no console there is no slice: not ok, and no room.
+# A command that starts a container asks `tehas-cycle sandbox limits`, which
+# keeps the same rules. With no console there is no slice: not ok, and no room.
 
 tehas_slice_console=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/libexec/console
 tehas_slice_none="no console beside this command at $tehas_slice_console, run install.sh"
@@ -17,7 +14,7 @@ tehas_slice_none="no console beside this command at $tehas_slice_console, run in
 # What ok sets is not exported, so each verb is handed it here.
 _tehas_slice() {
   TEHAS_SLICE_MAX=${TEHAS_SLICE_MAX:-} TEHAS_SLICE_ACTIVE=${TEHAS_SLICE_ACTIVE:-} \
-    TEHAS_SLICE_CEILING_MB=${TEHAS_SLICE_CEILING_MB:-} TEHAS_SLICE_CPUS=${TEHAS_SLICE_CPUS:-} \
+    TEHAS_SLICE_CEILING_MB=${TEHAS_SLICE_CEILING_MB:-} \
     "${TEHAS_CONSOLE_CMD:-$tehas_slice_console}" slice "$@" 2>/dev/null
 }
 
@@ -29,18 +26,6 @@ tehas_slice_ok() {
   eval "$out"
   return "$rc"
 }
-
-# shellcheck disable=SC2034  # the caller reads the array
-tehas_slice_limits() {
-  local out
-  TEHAS_SLICE_LIMITS=()
-  out=$(_tehas_slice limits) || return 1
-  read -r -a TEHAS_SLICE_LIMITS <<<"$out"
-}
-
-tehas_slice_cpus() { _tehas_slice cpus; }
-
-tehas_slice_verify() { _tehas_slice verify "${TEHAS_SLICE_LIMITS[@]}"; }
 
 tehas_slice_room() {
   _tehas_slice room "$@" || echo "0 0 ${TEHAS_SLICE_MAX:-0} 0 unreadable $tehas_slice_none"
