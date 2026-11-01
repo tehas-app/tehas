@@ -604,6 +604,10 @@ touch ~/tehas/state/update-hold     # tehas update refuses while this exists
 tehas update --to v0.8.0            # --to runs with the hold there
 ```
 
+`tehas update` needs a console that starts. A release whose console does not
+cannot update itself; the way back is the install.sh of a version still on the
+host, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
+
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
 back shows as drift, and the next install undoes it. On a host that updates

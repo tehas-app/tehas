@@ -235,6 +235,7 @@ fn text(command: &str) -> Option<&'static str> {
         "status" => include_str!("usage/status.txt"),
         "stop" => stop::USAGE,
         "top" => include_str!("usage/top.txt"),
+        "update" => include_str!("usage/update.txt"),
         _ => return None,
     })
 }
@@ -383,6 +384,7 @@ mod tests {
             "resume",
             "state",
             "status",
+            "update",
         ] {
             let text = text(command).unwrap();
             assert!(text.contains(&format!("tehas {command}")), "{command}");

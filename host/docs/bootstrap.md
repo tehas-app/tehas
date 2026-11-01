@@ -115,7 +115,7 @@ long, and many blocks come online at once. systemd coalesces the requests of one
 group of blocks into the one run of a oneshot that has not finished, which is
 also why the unit bounds its run with `TimeoutStartSec=60` and a start limit: a
 reload that hung would hold every memory-online event after it in the same
-unfinished run. `libexec/update` bounds the same call at 60 seconds for the same
+unfinished run. `tehas update` bounds the same call at 60 seconds for the same
 reason. The unit names `/usr/bin/systemctl` by path: that is where Ubuntu's
 usr-merged systemd puts it.
 

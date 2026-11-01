@@ -3989,9 +3989,13 @@ git, install.sh, Docker or systemd is called. The wait is
 refuse at once, at most 300; anything else is the default. It is read from the
 environment, not from `instance.env`, and the rule for it is
 `tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
-The update hands the lock to the install.sh it runs; the wait covers a run
-started right after one that failed and left the lock held a moment by
-something it had started. `--check` takes no lock.
+The update hands the lock to the install.sh it runs, and to nothing else; the
+wait covers a run started right after one that failed and left the lock held a
+moment by something it had started. `--check` takes no lock.
+
+`libexec/update` is a thin script: it holds that lock and runs install.sh, and
+the console does the rest. A console that does not start stops an update with
+exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
