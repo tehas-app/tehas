@@ -75,7 +75,7 @@ if [ ! -x "$console" ] && [ -r "$here/../console/Cargo.toml" ]; then
 fi
 [ -x "$console" ] || die "no console beside this command at $here/console, run install.sh" 78
 
-files=$("$console" setup files "$here/../lib" "$(tehas_instance_dir)" "$@") || exit $?
+files=$("$console" setup files "$(tehas_instance_dir)" "$@") || exit $?
 read -r build kind bot bot_id <<<"$files"
 
 # --- git, the product, the install --------------------------------------------
