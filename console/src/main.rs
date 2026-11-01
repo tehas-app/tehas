@@ -66,6 +66,10 @@
 //! How full this host is and what fills it, for tehas disk and the MCP tool
 //! factory_disk, see src/disk.rs.
 //!
+//!   console disk free <path> [<seconds>]
+//!
+//! The free kilobytes a command holds work on, see src/disk.rs.
+//!
 //!   console size measure | record <issue> <ledger>
 //!
 //! The measure of an issue body and the ledger of what approved starts

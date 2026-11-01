@@ -213,7 +213,7 @@ t_real_timeout=$(command -v timeout || true)
 # this suite hangs by exec'ing sleep: the checks of the branch, the slice
 # probe, the store that never answers and the gate that stays up. None of them
 # stubs sleep, so each of those bounds holds. The others are the commands of
-# the host a poll reaches for under timeout - df and docker through lib/disk.sh
+# the host a poll reaches for under timeout - df and docker through console disk free
 # and lib/slice.sh, systemctl through lib/slice.sh, gh through libexec/tidy and
 # the poll's own branch check, the fetch of the checkout, the gate of rule 7,
 # the analytics program, the attachment checker and the store - which a case
@@ -295,7 +295,7 @@ t_stub docker 'case "$1" in
   run) [ -e "$T/fx/caps.json" ] || exit 1; cat "$T/fx/caps.json" ;;
 esac'
 # The free kilobytes of the host, as the disk hold reads it through
-# lib/disk.sh, whose df and docker info calls run under timeout. The file
+# console disk free, whose df and docker info calls run under timeout. The file
 # system asked about answers with the kilobytes named for it: those of Docker's
 # own come from $T/fx/free-docker and the ones of every other path from
 # $T/fx/free, so a case can tell the two file systems from each other. With
@@ -397,6 +397,9 @@ reset() {
   # TEHAS_DISPATCHER=bash does.
   if [ -n "${T_BASH_POLL:-}" ]; then
     case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=bash "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=bash) ;; esac
+    # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+    t_console || t_bad "no console: $t_console_why"
+    T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
   else
     # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
     t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"

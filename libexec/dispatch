@@ -2753,7 +2753,7 @@ disk_free=""
 disk_read=""
 # disk_check: the free disk of the host for this poll, in $disk_free. It is the
 # one df of ~/tehas, the one docker info and the one df of Docker's own a poll
-# makes (tehas_free_kb in lib/disk.sh), each bounded, so a Docker or a mount
+# makes (console disk free), each bounded, so a Docker or a mount
 # that does not answer leaves no figure and a hold rather than a poll that
 # waits for it. The read is made once and its answer kept, also when it is
 # nothing: a poll that reads nothing pays for the read once, and the next poll
