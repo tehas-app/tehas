@@ -81,3 +81,17 @@
 
 mod body;
 mod check;
+mod models;
+mod pack;
+mod run;
+
+pub fn main(given: &[String]) -> u8 {
+    match given {
+        [verb, prompt] if verb == "due" => run::due(prompt),
+        [verb, prompt] if verb == "run" => run::run(prompt),
+        _ => {
+            eprintln!("console improve: usage: due|run <prompt file>");
+            64
+        }
+    }
+}

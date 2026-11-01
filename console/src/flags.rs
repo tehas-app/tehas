@@ -258,7 +258,7 @@ impl Reading {
         }
     }
 
-    fn said(&self) -> String {
+    pub fn said(&self) -> String {
         if !self.line.is_empty() {
             return self.line.clone();
         }
