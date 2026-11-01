@@ -138,7 +138,7 @@ t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named
 
 t_case "the driver of the approval reaches the facts, where the record holds it"
 rm -f "$T"/calls/*
-t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":1792497600,"by":"alice","how":"label","used_by":1,"input":{"driver":"lean"}}}'
+t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","links":[],"driver":"lean"}}'
 t_run "$scall; run_facts 7 1 \"\$(cat \"\$T/line.json\")\""
 t_eq "$(jq -c '.approval | [.how, .driver]' "$T/calls/facts.json")" '["label","lean"]'
 cp -f --remove-destination "$T_STORE" "$home/libexec/store"
@@ -148,10 +148,10 @@ rm -f "$T"/calls/*
 t_run "$scall; run_facts 7 2 \"\$(cat \"\$T/line.json\")\"; echo rc=\$?"
 t_eq "$t_out" "rc=0"
 t_eq "$(jq -c '[.attempt, .approval, .settings, .rukas, .line.status]' "$T/calls/facts.json")" '[2,null,null,null,"merged"]'
-t_store_answers cycle-show 1 'store: busy #7: the database is locked'
+t_store_answers settings-view 1 'store: busy #7: the database is locked'
 t_run "$scall; run_facts 7 1 \"\$(cat \"\$T/line.json\")\""
 t_eq "$(jq -c '[.approval.how, .settings, .rukas]' "$T/calls/facts.json")" '["retry-tick",null,null]'
-t_store_answers approval-current 78 'store: corrupt: the file is not a database'
+t_store_answers approval-view 78 'store: corrupt: the file is not a database'
 t_run "$scall; run_facts 7 1 \"\$(cat \"\$T/line.json\")\""
 t_eq "$(jq -c '[.approval, .settings.concurrentCycles]' "$T/calls/facts.json")" '[null,2]'
 t_store_home "$home"
@@ -179,7 +179,7 @@ t_eq "$(jq -c . "$T/calls/facts.json")" '{"session":"s","turns":1,"options":[],"
 t_eq "$(cat "$T/calls/facts.mode")" 600
 t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
 t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
-t_store_answers plan-show 1 'store: busy #7: the database is locked'
+t_store_answers plan-view 1 'store: busy #7: the database is locked'
 t_run "$scall; tehas_analytics_plan 7 --rc 0"
 t_eq "$(cat "$T/calls/facts.json")" null
 t_store_home "$home"

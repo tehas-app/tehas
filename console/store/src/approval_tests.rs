@@ -810,3 +810,160 @@ fn the_easy_mark_is_a_refresh_switch_and_defaults_to_no() {
     assert_eq!(v["current"]["how"], "refresh");
     assert_eq!(v["easy"], false, "{v}");
 }
+
+fn view(home: &Path, issue: i64) -> Value {
+    ok(home, &["approval-view", &issue.to_string()])["view"].clone()
+}
+
+/// The approval on record used by a start, and that start's attempt.
+fn used(home: &Path, issue: i64) -> i64 {
+    let _lock = hold(home, issue);
+    ok(home, &["cycle-start", &issue.to_string()])["attempt"]
+        .as_i64()
+        .unwrap()
+}
+
+fn input(home: &Path, text: &str) -> String {
+    write_file(home, "input.json", text.as_bytes())
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn a_view_is_the_record_file_key_for_key_and_in_its_order() {
+    let answer = json!({
+        "current": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "s",
+            "title_sha256": "t", "used_by": 1,
+            "input": {"links": ["l"], "comment_links": null, "driver": "lean",
+                "retry_context": ["r"], "park_lifted": {"id": 1}}},
+        "rests_on": null, "millwright_starts": 0, "fixer_starts": 0, "refreshes": 0
+    });
+    assert_eq!(
+        crate::approval::view_of(&answer, None).unwrap(),
+        concat!(
+            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"s","#,
+            r#""links":["l"],"title_sha256":"t","comment_links":null,"driver":"lean","#,
+            r#""retry_context":["r"],"park_lifted":{"id":1}}"#
+        )
+    );
+}
+
+#[test]
+fn a_view_leaves_out_what_is_not_on_record() {
+    let home = home("approval-view-empty");
+    assert_eq!(view(&home, 7), Value::Null);
+    record(&home, 7, 1792497600, "alice", "label");
+    // Recorded, and started nothing yet.
+    assert_eq!(view(&home, 7), Value::Null);
+    used(&home, 7);
+    assert_eq!(
+        view(&home, 7),
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label",
+            "body_sha256": SHA, "links": []})
+    );
+}
+
+#[test]
+fn a_view_with_an_attempt_is_the_approval_of_that_start_only() {
+    let home = home("approval-view-attempt");
+    record(&home, 7, 1792497600, "alice", "label");
+    used(&home, 7);
+    let asked =
+        |attempt: &str| ok(&home, &["approval-view", "7", "--attempt", attempt])["view"].clone();
+    assert_eq!(asked("1")["by"], "alice");
+    assert_eq!(asked("2"), Value::Null);
+}
+
+#[test]
+fn a_view_takes_only_the_number_of_a_start() {
+    let home = home("approval-view-args");
+    for bad in ["", "0", "x", "null", "01", "1234567890"] {
+        let (rc, line) = call(&home, &["approval-view", "7", "--attempt", bad]).unwrap_err();
+        assert_eq!(rc, 64, "{bad}");
+        assert!(line.contains("is not the number of a start"), "{line}");
+    }
+}
+
+#[test]
+fn a_millwright_start_in_a_view_says_fixer_and_rests_on_the_person() {
+    let home = home("approval-view-millwright");
+    record(&home, 7, 1792497600, "alice", "label");
+    let first = used(&home, 7);
+    end(&home, 7, first, "merged");
+    record(&home, 7, 1792584000, "tehas-fixer", "millwright");
+    used(&home, 7);
+    let v = view(&home, 7);
+    assert_eq!(v["how"], "fixer");
+    assert_eq!(v["by"], "tehas-fixer");
+    assert_eq!(v["at"], "2026-10-21T12:00:00Z");
+    assert_eq!(v["fixer_starts"], 1);
+    assert_eq!(
+        v["rests_on"],
+        json!({"at": "2026-10-20T12:00:00Z", "by": "alice", "how": "label", "body_sha256": SHA})
+    );
+}
+
+#[test]
+fn a_refresh_in_a_view_names_the_person_s_approval() {
+    let answer = json!({
+        "current": {"at": 1792584000, "by": "tehas-bot", "how": "refresh", "body_sha256": "s",
+            "used_by": 2, "input": {"links": []}},
+        "rests_on": {"at": 1792497600, "by": "alice", "how": "label", "body_sha256": "p",
+            "used_by": 1},
+        "millwright_starts": 0, "fixer_starts": 0, "refreshes": 1
+    });
+    assert_eq!(
+        crate::approval::view_of(&answer, None).unwrap(),
+        concat!(
+            r#"{"at":"2026-10-20T12:00:00Z","by":"alice","how":"refresh","body_sha256":"s","#,
+            r#""links":[],"rests_on":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","#,
+            r#""body_sha256":"p"},"fixer_starts":0,"refreshes":1,"refresh_of":null}"#
+        )
+    );
+}
+
+// Moved from test/store_lib_test.sh: a time that is no time was the shape's
+// refusal there, 2 from tehas_approval_view.
+#[test]
+fn a_view_refuses_what_is_no_approval() {
+    for current in [
+        json!({"at": "soon", "how": "label"}),
+        json!({"at": 1792497600, "how": "label", "input": ["a"]}),
+        json!({"at": 1792497600, "how": "label", "input": {"retry_context": true}}),
+        json!({"at": 1792497600}),
+        json!("an approval"),
+    ] {
+        let answer = json!({"current": current, "rests_on": null});
+        let (rc, line) = crate::approval::view_of(&answer, None).unwrap_err();
+        assert_eq!(rc, 78, "{line}");
+        assert!(line.starts_with("corrupt"), "{line}");
+    }
+}
+
+#[test]
+fn a_retry_context_with_nothing_in_it_is_no_key_of_a_view() {
+    let home = home("approval-view-retry");
+    let file = input(&home, r#"{"links":[],"retry_context":[]}"#);
+    ok(
+        &home,
+        &[
+            "approval-record",
+            "7",
+            "--at",
+            "1792497600",
+            "--by",
+            "alice",
+            "--how",
+            "label",
+            "--label",
+            "tehas:ready",
+            "--body-sha",
+            SHA,
+            "--input-file",
+            &file,
+        ],
+    );
+    used(&home, 7);
+    assert_eq!(view(&home, 7).get("retry_context"), None);
+}

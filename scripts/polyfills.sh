@@ -13,7 +13,7 @@
 #   test/polyfill_<f>_test.sh    its test
 #   lines that use it            anywhere else, each a line of its own ending in
 #                                `# polyfill <f>`
-# A caller asks tehas_headless_mode (lib/headless.sh), which answers native
+# A caller asks tehas-cycle caps mode, which answers native
 # where the image has the feature, so a polyfill is not used once the image has
 # it. Removing one is deleting those files and lines, which is what prune does.
 # scripts/tag-release.sh runs prune before it tags.

@@ -16,7 +16,7 @@
 //!   or the count the poll derived from the host when that setting is
 //!   `auto` — the dispatcher writes the count it decided by into free), or
 //!   count plus limitRoom where the limit of tehas limit is lower.
-//! - live/energy.json (libexec/energy): {generatedAt, totals: {watts}}.
+//! - live/energy.json (console energy): {generatedAt, totals: {watts}}.
 //!   watts is the mesh's draw, where it reports one.
 //!
 //! A file that is missing, a link, not JSON, or too old by its own time

@@ -4,8 +4,8 @@
 # four containers an agent runs in: the cycle, the planning turn, the manual
 # session and the push check. Sourced by test/work_lib.sh (the cycle's tests)
 # and by test/plan_test.sh and test/dev_test.sh, so the documented security
-# options have one home: they are read from tehas_sandbox_security itself, in
-# lib/sandbox.sh, and not copied into each file.
+# options have one home in the tests: the literal below. It is not read from
+# tehas_sandbox_security, which is the function under test.
 #
 # Every helper reads the arguments of one docker call on standard input, one
 # argument per line, as the stub of docker records them (test/lib.sh).
@@ -23,23 +23,18 @@
 T_ROOT=${T_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 # shellcheck source=lib/sandbox.sh
 . "$T_ROOT/lib/sandbox.sh"
-# The ceiling the stubbed slice gives a container (--memory 2048m): the size of
-# its /tmp is computed from it.
-TEHAS_SLICE_CEILING_MB=2048
-# The documented list is read once, into a string, and the three names below
-# are made from it. They are strings, not arrays: the suites that source this
-# write their own lists of mounts and variables, and an array of the same name
-# here would read as one variable declared two ways.
-security_opts=$(tehas_sandbox_security | tr '\0' ' ')
-security_opts=${security_opts% }
-# The mount of the tmpfs and its options: the word after --tmpfs in the list,
-# read from it rather than copied, so the tests name the mount as the container
-# is given it.
+# The documented list, for the ceiling the stubbed slice gives a container
+# (--memory 2048m): /tmp is half of it. The names below are made from this
+# string. They are strings, not arrays: the suites that source this write their
+# own lists of mounts and variables, and an array of the same name here would
+# read as one variable declared two ways.
+security_opts='--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777'
+# The mount of the tmpfs and its options: the word after --tmpfs in the list.
 security_tmpfs=${security_opts#*--tmpfs }
 security_tmpfs=${security_tmpfs%% *}
 # The options of the documented list, spelled as the second argument of
 # unknown_options wants them: the option itself, not its value. Derived from the
-# same words, so an option added to the function is allow-listed in every suite
+# same words, so an option added to the list is allow-listed in every suite
 # at once, and one left out of the list is refused by every container test.
 docker_opts=
 for _word in $security_opts; do
@@ -57,11 +52,10 @@ security_of() { # <flag> (reads the arguments on standard input)
 # given them another way or not at all. Reads the arguments on standard input.
 # The words of the list travel in the environment, not as -v assignments: awk
 # takes an assignment whose value begins with a dash for a flag of its own, and
-# an environment value is read as data, so an option holding a space (the
-# option and its value are two words) is compared whole.
+# an environment value is read as data.
 security_line() {
   local i n words doc
-  words=$(tehas_sandbox_security | tr '\0' '\n')
+  words=$(tr ' ' '\n' <<<"$security_opts")
   n=$(printf '%s\n' "$words" | sed -n '$=')
   for i in $(seq 0 $((n - 1))); do
     export "TEHAS_TEST_W$i=$(printf '%s\n' "$words" | sed -n "$((i + 1))p")"
