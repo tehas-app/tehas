@@ -96,7 +96,7 @@
 #                                    QID on record when one is given
 #   t_plan HOME N JSON               on a fresh session of issue N, the planning
 #                                    session JSON describes in the shape its
-#                                    record file had (tehas_plan_shape): made
+#                                    record file had (plan-view): made
 #                                    by the planning verbs, as the dispatcher
 #                                    makes one. by [alice], label
 #                                    [tehas:plan], turns, session [abc-123],
@@ -702,7 +702,7 @@ t_store_home() {
 t_row() {
   local t_args=() t_got
   case ${1:-} in
-    cycle-show | park-show | question-known | approval-current | plan-show | history-show | check) ;;
+    cycle-show | park-show | question-known | approval-current | plan-show | plan-view | history-show | check) ;;
     *)
       t_bad "t_row reads, and ${1:-nothing} is not a read verb"
       return 64
