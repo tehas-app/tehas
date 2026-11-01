@@ -123,14 +123,6 @@ t_lacks "$(t_calls gh)" "--add-label tehas:running"
 t_eq "$(t_calls gh | grep -c -x -e 'issue edit 7 --repo acme/widget --remove-label tehas:ready')" 1
 t_eq "$(t_calls gh | grep -c -e '^issue comment ')" 1
 
-t_case "every page of the label events is read, a hundred at a time"
-# A read of the bash poll's own: the Rust poll has the issue's label events, the
-# pull requests that close it and its edit record from its one page of the
-# queue, so this read cannot fail apart from the page, and costs no call.
-if bash_reads; then
-  t_contains "$(t_calls gh)" "api repos/acme/widget/issues/7/events?per_page=100 --paginate"
-fi
-
 t_case "a cycle does not start when the issue cannot be marked as running"
 reset
 : >"$fx/edit-fails"
@@ -272,43 +264,6 @@ t_lacks "$t_out" "would run a cycle"
 t_lacks "$(t_calls gh)" "issue edit"
 t_lacks "$(t_calls gh)" "issue comment"
 
-t_case "when GitHub cannot say which pull requests close it, the poll ends"
-# A read of the bash poll's own: the Rust poll has the issue's label events, the
-# pull requests that close it and its edit record from its one page of the
-# queue, so this read cannot fail apart from the page, and costs no call.
-if bash_reads; then
-  reset
-  : >"$fx/prs-fails"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-fi
-
-t_case "an answer that cannot be read ends the poll too"
-# A read of the bash poll's own: the Rust poll has the issue's label events, the
-# pull requests that close it and its edit record from its one page of the
-# queue, so this read cannot fail apart from the page, and costs no call.
-if bash_reads; then
-  reset
-  echo '{"data":{"repository":{"issue":null}}}' >"$fx/prs-7.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: unreadable pull requests of #7"
-  t_eq "$(t_calls fake-start)" ""
-fi
-
-t_case "an issue no allowed account labelled costs no question about its pull requests"
-# A read of the bash poll's own: the Rust poll has the issue's label events, the
-# pull requests that close it and its edit record from its one page of the
-# queue, so this read cannot fail apart from the page, and costs no call.
-if bash_reads; then
-  reset
-  echo '[{"event":"labeled","label":{"name":"tehas:ready"},"actor":{"login":"mallory"}}]' >"$fx/events-7.json"
-  t_run "$dispatch"
-  t_lacks "$(t_calls gh)" "closedByPullRequestsReferences"
-fi
-
 t_case "an edited issue does not hold up the one behind it"
 reset
 echo '[{"number":7,"labels":[{"name":"tehas:ready"}]},{"number":8,"labels":[{"name":"tehas:ready"}]}]' >"$fx/ready.json"
@@ -318,19 +273,6 @@ echo '{"data":{"repository":{"issue":{"lastEditedAt":"2026-01-02T10:05:00Z","edi
 t_run "$dispatch --dry-run"
 t_contains "$t_out" "would run a cycle for #8"
 rm -f "$fx/events-8.json"
-
-t_case "when the edit record cannot be read the issue is not taken"
-# A read of the bash poll's own: the Rust poll has the issue's label events, the
-# pull requests that close it and its edit record from its one page of the
-# queue, so this read cannot fail apart from the page, and costs no call.
-if bash_reads; then
-  reset
-  rm -f "$fx/edit.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$(t_calls gh)" "issue edit"
-fi
 
 t_case "a pause answer that cannot be understood dispatches nothing"
 reset

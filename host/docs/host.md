@@ -24,7 +24,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/slice.sh`               | The way to `console slice`, for the poll and `tehas improve`: whether the slice is usable and the room left, and with no console it finds no slice. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which holds the same rules and makes the container's limits, and it starts nothing without a usable slice |
 | `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. `tehas work` and `tehas plan` use it; the Protolab holds the same rules in the console |
-| `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
+| `~/tehas/lib/questions.sh`            | The questions of a park. A cycle's report uses it |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |
 | `~/tehas/libexec/`                   | The scripts behind the two commands, one for each thing they do. Not on `PATH` |
 | `~/tehas/run/`                       | One copy of `bin/`, `libexec/` and `lib/` for each running cycle (`cycle-<issue>-<pid>`) and planning turn (`plan-<issue>-<pid>`), as hardlinks, so an update leaves the code of what runs as it started. The next start removes the copies whose process has ended |

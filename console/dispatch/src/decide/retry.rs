@@ -132,8 +132,7 @@ fn is_instant(s: &str) -> bool {
 /// row it cannot date is held: unknown is not old, and the second answer lets
 /// the poll say so instead of reading as a park it dated. A `parked` that is
 /// not JSON true is no park; the store answers that column as a bool or NULL,
-/// and the importer takes only a boolean for it. The bash copy of this rule,
-/// lib/refresh.sh, keeps its (.started // 0).
+/// and the importer takes only a boolean for it.
 fn parked(history: &[Value], at: &str) -> (bool, bool) {
     // No instant on the record is no date to measure a park from; the rule of
     // the approval itself has already said what to do with such a record.
@@ -176,7 +175,7 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     (held, unread)
 }
 
-/// tehas_refresh_count: the refreshes a record counts on that approval.
+/// The refreshes a record counts on that approval.
 fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
     let same = |r: &Value| {
         ["at", "by"]

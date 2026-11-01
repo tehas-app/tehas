@@ -163,7 +163,7 @@ _tehas_valid() {
     TEHAS_UPDATE_FROM)
       case "$v" in git | release) ;; *) echo "expected git or release"; return 1 ;; esac
       ;;
-    TEHAS_DISPATCHER | TEHAS_CYCLE_REPORT)
+    TEHAS_CYCLE_REPORT)
       case "$v" in bash | rust) ;; *) echo "expected bash or rust"; return 1 ;; esac
       ;;
     # The look of every page: host/fun/theme-<name>.css. The servers write the
@@ -399,22 +399,25 @@ _tehas_role_models() { # <instance.env>
 # arms cannot drift apart into a refusal with no message.
 _tehas_retired_names() { # <instance.env>
   local file=$1 v reason
-  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY; do
+  for v in TEHAS_FIXER_LOGIN TEHAS_FIXER_MAX_RETRIES TEHAS_FIXER_MAX_PLAN_ANSWERS TEHAS_CLONES TEHAS_WORK_CPUS TEHAS_WORK_MEMORY TEHAS_DISPATCHER; do
     [ -n "${!v+x}" ] || continue
-    # The off value of the one name that took one: an earlier version read 0 and
-    # a blank line alike as no clones, which is what this version does, so the
-    # line stays loadable. The name is unset with it, so it never reaches a
-    # cycle, and the sweep in tehas_load took the host's TEHAS_* names before
-    # instance.env was read, so this is the file's own line.
-    if [ "$v" = TEHAS_CLONES ] && { [ "${!v}" = 0 ] || [ -z "${!v}" ]; }; then
-      unset "$v"
-      continue
-    fi
+    # The values that ask for what this version does: an earlier version read 0
+    # and a blank line alike as no clones, and rust or a blank line as the Rust
+    # poll, so the line stays loadable. The name is unset with it, so it never
+    # reaches a cycle, and the sweep in tehas_load took the host's TEHAS_* names
+    # before instance.env was read, so this is the file's own line.
+    case "$v=${!v}" in
+      TEHAS_CLONES=0 | TEHAS_CLONES= | TEHAS_DISPATCHER=rust | TEHAS_DISPATCHER=)
+        unset "$v"
+        continue
+        ;;
+    esac
     case "$v" in
       TEHAS_FIXER_*) reason="is no longer read: rename it TEHAS_MILLWRIGHT_${v#TEHAS_FIXER_}" ;;
       TEHAS_CLONES) reason="is set and this version of tehas has no database clones" ;;
       TEHAS_WORK_CPUS) reason="is set and this version of tehas has no CPU budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
       TEHAS_WORK_MEMORY) reason="is set and this version of tehas has no memory budget to set: the limit around all containers is /etc/systemd/system/tehas.slice" ;;
+      TEHAS_DISPATCHER) reason="is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out" ;;
       *) reason="is set and this version of tehas does not read it" ;;
     esac
     tehas_err "$v $reason (see $file)"
@@ -578,7 +581,7 @@ tehas_load() {
   # ceiling of a turn is written: the default below is that ceiling, the check
   # further down refuses more, and the tests pin the copies in libexec/plan,
   # libexec/dispatch and instances/example/optional.env against it. The unit of
-  # a turn gets RuntimeMaxSec = the limit + 900 (lib/planning.sh).
+  # a turn gets RuntimeMaxSec = the limit + 900 (console/dispatch/src/apply/turn.rs).
   local TEHAS_PLAN_TIMEOUT_MAX=7200
   export TEHAS_PLAN_MAX_TURNS=${TEHAS_PLAN_MAX_TURNS:-20} TEHAS_PLAN_TIMEOUT=${TEHAS_PLAN_TIMEOUT:-$TEHAS_PLAN_TIMEOUT_MAX}
   # Previews of pull requests and the names of the edge: off, and no names, unless
@@ -637,7 +640,7 @@ tehas_load() {
   if [ -n "${PI_RUKAS_FOLLOW+x}" ]; then
     _tehas_why PI_RUKAS_FOLLOW "$PI_RUKAS_FOLLOW" || { tehas_err "PI_RUKAS_FOLLOW is not valid: $reason (see $file)"; return 78; }
   fi
-  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_DISPATCHER TEHAS_CYCLE_REPORT TEHAS_SCRATCH_DIR; do
+  for v in TEHAS_BRANCH TEHAS_DOMAIN TEHAS_PROTOLAB_URL TEHAS_UPDATE_FROM TEHAS_RELEASE_REPO TEHAS_SIZE_MAX_FILES TEHAS_CYCLE_REPORT TEHAS_SCRATCH_DIR; do
     [ -n "${!v:-}" ] || continue
     _tehas_why "$v" "${!v}" || { tehas_err "$v is not valid: $reason (see $file)"; return 78; }
   done
@@ -713,7 +716,7 @@ tehas_load() {
   # the whole cycle, and the cycle under what the unit outlives. Each is refused,
   # not clamped, and each name is a count by now (_tehas_is_count, in the sweep
   # above), so no [ -gt ] here reads a failed comparison as no refusal. The unit
-  # gets RuntimeMaxSec = TEHAS_PLAN_TIMEOUT + 900 (lib/planning.sh); 7200 + 900 is
+  # gets RuntimeMaxSec = TEHAS_PLAN_TIMEOUT + 900 (apply/turn.rs); 7200 + 900 is
   # 2h15, inside the unit's own bound, and beyond it a turn outlives its unit. The
   # length is bounded with the value: a count longer than the ceiling's digits
   # cannot be compared by [ ], and would wrap in that arithmetic.

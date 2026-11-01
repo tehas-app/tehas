@@ -452,7 +452,6 @@ files=(
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
   "lib/millwright.sh|$TEHAS_HOME/lib/millwright.sh|644"
-  "lib/live.sh|$TEHAS_HOME/lib/live.sh|644"
   "lib/limit.sh|$TEHAS_HOME/lib/limit.sh|644"
   "lib/models.sh|$TEHAS_HOME/lib/models.sh|644"
   "lib/update-steps.sh|$TEHAS_HOME/lib/update-steps.sh|644"
@@ -469,8 +468,6 @@ files=(
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
-  "lib/planning.sh|$TEHAS_HOME/lib/planning.sh|644"
-  "lib/refresh.sh|$TEHAS_HOME/lib/refresh.sh|644"
   # The key a release signature is checked with. It is here so the copy an
   # adopter verifies against is the one the repository holds and not one that
   # came inside the download it is checking.
@@ -818,8 +815,8 @@ else
   attach_source=$(source_sum \( \( -path './attach/*' ! -path './attach/src/tests.rs' ! -path './attach/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock \)) ||
     { echo "tehas: could not read the attachment checker's source in $root/console" >&2; exit 1; }
-  # The dispatcher's shadow and the cycle's each read their own directory,
-  # the workspace's manifest and lock, and core/.
+  # The dispatcher and the cycle's shadow each read their own directory, the
+  # workspace's manifest and lock, and core/.
   dispatch_source=$(source_sum \( \( -path './dispatch/*' ! -path './dispatch/tests/*' ! -path './dispatch/target/*' \) \
     -o -path ./Cargo.toml -o -path ./Cargo.lock -o -path './core/*' \)) ||
     { echo "tehas: could not read the dispatcher's source in $root/console" >&2; exit 1; }
@@ -1191,10 +1188,10 @@ for f in "$TEHAS_HOME"/sandbox/sandbox-uid.Dockerfile \
 done
 
 # The commands of before bin/tehas, one file each in bin/, and the console of
-# before it was a compiled program. And the Protolab's server files of before the
-# edge router. And the wrappers of what is now a verb of the console, and the
-# libraries of what is now a verb of tehas-cycle. Found here,
-# removed in step 5 once systemd has the new units.
+# before it was a compiled program. The libraries the bash poll sourced. And the
+# Protolab's server files of before the edge router. And the wrappers of what is
+# now a verb of the console, and the libraries of what is now a verb of
+# tehas-cycle. Found here, removed in step 5 once systemd has the new units.
 old=()
 for f in \
   bin/tehas-console.ts \
@@ -1212,6 +1209,9 @@ for f in \
   libexec/analytics-cmd \
   libexec/api \
   libexec/console.ts \
+  lib/live.sh \
+  lib/planning.sh \
+  lib/refresh.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \

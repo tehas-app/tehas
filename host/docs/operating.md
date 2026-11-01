@@ -448,9 +448,6 @@ choice.
   nothing until a person applies `tehas:ready` again. A person's `tehas:ready`
   that a park holds counts too: the ticked box then reads the label.
 - With the label off, the next start is classic, retry or not.
-- The bash poll (`TEHAS_DISPATCHER=bash`) does not read who applied the label:
-  on it nothing starts while the issue carries it, and the log says why. Take it
-  off to run the issue on classic.
 
 ### What a poll costs
 
@@ -506,53 +503,6 @@ out, each figure a whole number of at most 9 digits: the answer gains `"over":
 `TEHAS_POLL_BUDGET` (default `cpu=5,wall=30,writes=0`) for the `poll_cost`
 check, and warns when the list is not empty; see [the health
 file](/tools#the-health-file).
-
-### The dispatcher's shadow
-
-`tehas-dispatch`, the dispatcher's decisions written in Rust, runs beside
-each poll of `tehas-dispatch.service` while `~/tehas/state/dispatch-shadow.on`
-is there, and acts on nothing on GitHub or in the state store: it reads what the poll reads and decides, and the poll
-still does the work. It asks what the poll asks to read, the model endpoints'
-`/models` among them, and, only when an issue it would start needs one, the
-model's answer to a one-pixel image and the sandbox image's
-`--capabilities` (a container that ends at once). It has 120 seconds before
-the poll and 60 after it. Just before
-the poll it reads GitHub, the state store and the host and keeps its decision
-in `~/tehas/state/dispatch-shadow.json`. The poll's own lines are kept in
-`~/tehas/state/dispatch.last` as they go to `logs/dispatch.log`. After the
-poll it sets its decision beside them and adds one line to
-`~/tehas/logs/dispatch-shadow.log`:
-
-```json
-{"time":"2026-10-26T10:00:00Z","same":false,"bash_only":["start #7 (labelled by alice)"],"rust_only":[],"exit":{"bash":0,"rust":0},"needs":[],"picked":[7],"gh_requests":6,"seconds":2.4}
-```
-
-- **same**: the two logged the same lines and ended with the same status.
-- **bash_only**: lines only the poll logged. Some are what only acting says:
-  the code index's hold before a start (`holding: the code index is
-  refreshed first ...`), tidy's lines, the analytics' warnings. The shadow
-  decides, it does not act. A decision line here, a hold or a skip, is a
-  difference to look into.
-- **rust_only**: lines only the shadow said. The world can move in the
-  seconds between the two (a cycle ends, a label is applied), so a single
-  line here is not yet a fault; the same line poll after poll is.
-- **needs**: facts the shadow was given no answer to. It never runs
-  `TEHAS_LOW_GATE`: on an instance that sets one, a poll that would ask it
-  names `gate` here.
-- **gh_requests** and **seconds**: what its snapshot cost.
-
-`jq -c 'select(.same | not)' ~/tehas/logs/dispatch-shadow.log` lists the polls
-that differed. It is off unless a person asks for it: `touch
-~/tehas/state/dispatch-shadow.on` starts it, and removing the file stops it.
-On this repository's queue it costs about 9 s of wall time before each poll,
-3 s of CPU and 20 GitHub reads, so it runs on the host where it is being
-proven and not on every host. A host where `libexec/tehas-dispatch` is not
-installed, or the file is not there, polls as before; the shadow failing never
-fails the poll.
-
-The shadow is for a host that runs the bash poll (`TEHAS_DISPATCHER=bash`).
-Beside the Rust poll, which is the default, it only sets the Rust's decision
-beside itself.
 
 ### The report in Rust
 
@@ -1026,14 +976,15 @@ its own login stops there and does nothing else.
 ### The dispatcher in Rust
 
 Every poll is `~/tehas/libexec/tehas-dispatch poll`, handed to it once `libexec/dispatch` has checked
-the settings, the model keys and the checkout. It is the same poll, in the
-same order and with the same lines in `logs/dispatch.log`: the lock, the
-snapshot of the queue (one GraphQL query in pages of 25 where the bash poll
-makes a call for each list; GitHub can answer a large page with an issue's
+the settings, the model keys and the checkout. `libexec/dispatch` has no poll
+of its own: when that program is not installed it stops with exit 78. A poll
+is, in order: the lock, the
+snapshot of the queue (one GraphQL query in pages of 25;
+GitHub can answer a large page with an issue's
 label events left out or cut short, so an issue whose labels and timeline
 disagree — one it carries whose newest event in the timeline is not an
-application, or that has no event at all — has its events read on their own,
-as the bash reads them; an issue the page gave no timeline at all is always
+application, or that has no event at all — has its events read on their own;
+an issue the page gave no timeline at all is always
 read again, and the only label the queue does not ask about is `tehas:running`,
 which the bot applies itself and whose park rests on the lock file rather than
 the timeline — the control issue is asked about with no label exempt, because
@@ -1044,36 +995,28 @@ store's action journal first, and a poll begins by settling the writes a poll
 before it left open there: each is read again on GitHub and recorded as done
 or as not done, and never made again. A failed read of GitHub ends the poll
 with a line that names gh's error by words of a fixed list only (`HTTP 502`,
-`rate limit`, `timed out`), as the bash poll's does.
+`rate limit`, `timed out`).
 
-`TEHAS_DISPATCHER=bash` in `instance.env` runs the bash poll,
-`libexec/dispatch`, instead, until it is removed. `rust`, or leaving the
-setting out, is the Rust poll. A value of neither is exit 78.
+The bash poll is gone. `TEHAS_DISPATCHER=bash` in `instance.env`, or any value
+but `rust` and blank, is exit 78 until the line is taken out.
 
-Where it differs from the bash poll:
+What follows from that shape:
 
 - A poll systemd stops with TERM ends without its cost record and tidy; the
   next poll's tidy covers it.
 - The low gate is run while the poll decides, so a poll that an earlier step
   ends has run it; it writes `logs/low-gate.log` and nothing else.
-- The open planning sessions are read once, with the queue; the bash poll
-  reads them again after its own planning writes.
-- A closed issue is not in the query, so the poll says nothing of it; the
-  bash poll, which reads each issue again, logs `skip #N: it is closed`.
+- The open planning sessions are read once, with the queue.
+- A closed issue is not in the query, so the poll says nothing of it.
 - A paused poll reads the queue and what its clean-up needs, and no more: not
   the comments, parks, approvals and blockers of the issues it would decide
-  on. The bash poll reads less, as it reads each list when it gets to it.
+  on.
 - An open issue marked `tehas:planning` with no planning session on record
   gets `needs-human-attention` in place of the mark and a comment that says
   to apply `tehas:plan` again, as an issue marked `tehas:running` with no
   cycle does. GitHub can make a label change and still answer it as failed:
   the poll then takes its turn back, and the mark would stay with nothing
-  behind it. The issue is read again first. The bash poll leaves such an
-  issue as it is.
-
-It ran tehas-tehas's queue for seven days before it became the default (see
-[features.md](features.md)). To go back to the bash poll, set
-`TEHAS_DISPATCHER=bash`: the next poll is the bash poll.
+  behind it. The issue is read again first.
 
 ### Refining a request
 

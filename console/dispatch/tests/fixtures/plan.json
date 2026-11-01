@@ -1712,7 +1712,7 @@
  ],
  "later": [],
  "not_ported": [
-  "what a turn runs with and what it leaves: the brief, the record, the labels and comments of a turn, its outcome posted, a failed or lost turn, filed issues and their ledger, and the analytics of a turn: lib/planning.sh, the caller's (plan_turn, plan_collect, plan_post, plan_end), #254",
+  "what a turn runs with and what it leaves: the brief, the record, the labels and comments of a turn, its outcome posted, a failed or lost turn, filed issues and their ledger, and the analytics of a turn: console/dispatch/src/apply/plan.rs, the caller's (plan_turn, plan_collect, plan_post, plan_end), #254",
   "a session whose start the store will not take, or whose issue cannot be marked: the caller's writes",
   "the refine brief's own text: lib/refine-brief.md, not a decision"
  ]

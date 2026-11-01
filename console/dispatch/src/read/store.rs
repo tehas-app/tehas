@@ -514,7 +514,7 @@ pub fn fed(asked: &Asked, running: &[u64]) -> Value {
     json!(count)
 }
 
-/// history-show <n> --kind cycle, as tehas_cycle_history gives its lines.
+/// history-show <n> --kind cycle, its lines in the shape they had before the store.
 pub fn history(calls: &mut Calls, n: u64) -> Value {
     match calls.store(&["history-show", &n.to_string(), "--kind", "cycle"]) {
         Ok(v) => Value::Array(
@@ -681,11 +681,6 @@ mod tests {
         let mut outcome: Option<Result<(), String>> = None;
         BUILT.call_once(|| {
             let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
-            let profile = if cfg!(debug_assertions) {
-                "debug"
-            } else {
-                "release"
-            };
             // cargo names the directory when it was asked for one of its own;
             // the workspace's default is one above this package's manifest.
             let target = std::env::var_os("CARGO_TARGET_DIR")
@@ -698,7 +693,7 @@ mod tests {
                 .args(["--target-dir"])
                 .arg(&target)
                 .args(["-p", "store"])
-                .arg(format!("--{profile}"))
+                .args((!cfg!(debug_assertions)).then_some("--release"))
                 .output();
             outcome = Some(match built {
                 Ok(out) if out.status.success() => Ok(()),
