@@ -18,9 +18,18 @@ th=$home/tehas
 # in every run here, so no test reads or writes the real /etc or /usr/local/bin.
 dev_etc=$T/etc
 dev_bin=$T/usr-local-bin
+console_env=()
 # shellcheck disable=SC2120  # the parts pass it variables, this file does not
-t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "$@"); }
+t_env() { T_ENV=(BOOTSTRAP_ETC="$dev_etc" BOOTSTRAP_BIN="$dev_bin" T_IN_TEST=1 "${console_env[@]}" "$@"); }
 t_env
+# real_console: installs from here on hold the console of this checkout, not the
+# stub's line of text. A file that pins what install.sh asks Docker needs it.
+real_console() {
+  # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+  t_console || t_bad "no console: $t_console_why"
+  console_env=(CONSOLE_BIN="$T_CONSOLE")
+  t_env
+}
 
 # The previews' network as install.sh wants to find it, and how it asks.
 net_good='case "$1 $2" in "version --format") echo 29.1.3 ;; "network inspect") echo "true bridge false isolated" ;; esac'
@@ -31,6 +40,11 @@ t_stub systemctl
 # A first install makes the labels in the product repository.
 t_stub gh
 t_stub_cargo
+# What cargo stands in for is no program, and the labels and tehas api are verbs
+# of the console: these run the console of this checkout.
+# shellcheck disable=SC2154  # t_console_why is set by test/lib.sh
+t_console || t_bad "$t_console_why"
+T_ENV_ALWAYS+=(TEHAS_CONSOLE="$T_CONSOLE")
 
 # An instance directory with settings and a model list that matches them.
 # shellcheck disable=SC2120  # some parts never pass it settings
@@ -89,9 +103,7 @@ files="./.bashrc
 ./tehas/lib/attachments.sh
 ./tehas/lib/config.sh
 ./tehas/lib/cycles.sh
-./tehas/lib/describe.sh
 ./tehas/lib/disk.sh
-./tehas/lib/edge.sh
 ./tehas/lib/millwright.sh
 ./tehas/lib/github-app.sh
 ./tehas/lib/headless.sh
@@ -102,11 +114,11 @@ files="./.bashrc
 ./tehas/lib/improve.sh
 ./tehas/lib/issue-brief.md
 ./tehas/lib/labels.sh
+./tehas/lib/labels.tsv
 ./tehas/lib/park-fields.jq
 ./tehas/lib/limit.sh
 ./tehas/lib/models.sh
 ./tehas/lib/paths.sh
-./tehas/lib/private.sh
 ./tehas/lib/questions.sh
 ./tehas/lib/refine-brief.md
 ./tehas/lib/refresh.sh
@@ -116,14 +128,11 @@ files="./.bashrc
 ./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
 ./tehas/lib/store.sh
-./tehas/lib/top.sh
 ./tehas/lib/slice.sh
 ./tehas/lib/update-release.sh
 ./tehas/lib/update-steps.sh
 ./tehas/libexec/analytics
 ./tehas/libexec/analytics.stamp
-./tehas/libexec/analytics-cmd
-./tehas/libexec/api
 ./tehas/libexec/attach
 ./tehas/libexec/attach.stamp
 ./tehas/libexec/check-product
@@ -134,43 +143,29 @@ files="./.bashrc
 ./tehas/libexec/dev
 ./tehas/libexec/dev-login
 ./tehas/libexec/dispatch
-./tehas/libexec/disk
-./tehas/libexec/drain
-./tehas/libexec/energy
 ./tehas/libexec/export
 ./tehas/libexec/github-token
-./tehas/libexec/health
 ./tehas/libexec/history
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/init-product
-./tehas/libexec/labels
-./tehas/libexec/limit
-./tehas/libexec/mcp
-./tehas/libexec/pause
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
 ./tehas/libexec/refresh
 ./tehas/libexec/review
-./tehas/libexec/resume
 ./tehas/libexec/setup
-./tehas/libexec/state
 ./tehas/libexec/status
-./tehas/libexec/stop
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
-./tehas/libexec/summary
 ./tehas/libexec/tehas-cycle
 ./tehas/libexec/tehas-cycle.stamp
 ./tehas/libexec/tehas-dispatch
 ./tehas/libexec/tehas-dispatch.stamp
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
-./tehas/libexec/tidy
-./tehas/libexec/top
-./tehas/libexec/top-publish
 ./tehas/libexec/update
+./tehas/libexec/with-settings
 ./tehas/libexec/work
 ./tehas/release/minisign.pub
 ./tehas/sandbox/Dockerfile
@@ -207,5 +202,5 @@ next_steps() {
     systemd/tehas-preview.timer systemd/tehas-preview-sweep.service systemd/tehas-preview-sweep.timer systemd/tehas-protolab.service systemd/tehas-protolab.timer systemd/tehas-refresh.service systemd/tehas-refresh.timer systemd/tehas-review.service systemd/tehas-review.timer systemd/tehas-top.service sandbox/Dockerfile sandbox/build.sh \
     sandbox/npm/playwright/package.json sandbox/npm/playwright/package-lock.json versions.env \
     edge/docs.Caddyfile edge/docs.compose.yaml edge/router.Caddyfile \
-    edge/router.compose.yaml libexec/labels
+    edge/router.compose.yaml labels.tsv
 }

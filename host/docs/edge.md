@@ -312,7 +312,8 @@ with one of these reasons:
 
 `install.sh` checks the same things by the same code. It does not ask a
 Docker older than 27.1 to make the network, and it leaves a network that is
-there and fails a check, and says so.
+there and fails a check, and says so. The check is `~/tehas/libexec/console
+preview network`.
 
 Only a pull request whose branch is in the product repository gets one, and
 only when an owner, member or collaborator of the repository opened it.

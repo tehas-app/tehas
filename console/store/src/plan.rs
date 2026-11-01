@@ -43,6 +43,10 @@ pub enum Call {
     Show {
         issue: Option<i64>,
     },
+    View {
+        issue: i64,
+        open: bool,
+    },
     Note {
         issue: i64,
         kind: &'static str,
@@ -140,6 +144,14 @@ pub fn parse(name: &str, rest: &[String]) -> Option<Result<Call, String>> {
             Args::parse("plan-show", rest, &[("--open", Kind::Switch)], true).and_then(|a| {
                 Ok(Call::Show {
                     issue: a.target("--open")?,
+                })
+            })
+        }
+        "plan-view" => {
+            Args::parse("plan-view", rest, &[("--open", Kind::Switch)], true).and_then(|a| {
+                Ok(Call::View {
+                    issue: a.issue()?,
+                    open: a.has("--open"),
                 })
             })
         }
@@ -366,6 +378,7 @@ pub fn run(home: &Path, call: &Call, now: i64) -> Result<String, Fail> {
         Call::Posted { issue } => posted(home, *issue),
         Call::Close { issue } => close(home, *issue, now),
         Call::Show { issue } => show(home, *issue),
+        Call::View { issue, open } => view(home, *issue, *open),
         Call::Note { issue, kind, id } => note(home, *issue, kind, *id, now),
     }
 }
@@ -882,4 +895,90 @@ pub fn show(home: &Path, issue: Option<i64>) -> Result<String, Fail> {
             Ok(line("plan-show", &[("sessions", list(&sessions))]))
         }
     })
+}
+
+/// `plan-view <issue> [--open]`: `view_of` of the issue's session, the open one
+/// only with `--open`.
+fn view(home: &Path, issue: i64, open: bool) -> Result<String, Fail> {
+    verbs::look(home, |c| {
+        let planning = verbs::parsed(&planning_json(c, issue)?)?;
+        let view = match open && !planning["ended_at"].is_null() {
+            true => "null".to_string(),
+            false => view_of(&planning)?,
+        };
+        Ok(line("plan-view", &[("view", view)]))
+    })
+}
+
+/// The list, unless it is none on record or holds nothing.
+fn listed(v: &Value) -> Option<String> {
+    verbs::given(v)
+        .filter(|v| *v != &Value::Array(Vec::new()))
+        .map(Value::to_string)
+}
+
+/// A planning object of plan-show as its record file had it before the store.
+/// `fixer` and `fixer_refused` are #686's alias: the readers of the view have
+/// the old words until part 5, and the refused comments go under either name.
+pub fn view_of(p: &Value) -> Result<String, Fail> {
+    if !p.is_object() {
+        return Ok("null".to_string());
+    }
+    let refused: Vec<String> = ["millwright_refused", "fixer_refused"]
+        .iter()
+        .flat_map(|k| p["notes"][k].as_array().into_iter().flatten())
+        .map(Value::to_string)
+        .collect();
+    let mut o = vec![
+        (
+            "session",
+            verbs::given(&p["session"]).map_or(j(""), Value::to_string),
+        ),
+        ("turns", p["turns"].to_string()),
+        ("options", listed(&p["options"]).unwrap_or(list(&[]))),
+        ("pending", p["pending"].to_string()),
+        ("failed", p["failed"].to_string()),
+        ("running", p["running"].to_string()),
+    ];
+    if !p["started_at"].is_null() {
+        o.push(("startedAt", j(verbs::view_time(&p["started_at"])?)));
+    }
+    if !p["comment_id"].is_null() {
+        o.push(("comment", p["comment_id"].to_string()));
+    }
+    if p["lost"] == true {
+        o.push(("lost", j(true)));
+    }
+    if !p["by"].is_null() {
+        o.push(("by", p["by"].to_string()));
+    }
+    if !p["label"].is_null() {
+        o.push(("label", p["label"].to_string()));
+    }
+    // A mark that is not a boolean is not renamed: the reader's type test
+    // refuses it under the name it came with.
+    let answers: Vec<String> = p["answers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|a| match a["millwright"].as_bool() {
+            Some(mark) => obj(&[
+                ("turn", a["turn"].to_string()),
+                ("by", a["by"].to_string()),
+                ("fixer", j(mark)),
+            ]),
+            None => a.to_string(),
+        })
+        .collect();
+    o.push(("answers", list(&answers)));
+    if let Some(filed) = listed(&p["filed"]) {
+        o.push(("filed", filed));
+    }
+    if !refused.is_empty() {
+        o.push(("fixer_refused", list(&refused)));
+    }
+    if let Some(held) = listed(&p["notes"]["held"]) {
+        o.push(("held", held));
+    }
+    Ok(obj(&o))
 }

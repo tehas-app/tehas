@@ -11,7 +11,7 @@
 # The command as a host has it: beside the console, which decides what the read
 # of what closed an issue means (console/src/shipped.rs) and is this checkout's
 # own build. The copy is a real file and not a symlink, because the command finds
-# its siblings - health, analytics, store - beside itself by the directory it was
+# its siblings - with-settings, analytics, store - beside itself by the directory it was
 # run from, and a symlink there would name the checkout instead.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
@@ -20,7 +20,7 @@ mkdir -p "$shim/libexec"
 cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
+for sibling in with-settings analytics; do
   ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
 done
 status=$shim/libexec/status

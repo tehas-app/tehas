@@ -124,7 +124,7 @@ t_eq "$(kept_manifests)" 0
 t_case "an approval the store cannot read starts no cycle: exit 4, nothing kept, and the issue is told"
 images_off
 record_is alice "![shot]($A/1111)" "$A/1111"
-t_store_answers approval-current 1 'store: busy #7: the database is locked'
+t_store_answers approval-view 1 'store: busy #7: the database is locked'
 issue_is "![shot]($A/1111)" NONE
 t_run "$work 7"
 t_eq "$t_rc" 4

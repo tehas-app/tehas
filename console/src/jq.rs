@@ -30,6 +30,17 @@ impl J {
         (p.i == p.b.len()).then_some(v)
     }
 
+    /// The first value of a text, which `jq | head -n1` stops at: what follows
+    /// it is not read.
+    pub fn parse_first(text: &str) -> Option<J> {
+        let mut p = Parser {
+            b: text.as_bytes(),
+            i: 0,
+        };
+        p.white();
+        p.value(0)
+    }
+
     /// A number worked out here, printed as jq prints one: whole numbers
     /// without a fraction.
     pub fn num(n: f64) -> J {
