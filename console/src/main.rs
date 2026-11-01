@@ -54,7 +54,8 @@
 //!
 //! The lines and the object of tehas status, see src/status.rs.
 //!
-//!   console review since|refused|run ...
+//!   console dev words|run <arguments> | table
+//!   console review main|table
 //!
 //! What tehasbot review decides and how it runs its container, see
 //! src/review.rs.
@@ -63,7 +64,7 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
-//!   console improve due|run <prompt file>
+//!   console improve due|run <prompt file> | table
 //!
 //! One run of the improvement loop, see src/improve/mod.rs.
 //!
@@ -160,6 +161,7 @@
 mod api;
 mod clean;
 mod commands;
+mod dev;
 mod disk;
 mod edge;
 mod energy;
@@ -409,6 +411,7 @@ fn main() -> ExitCode {
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
             Some("forge") => return ExitCode::from(forge::main(&given[1..])),
             Some("init-product") => return ExitCode::from(product::init(&given[1..])),
+            Some("dev") => return ExitCode::from(dev::main(&given[1..])),
             Some("review") => return ExitCode::from(review::main(&given[1..])),
             Some("preview") => return ExitCode::from(preview::main(&given[1..])),
             Some("setup") => return ExitCode::from(setup::main(&given[1..])),
