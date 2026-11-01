@@ -549,7 +549,7 @@ fn uid() -> u32 {
 
 /// The account which wrote the flag, as `id -un` names it: the real uid, the
 /// name in passwd for it, and nothing for an account passwd does not name.
-fn account() -> String {
+pub(crate) fn account() -> String {
     let entry = unsafe { libc::getpwuid(uid()) };
     if entry.is_null() {
         return String::new();

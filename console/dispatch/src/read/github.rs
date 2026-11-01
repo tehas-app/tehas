@@ -16,7 +16,7 @@ use tehas_core::events::Events;
 /// to take it off the list first.
 ///
 /// `host/labels.tsv` is where the label is created and described, and
-/// `libexec/dispatch`, `libexec/stop` and `libexec/tidy` name it in their
+/// `libexec/dispatch`, `console/src/stop.rs` and `console/src/tidy.rs` name it in their
 /// commands: a rename has to reach this constant and those sites, and the two
 /// tests below tie it to the queue's page and the guard's exemption.
 pub const RUNNING: &str = "tehas:running";

@@ -71,6 +71,15 @@ t_eq "$t_rc" 64
 t_lacks "$t_out" "settings were read"
 t_eq "$(t_calls console)" "check tehas limit show"
 
+t_case "a check that was the whole answer ends 0, and neither the settings nor the verb are reached"
+reset
+t_instance 'echo "settings were read" >&2; exit 9'
+T_ENV=(CHECK=99)
+t_run "$run tehas stop 5 --help"
+t_eq "$t_rc" 0
+t_lacks "$t_out" "settings were read"
+t_eq "$(t_calls console)" "check tehas stop 5 --help"
+
 t_case "settings that do not load are 78 and the verb never runs"
 reset
 t_no_instance

@@ -16,7 +16,7 @@ cp "$T_ROOT/bin/tehas" "$T_ROOT/bin/tehasbot" "$tree/bin/"
 # The settings library is there to be read, so that not reading it means something.
 cp "$T_ROOT/lib/config.sh" "$tree/lib/config.sh"
 # One line per call: the name, then each argument after a "|".
-for name in dispatch cycle work plan dev index setup update status console protolab preview improve refresh review clean stop mcp with-settings console; do
+for name in dispatch cycle work plan dev index setup update status console protolab preview improve refresh review clean with-settings console; do
   printf '%s\n' '#!/usr/bin/env bash' "# The text of $name." '#' "# Usage: $name" 'set -u' 'IFS="|"' \
     "printf '%s\\n' \"$name\${*:+|\$*}\" >>\"\$T/calls/libexec\"" 'exit "${RC:-0}"' >"$tree/libexec/$name"
   chmod +x "$tree/libexec/$name"
@@ -70,8 +70,8 @@ t_case "tehas stop passes on the issue and --keep-workspace"
 reset
 t_run "$tehas stop 7 && $tehas stop 7 --keep-workspace"
 t_eq "$t_rc" 0
-t_eq "$(ran)" "stop|7
-stop|7|--keep-workspace"
+t_eq "$(ran)" "with-settings|tehas|stop|7
+with-settings|tehas|stop|7|--keep-workspace"
 
 t_case "tehas status prints; it is not the script that writes the snapshot"
 reset
@@ -287,7 +287,7 @@ for name in $names; do
   script=$name
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  case "$name" in health | top) script=with-settings ;; esac
+  case "$name" in health | top | mcp) script=with-settings ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""
@@ -298,9 +298,10 @@ t_eq "$(cd "$T_ROOT/bin" && find . -type f | LC_ALL=C sort | tr '\n' ' ')" "./te
 t_case "every unit runs a command tehasbot knows"
 unknown=""
 while read -r name; do
+  # shellcheck disable=SC2086  # a command and its verb
   t_run "$bot $name"
   [ "$t_rc" = 0 ] || unknown="$unknown $name"
-done < <(grep -h -o 'bin/tehasbot [a-z]*' "$T_ROOT"/host/systemd/*.service | sed 's/.* //')
+done < <(grep -h -o 'bin/tehasbot [a-z ]*' "$T_ROOT"/host/systemd/*.service | sed 's/^bin.tehasbot //')
 t_eq "$unknown" ""
 # A cycle's unit starts tehasbot cycle through tehas-cycle run, which runs it
 # from the cycle's own copy of the code (#989).

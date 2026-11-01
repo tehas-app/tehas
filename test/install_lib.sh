@@ -152,7 +152,6 @@ files="./.bashrc
 ./tehas/libexec/improve
 ./tehas/libexec/index
 ./tehas/libexec/init-product
-./tehas/libexec/mcp
 ./tehas/libexec/plan
 ./tehas/libexec/preview
 ./tehas/libexec/protolab
@@ -160,7 +159,6 @@ files="./.bashrc
 ./tehas/libexec/review
 ./tehas/libexec/setup
 ./tehas/libexec/status
-./tehas/libexec/stop
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
 ./tehas/libexec/tehas-cycle
@@ -169,7 +167,6 @@ files="./.bashrc
 ./tehas/libexec/tehas-dispatch.stamp
 ./tehas/libexec/tehas-mcp
 ./tehas/libexec/tehas-mcp.stamp
-./tehas/libexec/tidy
 ./tehas/libexec/update
 ./tehas/libexec/with-settings
 ./tehas/libexec/work

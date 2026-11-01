@@ -7,7 +7,7 @@
 //! tehas wants to know, and one adapter that answers it from GitHub's labels
 //! the way `lib/labels.sh` and `libexec/dispatch` do today. Nothing calls it
 //! yet; the next issues of #800 give bash a command for it and move
-//! `libexec/tidy`, `libexec/status` and `lib/labels.sh` onto that command.
+//! `libexec/status` and `lib/labels.sh` onto that command.
 //!
 //! The terms are tehas's, not GitHub's: an issue's labels, the newest event of
 //! one label, who applied the label that lets a cycle start, and putting a

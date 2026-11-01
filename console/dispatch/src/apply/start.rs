@@ -48,8 +48,10 @@ pub struct Host {
     pub health_cmd: String,
     pub health_args: Vec<String>,
     pub console_cmd: String,
-    /// TEHAS_TIDY_CMD, run by the end of every poll past the bot's login.
+    /// Run by the end of every poll past the bot's login: the console's
+    /// `tidy run`, or TEHAS_TIDY_CMD with no arguments.
     pub tidy_cmd: String,
+    pub tidy_args: Vec<String>,
     /// $TEHAS_HOME/libexec/analytics when TEHAS_ANALYTICS is on.
     pub analytics: Option<String>,
     pub analytics_wait: Duration,
@@ -94,7 +96,7 @@ pub struct Host {
 /// them: how long it has to end, and how long it then has after TERM before
 /// it is killed. The poll holds `state/dispatch.lock` while it runs a host
 /// command, and the commands bound themselves only one call at a time -
-/// `libexec/tidy` each gh by `TEHAS_TIDY_WAIT`, `tehasbot health` each call of
+/// `console tidy run` each gh by `TEHAS_TIDY_WAIT`, `tehasbot health` each call of
 /// the store by `tehas_store_bound` - so the poll bounds the whole run. The
 /// bound is the status's, and not a short one: a health file the poll cut off
 /// at two seconds is a worse report than one written late, which is what the
