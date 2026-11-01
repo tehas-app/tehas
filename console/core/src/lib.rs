@@ -15,6 +15,7 @@ pub mod plan;
 pub mod question;
 pub mod review;
 pub mod rukas;
+pub mod secret;
 pub mod settings;
 #[cfg(feature = "mask")]
 pub mod size;
