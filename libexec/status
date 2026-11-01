@@ -78,8 +78,6 @@ from_poll=${TEHAS_FROM_POLL:+yes} # read before the load, which unsets the name
 . "$here/../lib/status.sh"
 # shellcheck source=lib/analytics.sh
 . "$here/../lib/analytics.sh"
-# shellcheck source=lib/update-release.sh
-. "$here/../lib/update-release.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS
 # The console decides what the read of what closed an issue means
@@ -168,26 +166,12 @@ fetch_limit=60
 # when either was last tried.
 platform() {
   local installed
-  installed=$(tehas_release_installed) || return 0
+  installed=$("$console" update release installed) || return 0
   if [ -n "$installed" ]; then
     platform_release "$installed"
     return 0
   fi
   platform_checkout
-}
-
-# The newest published release, as tehas_release_list answers it: its tag, or
-# nothing when GitHub does not answer, answers no release, or answers a tag
-# that is no version. The list is newest first, so the first line is what the
-# host should move to. Called only by the substitution below, so the tehas_err
-# of a list that failed stays on standard error of this script instead of
-# becoming the newest.
-platform_newest_read() {
-  local line tag
-  line=$(tehas_release_list 2>/dev/null | head -n 1)
-  [ -n "$line" ] || return 0
-  tag=$(jq -r '.tag // ""' <<<"$line" 2>/dev/null) || return 0
-  tehas_release_tag_ok "$tag" && printf '%s\n' "$tag"
 }
 
 # A host that runs a release: the version current points at, the newest there
@@ -208,8 +192,7 @@ platform_release() { # <installed version>
   # nor does one older than the version the host runs, which no published
   # release list of that repository holds.
   if [ -n "$newest" ]; then
-    if ! tehas_release_tag_ok "$newest" || ! tehas_release_tag_ok "$installed" ||
-      tehas_release_older "$newest" "$installed"; then
+    if "$console" update release stale "$newest" "$installed"; then
       rm -f "$newestfile"
       newest=""
     fi
@@ -220,7 +203,8 @@ platform_release() { # <installed version>
     mkdir -p "${stamp%/*}"
     echo "$now $fetched" >"$stamp"
     local got
-    got=$(platform_newest_read)
+    # Its tag, or nothing when GitHub does not answer or answers no release.
+    got=$("$console" update release newest 2>/dev/null)
     if [ -n "$got" ]; then
       newest=$got
       fetched=$now

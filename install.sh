@@ -474,7 +474,6 @@ files=(
   "release/minisign.pub|$TEHAS_HOME/release/minisign.pub|644"
   # What a release packs, so the list is on a host as it is in a checkout.
   "lib/release.sh|$TEHAS_HOME/lib/release.sh|644"
-  "lib/update-release.sh|$TEHAS_HOME/lib/update-release.sh|644"
   "versions.env|$TEHAS_HOME/versions.env|644"
   "sandbox/Dockerfile|$TEHAS_HOME/sandbox/Dockerfile|644"
   "sandbox/build.sh|$TEHAS_HOME/sandbox/build.sh|755"
@@ -1228,6 +1227,7 @@ for f in \
   libexec/top \
   libexec/top-publish \
   lib/top.sh \
+  lib/update-release.sh \
   edge/protolab.Caddyfile \
   edge/protolab.compose.yaml; do
   to=$TEHAS_HOME/$f

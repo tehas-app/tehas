@@ -19,6 +19,11 @@
 # shellcheck source=lib/update-steps.sh
 . "$T_ROOT/lib/update-steps.sh"
 
+# The releases and the follow-ups are the console's, and it is no stub here.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
 checkout=$th/platform
