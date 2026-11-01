@@ -74,8 +74,9 @@
 # command holds that lock for the session's life.
 #
 # A session shares the model endpoint with a running cycle and does not hold
-# the queue, beyond the room its memory takes in the slice. One session per clone: docker refuses a second container of the
-# same name. It needs a terminal; docker refuses to start without one.
+# the queue, beyond the room its memory takes in the slice. One session per
+# clone: a second waits for the lock. It needs a terminal; docker refuses to
+# start without one.
 set -uo pipefail
 
 # The usage is this file's own header comment.
@@ -177,8 +178,7 @@ state=$devs/$name.state
 runs=$state/runs
 # Where the session's cargo build output lives, on the host and in the
 # container. The container's path comes from lib/sandbox.sh; no setting names
-# either. The host directory is made with the clone, before anything is fetched
-# or started.
+# either.
 target_host=$state/target
 target_container=$(tehas_sandbox_target_dir)
 
@@ -227,12 +227,9 @@ if [ -n "$author" ]; then
   printf '%s\n' "$author" >"$stored" || { echo "tehas dev: cannot write $stored" >&2; exit 78; }
 fi
 
-# The lock of this clone, taken before the clone is made and held on descriptor
-# 9 for the session's life, so the cleaner waits behind it and no session meets
-# a target half removed. `console clean session` (console/src/clean.rs) holds the
-# rule of the lock, the state directory and the build output - a plain directory
-# of the account the session runs as, no link - makes them, says who else holds
-# the lock, and prints its path: the path is the contract between the two.
+# The clone's lock, held on descriptor 9 for the session's life, so no session
+# meets a target half removed. `console clean session` makes the state and the
+# build output, refuses a wrong shape, and prints the lock's path.
 console=$here/console
 [ -x "$console" ] || { echo "tehas dev: no console beside this command at $console, run install.sh" >&2; exit 78; }
 lock=$("$console" clean session "$TEHAS_HOME" "$name" 300 2>&1) ||
@@ -254,14 +251,6 @@ if [ "$fresh" = 1 ]; then
   fi
   echo "tehas dev: made $tree at the tip of $branch the product checkout last fetched"
 fi
-
-# The state directory and the build output were made by `clean session` above,
-# before the clone: a host that cannot hold either says so before a clone is
-# made, before an attachment is fetched and before a container starts, since a
-# missing mount source would come back root-owned from Docker. A tree a hand or
-# an earlier root mount left behind is refused there rather than mounting into
-# the session, where cargo would fail inside the container and leave only the
-# session's exit status to tell of it.
 
 image_opts=()
 if [ -n "$issue" ]; then

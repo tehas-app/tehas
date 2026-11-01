@@ -34,12 +34,9 @@
 #                                        stands on, each by its own name
 #   6. logs and the state store          `store upkeep`: old logs, a daily
 #                                        backup, prune
-#   7. a manual session's build output   <name>.state/target of every clone
-#                                        under $TEHAS_HOME/dev, of that age or
-#                                        any age under the minimum free, of a
-#                                        clone its state/dev/<name>.lock and
-#                                        docker ps both say has no session open.
-#                                        Nothing else of the clone goes
+#   7. a manual session's build output   <name>.state/target under
+#                                        $TEHAS_HOME/dev, of a clone with no
+#                                        session open, under its lock
 #
 # The steps are the console's (console/src/clean.rs); this checks the settings,
 # reads the free disk and names the two images.
