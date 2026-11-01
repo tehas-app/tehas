@@ -121,6 +121,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/review" "$shim/libexec/review"
 ln -s "$T_ROOT/lib" "$shim/lib"
 review=$shim/libexec/review
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 fx=$T/fx
 mkdir -p "$fx"
 checkout=$T/home/tehas/repos/widget

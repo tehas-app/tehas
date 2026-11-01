@@ -249,8 +249,8 @@ t_contains "$(t_calls gh)" "pr list --repo acme/widget --head $BRANCH --author @
 
 t_case "a step name over the bound of 100 characters is no step of a run"
 reset
-# The one bound a step name of a log carries: tehas_headless_step_chars holds
-# it at 100 characters, so a name past it is not a step at all and says neither
+# The one bound a step name of a log carries: tehas-cycle runner holds it at
+# 100 characters, so a name past it is not a step at all and says neither
 # the step of the cycle nor its branch. The step before it is what the run
 # reached.
 long=$(printf 'x%.0s' {1..101})

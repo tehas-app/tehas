@@ -107,10 +107,13 @@ esac
 # lib/ is beside sandbox/ on a host, and two up in the checkout.
 lib=""
 for d in "$here/../lib" "$here/../../lib"; do
-  [ -f "$d/headless.sh" ] && [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
+  [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
 done
-if [ -z "$lib" ]; then
-  echo "sandbox: no lib/headless.sh, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+# What reads the base's --capabilities. Read before tehas_load clears the name.
+# A checkout has no libexec/tehas-cycle: a build there names one.
+cycle=${TEHAS_CYCLE_BIN:-$lib/../libexec/tehas-cycle}
+if [ -z "$lib" ] || [ ! -x "$cycle" ]; then
+  echo "sandbox: no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
 # The recipe the image is made from goes with lib/: a toolchain that lacks it
@@ -137,8 +140,6 @@ fi
 console=${TEHAS_CONSOLE:-$lib/../libexec/console}
 # shellcheck source=lib/rukas.sh
 . "$lib/rukas.sh"
-# shellcheck source=lib/headless.sh
-. "$lib/headless.sh"
 # The instance directory, resolved as every command resolves it: loading
 # settings has no side effects (AGENTS.md rule 3), so sourcing the library is
 # safe here and reaches the `instance-dir` pointer that only tehas_load would
@@ -258,7 +259,7 @@ if ! docker pull -q "$base" >/dev/null 2>&1; then
 fi
 
 # What the base image's pi-rukas supports, asked with its own --capabilities
-# answer before anything is built (lib/headless.sh reads it). An image that
+# answer before anything is built (tehas-cycle caps reads it). An image that
 # does not speak the contract versions tehas work reads, or whose runner does
 # not take the flags it passes, is not built: every cycle on it would be
 # refused. Whether its pi-rukas reads the images a cycle is given goes into the
@@ -276,7 +277,7 @@ case "$rc" in
     ;;
   *) echo "sandbox: $base gave no --capabilities answer (exit $rc)" >&2; exit 1 ;;
 esac
-if ! unsupported=$(tehas_headless_unsupported "$caps" "--timeout --json --restart" ""); then
+if ! unsupported=$("$cycle" caps unsupported "--timeout --json --restart" "" <<<"$caps"); then
   echo "sandbox: the --capabilities answer of $base is not a JSON object" >&2
   exit 1
 fi
@@ -285,7 +286,7 @@ if [ -n "$unsupported" ]; then
   printf '%s\n' "$unsupported" | sed 's/^/    /' >&2
   exit 1
 fi
-reads=$(tehas_headless_reads_images "$caps")
+reads=$("$cycle" caps reads-images <<<"$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
 # The recipe the build is handed, written from the tracked file just before the
