@@ -64,10 +64,21 @@ t_eq "$(installed_files | grep -c tehas.slice)" 0
 
 t_case "a real run says nothing of a slice that is in place"
 cp "$T_ROOT/host/slice/tehas.slice" "$T/etc/systemd/system/tehas.slice"
+# A console that answers, or the run has a note about the network to give. It
+# is this case's alone: the cases below read the stub's line of text.
+cp -a "$home" "$T/home.kept"
+cp -a "$T/calls" "$T/calls.kept"
+t_console || t_bad "no console: $t_console_why"
+cp "$T_CONSOLE" "$th/libexec/console"
+T_ENV+=(CONSOLE_BIN="$T_CONSOLE")
 t_run "$install"
 t_eq "$t_rc" 0
 t_lacks "$t_out" "note:"
 t_lacks "$t_out" "tehas.slice"
+rm -rf "$home"
+mv "$T/home.kept" "$home"
+rm -rf "$T/calls"
+mv "$T/calls.kept" "$T/calls"
 rm -rf "${T:?}/etc"
 T_ENV=(T_IN_TEST=1)
 

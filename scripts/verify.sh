@@ -13,7 +13,9 @@
 #                              origin/main can affect, uncommitted and untracked
 #                              files included: the name lint and the bash
 #                              ceiling, then the checks
-#                              scripts/select-tests.sh names. The gate a
+#                              scripts/select-tests.sh names, the tests of
+#                              only the crates the change can affect among
+#                              them. The gate a
 #                              developer runs while working; pi-rukas reads it
 #                              from .pi/verify-cmd-fast. When the selection
 #                              needs everything, or there is no merge base, it
@@ -109,7 +111,7 @@ has() { command -v "$1" >/dev/null 2>&1; }
 
 # --changed: the paths the change touched and what scripts/select-tests.sh
 # makes of them. A selection that needs everything turns into the plain gate.
-cargo_wanted=1 tests=() nodes=() paths=() omitted=()
+cargo_wanted=1 tests=() nodes=() paths=() omitted=() crates=()
 if [ "$changed" = 1 ]; then
   sel=
   if ! base=$(git merge-base HEAD "origin/main" 2>/dev/null); then
@@ -125,25 +127,37 @@ if [ "$changed" = 1 ]; then
     echo "note  the full gate: ${sel#full }"
     changed=0
   else
-    cargo_wanted=0
+    cargo_wanted=0 whole=0
     while read -r kind f; do
       case "$kind" in
-        cargo) cargo_wanted=1 ;;
+        cargo) cargo_wanted=1 whole=1 ;;
+        crate) cargo_wanted=1 crates+=("$f") ;;
         test) tests+=("$f") ;;
         node) nodes+=("$f") ;;
         omit) omitted+=("${f#test/}") ;;
       esac
     done <<<"$sel"
-    echo "note  ${#touched[@]} changed paths since ${base:0:12}: ${#tests[@]} test files, ${#nodes[@]} front page files$([ "$cargo_wanted" = 1 ] && echo ", the workspace")"
+    [ "$whole" = 0 ] || crates=()
+    what=
+    [ "$cargo_wanted" = 0 ] || what=", the workspace"
+    [ "${#crates[@]}" = 0 ] || what=", the crates ${crates[*]}"
+    echo "note  ${#touched[@]} changed paths since ${base:0:12}: ${#tests[@]} test files, ${#nodes[@]} front page files$what"
     [ "${#omitted[@]}" = 0 ] || echo "note  left to the full gate: ${omitted[*]}"
   fi
 fi
 
 # The workspace's root manifest is console/Cargo.toml.
 workspace=(--manifest-path console/Cargo.toml --workspace)
+tested=("${workspace[@]}")
+cargo_step="the workspace's tests"
+if [ "${#crates[@]}" -gt 0 ]; then
+  tested=(--manifest-path console/Cargo.toml)
+  for f in "${crates[@]}"; do tested+=(-p "$f"); done
+  cargo_step="the tests of ${crates[*]}"
+fi
 cargo_pid=
 if has cargo && [ "$cargo_wanted" = 1 ]; then
-  cargo test --locked --quiet "${workspace[@]}" >"$tmp/cargo" 2>&1 &
+  cargo test --locked --quiet "${tested[@]}" >"$tmp/cargo" 2>&1 &
   cargo_pid=$!
 fi
 
@@ -159,9 +173,9 @@ if [ "$cargo_wanted" = 0 ]; then
 elif [ -n "$cargo_pid" ]; then
   rc=0
   wait "$cargo_pid" || rc=$?
-  report "the workspace's tests" "$rc" "$tmp/cargo"
+  report "$cargo_step" "$rc" "$tmp/cargo"
 else
-  echo "FAIL  the workspace's tests (cargo is not installed)"
+  echo "FAIL  $cargo_step (cargo is not installed)"
   failed=1
 fi
 if [ "$changed" = 1 ] && [ "${#nodes[@]}" = 0 ]; then

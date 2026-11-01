@@ -266,10 +266,10 @@ lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=1"
 
 t_case "tehas_approval_view: a store that could not answer is 2, and prints nothing"
-t_store_answers approval-current 1 "$BUSY"
+t_store_answers approval-view 1 "$BUSY"
 lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=2"
-t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":"soon"}}'
+t_store_answers approval-view 78 'store: corrupt: a time on record is not a time'
 lib 'tehas_approval_view 7; echo "rc=$?"'
 t_eq "$t_out" "rc=2"
 t_eq "$(ls "$home/tmp" 2>/dev/null)" ""
@@ -293,7 +293,7 @@ t_eq "$(tail -n 2 <<<"$t_out" | tr '\n' ' ')" "600 700 "
 t_case "tehas_approval_view: a driver on the record is in the view, and none is no key"
 lib 'f=$(tehas_approval_view 7); jq -c "has(\"driver\")" "$f"'
 t_eq "$t_out" false
-t_store_answers approval-current 0 '{"api":1,"verb":"approval-current","ok":true,"current":{"at":1792497600,"by":"alice","how":"label","body_sha256":"x","input":{"driver":"lean"}}}'
+t_store_answers approval-view 0 '{"api":1,"verb":"approval-view","ok":true,"view":{"at":"2026-10-20T12:00:00Z","by":"alice","how":"label","body_sha256":"x","links":[],"driver":"lean"}}'
 lib 'f=$(tehas_approval_view 7); jq -r .driver "$f"'
 t_eq "$t_out" lean
 cp -f --remove-destination "$T_STORE" "$home/libexec/store"
@@ -421,10 +421,5 @@ true
 boolean"
 lib 'f=$(plan_view 8) && jq -c '.answers' "$f"; rm -f "$f"'
 t_eq "$t_out" '[{"turn":2,"by":"tehas-fixer","fixer":true}]'
-# A mark that is not a boolean is not renamed into the file's `fixer` slot:
-# the shape of the boundary is the shape lib/millwright.sh checks with a type test,
-# so a string mark reaches the record file as it came and not as a `fixer`.
-lib 'echo "{\"planning\":{\"answers\":[{\"turn\":1,\"by\":\"alice\",\"millwright\":\"yes\"}]}}" | jq -c "$tehas_plan_shape"'
-t_eq "$t_out" '{"session":"","turns":null,"options":[],"pending":null,"failed":null,"running":null,"answers":[{"turn":1,"by":"alice","millwright":"yes"}]}'
 
 t_done

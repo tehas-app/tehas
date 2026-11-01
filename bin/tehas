@@ -28,14 +28,16 @@
 #   tehas stop <issue> [--keep-workspace]  end a cycle by hand, clear what it left
 #   tehas help [command]             this text, or the text of one command
 #
-# Each command is a script in ../libexec. This runs one with the remaining
-# arguments and loads no settings. The timers and services run tehasbot.
+# Each command is a script in ../libexec or a verb of the console. This runs
+# one with the remaining arguments and loads no settings: with-settings does
+# that for a verb that needs them. The timers and services run tehasbot.
 #
 # Exit: the status of the command that ran; 64 a command this does not know.
 set -uo pipefail
 
 libexec=$(cd "$(dirname "${BASH_SOURCE[0]}")/../libexec" && pwd) ||
   { echo "tehas: no libexec directory beside $(dirname "${BASH_SOURCE[0]}")" >&2; exit 1; }
+console=${TEHAS_CONSOLE:-$libexec/console}
 
 # The text of a script is its own header comment: every line from the second to
 # the first one that is not a comment, with the leading "# " removed.
@@ -46,9 +48,15 @@ usage_of() {
 # script <command>: the file behind a command, or nothing.
 script() {
   case "$1" in
-    dispatch | work | plan | dev | index | setup | update | labels | top | pause | resume | stop | api | disk | limit | drain | history | export | state | mcp | check-product | init-product) echo "$libexec/$1" ;;
-    status) echo "$libexec/summary" ;;
-    analytics) echo "$libexec/analytics-cmd" ;;
+    dispatch | work | plan | dev | index | setup | update | history | export | check-product | init-product) echo "$libexec/$1" ;;
+  esac
+}
+
+# verb <command>: whether the command is a verb of the console.
+verb() {
+  case "$1" in
+    status | disk | state | limit | pause | analytics | top | api | labels | resume | drain | stop | mcp) ;;
+    *) return 1 ;;
   esac
 }
 
@@ -58,27 +66,39 @@ unknown() {
   exit 64
 }
 
+# text <command>: print the text of a command and end.
+text() {
+  verb "$1" && exec "$console" usage "$1"
+  file=$(script "$1")
+  [ -n "$file" ] || unknown "$1"
+  usage_of "$file"
+  exit 0
+}
+
 case "${1-help}" in
   help | -h | --help)
     if [ "$#" -le 1 ] || [ "$2" = help ]; then
       usage_of "$0"
       exit 0
     fi
-    file=$(script "$2")
-    [ -n "$file" ] || unknown "$2"
-    usage_of "$file"
-    exit 0
+    text "$2"
     ;;
 esac
 
-file=$(script "$1")
-[ -n "$file" ] || unknown "$1"
-shift
-# The same text for every command, whether or not its script knows --help.
-case "$#:${1-}" in
-  1:-h | 1:--help)
-    usage_of "$file"
-    exit 0
-    ;;
+verb "$1" || [ -n "$(script "$1")" ] || unknown "$1"
+# The same text for every command, whether or not it knows --help.
+case "$#:${2-}" in
+  2:-h | 2:--help) text "$1" ;;
 esac
+case "$1" in
+  status | disk) exec "$console" tehas "$@" ;;
+  top)
+    [ -x "$console" ] || { echo "tehas top: no console at $console, run install.sh" >&2; exit 1; }
+    exec "$console" tehas "$@"
+    ;;
+  state | limit | pause | analytics | api | labels | resume | drain | stop) exec "$libexec/with-settings" tehas "$@" ;;
+  mcp) [ "${2-}" != serve ] || exec "$libexec/with-settings" tehas "$@"; exec "$console" tehas "$@" ;;
+esac
+file=$(script "$1")
+shift
 exec "$file" "$@"

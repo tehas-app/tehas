@@ -202,6 +202,10 @@ instance_models() {
 # the checkout. A case can then run the seam between the two commands against
 # its producer.
 real_platform() {
+  # The console the stub of cargo builds is no program, and tehas labels and tehas
+  # api are verbs of it.
+  t_console || t_bad "$t_console_why"
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
   rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
   mkdir -p "$T/home"
   systemctl_active
@@ -734,8 +738,8 @@ t_contains "$t_out" "installed: $th/libexec/update"
 t_contains "$t_out" "systemd: restarted tehas-dispatch.timer tehas-energy.service tehas-top.service tehas-mcp.service tehas-preview.timer tehas-preview-sweep.timer tehas-protolab.timer tehas-improve.timer tehas-refresh.timer tehas-review.timer tehas-clean.timer"
 t_contains "$t_out" "docs: updating the container"
 t_contains "$t_out" "edge: updating the container"
-# The command that makes the labels is among the files this run copied, so the
-# labels step is owed too, and the run is green: the stubbed host's command makes
+# The table of the labels is among the files this run copied, so the labels step
+# is owed too, and the run is green: the stubbed host's command makes
 # them, so nothing is left looking like work for a person.
 t_eq "$(step_order)" "systemd: restarted
 sandbox: building
@@ -749,7 +753,7 @@ t_eq "$(owed_steps)" ""
 # gh and nothing else. The copies of this run made the labels twice over: install.sh
 # makes them itself, and then the step this change adds makes them again.
 t_eq "$(t_calls gh | grep '^label create ' | sed 's/^label create \([^ ]*\).*/\1/' | sort -u | wc -l)" \
-  "$(sed -n 's/^mk \([^ ]*\).*/\1/p' "$T_ROOT/libexec/labels" | sort -u | wc -l)"
+  "$(cut -f1 "$T_ROOT/host/labels.tsv" | sort -u | wc -l)"
 t_eq "$(t_calls gh | sed -n 's/^label create [^ ]* --repo \([^ ]*\).*/\1/p' | sort -u)" acme/widget
 # Nothing of this host's real /etc or /usr/local/bin was read: the scratch marker
 # is not there, so install.sh says nothing about root's copy.
@@ -798,14 +802,14 @@ real_platform
 login_setup
 login_age
 before=$(login_state)
-# The install before this one, so the labels of the copied command are owed as a
+# The install before this one, so the labels of the copied table are owed as a
 # step of this update rather than made by a first install on the spot.
 t_run "mkdir -p '$th/state'; : >'$th/state/first-install'; '$update'"
 t_eq "$t_rc" 0
 t_contains "$t_out" "later: sudo $checkout/bootstrap.sh dev boss"
 t_contains "$t_out" "$dev_bin/tehas is not this checkout's host/login/tehas"
 # Not a step: nothing was recorded for it, no sudo ran, and the copy was not
-# touched. The labels step of the copied command ran in the same call, so the
+# touched. The labels step of the copied table ran in the same call, so the
 # record it clears is empty by the end of the run.
 t_eq "$(t_calls sudo)" ""
 t_eq "$(login_state)" "$before"
@@ -1197,8 +1201,8 @@ t_contains "$t_out" "docs: updating the container"
 t_eq "$(owed_steps)" ""
 rm -f "$th/state/update-hold"
 
-# A release that adds a label records the labels step when it copies the command
-# that makes them, and the follow-up is `tehas labels` itself: the labels end up
+# A release that adds a label records the labels step when it copies the table,
+# and the follow-up is `tehas labels` itself: the labels end up
 # on GitHub rather than owed to nobody in the record.
 t_case "--pending runs the labels step once and clears the record"
 instance

@@ -179,6 +179,7 @@ fn the_tools_are_listed_in_order_with_their_schemas() {
         "factory_outcomes",
         "factory_park",
         "factory_decisions",
+        "factory_disk",
     ]);
     assert_eq!(names, want);
     for t in tools.as_array().unwrap() {
@@ -476,6 +477,70 @@ fn a_missing_or_broken_file_is_named() {
     std::fs::write(c.0.join("status.json"), "{\"repo\":").unwrap();
     match call(&c.0, "factory_issues", &json!({})) {
         Err(ToolError::File { file, .. }) => assert_eq!(file, "status.json"),
+        other => panic!("{other:?}"),
+    }
+}
+
+// The bug of #1200: the tool was in the dispatch and in the answer allowlist,
+// but not in `CALLED` and not in the catalog, so a client was told nothing of
+// it and a call was refused as unknown. Both halves are answered here: the
+// name in the published list, and the published file copied by a call.
+#[test]
+fn factory_disk_is_listed_and_answers() {
+    let catalog = list_scoped(Scope::Full);
+    let listed: Vec<&str> = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(listed.contains(&"factory_disk"), "{listed:?}");
+    // A dashboard key is not served it: of the full catalog it is given only
+    // the four tools that copy from the live files.
+    let short = list_scoped(Scope::Dashboard);
+    let dashboard: Vec<&str> = short
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(!dashboard.contains(&"factory_disk"), "{dashboard:?}");
+
+    let c = Copy::new("disk");
+    std::fs::write(
+        c.0.join("disk.json"),
+        r#"{"api":1,"generatedAt":"2026-10-31T23:09:32Z","dockerRoot":"/var/lib/docker",
+            "filesystems":[{"paths":["/home/boss/tehas"],"mount":"overlay","freeBytes":223,"totalBytes":307}],
+            "full":{"places":[{"path":"/home/boss/tehas/logs","bytes":2048,"cut":"whole"}],
+                    "stoppedContainers":2,"hostname":"a name no answer gives"}}"#,
+    )
+    .unwrap();
+    let out = call(&c.0, "factory_disk", &json!({})).unwrap();
+    assert_eq!(out["api"], 1);
+    assert_eq!(out["generatedAt"], "2026-10-31T23:09:32Z");
+    assert_eq!(out["dockerRoot"], "/var/lib/docker");
+    assert_eq!(out["filesystems"][0]["freeBytes"], 223);
+    assert_eq!(out["full"]["stoppedContainers"], 2);
+    let text = out.to_string();
+    for bad in ["hostname", "a name no answer gives"] {
+        assert!(!text.contains(bad), "{bad} reached the answer: {text}");
+    }
+    // The schema a client is told and the allowlist the answer is copied with
+    // name the same fields, as every tool of this file's five does.
+    let mut want = BTreeSet::new();
+    schema_paths(&schema_of("factory_disk"), "", &mut want);
+    assert_eq!(want, spec_paths_of("factory_disk"), "schema and spec");
+    for p in key_paths(&out) {
+        assert!(p == "api" || want.contains(&p), "{p} is not in its schema");
+    }
+
+    // No file is the tool error that says so, not an empty answer.
+    let c = Copy::new("disk-none");
+    match call(&c.0, "factory_disk", &json!({})) {
+        Err(ToolError::File { file, why }) => {
+            assert_eq!(file, "disk.json");
+            assert_eq!(why, "not published");
+        }
         other => panic!("{other:?}"),
     }
 }
