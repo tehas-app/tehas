@@ -1,12 +1,10 @@
 //! The notice tehasbot preview keeps at the top of a pull request's
 //! description: where the preview is, or why there is none.
 //!
-//!   console preview tell <number> <time> <repo> <root> <address>
-//!
-//! <time> is the one GitHub gave for the pull request in the list the run
-//! read, <root> holds <number>/state.json, and <address> is where a serving
-//! preview answers. What is said goes to standard output, one line each.
-//! Exit 0, whatever GitHub answered: a failed call is tried at the next run.
+//! `tell` is given the time GitHub gave for the pull request in the list the
+//! run read, a root that holds <number>/state.json, and the address where a
+//! serving preview answers. What is said goes to standard output, one line
+//! each. A failed call is tried at the next run.
 //!
 //! What this command said about a commit and state is on record in
 //! <root>/<number>/.notice, as "<commit> <state> <outcome> <attempts> <time>":
@@ -25,7 +23,7 @@ use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const MARKER: &str = "<!-- tehas-preview -->";
@@ -39,23 +37,14 @@ const STARTS: [&str; 3] = [
 const TAIL: &str =
     "It is rebuilt when the branch changes and removed when this pull request is closed.";
 
-pub fn main(given: &[String]) -> u8 {
-    match given {
-        [verb, n, stamp, repo, root, address] if verb == "tell" => {
-            Tell {
-                n,
-                repo,
-                dir: PathBuf::from(root).join(n),
-                address,
-            }
-            .tell(stamp);
-            0
-        }
-        _ => {
-            eprintln!("console preview: usage: tell <number> <time> <repo> <root> <address>");
-            2
-        }
+pub fn tell(n: &str, stamp: &str, repo: &str, root: &Path, address: &str) {
+    Tell {
+        n,
+        repo,
+        dir: root.join(n),
+        address,
     }
+    .tell(stamp);
 }
 
 /// What to do with a description, decided from what GitHub has now.
@@ -183,7 +172,7 @@ struct Tell<'a> {
 
 impl Tell<'_> {
     fn say(&self, what: &str) {
-        println!("#{}: {what}", self.n);
+        let _ = writeln!(std::io::stdout(), "#{}: {what}", self.n);
     }
 
     fn field(state: &Value, key: &str) -> String {
