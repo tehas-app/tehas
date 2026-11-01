@@ -393,7 +393,10 @@ mod tests {
         a.failure_cause = "x".repeat(200_000);
         let facts = run_facts(&history_line(&a, "T"), Some(1), "null", None).compact();
         let back: Value = serde_json::from_str(&facts).unwrap();
-        assert_eq!(back["line"]["failure_cause"].as_str().unwrap().len(), 200_000);
+        assert_eq!(
+            back["line"]["failure_cause"].as_str().unwrap().len(),
+            200_000
+        );
     }
 
     #[test]
