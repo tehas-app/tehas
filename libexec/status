@@ -69,7 +69,7 @@
 set -uo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-from_poll=${TEHAS_GH_TOKEN:+yes} # read before the load, which unsets the name
+from_poll=${TEHAS_FROM_POLL:+yes} # read before the load, which unsets the name
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
 # shellcheck source=lib/labels.sh

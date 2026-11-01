@@ -575,23 +575,32 @@ t_eq "$t_rc" 0
 t_eq "$(cksum <"$live/status.json")" "$before"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
-t_case "given the poll's token, status leaves the health file to the poll"
+t_case "given the poll's name, status leaves the health file to the poll"
 reset
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "unset TEHAS_GH_TOKEN; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "unset TEHAS_FROM_POLL; $status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .status "$live/health.json")" pass
 rm "$live/health.json"
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_FROM_POLL=1; $status"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_FROM_POLL=; $status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .status "$live/health.json")" pass
 
-t_case "the poll's token leaves the analytics of the trap alone"
+# The name of the token is not the name of the poll: a host whose poll holds
+# no App token, or whose token read failed, still has health to refresh.
+t_case "the poll's token alone does not leave the health file to the poll"
+reset
+rm "$live/health.json"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+
+t_case "the poll's name leaves the analytics of the trap alone"
 reset
 t_stub_analytics 'printf "%s\n" "{\"report\":1}"'
-T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_FROM_POLL=1; $status"
 t_eq "$t_rc" 0
 t_eq "$(wc -l <"$T/calls/analytics")" 4
 
