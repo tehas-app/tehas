@@ -498,9 +498,10 @@ A real run builds each with `cargo` in the checkout and installs them as
 `~/tehas/libexec/console`, `~/tehas/libexec/analytics`,
 `~/tehas/libexec/tehas-mcp`, `~/tehas/libexec/store` and
 `~/tehas/libexec/attach`. The attachment checker reads the bytes of every file
-fetched for an issue and unpacks its zips (see [Tools](/tools)); without it a
-cycle given an issue's attachments does not start, and the Protolab leaves a
-zip out. A host installed from a release tarball has neither
+fetched for an issue, unpacks its zips, and composes what a cycle is told it was
+given (see [Tools](/tools)); without it a cycle given an issue's attachments
+does not start, a cycle given none says it could not read the record, and the
+Protolab leaves a zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
@@ -1749,7 +1750,7 @@ shadows, and the colours the canvases paint with. `TEHAS_THEME` in
 | Layout     | Front page                                                                          |
 | ---------- | ----------------------------------------------------------------------------------- |
 | `floor`    | The default: the factory floor, the game view                                       |
-| `business` | The business page: live power and tokens, the production line from prototypes to shipped on one row, with a Planning stage while work is being planned, the last 10 days, the issue board and the console of the running cycles |
+| `business` | The business page: live power and tokens, the production line to shipped on one row, with Prototypes while there are any and a Planning stage while work is being planned, the last 10 days, the issue board and the console of the running cycles |
 
 Both pages are always there, at `/floor` and `/business`, in whatever theme
 the instance has; the setting only picks the one at `/`. The business page was

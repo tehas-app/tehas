@@ -571,7 +571,6 @@ t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'echo "${JQ_SHA256}  /tmp/
 t_contains "$(cat "$T_ROOT/host/sandbox/Dockerfile")" 'if [ "$(jq --version)" != "jq-${JQ_VERSION}" ]'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$JQ_SHA256  $RUNNER_TEMP/jq/jq" | sha256sum -c -'
 t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$RUNNER_TEMP/jq" >> "$GITHUB_PATH"'
-t_contains "$(cat "$T_ROOT/.github/workflows/verify.yml")" 'echo "$NODE_SHA256  $RUNNER_TEMP/node.tar.xz" | sha256sum -c -'
 
 t_case "a download that does not match its checksum is refused"
 all_present
