@@ -179,8 +179,7 @@ impl Preview {
         }
     }
 
-    /// Where a preview answers. tehas_edge_name makes the same name for the
-    /// shell, and door in protolab.rs for a ticket.
+    /// Where a preview answers. door in protolab.rs does the same for a ticket.
     pub(super) fn address(&self, name: &str) -> String {
         format!("https://uat-{name}.{}/", self.domain)
     }

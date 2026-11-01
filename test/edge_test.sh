@@ -1,85 +1,8 @@
 #!/usr/bin/env bash
-# Tests for lib/edge.sh, what tehasbot protolab uses,
-# and for the router's files in host/edge.
+# Tests for the router's files in host/edge.
 # shellcheck disable=SC2016  # snippets and patterns are expanded later, or never
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
-
-lib='. "$T_ROOT/lib/edge.sh"'
-d=$T/home/tehas
-mkdir -p "$d"
-
-t_case "edge_put writes the whole file or leaves the old one"
-echo old >"$d/list.json"
-t_run "$lib; edge_put '$d/list.json' echo new; echo rc=\$?"
-t_eq "$t_out" "rc=0"
-t_eq "$(cat "$d/list.json")" "new"
-t_run "$lib; edge_put '$d/list.json' bash -c 'echo half; exit 3'; echo rc=\$?"
-t_eq "$t_out" "rc=1"
-t_eq "$(cat "$d/list.json")" "new"
-t_eq "$(find "$d" -mindepth 1 -maxdepth 1 -printf '%f ')" "list.json "
-
-t_case "edge_place puts a directory in place of the old one"
-mkdir -p "$d/site/.work/7" "$d/site/7"
-echo fresh >"$d/site/.work/7/index.html"
-echo stale >"$d/site/7/index.html"
-t_run "$lib; edge_place '$d/site/.work/7' '$d/site/7'; echo rc=\$?"
-t_eq "$t_out" "rc=0"
-t_eq "$(cat "$d/site/7/index.html")" "fresh"
-t_eq "$(find "$d/site" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ')" ".work 7 "
-
-t_case "edge_numbers lists the numbered directories only"
-mkdir -p "$d/site/12" "$d/site/x1" "$d/site/3a" "$d/site/repo.git"
-: >"$d/site/99"
-t_run "$lib; edge_numbers '$d/site' | sort -n | tr '\n' ' '"
-t_eq "$t_out" "7 12 "
-t_run "$lib; edge_numbers '$d/nowhere'; echo rc=\$?"
-t_eq "$t_out" "rc=0"
-
-t_case "edge_lock is held by one process at a time"
-t_run "$lib; edge_lock demo || exit 9; ( exec {edge_lock_fd}>&-; $lib; edge_lock demo; echo second=\$? ); echo first=ok"
-t_eq "$t_out" "second=1
-first=ok"
-t_run "$lib; edge_lock demo; echo again=\$?"
-t_eq "$t_out" "again=0"
-
-# The descriptor is the one bash chose, named in edge_lock_fd. A fixed number
-# is one every caller would have to guess at, and two of them would step on
-# each other.
-t_case "edge_lock names the descriptor it took, and closing that one releases the lock"
-t_run "$lib; edge_lock demo || exit 9; fd=\$edge_lock_fd
-case \$fd in ''|*[!0-9]*) echo nofd ;; *) [ \"\$fd\" -ge 10 ] && echo chosen ;; esac
-exec {edge_lock_fd}>&-
-flock -n \"$d/state/demo.lock\" echo free"
-t_eq "$t_out" "chosen
-free"
-t_eq "$(grep -c -E 'flock (-n|-w [0-9]+) 9' "$T_ROOT/lib/edge.sh")" 0
-
-t_case "a command the run starts keeps the lock unless it is told to drop the descriptor"
-# What a command does for every program that can outlive its run: a
-# descriptor a child inherits holds the lock after the parent has ended.
-# The child writes $ready when it has started, and the check waits for that
-# file: waiting for the lock itself to answer would be a race won only by a
-# host that happens to be idle. The child holds the lock for 2 seconds, so
-# the check does not have to be quick.
-t_run "$lib; edge_lock demo || exit 9; ready=\"$T/ready.a\"; rm -f \"\$ready\"
-( sh -c ': >\"\$1\"; sleep 2' _ \"\$ready\" ) & child=\$!; exec {edge_lock_fd}>&-
-while [ ! -e \"\$ready\" ]; do sleep 0.05; done
-if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
-wait \$child"
-t_eq "$t_out" "held-by-the-child"
-t_run "$lib; edge_lock demo || exit 9; ready=\"$T/ready.b\"; rm -f \"\$ready\"
-( sh -c ': >\"\$1\"; sleep 2' _ \"\$ready\" {edge_lock_fd}>&- ) & child=\$!; exec {edge_lock_fd}>&-
-while [ ! -e \"\$ready\" ]; do sleep 0.05; done
-if flock -n \"$d/state/demo.lock\" true; then echo free-after-the-parent; else echo held-by-the-child; fi
-wait \$child"
-t_eq "$t_out" "free-after-the-parent"
-
-# What the header tells a caller to write. Quoted, it is an argument and not a
-# redirection, and the child keeps the descriptor and the lock.
-t_case "the header names the redirection unquoted"
-t_eq "$(grep -c -F '{edge_lock_fd}>&-' "$T_ROOT/lib/edge.sh")" 1
-t_eq "$(grep -c -F '"$edge_lock_fd>&-"' "$T_ROOT/lib/edge.sh")" 0
 
 caddyfile=$T_ROOT/host/edge/router.Caddyfile
 compose=$T_ROOT/host/edge/router.compose.yaml
