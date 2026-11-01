@@ -22,6 +22,7 @@ pub mod private;
 pub mod question;
 pub mod review;
 pub mod rukas;
+pub mod sandbox;
 pub mod secret;
 pub mod settings;
 #[cfg(feature = "mask")]

@@ -25,7 +25,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{self, Command, Stdio};
-use tehas_core::time;
+use tehas_core::{sandbox, time};
 
 const HEAD: &str = "tehas/init-product";
 const COMMIT: &str = "The tehas contract files";
@@ -426,7 +426,7 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
     // empty commit puts the clone there too, so a gate that diffs against
     // origin/main compares a proper ancestor and finds no change.
     let path = tree.0.as_str();
-    if !(sandbox_clone(repo, path, branch)
+    if !(sandbox::clone(repo, path, branch)
         && ran(git(path).args(["checkout", "-q", "-b", "tehas/check-product"]))
         && ran(git(path).args([
             "-c",
@@ -462,28 +462,6 @@ fn in_sandbox(home: &str, repo: &str, gates: Gates, run: &mut Run) -> Result<Opt
 
 // tehas_sandbox_clone of lib/sandbox.sh: the tip the checkout last fetched,
 // with the product's address as origin. Nothing comes from the network.
-fn sandbox_clone(src: &str, tree: &str, branch: &str) -> bool {
-    let tip = format!("refs/remotes/origin/{branch}");
-    let verify = format!("{tip}^{{commit}}");
-    let Some(base) = read(git(src).args(["rev-parse", "-q", "--verify", &verify])) else {
-        complain(&format!("tehas: {src} has no origin/{branch}"));
-        return false;
-    };
-    let Some(url) = read(git(src).args(["config", "--get", "remote.origin.url"])) else {
-        return false;
-    };
-    let all = "+refs/remotes/origin/*:refs/remotes/origin/*";
-    let upstream = format!("--set-upstream-to=origin/{branch}");
-    ran(Command::new("git").args(["init", "-q", "-b", branch, tree]))
-        && ran(git(tree).args(["remote", "add", "origin", &url]))
-        && ran(Command::new("timeout")
-            .args(["-k", "10", "300", "git", "-C", tree, "fetch"])
-            .args(["-q", "--no-tags", src, all]))
-        && ran(git(tree).args(["symbolic-ref", "refs/remotes/origin/HEAD", &tip]))
-        && ran(git(tree).args(["checkout", "-q", "-B", branch, &base]))
-        && ran(git(tree).args(["branch", "-q", &upstream, branch]))
-}
-
 // One string as jq prints it: serde_json and jq differ on DEL alone.
 fn json_string(s: &str) -> String {
     serde_json::to_string(s)

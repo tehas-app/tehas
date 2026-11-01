@@ -1,0 +1,77 @@
+Work by hand on the factory host: an interactive Pi session with pi-rukas,
+in the sandbox image, in a clone of the product that is kept between
+sessions, on the factory's models. Outside the queue: no labels, no comments.
+
+Usage: tehas dev [<name>] [--author "Name <email>"] [--issue <number>] [-- <pi arguments>]
+       tehas dev --help
+
+  <name>     names the clone, $TEHAS_HOME/dev/<name>: letters, digits, _ and
+             -. Without it the name is "main". The clone is made on first
+             use, from the product checkout, and never removed or reset.
+  --author   whose name the commits of this clone carry. Stored next to the
+             clone and used from then on. Without one, the bot's.
+  --issue    give the session the images and text files that issue links,
+             by the rules a cycle is given them. Needs TEHAS_WORK_IMAGES=1
+             or TEHAS_WORK_FILES=1.
+  --         what follows is passed to pi, for example: tehas dev -- -r
+
+Exit status: the session's own, as docker reports it, or
+            64 a wrong argument, a malformed author, no bot token or no git
+               identity; no container was started.
+             4 with --issue: an image or file the issue links could not be
+               fetched, or the issue or its label events could not be read;
+               no container was started.
+            78 the instance settings are invalid, tehas.slice is not usable
+               on this host, the clone's directory exists and is not a
+               clone, its lock stayed held for five minutes, the build output
+               directory cannot be made or is not a directory of the user the
+               container runs as, or --issue was given and the instance gives
+               no images or files; no container was started.
+
+The container is a cycle's container with a terminal: the same image, limits,
+mounts and variables as a cycle is given, and pinned by test/dev_test.sh. It differs in the tree it works
+in, in git's identity, in TERM and COLORTERM, and in having no cid file. Not
+the Docker socket, SSH keys, ~/.config/tehas or the rest of the host
+environment.
+
+It runs in tehas.slice with a cycle's limits: a memory ceiling of a quarter
+of the slice, no swap, the reserve as its floor, a CPU quota, a pids limit
+and a CPU weight. The dispatcher counts its memory with the cycles', so a session can
+keep a cycle from starting. Before it starts, the command says how many more
+cycles the slice has room for. Without a usable slice no clone is made and
+nothing starts.
+
+With --issue the container gets two things more, as a cycle does: the
+issue's images and files in $TEHAS_HOME/dev/<name>.images, read-only at the
+same path, and PI_ENSEMBLE_EXTRA_IMAGE_DIRS, which names it. The directory
+is remade from the issue's text at every start with --issue, by the rules of
+tehas work without an approval record. The person running this is not who
+approved anything, so the issue's images are taken when an allowed account
+applied its last tehas:ready, or else when an owner, member or collaborator
+opened it. Nothing is said on the issue; what was given and left out is
+printed. Without --issue the session is given neither, and an instance's
+PI_ENSEMBLE_EXTRA_IMAGE_DIRS is not passed on: it would name a path the
+container does not have.
+
+The author is a label, not a login. Anyone on this account can give any
+name, and the push and the pull request still go through the bot's token.
+
+The host runs git in the clone once, to make it. After that a container has
+written it, hooks and git configuration included, so no git command is run
+there again, not even to read it.
+
+Beside the clone is <name>.state, this clone's own: its memory, its Pi
+sessions, its transcripts, its own code index and its cargo build output,
+mounted as the session's CARGO_TARGET_DIR. It
+is kept with the clone, so a person resumes their sessions, keeps the index
+their session built and does not build the workspace again from nothing,
+and no cycle shares any of it. The host's index of the product is not copied
+here: it is keyed to the path a cycle works at, which is not the path of this
+clone. Its target is the one thing here the cleaner may take, under the
+clone's lock, when the host is low on disk and the tree has gone unused; this
+command holds that lock for the session's life.
+
+A session shares the model endpoint with a running cycle and does not hold
+the queue, beyond the room its memory takes in the slice. One session per
+clone: a second waits for the lock. It needs a terminal; docker refuses to
+start without one.
