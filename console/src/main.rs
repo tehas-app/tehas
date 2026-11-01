@@ -113,9 +113,9 @@
 //!
 //! What tehas_load does and what a setting may hold, see src/settings.rs.
 //!
-//!   console setup files ...
+//!   console setup run <libexec dir> <euid> <bash> [options]...
 //!
-//! The settings, the checks and the files of tehas setup, see src/setup.rs.
+//! tehas setup, once libexec/setup has a console, see src/setup.rs.
 //!
 //!   console shipped page|query|answer|list|has|whole ...
 //!
