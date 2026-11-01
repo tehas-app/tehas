@@ -37,9 +37,6 @@ empty one above it.
 - tehas index is a program.
 - tehasbot review is prepared by the console.
 - tehas dev starts its session from Rust.
-- A factory pull request whose issue carries `needs-human-attention` loses
-  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
-  six-pass review is newer than its head and lists nothing above MEDIUM.
 
 ### Adopter action
 
@@ -65,6 +62,9 @@ None.
 - `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
   affect, not the whole workspace (#911).
 - Golden files pin every container's whole argument list, in order (#1234).
+- A factory pull request whose issue carries `needs-human-attention` loses
+  `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
+  six-pass review is newer than its head and lists nothing above MEDIUM (#1305).
 
 ### Adopter action
 
