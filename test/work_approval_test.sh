@@ -198,10 +198,9 @@ t_run "$work 7"
 t_eq "$t_rc" 4
 
 # A measure that answers other than the four counts is no line: the ledger
-# holds rows a reader can count on, or none. $tree/lib is the checkout's lib
-# through a link, so the case works from its own tree: a directory of its own
-# holding its own lib, with the broken measure beside the rest of it, and the
-# work of the same tree. Nothing of the checkout is written.
+# holds rows a reader can count on, or none. The case works from a tree of its
+# own: the lib of the checkout through a link, a console that answers junk
+# beside the work of the same tree. Nothing of the checkout is written.
 t_case "a measure that answers junk records no line, and says the measure gave up"
 size_case "$size_body"
 # The ledger of the start before, held on disk: what a broken measure must not
@@ -211,10 +210,16 @@ printf '{"at":"2026-01-01T00:00:00Z","issue":6,"files":1,"tests":0,"deliverables
 t_eq "$(size_lines)" "1"
 broken=$T/tree-broken
 mkdir -p "$broken/libexec"
-cp -R "$T_ROOT/lib" "$broken/lib"
+ln -s "$T_ROOT/lib" "$broken/lib"
 ln -s "$T_ROOT/libexec/work" "$broken/libexec/work"
-printf '%s\n' 'tehas_issue_size() { printf "%s\n" '"'"'{oops}'"'"'; }' >>"$broken/lib/sizing.sh"
+printf '%s\n' '#!/bin/sh' '[ "$1" != size ] || { echo "{oops}"; exit 1; }' '[ "$1" != slice ] || exec "$T/console-bin" "$@"' >"$broken/libexec/console"
+chmod +x "$broken/libexec/console"
+cp "$tree/libexec/tehas-cycle" "$tree/libexec/tehas-cycle.real" "$broken/libexec/"
+# The console of this tree has to be the one asked, so no other is named.
+keep_env=("${T_ENV_ALWAYS[@]}")
+T_ENV_ALWAYS=()
 t_run "$broken/libexec/work 7"
+T_ENV_ALWAYS=("${keep_env[@]}")
 t_eq "$t_rc" 2
 t_contains "$t_out" "could not record the size of #7 in $sizes (measure)"
 t_eq "$(jq -s 'length' "$sizes")" "1"
@@ -268,7 +273,7 @@ for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7:
   images_off
   issue_is "Words only." NONE
   record_is alice "Words only."
-  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_store_answers approval-view "${answer%% *}" "${answer#* }"
   t_run "$work 7"
   t_eq "$t_rc" 4
   t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
@@ -417,7 +422,7 @@ t_case "an approval that cannot be read starts no cycle: exit 4"
 images_on
 issue_is "Words only." OWNER
 record_is alice "Words only."
-t_store_answers approval-current 78 'store: unreadable: the store holds no schema'
+t_store_answers approval-view 78 'store: unreadable: the store holds no schema'
 t_run "$work 7"
 t_eq "$t_rc" 4
 t_contains "$t_out" "the approval of this issue could not be read"
@@ -719,7 +724,7 @@ for answer in "78 store: corrupt: the file is not a database" "1 store: busy #7:
   issue_is "![a]($A/1111)" NONE
   labelled_by alice
   unit_start alice
-  t_store_answers approval-current "${answer%% *}" "${answer#* }"
+  t_store_answers approval-view "${answer%% *}" "${answer#* }"
   t_run "$work 7"
   t_eq "$t_rc" 4
   t_contains "$t_out" "tehas work: the approval of this start could not be read, not starting a cycle"

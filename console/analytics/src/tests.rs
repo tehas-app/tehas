@@ -2137,7 +2137,7 @@ fn run_reads_nothing_through_a_link() {
 }
 
 // The live files of one poll, as libexec/status, libexec/dispatch and
-// libexec/energy write them, at `at`.
+// console energy write them, at `at`.
 fn live(home: &Path, at: i64, why: &str, limit_room: Option<i64>) {
     fs::create_dir_all(home.join("live")).unwrap();
     let issue = |n: i64| json!({"number": n, "title": "t", "url": "u"});

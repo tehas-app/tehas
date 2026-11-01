@@ -64,6 +64,7 @@
 //!   store cycle-image <issue> --attempt N --image <id> [--rukas <commit>] [--settings <file>]
 //!   store cycle-end <issue> --attempt N --status <word> [...] | --refused | --stopped
 //!   store cycle-show <issue> | --running
+//!   store settings-view <issue> [--attempt N]
 //!   store cycle-note <issue> --kind quiet --said-for <key>
 //!   store cycle-stop-asked <issue> [--said-only]
 //!   store cycle-heartbeat <issue> [--attempt N] --running|--ended --status <word>
@@ -83,6 +84,7 @@
 //!                millwright; the old `fixer` is taken too, and is written as
 //!                `millwright` until the shell stops sending it)
 //!   store approval-current <issue>
+//!   store approval-view <issue> [--attempt N]
 //!   store plan-begin <issue> --by <account> --label <label> --brief-file <file> [--auto]
 //!                | --undo
 //!   store plan-answer <issue> --turn N --by <account> [--millwright] [--text-file <file>]
@@ -92,6 +94,7 @@
 //!                (the old `fixer-refused` is taken too, and is written as
 //!                `millwright-refused`)
 //!   store plan-show <issue> | --open
+//!   store plan-view <issue> [--open]
 //!   store history-show [<issue>] [--kind cycle|plan] [--how <how>]
 //!   store backup [--show]
 //!   store copy --to <file>
@@ -252,7 +255,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | plan-begin | plan-answer | plan-end | plan-note | plan-show | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
+const USAGE: &str = "usage: store init [--force] [--version <v> --commit <sha> --instance <name> --repo <owner/name>] [--json] | migrate --backup <dir> [--json] | check [--json] | import [--dry-run] [--json] | slow <file> --out <file> | review-issue <path> <branch> <commit> | review-file --repo <owner/name> --doc <path> --branch <b> --commit <sha> [--ask <line>] [--private <name>]... [--gh <program>] | batch | cycle-start | cycle-image | cycle-end | cycle-show | settings-view | cycle-note | cycle-stop-asked | cycle-heartbeat | publish | park | park-show | park-retry | park-told | question-asked | question-known | question-answered | approval-record | approval-current | approval-view | plan-begin | plan-answer | plan-end | plan-note | plan-show | plan-view | history-show | backup | copy | prune | sweep-locks | locks-held | upkeep | poll-record | poll-show | poll-idle | poll-begin";
 
 /// The longest a value the caller passes may be. The four come from an
 /// instance's settings and a checkout's git, not from a container.
