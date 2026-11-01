@@ -50,8 +50,11 @@
 //!
 //! Prints nothing but an ignored all-hands label, once, analytics warnings and a
 //! WARN line when the snapshot cannot be written, on standard error. Exit 0 even
-//! when GitHub is down: the previous file is then left in place.
+//! when GitHub is down: the previous file is then left in place. Exit 78, before
+//! GitHub is asked or anything is written, when a setting it needs is not set,
+//! however it was started.
 
+use crate::commands;
 use crate::flags::{epoch, REASON};
 use crate::jq::{obj, J};
 use crate::platform;
@@ -809,8 +812,22 @@ fn queue(home: &Path, live: &Path, analytics: &Analytics, stop: &AtomicBool) {
     }
 }
 
+/// The first setting the run cannot go without that is not given. Only spaces
+/// counts as not given, as tehas_require has it.
+fn unset(given: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
+    let asked = ["tehasbot".to_string(), "status".to_string()];
+    let needed = commands::required(&asked).iter().copied();
+    std::iter::once("TEHAS_HOME")
+        .chain(needed)
+        .find(|name| !given(name).is_some_and(|v| !v.trim_matches(' ').is_empty()))
+}
+
 /// `tehasbot status`. It takes no argument and reads none.
 pub fn main() -> u8 {
+    if let Some(name) = unset(|n| env::var_os(n).map(|v| v.to_string_lossy().into_owned())) {
+        eprintln!("tehasbot status: {name} is not set");
+        return 78;
+    }
     let from_poll = env::var_os("TEHAS_FROM_POLL").is_some_and(|v| !v.is_empty());
     let home = PathBuf::from(env::var_os("TEHAS_HOME").unwrap_or_default());
     let live = home.join("live");
@@ -891,6 +908,33 @@ mod tests {
         assert_eq!(reason(&long), "x".repeat(200));
         let spaced = format!("{} {}", "y".repeat(199), "z".repeat(9));
         assert_eq!(reason(&spaced), format!("{} ", "y".repeat(199)));
+    }
+
+    #[test]
+    fn a_setting_it_needs_stops_the_run() {
+        let given = [
+            ("TEHAS_HOME", "/h"),
+            ("TEHAS_REPO", "a/b"),
+            ("TEHAS_CONTROL_ISSUE", "1"),
+            ("TEHAS_ALLOWED_LABELERS", "boss"),
+        ];
+        let read = |left_out: &'static str, value: Option<&'static str>| {
+            move |name: &str| {
+                let found = given.iter().find(|(n, _)| *n == name);
+                let value = if name == left_out {
+                    value
+                } else {
+                    found.map(|(_, v)| *v)
+                };
+                value.map(String::from)
+            }
+        };
+        assert_eq!(unset(read("", None)), None);
+        for (name, _) in given {
+            assert_eq!(unset(read(name, None)), Some(name));
+            assert_eq!(unset(read(name, Some(""))), Some(name));
+            assert_eq!(unset(read(name, Some("  "))), Some(name));
+        }
     }
 
     #[test]
