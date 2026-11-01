@@ -539,7 +539,6 @@ for f in \
   review \
   setup \
   status \
-  stop \
   tidy \
   update \
   with-settings \
@@ -1224,6 +1223,7 @@ for f in \
   libexec/pause \
   libexec/resume \
   libexec/state \
+  libexec/stop \
   libexec/summary \
   libexec/top \
   libexec/top-publish \

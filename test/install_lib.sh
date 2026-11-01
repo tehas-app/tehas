@@ -160,7 +160,6 @@ files="./.bashrc
 ./tehas/libexec/review
 ./tehas/libexec/setup
 ./tehas/libexec/status
-./tehas/libexec/stop
 ./tehas/libexec/store
 ./tehas/libexec/store.stamp
 ./tehas/libexec/tehas-cycle
