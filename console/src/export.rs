@@ -176,6 +176,12 @@ pub fn main(given: &[String]) -> u8 {
         eprintln!("tehas export: ERROR: the state store is not installed (run install.sh)");
         return 78;
     }
+    let file = models::host_path();
+    if Path::new(&file).symlink_metadata().is_ok() && models::ModelFile::read(&file).json.is_null()
+    {
+        eprintln!("tehas export: cannot read {file}, so its hosts would not be masked");
+        return 78;
+    }
     let to = match target(&asked.dir, &home) {
         Ok(to) => to,
         Err(said) => {
@@ -195,9 +201,7 @@ pub fn main(given: &[String]) -> u8 {
             return no.rc;
         }
     };
-    // Without a name the mask still takes every token-shaped string, so a
-    // file of models that cannot be read stops nothing.
-    let names = mask::host_names(&models::host_path(), &git_global("user.email"));
+    let names = mask::host_names(&file, &git_global("user.email"));
     if let Err(e) = mask::set_private(&names) {
         eprintln!("{e}");
         return 1;
