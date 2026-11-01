@@ -22,6 +22,14 @@ cycles running, both marked unproven. Where a command needs the guest's
 agreement it needs the guest agent, `qemu-guest-agent`, running in the VM:
 check it with `systemctl status qemu-guest-agent` before you start.
 
+**Who this is for: a virtual machine host under libvirt.** Every step here
+needs a hypervisor: the XML, the `virsh` commands and the `libvirt-guests`
+unit are all outside the guest. A factory that is a container on an industry
+machine, as tehas-tehas is, has no hypervisor to ask: it cannot resize live
+and cannot be saved with `libvirt-guests`. Restarting the machine under a
+container host still means a drain first, or the running cycles are lost with
+it: see [Limit and drain](/operating#limit-and-drain).
+
 The one rule underneath all of it: **the maximum is the change that needs a
 restart, so set it once, high, and treat every change under it as a live one.**
 
