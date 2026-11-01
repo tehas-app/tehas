@@ -4619,6 +4619,24 @@ be checked. `scripts/verify.sh` prints what a step wrote only for a step that
 failed, so a run that ends with checks not run shows them in the gate only when
 something else failed too.
 
+`scripts/check-bash-lines.sh` is the ceiling on the factory's bash: the lines
+of `bin/`, `lib/*.sh` and `libexec/` whose first line names bash may not grow
+past the number in `scripts/bash-lines.max`, and new logic goes into the Rust
+workspace under `console/` instead. Every run prints one line that begins
+`check-bash-lines:` and names the working tree's count, the ceiling and the
+room left, or the lines over. With a merge base the same line names the base's
+own count, the room under it and what the change adds, as in `base 21587 of
+21590: 3 lines of room; this change +13`, so a run can plan its bash before it
+writes any: the ceiling is still judged by the working tree's figure, and a
+change that took lines out keeps its minus. When the tree differs from HEAD the
+line says the figure includes uncommitted work, so a tree with work in it does
+not read as if the base had that room. Over the ceiling the run adds the files
+that changed since the merge base with their deltas, and a `pay from` list: the
+five largest counted files the change did not touch, which is where the lines
+can come from, since a file the change grew is where they went in. Without a
+merge base it lists the largest files instead. Exit 0 at or under the ceiling,
+1 over it or when `scripts/bash-lines.max` holds no number.
+
 `scripts/check-generic.sh` is the lint that keeps private network addresses out
 of every file, and the names of particular installations out of every file,
 `docs/` included. The names come from `scripts/check-generic.names`, a list
