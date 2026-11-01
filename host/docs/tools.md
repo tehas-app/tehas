@@ -2827,9 +2827,12 @@ what the dispatcher's last poll wrote about the slice and the demand, and this
 host's pause flag. The status script
 runs it on exit, so it is
 refreshed at every poll and at the end of every cycle. When the poll of the
-dispatcher is the one that ran the status script, the script does not: it holds
-the poll's GitHub token in its environment as `TEHAS_GH_TOKEN`, which is how it
-knows, and the poll runs health itself a moment after the status ends. So one
+dispatcher is the one that ran the status script, the script does not: the poll
+gives it `TEHAS_FROM_POLL=1` in its environment, which the script reads before
+its load, and the poll runs health itself a moment after the status ends. The
+name says the poll ran it and nothing else: it is given whatever token the poll
+holds, so a host that acts as a machine user, or a poll whose token read
+failed, is still known and does not refresh the file twice. So one
 poll refreshes the file once, not twice; a `tehasbot status` a person or a
 cycle runs does it on its own exit, as before. The poll that runs it
 bounds it at 120 s, the same bound it gives the status and tidy, because health
@@ -3321,7 +3324,10 @@ expired token. One exception: a call given `TEHAS_GH_TOKEN` in its environment
 uses that as `GH_TOKEN` and runs no `github-token` at all. The dispatcher's
 poll takes the token once at its start and gives it to every `gh` it runs that
 way, and to `tidy`, `status` and `health` when it runs them, so twenty calls of
-a poll ask for one token and not twenty (#938, #965). The
+a poll ask for one token and not twenty (#938, #965). The name of the token is
+not how the status knows the poll ran it: the poll gives the status
+`TEHAS_FROM_POLL=1` as well, and nothing else takes that name (see
+[tehasbot health](#tehasbot-health)). The
 poll holds that token in memory: it is never logged, never written to a file,
 and never put in the poll's record. git's github.com credential helper is
 pointed at the same shim, as environment-level config (no file is written), and

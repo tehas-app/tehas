@@ -2,6 +2,7 @@
 //! more than one program keeps, so the rule is written once.
 
 pub mod disk;
+pub mod env_file;
 pub mod file;
 pub mod forge;
 pub mod grammar;
