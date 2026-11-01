@@ -6,9 +6,8 @@
 #
 # Needs $repo, the instance's repository, for a pull request's address, and
 # $kinds: the rows to list, as a jq array of the kind names of the store
-# ("cycle" and "plan" together, as tehas history lists them; "cycle" alone,
-# as tehas_cycle_history reads them). The file is read with jq -f by
-# libexec/history and lib/millwright.sh; it holds no bash.
+# ("cycle" and "plan" together, as tehas history lists them). The file is read
+# with jq -f by libexec/history; it holds no bash.
 def history_line:
   {at: (.at | todate), started: .started_at, rc, status, step, cap, park_reason, failure_kind,
    failure_cause, provider, parked,

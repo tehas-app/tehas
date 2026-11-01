@@ -16,13 +16,10 @@
 #                                  there that is not a limit of version 1.
 #                                  Never fails: what cannot be read is never
 #                                  read as no limit.
-#   tehas_limit_holds <limit json> 0 when it holds every start: expired or
-#                                  unreadable
-#   tehas_limit_line <limit json>  the line tehas limit and tehas status print
 #
 # The reading, the checks, the write and the words of the answer are the
 # console's, in console/src/flags.rs: this file is the shell's name for them.
-# Where no console can be run, tehas_limit_reading and tehas_limit_line answer.
+# Where no console can be run, tehas_limit_reading answers.
 
 tehas_limit_file() { printf '%s/state/limit.json\n' "$TEHAS_HOME"; }
 
@@ -60,26 +57,4 @@ tehas_limit_read() { # [<now epoch seconds>]: of the console when one can be
   c=$(tehas_limit_console_of)
   [ -n "$c" ] && { "$c" flags limit read --now "$now"; return; }
   tehas_limit_reading "$(tehas_limit_file)" "$now"
-}
-
-tehas_limit_holds() { # <limit json>
-  [ "$(jq -r .state <<<"$1")" != ok ] && [ "$(jq -r .state <<<"$1")" != none ]
-}
-
-# The words of tehas status (console/src/status.rs), except for a limit in
-# force with a console to ask, which prints its own.
-tehas_limit_line() { # <limit json>
-  local c
-  c=$(tehas_limit_console_of)
-  [ "$(jq -r '.state // "?"' <<<"$1" 2>/dev/null)" != ok ] || [ -z "$c" ] ||
-    { "$c" flags limit show; return; }
-  # shellcheck disable=SC2154  # lib/status.sh, which every caller sources first
-  jq -r '"limit     " + (
-      if .state == "none" then "none"
-      elif .state == "unreadable" then "unreadable: nothing starts until it is set again or cleared"
-      elif .state == "expired" then "expired at \(.until): nothing starts until it is set again or cleared"
-      else "\(.cycles) cycle\(if .cycles == 1 then "" else "s" end) at once, planning \(if .plan then "on" else "off" end), "
-        + (if .until == null then "until cleared" else "until \(.until)" end)
-        + (if .reason == null then "" else ": \(.reason | '"$tehas_pause_oneline"')" end)
-      end)' <<<"$1"
 }

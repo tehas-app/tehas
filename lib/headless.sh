@@ -1,19 +1,10 @@
 # shellcheck shell=bash
-# How a command asks an image what it can do, what tehas reads of a cycle's
-# progress, and whether a result is an error only.
+# What tehas reads of a cycle's progress, and whether a result is an error only.
 # The rest of what tehas reads of pi-rukas's headless runner is tehas-cycle's
 # (caps, runner). Only the contract the runner publishes is read here
 # (docs/headless.md in pi-rukas), never its state file. Sourced by tehas work
 # (libexec/work) and tehas review (libexec/review).
 #
-#   tehas_headless_caps <image> <runner>
-#       ask <image> what its runner can do: its --capabilities answer on
-#       standard output. The call is bounded by TEHAS_CAPS_WAIT (120 s by
-#       default). The status says which of the two happened, so a caller keeps
-#       them apart: 0 answered (with no answer at all when nothing is printed),
-#       124 or 137 did not answer in time, any other status is docker's own.
-#       Never read an empty answer and a silent docker as the same thing: a host
-#       whose image was removed answers like an image that runs no verb.
 #   tehas_headless_progress <ndjson> [<result> <issue>]
 #       one JSON object: roles, the per-role usage; reason, why the cycle
 #       stopped at its cap; failure, the result's failure kind, step, role and
@@ -35,12 +26,6 @@ tehas_headless_result=5
 # not JSON, or that the runner marks unstable, is not one of them.
 _tehas_headless_stable() { # <ndjson>
   jq -R -c 'fromjson? | objects | select(.v == 1 and (.unstable // false) == false)' "$1" 2>/dev/null
-}
-
-tehas_headless_caps() { # <image> <runner>
-  local wait="${TEHAS_CAPS_WAIT:-120}"
-  [[ $wait =~ ^[1-9][0-9]{0,3}$ ]] || wait=120
-  timeout -k 10 "$wait" docker run --rm --init "$1" "$2" --capabilities 2>/dev/null
 }
 
 tehas_headless_progress() { # <ndjson> [<result> <issue>]

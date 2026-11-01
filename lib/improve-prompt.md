@@ -173,6 +173,6 @@ does not file it. For example, a body ending:
 
     ## Done when
 
-    - `libexec/dispatch` skips a closed issue and says `skip #<n>: closed`.
-    - `test/dispatch_test.sh` has a case for a closed issue under the label.
+    - `tehas-dispatch` skips a closed issue and says `skip #<n>: closed`.
+    - `console/dispatch/src/decide.rs` has a test for a closed issue under the label.
     - `scripts/verify.sh` passes.

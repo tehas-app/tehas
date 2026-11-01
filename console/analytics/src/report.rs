@@ -410,7 +410,7 @@ pub(crate) fn label(key: &str) -> &'static str {
         .unwrap_or_default()
 }
 
-/// One line of state/refined.jsonl (lib/planning.sh): when a refining session
+/// One line of state/refined.jsonl (the poll writes it): when a refining session
 /// filed an issue, and that issue's number.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Refined {

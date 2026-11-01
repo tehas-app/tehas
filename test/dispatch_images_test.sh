@@ -60,8 +60,6 @@ pictured 7
 t_run "$dispatch"
 t_eq "$(t_calls fake-start)" "7"
 t_eq "$(jq -r .why "$dispatch_json")" ""
-# The bash poll's words to curl; the Rust poll's body is in its config.
-bash_reads && t_contains "$(t_calls curl)" "-m 30 -H Content-Type: application/json -d @- http://mesh.test/v1/chat/completions"
 t_eq "$(jq -c '[.model, .max_tokens, (.messages[0].content | map(.type))]' "$T/calls/curl-body")" '["test-model",1,["text","image_url"]]'
 t_eq "$(jq -r '.messages[0].content[1].image_url.url' "$T/calls/curl-body" | cut -d, -f2 | base64 -d | head -c 8 | od -An -tx1 | tr -d ' \n')" "89504e470d0a1a0a"
 

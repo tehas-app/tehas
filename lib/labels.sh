@@ -2,7 +2,7 @@
 # Who applied a label. Authorisation is the account behind the label event, not
 # that the label is present (AGENTS.md rule 5), so every command that lets a
 # label decide something reads the same events the same way. Sourced by
-# libexec/dispatch (tehas:ready, tehas:plan, tehas:refine, tehas:urgent,
+# the dispatcher (tehas:ready, tehas:plan, tehas:refine, tehas:urgent,
 # tehas:next, tehas:blocked), and by tehas work and tehas plan (whether the
 # label that started them approved an issue's images).
 #
@@ -21,21 +21,9 @@
 #                                   empty. Fails when the events are not what
 #                                   this expects, which is never the same as
 #                                   having no event.
-#   tehas_label_state <label>       stdin: one issue's events, as above.
-#                                   stdout: "<event>\t<login>\t<time>" for the
-#                                   labeled or unlabeled event of <label> with
-#                                   the latest stamp, ordered as
-#                                   tehas_label_actor orders them, except that a
-#                                   removal sharing a stamp with an application
-#                                   comes after it. Empty fields when no event
-#                                   names the label. Fails as tehas_label_actor
-#                                   does.
 #   tehas_allowed_labeler <login>   0 when <login> is one of
 #                                   TEHAS_ALLOWED_LABELERS. An empty name is
 #                                   nobody and is never allowed.
-#   tehas_label_denied <issue> <label> [<account>]
-#                                   one line naming the issue, the label and the
-#                                   account that applied it. The caller logs it.
 #   tehas_label_allowed <issue> <label>
 #                                   asks GitHub for the issue's events in
 #                                   TEHAS_REPO: 0 when the account that applied
@@ -81,18 +69,6 @@ tehas_label_actor() {
     | "\(.actor.login // "")\t\(.created_at // "")"'
 }
 
-tehas_label_state() {
-  jq -rs --arg l "$1" '
-    if any(.[]; type != "array") then error("not a list of events") else . end
-    | (add // [])
-    | map(select((.event == "labeled" or .event == "unlabeled") and .label.name == $l))
-    # Of an application and a removal in one second, the removal is read last:
-    # the label then counts for nothing.
-    | sort_by([.created_at // "", if .event == "unlabeled" then 1 else 0 end])
-    | last // {}
-    | "\(.event // "")\t\(.actor.login // "")\t\(.created_at // "")"'
-}
-
 tehas_allowed_labeler() {
   # lib/config.sh checks the setting for logins separated by single spaces, so
   # padding the list and the name with one space each matches whole logins only.
@@ -100,10 +76,6 @@ tehas_allowed_labeler() {
     *" $1 "*) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-tehas_label_denied() {
-  printf '#%s: %s was applied by %s, not an allowed account' "$1" "$2" "'${3:-unknown}'"
 }
 
 tehas_label_allowed() { # <issue> <label>

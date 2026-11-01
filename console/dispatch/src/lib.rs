@@ -1,6 +1,5 @@
 //! The dispatcher's decisions in Rust (#253). `decide` takes what a poll read
-//! and returns what it does; it reads and writes nothing itself. The bash poll,
-//! libexec/dispatch, still acts: this library is compared with it first.
+//! and returns what it does; it reads and writes nothing itself.
 
 pub mod apply;
 pub mod decide;
@@ -9,7 +8,6 @@ pub mod questions;
 pub mod read;
 pub mod refresh;
 pub mod settings;
-pub mod shadow;
 pub mod slots;
 pub mod snapshot;
 pub mod text;

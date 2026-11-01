@@ -103,9 +103,9 @@ t_eq "$(sed -n 's/^RuntimeMaxSec=//p' "$T_ROOT/host/systemd/tehas-cycle@.service
 
 t_case "the plan unit's limit is the longest turn's limit accepted plus the grace"
 # The pair that has to fit together: the ceiling tehas_load accepts, and the
-# grace lib/planning.sh adds to make the unit's RuntimeMaxSec.
+# grace apply/turn.rs adds to make the unit's RuntimeMaxSec.
 t_eq "$plan_max" "7200"
-t_contains "$(cat "$T_ROOT/lib/planning.sh")" "TEHAS_PLAN_TIMEOUT + 900"
+t_contains "$(cat "$T_ROOT/console/dispatch/src/apply/turn.rs")" "self.host.plan_timeout + 900"
 t_contains "$(cat "$T_ROOT/host/docs/host.md")" "may be at most $plan_max, 2 hours"
 t_contains "$(grep 'at most' "$T_ROOT/instances/example/optional.env")" "at most $plan_max"
 # Read from the config the same way tehas does: the largest value accepted, at
@@ -149,7 +149,7 @@ t_instance "${T_MINIMAL[@]}"
 
 t_case "the poll's unit has a finite limit, twice the lock's age at which a poll warns"
 t_eq "$(sed -n 's/^TimeoutStartSec=//p' "$T_ROOT/host/systemd/tehas-dispatch.service")" "1h"
-t_contains "$(cat "$T_ROOT/libexec/dispatch")" "bound=1800"
+t_contains "$(cat "$T_ROOT/console/dispatch/src/poll.rs")" "const HANG: u64 = 1800;"
 
 # A poll that exits non-zero leaves its unit failed, and a timer armed only
 # from the unit's inactivity does not fire again from that state: on 2026-10-20
@@ -776,6 +776,22 @@ t_run "$load; echo rc=\$?; echo \"[\${TEHAS_WORK_CPUS-unset}]\""
 t_eq "$t_out" "rc=0
 [unset]"
 T_ENV=()
+
+t_case "TEHAS_DISPATCHER that asks for the bash poll is refused, and says what to do"
+for v in bash perl; do
+  t_instance "${T_MINIMAL[@]}" TEHAS_DISPATCHER=$v
+  t_run "$load; echo rc=\$?"
+  t_contains "$t_out" "rc=78"
+  t_contains "$t_out" "tehas: TEHAS_DISPATCHER is set and this version of tehas has no bash poll: every poll is tehas-dispatch, so take the line out"
+done
+
+t_case "TEHAS_DISPATCHER=rust or a blank line stays loadable and reaches no child"
+for line in TEHAS_DISPATCHER=rust TEHAS_DISPATCHER=; do
+  t_instance "${T_MINIMAL[@]}" "$line"
+  t_run "$load; echo rc=\$?; echo \"[\${TEHAS_DISPATCHER-unset}]\""
+  t_eq "$t_out" "rc=0
+[unset]"
+done
 
 t_case "of two retired lines the operator is told about the first of them"
 t_instance "${T_MINIMAL[@]}" TEHAS_CLONES=1 TEHAS_WORK_CPUS=4

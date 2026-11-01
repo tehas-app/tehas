@@ -189,8 +189,7 @@
 //!
 //! run hardlinks $TEHAS_HOME's bin/, libexec/ and lib/ into
 //! $TEHAS_HOME/run/cycle-<issue>-<pid>/, removes the copies of processes that
-//! are gone, and execs <copy>/bin/tehasbot cycle <issue> with TEHAS_CODE set to
-//! the copy. A copy it cannot make is said on standard error and the install's
+//! are gone, and execs <copy>/bin/tehasbot cycle <issue>. A copy it cannot make is said on standard error and the install's
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
@@ -630,7 +629,6 @@ fn pinned(home: &Path, kind: &str, n: u64, program: &str, args: &[&str]) -> ! {
     };
     let e = std::process::Command::new(root.join(program))
         .args(args)
-        .env("TEHAS_CODE", &root)
         .exec();
     fail(format!("{}: {e}", root.join(program).display()));
 }
