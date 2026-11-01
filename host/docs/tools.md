@@ -673,8 +673,7 @@ Each poll sets the title from what it read already, through
 that opens a pull request gets `WIP: ` on the next poll. Only a title that
 differs is written, through the REST endpoint `repos/<repo>/pulls/<n>`. When a
 read fails the title stays as it is, and a failed read or write is a `WARN` in
-the log and holds nothing. The bash poll (`TEHAS_DISPATCHER=bash`) does not
-set titles; a cycle's end still does.
+the log and holds nothing. A cycle's end sets the title too.
 
 The preview page shows the prefix too, as it shows the title.
 

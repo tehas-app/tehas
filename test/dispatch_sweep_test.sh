@@ -84,21 +84,6 @@ t_eq "$(left_said 6)" "$runs/issue-6 $runs/plan-6 $live/console-6.txt"
 t_contains "$t_out" "removed what #5 left on this host: no cycle has run on it for 7 days"
 t_eq "$(swept)" "what #5 left on this host "
 
-t_case "the bash poll does not say an issue's leftovers went when the last of them would not"
-if ! bash_reads; then
-  t_skip "this run is the Rust poll's: T_BASH_POLL=1 runs the bash poll"
-else
-  reset_said
-  rm -rf "$works"
-  old 5
-  said 5 "8 days ago"
-  t_stub flock "case \"\$*\" in *console-5*) exit 1 ;; esac; exec $(command -pv flock) \"\$@\""
-  t_run "$dispatch"
-  rm -f "$T/bin/flock"
-  t_contains "$t_out" "WARN: could not remove live/console-5.txt of #5"
-  t_lacks "$t_out" "removed what #5 left"
-fi
-
 t_case "a workspace whose issue's lock is held is kept, however old, and so are its transcripts and its console"
 reset_said
 rm -rf "$works"

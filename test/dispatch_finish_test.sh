@@ -23,10 +23,8 @@ bare_tree() {
   for name in status index plan; do cp "$T/bin/fake-$name" "$tree/libexec/$name"; done
   for name in tehas tehasbot tehas-work tehas-status tehas-index tehas-plan; do t_stub "$name"; done
   # The Rust poll finds them beside its own program, as on a host.
-  if [ -z "${T_BASH_POLL:-}" ]; then
-    cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"
-    T_ENV_ALWAYS=()
-  fi
+  cp "$T_DISPATCH" "$tree/libexec/tehas-dispatch"
+  T_ENV_ALWAYS=()
   # Runs the unit's command at once, after its own options.
   t_stub systemd-run 'while [ "$#" -gt 0 ]; do case "$1" in --unit | -p) shift 2 ;; -*) shift ;; *) break ;; esac; done
 "$@"'
@@ -227,25 +225,6 @@ t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
 still_holding 9
 kill "$(<"$fx/holder-9")"
 
-t_case "a poll that cannot read the issue stops nothing and leaves the cycle holding its lock"
-# The Rust poll reads #9 in its one page and makes no read of the issue alone.
-if bash_reads; then
-  reset
-  stop_by_kill
-  ready 7
-  hold_proc 9
-  echo '{"number":9,"state":"closed"}' >"$fx/work-9.json"
-  : >"$fx/work-9-fails"
-  t_run "$dispatch"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "ERROR: gh api repos/acme/widget/issues/9 failed"
-  t_lacks "$t_out" "stop #9"
-  t_eq "$(t_calls fake-stop)" ""
-  t_eq "$(find "$T/home/tehas/state/cycles/9.done" 2>/dev/null | wc -l)" 0
-  still_holding 9
-  kill "$(<"$fx/holder-9")"
-fi
-
 t_case "a merged pull request of another account, or one with no author, stops nothing; the bot's own stops it"
 reset
 stop_by_kill
@@ -312,18 +291,15 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "park #9: it is marked tehas:running and no cycle holds its lock"
 t_eq "$(t_calls fake-start)" ""
 
-# The bash poll leaves such a mark as it is.
-if [ -n "${T_RUST_POLL:-}" ]; then
-  t_case "an open issue marked tehas:planning with no session goes to a person"
-  reset
-  echo '[]' >"$fx/ready.json"
-  echo '{"number":9,"state":"open","labels":[{"name":"tehas:planning"}]}' >"$fx/work-9.json"
-  t_run "$dispatch"
-  t_eq "$t_rc" 0
-  t_contains "$t_out" "park #9: it is marked tehas:planning and no planning session is open on it"
-  t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention"
-  t_contains "$(t_calls gh)" "issue comment 9"
-fi
+t_case "an open issue marked tehas:planning with no session goes to a person"
+reset
+echo '[]' >"$fx/ready.json"
+echo '{"number":9,"state":"open","labels":[{"name":"tehas:planning"}]}' >"$fx/work-9.json"
+t_run "$dispatch"
+t_eq "$t_rc" 0
+t_contains "$t_out" "park #9: it is marked tehas:planning and no planning session is open on it"
+t_contains "$(t_calls gh)" "issue edit 9 --repo acme/widget --remove-label tehas:planning --add-label needs-human-attention"
+t_contains "$(t_calls gh)" "issue comment 9"
 
 t_case "with no cycle running the bot's pull requests are not asked for"
 reset
@@ -475,23 +451,6 @@ for why in stranger edited closed unparked; do
   # Spent: the next poll asks nothing of it.
   t_eq "$(park_of '[.automatic, .retries]')" '[false,1]'
 done
-
-t_case "when the open planning sessions cannot be read again, the retry waits and is not spent"
-# The Rust poll reads the open planning sessions once, at its start.
-if bash_reads; then
-  outage_parked
-  open_read_fails_again
-  t_run "$dispatch"
-  t_eq "$(t_calls fake-start)" ""
-  t_lacks "$t_out" "it waits for a person"
-  t_contains "$t_out" "wait #7: the open planning sessions could not be read (busy)"
-  t_eq "$(park_of '[.automatic, .retries]')" '[true,0]'
-  # The next poll reads them and starts the retry.
-  rm -f "$T/calls/open-read" "$T/home/tehas/libexec/store"
-  ln "$T_STORE" "$T/home/tehas/libexec/store"
-  t_run "$dispatch"
-  t_eq "$(t_calls fake-start)" "7"
-fi
 
 t_case "an issue a person labelled tehas:ready is left to that label"
 outage_parked
