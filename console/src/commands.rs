@@ -204,7 +204,7 @@ pub fn check(given: &[String]) -> u8 {
 }
 
 /// The settings a command cannot run without, on one line.
-fn required(given: &[String]) -> &'static [&'static str] {
+pub fn required(given: &[String]) -> &'static [&'static str] {
     let words: Vec<&str> = given.iter().take(2).map(String::as_str).collect();
     match words[..] {
         ["tehas", "api" | "labels"] => &["TEHAS_REPO"],

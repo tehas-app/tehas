@@ -121,6 +121,20 @@ t_eq "$(jq -r '.queued | length' "$live/status.json")" 2
 t_eq "$(jq -r .status "$live/health.json")" pass
 t_eq "$(jq -r .checks.queue.review "$live/health.json")" 1
 
+t_case "status with a setting not given stops with 78, before GitHub and before a write, however it is started"
+reset
+rm -rf "$live"
+all=("TEHAS_HOME=$T/home/tehas" TEHAS_REPO=acme/widget TEHAS_CONTROL_ISSUE=1 TEHAS_ALLOWED_LABELERS=boss)
+for name in TEHAS_HOME TEHAS_REPO TEHAS_CONTROL_ISSUE TEHAS_ALLOWED_LABELERS; do
+  given=()
+  for word in "${all[@]}"; do [[ $word == "$name="* ]] || given+=("$word"); done
+  t_run "env -u $name ${given[*]} '$shim/libexec/console' tehasbot status"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "$name is not set"
+  t_eq "$(t_calls gh)" ""
+  [ ! -e "$live" ] || t_bad "$name: status wrote $live"
+done
+
 t_case "status writes the open epics and their sub-issues, and not an issue without any"
 reset
 epics_page '{"number":7,"title":"An epic","url":"u7","subIssuesSummary":{"total":2,"completed":1},
