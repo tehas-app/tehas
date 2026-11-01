@@ -1,16 +1,14 @@
 # shellcheck shell=bash
 # Refreshes: the factory's own pull requests that conflict with the branch,
-# and what a refresh of one rests on. Sourced by tehasbot refresh
-# (libexec/refresh), which finds them, and by the dispatcher, which checks
-# each again before it starts one. Both read a pull request through the same
-# query and the same rule, so they cannot disagree on which one qualifies.
+# and what a refresh of one rests on. Sourced by the bash dispatcher, which
+# checks each request again before it starts one. tehasbot refresh, which
+# finds them, and the Rust poll keep the same fields and the same rule in
+# console/dispatch, so they cannot disagree on which one qualifies.
 #
 #   tehas_refresh_dir             state/refresh, where the requests are
-#   tehas_refresh_query           print the GraphQL query of the open pull
-#                                 requests of the repository, with what the
-#                                 rule reads of each and of the issue it closes
 #   tehas_refresh_pr_query        print the GraphQL query of one pull request,
-#                                 the same fields, as variable $number
+#                                 with what the rule reads of it and of the
+#                                 issue it closes, as variable $number
 #   tehas_refresh_rule            print a jq definition, `refresh_why`: of one
 #                                 pull request node, why it is not one the
 #                                 factory refreshes, "" when it is. Needs $bot
@@ -43,12 +41,6 @@ _tehas_refresh_fields='number url isDraft isCrossRepository headRefOid baseRefNa
         author { login } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
         closingIssuesReferences(first: 5) { totalCount nodes { number state labels(first: 50) { nodes { name } }
           closedByPullRequestsReferences(first: 10) { nodes { number state } } } }'
-
-tehas_refresh_query() {
-  # shellcheck disable=SC2016  # $owner and $name are GraphQL variables
-  printf '%s\n' 'query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
-      pullRequests(states: OPEN, first: 100) { nodes { '"$_tehas_refresh_fields"' } } } }'
-}
 
 tehas_refresh_pr_query() {
   # shellcheck disable=SC2016  # $owner, $name and $number are GraphQL variables
