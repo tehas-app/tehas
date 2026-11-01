@@ -1354,11 +1354,11 @@ t_case "the scan places one record for every docker run the units hold"
 # The count is made by a rule the scan does not share, and the two must agree:
 # the count is what the units hold today: three for work (the check of a runner,
 # the check of a push, and the cycle), two for plan (the check of a runner and the
-# turn), and one each for dev and preview, the run of the comment that
+# turn), and one for preview, the run of the comment that
 # names docker run being read by neither. The runs of the programs are the rows
 # of the table below.
 count=$(docker_run_count "$T_ROOT/libexec")
-t_eq "$count" 7
+t_eq "$count" 6
 # The account of the records is read off the records themselves, and not from
 # two totals that could drift together: the lines of the records are the runs
 # the scan made records for, so a record of anything at all answers one line of
@@ -1372,7 +1372,7 @@ t_eq "$(wc -l <<<"$records")" "$count"
 # ends with the reason it gives. The scan keeps the two apart itself, and says
 # how many records it read as neither, which is what the account on the error
 # of the scan is asked for.
-t_eq "$(records_account "$T_ROOT/libexec")" "placed 6 unplaced 1 bad 0"
+t_eq "$(records_account "$T_ROOT/libexec")" "placed 5 unplaced 1 bad 0"
 # Any run the scan cannot place fails this case, and is named by the file and
 # the line it stands on. The two the units leave today are named by who and
 # where, and by no number that a third unplaced run could drift beside: one is
@@ -1392,7 +1392,7 @@ records=$(records_of "$T_ROOT/libexec")
 t_console || t_bad "no console: $t_console_why"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
-program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CYCLE" index table)
+program_runs=$("$T_CONSOLE" check-product table; "$T_CONSOLE" improve table; "$T_CONSOLE" review table; "$T_CONSOLE" dev table; "$T_CYCLE" index table)
 while IFS= read -r row; do
   records+=$'\n'"${row/$'\t'/$'\t0\t'}"$'\t'
 done <<<"$program_runs"

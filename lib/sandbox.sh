@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2154  # here is the sourcing command's
 # The bash of what a sandbox container is given, and the tree it works in.
-# Sourced by the commands that start one: tehas work (a cycle), tehas plan (a
-# planning turn) and tehas dev (a manual session).
+# Sourced by the commands that start one in bash: tehas work (a cycle) and tehas
+# plan (a planning turn), and by tehas dev for the check of Pi's files.
 # The docker options themselves are made in one
 # place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
 # sandbox, which stands beside the command as "$here/tehas-cycle". The goldens
@@ -68,9 +68,7 @@ tehas_sandbox_ok() {
 # <command> leads the line a refusal says, <what> names what does not start. The
 # program said why when it answers 78. What it hands out is checked here all the
 # same, so a list that drifted starts nothing: a short one, another parent, or
-# security options that are not the ten of "What a container may not do". The
-# words after them are the slice's MemoryMax and ActiveState, for
-# tehas_slice_room.
+# security options that are not the ten of "What a container may not do".
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_sandbox_limits() { # <command> <what>
   local words rc
@@ -92,8 +90,6 @@ tehas_sandbox_limits() { # <command> <what>
       return 78
       ;;
   esac
-  TEHAS_SLICE_MAX=${words[24]:-} TEHAS_SLICE_ACTIVE=${words[25]:-}
-  TEHAS_SLICE_CEILING_MB=${TEHAS_SLICE_LIMITS[3]%m}
 }
 
 # models.json is the container's own, <state>/models.json: the host's with each

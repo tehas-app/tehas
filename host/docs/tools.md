@@ -1220,7 +1220,7 @@ session and says on the issue to apply `tehas:plan` again.
 
 The container is the one `tehas work` starts, under the name
 `tehas-plan-<issue>`: the same image, the same limits in `tehas.slice`, the
-same mounts, token and settings, from `tehas-cycle sandbox`, and no Docker socket,
+same mounts, token and settings, from `console/core/src/sandbox.rs`, and no Docker socket,
 SSH keys or `~/.config/tehas`. It works in a workspace of its own,
 `~/tehas/work/<name>-plan-<issue>`, made fresh for the turn and removed after
 it, and its cache and memory go in `<name>-plan-<issue>.state` beside it and
@@ -1333,7 +1333,7 @@ verb ends.
 
 The container is the one `tehas plan` starts a planning turn in: the same
 image, the same limits in `tehas.slice`, the same mounts and variables from
-`tehas-cycle sandbox`, and no Docker socket, SSH keys or `~/.config/tehas`. It
+`console/core/src/sandbox.rs`, and no Docker socket, SSH keys or `~/.config/tehas`. It
 differs in its name, in what it runs, and in having no token: a review reads
 code, and the container writes nothing to the tracker, so no `-e` carries
 `GH_TOKEN`, and on a host with a GitHub App the directory of the app's token is

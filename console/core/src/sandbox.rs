@@ -133,7 +133,9 @@ pub fn env_options(
 /// settings of pi-rukas's own docker wrapper, which no container runs: the
 /// image, the aliases (given as --add-host) and the socket and SSH switches.
 /// The runner does not list them as inputs. A review is given none of the names
-/// of a planning turn or of a cycle's gate: it writes nothing to the tracker.
+/// of a planning turn or of a cycle's gate: it writes nothing to the tracker. A
+/// session's image directory is its own command's to give, and an instance's
+/// would name a path the container does not have.
 pub fn ensemble(kind: Kind) -> Vec<String> {
     let names = env::vars_os().filter_map(|(name, _)| name.into_string().ok());
     names
@@ -148,6 +150,7 @@ pub fn ensemble(kind: Kind) -> Vec<String> {
             )
         })
         .filter(|name| kind != Kind::Review || !REVIEW_LEAVES_OUT.contains(&name.as_str()))
+        .filter(|name| kind != Kind::Session || name != "PI_ENSEMBLE_EXTRA_IMAGE_DIRS")
         .collect()
 }
 

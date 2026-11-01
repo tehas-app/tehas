@@ -20,8 +20,8 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/env.sh`                     | Environment for every tehas process, its tool directories taken from `lib/paths.sh`; sourced from `~/.bashrc`           |
 | `~/tehas/lib/config.sh`              | Loads and checks the instance settings; sourced by every command        |
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
-| `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the seed of its code index, its clone, and the reading of what `tehas-cycle sandbox` gives it; sourced by the work, plan and dev scripts |
-| `~/tehas/lib/slice.sh`               | Reads the slice for the poll and `tehas improve`: whether it is usable and the room left. A command that starts a sandbox container asks `tehas-cycle sandbox limits`, which reads it the same way and makes the container's limits, and it starts nothing without a usable slice |
+| `~/tehas/lib/sandbox.sh`             | The bash of a sandbox container: the seed of its code index, its clone, and the reading of what `tehas-cycle sandbox` gives it; sourced by the work and plan scripts, and by dev for the check of Pi's files |
+| `~/tehas/lib/slice.sh`               | Reads the slice for the poll and `tehas improve`: whether it is usable and the room left. A command that starts a sandbox container reads it the same way in Rust (`console/core/src/slice.rs`), which makes the container's limits, and it starts nothing without a usable slice |
 | `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
@@ -1859,7 +1859,7 @@ for it with these differences:
 | What the host runs from the clone | Nothing. The host runs git there once, to make it, and never again                                           |
 
 `test/dev_test.sh` pins the session's `docker run` the same way. Both commands
-take the mounts and variables from `tehas-cycle sandbox`, so they cannot differ by
+take the mounts and variables from `console/core/src/sandbox.rs`, so they cannot differ by
 accident.
 
 ### Other accounts

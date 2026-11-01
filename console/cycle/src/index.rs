@@ -62,7 +62,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::lock::{self, Probe};
+use tehas_core::lock;
 use tehas_core::sandbox::{self, CACHE_DIR};
 use tehas_core::slice::{self, Load, Reading};
 use tehas_core::time;
@@ -274,24 +274,6 @@ fn temp_dir(tmp: &Path, prefix: &str) -> Option<PathBuf> {
     Some(PathBuf::from(path.trim_end_matches('\n')))
 }
 
-// What a running cycle looks like: its lock is held. A lock that cannot be read
-// counts as held, since nothing here may guess that no cycle runs.
-fn running(cycles: &Path) -> Vec<String> {
-    let mut held: Vec<String> = fs::read_dir(cycles)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let path = e.path();
-            let issue = name(&path).strip_suffix(".lock")?.to_string();
-            (!issue.is_empty() && !matches!(lock::probe(&path), Probe::Free | Probe::Absent))
-                .then_some(issue)
-        })
-        .collect();
-    held.sort();
-    held
-}
-
 // The poll that is starting cycles holds the dispatcher's lock: wait for it, look
 // at the cycles, let it go. Err is the exit status.
 fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
@@ -314,7 +296,8 @@ fn cycles_idle(home: &Path, wait: &str) -> Result<(), u8> {
         ));
         return Err(3);
     }
-    let issues = running(&home.join("state/cycles"));
+    // What a running cycle looks like: its lock is held.
+    let issues = lock::held_in(&home.join("state/cycles"));
     if !issues.is_empty() {
         warn(&format!(
             "a cycle is running (issue {}), nothing was indexed; run it again afterwards",

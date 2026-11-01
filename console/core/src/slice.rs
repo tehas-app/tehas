@@ -109,6 +109,35 @@ impl Reading {
     }
 }
 
+impl Reading {
+    /// What decides the room left: the scopes under the slice, its pressure and
+    /// what each cycle's cid file holds. No call, only files.
+    pub fn read_scopes(&mut self, cid_files: &[String]) {
+        let dir = Path::new(&self.root).join("tehas.slice");
+        self.pressure = fs::read_to_string(dir.join("memory.pressure")).ok();
+        self.scopes = fs::read_dir(&dir).ok().map(|entries| {
+            entries
+                .flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let name = e.file_name().into_string().ok()?;
+                    let read = |f: &str| fs::read_to_string(e.path().join(f)).ok();
+                    name.ends_with(".scope").then(|| Scope {
+                        stat: read("memory.stat"),
+                        low: read("memory.low"),
+                        name,
+                    })
+                })
+                .collect()
+        });
+        self.cids = cid_files
+            .iter()
+            .filter_map(|f| fs::read_to_string(f).ok())
+            .map(|t| t.lines().next().unwrap_or("").to_string())
+            .collect();
+    }
+}
+
 /// The settings a container's limits are made from.
 #[derive(Clone, Debug, Default)]
 pub struct Load {
