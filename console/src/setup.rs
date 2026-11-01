@@ -119,28 +119,13 @@ fn parse(args: &[String]) -> Result<Given, Fail> {
 }
 
 /// The value a KEY=value file has for a key, quotes taken off; empty when
-/// the file or the key is not there.
+/// the file or the key is not there. The reading itself is the core's, so
+/// `tehas disk` and `tehas setup` take the same value of one file.
 fn value_in(file: &Path, key: &str) -> String {
     let Ok(text) = fs::read_to_string(file) else {
         return String::new();
     };
-    let prefix = format!("{key}=");
-    let Some(v) = text
-        .lines()
-        .filter_map(|l| l.strip_prefix("export ").unwrap_or(l).strip_prefix(&prefix))
-        .next_back()
-    else {
-        return String::new();
-    };
-    let v = unquote(v, '"');
-    unquote(v, '\'').to_string()
-}
-
-fn unquote(v: &str, q: char) -> &str {
-    match v.strip_prefix(q).and_then(|v| v.strip_suffix(q)) {
-        Some(inner) if v.len() >= 2 => inner,
-        _ => v,
-    }
+    tehas_core::env_file::value(&text, key).unwrap_or_default()
 }
 
 fn all(s: &str, ok: impl Fn(char) -> bool) -> bool {
@@ -874,22 +859,6 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
-    }
-
-    #[test]
-    fn a_value_is_the_last_line_of_its_key_with_quotes_taken_off() {
-        let d = scratch("value");
-        let f = d.join("instance.env");
-        fs::write(
-            &f,
-            "# TEHAS_REPO=no\nTEHAS_REPO=a/b\nexport TEHAS_REPO=\"c/d\"\nOTHER_TEHAS_REPO=e/f\nX='y'\nZ=\"\n",
-        )
-        .unwrap();
-        assert_eq!(value_in(&f, "TEHAS_REPO"), "c/d");
-        assert_eq!(value_in(&f, "X"), "y");
-        assert_eq!(value_in(&f, "Z"), "\"");
-        assert_eq!(value_in(&f, "MISSING"), "");
-        assert_eq!(value_in(&d.join("none"), "TEHAS_REPO"), "");
     }
 
     #[test]
