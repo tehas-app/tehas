@@ -3991,9 +3991,13 @@ git, install.sh, Docker or systemd is called. The wait is
 refuse at once, at most 300; anything else is the default. It is read from the
 environment, not from `instance.env`, and the rule for it is
 `tehas_update_lock_wait` in `lib/update-steps.sh`, which both commands call.
-The update hands the lock to the install.sh it runs; the wait covers a run
-started right after one that failed and left the lock held a moment by
-something it had started. `--check` takes no lock.
+The update hands the lock to the install.sh it runs, and to nothing else; the
+wait covers a run started right after one that failed and left the lock held a
+moment by something it had started. `--check` takes no lock.
+
+`libexec/update` is a thin script: it holds that lock and runs install.sh, and
+the console does the rest. A console that does not start stops an update with
+exit 1, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 That pre-check covers the required settings only. The rest of the instance
 contract - `models.json` readable, valid JSON, listing the models the settings
@@ -4010,10 +4014,10 @@ image yet, makes the update exit 1. `--check` runs `build.sh --check` and
 exits 1 when the commit moved. See
 [pi-rukas comes from upstream](/host#pi-rukas-comes-from-upstream).
 
-The follow-ups are steps named by id in `lib/update-steps.sh`, which install.sh
-prints as `next: <step line>` and this command runs as its own steps rather than
-as shell text. The arguments belong to the step, and `lib/update-steps.sh` says
-which ones each id accepts and which of them it requires:
+The follow-ups are steps named by id in the console, which install.sh prints as
+`next: <step line>` and this command runs as its own steps rather than as shell
+text. The arguments belong to the step, and the console says which ones each id
+accepts and which of them it requires:
 
 | Step                        | install.sh asks for it when         | tehas update runs it when                                        |
 | --------------------------- | ------------------------------------ | ----------------------------------------------------------------- |
@@ -4044,15 +4048,17 @@ reporting the service as absent. Liveness is asked of Docker with `docker ps
 --filter label=com.docker.compose.project=...`, which needs the project name each
 compose file pins.
 
-A step line whose id or arguments are not ones `lib/update-steps.sh` defines is
+A step line whose id or arguments are not ones this version of tehas defines is
 not run: it is named in a `WARN:`, stays in the record of steps owed, and the
 command exits 1, so a producer and a consumer that have drifted apart cannot both
 stay green while a step nobody performed is treated as done. The units on a step
 line are checked as unit names and against the units this version of tehas
-installs - `tehas_units` - so a step line cannot name some other unit of the host's
-for an update to restart. The lines are checked with the checkout's
-`lib/update-steps.sh` once install.sh has run, so a unit the pulled version adds
-is restarted by the update that pulled it. A compose line that leaves out its flag is refused for
+installs, so a step line cannot name some other unit of the host's for an update
+to restart. Once install.sh has run, the console it installed reads its answer and
+runs the steps, so a unit the new version adds is restarted by the update that
+installed it. A `--to` below the release that moved this into the console installs
+one that cannot, and `libexec/console.prev`, which install.sh keeps, finishes that
+run. A compose line that leaves out its flag is refused for
 the same reason: `docker compose up -d` without `--force-recreate` is the weaker
 action, and running it would renew nothing while the step was counted as done.
 
@@ -4071,7 +4077,7 @@ leaves the rest owed instead of losing it with install.sh's one-shot report of
 what changed - the next run compares again and finds those files matching.
 `install.sh --check` reports the record as `Follow-ups: NOT DONE` and exits 1
 while any of it is left, including a step line no version of tehas here knows.
-Steps run in the order `lib/update-steps.sh` lists them - systemd first - whatever
+Steps run in a fixed order - systemd, the sandbox, docs, edge, labels - whatever
 order the lines were recorded in, so a step owed from an earlier run does not jump
 ahead of this run's unit reload. A hand-run install.sh leaves the same record
 behind; running `tehas update` finishes it, and repeating a renewal that has
@@ -4083,8 +4089,7 @@ what names them. There is no command that marks a follow-up done by hand; runnin
 
 **`--pending`.** `tehas update --pending` runs the lines that record holds and
 nothing else: it takes the update lock, reads `$TEHAS_HOME/state/update-pending`,
-runs each step in the order `lib/update-steps.sh` gives them, drops each line as
-it runs, and calls no git command and no `install.sh`. That is the half of an
+runs each step in that order, drops each line as it runs, and calls no git command and no `install.sh`. That is the half of an
 install a program can finish on a host the other three forms refuse: a checkout
 at a release tag has no branch to fast-forward, and a remote that is a local path
 can stop answering, while the copies `install.sh` made are already in place. It
@@ -4163,10 +4168,12 @@ runs in the slice and none starts without it. A real run installs either way and
 prints a `note:` line instead.
 
 After a real run it prints one `next: <step>` line per follow-up its changed
-files call for - the ids `lib/update-steps.sh` defines - and starts nothing
+files call for - the ids the console defines - and starts nothing
 itself; `tehas update` is what runs them. Each of those steps is also recorded in
-`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, so a
-run that dies partway still leaves its copies owed, and `--check` adds a
+`$TEHAS_HOME/state/update-pending` as the file that calls for it is copied, by the
+console this run installs, so a real run needs one that starts before its first
+copy: the release tree's, the one it built, or the one installed. A run that dies
+partway still leaves its copies owed, and `--check` adds a
 `Follow-ups: NOT DONE` line, and exits 1, while any of them is left. It asks
 systemd for nothing, but to reload before it removes the earlier layout: a copied unit file is not in effect until systemd has reloaded
 it, and that reload belongs to the `units` step, which cannot report a changed unit

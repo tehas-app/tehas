@@ -68,7 +68,7 @@ unknown() {
 
 # text <command>: print the text of a command and end.
 text() {
-  verb "$1" && exec "$console" usage "$1"
+  { verb "$1" || [ "$1" = update ]; } && exec "$console" usage "$1"
   file=$(script "$1")
   [ -n "$file" ] || unknown "$1"
   usage_of "$file"

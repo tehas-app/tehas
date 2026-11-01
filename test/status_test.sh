@@ -1231,7 +1231,7 @@ t_contains "$t_out" "platform  0.10.0, newest v0.10.0, fetched "
 t_case "platform: a checkout host with a current that is not a release stays on the checkout"
 reset
 platform_setup
-# tehas_release_installed reads a link with a VERSION and nothing else, which
+# The installed version is read from a link with a VERSION and nothing else, which
 # is what keeps a host whose current is not such a link on its checkout.
 mkdir -p "$T/home/tehas/versions/v0.9.0"
 echo v0.9.0 >"$T/home/tehas/versions/v0.9.0/VERSION"

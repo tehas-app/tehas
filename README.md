@@ -195,7 +195,7 @@ host.
 | `lib/sandbox.sh` | What a sandbox container is given, for a cycle and for a session by hand |
 | `lib/slice.sh` | The way to `console slice`: whether `tehas.slice` is usable, the limits of a container, the room left |
 | `api/` | A JSON Schema of `tehas status --json` and two samples the tests make from the code; a program that reads the object copies them into its own tests |
-| `lib/update-steps.sh` | The follow-up steps of an install, which `install.sh` asks for and `tehas update` runs, and the one wait both of them give `state/update.lock` |
+| `lib/update-steps.sh` | What of the follow-up steps is read before the console can be asked: the record of steps owed, and the one wait `install.sh` and `tehas update` give `state/update.lock` |
 | `host/` | Everything else that is installed: units, the docs server, the sandbox image, the manual |
 | `preview/` | What `tehasbot preview` builds for a pull request of this repository |
 | `install.sh`, `bootstrap.sh` | Install tehas on a host, and prepare a host's tools |

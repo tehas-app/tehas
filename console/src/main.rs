@@ -168,6 +168,10 @@
 //! the check libexec/with-settings makes before it loads the settings, and
 //! the text of tehas help, see src/commands.rs.
 //!
+//!   console update args|gate|prepare|api|finish|release|steps ...
+//!
+//! What tehas update decides and does, see src/update/mod.rs.
+//!
 //! Exit: 0 stopped by a signal or masked, 1 the console file or standard
 //! output cannot be written, 2 usage.
 
@@ -215,6 +219,7 @@ mod store;
 mod tail;
 mod tidy;
 mod top;
+mod update;
 
 use render::Entry;
 use std::collections::HashSet;
@@ -451,6 +456,7 @@ fn main() -> ExitCode {
             Some("tehas") => return ExitCode::from(commands::tehas(&given[1..])),
             Some("tehasbot") => return ExitCode::from(commands::tehasbot(&given[1..])),
             Some("top") => return ExitCode::from(top::main(&given[1..])),
+            Some("update") => return ExitCode::from(update::main(&given[1..])),
             Some("usage") => return ExitCode::from(commands::usage(&given[1..])),
             _ => {}
         }

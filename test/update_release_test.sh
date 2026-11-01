@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for tehas update from releases (lib/update-release.sh through
+# Tests for tehas update from releases (console/src/update/release.rs through
 # libexec/update): which version is the target, the notes between, the two
 # checks of a download, the instance checked against the target's own rules,
 # the switch of current, the image a version ran with, and the last three
@@ -10,13 +10,10 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The library this file checks beside the command. It is sourced for the cases
-# that call tehas_release_arch and tehas_release_tarball directly, and tehas_err
-# is defined with it because those cases run outside libexec/update, which gets
-# the message helper from lib/config.sh.
-# shellcheck source=lib/update-release.sh
-. "$T_ROOT/lib/update-release.sh"
-tehas_err() { echo "tehas: $*" >&2; }
+# The releases are the console's, and it is no stub here.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
 
 update="$T_ROOT/libexec/update"
 th=$T/home/tehas
@@ -24,7 +21,7 @@ rel=$T/releases
 T_ENV=(T_IN_TEST=1)
 
 # The asset name the release of a machine answers with, the same words
-# tehas_release_arch of lib/update-release.sh answers with. The cases stub
+# console/src/update/release.rs answers with. The cases stub
 # uname; where they do not, this run's own machine decides, as it does on a host.
 arch_of() { # [machine]
   local machine=${1:-$(uname -m)}
@@ -134,8 +131,7 @@ Set TEHAS_EXAMPLE_KNOB in instance.env.'
 
 # A machine no release is published for, as the stub of uname answers it. A
 # function of its own, so a case that takes uname away from the command keeps
-# the other tools of this host's PATH: the command reads the machine through
-# tehas_release_machine, which is the only thing that asks uname.
+# the other tools of this host's PATH: only the choice of the asset asks uname.
 no_machine() { t_stub uname 'exit 127'; }
 
 instance() { t_instance "${T_MINIMAL[@]}" TEHAS_UPDATE_FROM=release "$@"; }
@@ -471,19 +467,6 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "uname -m says nothing"
 t_lacks "$(t_calls gh)" "release download"
 t_eq "$(readlink "$th/current")" versions/v1.0.0
-
-t_case "the asset name of each machine, and nothing for one that has no release"
-t_eq "$(tehas_release_arch x86_64)" x86_64
-t_eq "$(tehas_release_arch amd64)" x86_64
-t_eq "$(tehas_release_arch aarch64)" aarch64
-t_eq "$(tehas_release_arch arm64)" aarch64
-t_eq "$(tehas_release_tarball v1.2.0 aarch64)" tehas-v1.2.0-linux-aarch64.tar.gz
-# The words a caller of either sees: tehas_err, so on the command's stderr.
-t_eq "$(tehas_release_arch riscv64 2>&1 >/dev/null)" \
-  "tehas: this machine has no tehas release to download: releases are published for x86_64 and aarch64, and uname -m says riscv64"
-t_eq "$(tehas_release_arch riscv64 2>/dev/null)" ""
-t_eq "$(tehas_release_arch riscv64 >/dev/null 2>&1; echo $?)" 1
-t_eq "$(tehas_release_tarball v1.2.0 riscv64 >/dev/null 2>&1; echo $?)" 1
 
 # The host left by the case above: its uname is a stub of a machine no release
 # is published for, and every later case wants a host of this one.

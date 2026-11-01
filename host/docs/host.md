@@ -418,7 +418,7 @@ The record is also the way to finish an install on a host that cannot run an
 update. A checkout at a release tag has no branch to fast-forward, and a remote
 that is a local path can stop answering, while the copies `install.sh` made are
 already in place. `tehas update --pending` reads that record, runs the steps it
-lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+lists in the order they run, and calls no git command and
 no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
 A program finishes an install with `install.sh` and then that command; see
 [tehas update](/tools#tehas-update).
@@ -611,6 +611,10 @@ again:
 touch ~/tehas/state/update-hold     # tehas update refuses while this exists
 tehas update --to v0.8.0            # --to runs with the hold there
 ```
+
+`tehas update` needs a console that starts. A release whose console does not
+cannot update itself; the way back is the install.sh of a version still on the
+host, see [tehas update says the console does not answer](/troubleshooting#tehas-update-says-the-console-does-not-answer).
 
 `install.sh` keeps one `<name>.prev` beside each file it replaces, and only
 one: a second install that changes the file replaces it. Copying a `.prev`
