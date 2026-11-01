@@ -622,6 +622,21 @@ t_cycle() {
   fi
   cp "$target/debug/tehas-cycle" "$T_CYCLE"
 }
+# t_fake_limits <dir> [<word>...]: a tehas-cycle in <dir> that hands out these
+# words for `sandbox limits` and is the real one for every other verb: the seam
+# of the guard in tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# program hands out. Needs t_cycle first.
+t_fake_limits() {
+  local dir=$1
+  shift
+  {
+    echo "#!$T_BASH"
+    # shellcheck disable=SC2016  # expanded when the stand-in runs
+    printf '[ "$1 $2" = "sandbox limits" ] || exec "%s" "$@"\n' "$T_CYCLE"
+    [ "$#" = 0 ] || printf '%s\n' "printf '%s\\0' $*"
+  } >"$dir/tehas-cycle"
+  chmod +x "$dir/tehas-cycle"
+}
 # t_console: the console of this checkout, in $T_CONSOLE, as t_dispatch gets
 # tehas-dispatch: from T_CONSOLE_BIN, or built here when the file runs alone.
 T_CONSOLE=$T/console-bin

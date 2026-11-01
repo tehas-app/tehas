@@ -1,74 +1,39 @@
 # shellcheck shell=bash
-# What a sandbox container is given, and the tree it works in. Sourced by the
-# commands that start one: tehas work (a cycle), tehas plan (a planning turn),
-# tehas dev (a manual session), tehasbot review (a review) and tehas index (the
-# indexer). It is in one place so they cannot drift apart; test/work_test.sh,
-# test/plan_test.sh, test/dev_test.sh and test/review_test.sh pin the result
-# option by option. The container's limits and
-# the slice it runs in are not made here: they come from lib/slice.sh. The
-# security options go to the cycle, the turn, the session, the review and the
-# push check before a cycle; the indexer is not given them.
+# shellcheck disable=SC2154  # here is the sourcing command's
+# The bash of what a sandbox container is given, and the tree it works in.
+# Sourced by the commands that start one in bash: tehas work (a cycle) and tehas
+# plan (a planning turn), and by tehas dev for the check of Pi's files.
+# The docker options themselves are made in one
+# place, console/core/src/sandbox.rs, and reach bash through tehas-cycle
+# sandbox, which stands beside the command as "$here/tehas-cycle". The goldens
+# of test/sandbox_argv_test.sh pin the result word by word.
 #
-#   tehas_sandbox_env <tree> <name> <email> [no-token]
-#                                             the -e options; with no-token,
-#                                             every one of them but the bot's
-#                                             token: a run that writes nothing
-#                                             to the tracker is given no token
-#                                             to write with, and no -e carries
-#                                             its name at all
-#   tehas_sandbox_settings_ok                 is Pi's settings.json there
-#   tehas_sandbox_mounts <tree> <host> <state> <runs> [no-token]
-#                                             the -v options; with no-token,
-#                                             not the GitHub App's token
-#                                             directory
-#   tehas_sandbox_retry <host>                the provider retry a container's
-#                                             Pi runs with, as one line
-#   tehas_sandbox_seed <state> [<index dir>]  give <state> the host's code index
-#   tehas_sandbox_cache_dir                   where a container has that copy
-#   tehas_sandbox_target_dir                  where a manual session has its
-#                                             cargo build output; only tehas dev
-#                                             gives a container one
-#   tehas_index_dir                           where the host keeps the index
-#   tehas_git_github_host                     the github.com host git authenticates to
-#   tehas_git_credential_helper_key           the config key of that host's helper
-#   tehas_sandbox_helper_command              the helper command a container's git runs
-#   tehas_sandbox_hosts                       the --add-host options
-#   tehas_sandbox_security                    the options that take privileges
-#                                             away from a container
-#   tehas_sandbox_clone <src> <tree> <branch> make <tree>, a clone of <src>
+#   tehas_sandbox_ok                     Pi's files are there and the model
+#                                        tokens set; else 78, said
+#   tehas_sandbox_limits <command> <what>
+#                                        the container's limits and security
+#                                        options in the caller's
+#                                        TEHAS_SLICE_LIMITS and sec; else 78, said
+#   tehas_sandbox_mounts <kind> <tree> <host> <state> <runs>
+#                                        make what the -v options name and the
+#                                        container's own models.json, and print
+#                                        the options NUL separated
+#   tehas_sandbox_retry <host>           the provider retry a container's Pi runs
+#                                        with, as one line
+#   tehas_sandbox_seed <state> [<index dir>]
+#                                        give <state> the host's code index
+#   tehas_index_dir                      where the host keeps the index
+#   tehas_git_github_host                the github.com host git authenticates to
+#   tehas_git_credential_helper_key      the config key of that host's helper
+#   tehas_sandbox_helper_command         the helper command a container's git runs
+#   tehas_sandbox_clone <src> <tree> <branch>
+#                                        make <tree>, a clone of <src>
 #
-# env, mounts, hosts and the security options print docker options separated
-# by NUL bytes. Read them with
-#   mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$name" "$email")
-#
-# Source lib/config.sh and call tehas_load first: the settings are read from
-# the environment it leaves.
-#
-# Not given to any container, and not a setting: the Docker socket, SSH keys,
-# ~/.config/tehas, the product checkout, the rest of the host environment. Of
-# ~/.config/tehas/env a container is given the bot's token and the model
-# endpoints' tokens that models.json names, by name.
+# Source lib/config.sh and call tehas_load first, and set here to the directory
+# of the command: the settings are read from the environment it leaves.
 
 # shellcheck source=lib/models.sh
 . "$(dirname "${BASH_SOURCE[0]}")/models.sh"
-
-# Where a container has its own copy of the code index, and the variable that
-# points the indexer and the agents' code search at it. It is a path inside the
-# container, not a setting: no instance names it. The host directory behind it
-# belongs to one container and goes with it, so nothing one container writes
-# there is what a later container reads.
-tehas_sandbox_cache_dir() { printf '%s\n' /home/vscode/.tehas-cache; }
-
-# Where a manual session has its cargo build output: the container path that
-# CARGO_TARGET_DIR names. libexec/dev alone sets that variable; it makes the host
-# directory beside <state> and prints the -v and -e pair from here, so the mount,
-# the variable, the manual and the tests name one path. A path off the image's
-# home would build into the container's layer, which the session throws away. A
-# cycle and a planning turn get no CARGO_TARGET_DIR: cargo builds in the workspace,
-# the read-write mount, so on the host's disk. A cycle's output stays until it ends,
-# if libexec/cycle's console clean ended takes it, else the hourly tehasbot clean
-# (libexec/clean); a turn's goes when libexec/plan rm -rfs its fresh workspace.
-tehas_sandbox_target_dir() { printf '%s\n' /home/vscode/.tehas-target; }
 
 # Where the host keeps the code index it gives to containers: the one directory
 # the indexer writes and every container is given a copy of. No container is
@@ -93,112 +58,52 @@ tehas_git_credential_helper_key() {
 # write and the container's entry read it here.
 tehas_sandbox_helper_command() { printf '%s\n' '!gh auth git-credential'; }
 
-# The same variables as the pi-rukas wrapper sets, without the host's whole
-# environment: the bot token by name, the PI_ENSEMBLE_* settings, and git's
-# configuration. And the model endpoints' tokens models.json names, by name:
-# Pi reads "$TEHAS_MODEL_KEY_<NAME>" from its environment.
-#
-# With no-token the bot's token is left out of the list altogether: not given
-# an empty value and not given its bare name, but absent. A caller that starts
-# a run which writes nothing to the tracker asks for that, so the name the
-# token carries is not among the container's variables at all. What is kept back
-# is decided here, before the list is made, and not by a caller editing the list
-# afterwards: this is the one place a name is dropped.
-#
-# git inside the sandbox has no configuration of its own: no credential helper
-# and no identity. Without the helper the driver commits but cannot push, and
-# a cycle parks after all the work is done. Hand git the bot's token through gh
-# (which reads GH_TOKEN) and an identity, as environment-level config: it
-# outranks any file, reaches every agent process, and writes nothing into the
-# tree.
-tehas_sandbox_env() { # <tree> <git name> <git email> [no-token]
-  local tree=$1 name=$2 email=$3 no_token=${4:-} var key
-  key=$(tehas_git_credential_helper_key)
-  local envs=(-e PI_ENSEMBLE_SANDBOX_MODE=1 -e "PI_ENSEMBLE_WORKSPACE_ROOT=$tree"
-    -e "CBM_CACHE_DIR=$(tehas_sandbox_cache_dir)")
-  [ -n "$no_token" ] || envs=(-e GH_TOKEN "${envs[@]}")
-  envs+=(-e GIT_CONFIG_COUNT=4
-    -e "GIT_CONFIG_KEY_0=$key" -e "GIT_CONFIG_VALUE_0="
-    -e "GIT_CONFIG_KEY_1=$key" -e "GIT_CONFIG_VALUE_1=$(tehas_sandbox_helper_command)"
-    -e "GIT_CONFIG_KEY_2=user.name" -e "GIT_CONFIG_VALUE_2=$name"
-    -e "GIT_CONFIG_KEY_3=user.email" -e "GIT_CONFIG_VALUE_3=$email"
-    -e GIT_TERMINAL_PROMPT=0)
-  # Not the settings of pi-rukas's own docker wrapper, which no container
-  # runs: the image, the aliases (given as --add-host) and the socket and SSH
-  # switches. The runner does not list them as inputs.
-  while IFS='=' read -r var _; do
-    case "$var" in
-      PI_ENSEMBLE_IMAGE | PI_ENSEMBLE_HOST_ALIASES | PI_ENSEMBLE_NO_DOCKER_SOCKET | PI_ENSEMBLE_NO_SSH) ;;
-      PI_ENSEMBLE_*) envs+=(-e "$var") ;;
-    esac
-  done < <(env)
-  while read -r var; do
-    [ -z "$var" ] || [ -z "${!var:-}" ] || envs+=(-e "$var")
-  done < <(tehas_model_key_names)
-  printf '%s\0' "${envs[@]}"
+# Asked before a command calls Docker or git or writes anything. A command with
+# no tehas-cycle beside it goes on to tehas_sandbox_limits, which refuses it.
+tehas_sandbox_ok() {
+  "$here/tehas-cycle" sandbox ok
+  [ "$?" != 78 ]
 }
 
-# What one container is given, and none of what another container wrote.
-# <tree> is the path inside the container and <host> the directory mounted
-# there. <state> is a host directory of this container's own: its copy of the
-# code index, its memory and its sessions go under it. <runs> is the host
-# directory of its transcripts. All four are named by the caller: there is no
-# default that lets one container's writes be another's input. The caller makes
-# <host>; this makes <state> and <runs>, because Docker would create a missing
-# mount source as a root-owned directory.
-#
-# With no-token the GitHub App's token directory is not mounted: a run that is
-# given no GH_TOKEN is not given the app's token another way either.
-#
-# The two cache volumes pi-rukas mounts are not mounted here. What a container
-# writes under its home, caches of packages among them, stays in its own layer
-# and goes when the container is removed. Pi's settings.json is the one
-# install.sh puts in ~/.pi/agent: its provider retry and timeout. The image has
-# none, and without it Pi makes no retry of a failed request. A missing file is
-# a failure, not a default: Docker would make a root-owned directory in its
-# place.
-#
-# models.json is the container's own, <state>/models.json: the host's with
-# each provider on the endpoint picked now (lib/models.sh). <state>/endpoints
-# says which providers are on their backup.
-# Whether Pi's settings.json and models.json are there to be mounted, and
-# the tokens models.json names are set. The commands ask before
-# they call Docker or git or write anything; tehas_sandbox_mounts asks again.
-tehas_sandbox_settings_ok() {
-  local f
-  for f in settings.json models.json; do
-    [ -f "$HOME/.pi/agent/$f" ] || { tehas_err "no $HOME/.pi/agent/$f: run install.sh"; return 1; }
-  done
-  tehas_model_keys_ok
-}
-
-tehas_sandbox_mounts() { # <tree> <host> <state> <runs> [no-token]
-  local tree=$1 host=$2 state=$3 runs=$4 no_token=${5:-} agent=$HOME/.pi/agent cache
-  [ -n "$tree" ] && [ -n "$host" ] && [ -n "$state" ] && [ -n "$runs" ] || return 1
-  tehas_sandbox_settings_ok || return 1
-  cache=$(tehas_sandbox_cache_dir)
-  mkdir -p "$runs" "$state/cache" "$state/memory" "$state/sessions" || return 1
-  tehas_models_resolve "$state/models.json" >"$state/endpoints" || return 1
-  printf '%s\0' -v "$host:$tree" \
-    -v "$state/cache:$cache" \
-    -v "$state/memory:/home/vscode/.vipune" \
-    -v "$state/sessions:/home/vscode/.pi/agent/sessions" \
-    -v "$runs:/home/vscode/.pi/agent/ensemble-runs" \
-    -v "$state/models.json:/home/vscode/.pi/agent/models.json:ro" \
-    -v "$agent/mcp.json:/home/vscode/.pi/agent/mcp.json:ro" \
-    -v "$agent/settings.json:/home/vscode/.pi/agent/settings.json:ro"
-  # The GitHub App's token directory, read-only, when the instance names an
-  # app: the image's gh (host/sandbox/gh-shim) reads the token the host keeps
-  # fresh there. Not the key, which stays in ~/.config/tehas. A security change
-  # under AGENTS.md rule 4: test/work_test.sh pins it.
-  if [ -n "${TEHAS_GITHUB_APP_ID:-}" ] && [ -z "$no_token" ]; then
-    mkdir -p "$TEHAS_HOME/state/github" || return 1
-    printf '%s\0' -v "$TEHAS_HOME/state/github:/run/tehas/github:ro"
+# <command> leads the line a refusal says, <what> names what does not start. The
+# program said why when it answers 78. What it hands out is checked here all the
+# same, so a list that drifted starts nothing: a short one, another parent, or
+# security options that are not the ten of "What a container may not do".
+# shellcheck disable=SC2034  # the caller reads what this sets
+tehas_sandbox_limits() { # <command> <what>
+  local words rc
+  mapfile -d '' -t words < <("$here/tehas-cycle" sandbox limits "$1" "$2")
+  wait "$!"
+  rc=$?
+  [ "$rc" != 78 ] || return 78
+  TEHAS_SLICE_LIMITS=("${words[@]:0:14}")
+  sec=("${words[@]:14:10}")
+  if [ "$rc" != 0 ] || [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ] ||
+    [ "${TEHAS_SLICE_LIMITS[12]}" != --cpu-shares ]; then
+    echo "$1: the container limits could not be made, not starting" >&2
+    return 78
   fi
+  case "${#sec[@]} ${sec[*]}" in
+    "10 --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size="[1-9]*m,mode=1777) ;;
+    *)
+      echo "$1: tehas_sandbox_security gave ${#sec[@]} words, wants 10: not starting $2" >&2
+      return 78
+      ;;
+  esac
+}
+
+# models.json is the container's own, <state>/models.json: the host's with each
+# provider on the endpoint picked now (lib/models.sh). <state>/endpoints says
+# which providers are on their backup. The options are held until that is
+# written, so a run that could not write it is given none.
+tehas_sandbox_mounts() { # <kind> <tree> <host> <state> <runs>
+  local opts
+  mapfile -d '' -t opts < <("$here/tehas-cycle" sandbox mounts "$@")
+  wait "$!" && tehas_models_resolve "$4/models.json" >"$4/endpoints" && printf '%s\0' "${opts[@]}"
 }
 
 # The provider and agent retry and timeout a container's Pi runs with: the host's
-# settings.json that tehas_sandbox_mounts gives it, under the product's own
+# settings.json that a container is mounted, under the product's own
 # .pi/settings.json in <host>, merged the way Pi merges them. A value neither
 # sets is Pi's default. For the cycle's log, so a reader of it knows them.
 tehas_sandbox_retry() { # <host>
@@ -235,122 +140,6 @@ tehas_sandbox_seed() { # <state> [<index dir>]
     [ -e "$f" ] || continue
     case "$f" in */logs | *.db.stage.* | *.tmp) continue ;; esac
     cp -a "$f" "$state/cache/" || { rm -rf "$state/cache"; mkdir -p "$state/cache"; return 1; }
-  done
-}
-
-# What a container is not allowed to do, so that an agent's code cannot give
-# itself more of the host than it was given: every capability Docker grants by
-# default is taken away, and a program cannot gain rights through its mode or
-# file capabilities. The same options for the four containers tehas starts an
-# agent in: a cycle, a planning turn, a manual session and the push check
-# before a cycle. The contract is one array: tehas_sandbox_security_count prints
-# how many words it prints, and tehas_sandbox_security_ok says whether the words
-# it prints are the documented ones in order, so a guard asked before Docker
-# names what drifted instead of counting somewhere else. host/docs/host.md
-# documents the same options in a table, and test/work_caps_test.sh compares
-# that table with what is printed here, so adding one option is an edit here, a
-# row there, and nothing else.
-#
-# Only CHOWN and FOWNER are given back:
-#
-#   CHOWN    npm's install drops a package to the unprivileged user with
-#            chown(2) and lchown(2), and Playwright's install of Chromium
-#            copies a cache tree that way. Both run in a gate of the product.
-#            Without it the gate fails on EPERM.
-#   FOWNER   npm moves its staging directory onto its destination with rename,
-#            and rename of a file one does not own is refused even when the
-#            directory is writable. tar's unpack, cargo's install of a built
-#            crate and a gate's own mv do the same.
-#
-# Nothing else in the list is named. In particular:
-#
-#   SETUID, SETGID   nothing a cycle runs becomes another user. The image has
-#                    no sudo, the container runs as one uid and tehas gives it
-#                    no setuid program to reach another. Playwright's Chromium
-#                    runs its own sandbox only with a capability that would
-#                    let it make a setuid helper, and it is run with
-#                    --no-sandbox instead, which pi-rukas's browser tool
-#                    passes. no-new-privileges does not break anything a cycle
-#                    does: it stops a program gaining rights, and nothing in
-#                    the image is meant to have any.
-#   NET_RAW          the agents answer over HTTP with curl and fetch through
-#                    git, npm and cargo, none of which opens a raw socket. It
-#                    is off Docker's own default list too.
-#   SYS_ADMIN        the one capability that matters for a container's escape,
-#                    and the one Chromium's sandbox would want. Nothing here
-#                    mounts anything: tehas makes every mount on the host
-#                    before it starts a container.
-#
-# The root filesystem stays writable, unlike a preview's: a cycle's gate
-# installs into its own tree and its caches, and a read-only root would need
-# one --tmpfs per directory a tool writes in, which is a list nobody can pin.
-# One --tmpfs is given all the same, for /tmp: not to hide the root but to
-# bound it. The writable layer it replaces sits on the host's root disk with no
-# limit of its own; on 2026-10-20 one cycle filled the host's disk with a log
-# under /tmp and four others died with it. Why the bit stays exec, what the
-# container's own TMPDIR is, and what the size means are in the manual, at
-# "What a container may not do" in host/docs/host.md. The size is half the
-# container's --memory, TEHAS_SLICE_CEILING_MB from tehas_slice_ok: tmpfs pages
-# count against that limit and cannot be reclaimed, so a /tmp as large as the
-# limit ends in OOM kills of the agents (#761). At half, a full /tmp is ENOSPC
-# for its writer and the other half is left to the processes. Without a
-# ceiling nothing is printed, and tehas_sandbox_security_take refuses.
-tehas_sandbox_security() {
-  [[ ${TEHAS_SLICE_CEILING_MB:-} =~ ^[1-9][0-9]{1,8}$ ]] || return 1
-  printf '%s\0' --cap-drop ALL --cap-add CHOWN --cap-add FOWNER \
-    --security-opt no-new-privileges:true \
-    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
-}
-
-# tehas_sandbox_security_take <command> <what>: the options in the caller's
-# sec, or 1 with a line on stderr naming what does not start. Asked before
-# Docker is called, so a list that drifted from the documented one starts
-# nothing.
-tehas_sandbox_security_take() {
-  mapfile -d '' -t sec < <(tehas_sandbox_security)
-  [ "${#sec[@]}" -gt 0 ] && [ "${#sec[@]}" -eq "$(tehas_sandbox_security_count)" ] &&
-    tehas_sandbox_security_ok && return 0
-  echo "$1: tehas_sandbox_security gave ${#sec[@]} words, wants $(tehas_sandbox_security_count): not starting $2" >&2
-  return 1
-}
-
-# How many words the function above prints, in the caller's own words. It is
-# asked of the function, so the number stands in one place.
-tehas_sandbox_security_count() {
-  local sec=()
-  mapfile -d '' -t sec < <(tehas_sandbox_security)
-  printf '%s\n' "${#sec[@]}"
-}
-
-# True when what tehas_sandbox_security prints is the documented list below, in
-# this order and as separate arguments (docker also accepts --tmpfs=<value>,
-# which is not what is printed and would be a shorter list). A caller that
-# cannot ask this has only a length to go on; the tests ask it of the function
-# itself (test/work_caps_test.sh).
-tehas_sandbox_security_ok() {
-  local documented sec i
-  [[ ${TEHAS_SLICE_CEILING_MB:-} =~ ^[1-9][0-9]{1,8}$ ]] || return 1
-  documented=(
-    --cap-drop ALL
-    --cap-add CHOWN
-    --cap-add FOWNER
-    --security-opt no-new-privileges:true
-    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$((TEHAS_SLICE_CEILING_MB / 2))m,mode=1777"
-  )
-  sec=()
-  mapfile -d '' -t sec < <(tehas_sandbox_security)
-  [ "${#sec[@]}" -eq "${#documented[@]}" ] || return 1
-  for i in "${!documented[@]}"; do
-    [ "${sec[i]}" = "${documented[i]}" ] || return 1
-  done
-}
-
-# Names the sandbox cannot resolve by itself, from PI_ENSEMBLE_HOST_ALIASES.
-tehas_sandbox_hosts() {
-  local pairs=() p
-  IFS=',' read -ra pairs <<<"${PI_ENSEMBLE_HOST_ALIASES:-}"
-  for p in "${pairs[@]}"; do
-    if [ -n "$p" ]; then printf '%s\0' "--add-host=$p"; fi
   done
 }
 

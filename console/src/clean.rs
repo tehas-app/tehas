@@ -77,7 +77,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 use tehas_core::{rukas, time};
 
-const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean target <follow> <repo>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>\n       console clean session <home> <clone name> [<seconds>]";
+const USAGE: &str = "usage: console clean run <dry 0|1> <home> <work dir> <after hours> <min free MiB> <min free> <free KiB> <dirs> <sandbox image> <log file> <scratch dir>\n       console clean image <PI_ENSEMBLE_IMAGE>\n       console clean usage <arguments>\n       console clean held <tags>\n       console clean target <follow> <repo>\n       console clean ended <workspace> <dirs> <log file> <scratch of the cycle>\n       console clean scratch <scratch dir> <name>";
 
 /// What `tehasbot clean --help` prints.
 const HELP: &str = r#"Remove what the host can make again: build output in kept workspaces,
@@ -146,9 +146,6 @@ before any docker, find or rm call.
 pub fn main(given: &[String]) -> u8 {
     if given.first().is_some_and(|v| v == "ended") {
         return ended(&given[1..]);
-    }
-    if given.first().is_some_and(|v| v == "session") {
-        return open_session(&given[1..]);
     }
     if given.first().is_some_and(|v| v == "scratch") {
         return scratch_made(&given[1..]);
@@ -366,46 +363,14 @@ fn scratch_made(given: &[String]) -> u8 {
     0
 }
 
-/// `console clean session`: the lock of a manual session, prepared and named.
-/// The cleaner's step for a clone's build output waits behind
-/// `state/dev/<name>.lock` and no file of `state/cycles`, so this makes the
-/// directory the session's cargo build output is mounted at - a plain directory
-/// of the account the session runs as, never a link or a tree another account
-/// left - makes the lock, and prints its path. `tehas dev` holds the lock itself
-/// for the session's life, and ends when the container is gone. The wait is
-/// spent in this call, which is what says who else holds the lock; the wait of
-/// the shell that comes back is for a lock that went and came. Standard output
-/// carries the path and nothing else, the words go to standard error.
-fn open_session(given: &[String]) -> u8 {
-    let [home, name, wait @ ..] = given else {
-        eprintln!("{USAGE}");
-        return 64;
-    };
-    // The path of the lock is the contract between this verb and libexec/dev:
-    // one plain word of a name, so a clone cannot name another directory or
-    // leave the tree of clones.
-    if name.is_empty()
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        eprintln!("tehas clean: not a name for a clone: {name}");
-        return 64;
-    }
-    let secs = match wait {
-        [] => 300u64,
-        [one] => match one.parse::<u64>() {
-            Ok(0) | Err(_) => {
-                eprintln!("tehas clean: not a number of seconds to wait: {one}");
-                return 64;
-            }
-            Ok(n) => n,
-        },
-        _ => {
-            eprintln!("{USAGE}");
-            return 64;
-        }
-    };
+/// The lock of a manual session, held. The cleaner's step for a clone's build
+/// output waits behind `state/dev/<name>.lock` and no file of `state/cycles`, so
+/// this makes the directory the session's cargo build output is mounted at - a
+/// plain directory of the account the session runs as, never a link or a tree
+/// another account left - makes the lock and takes it. `tehas dev` holds what it
+/// returns for the session's life. The words go to standard error, and name who
+/// else holds the lock. `wait` is in seconds.
+pub fn open_session(home: &str, name: &str, wait: u64) -> Result<File, ()> {
     let devs = Path::new(home).join("dev");
     let state = devs.join(format!("{name}.state"));
     let target = state.join("target");
@@ -435,26 +400,20 @@ fn open_session(given: &[String]) -> u8 {
             "tehas clean: {} is not a directory of this account, or could not be made",
             target.display()
         );
-        return 78;
+        return Err(());
     }
-    // The wait, spent here: a session that is merely running must not hold the
-    // shell that asked past its own life, and the answer names who held it.
-    let deadline = Instant::now() + Duration::from_secs(secs);
+    let deadline = Instant::now() + Duration::from_secs(wait);
     let mut said = false;
     loop {
         match take_clone_lock(&lock) {
-            Ok(locked) => {
-                drop(locked);
-                out(&format!("{shown}\n"));
-                return 0;
-            }
+            Ok(locked) => return Ok(locked),
             Err(why) => {
                 if Instant::now() >= deadline {
                     eprintln!("tehas clean: {shown} is held{why}");
-                    return 78;
+                    return Err(());
                 }
                 if !said {
-                    eprintln!("tehas clean: {shown} is held{why}, waiting {secs} seconds for it");
+                    eprintln!("tehas clean: {shown} is held{why}, waiting {wait} seconds for it");
                     said = true;
                 }
                 std::thread::sleep(Duration::from_millis(200));
