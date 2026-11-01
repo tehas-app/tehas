@@ -22,7 +22,7 @@ Preparing a fresh machine is on the [bootstrap page](/bootstrap).
 | `~/tehas/lib/paths.sh`               | The home of each tool this host installs, and the `PATH` that finds them. `env.sh`, `bootstrap.sh` and `install.sh` all take the list from here |
 | `~/tehas/lib/sandbox.sh`             | What a sandbox container is given; sourced by the work, plan and dev scripts |
 | `~/tehas/lib/slice.sh`               | Reads the slice: whether it is usable, a container's limits, the room left. Every command that starts a sandbox container reads it |
-| `~/tehas/lib/headless.sh`            | What tehas reads of pi-rukas's headless runner: its `--capabilities` answer, its progress and its result. `tehas work` and `tehasbot cycle` use it |
+| `~/tehas/lib/headless.sh`            | How `tehas review` asks an image for its `--capabilities`, and what `tehas work` reads of a cycle's progress. `libexec/tehas-cycle` reads the answer and the result (`caps`, `runner`) |
 | `~/tehas/lib/attachments.sh`         | Which links of an issue are attached files and how one is fetched. The Protolab and `tehas work` use it |
 | `~/tehas/lib/questions.sh`, `planning.sh` | The question and planning steps of the dispatcher. A cycle's report uses the first too |
 | `~/tehas/bin/`                       | The two commands on `PATH`: `tehas` for a person, `tehasbot` for the units. Plus `gh` |

@@ -109,6 +109,9 @@ t_case "a shadow that cannot run leaves the report as it was"
 reset
 mkdir -p "$home/state"
 : >"$home/state/cycle-shadow.on"
+mv "$home/libexec/tehas-cycle" "$home/libexec/tehas-cycle.real"
+printf '%s\n' '#!/usr/bin/env bash' 'case "$1" in shadow | compare) exit 127 ;; esac' 'exec "$0.real" "$@"' >"$home/libexec/tehas-cycle"
+chmod +x "$home/libexec/tehas-cycle"
 ended aborted develop
 t_run "$cycle 7"
 t_eq "$t_rc" 0

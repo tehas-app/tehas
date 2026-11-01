@@ -166,8 +166,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/headless.sh
-. "$here/../lib/headless.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
 tehas_load || exit 78
@@ -257,7 +255,7 @@ tehas_sandbox_security_take "tehas plan" "a turn" || exit 78
 caps_wait=${TEHAS_CAPS_WAIT:-120}
 [[ $caps_wait =~ ^[1-9][0-9]{0,3}$ ]] || caps_wait=120
 caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null) || caps=""
-if [ "$(tehas_headless_mode "$caps" planTurns)" != native ]; then
+if [ "$("$here/tehas-cycle" caps mode planTurns <<<"$caps")" != native ]; then
   echo "tehas plan: $image runs no planning turns (its --capabilities has no features.planTurns), not starting a turn" >&2
   exit 78
 fi
@@ -413,7 +411,7 @@ if [ -n "$brief" ]; then
     { echo "tehas plan: the console gave no descriptor for the brief of #$issue" >&2; exit 78; }
   run=(plan "$what" --start --context "$(cat "$keep/brief.md")")
   # pi-rukas 0.14.28 and later keep the issue itself out of the duplicate check.
-  ! tehas_headless_verb "$caps" plan --issue || run+=(--issue "$issue")
+  ! "$here/tehas-cycle" caps verb plan --issue <<<"$caps" || run+=(--issue "$issue")
 elif [ "$last" = 12 ] && grep -q -E ' chose: (File as a new issue|File this plan)$' "$answer"; then
   run=(plan --resume "$session" --confirm)
 else
