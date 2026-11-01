@@ -186,7 +186,7 @@
 #      a state GitHub does not give holds it too, and the log says why.
 #      Alone, on an issue in no other flow, it approves as tehas:ready does.
 #      With TEHAS_SIZE_MAX_FILES set, the body the label approved is measured
-#      (lib/sizing.sh), and an issue whose body names more files than the
+#      (console/core/src/size.rs), and an issue whose body names more files than the
 #      setting is not started either: its tehas:ready comes off,
 #      needs-human-attention goes on, and the issue says the counts, the
 #      setting and the way out once. Unset, nothing here changes, and a refresh
@@ -402,9 +402,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/live.sh
 . "$here/../lib/live.sh"
 tehas_load || exit 78
-# Sourced after tehas_load, as lib/questions.sh is below: the measure builds
-# the tick of markdown into a jq program with a `file` of its own, and a
-# command that sources a file before tehas_load would lose its own to it.
 # shellcheck source=lib/sizing.sh
 . "$here/../lib/sizing.sh"
 # shellcheck source=lib/questions.sh
@@ -1130,7 +1127,7 @@ cross_repo_holds() {
 
 # size_ok <issue> <its labels>: is that number small enough for one cycle? With
 # TEHAS_SIZE_MAX_FILES set on the instance, the body the label approved is
-# measured (lib/sizing.sh) and a body naming more files than the setting names
+# measured (console/core/src/size.rs) and a body naming more files than the setting names
 # is not started: it is a stack of changes wearing the shape of one issue, and
 # the cycle would spend its explore and its plan before it parked. As for an
 # epic, the label that asked for the cycle comes off, needs-human-attention
@@ -2756,7 +2753,7 @@ disk_free=""
 disk_read=""
 # disk_check: the free disk of the host for this poll, in $disk_free. It is the
 # one df of ~/tehas, the one docker info and the one df of Docker's own a poll
-# makes (tehas_free_kb in lib/disk.sh), each bounded, so a Docker or a mount
+# makes (console disk free), each bounded, so a Docker or a mount
 # that does not answer leaves no figure and a hold rather than a poll that
 # waits for it. The read is made once and its answer kept, also when it is
 # nothing: a poll that reads nothing pays for the read once, and the next poll
