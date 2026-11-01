@@ -558,10 +558,12 @@ beside itself.
 
 `TEHAS_CYCLE_REPORT=rust` in `instance.env` has `tehas-cycle report` report a
 cycle. `bash`, or leaving the setting out, is the report of `libexec/cycle`. A
-value of neither is exit 78. The switch is read when a cycle ends, by the code
-that cycle runs from, so a cycle already running reports as its own copy says.
-Roll back by taking the line out. A host without `libexec/tehas-cycle` reports
-in bash.
+value of neither is exit 78. The switch is read when a cycle starts, with the
+rest of its settings, so a cycle already running reports as the line said then.
+Roll back by taking the line out: cycles that start after that report in bash,
+and one already running does not change. A host without `libexec/tehas-cycle`
+reports in bash, and what follows the end does not run (see
+[The cycle's shadow](#the-cycles-shadow)).
 
 The Rust report makes the same writes in the same order, with the same tries:
 three, and one bounded try after a stop. The differences:
