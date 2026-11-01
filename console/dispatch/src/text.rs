@@ -1,18 +1,12 @@
 //! What the poll reads off an issue's own text: the hash an approval binds
-//! (lib/attachments.sh), the files its body names (tehas_core::size), and the
+//! (tehas_core::approval), the files its body names (tehas_core::size), and the
 //! attachments it links or promises (lib/attachments.sh).
 
 use regex::Regex;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
-
-/// tehas_body_sha256: the body with carriage returns dropped.
-pub fn body_sha256(issue: &Value) -> String {
-    let body = issue.get("body").and_then(Value::as_str).unwrap_or("");
-    let sum = Sha256::digest(body.replace('\r', "").as_bytes());
-    sum.iter().map(|b| format!("{b:02x}")).collect()
-}
+pub use tehas_core::approval::{body_sha256, title_sha256};
 
 /// The files count of the measure of a body.
 pub fn size_files(body: &str, max_bytes: usize, max_lines: usize) -> usize {
@@ -37,14 +31,6 @@ pub fn link_list(text: &str) -> Vec<String> {
         }
     }
     out
-}
-
-/// tehas_title_sha256: the title without its line ends; None when the
-/// answer names no title, which binds none.
-pub fn title_sha256(issue: &Value) -> Option<String> {
-    let title = issue.get("title")?.as_str()?.replace(['\r', '\n'], "");
-    let sum = Sha256::digest(title.as_bytes());
-    Some(sum.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// What a plan's start binds: the title and the body together, without the

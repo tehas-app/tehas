@@ -11,6 +11,7 @@
 //! TEHAS_WATCH_CLOCK (a program that answers the `clock` verbs).
 
 use crate::clock;
+use crate::start::attempt_shaped;
 use crate::{host, progress, runner};
 use serde_json::Value;
 use std::fs::{self, File, OpenOptions};
@@ -697,10 +698,6 @@ fn say_console(g: &Given, rc: i32) {
         "tehas work: the console ended with {rc}, see {}",
         file.display()
     ));
-}
-
-fn attempt_shaped(a: &str) -> bool {
-    (1..=9).contains(&a.len()) && a.bytes().all(|b| b.is_ascii_digit()) && !a.starts_with('0')
 }
 
 /// The container, with its result and stream where they go. A command that

@@ -12,6 +12,7 @@
 //! `index` builds the code index a cycle's agents search.
 //! `sandbox` prints the docker options of a container for the commands that
 //! keep their docker line in bash.
+//! `start` holds a start to its approval before anything of it is written.
 //! `watch` starts a cycle's container and sees it to its end, and `progress`
 //! summarises what the runner wrote.
 
@@ -34,6 +35,7 @@ pub mod report;
 pub mod runner;
 pub mod sandbox;
 pub mod shadow;
+pub mod start;
 pub mod watch;
 
 pub use facts::Facts;

@@ -341,8 +341,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/improve.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
-# shellcheck source=lib/sizing.sh
-. "$here/../lib/sizing.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 tehas_load || exit 78
@@ -383,9 +381,6 @@ oom_file=$TEHAS_HOME/state/cycles/$issue.oom
 forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
-# The ledger of the sizes tehas work records at an approved start, kept by
-# tehas_size_record (console/src/size.rs), which says what it holds and how long.
-sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # The manifest of the last fetch, kept.
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
 result_file=$TEHAS_HOME/state/cycles/$issue.result.json
@@ -419,56 +414,15 @@ lock=$TEHAS_HOME/state/cycles/$issue.lock
 [ /dev/fd/9 -ef "$lock" ] 2>/dev/null || exec 9>"$lock"
 flock -n 9 || { echo "tehas work: a cycle for #$issue is running, not starting another" >&2; exit 5; }
 
-# What the dispatcher approved for this start, from the state store, as a
-# private file in the shape the readers below know (tehas_approval_view). It
-# goes when this command ends. Read before anything of the cycle is written;
-# what stops a start for it is said below, with the issue's text.
-record=""
-record_why=""
+# What the dispatcher approved for this start, as a private file that goes when
+# this command ends, and why a start with none stops, which is said below with
+# the issue's text. Read before anything of the cycle is written. Driver lean is
+# refused here: it needs trail-openers/pi-rukas#1920.
 attempt=${TEHAS_CYCLE_ATTEMPT:-}
-trap 'rm -f "${record:-}"' EXIT
-if [ -n "$attempt" ]; then
-  if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
-    record_why="its start names no attempt this host can read"
-  else
-    record=$(tehas_approval_view "$issue" "$attempt")
-    case $? in
-      0) ;;
-      1)
-        # None used by this start: a start by hand, as the store has it, or
-        # one whose approval is gone.
-        record=""
-        if ! tehas_store cycle-show "$issue"; then
-          record_why="the approval of this start could not be read"
-        elif [ "$(jq -r --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .how' \
-          <<<"$tehas_store_out" 2>/dev/null)" != hand ]; then
-          record_why="no approval of this start is on record"
-        fi
-        ;;
-      *)
-        record=""
-        record_why="the approval of this start could not be read"
-        ;;
-    esac
-  fi
-else
-  record=$(tehas_approval_view "$issue")
-  case $? in
-    0) ;;
-    1) record="" ;;
-    *)
-      record=""
-      record_why="the approval of this issue could not be read"
-      ;;
-  esac
-fi
-
-# Lean needs trail-openers/pi-rukas#1920, and classic never runs in its place.
-if tehas_record_is_file "$record" && [ -n "$(jq -r '.driver // ""' "$record" 2>/dev/null)" ]; then
-  : >"$TEHAS_HOME/state/cycles/$issue.lean-refused"
-  echo "tehas work: this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #$issue to run it on classic" >&2
-  exit 78
-fi
+record="" record_why="" issue_file=""
+trap 'rm -f "${record:-}" "${issue_file:-}"' EXIT
+said=$("$here/tehas-cycle" start-check record "$issue" ${attempt:+--attempt "$attempt"}) || exit 78
+{ read -r record; read -r record_why; } <<<"$said"
 
 # The bot's identity is the tehas user's own. What the container is given is
 # assembled by tehas-cycle sandbox, which tehas dev uses too.
@@ -572,72 +526,14 @@ if [ -n "$expired" ]; then
   exit 78
 fi
 
-# The words a cycle works on are the words somebody approved. The dispatcher
-# wrote what it approved into its record; read the issue once here, before
-# anything of this cycle is written, and hold it to that, so a body or a title
-# edited after the label starts no cycle. This is the last place on the host that
-# can still compare them, and it compares as it starts: what the container reads
-# afterwards is the issue as it is then. The title is bound here as well as by
-# the dispatcher's read of the label events: the record carries its hash, and a
-# record that carries none is checked on the body alone.
-# Where this host holds no record the run is by hand, and the person who ran
-# this command is the approval.
-text_why="" # why this start stops, empty when the text is the approved one
-text_path="" # the record that could not be read, when that is the reason
-issue_now="" # the issue as GitHub answers for it now, read once for all of it
-measured=0 # 1 when this start had an approval record, and so a body to measure
-if [ -n "$record_why" ]; then
-  text_why=$record_why
-elif tehas_record_is_file "$record"; then
-  measured=1
-  # Bounded like every other call before the container: a network that swallows
-  # this read must not hold the issue's lock and its slot for ever. gh's own
-  # words go to $log.err, where a person can see which failure it was.
-  issue_now=$(timeout -k 10 "$text_wait" gh api "repos/$TEHAS_REPO/issues/$issue" 2>>"$log.err")
-  issue_rc=$?
-  case $issue_rc in
-    0) ;;
-    124 | 137) text_why="the issue could not be read for its text: no answer within ${text_wait}s" ;;
-    *) text_why="the issue could not be read for its text: GitHub refused the read" ;;
-  esac
-  if [ -z "$text_why" ]; then
-    # An answer that is a pull request, or an issue nobody can start a cycle
-    # on, is refused before its text is hashed or anything is said on it.
-    case $(jq -r 'if type != "object" or (.body != null and (.body | type) != "string") then "unread"
-        elif .pull_request != null or ((.state // "") != "open") then "wrong" else "ok" end' \
-      <<<"$issue_now" 2>/dev/null) in
-      ok) tehas_approval_text "$record" "$issue_now" ;;
-      wrong) text_why="#${issue} is not an open issue, as GitHub answers for it" ;;
-      *) text_why="the issue could not be read for its text" ;;
-    esac
-  fi
-else
-  echo "tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval" >&2
-fi
-if [ -n "$text_why" ]; then
-  # The path of the record stays on the host. What the issue is told names which
-  # rule stopped the start, and nothing of where this instance keeps its state.
-  echo "tehas work: $text_why${text_path:+ ($text_path)}, not starting a cycle" >&2
-  timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
-    --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
-    echo "tehas work: the comment on #$issue failed" >&2
-  exit 4
-fi
-
-# What the cycle starts with, measured. Only a start that had the approval
-# record to check is measured: the body is the one in $issue_now, already read
-# above, so this asks GitHub nothing more, and a run by hand, which has no
-# approved body, records nothing. console/src/size.rs says what the ledger is and
-# keeps it bounded. A line that cannot be written is one word on this command's
-# error stream: the measure is a record of the start, never a reason to stop
-# one.
-if [ "$measured" = 1 ]; then
-  mkdir -p "$(dirname "$sizes_file")" 2>/dev/null || true
-  size_body=$(jq -r 'if (.body | type) == "string" then .body else "" end' <<<"$issue_now" 2>/dev/null) || size_body=""
-  if ! tehas_size_record "$issue" "$size_body" "$sizes_file"; then
-    echo "tehas work: could not record the size of #$issue in $sizes_file ($tehas_size_why), starting the cycle all the same" >&2
-  fi
-fi
+# The words a cycle works on are the words somebody approved. This is the last
+# place on the host that can still compare them, and it compares as it starts,
+# so a body or a title edited after the label starts no cycle. A start with an
+# approval reads the issue once, here, for all of it, and is measured.
+issue_file=$("$here/tehas-cycle" start-check text "$issue" --record "$record" --why "$record_why" --log "$log" \
+  --text-wait "$text_wait" --console "${TEHAS_CONSOLE_CMD:-$here/console}") || exit $?
+issue_now=""
+[ -z "$issue_file" ] || issue_now=$(<"$issue_file")
 
 # The issue's images, where the instance gives a cycle any. Before the
 # workspace: a start that fails here must not move aside what the last cycle
@@ -838,7 +734,7 @@ fi
 # cycle as interrupted and still writes its result. The container reads the app's
 # token from a directory the host keeps fresh; the renewer ends with the
 # container, or with the watch. exec runs no EXIT trap, so the record goes here.
-rm -f "${record:-}"
+rm -f "${record:-}" "${issue_file:-}"
 trap - EXIT
 renewer=$(tehas_github_renew)
 exec "$here/tehas-cycle" watch "$issue" --attempt "$attempt" --log "$log" --runs "$runs" --name "$name" \

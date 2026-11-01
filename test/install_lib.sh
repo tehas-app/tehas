@@ -123,7 +123,6 @@ files="./.bashrc
 ./tehas/lib/release.sh
 ./tehas/lib/rukas.sh
 ./tehas/lib/sandbox.sh
-./tehas/lib/sizing.sh
 ./tehas/lib/status.sh
 ./tehas/lib/store.sh
 ./tehas/lib/slice.sh

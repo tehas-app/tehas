@@ -462,7 +462,6 @@ files=(
   # The free disk of the host, read by the dispatcher's hold and the previews'.
   "lib/disk.sh|$TEHAS_HOME/lib/disk.sh|644"
   # The measure of an issue body, read by the dispatcher and the analytics.
-  "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
   "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
@@ -1212,6 +1211,7 @@ for f in \
   lib/headless.sh \
   lib/planning.sh \
   lib/refresh.sh \
+  lib/sizing.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \
