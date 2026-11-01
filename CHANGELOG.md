@@ -16,6 +16,7 @@ empty one above it.
 - A factory pull request whose issue carries `needs-human-attention` loses
   `STUCK: ` when it is proven fine to merge: clean on GitHub, and the last
   six-pass review is newer than its head and lists nothing above MEDIUM.
+
 ### Adopter action
 
 None.
