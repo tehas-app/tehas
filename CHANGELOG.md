@@ -18,6 +18,18 @@ empty one above it.
 - The cleaner's image names and the held set are the console's, and libexec/clean is a wrapper.
 - `tehasbot refresh` runs in tehas-dispatch; each GitHub call has a 30 s bound.
 - check-product and init-product run in the console.
+- tidy is a console verb, `console tidy run`; `libexec/tidy` is gone.
+- tehas top and tehasbot top run in the console; libexec/top, libexec/top-publish and lib/top.sh are gone, and an update restarts tehas-top.service.
+- tehas api, resume, drain and labels run in the console; the labels live in host/labels.tsv and the update's labels step follows that file.
+- tehas stop runs in the console; libexec/stop is gone.
+- `tehas mcp` runs in the console and `libexec/mcp` is gone; a new console no longer restarts `tehas-mcp.service`, a new server binary still does.
+- The store answers the approval, plan and settings views itself; lib/store.sh loses its jq shapes.
+- What an image says and what a runner left are read by tehas-cycle (`caps`, `runner`); sandbox/build.sh needs libexec/tehas-cycle beside it.
+- Image descriptions and the private names are verbs of tehas-cycle; lib/describe.sh and lib/private.sh are gone.
+- `tehasbot improve` runs in the console, and its unit allows 90 minutes, longer than the analyst's 60-minute bound.
+- The previews' network is checked and made by the console (`console preview network`); `install.sh` no longer sources `lib/edge.sh`.
+- A planning turn's preparation, docker wait and end moved from `libexec/plan` to `console plan`.
+- The GitHub App token is made in the console, and the JWT and the token reach curl on standard input, not on its command line.
 
 ### Adopter action
 
