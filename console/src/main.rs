@@ -157,6 +157,7 @@ mod export;
 mod flags;
 mod forge;
 mod frame;
+mod github;
 mod health;
 mod jq;
 mod notice;

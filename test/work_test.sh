@@ -454,7 +454,8 @@ printf '%s\n' TEHAS_GITHUB_APP_ID=5452597 TEHAS_GITHUB_APP_INSTALLATION=17474208
 mkdir -p "$T/home/tehas/state/github"
 printf 'ghs_app\n' >"$T/home/tehas/state/github/token"
 echo $(($(date +%s) + 3000)) >"$T/home/tehas/state/github/token.expires"
-T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP")
+t_console || t_bad "no console: $t_console_why"
+T_ENV=("TEHAS_CGROUP_ROOT=$T_CGROUP" TEHAS_CONSOLE_CMD="$T_CONSOLE")
 t_run "$work 7"
 t_eq "$(cat "$T/calls/docker.token" 2>/dev/null)" "ghs_app"
 run_args=$(cycle_args)

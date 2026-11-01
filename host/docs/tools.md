@@ -3308,7 +3308,8 @@ Token with the app's key, `~/.config/tehas/github-app.pem` (mode 600, never
 given to a container), and exchanges it at GitHub for a token that lasts an
 hour. The token is kept in `~/tehas/state/github/token` (mode 600) and made
 again when fewer than 10 minutes are left; one command makes it at a time.
-Without `--check` it prints the token and nothing else. `--check` prints the
+The web token and the token go to curl on its standard input, never on its
+command line. Without `--check` it prints the token and nothing else. `--check` prints the
 app, the installation, the bot's login, when the token runs out and whether the
 installation reaches `TEHAS_REPO`, and never the token.
 
