@@ -18,6 +18,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+pub use tehas_core::file::base64;
 use tehas_core::mask::mask;
 
 /// A larger file is not served.
@@ -269,25 +270,6 @@ pub fn masked(path: &Path) -> Result<String, ToolError> {
         }
     }
     Ok(out)
-}
-
-/// Standard base64 with padding.
-pub fn base64(bytes: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16
-            | (*c.get(1).unwrap_or(&0) as u32) << 8
-            | *c.get(2).unwrap_or(&0) as u32;
-        for i in 0..4 {
-            if i <= c.len() {
-                out.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 fn bad(why: &str) -> ToolError {

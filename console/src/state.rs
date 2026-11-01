@@ -1,10 +1,10 @@
 //! tehas state pack and unpack: a stopped factory's state as one tar, to move
-//! it to another machine (libexec/state says how and why).
+//! it to another machine (console/src/usage/state.txt says how and why).
 //!
 //!   console state pack [--rehearse] -    the tar on standard output
 //!   console state unpack [--rehearse] -  the tar on standard input
 //!
-//! The home is $TEHAS_HOME, which libexec/state has loaded.
+//! The home is $TEHAS_HOME, which libexec/with-settings has loaded.
 //!
 //! The tar holds tehas-state.json first, {"api":1,"tag":...,"schema":...},
 //! then state/, repos/, live/ and mcp/ of the home where they exist. The
@@ -88,7 +88,7 @@ fn io_fail(what: &str) -> impl Fn(io::Error) -> Fail + '_ {
     move |e| (1, format!("{what}: {e}"))
 }
 
-/// The release in use, read as libexec/api reads it: the first line of
+/// The release in use, read as `tehas api` reads it: the first line of
 /// docs/version.txt, its tag when it is "v1.2.3+abc1234", the whole when it is
 /// a bare tag or a bare commit.
 fn tag(home: &Path) -> Result<String, Fail> {

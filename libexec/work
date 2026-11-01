@@ -28,23 +28,17 @@
 #                       from the result's handoff and labels the issue.
 #   PI_ENSEMBLE_HANDOFF_TIMEOUT_MS  the handoff allowance, 480000 (8 minutes,
 #                       pi-rukas's own default): the time the cycle's handoff
-#                       may take. It is the one allowance: the margin below
-#                       is sized from it, so the handoff never lands on the
-#                       container's stop.
+#                       may take. The deadline below is the limit less this,
+#                       so the handoff never lands on the container's stop.
 #   PI_ENSEMBLE_CYCLE_DEADLINE   the time after which the cycle starts no new
 #                       step and parks with cap "deadline", in milliseconds
 #                       since the epoch: the start, plus TEHAS_WORK_TIMEOUT,
-#                       less a margin. With an image whose --capabilities has
-#                       features.cycleDeadlineHandoffAllowance the margin is
-#                       the handoff allowance: that runner bounds every step
-#                       by the deadline. Otherwise it is a quarter of the
-#                       limit, or one run of the gate and the handoff
-#                       allowance when that is longer, for a step that runs
-#                       past the deadline. None when that leaves no time.
+#                       less the handoff allowance: the runner bounds every
+#                       step by the deadline. None when that leaves no time.
 #                       PI_ENSEMBLE_CYCLE_BUDGET_MS is not passed.
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
 #                       container's share of the CPUs and memory ceiling
-#                       (tehas_slice_verify).
+#                       (tehas-cycle sandbox verify).
 #   PI_ENSEMBLE_SPAWN_TIMEOUT_MS  one child's bound in ms from
 #                       TEHAS_CHILD_TIMEOUT: pi-rukas's backstop for a child
 #                       nothing else ended.
@@ -241,7 +235,7 @@
 # without looking at the stream first.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
-# first (lib/describe.sh), into images.md in the same directory, for the steps
+# first (tehas-cycle describe), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
 # mount and no variable more. A description that fails says so in the file and
 # stops nothing.
@@ -251,7 +245,7 @@
 # hours of the cycle's budget left.
 #
 # The container runs in tehas.slice, as every sandbox container does, with the
-# limits lib/slice.sh makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of the
+# limits tehas-cycle sandbox makes: a memory ceiling of 1/TEHAS_SLICE_CONTAINERS of the
 # slice, no swap, the reserve as its floor, a CPU quota of the host less one CPU,
 # a pids limit that follows its share of that and a CPU weight.
 # It has an init (--init): Pi collects only its own children, and a process
@@ -272,8 +266,12 @@
 # tehas.rukas go on the cycle's record on the state store (cycle-image), for
 # the cycle's report. So do the PI_ENSEMBLE_* values the container is given,
 # the TEHAS_* settings that shape a cycle and how many cycles hold their lock,
-# this one with them (lib/improve.sh). Only under tehasbot cycle: a run on its
+# this one with them (console/cycle/src/improve.rs). Only under tehasbot cycle: a run on its
 # own has no attempt to put them on.
+#
+# What the steps before the container work out for each other is in
+# state/cycles/<issue>.prepared, under the lock. It goes before the container
+# starts.
 #
 # Docker writes the container's id to state/cycles/<issue>.cid, which is how
 # the dispatcher tells this cycle's container from the others in the slice.
@@ -318,7 +316,7 @@
 # The console and the dashboard's line are fed from the stable kinds of the
 # runner's NDJSON only. At the end, the per-role usage and why the cycle
 # stopped at its cap go to state/cycles/<issue>.progress.json for the report
-# (tehas_headless_progress). They come from the issue's entry of the schema 5
+# (console/cycle/src/progress.rs). They come from the issue's entry of the schema 5
 # result, which every image tehas starts a cycle on is checked for before the
 # cycle starts. A runner that wrote no result leaves the usage of the stable
 # dispatch-completed lines and a reason read from lines the runner marks
@@ -335,28 +333,16 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
-# shellcheck source=lib/describe.sh
-. "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
 . "$here/../lib/millwright.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/improve.sh
-. "$here/../lib/improve.sh"
-# shellcheck source=lib/headless.sh
-. "$here/../lib/headless.sh"
-# shellcheck source=lib/private.sh
-. "$here/../lib/private.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
-# shellcheck source=lib/sizing.sh
-. "$here/../lib/sizing.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 tehas_load || exit 78
@@ -366,69 +352,30 @@ if ! tehas_store_ready; then
   echo "tehas work: ERROR: the state store is not installed (run install.sh)" >&2
   exit 78
 fi
-tehas_sandbox_settings_ok || exit 78
+tehas_sandbox_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
+[ -x "${TEHAS_CONSOLE_CMD:-$here/console}" ] ||
+  { echo "tehas work: no console beside this command at $here/console, run install.sh" >&2; exit 78; }
 # No container starts outside the slice, and none with half its limits.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas work: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas work: the container limits could not be made, not starting" >&2
-  exit 78
-fi
-src=$TEHAS_WORK_REPO
-# The workspace inside the container, and the directory on the host behind it.
-repo=$TEHAS_WORK_DIR
-tree=$TEHAS_WORK_DIR-$issue
+tehas_sandbox_limits "tehas work" "a cycle" || exit 78
 # The issue's images on the host, and where the container has them.
-images=$tree.images
-images_inside=$repo.images
-image=$PI_ENSEMBLE_IMAGE
-limit=$TEHAS_WORK_TIMEOUT
+images=$TEHAS_WORK_DIR-$issue.images
+images_inside=$TEHAS_WORK_DIR.images
 # The runner's NDJSON progress, which it writes to its error stream. Named as
 # the improvement loop looks for it.
 log=$TEHAS_HOME/logs/work-$issue-$(date -u +%y%m%d-%H%M%S).jsonl
 name=tehas-work-$issue
-agent=$HOME/.pi/agent
-runs=$agent/ensemble-runs/issue-$issue
-# The cycle's own state on the host, beside the workspace and not in it.
-container=$tree.state
-index=$(tehas_index_dir)
-cid_file=$TEHAS_HOME/state/cycles/$issue.cid
-oom_file=$TEHAS_HOME/state/cycles/$issue.oom
-forks_file=$TEHAS_HOME/state/cycles/$issue.forks
-stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
-timed_file=$TEHAS_HOME/state/cycles/$issue.timed
-# The ledger of the sizes tehas work records at an approved start, kept by
-# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
-sizes_file=$TEHAS_HOME/state/sizes.jsonl
+runs=$HOME/.pi/agent/ensemble-runs/issue-$issue
 # The manifest of the last fetch, kept.
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
-result_file=$TEHAS_HOME/state/cycles/$issue.result.json
-progress_file=$TEHAS_HOME/state/cycles/$issue.progress.json
-# The runner's own exit status, written below for tehasbot cycle to report, and
-# the word of the end this command saw of the container: `killed` for one it saw
-# killed. Both are read and removed by tehasbot cycle.
-runner_exit_file=$TEHAS_HOME/state/cycles/$issue.runner_exit
-status_file=$TEHAS_HOME/state/cycles/$issue.status
-# The word of the end for a container that wrote no result and no line of its
-# stream: its own exit status, one line of plain digits. Read and removed by
-# tehasbot cycle.
-nostart_file=$TEHAS_HOME/state/cycles/$issue.nostart
-clock_mark=$TEHAS_HOME/state/cycles/$issue.clock
-# The cycle's clock, bounded like the loop's other calls.
-clock() { timeout -k 5 10 "$here/tehas-cycle" clock "$@" 2>/dev/null; }
-stall=$TEHAS_WORK_STALL
 preflight_wait=${TEHAS_PREFLIGHT_WAIT:-300}
 grace=${TEHAS_WORK_GRACE:-300}
-[[ $grace =~ ^[0-9]{1,5}$ ]] || grace=300
 caps_wait=${TEHAS_CAPS_WAIT:-120}
 [[ $caps_wait =~ ^[1-9][0-9]{0,3}$ ]] || caps_wait=120
 stop_wait=${TEHAS_STOP_WAIT:-60}
 console_wait=${TEHAS_CONSOLE_WAIT:-30}
-[[ $console_wait =~ ^[1-9][0-9]{0,3}$ ]] || console_wait=30
 text_wait=${TEHAS_TEXT_WAIT:-60}
 [[ $text_wait =~ ^[1-9][0-9]{0,3}$ ]] || text_wait=60
 
@@ -442,63 +389,17 @@ lock=$TEHAS_HOME/state/cycles/$issue.lock
 [ /dev/fd/9 -ef "$lock" ] 2>/dev/null || exec 9>"$lock"
 flock -n 9 || { echo "tehas work: a cycle for #$issue is running, not starting another" >&2; exit 5; }
 
-# What the dispatcher approved for this start, from the state store, as a
-# private file in the shape the readers below know (tehas_approval_view). It
-# goes when this command ends. Read before anything of the cycle is written;
-# what stops a start for it is said below, with the issue's text.
-record=""
-record_why=""
+# What the dispatcher approved for this start, as a private file that goes when
+# this command ends, and why a start with none stops, which is said below with
+# the issue's text. Read before anything of the cycle is written. Driver lean is
+# refused here: it needs trail-openers/pi-rukas#1920.
 attempt=${TEHAS_CYCLE_ATTEMPT:-}
-trap 'rm -f "${record:-}"' EXIT
-if [ -n "$attempt" ]; then
-  if ! [[ $attempt =~ ^[1-9][0-9]{0,8}$ ]]; then
-    record_why="its start names no attempt this host can read"
-  else
-    record=$(tehas_approval_view "$issue" "$attempt")
-    case $? in
-      0) ;;
-      1)
-        # None used by this start: a start by hand, as the store has it, or
-        # one whose approval is gone.
-        record=""
-        if ! tehas_store cycle-show "$issue"; then
-          record_why="the approval of this start could not be read"
-        elif [ "$(jq -r --argjson a "$attempt" '.cycle | select(. != null and .attempt == $a) | .how' \
-          <<<"$tehas_store_out" 2>/dev/null)" != hand ]; then
-          record_why="no approval of this start is on record"
-        fi
-        ;;
-      *)
-        record=""
-        record_why="the approval of this start could not be read"
-        ;;
-    esac
-  fi
-else
-  record=$(tehas_approval_view "$issue")
-  case $? in
-    0) ;;
-    1) record="" ;;
-    *)
-      record=""
-      record_why="the approval of this issue could not be read"
-      ;;
-  esac
-fi
+record="" record_why="" issue_file=""
+prepared=$TEHAS_HOME/state/cycles/$issue.prepared
+trap 'rm -f "${record:-}" "${issue_file:-}" "$prepared"' EXIT
+said=$("$here/tehas-cycle" start-check record "$issue" ${attempt:+--attempt "$attempt"}) || exit 78
+{ read -r record; read -r record_why; } <<<"$said"
 
-# Lean needs trail-openers/pi-rukas#1920, and classic never runs in its place.
-if tehas_record_is_file "$record" && [ -n "$(jq -r '.driver // ""' "$record" 2>/dev/null)" ]; then
-  : >"$TEHAS_HOME/state/cycles/$issue.lean-refused"
-  echo "tehas work: this tehas cannot run the lean driver yet, not starting a cycle; take tehas:lean off #$issue to run it on classic" >&2
-  exit 78
-fi
-
-# The bot's identity is the tehas user's own. What the container is given is
-# assembled in lib/sandbox.sh, which tehas dev uses too.
-bot_name=$(git config --global user.name || true)
-bot_email=$(git config --global user.email || true)
-[ -n "$bot_name" ] && [ -n "$bot_email" ] ||
-  { echo "tehas work: git user.name and user.email are not set for $(id -un)" >&2; exit 64; }
 # The images and the text files share one directory, given to the container
 # when the instance gives either kind.
 give=0
@@ -509,174 +410,24 @@ if [ "$TEHAS_WORK_FILES" = 1 ]; then
   [ "$TEHAS_WORK_IMAGES" != 1 ] || kinds="images and files"
 fi
 [ "$TEHAS_WORK_IMAGES" != 1 ] || give=1
-# Its path is this command's to give, not the instance's: dropped whether or
-# not this cycle is given attachments, so no container names a directory tehas
-# did not mount. So are who reports a handoff, the time it may take, the cycle's
-# deadline, how many gate runs it makes at once, and one child's bound, from
-# TEHAS_CHILD_TIMEOUT, below.
-unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_HANDOFF_CHANNEL PI_ENSEMBLE_HANDOFF_TIMEOUT_MS PI_ENSEMBLE_CYCLE_DEADLINE PI_ENSEMBLE_CYCLE_BUDGET_MS PI_ENSEMBLE_VERIFY_CONCURRENCY PI_ENSEMBLE_SPAWN_TIMEOUT_MS
-mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email")
-mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
-tehas_sandbox_security_take "tehas work" "a cycle" || exit 78
-# The host's scratch disk in place of the last option, the tmpfs: same path, on disk.
-if [ -n "${TEHAS_SCRATCH_DIR:-}" ]; then
-  scratch=$("${TEHAS_CONSOLE_CMD:-$here/console}" clean scratch "$TEHAS_SCRATCH_DIR" "${TEHAS_WORK_DIR##*/}-$issue") || exit 78
-  sec=("${sec[@]:0:${#sec[@]}-2}" -v "$scratch:/tmp")
-fi
-[ "${#envs[@]}" -gt 0 ] ||
-  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
-verify_at_once=$(tehas_slice_verify) ||
-  { echo "tehas work: the container limits could not be made, not starting" >&2; exit 78; }
-# The handoff allowance, in seconds: the one budget the cycle's handoff has,
-# given to pi-rukas and kept clear of the stop by the margin below.
-handoff=480
-# tehasbot cycle posts the one comment of a handoff and labels the issue.
-envs+=(-e PI_ENSEMBLE_HANDOFF_CHANNEL=host -e "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=$((handoff * 1000))"
-  -e "PI_ENSEMBLE_VERIFY_CONCURRENCY=$verify_at_once"
-  # 10# reads the value as the decimal count the config checked, which holds it
-  # at or under TEHAS_WORK_TIMEOUT: at most 25200 s, so no overflow here.
-  -e "PI_ENSEMBLE_SPAWN_TIMEOUT_MS=$((10#$TEHAS_CHILD_TIMEOUT * 1000))")
-features=handoffChannel
-# The runner by its path in the image: the link to it on PATH does not find
-# its own source (pi-rukas v0.12.80).
-runner=/opt/pi-rukas/bin/pi-rukas-headless
-# What the image supports, asked before anything is moved or fetched. The
-# answer is checked below, once everything the cycle is given is known.
-caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null)
-caps_rc=$?
-# No step starts after the deadline: the cycle parks with a handoff instead.
-# A runner whose answer has features.cycleDeadlineHandoffAllowance bounds
-# every step by the deadline and keeps its handoff inside the allowance
-# (pi-rukas#1603), so the deadline is the limit less the allowance. With any
-# other runner a step that started before the deadline may run past it, so
-# the margin holds the longest step there is room for and then the handoff:
-# a quarter of the limit, and never less than one run of the gate and the
-# handoff allowance.
-if [ "$(tehas_headless_mode "$caps" cycleDeadlineHandoffAllowance)" = native ]; then
-  margin=$handoff
-else
-  margin=$((limit / 4))
-  [ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + handoff)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + handoff))
-fi
-if [ "$margin" -lt "$limit" ]; then
-  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$(((EPOCHSECONDS + limit - margin) * 1000))")
-  features+=" cycleDeadline"
-else
-  echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"
-fi
+# The bot's identity, what the container is given and what the image supports,
+# before anything is moved or fetched. What the next steps need is in $prepared.
+"$here/tehas-cycle" prepare check "$issue" --state "$prepared" --record "$record" --caps-wait "$caps_wait" \
+  --console "${TEHAS_CONSOLE_CMD:-$here/console}" ${flags:+--restart} -- "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" || exit $?
 
-# A fresh workspace for this cycle, at the tip the product checkout last fetched
-# for the branch. A workspace is still here only when this issue's last cycle
-# stopped without a pull request, and what it holds may exist nowhere else:
-# commits that were never pushed. It is moved aside, not removed, and replaces
-# the one moved aside before it. No container is given it and the host runs
-# nothing in it. Only a directory this command made is ever moved or removed, and
-# never another issue's.
-works=$(dirname "$tree")
-if [ -e "$works" ] && [ ! -f "$works/.tehas-workspaces" ]; then
-  echo "tehas work: $works exists and was not made by tehas, not touching it" >&2
-  exit 78
-fi
-run_flags=(--timeout "$(((limit + 59) / 60))" --json)
-[ -z "$flags" ] || { run_flags+=(--restart); features+=" restartClearsAttention"; }
-if tehas_record_is_file "$record" && [ "$(jq -r '.how // "" | strings' "$record" 2>/dev/null)" = refresh ]; then
-  run_flags+=(--continue-pr)
-fi
-# What the image supports, against what this cycle is given.
-names=""
-for e in "${envs[@]}"; do
-  case "$e" in PI_ENSEMBLE_*) names+=" ${e%%=*}" ;; esac
-done
-[ "$give" != 1 ] || names+=" PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
-if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names" "$features"); then
-  echo "tehas work: $image gave no --capabilities answer (exit $caps_rc), not starting a cycle" >&2
-  exit 78
-fi
-if [ -n "$unsupported" ]; then
-  echo "tehas work: $image does not support what this cycle is given, not starting a cycle:" >&2
-  printf '%s\n' "$unsupported" | sed 's/^/    /' >&2
-  exit 78
-fi
-# A workaround the instance carries for a pi-rukas defect ends with the
-# release that fixes it.
-expired=$(tehas_headless_expired "$caps" "$TEHAS_RUKAS_WORKAROUNDS")
-if [ -n "$expired" ]; then
-  echo "tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs, not starting a cycle:" >&2
-  printf '%s\n' "$expired" | sed 's/^/    /' >&2
-  echo "    Remove the setting and its entry from $TEHAS_INSTANCE_DIR/instance.env." >&2
-  exit 78
-fi
-
-# The words a cycle works on are the words somebody approved. The dispatcher
-# wrote what it approved into its record; read the issue once here, before
-# anything of this cycle is written, and hold it to that, so a body or a title
-# edited after the label starts no cycle. This is the last place on the host that
-# can still compare them, and it compares as it starts: what the container reads
-# afterwards is the issue as it is then. The title is bound here as well as by
-# the dispatcher's read of the label events: the record carries its hash, and a
-# record that carries none is checked on the body alone.
-# Where this host holds no record the run is by hand, and the person who ran
-# this command is the approval.
-text_why="" # why this start stops, empty when the text is the approved one
-text_path="" # the record that could not be read, when that is the reason
-issue_now="" # the issue as GitHub answers for it now, read once for all of it
-measured=0 # 1 when this start had an approval record, and so a body to measure
-if [ -n "$record_why" ]; then
-  text_why=$record_why
-elif tehas_record_is_file "$record"; then
-  measured=1
-  # Bounded like every other call before the container: a network that swallows
-  # this read must not hold the issue's lock and its slot for ever. gh's own
-  # words go to $log.err, where a person can see which failure it was.
-  issue_now=$(timeout -k 10 "$text_wait" gh api "repos/$TEHAS_REPO/issues/$issue" 2>>"$log.err")
-  issue_rc=$?
-  case $issue_rc in
-    0) ;;
-    124 | 137) text_why="the issue could not be read for its text: no answer within ${text_wait}s" ;;
-    *) text_why="the issue could not be read for its text: GitHub refused the read" ;;
-  esac
-  if [ -z "$text_why" ]; then
-    # An answer that is a pull request, or an issue nobody can start a cycle
-    # on, is refused before its text is hashed or anything is said on it.
-    case $(jq -r 'if type != "object" or (.body != null and (.body | type) != "string") then "unread"
-        elif .pull_request != null or ((.state // "") != "open") then "wrong" else "ok" end' \
-      <<<"$issue_now" 2>/dev/null) in
-      ok) tehas_approval_text "$record" "$issue_now" ;;
-      wrong) text_why="#${issue} is not an open issue, as GitHub answers for it" ;;
-      *) text_why="the issue could not be read for its text" ;;
-    esac
-  fi
-else
-  echo "tehas work: no approval is recorded on this host for #$issue; a run by hand is its own approval" >&2
-fi
-if [ -n "$text_why" ]; then
-  # The path of the record stays on the host. What the issue is told names which
-  # rule stopped the start, and nothing of where this instance keeps its state.
-  echo "tehas work: $text_why${text_path:+ ($text_path)}, not starting a cycle" >&2
-  timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
-    --body "Tehas started no cycle: $text_why. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
-    echo "tehas work: the comment on #$issue failed" >&2
-  exit 4
-fi
-
-# What the cycle starts with, measured. Only a start that had the approval
-# record to check is measured: the body is the one in $issue_now, already read
-# above, so this asks GitHub nothing more, and a run by hand, which has no
-# approved body, records nothing. lib/sizing.sh says what the ledger is and
-# keeps it bounded. A line that cannot be written is one word on this command's
-# error stream: the measure is a record of the start, never a reason to stop
-# one.
-if [ "$measured" = 1 ]; then
-  mkdir -p "$(dirname "$sizes_file")" 2>/dev/null || true
-  size_body=$(jq -r 'if (.body | type) == "string" then .body else "" end' <<<"$issue_now" 2>/dev/null) || size_body=""
-  if ! tehas_size_record "$issue" "$size_body" "$sizes_file"; then
-    echo "tehas work: could not record the size of #$issue in $sizes_file ($tehas_size_why), starting the cycle all the same" >&2
-  fi
-fi
+# The words a cycle works on are the words somebody approved. This is the last
+# place on the host that can still compare them, and it compares as it starts,
+# so a body or a title edited after the label starts no cycle. A start with an
+# approval reads the issue once, here, for all of it, and is measured.
+issue_file=$("$here/tehas-cycle" start-check text "$issue" --record "$record" --why "$record_why" --log "$log" \
+  --text-wait "$text_wait" --console "${TEHAS_CONSOLE_CMD:-$here/console}") || exit $?
+issue_now=""
+[ -z "$issue_file" ] || issue_now=$(<"$issue_file")
 
 # The issue's images, where the instance gives a cycle any. Before the
 # workspace: a start that fails here must not move aside what the last cycle
 # left.
+works=$(dirname "$images")
 if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces"; }; then
   echo "tehas work: could not make $works, not starting a cycle" >&2
   exit 78
@@ -710,7 +461,7 @@ if [ "$give" = 1 ]; then
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! tehas_describe_images "$images"; then
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! "$here/tehas-cycle" describe "$images"; then
     echo "tehas work: the descriptions of the images could not be written, the cycle goes on without them" >&2
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
@@ -730,64 +481,10 @@ if [ "$give" = 1 ]; then
   image_opts=(-v "$images:$images_inside:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images_inside")
 fi
 
-aside() {
-  [ -e "$tree" ] || return 0
-  rm -rf "$tree.before-retry" && mv "$tree" "$tree.before-retry"
-}
-if ! { mkdir -p "$works" && : >"$works/.tehas-workspaces" && aside &&
-  rm -rf "$container" && tehas_sandbox_clone "$src" "$tree" "$branch" &&
-  # pi-rukas writes these into the tree; excluded here, a product needs no
-  # .gitignore lines for them and a cycle never commits them.
-  printf '%s\n' /.pi/work-state/ /.pi/permissions.json /.pi/decisions.json >>"$tree/.git/info/exclude"; }; then
-  echo "tehas work: could not make the workspace $tree, not starting a cycle" >&2
-  exit 78
-fi
-# The product names its gate in .pi/verify-cmd: the first line that is not
-# empty and not a comment. A product on a stack pi-rukas cannot guess, with
-# neither package.json nor Cargo.toml, would verify nothing and still open a
-# pull request. Only the commit the clone was made at is read, through git, so
-# nothing uncommitted can park a cycle or start one. A check of presence: a
-# start-cost guard, not proof that a real gate exists.
-gate=$(timeout -k 10 60 git -C "$tree" show "origin/$branch:.pi/verify-cmd" 2>/dev/null |
-  sed -n '/^[[:space:]]*[#]/d; /^[[:space:]]*$/d; p; q')
-stack=$(timeout -k 10 60 git -C "$tree" ls-tree --name-only "origin/$branch" -- \
-  package.json Cargo.toml 2>/dev/null | head -n 1)
-if [ -z "$gate" ] && [ -z "$stack" ]; then
-  echo "tehas work: $TEHAS_REPO has no .pi/verify-cmd and no package.json or Cargo.toml in origin/$branch, so a cycle could verify nothing" >&2
-  echo "tehas work: $tree is left in place with what it holds, and $tree.before-retry holds what the last cycle left, if any" >&2
-  exit 78
-fi
-# Before spending an hour of model time: can the sandbox push at all? A dry run
-# needs the same credentials a real push does and creates nothing. The client
-# passes the timeout's TERM on to git in the container.
-timeout -k 10 "$preflight_wait" docker run --rm "${sec[@]}" --user "$(id -u):$(id -g)" -e HOME=/home/vscode "${envs[@]}" \
-  -w "$repo" -v "$tree:$repo" --entrypoint git "$image" \
-  push --dry-run origin HEAD:refs/heads/tehas-preflight >"$log.preflight" 2>&1
-pushed=$?
-if [ "$pushed" != 0 ]; then
-  case $pushed in 124 | 137) echo "the push check did not end within ${preflight_wait}s" >>"$log.preflight" ;; esac
-  echo "tehas work: the sandbox cannot push to origin, not starting a cycle:"
-  tail -n 3 "$log.preflight" | sed 's/^/    /'
-  exit 3
-fi
-retry=$(tehas_sandbox_retry "$tree")
-echo "$retry" >>"$log.preflight"
-echo "tehas work: $retry"
-# The cycle's own copy of the host's code index, asked for only once this cycle
-# can start: a cycle that never began leaves no copy behind. Without one the
-# agents search by reading files, which is slower and finds less; a copy that
-# fails is not worth stopping a cycle for.
-tehas_sandbox_seed "$container" "$index" ||
-  echo "tehas work: the code index could not be copied into $container/cache, this cycle searches without one"
-# The mounts name directories that only exist now.
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs")
-[ "${#mounts[@]}" -gt 0 ] ||
-  { echo "tehas work: could not prepare the sandbox, not starting a cycle" >&2; exit 78; }
-while read -r model_provider _; do
-  [ -n "$model_provider" ] || continue
-  echo "model endpoint: provider $model_provider is on its backup" >>"$log.preflight"
-  echo "tehas work: model endpoint: provider $model_provider is on its backup"
-done <"$container/endpoints"
+# A fresh workspace for this cycle, the gate it runs, the check that it can push,
+# its copy of the code index and its mounts.
+"$here/tehas-cycle" prepare tree "$issue" --state "$prepared" --branch "$branch" --log "$log" \
+  --preflight-wait "$preflight_wait" --console "${TEHAS_CONSOLE_CMD:-$here/console}" || exit $?
 
 # Said only once the cycle can start: a start that fails at the workspace or
 # the push check leaves no claim about a cycle that never ran. The line is the
@@ -805,411 +502,21 @@ if [ "$give" != 1 ]; then
   fi
 fi
 
-# Docker refuses a cid file that is already there. One is left only by a cycle
-# that was killed outright, and so is a count of kills, and so is the name a write
-# of one of these files was made beside before it was moved into place.
-rm -f "$cid_file" "$oom_file" "$forks_file" "$stall_file" "$timed_file" "$result_file" "$progress_file" "$runner_exit_file" "$status_file" \
-  "$nostart_file" "$nostart_file.new" \
-  "$runner_exit_file.new" "$status_file.new"
-# A container under this name outlived the client that started it: this command
-# holds the issue's lock, so no cycle owns it. It would work on with the bot's
-# token, and Docker would refuse the name below.
-timeout -k 10 "$stop_wait" docker rm -f "$name" >/dev/null 2>&1
-
-# stop_container <grace>: docker stop, bounded. When dockerd does not answer in
-# time the container is killed, also bounded: the end must be reported.
-stop_container() {
-  timeout -k 5 "$stop_wait" docker stop -t "$1" "$name" >/dev/null 2>&1
-  case $? in 124 | 137) ;; *) return 0 ;; esac
-  echo "tehas work: docker stop of $name did not end within ${stop_wait}s, killing it"
-  timeout -k 5 "$stop_wait" docker kill "$name" >/dev/null 2>&1 ||
-    echo "tehas work: docker kill of $name did not work either"
-}
-
-# The image the cycle runs, as the container starts: a rebuild or a new pin while
-# the cycle runs does not change what it ran. On the cycle's record with what the
-# container is given of the settings, and how many cycles run now, this one with
-# them. A record that is not this start's, or has ended, is no start to run; a
-# store that is only busy costs the record, not the cycle.
-if [ -n "$attempt" ]; then
-  image_id="" image_rukas=""
-  read -r image_id image_rukas _ < <(timeout -k 5 "$stop_wait" docker image inspect \
-    --format '{{.Id}} {{index .Config.Labels "tehas.rukas"}}' "$image" 2>/dev/null)
-  if [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]]; then
-    [[ $image_rukas =~ ^[0-9a-f]{7,40}$ ]] || image_rukas=""
-    image_args=("$issue" --attempt "$attempt" --image "$image_id")
-    [ -z "$image_rukas" ] || image_args+=(--rukas "$image_rukas")
-    settings_file=""
-    [ -e "$TEHAS_HOME/tmp" ] || mkdir -m 700 "$TEHAS_HOME/tmp" 2>/dev/null
-    if [ -d "$TEHAS_HOME/tmp" ] && [ ! -L "$TEHAS_HOME/tmp" ] &&
-      settings_file=$(mktemp "$TEHAS_HOME/tmp/settings.XXXXXX" 2>/dev/null) &&
-      tehas_improve_settings "$settings_file" "$(tehas_cycles_running | wc -l)" "${envs[@]}" "${image_opts[@]}"; then
-      image_args+=(--settings "$settings_file")
-    else
-      echo "tehas work: the settings of this cycle could not be written for its record" >&2
-    fi
-    tehas_store cycle-image "${image_args[@]}"
-    image_rc=$?
-    [ -z "$settings_file" ] || rm -f "$settings_file"
-    case "$image_rc $tehas_store_word" in
-      0\ *) ;;
-      "1 busy" | "1 timeout")
-        echo "tehas work: the image of #$issue is not on its record: the state store did not answer ($tehas_store_word)" >&2
-        ;;
-      *)
-        echo "tehas work: the state store did not take the image of this start ($tehas_store_line), not starting a cycle" >&2
-        timeout -k 10 "$text_wait" gh issue comment "$issue" --repo "$TEHAS_REPO" \
-          --body "Tehas started no cycle: its record on this host could not be updated as it started. To retry, apply \`tehas:ready\`." >/dev/null 2>&1 ||
-          echo "tehas work: the comment on #$issue failed" >&2
-        exit 4
-        ;;
-    esac
-  fi
-fi
-
-# Set before the container starts, so no signal falls between. A stop ends the
-# loop and is recorded as interrupted, not as running.
-interrupted=0
-cpid=""
-# The live file says running only once the trap can say interrupted.
-live_on=0
-# A log is named to the second, so a cycle of this issue can be given the name a
-# cycle before it used: the side file of its stream goes with the rest of the
-# cycle's files, so what the improvement record copies as err.txt is only what
-# this command writes into it. The name is known only here, where the log is
-# named, which is after the gap of the attachments has been said into it: that
-# line is one of the two that ever reach the file, so it is said again below.
-rm -f "${log:?}.err"
-if [ -n "${gap_said:-}" ]; then
-  printf '%s\n' "$gap_said" >>"$log.err" ||
-    echo "tehas work: could not write $log.err" >&2
-fi
+# The cycle's image and settings on its record, the notes of an earlier cycle
+# cleared, and the words of its docker run.
+mapfile -d '' -t docker_line < <("$here/tehas-cycle" prepare record "$issue" --state "$prepared" --log "$log" \
+  --name "$name" --stop-wait "$stop_wait" --text-wait "$text_wait" ${attempt:+--attempt "$attempt"} \
+  ${gap_said:+--gap "$gap_said"} -- "${image_opts[@]}")
+wait "$!" || exit $?
 
 # The runner is the container's command, so a docker stop reaches it: it ends the
 # cycle as interrupted and still writes its result. The container reads the app's
 # token from a directory the host keeps fresh; the renewer ends with the
-# container, or with this command.
+# container, or with the watch. exec runs no EXIT trap, so the record goes here.
+rm -f "${record:-}" "${issue_file:-}" "$prepared"
+trap - EXIT
 renewer=$(tehas_github_renew)
-trap 'interrupted=1; [ -z "$cpid" ] || kill "$cpid" 2>/dev/null; [ -z "$renewer" ] || kill "$renewer" 2>/dev/null; stop_container 10
-[ "$live_on" = 0 ] || now_file false interrupted' TERM INT
-docker run --rm --init --name "$name" \
-  "${TEHAS_SLICE_LIMITS[@]}" "${sec[@]}" --user "$(id -u):$(id -g)" --cidfile "$cid_file" \
-  -w "$repo" "${mounts[@]}" "${image_opts[@]}" \
-  "${envs[@]}" "${hosts[@]}" \
-  "$image" "$runner" work "$issue" "${run_flags[@]}" </dev/null >"$result_file" 2>"$log" &
-pid=$!
-
-started=$EPOCHSECONDS
-# The two bounds of the watch loop are counted on tehas-cycle's clock, not the
-# wall clock, so a VM save and restore stops no cycle. `started` stays an epoch
-# time for the seconds said to people and for the container's own deadline.
-clock mark "$clock_mark" || echo "tehas work: no cycle clock for #$issue: its limits wait on the clock"
-echo "tehas work: issue $issue started, log $log"
-
-# For the dashboard: a readable console of this cycle, and its heartbeat on the
-# state store, which the store publishes as live/cycles/<issue>.json.
-live=$TEHAS_HOME/live
-mkdir -p "$live"
-console=$live/console-$issue.txt
-# The step and the notice the status is made from, in a file the console
-# writes and now_file reads. Both go first: stale lines of a cycle before this
-# one are no better than none, and the step reads as starting without the file.
-console_now=$console.now
-: >"$console"
-rm -f "${console_now:?}"
-# The cycle does not depend on it: without a console it runs all the same,
-# and this says why the dashboard shows none.
-[ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
-# The names for the console to mask (lib/private.sh).
-private=()
-while IFS= read -r private_name; do
-  private+=(--private "$private_name")
-done < <(tehas_private_names "$agent/models.json" "$bot_email")
-"$here/console" --progress "$log" \
-  --runs "$runs" --out "$console" --since "$((started - 5))" --now "$console_now" "${private[@]}" >/dev/null 2>"$log.console" &
-cpid=$!
-# A heartbeat or a publish that fails is said once a cycle: the cycle runs on
-# without its place on the page, and the poll's stuck rule counts it as heard
-# from at its start.
-beat_said=0 publish_said=0
-beat_attempt=()
-[[ $attempt =~ ^[1-9][0-9]{0,8}$ ]] && beat_attempt=(--attempt "$attempt")
-now_file() { # running? status
-  local step="" text="" state=--ended
-  [ "$1" = true ] && state=--running
-  # The step and the notice, from the two lines the console keeps beside its
-  # file, which it masks as it writes. Absent gives nothing: bash would name
-  # the file on stderr, and the step reads as starting without a line.
-  if [ -f "$console_now" ]; then
-    { read -r step && read -r text; } <"$console_now"
-  fi
-  [ -n "$step" ] || step=starting
-  if ! tehas_store cycle-heartbeat "$issue" "${beat_attempt[@]}" "$state" --status "$2" \
-    --step "$step" --text "$text" && [ "$beat_said" = 0 ]; then
-    echo "tehas work: the heartbeat of #$issue is not on record ($tehas_store_word): $tehas_store_line" >&2
-    beat_said=1
-  fi
-  # One try: the next tick publishes again, and a stop must not wait on it.
-  if ! tehas_store publish && [ "$publish_said" = 0 ]; then
-    echo "tehas work: the live view is not published ($tehas_store_word): $tehas_store_line" >&2
-    publish_said=1
-  fi
-}
-live_on=1
-now_file true running
-
-# The processes the kernel killed for memory in this container and the starts
-# its pids limit refused, from its cgroup. The last numbers seen are kept.
-ooms=0 forks=0 oom_id=""
-oom_look() {
-  local scope key value
-  read -r oom_id 2>/dev/null <"$cid_file" || true
-  [[ $oom_id =~ ^[0-9a-f]{64}$ ]] || { oom_id="" && return 0; }
-  scope=${TEHAS_CGROUP_ROOT:-/sys/fs/cgroup}/tehas.slice/docker-$oom_id.scope
-  # A file that is gone, with the container, reads as nothing.
-  while read -r key value; do
-    if [ "$key" = oom_kill ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then ooms=$value; fi
-  done 2>/dev/null <"$scope/memory.events"
-  while read -r key value; do
-    if [ "$key" = max ] && [[ $value =~ ^[0-9]{1,9}$ ]]; then forks=$value; fi
-  done 2>/dev/null <"$scope/pids.events"
-  return 0
-}
-
-# The newest change to any of the cycle's logs, in whole seconds of mtime.
-# Transcripts of an earlier cycle are older than this one's start.
-moved() {
-  find "$log" "$runs" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -n 1 | cut -d. -f1
-}
-
-status=running stalled=0 timed=0 seen=$started stopped=0 killed=0
-last=$(clock now)
-while [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; do
-  sleep 10
-  [ "$interrupted" = 0 ] || break
-  oom_look
-  now_file true running
-  m=$(moved)
-  # `seen` is an mtime, `last` a reading of the cycle clock.
-  [[ $m =~ ^[0-9]+$ ]] && [ "$m" -gt "$seen" ] && { seen=$m; last=$(clock now); }
-  # The two bounds of the loop on the cycle clock: a runner that does not stop
-  # itself at its --timeout, and a cycle whose logs stood still for the stall.
-  # A clock that says nothing, says `ok` or says `unknown`, stops no cycle: only
-  # the two words of the clock itself end a cycle here.
-  verdict=$(clock check "$clock_mark" --limit $((limit + grace)) --stall "$stall" --since "$last")
-  case "$verdict" in
-    over) echo "tehas work: time limit of ${limit}s passed"; timed=1; break ;;
-    stalled) echo "tehas work: none of the cycle's logs changed for ${stall}s, stopping it as stalled"; stalled=1; break ;;
-  esac
-done
-
-# A stop that came while the container was still being made found nothing to
-# stop.
-if [ "$interrupted" = 1 ] && kill -0 "$pid" 2>/dev/null; then
-  stop_container 10
-fi
-if [ "$interrupted" = 0 ] && kill -0 "$pid" 2>/dev/null; then
-  oom_look
-  stopped=1
-  stop_container 20
-fi
-wait "$pid" 2>/dev/null
-rc=$?
-[ -z "$renewer" ] || kill "$renewer" 2>/dev/null
-oom_look
-rm -f "$cid_file"
-# The kills since the last look went with the cgroup. The kernel log names the
-# cgroup of each kill, but rate-limits those lines, so the larger count stands.
-if [ -n "$oom_id" ] && oom_log=$(timeout -k 5 "$stop_wait" journalctl -k -q -o cat --no-pager --since "@$started" 2>/dev/null |
-  grep -c "^oom-kill:.*task_memcg=/tehas.slice/docker-$oom_id.scope,") && [ "$oom_log" -gt "$ooms" ]; then ooms=$oom_log; fi
-have=0 error_only=0
-outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
-[ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
-# What the runner ended with, whatever this command goes on to exit with. Said
-# in the cycle's comment, which otherwise names only this command's status.
-# Written once, as soon as the runner has ended: what the report makes of the
-# run after this point may fail, and this word must not go with it. Written by
-# a name beside it and moved into place, so tehasbot cycle sees either the word
-# whole or no file at all: a file of the protocol that is there says this
-# command watched the run, and one that a write lost is said of on the unit's
-# error stream, where a person reads it, as much as in the cycle's own log.
-write_note() { # <file> <text>: one file of the protocol, whole or not at all
-  if ! printf '%s\n' "$2" >"$1.new" 2>/dev/null; then
-    rm -f "$1.new" 2>/dev/null
-    echo "tehas work: could not write $1" >&2
-    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
-      echo "tehas work: could not say of $log.err that $1 was lost" >&2
-    return 1
-  elif ! mv "$1.new" "$1" 2>/dev/null; then
-    rm -f "$1.new" 2>/dev/null
-    echo "tehas work: could not write $1" >&2
-    printf '%s\n' "tehas work: could not write $1" >>"$log.err" 2>/dev/null ||
-      echo "tehas work: could not say of $log.err that $1 was lost" >&2
-    return 1
-  fi
-  return 0
-}
-write_note "$runner_exit_file" "${rc:-2}"
-if [ "$have" = 1 ]; then
-  status=$(jq -r .status <<<"$outcome")
-  status=${status:-unknown}
-  # The runner ends a cycle stopped here as interrupted.
-  [ "$stalled" = 0 ] || case "$status" in running | unknown | interrupted) status=stalled ;; esac
-  [ "$timed" = 0 ] || case "$status" in running | unknown | interrupted) status=timeout ;; esac
-else
-  [ "$interrupted" = 0 ] || status=interrupted
-  [ "$stalled" = 0 ] || status=stalled
-  [ "$timed" = 0 ] || status=timeout
-fi
-# The runner stops itself at the --timeout it is given, which is this
-# command's time limit. Its result then names no cap and no end, so the time
-# limit ended the cycle as surely as a stop made here.
-ran_out=0
-if [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$interrupted" = 0 ] && [ "$rc" != 137 ] &&
-  [ $((EPOCHSECONDS - started)) -ge "$limit" ] && [ -z "$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)" ]; then
-  case "$status" in running | unknown | interrupted) ran_out=1 status=timeout ;; esac
-fi
-inflight=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // ""' <<<"$outcome" 2>/dev/null)
-# A result that names no step leaves the two lines to say which step the runner
-# was in: the console read the same log, so its step is that pass's answer. No
-# file and no step of the result leaves the dash below.
-if [ -z "$inflight" ] && [ -f "$console_now" ]; then
-  { read -r inflight || inflight=""; } <"$console_now"
-fi
-inflight=$(printf '%s' "$inflight" | tr -cd 'A-Za-z0-9_.:-' | head -c 40)
-inflight=${inflight:--}
-if [ "$timed" = 1 ] || [ "$ran_out" = 1 ]; then
-  # The limit, who stopped the cycle and the step it was in.
-  by=tehas
-  [ "$ran_out" = 0 ] || by=runner
-  echo "$limit $by ${inflight:--}" >"$timed_file" || echo "tehas work: could not write $timed_file" >&2
-fi
-[ "$stalled" = 0 ] || printf '%s\n%s\n' "$stall" "$inflight" >"$stall_file" || echo "tehas work: could not write $stall_file" >&2
-# A container that ended with 137 was killed. It is this cycle's end only when
-# nobody here stopped it and the runner wrote no result.
-if [ "$rc" = 137 ] && [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ]; then
-  status=killed
-  killed=1
-  # Said with the summary, for the report of tehasbot cycle: a cycle that
-  # writes no result has no word of its own for how it ended, and this is the
-  # word of the one that watched the container. Lost with no other account of
-  # the kill left behind, so it is said of twice: once to a person reading the
-  # unit, once to the cycle's own record.
-  write_note "$status_file" killed ||
-    echo "tehas work: the account of the killed container is lost with it"
-  echo "tehas work: the container was killed (137) while the cycle was running: out of memory, or stopped from outside"
-fi
-# A container that wrote no result and not one line of its stream never got as
-# far as the driver's first event, so the record would say nothing but the
-# status this command exits with. Named here, where the container's own end,
-# its cgroup and the fact that its stream stayed empty are all still in scope;
-# tehasbot cycle makes the cap of it. Not for one this command stopped, nor for
-# a killed container or one that reached the time limit, each of which has an
-# account of its own, and not for a container ended by SIGKILL, which is the end
-# this command documents as leaving no note: the count of memory kills is
-# carried by the oom file, as for every other end. The exit status is written in
-# the shape the reader accepts, so the two cannot disagree about a note.
-if [ "$have" = 0 ] && [ "$error_only" = 0 ] && [ "$interrupted" = 0 ] && [ "$stopped" = 0 ] &&
-  [ "$killed" = 0 ] && [ "$timed" = 0 ] && [ "$ran_out" = 0 ] && [ "$stalled" = 0 ] &&
-  [ "$rc" != 137 ] && [[ $rc =~ ^[1-9][0-9]{0,2}$ ]] && [ ! -s "$log" ]; then
-  write_note "$nostart_file" "$rc" ||
-    echo "tehas work: the account of the container that never started is lost with it"
-  # One line for the cycle's record, where a person reads the end of a failed
-  # cycle. The preflight file is named because it is the only file of the cycle
-  # that holds anything for a run whose stream stayed empty, and what it holds
-  # there is the provider-retry echo, which says nothing about this end. The two
-  # words of the line are this command's own, reduced to what a record that is
-  # filed in public can carry.
-  nostart_rc=${rc//[^0-9]/}
-  nostart_log=$(printf '%s' "${log##*/}" | tr -cd 'A-Za-z0-9._-')
-  printf '%s\n' "tehas work: issue $issue ended with the container's exit $nostart_rc and no line of its stream: the runner wrote no event, so no step started. Its preflight is $nostart_log.preflight." \
-    >>"$log.err" || echo "tehas work: could not write $log.err" >&2
-fi
-if [ "$ooms" -gt 0 ]; then
-  echo "tehas work: $ooms processes in this cycle's container were killed for memory"
-  echo "$ooms" >"$oom_file" || echo "tehas work: could not write $oom_file" >&2
-fi
-if [ "$forks" -gt 0 ]; then
-  echo "tehas work: this cycle's container reached its limit of processes, $forks starts were refused"
-  echo "$forks" >"$forks_file" || echo "tehas work: could not write $forks_file" >&2
-fi
-sleep 3 # let the console catch the last transcript lines
-kill -TERM "$cpid" 2>/dev/null
-# The console finishes its pass before it stops. A slow one must not hold the
-# issue's lock and its slot.
-for ((i = 0; i < console_wait * 5; i++)); do
-  kill -0 "$cpid" 2>/dev/null || break
-  sleep 0.2
-done
-if kill -0 "$cpid" 2>/dev/null; then
-  echo "tehas work: the console did not stop within ${console_wait}s, killing it"
-  kill -KILL "$cpid" 2>/dev/null
-fi
-wait "$cpid" 2>/dev/null
-crc=$?
-[ "$crc" = 0 ] || [ ! -x "$here/console" ] || echo "tehas work: the console ended with $crc, see $log.console"
-
-step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
-step=${step:--}
-[ "$step" != - ] || { [ "$timed" = 0 ] && [ "$stalled" = 0 ] && [ "$ran_out" = 0 ]; } || step=$inflight
-now_file false "$status"
-rm -f "${console_now:?}"
-cp "$result_file" "$log.result.json" 2>/dev/null || true
-tehas_headless_progress "$log" "$result_file" "$issue" >"$progress_file" || echo "tehas work: could not write $progress_file" >&2
-cap=$(jq -r '.cap // ""' <<<"$outcome" 2>/dev/null)
-# A stop this command made is its own cap, unless the runner had ended first.
-case "$status" in
-  timeout) cap=wall-clock ;;
-  stalled) cap=stall ;;
-esac
-echo "tehas work: issue=$issue status=$status step=$step cap=${cap:--} runner_exit=$rc seconds=$((EPOCHSECONDS - started))"
-
-# The kill is what this command saw of the container. A runner that wrote its
-# result says how the cycle ended with its own exit status.
-[ "$killed" = 0 ] || exit 137
-[ "$stalled" = 0 ] && [ "$timed" = 0 ] || exit 2
-if [ "$have" = 1 ]; then
-  # It reaches err.txt of the cycle's improvement record. An abort is an end the
-  # runner reports and no cap covers: its stream holds the driver's own cancel
-  # lines, and an empty err.txt there reads as nothing happened.
-  if [ ! -s "$log.err" ] && { [ -n "$cap" ] || [ "$status" = aborted ]; }; then
-    # Why the runner stopped, as tehasbot cycle reads it for the park comment:
-    # the reason of the last cap the progress holds, cut short as cycle cuts it.
-    # An aborted cycle has no cap, so it is named as what the runner reported.
-    reason=$(head -c 1000000 "$progress_file" 2>/dev/null |
-      jq -j '.reason // "" | strings' 2>/dev/null | tr '\n' ' ' |
-      tr -cd 'A-Za-z0-9 _.,:;/()=+-' | head -c 200)
-    if [ -n "$cap" ]; then
-      printf '%s\n' "tehas work: issue $issue ended at the cap $cap${reason:+: $reason}" \
-        >>"$log.err" || echo "tehas work: could not write $log.err" >&2
-    else
-      printf '%s\n' "tehas work: issue $issue ended as aborted with no cap" \
-        >>"$log.err" || echo "tehas work: could not write $log.err" >&2
-    fi
-    # The driver's own words for the refusal, as they stand in the cycle's
-    # stream: the warning, kill, failure and cancellation lines. The last 20
-    # of them are kept, because a stream that repeats one says it over and
-    # over: each line is cut to 1000 characters and the whole to 64 KiB, for a
-    # line of a stream can carry an error tail of any size, and this file goes
-    # into the record the analyst reads.
-    # Each bound is applied twice, so no line of it is broken: the one that
-    # keeps the last 20 of a long stream, the one that cuts a line too long.
-    diag=$(grep -a '\[pi-rukas\]' "$log" 2>/dev/null | grep -a -E 'WARN|killed|FAILED|cancelled' |
-      tail -n 20 | cut -c 1-1000 | tail -c 65536 | tail -n 20 | cut -c 1-1000)
-    [ -z "$diag" ] || printf '%s\n' "$diag" >>"$log.err" 2>/dev/null ||
-      echo "tehas work: could not write $log.err" >&2
-    # The stream is the file with the rest of it, whether or not a line of it
-    # came here: say where it is rather than what the record does not hold.
-    printf '%s\n' "tehas work: the driver's diagnostics are in $(basename "$log")" \
-      >>"$log.err" || echo "tehas work: could not write $log.err" >&2
-  fi
-  # A result without an exit code of its own gives null here, which is none.
-  for code in "$rc" "$(jq -r .exitCode <<<"$outcome")"; do
-    case "$code" in 0 | 10 | 11 | 20 | 21 | 30 | 40) exit "$code" ;; esac
-  done
-elif [ "$error_only" = 1 ]; then
-  # A result with no entry for the issue, such as a refusal that carries only
-  # an error: the runner's own status still says how it ended.
-  case "$rc" in 0 | 10 | 11 | 20 | 21 | 30 | 40) exit "$rc" ;; esac
-fi
-exit 2
+exec "$here/tehas-cycle" watch "$issue" --attempt "$attempt" --log "$log" --runs "$runs" --name "$name" \
+  --limit "$TEHAS_WORK_TIMEOUT" --stall "$TEHAS_WORK_STALL" --grace "$grace" --stop-wait "$stop_wait" \
+  --console-wait "$console_wait" --console "$here/console" --models "$HOME/.pi/agent/models.json" \
+  --email "$(git config --global user.email)" --renewer "$renewer" -- "${docker_line[@]}"

@@ -42,7 +42,7 @@
 # there leaves the issue marked tehas:running.
 #
 # The cycle's outcome is the result of pi-rukas's headless runner, which tehas
-# work leaves in state/cycles/<issue>.result.json (lib/headless.sh reads it):
+# work leaves in state/cycles/<issue>.result.json (tehas-cycle runner reads it):
 # its status, the step it stopped in, its cap, branch, token usage and the
 # pi-rukas commit it ran (buildCommit). Nothing is read from the tree the
 # container wrote. The per-role usage, the reason of the last cap and the
@@ -180,8 +180,8 @@
 #
 # When the cycle has been reported it leaves state/dispatch.again (for
 # tehas-dispatch.path, after a poll already running) and starts one poll
-# without waiting, so its slot is filled at once. A failure is a warning: the
-# timer still runs the poll.
+# without waiting, so its slot is filled at once (tehas-cycle after). A failure
+# is a warning: the timer still runs the poll.
 #
 # Once the comments and labels are done it ends the cycle's record on the
 # state store (cycle-end): how it ended, the counts tehas work left, the
@@ -192,11 +192,10 @@
 # approval off the record with it: an approval that started nothing is no
 # approval a later start can rest on.
 #
-# Then it records the run and its end in state/analytics.db (lib/analytics.sh),
-# each call bounded, a failure a WARN line; TEHAS_ANALYTICS=off makes no call.
-#
-# With TEHAS_IMPROVE_REPO it leaves the cycle's record, with the image and the
-# pi-rukas commit, in tmp/improve/window for the loop (lib/improve.sh).
+# Then it records the run and its end in state/analytics.db, each call bounded,
+# a failure a WARN line; TEHAS_ANALYTICS=off makes no call. With
+# TEHAS_IMPROVE_REPO it leaves the cycle's record, with the image and the
+# pi-rukas commit, in tmp/improve/window for the loop (tehas-cycle after).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO,
 # TEHAS_ANALYTICS.
@@ -218,16 +217,10 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/improve.sh
-. "$here/../lib/improve.sh"
-# shellcheck source=lib/headless.sh
-. "$here/../lib/headless.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
 . "$here/../lib/millwright.sh"
-# shellcheck source=lib/analytics.sh
-. "$here/../lib/analytics.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 tehas_load || exit 78
@@ -249,8 +242,12 @@ repo=$TEHAS_REPO
 # The cycle's workspace on the host; tehas work makes it under this name.
 workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
-status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+status_cmd=${TEHAS_STATUS_CMD:-$here/with-settings}
+status_args=()
+[ -n "${TEHAS_STATUS_CMD:-}" ] || status_args=(--status-arg tehasbot --status-arg status)
 console=${TEHAS_CONSOLE_CMD:-$here/console}
+# A pinned cycle runs its own copy.
+tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle
 cycles=$TEHAS_HOME/state/cycles
 
 mkdir -p "$cycles" "$TEHAS_HOME/logs"
@@ -366,9 +363,9 @@ signalled=0 tries=3
 shadow=""
 gh_call() {
   [ -z "$shadow" ] || printf '%s\0' "$@" $'\x1e' >>"$shadow.gh"
-  if [ "$signalled" = 1 ]; then
+  if [ "$signalled" = 1 ] || [ -n "${gh_wait:-}" ]; then
     # KILL: the report ignores TERM, and gh inherits that.
-    timeout -s KILL "$stop_gh_wait" gh "$@"
+    timeout -s KILL "${gh_wait:-$stop_gh_wait}" gh "$@"
   else
     gh "$@"
   fi
@@ -476,10 +473,13 @@ done
 # issue would park it for good.
 trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
+# The report in Rust, where the instance asks for it: the signals stay ignored
+# across the exec, and the lock stays held. Without the program bash reports.
+[ "${TEHAS_CYCLE_REPORT:-}" != rust ] || [ ! -x "$tc" ] || exec "$tc" report "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" --console "$console" --status-cmd "$status_cmd" "${status_args[@]}"
 # The report's shadow (#256): tehas-cycle decides beside this report, from the
 # same files, while state/cycle-shadow.on is there. It never fails the report.
-[ ! -e "$TEHAS_HOME/state/cycle-shadow.on" ] || ! timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" shadow "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" >/dev/null 2>&1 || shadow=$cycles/shadow-$issue
-mins=$(((EPOCHSECONDS - started) / 60))
+ended=$EPOCHSECONDS mins=$(((ended - started) / 60))
+[ ! -e "$TEHAS_HOME/state/cycle-shadow.on" ] || ! timeout 60 "$tc" shadow "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" --now "$ended" >/dev/null 2>&1 || shadow=$cycles/shadow-$issue
 [ ! -f "${workdir%/*}/.tehas-workspaces" ] || rm -rf "$workdir.images" ||
   log "WARN: could not remove the images $workdir.images"
 # The cycle's own cache, memory and sessions, made by tehas work beside the
@@ -512,7 +512,7 @@ fi
 # reader of the poll's log wants the one line that says what could not be read.
 [ "$no_result" = 0 ] ||
   log "WARN: the result of #$issue holds nothing, so its step is read from its run log"
-outcome=$(tehas_headless_outcome "$result" "$issue") || outcome='{}'
+outcome=$("$TEHAS_HOME/libexec/tehas-cycle" runner outcome "$result" "$issue") || outcome='{}'
 # The result's fields in one read, kept apart until the steps below use them.
 # The handoff is this command's to post (tehas work gives a cycle
 # PI_ENSEMBLE_HANDOFF_CHANNEL=host); it loses pi-rukas's marker line, which goes
@@ -687,7 +687,7 @@ if [ -n "$ran_log" ]; then
   # whose steps stop at commit-pr, and a run that never got there all leave it
   # empty, so GitHub is asked about no branch of its own. tehas work writes no
   # branch of its own, so nothing else says it for a cycle that wrote no result.
-  { read -r log_step; read -r log_branch; read -r log_read; } < <(tehas_headless_run "$ran_log" "$issue")
+  { read -r log_step; read -r log_branch; read -r log_read; } < <("$TEHAS_HOME/libexec/tehas-cycle" runner run "$ran_log" "$issue")
   # A log the helper answered nothing at all for (no file, no number for the
   # issue) is no log whose words were read, and says nothing of the cycle. The
   # third line is the only place its answer says that, and the one word the
@@ -1048,7 +1048,7 @@ if tehas_cycle_own_cap "${cap:-}"; then
 else
   [ -z "$cap" ] || why=" pi-rukas stopped on the cap \`$cap\`${park_reason:+ (\`$park_reason\`)}."
 fi
-[ "$cap" != deadline ] || why="$why It reached its deadline, a quarter of its time limit before the end, and started no new step."
+[ "$cap" != deadline ] || why="$why It reached its deadline before the time limit and started no new step."
 # The failure behind the cap, where the result gives one. Of kind cap nothing
 # failed: the cap's own rule stopped the cycle, and the cap says that.
 if [ -z "$own" ] && [ "$failure_from" = result ] && [ -n "$failure_kind" ] && [ "$failure_kind" != cap ] && [ "$provider" != 1 ]; then
@@ -1065,7 +1065,7 @@ rm -f "$cycles/$issue.done"
 # refresh marked. A start by hand used none. An approval that cannot be read
 # leaves it unknown: the mark of a refresh is then the dispatcher's to clear.
 # A refresh is on record at the time the poll decided it: the person's approval
-# it rests on is the one named for it, as tehas_approval_shape names it.
+# it rests on is the one named for it, as approval-view names it.
 refreshed="" base_at="" base_by=""
 if tehas_store approval-current "$issue"; then
   read -r refreshed base_at base_by < <(jq -r --argjson a "$attempt" '.rests_on as $r
@@ -1145,7 +1145,7 @@ park() {
   if [ "$cap" = child-timeout:develop ] && [ "$signalled" = 0 ] && last=$(timeout 30 gh api "repos/$repo/issues/$issue" 2>/dev/null |
     timeout 30 "$TEHAS_HOME/libexec/tehas-cycle" last-attempt "$issue" "$result" "$workdir" 2>/dev/null); then
     [ "$(jq -r .action <<<"$last")" != repeat ] || { retry=false && parked+=" $(jq -r .say <<<"$last")"; }
-    [ "$(jq -r .action <<<"$last")" != edit ] || jq '{body}' <<<"$last" | timeout 30 gh api -X PATCH "repos/$repo/issues/$issue" --input - >/dev/null 2>&1 ||
+    [ "$(jq -r .action <<<"$last")" != edit ] || jq '{body}' <<<"$last" | gh_wait=30 gh_call api -X PATCH "repos/$repo/issues/$issue" --input - >/dev/null 2>&1 ||
       log "WARN: could not leave the last attempt's note in the body of #$issue"
   fi
   if [ -n "$parked_auto" ]; then
@@ -1382,7 +1382,7 @@ done
 [ "$parked_now" != true ] || end_args+=(--parked)
 # A start that never ran takes its approval with it, once analytics has read it:
 # the fixer, a refresh and a later start read an approval as one whose cycle happened.
-approved=$(tehas_analytics_approval "$issue" "$attempt")
+approved=$("$tc" approved "$issue" "$attempt") || approved=null
 [ "$never_ran" != 1 ] || end_args+=(--never-ran)
 [ -z "$shadow" ] || printf '%s\0' "${end_args[@]}" >"$shadow.end"
 if tehas_store_try 5 cycle-end "${end_args[@]}"; then
@@ -1395,36 +1395,7 @@ if tehas_store_try 5 cycle-end "${end_args[@]}"; then
 else end_rc=70
   log "ERROR: the end of #$issue is not on record ($tehas_store_word: $tehas_store_line): cycle-end ${end_args[*]}"
 fi
-# The live view, as lib/live.sh describes it, with this end in it.
-tehas_store_try 3 publish ||
-  log "WARN: the live view is not published after the end of #$issue ($tehas_store_word: $tehas_store_line)"
-# The run and its end in the factory's analytics, from the line of history as
-# the cycle saw it and what the cycle's record holds (lib/analytics.sh); the
-# image, the counts and the approval were read above. A failure is a warning.
-TZ=UTC0 printf -v now '%(%FT%TZ)T' -1
-line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" \
-  --arg status "$status" --arg step "$step" --arg cap "$cap" --arg park_reason "$park_reason" \
-  --arg failure_kind "$failure_kind" --arg failure_cause "$failure_cause" --argjson parked "$parked_now" \
-  --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" --arg pr "${pr:-}" \
-  --arg by "$start_by" --arg how "$start_how" \
-  '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
-   | with_entries(select(.value != ""))') || line=null
-tehas_analytics_run "$issue" "$attempt" "$line" "$approved" ${image_id:+--image "$image_id"} ${image_built:+--image-built "$image_built"} \
-  ${image_rukas:+--rukas-image "$image_rukas"} ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
-tehas_analytics event "$issue" ended
-# For the improvement loop, where the instance has one. The cycle is reported
-# by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
-[ -z "$shadow" ] || timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
-# Nothing builds in a kept workspace again, and this cycle still holds the lock.
-timeout -k 5 300 "$console" clean ended "$workdir" "$TEHAS_CLEAN_DIRS" "$TEHAS_HOME/logs/clean.log" "${TEHAS_SCRATCH_DIR:+$TEHAS_SCRATCH_DIR/${workdir##*/}}" >/dev/null 2>&1 || log "WARN: the build output of $workdir was not removed"
-# The next poll refreshes the status. A stopped cycle leaves it to that poll.
-[ "$signalled" = 1 ] || "$status_cmd"
-# The slot is free now: fill it without waiting for the timer. systemd takes a
-# start asked while a poll runs as that poll, which may have counted this cycle
-# as running, so the file is left too: tehas-dispatch.path starts the next poll
-# when that one ends. The start is for a host where the path unit is not on.
-: >"$TEHAS_HOME/state/dispatch.again" 2>/dev/null || log "WARN: could not write $TEHAS_HOME/state/dispatch.again"
-timeout -k 5 10 systemctl --user start --no-block tehas-dispatch.service 9>&- >/dev/null 2>&1 ||
-  log "WARN: could not start a poll of the dispatcher"
+[ -z "$shadow" ] || timeout 60 "$tc" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
+# What follows the end, each step's failure a WARN line (tehas-cycle after).
+"$tc" after "$issue" < <(printf '%s\0' --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd" "${status_args[@]}") || log "WARN: what follows the end of #$issue did not run"
 exit "${end_rc:-0}"

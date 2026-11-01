@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for live/analytics.json, the ten-day report libexec/status writes from
+# Tests for live/analytics.json, the ten-day report tehasbot status writes from
 # `analytics report --json` for the dashboard, live/orders.json that
 # `analytics orders` writes beside it, and for the two private files it
 # asks the program to write under mcp/ for the MCP server: their keys and their
@@ -8,22 +8,16 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-# The command as a host has it: beside the console, which decides what the read
-# of what closed an issue means (console/src/shipped.rs) and is this checkout's
-# own build. The copy is a real file and not a symlink, because the command finds
-# its siblings - health, analytics, store - beside itself by the directory it was
-# run from, and a symlink there would name the checkout instead.
+# The command as a host has it: with-settings beside the console, this
+# checkout's own build, which holds the command.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
 shim=$T/tree
 mkdir -p "$shim/libexec"
-cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
-  ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
-done
-status=$shim/libexec/status
+ln -s "$T_ROOT/libexec/with-settings" "$shim/libexec/with-settings"
+status="$shim/libexec/with-settings tehasbot status"
 live=$T/home/tehas/live
 file=$live/analytics.json
 
@@ -159,6 +153,30 @@ t_run "$status"
 t_eq "$t_rc" 0
 t_eq "$(there)" there
 t_eq "$(jq -r .report "$file")" 1
+
+t_case "a run that is told to stop starts no read and still writes the report"
+reset
+t_stub gh '
+: >"$T/gh-started"
+sleep 1
+echo "[]"'
+t_run "$status & p=\$!
+until [ -e \"\$T/gh-started\" ]; do sleep 0.1; done
+kill -TERM \$p
+wait \$p"
+t_eq "$t_rc" 143
+t_eq "$(t_calls gh | wc -l)" 1
+t_eq "$(there)" there
+t_eq "$([ -e "$live/status.json" ] && echo there || echo gone)" gone
+t_stub gh '
+[ ! -e "$T/github-down" ] || exit 1
+case "$*" in
+  "issue list"*) echo "[]" ;;
+  "issue view"*) echo "" ;;
+  "api repos/"*) echo "[]" ;;
+  "api graphql"*subIssues*) echo "{\"data\":{\"repository\":{\"issues\":{\"nodes\":[]}}}}" ;;
+  "api graphql"*) echo "{\"data\":{\"search\":{\"nodes\":[]}}}" ;;
+esac'
 
 t_case "TEHAS_ANALYTICS=off removes the file and asks for no report"
 reset
@@ -311,8 +329,8 @@ t_eq "$(find "${counts%/*}" -name '*.new' | wc -l)" 0
 
 # The whole-year scan is asked for on every poll, so the poll binds it: a
 # publish that runs past the limit is a WARN and an old file kept a while, not
-# a poll that never ends. The limit is tehas_analytics_limit of lib/analytics.sh,
-# and the call of the poll passes it to timeout -k 1.
+# a poll that never ends. The limit is LIMIT of console/src/publish.rs, and the
+# call of the poll passes it to timeout -k 1.
 t_case "the outcomes publish is asked for under the analytics time limit"
 reset
 t_run "$status"

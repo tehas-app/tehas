@@ -19,14 +19,14 @@ fn labels(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn hex40(v: Option<&Value>) -> bool {
+pub(crate) fn hex40(v: Option<&Value>) -> bool {
     v.and_then(Value::as_str)
         .is_some_and(|s| s.len() == 40 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// tehas_refresh_rule's refresh_why: what keeps a pull request from being
 /// refreshed, empty when nothing does.
-fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
+pub(crate) fn refresh_why(pr: &Value, bot: &str, repo: &str, control: u64) -> String {
     let names = |v: &Value| -> Vec<String> {
         v.pointer("/labels/nodes")
             .and_then(Value::as_array)
@@ -132,8 +132,7 @@ fn is_instant(s: &str) -> bool {
 /// row it cannot date is held: unknown is not old, and the second answer lets
 /// the poll say so instead of reading as a park it dated. A `parked` that is
 /// not JSON true is no park; the store answers that column as a bool or NULL,
-/// and the importer takes only a boolean for it. The bash copy of this rule,
-/// lib/refresh.sh, keeps its (.started // 0).
+/// and the importer takes only a boolean for it.
 fn parked(history: &[Value], at: &str) -> (bool, bool) {
     // No instant on the record is no date to measure a park from; the rule of
     // the approval itself has already said what to do with such a record.
@@ -176,7 +175,7 @@ fn parked(history: &[Value], at: &str) -> (bool, bool) {
     (held, unread)
 }
 
-/// tehas_refresh_count: the refreshes a record counts on that approval.
+/// The refreshes a record counts on that approval.
 fn refresh_count(record: &Value, base: &Value) -> Option<u64> {
     let same = |r: &Value| {
         ["at", "by"]

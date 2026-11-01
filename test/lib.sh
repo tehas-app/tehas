@@ -96,7 +96,7 @@
 #                                    QID on record when one is given
 #   t_plan HOME N JSON               on a fresh session of issue N, the planning
 #                                    session JSON describes in the shape its
-#                                    record file had (tehas_plan_shape): made
+#                                    record file had (plan-view): made
 #                                    by the planning verbs, as the dispatcher
 #                                    makes one. by [alice], label
 #                                    [tehas:plan], turns, session [abc-123],
@@ -125,13 +125,13 @@
 #
 # Everything lives under $T, a scratch directory removed on exit. HOME and
 # TEHAS_HOME point into it, so a test cannot touch the real ones. On a factory
-# host env.sh exports the settings of lib/config.sh and GH_TOKEN, and
+# host env.sh exports the settings of tehas_load and GH_TOKEN, and
 # scripts/test.sh runs a test file with the caller's environment, so they are
 # dropped here: what reaches a test file is what the file itself sets. The
 # runner's own knobs (TEHAS_TEST_*, T_STORE_*, T_ATTACH_BIN) stay, because scripts/test.sh
 # names them and gives them to the file.
 set -uo pipefail
-# The two families lib/config.sh clears in tehas_load, the PI_RUKAS_* family it
+# The two families tehas_load clears, the PI_RUKAS_* family it
 # leaves alone, and the names outside them all.
 for t_leak in ${!TEHAS_@} ${!PI_ENSEMBLE_@} ${!PI_RUKAS_@} GH_TOKEN; do
   case $t_leak in
@@ -147,6 +147,15 @@ T_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 T=$(mktemp -d "${TMPDIR:-/tmp}/tehas-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin" "$T/calls" "$T/home"
+# tehas_load asks the console, and a test's tree has none beside lib/config.sh:
+# every load of a test goes to the one of this run, which a test can stub apart
+# from TEHAS_CONSOLE_CMD. A file run alone builds it here, once, as t_console does.
+if [ -z "${T_CONSOLE_BIN:-}" ] && [ -z "${T_STORE_WHY:-}" ] && command -v cargo >/dev/null 2>&1 &&
+  cargo build --locked --offline --quiet --manifest-path "$T_ROOT/console/Cargo.toml" \
+    --target-dir "$T_ROOT/console/target/shell" -p console >"$T/console-build.log" 2>&1; then
+  export T_CONSOLE_BIN=$T_ROOT/console/target/shell/debug/console
+fi
+export TEHAS_SETTINGS_CMD=${T_CONSOLE_BIN:-}
 # The stubs name bash by its path: through /usr/bin/env a stub costs one more
 # process each call.
 T_BASH=$(command -v bash)
@@ -424,7 +433,9 @@ t_stub_analytics() {
 #         retry fails for its own reason, so both are reported. The retry's own
 #         words are invented here, not captured from a real cargo: they only
 #         exercise the report of both attempts
-# Any other build is an ordinary build.
+# Any other build is an ordinary build. A console is a line of text that cannot
+# answer, unless CONSOLE_BIN names a real one to hand over, as STORE_BIN does
+# for the store: install.sh runs the console for the previews' network.
 t_stub_cargo() {
   # shellcheck disable=SC2016  # the stub's body is expanded when the stub runs
   t_stub cargo 'pkg=console triple="" prev="" offline=""
@@ -463,6 +474,15 @@ if [ "$pkg" = store ]; then
   if [ -n "${STORE_BIN:-}" ]; then cp "$STORE_BIN" "$out"; exit 0; fi
   { cat "$T/store-stand-in"; echo "# a store built from ${CONSOLE_BUILD:-source}"; } >"$out"
   chmod 755 "$out"
+  exit 0
+fi
+if [ "$pkg" = console ] && [ -n "${CONSOLE_BIN:-}" ]; then
+  # As cargo does, a new file: an earlier build may still be there.
+  cp --remove-destination "$CONSOLE_BIN" "$CARGO_TARGET_DIR/${triple}release/console"
+  exit 0
+fi
+if [ "$pkg" = tehas-cycle ] && [ -n "${CYCLE_BIN:-}" ]; then
+  cp "$CYCLE_BIN" "$CARGO_TARGET_DIR/${triple}release/tehas-cycle"
   exit 0
 fi
 case $pkg in analytics) art=an ;; *) art=a ;; esac
@@ -616,6 +636,21 @@ t_cycle() {
   fi
   cp "$target/debug/tehas-cycle" "$T_CYCLE"
 }
+# t_fake_limits <dir> [<word>...]: a tehas-cycle in <dir> that hands out these
+# words for `sandbox limits` and is the real one for every other verb: the seam
+# of the guard in tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# program hands out. Needs t_cycle first.
+t_fake_limits() {
+  local dir=$1
+  shift
+  {
+    echo "#!$T_BASH"
+    # shellcheck disable=SC2016  # expanded when the stand-in runs
+    printf '[ "$1 $2" = "sandbox limits" ] || exec "%s" "$@"\n' "$T_CYCLE"
+    [ "$#" = 0 ] || printf '%s\n' "printf '%s\\0' $*"
+  } >"$dir/tehas-cycle"
+  chmod +x "$dir/tehas-cycle"
+}
 # t_console: the console of this checkout, in $T_CONSOLE, as t_dispatch gets
 # tehas-dispatch: from T_CONSOLE_BIN, or built here when the file runs alone.
 T_CONSOLE=$T/console-bin
@@ -643,17 +678,20 @@ t_console() {
   fi
   cp "$target/debug/console" "$T_CONSOLE"
 }
-# t_health: libexec/health as a host has it, beside the console that builds
-# its report (console/src/health.rs), in $T_HEALTH. A command whose settings
-# were loaded has no TEHAS_CONSOLE, so the console has to be beside it. The
-# command is a copy, not a symlink, so it finds its siblings beside itself.
+# t_health: tehasbot health as a host runs it, with-settings beside the console
+# that builds its report (console/src/health.rs), as the one command $T_HEALTH.
+# The console is beside it, as on a host. The commands are copies, not symlinks, so they find their
+# siblings beside themselves.
 T_HEALTH=$T/health-tree/libexec/health
 t_health() {
   [ -x "$T_HEALTH" ] && return 0
   t_console || return 1
   mkdir -p "$T/health-tree/libexec"
   ln -sfn "$T_ROOT/lib" "$T/health-tree/lib"
-  cp "$T_ROOT/libexec/health" "$T_HEALTH"
+  cp "$T_ROOT/libexec/with-settings" "$T/health-tree/libexec/with-settings"
+  # shellcheck disable=SC2016  # expanded when the command runs
+  printf '#!/usr/bin/env bash\nexec "$(dirname "$0")/with-settings" tehasbot health\n' >"$T_HEALTH"
+  chmod +x "$T_HEALTH"
   cp "$T_CONSOLE" "$T/health-tree/libexec/console"
 }
 # t_attach_home <home>: the attachment checker where a command runs it.
@@ -698,7 +736,7 @@ t_store_home() {
 t_row() {
   local t_args=() t_got
   case ${1:-} in
-    cycle-show | park-show | question-known | approval-current | plan-show | history-show | check) ;;
+    cycle-show | park-show | question-known | approval-current | plan-show | plan-view | history-show | check) ;;
     *)
       t_bad "t_row reads, and ${1:-nothing} is not a read verb"
       return 64
@@ -1031,7 +1069,7 @@ t_run() {
   local -a instance_env=()
   [ -z "${TEHAS_INSTANCE_DIR:-}" ] || instance_env=(TEHAS_INSTANCE_DIR="$TEHAS_INSTANCE_DIR")
   t_out=$(env -i PATH="$T/bin:$PATH" HOME="$T/home" TEHAS_HOME="$T/home/tehas" T="$T" T_ROOT="$T_ROOT" \
-    CARGO_TARGET_DIR="$T/target" \
+    CARGO_TARGET_DIR="$T/target" TEHAS_SETTINGS_CMD="$TEHAS_SETTINGS_CMD" \
     "${instance_env[@]}" "${T_ENV[@]}" "${T_ENV_ALWAYS[@]}" \
     bash -c "$1" 2>&1)
   t_rc=$?

@@ -1,0 +1,31 @@
+tehas pause: stop this factory from starting new work, from this host.
+
+Usage: tehas pause [reason]
+       tehas pause -h|--help   print this text and exit 0
+
+The pause flag is one file, $TEHAS_HOME/state/pause.json, holding who set it,
+when and why. While it is there the dispatcher does its housekeeping and
+starts no cycle: a cycle already running finishes. The flag needs no call to
+GitHub, so a host can be paused when GitHub cannot be reached, and pausing a
+paused host changes nothing. tehas resume lifts it.
+
+The other switch is the label tehas:pause on the control issue, which works
+from away from the host. Anyone who may label may apply it; only an account in
+TEHAS_ALLOWED_LABELERS lifts it. Both switches are reported by tehas status
+and on the dashboard.
+
+The reason is one argument, kept to 200 characters on one line: a control
+character in it becomes a space, because tehas status prints one fact per line
+and a newline in the reason would print a line that is not there. It is written
+to the flag and shown by tehas status and on the dashboard, which may be
+public: write nothing in it that should not be read in public.
+
+The argument is checked here, the settings are loaded here, and the reading,
+the writing and the printing are the console's (console/src/flags.rs).
+
+Exit: 0 the host is paused (this command wrote the flag, or it was already
+there and is kept as it was); 64 more than one argument; 78 the instance
+settings are missing or malformed, or no console to run, which write nothing.
+
+Instance settings (lib/config.sh): none beyond a valid instance. The flag is
+mode 600, so only the account that runs this command reads it.

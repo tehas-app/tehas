@@ -123,7 +123,7 @@ pub(crate) fn epoch(s: &str) -> Option<i64> {
     Some((era * 146_097 + doe - 719_468) * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
-/// tehas_limit_read.
+/// The limit, as `flags limit read` reads it.
 pub fn limit(home: &Path, now: i64) -> Value {
     let p = home.join("state/limit.json");
     if !p.exists() && p.symlink_metadata().is_err() {
@@ -256,7 +256,7 @@ fn secs(var: &str, default: u64) -> Duration {
     Duration::from_secs(n)
 }
 
-/// What tehas_slice_ok and tehas_slice_room read of the host, in the shape
+/// What `console slice ok` and `slice room` read of the host, in the shape
 /// the snapshot's slice takes: systemctl show, docker info, the cgroup
 /// files, nproc and the running cycles' cid files.
 pub fn slice(home: &Path, running: &[u64]) -> Value {
@@ -336,39 +336,16 @@ pub fn slice(home: &Path, running: &[u64]) -> Value {
     v
 }
 
-/// tehas_free_kb: the free kilobytes of the disk of $TEHAS_HOME and of
-/// Docker's, the smaller; null when either cannot be read.
+/// The free kilobytes of the disk of $TEHAS_HOME and of Docker's, the smaller;
+/// null when either cannot be read.
 pub fn disk(home: &Path) -> Value {
     let wait = secs("TEHAS_DISK_WAIT", 10);
-    let kb = |p: &str| -> Option<u64> {
-        let r = run("df", &["-Pk".into(), p.into()], wait);
-        if !r.ok() {
-            return None;
-        }
-        let f = r.out.lines().nth(1)?.split_whitespace().nth(3)?;
-        (f == "0"
-            || (!f.starts_with('0') && f.len() <= 18 && f.bytes().all(|b| b.is_ascii_digit())))
-        .then(|| f.parse().ok())
-        .flatten()
-    };
-    let docker = run(
-        "docker",
-        &[
-            "info".into(),
-            "--format".into(),
-            "{{.DockerRootDir}}".into(),
-        ],
-        wait,
-    );
-    let dir = if docker.ok() && !docker.out.trim().is_empty() {
-        docker.out.trim().to_string()
-    } else {
-        "/var/lib/docker".into()
-    };
-    match (kb(&home.to_string_lossy()), kb(&dir)) {
-        (Some(a), Some(b)) => json!(a.min(b)),
-        _ => Value::Null,
-    }
+    let kb = tehas_core::disk::free_kb(&home.to_string_lossy(), |program, args| {
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        let r = run(program, &args, wait);
+        r.ok().then_some(r.out)
+    });
+    kb.map_or(Value::Null, |kb| json!(kb))
 }
 
 /// What sweep_workspaces finds: each issue with something left on this host,
@@ -441,7 +418,7 @@ pub fn leftovers(home: &Path, work_dir: &str, user_home: &Path, now: i64) -> Val
         }
         seen.push(n);
         let lock = home.join(format!("state/cycles/{n}.lock"));
-        // tehas_cycle_lock_free: a lock that is not there (a dangling link
+        // A lock that is not there (a dangling link
         // too) is free; one that is there is a plain file and no link.
         let lock_ok =
             !lock.exists() || fs::symlink_metadata(&lock).is_ok_and(|m| m.file_type().is_file());

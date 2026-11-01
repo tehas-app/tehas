@@ -59,7 +59,7 @@ t_case "tehas status --json prints what the sample holds, but for the clock"
 mkdir -p "$T/home/tehas/live"
 for name in "${samples[@]}"; do
   cp "$fixtures/$name.health.json" "$T/home/tehas/live/health.json"
-  t_run "$T_ROOT/libexec/summary --json"
+  t_run "$T_ROOT/bin/tehas status --json"
   # The health file is days old: stale, so the exit status is 1.
   t_eq "$t_rc" 1
   t_eq "$(jq -c 'del(.age, .stale, .demand.oldestWait?)' <<<"$t_out")" \

@@ -1,337 +1,9 @@
 # shellcheck shell=bash
-# Files attached to an issue: which links are GitHub's attachment storage,
-# which types are known, and how one file is fetched. Sourced by the commands
-# that fetch them: tehasbot protolab (a ticket's page), and tehas work and
-# tehas plan (the images and text files an issue links). It is in one place
-# so they cannot drift apart.
-#
-#   tehas_attachment_links            print a jq definition, `links`: every
-#                                     attachment link in a string, in the
-#                                     order written
-#   tehas_attachment_placeholder      print a jq definition, `placeholder`: an
-#                                     unfilled attachment placeholder in a
-#                                     string, or null for text with none
-#   tehas_text_holds_attachment <json> <field>
-#                                     0 when the text in <field> of that JSON
-#                                     promises an attachment it does not link;
-#                                     the word it promises is left in
-#                                     $attach_promise. A field that is not
-#                                     there, or is not text, promises nothing
-#   tehas_attachment_kind <extension> image, video, app or part; fails for a
-#                                     type that is not known
-#   tehas_attachment_ext <content type>
-#                                     the extension of an image or a video;
-#                                     fails for any other type
-#   tehas_attachment_fetch <address> <file> <most bytes> [<token>]
-#                                     download, print the content type
-#   tehas_attach_sniff <file>         what the bytes of a file say, in
-#                                     $sniff_bytes, $sniff_sha256,
-#                                     $sniff_image (png, jpg, gif, webp or
-#                                     empty), $sniff_zip and $sniff_text (true
-#                                     or false). Returns 1, with the reason in
-#                                     $tehas_attach_why, when it cannot say
-#   tehas_unzip_into <zip> <dest dir> <most bytes> <most files>
-#                                     unpack a zip, for tehasbot protolab and
-#                                     the archives a cycle is given: one JSON
-#                                     line per file written,
-#                                     {"name","kind","bytes","sha256","image",
-#                                     "text"}, and one per entry left out,
-#                                     {"skip","reason"}. Returns 2 when the zip
-#                                     cannot be read, 3 when the program is
-#                                     missing or failed
-#
-# Sourcing it does nothing. Which of the known types protolab takes, and how
-# much, is its own rule; the images a container is given follow the rule of
-# tehas_issue_images. The bytes of what was fetched are never read here: the
-# program $TEHAS_HOME/libexec/attach (console/attach) reads them, and its
-# header says the rules of an archive. What a cycle was given is composed there
-# too.
-
-# Only GitHub's own storage: nothing else is ever fetched for an issue. A
-# function and not a variable: tehas_load drops every TEHAS_ variable.
-tehas_attachment_links() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def links: [scan("https://(?:github\\.com/user-attachments/(?:assets|files)/|github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:assets|files)/[0-9]+/|user-images\\.githubusercontent\\.com/)[A-Za-z0-9._~%/?&=+-]+")];'
-}
-
-# The words of an issue written around a file that was never attached:
-# `SCREENSHOT GOES HERE`, `the image goes here`, `IMAGE_GOES_HERE`. The word
-# before it names what is missing, so it is one of these and no other: "the
-# value goes here" in a body of prose is not a missing file. A placeholder
-# names no bytes, so this is the other half of the question `links` answers:
-# the links are what was attached, this is what was promised. It is a
-# definition, not a command, because the dispatcher reads an issue's text in
-# one jq pass and asks GitHub for nothing.
-tehas_attachment_placeholder() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def placeholder:
-    ["screenshot", "image", "picture", "figure", "shot", "mockup", "mock", "diagram",
-     "attachment", "file", "video", "gif", "screencast", "thumbnail", "animation",
-     "example", "prototype"] as $what
-    | [scan("(?i)[a-z0-9_.-]+(?:[[:space:]]+|_)goes(?:[[:space:]]+|_)here")] as $said
-    | [$said[] | select(. as $m | $what
-        | any((. + " goes here") == ($m | ascii_downcase | gsub("[[:space:]]+"; " ")) or
-              (. + "_goes_here") == ($m | ascii_downcase)))]
-    | if length > 0 then .[0] else null end;'
-}
-
-# tehas_texts_hold_attachment <json>: 0 when any text of that JSON promises an
-# attachment none of its texts link. The JSON is the issue as GitHub answers
-# for it, or as the dispatcher's GraphQL read of it answers, and the texts are
-# the strings it holds: the body, the title, a reply. A placeholder alone is no
-# reason to hold -- the file may be there and the words left over from an
-# earlier draft -- so it is a reason only when no text of the JSON links an
-# attachment at all, and then the cycle would start with no picture, no file,
-# and nothing to say the gap. The word it promises is left in $attach_promise,
-# empty otherwise: it goes on one line of a log, so a control character or more
-# than 80 characters of it is taken as no answer. A JSON that cannot be read
-# promises nothing; whoever reads it fails there. Needs no setting: a body that
-# promises a file holds whether or not the instance gives a cycle images.
-tehas_texts_hold_attachment() { # <json>
-  local out
-  attach_promise=""
-  # `one` is the promise of one text; the answer is that of the first text that
-  # makes one, and empty when any text of the JSON links at all. `.. | strings`
-  # is every string of the answer, at any depth: the dispatcher reads the issue
-  # with GraphQL and hands the whole answer on, so the body sits wherever that
-  # read puts it. A text is taken before its own address in it is asked about,
-  # and `.[0]` is the first in the order the answer holds them, so what the
-  # issue wrote is what comes back, whatever its case. Every text of the whole
-  # answer is read, which is the whole of what a caller may hand this file: one
-  # issue's answer, or one reply, never a list of issues.
-  # shellcheck disable=SC2016  # a jq program
-  out=$(jq -c "$(tehas_attachment_links)$(tehas_attachment_placeholder)
-def promise: if type != \"string\" then null
-  elif ((. | links) | length) > 0 then \"LINKED\" else placeholder end;
-def texts: [.. | strings];
-def clean: if type == \"string\" then test(\"^[^\\\\t\\\\r\\\\n]{1,80}$\") else false end;
-texts as \$ts
-| (if ((\$ts | map(links) | add // []) | length) > 0 then \"\"
-   else ([\$ts[] | promise] | map(select(. != null and . != \"LINKED\")) | map(select(clean)) | .[0] // \"\") end)" \
-    <<<"${1:-}" 2>/dev/null) || return 1
-  out=${out%$'\n'}
-  out=${out#\"}
-  out=${out%\"}
-  # jq answered with its own reading of one text; nothing of it goes to the
-  # log before it is taken as one word of the issue's own. The rule is
-  # written once in jq and again here: `clean` lets jq drop what fails it, and
-  # this refuses one that came through anyway.
-  case $out in
-    *\\\\* | *\\\"* | *\\u*) return 1 ;;
-  esac
-  [ "$out" = "${out//[$'\n\t\r']/}" ] || return 1
-  [ "${#out}" -le 80 ] || return 1
-  attach_promise=$out
-  [ -n "$attach_promise" ] || return 1
-}
-
-# The dispatcher's approval of a start, as tehas_approval_view (lib/store.sh)
-# writes it from the state store for the readers here. at, by and how are asserted by shape, not only by
-# type: they are printed to an operator and published in a cycle's record, and
-# a value with a newline in it moves the fields of a manifest read back by
-# line. tehas_retry_context asserts the same of the text it quotes.
-tehas_approval_record() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def record_ok: type == "object" and (.links | type) == "array"
-    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z"))
-    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+\\z"))
-    and (.how | test("^(label|retry-tick|outage-retry|fixer|refresh)\\z"))
-    and (.comment_links == null or (.comment_links | type) == "array");'
-}
-
-# tehas_record_is_file <path>: what counts as the dispatcher's approval record,
-# said once. Every reader of an approval's view asks the same question, and a
-# link or a directory at that path is read as no record.
-tehas_record_is_file() {
-  [ -f "$1" ] && [ ! -L "$1" ]
-}
-
-# The body of the record, held to the shape tehas compares: 64 lower-case hex
-# characters, and nothing else. The shape is asserted, not only the type, and
-# the comparison is jq's own, so a value with a newline on the end is refused
-# as the malformed record it is instead of trimmed to a match by a shell
-# substitution.
-# shellcheck disable=SC2016  # a jq program
-tehas_approval_body() {
-  printf '%s\n' 'record_ok and (.body_sha256 | type) == "string"
-    and (.body_sha256 | length) == 64 and (.body_sha256 | test("^[0-9a-f]+\\z"))'
-}
-
-# The title's hash, held to the body's shape. A record written before titles
-# were bound names none, and stays a valid record: it is checked on the body
-# alone. Extends tehas_approval_body.
-# shellcheck disable=SC2016  # a jq program
-tehas_approval_title() {
-  printf '%s\n' ' and (.title_sha256 == null or ((.title_sha256 | type) == "string")
-    and (.title_sha256 | length) == 64 and (.title_sha256 | test("^[0-9a-f]+\\z")))'
-}
-
-# tehas_approval_text <record> <issue>: the issue's text against what the
-# dispatcher approved. <issue> is the answer for the issue, which the caller
-# read once and does not read again here. $text_why is empty when they match
-# and names which rule failed when they do not; $text_path is the record that
-# could not be read, empty for every other reason. No reason names a host path,
-# so any of them may be put on the issue; the caller that says it to an operator
-# adds $text_path. A record that cannot be read is never said as a change. A
-# record that names a title is held to that title as it is held to the body, and
-# the reason says which of the two changed; an answer that names no title is a
-# failed read. A record that names no title binds none: it is checked on the
-# body alone, as every record written before titles were bound is.
-# shellcheck disable=SC2034  # the caller reads text_why and text_path
-tehas_approval_text() { # <record> <issue>
-  local rec=$1 data=$2 sum prog
-  text_why=""
-  text_path=""
-  prog="$(tehas_approval_record)$(tehas_approval_body)$(tehas_approval_title)"
-  jq -e "$prog" "$rec" >/dev/null 2>&1 || {
-    text_why="the approval record could not be read"
-    text_path=$rec
-    return 1
-  }
-  sum=$(tehas_body_sha256 <<<"$data") || {
-    text_why="the issue's text could not be read for its hash"
-    return 1
-  }
-  jq -e --arg sum "$sum" "$prog and .body_sha256 == \$sum" "$rec" >/dev/null 2>&1 || {
-    text_why="the issue's text is not the text that was approved: it changed after the approval"
-    return 1
-  }
-  [ "$(jq -r 'if .title_sha256 == null then "" else "bound" end' "$rec")" = bound ] || return 0
-  sum=$(tehas_title_sha256 <<<"$data") || {
-    text_why="the issue's text could not be read for its title"
-    return 1
-  }
-  jq -e --arg sum "$sum" "$prog and .title_sha256 == \$sum" "$rec" >/dev/null 2>&1 || {
-    text_why="the issue's title is not the title that was approved: it changed after the approval"
-    return 1
-  }
-  return 0
-}
-
-# The most bytes the improvement loop copies of a manifest into the analyst's
-# record (lib/improve.sh). A manifest over it is left out whole, so both
-# writers of state/cycles/<issue>.manifest.json keep this instead.
-tehas_manifest_bytes() {
-  echo 262144
-}
-
-# A jq definition, `cap_left`: at most 100 left-out entries, each link cut at
-# 512 characters, and leftOutMore counting the rest (0 when there are none).
-# Both writers of a manifest pass their list through it, so an issue dense with
-# attachments leaves a record the improvement loop can copy rather than none.
-tehas_manifest_cap() {
-  # shellcheck disable=SC2016  # a jq program
-  printf '%s\n' 'def cap_left: (.leftOut // []) as $l
-    | .leftOut = [$l[:100][] | .link |= .[0:512]]
-    | .leftOutMore = (if ($l | length) > 100 then ($l | length) - 100 else 0 end);'
-}
-
-tehas_attachment_kind() {
-  case "$1" in
-    png | jpg | jpeg | gif | webp | svg | avif) echo image ;;
-    mp4 | webm | mov) echo video ;;
-    html | htm) echo app ;;
-    css | js | mjs | json | txt) echo part ;;
-    *) return 1 ;;
-  esac
-}
-
-# An image or video pasted into an issue has no name, so its type is the one
-# GitHub's storage answers with.
-tehas_attachment_ext() {
-  case "${1%%;*}" in
-    image/png) echo png ;;
-    image/jpeg) echo jpg ;;
-    image/gif) echo gif ;;
-    image/webp) echo webp ;;
-    image/svg+xml) echo svg ;;
-    image/avif) echo avif ;;
-    video/mp4) echo mp4 ;;
-    video/webm) echo webm ;;
-    video/quicktime) echo mov ;;
-    *) return 1 ;;
-  esac
-}
-
-# The token goes to github.com only, and on standard input, not the command
-# line; curl does not pass it on when GitHub redirects to its storage. The
-# exit status is curl's: 63 is a file over <most bytes>, 22 one GitHub did not
-# hand out.
-tehas_attachment_fetch() { # <address> <file> <most bytes> [<token>]
-  local args=(-sSfL --proto '=https' --proto-redir '=https' --max-redirs 3 --max-time 120
-    --max-filesize "$3" -o "$2" -w '%{content_type}')
-  case "$1" in
-    https://github.com/*)
-      if [ -n "${4:-}" ]; then
-        curl "${args[@]}" -H @- "$1" <<<"Authorization: Bearer $4"
-        return
-      fi
-      ;;
-  esac
-  curl "${args[@]}" "$1" </dev/null
-}
-
-# tehas_attach <verb> [args...]: run libexec/attach. Its answer is in
-# $tehas_attach_out after a 0. After a 1, $tehas_attach_word says why:
-# unreadable or unwritable, its own refusals; timeout, cut off after 60 s;
-# crashed, a panic; absent, no program; empty for any other failure. The first
-# three are the input's fault, the last two the host's. $tehas_attach_why is
-# its line for a log.
-tehas_attach_out="" tehas_attach_word="" tehas_attach_why=""
-tehas_attach() { # <verb> [args...]
-  local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach out rc LC_ALL=C
-  tehas_attach_out="" tehas_attach_word="" tehas_attach_why=""
-  if [ -z "${TEHAS_HOME:-}" ] || [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
-    tehas_attach_word=absent
-    tehas_attach_why="attach: absent: $bin is not an executable file"
-    return 1
-  fi
-  out=$(timeout -k 2 60 "$bin" "$@" </dev/null 2>&1)
-  rc=$?
-  if [ "$rc" = 0 ] && [[ $out != *$'\n'* ]] &&
-    jq -e --arg v "$verb" '.api == 1 and .ok == true and .verb == $v' <<<"$out" >/dev/null 2>&1; then
-    tehas_attach_out=$out
-    return 0
-  fi
-  out=${out%%$'\n'*}
-  case $rc in
-    1) [[ ! $out =~ ^attach:\ (unreadable|unwritable): ]] || tehas_attach_word=${BASH_REMATCH[1]} ;;
-    124 | 137) tehas_attach_word=timeout ;;
-    101) tehas_attach_word=crashed ;;
-  esac
-  out=${out//[[:cntrl:]]/?}
-  tehas_attach_why="attach: $verb exited $rc: ${out:0:300}"
-  return 1
-}
-
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_attach_sniff() { # <file>
-  local line
-  sniff_bytes="" sniff_sha256="" sniff_image="" sniff_zip=false sniff_text=false
-  tehas_attach sniff "$1" || return 1
-  line=$(jq -r '[.bytes, .sha256, (.image // "-"), .zip, .text] | map(tostring) | join(" ")' <<<"$tehas_attach_out") || return 1
-  read -r sniff_bytes sniff_sha256 sniff_image sniff_zip sniff_text <<<"$line"
-  [ "$sniff_image" != - ] || sniff_image=""
-  if ! [[ $sniff_bytes =~ ^[0-9]+$ && $sniff_sha256 =~ ^[0-9a-f]{64}$ ]]; then
-    tehas_attach_why="attach: sniff answered without its fields"
-    return 1
-  fi
-}
-
-tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
-  if ! tehas_attach unpack "$1" "$2" --max-bytes "$3" --max-files "$4"; then
-    case $tehas_attach_word in
-      unreadable | timeout | crashed) return 2 ;;
-    esac
-    echo "tehas: $tehas_attach_why" >&2
-    return 3
-  fi
-  jq -c '.entries[] | if has("skip") then {skip, reason} else {name, kind, bytes, sha256, image, text} end' <<<"$tehas_attach_out"
-}
-
-# The images and text files an issue links, for a container that is given
-# them: tehas work and tehas plan. The rules are written in libexec/work's
-# header.
+# Files attached to an issue, for tehas work, tehas plan and tehas dev: the way
+# to the program $TEHAS_HOME/libexec/attach (console/attach). It holds which
+# links count, who may attach, how much an issue is given and what a file is,
+# and it fetches. Here are the settings it is passed and what a caller reads.
+# The approved word stays with the callers: it is who applied the label (rule 5).
 #
 #   tehas_issue_images <issue> <dir> [approved] [record] [issue]
 #                                     remake <dir> from the issue's text, with
@@ -347,16 +19,17 @@ tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
 #                                     the dispatcher's approval record, the
 #                                     links are the record's, and only while
 #                                     the body has the hash it approved (see
-#                                     tehas_approval_text). With <issue>, the
+#                                     tehas-cycle start-check). With <issue>, the
 #                                     answer the caller already read for the
 #                                     issue, it is not read a second time
-#   tehas_approval_text <record> <issue>
-#                                     hold the issue's text to what <record>
-#                                     approved, its title as well as its body:
-#                                     $text_why empty when they match, and
-#                                     naming which rule failed when they do not,
-#                                     with $text_path the record that could not
-#                                     be read. No reason names a host path
+#   tehas_answer_images <dir> <answer file> <comment id>
+#                                     add to a planning session's <dir> what
+#                                     the reply in <answer file> links, source
+#                                     "answer:<id>"; the new files are listed
+#                                     in $answer_new, what was left out in
+#                                     $answer_left. Returns 1, with
+#                                     $image_why, and <dir> as it was, when a
+#                                     link could not be fetched
 #   tehas_record_is_file <path>     a plain file at <path>, not a link and not
 #                                     a directory: what counts as the record
 #   tehas_issue_images_changed <kept manifest> <dir>
@@ -382,22 +55,6 @@ tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
 #   tehas_approval_record           print a jq definition, `record_ok`: the
 #                                     shape of the dispatcher's approval record,
 #                                     so its readers cannot drift apart
-#   tehas_manifest_bytes            the most bytes the improvement loop copies
-#                                     of a manifest into a cycle's record
-#   tehas_manifest_cap              print a jq definition, `cap_left`: the
-#                                     left-out entries a manifest lists at most,
-#                                     and leftOutMore counting the rest
-#   tehas_answer_images <dir> <answer file> <comment id>
-#                                     add to a planning session's <dir> what
-#                                     the reply in <answer file> links, source
-#                                     "answer:<id>"; the new files are listed
-#                                     in $answer_new, what was left out in
-#                                     $answer_left. Returns 1, with
-#                                     $image_why, and <dir> as it was, when a
-#                                     link could not be fetched
-#   tehas_retry_context <record> [<comments>]
-#                                     the text of the record's retry_context,
-#                                     as written to retry-context.md
 #   tehas_issue_images_said <dir> <what> <reads>
 #                                     the comment that says what <what> (a
 #                                     cycle, a planning session) was given and
@@ -408,522 +65,128 @@ tehas_unzip_into() { # <zip> <dest dir> <most bytes> <most files>
 #                                     (tehas_rukas_reads_images); empty when the
 #                                     issue links no image and nothing was left
 #                                     out
+#
+# Sourcing it does nothing.
 
-# tehas_body_sha256: the sha256 of an issue's body, given the issue as JSON on
-# standard input. Carriage returns are dropped: the dispatcher reads the body
-# from GraphQL and tehas work from REST, and only line ends may differ.
-tehas_body_sha256() {
-  local sum
-  sum=$(jq -j '(.body // "") | gsub("\r"; "")' | sha256sum) || return 1
-  sum=${sum%% *}
-  [[ $sum =~ ^[0-9a-f]{64}$ ]] || return 1
-  echo "$sum"
+# The dispatcher's approval of a start, as tehas_approval_view (lib/store.sh)
+# writes it from the state store for the readers here. at, by and how are asserted by shape, not only by
+# type: they are printed to an operator and published in a cycle's record, and
+# a value with a newline in it moves the fields of a manifest read back by
+# line.
+tehas_approval_record() {
+  # shellcheck disable=SC2016  # a jq program
+  printf '%s\n' 'def record_ok: type == "object" and (.links | type) == "array"
+    and (.at | type) == "string" and (.at | test("^[0-9T:.Z-]+\\z"))
+    and (.by | type) == "string" and (.by | test("^[A-Za-z0-9-]+\\z"))
+    and (.how | test("^(label|retry-tick|outage-retry|fixer|refresh)\\z"))
+    and (.comment_links == null or (.comment_links | type) == "array");'
 }
 
-# tehas_title_sha256: the sha256 of an issue's title, given the issue as JSON on
-# standard input. Line ends are dropped as they are for the body. It fails when
-# the answer names no title: a read that gives no title is a failed read, not a
-# title of nothing.
-tehas_title_sha256() {
-  local sum title
-  title=$(jq -r 'if (.title | type) == "string" then (.title | gsub("\r"; "") | gsub("\n"; ""))
-      else error("no title") end' 2>/dev/null) || return 1
-  sum=$(printf '%s' "$title" | sha256sum) || return 1
-  sum=${sum%% *}
-  [[ $sum =~ ^[0-9a-f]{64}$ ]] || return 1
-  echo "$sum"
+# tehas_record_is_file <path>: what counts as the dispatcher's approval record,
+# said once. Every reader of an approval's view asks the same question, and a
+# link or a directory at that path is read as no record.
+tehas_record_is_file() {
+  [ -f "$1" ] && [ ! -L "$1" ]
 }
 
-# tehas_text_type <extension>: the type of a text file a cycle may be given; 
-# fails for any other extension. Not svg: as an image it is code, and no step
-# wants it as text yet.
-tehas_text_type() {
-  case "$1" in
-    md) echo text/markdown ;;
-    txt | log) echo text/plain ;;
-    csv) echo text/csv ;;
-    json) echo application/json ;;
-    yaml | yml) echo application/yaml ;;
-    html) echo text/html ;;
-    css) echo text/css ;;
-    js) echo text/javascript ;;
-    *) return 1 ;;
+# With no libexec/attach nothing can be checked, so a text that links a file
+# stops and one that links nothing goes on. The reason may be put on the issue,
+# so it names no host path.
+tehas_no_attach="the issue's files could not be checked (the attachment checker is not installed)"
+_tehas_has_attach() {
+  [ -n "${TEHAS_HOME:-}" ] && [ -f "$TEHAS_HOME/libexec/attach" ] && [ -x "$TEHAS_HOME/libexec/attach" ]
+}
+
+# Wider than LINK_RULE of console/attach/src/given.rs, so no link it takes is
+# missed. The text may be JSON, which may escape a slash.
+_tehas_may_link() { # <text>
+  case ${1//\\/} in
+    *https://github.com/*/assets/* | *https://github.com/*/files/* | *https://user-images.githubusercontent.com/*) return 0 ;;
   esac
+  return 1
 }
 
-# _tehas_take_rules and _tehas_take are the part tehas_issue_images and
-# tehas_answer_images share. They set and read their caller's locals: the
-# settings (want_images, want_files, want_zips), the limits, the counts so far
-# (count, used, fcount, fused, zcount), the approval (approved, who) and the
-# directory (images). One set of rules for both.
-# shellcheck disable=SC2034  # the caller's locals
-_tehas_take_rules() {
-  limit=$((10 * 1024 * 1024)) max=8 flimit=$((4 * 1024 * 1024)) fmax=16 fone=$((1024 * 1024))
-  # Archives per issue and bytes per download. What comes out of one counts
-  # against the limits of the images and the files above, not new ones.
-  zmax=2
-  # The most bytes an archive costs to read at all: the 4 MB of an issue's
-  # files, which is also the most one download of one is given.
-  zlimit=$flimit
-  # The 4 MB of an issue's files is the most an archive costs to read at all;
-  # no file of it is given more than the 1 MB of one file, so $fone caps the
-  # download and the unpacking alike.
-  other="Not a png, jpg, webp or gif image." over="Over the 10 MB limit of an issue."
-  fover="Over the 4 MB limit of an issue's files." fbig="Over the 1 MB limit of a file."
-  notext="Not valid UTF-8 text, or it holds a NUL byte."
-  toobig="Over the 10 MB limit of a ticket."
-  [ "$want_files" = 0 ] || other="Not a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
-  [ "$want_images" = 1 ] || other="Not a md, txt, csv, json, yaml, log, html, css or js file. This instance gives a cycle no images."
-  # Why a link named .zip is not taken when it is not an archive. The types
-  # the instance gives a cycle are named, as they are in $other.
-  notzip="Not a zip archive."
-  [ "$want_images" = 1 ] || [ "$want_files" = 0 ] ||
-    notzip="Not a zip archive, nor a png, jpg, webp or gif image, nor a md, txt, csv, json, yaml, log, html, css or js file."
+# tehas_attach <verb> [args...]: run libexec/attach, within 60 s. Its answer is
+# in $tehas_attach_out after a 0.
+tehas_attach_out=""
+tehas_attach() { # <verb> [args...]
+  local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach out
+  tehas_attach_out=""
+  _tehas_has_attach || return 1
+  out=$(timeout -k 2 60 "$bin" "$@" </dev/null 2>&1) || return 1
+  [[ $out != *$'\n'* ]] || return 1
+  jq -e --arg v "$verb" '.api == 1 and .ok == true and .verb == $v' <<<"$out" >/dev/null 2>&1 || return 1
+  tehas_attach_out=$out
 }
 
-# _tehas_take: fetch the links on standard input into the directory. One line
-# per link: where it was written, the link, and for a comment who wrote it. A
-# tab parts them; none of the three can hold one. Appends to .taken, .files and
-# .left there, and unpacks the archives it is told to take. Returns 1, with the
-# reason in $image_why, when a link could not be fetched or written.
-# shellcheck disable=SC2154  # the caller's locals
-_tehas_take() {
-  local src ref by name ext kind type size rc left zbytes zfiles n
-  leave() {
-    jq -n -c --arg link "$1" --arg reason "$2" --arg source "$src" --arg path "${3:-}" \
-      '{link: $link, reason: $reason, source: $source} + (if $path == "" then {} else {path: $path} end)' >>"$images/.left"
-  }
-  while IFS=$'\t' read -r src ref by; do
-    [ -n "$ref" ] || continue
-    case "$src" in
-      body)
-        case "$approved:$who" in
-          approved:* | *:OWNER | *:MEMBER | *:COLLABORATOR) ;;
-          *) leave "$ref" "The issue was not opened by an owner, member or collaborator, and its label was not applied by an allowed account."; continue ;;
-        esac
-        ;;
-      # A reply to a planning question: the dispatcher took it as the answer
-      # only from an allowed account, and the caller says so.
-      answer:*)
-        if [ "$approved" != approved ]; then
-          leave "$ref" "The reply was not written by an allowed account."
-          continue
-        fi
-        ;;
-      # A comment is taken on its author's word and the approval's, both allowed
-      # now: the record says who they were, not that they still may.
-      *)
-        if [ "$approved" != approved ] || ! tehas_allowed_labeler "$by"; then
-          leave "$ref" "The comment was not written by an allowed account, or the start was not approved by one."
-          continue
-        fi
-        ;;
-    esac
-    # A file attached under its name is taken by what the name says. A pasted
-    # one has no name and is only ever an image: its bytes say which.
-    name=""
-    kind=image
-    case "$ref" in
-      https://github.com/user-attachments/assets/* | https://github.com/*/assets/*) ;;
-      *)
-        name=${ref##*/}
-        name=${name%%\?*}
-        ext=""
-        case "$name" in *.*) ext=${name##*.} ;; esac
-        ext=${ext,,}
-        case "$ext" in
-          png | jpg | jpeg | webp | gif) ;;
-          *) kind=text ;;
-        esac
-        ;;
-    esac
-    if [ "$kind" = image ] && [ "$want_images" = 0 ]; then leave "$ref" "$other"; continue; fi
-    # A link named .zip is an archive only if its first bytes say so, and only
-    # where the instance takes archives at all. What is downloaded is paid for
-    # as the files it holds are paid for: no more than the room left of the 4 MB
-    # of an issue's files, and no more than the 4 MB of one download. What is
-    # unpacked from it is paid for file by file, at the 1 MB of one file.
-    if [ "$kind" = text ] && [ "$ext" = zip ] && [ "$want_zips" = 1 ]; then
-      if [ "$zcount" -ge "$zmax" ]; then leave "$ref" "More than $zmax archives."; continue; fi
-      left=$((flimit - fused))
-      if [ "$left" -le 0 ]; then leave "$ref" "$fover"; continue; fi
-      [ "$left" -le "$zlimit" ] || left=$zlimit
-      rm -f "$images/.part"
-      tehas_attachment_fetch "$ref" "$images/.part" "$left" "$GH_TOKEN" >/dev/null
-      rc=$?
-      case "$rc" in
-        0) ;;
-        63) leave "$ref" "A zip of more than $((zlimit / 1024 / 1024)) MB, or of more than is left of the 4 MB of an issue's files."; continue ;;
-        *) image_why="$ref could not be fetched"
-          return 1 ;;
-      esac
-      # No file of an archive is given more than a link of the issue is, so an
-      # archive of five files of 1 MB gives the cycle four of them and the fifth
-      # is left out by the limit, as a link over it is.
-      zbytes=$fone
-      if ! tehas_attach_sniff "$images/.part"; then
-        image_why="$ref could not be checked ($tehas_attach_why)"
-        return 1
-      fi
-      if [ "$sniff_zip" != true ]; then
-        rm -f "$images/.part"
-        leave "$ref" "$notzip"
-        continue
-      fi
-      zcount=$((zcount + 1))
-      zfiles=$((fmax - fcount))
-      _tehas_unpack "$ref" || return 1
-      continue
-    fi
-    if [ "$kind" = text ] && { [ "$want_files" = 0 ] || ! type=$(tehas_text_type "$ext"); }; then
-      leave "$ref" "$other"
-      continue
-    fi
-    if [ "$kind" = image ]; then
-      if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
-      left=$((limit - used))
-      if [ "$left" -le 0 ]; then leave "$ref" "$over"; continue; fi
-    else
-      if [ "$fcount" -ge "$fmax" ]; then leave "$ref" "More than $fmax files."; continue; fi
-      left=$((flimit - fused))
-      if [ "$left" -le 0 ]; then leave "$ref" "$fover"; continue; fi
-      [ "$left" -le "$fone" ] || left=$fone
-    fi
-
-    rm -f "$images/.part"
-    tehas_attachment_fetch "$ref" "$images/.part" "$left" "$GH_TOKEN" >/dev/null
-    rc=$?
-    case "$rc:$kind" in
-      0:*) ;;
-      63:image) leave "$ref" "$over"; continue ;;
-      63:text) if [ "$left" = "$fone" ]; then leave "$ref" "$fbig"; else leave "$ref" "$fover"; fi; continue ;;
-      *) image_why="$ref could not be fetched"; return 1 ;;
-    esac
-    if ! tehas_attach_sniff "$images/.part"; then
-      image_why="$ref could not be checked ($tehas_attach_why)"
-      return 1
-    fi
-    size=$sniff_bytes
-    if [ "$size" -gt "$left" ]; then
-      if [ "$kind" = image ]; then leave "$ref" "$over"; elif [ "$left" = "$fone" ]; then leave "$ref" "$fbig"; else leave "$ref" "$fover"; fi
-      continue
-    fi
-    if [ "$kind" = image ]; then
-      ext=$sniff_image
-      [ -n "$ext" ] || { leave "$ref" "$other"; continue; }
-      count=$((count + 1))
-      used=$((used + size))
-      name=image-$count.$ext
-      type=image/${ext/jpg/jpeg}
-    else
-      [ "$sniff_text" = true ] || { leave "$ref" "$notext"; continue; }
-      fcount=$((fcount + 1))
-      fused=$((fused + size))
-      name=file-$fcount.$ext
-    fi
-    if ! { mv "$images/.part" "$images/$name" && chmod 644 "$images/$name"; }; then
-      image_why="the issue's images could not be written"
-      return 1
-    fi
-    if [ "$kind" = image ]; then
-      jq -n -c --arg file "$name" --arg link "$ref" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "$sniff_sha256" --arg source "$src" \
-        '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum, source: $source}' >>"$images/.taken"
-    else
-      # The name as the link has it: the link's characters only.
-      jq -n -c --arg file "$name" --arg link "$ref" --arg name "${ref##*/}" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "$sniff_sha256" --arg source "$src" \
-        '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum, source: $source}' >>"$images/.files"
-    fi
-  done
-}
-
-# _tehas_unpack: the archive in $images/.part, into a scratch directory beside
-# it, then one file at a time through the checks of a fetched one: an image by
-# its first bytes and its extension, a text file by its extension and its bytes,
-# as libexec/attach read them while it wrote the file. Named on from what the
-# directory holds. The archive itself is never kept and the scratch directory
-# is removed whatever it held. The caller's locals are read and set as
-# _tehas_take's are; <link> is the link the archive came from.
-# shellcheck disable=SC2154  # the caller's locals
-_tehas_unpack() {
-  local ref=$1 zdir lines f mark size sum img txt reason kind type name zleft
-  n=2
-  zdir=$images/.unzip-$zcount
-  # The archive is read to the room its own download took: an archive of
-  # five files of 1 MB gives the cycle four of them and the fifth is left
-  # out by the room, as a link over it is. The 1 MB of one file is the
-  # ceiling of one entry, which no file of an issue's links passes either.
-  zleft=$((zlimit - fused))
-  [ "$zbytes" -le "$zleft" ] || zleft=$zbytes
-  # The scratch directory is made anew, the user's alone: what a run that died
-  # left under this name is gone before anything is written into it.
-  if ! { rm -rf "$zdir" && mkdir -m 700 "$zdir"; }; then
-    rm -rf "$images/.part" "$zdir"
-    leave "$ref" "$notzip"
-    return 0
-  fi
-  if ! tehas_attach unpack "$images/.part" "$zdir" --max-bytes "$zleft" --max-files "$zfiles"; then
-    rm -rf "$images/.part" "$zdir"
-    # What the archive did is left out with a reason, so its author cannot
-    # stop a cycle with it. A program that is missing or did not answer is
-    # the host's fault, and nothing starts on it.
-    case $tehas_attach_word in
-      unreadable | crashed) leave "$ref" "$notzip" ;;
-      timeout) leave "$ref" "An archive that took more than 60 seconds to unpack." ;;
-      *) image_why="$ref could not be unpacked ($tehas_attach_why)"; return 1 ;;
-    esac
-    return 0
-  fi
-  rm -f "$images/.part"
-  # One line per entry, no field empty, so a tab never runs two together.
-  lines=$(jq -r '.entries[] | [(.name // .skip | if . == "" then "-" else . end), (if has("skip") then "skip" else "file" end), (.bytes // 0),
-    (.sha256 // "-"), (.image // "-"), (.text // false), (.reason // "-")] | map(tostring) | @tsv' <<<"$tehas_attach_out") || {
-    rm -rf "$zdir"
-    image_why="$ref could not be unpacked (attach answered what jq cannot read)"
+# _tehas_take <verb> [args...]: the verbs of the program that fetch, with the
+# issue on standard input. No limit of its own: curl has one. curl's own words go
+# to the caller's log. $image_why is why nothing may start, and a program that
+# gives no answer is a reason too: nothing was checked.
+tehas_take_out=""
+_tehas_take() { # <verb> [args...]
+  local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach rc
+  tehas_take_out=""
+  tehas_take_out=$(GH_TOKEN=${GH_TOKEN:-} "$bin" "$@" --attach "$bin" --images "${TEHAS_WORK_IMAGES:-1}" \
+    --files "${TEHAS_WORK_FILES:-0}" --zips "${TEHAS_WORK_ZIPS:-0}")
+  rc=$?
+  if [ "$rc" != 0 ] || ! image_why=$(jq -er --arg v "$verb" \
+    'select(.api == 1 and .ok == true and .verb == $v) | .why // ""' <<<"$tehas_take_out" 2>/dev/null); then
+    image_why="the issue's files could not be checked (attach: $verb exited $rc)"
     return 1
-  }
-  while IFS=$'\t' read -r f mark size sum img txt reason; do
-    [ -n "$f" ] || continue
-    if [ "$mark" = skip ]; then
-      # An entry attach refused, named as the archive named it, dots and all:
-      # nothing was ever written for it. An entry of more than the room it was
-      # read at is said of that room, which is the 1 MB of one file here and
-      # not the 10 MB of the lab's own ticket.
-      [ "$reason" != "$toobig" ] || reason=$fbig
-      leave "$ref" "$reason" "$f"
-      continue
-    fi
-    ext=""
-    case "$f" in *.*) ext=${f##*.} ;; esac
-    ext=${ext,,}
-    # Both say an image: the bytes are those of one and the extension is one of
-    # the five a cycle is given as an image. An entry whose bytes look like a
-    # png under another extension is the file its extension says, as a link of
-    # the issue is: only a pasted attachment, which has no name, is an image on
-    # its bytes alone.
-    kind=""
-    type=""
-    case "$ext" in
-      png | jpg | jpeg | gif | webp) [ "$img" = - ] || kind=image ;;
-    esac
-    if [ "$kind" = image ]; then
-      type=image/${ext/jpg/jpeg}
-      name=image-$((count + 1)).${ext/jpeg/jpg}
-    elif [ -n "$ext" ] && type=$(tehas_text_type "$ext") && [ "$txt" = true ]; then
-      kind=text
-      name=file-$((fcount + 1)).$ext
-    else
-      leave "$ref" "$(_tehas_left_reason "$f")" "$f"
-      continue
-    fi
-    if [ "$kind" = image ]; then
-      if [ "$count" -ge "$max" ]; then leave "$ref" "More than $max images."; continue; fi
-      if [ "$((limit - used))" -le 0 ]; then leave "$ref" "$over"; continue; fi
-    elif [ "$fcount" -ge "$fmax" ]; then
-      leave "$ref" "More than $fmax files."
-      continue
-    elif [ "$((flimit - fused))" -le 0 ] || [ "$size" -gt "$((flimit - fused))" ]; then
-      # The archive was unpacked within what was left when it was fetched; a
-      # file of it that no longer fits the budget is left out, as a link over
-      # it is. The files before it stand.
-      leave "$ref" "$fover"
-      continue
-    fi
-    # attach kept the whole archive inside what it was given, so a file it
-    # wrote is inside the budget that is left. An image pays the image's
-    # limits and a text file the files', the same as a fetched one.
-    # A name the directory already holds, from a link or from an earlier file
-    # of this archive, keeps its file: this one goes in front of it with a
-    # number, as a second file of one name does elsewhere.
-    while [ -e "$images/$name" ]; do
-      name=${n}-${name#[0-9]-}
-      n=$((n + 1))
-    done
-    if ! { mv "$zdir/$f" "$images/$name" && chmod 644 "$images/$name"; }; then
-      image_why="the issue's images could not be written"
-      rm -rf "$zdir"
-      return 1
-    fi
-    # The manifest says where in the archive the file stood, so a reader can
-    # tell a file of an archive from one the issue linked on its own.
-    if [ "$kind" = image ]; then
-      count=$((count + 1))
-      used=$((used + size))
-      jq -n -c --arg file "$name" --arg link "$ref" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "$sum" --arg source "$src" --arg zip "$ref" --arg path "$f" \
-        '{file: $file, link: $link, type: $type, bytes: $bytes, sha256: $sum, source: $source, zip: $zip, path: $path}' >>"$images/.taken"
-    else
-      fcount=$((fcount + 1))
-      fused=$((fused + size))
-      jq -n -c --arg file "$name" --arg link "$ref" --arg name "${f##*/}" --arg type "$type" --argjson bytes "$size" \
-        --arg sum "$sum" --arg source "$src" --arg zip "$ref" --arg path "$f" \
-        '{file: $file, link: $link, name: $name, type: $type, bytes: $bytes, sha256: $sum, source: $source, zip: $zip, path: $path}' >>"$images/.files"
-    fi
-  done <<<"$lines"
-  rm -rf "$zdir"
+  fi
+  [ -z "$image_why" ]
 }
 
-# _tehas_left_reason <path>: why a file attach wrote is still not given to the
-# cycle: an svg, a nested archive, a binary, or bytes that do not answer the
-# extension of an image or an app name. The last two say the kinds a cycle is
-# given, as the reason of a link that is neither does, because a name of either
-# is a name the instance can hand out as neither.
-_tehas_left_reason() {
-  local ext="" kind
-  case "$1" in *.*) ext=${1##*.} ;; esac
-  kind=$(tehas_attachment_kind "${ext,,}") || kind=""
-  case "$kind" in
-    image | app) printf '%s\n' "$other" ;;
-    *) printf 'Not a text file a cycle is given, and not an image.\n' ;;
-  esac
-}
-
-# What is taken follows the settings: images unless TEHAS_WORK_IMAGES is 0,
-# text files when TEHAS_WORK_FILES is 1. Each kind has its own limits.
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
-  local issue=$1 images=$2 approved=${3:-} record=${4:-} data=${5:-} who given=null
-  local limit max flimit fmax fone zmax zlimit other over fover fbig notext toobig notzip
-  local want_images=1 want_files=0 want_comments=0 want_zips=0 used=0 count=0 fused=0 fcount=0 zcount=0
-  [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
-  [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
-  [ "${TEHAS_WORK_COMMENTS:-0}" != 1 ] || want_comments=1
-  # An archive holds anything, so it is taken only where the instance already
-  # gives a cycle images or files: with neither there is no directory for what
-  # comes out of it. The settings load refuses that pairing; here it is off.
-  # A test and an assignment are two commands here: one line ending in a false
-  # test would end the command under set -e.
-  if [ "${TEHAS_WORK_ZIPS:-0}" = 1 ] && { [ "$want_files" = 1 ] || [ "$want_images" = 1 ]; }; then
-    want_zips=1
-  fi
-  _tehas_take_rules
-  image_why="the directory for the issue's images could not be made"
-  { rm -rf "$images" && mkdir -p "$images"; } || return 1
-  : >"$images/.taken"
-  : >"$images/.files"
-  : >"$images/.left"
-  image_why="the issue could not be read for its images"
-  # The caller may have read the issue already, for its text alone: one start
-  # asks GitHub for it once, whatever it is asked for.
-  [ -n "$data" ] || { data=$(gh api "repos/$TEHAS_REPO/issues/$issue" 2>/dev/null) || return 1; }
-  jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
-  who=$(jq -r '.author_association // ""' <<<"$data")
-  # The links as the approval saw them. A body changed since was not approved,
-  # and no record of which links were approved is no ground to fetch any.
-  if [ -n "$record" ]; then
-    tehas_approval_text "$record" "$data" || { image_why=$text_why; return 1; }
-    given=$(jq -c '{at, by, how}' "$record") || return 1
-  fi
-
-  _tehas_take < <(if [ -n "$record" ]; then
-    # Only links of the shape this file takes, whatever the record holds: the
-    # body's first, then the comments' in the order written. Comments only
-    # where the instance takes them.
-    jq -r --argjson comments "$want_comments" "$(tehas_attachment_links)"'
-      (.links[] | strings | select(links == [.]) | "body\t\(.)\t"),
-      (if $comments == 1 then (.comment_links // [])[]
-         | select(type == "object" and (.link | type) == "string" and (.source | type) == "string"
-             and (.by | type) == "string" and (.link | links == [.])
-             and (.source | test("^(pr-)?comment:[0-9]+\\z")) and (.by | test("^[A-Za-z0-9-]+\\z")))
-         | "\(.source)\t\(.link)\t\(.by)"
-       else empty end)' "$record"
+# tehas_issue_images with no program: <dir> with a manifest that gives nothing,
+# when there is nothing to give. A record's links and the words of a retry are
+# what a start with one is given, else the links of the issue's text.
+_tehas_gives_nothing() { # <issue> <dir> [record] [issue]
+  local data=${4:-} approval=null files=""
+  if [ -n "${3:-}" ]; then
+    image_why=$tehas_no_attach
+    approval=$(jq -ec 'select((.links // []) + (.comment_links // []) + (.retry_context // []) == []) | {at, by, how}' \
+      "$3" 2>/dev/null) || return 1
   else
-    jq -r "$(tehas_attachment_links)"'(.body // "") | links | .[] | "body\t\(.)\t"' <<<"$data"
-  fi | awk -F '\t' '!seen[$2]++') || return 1
-
-  image_why="the issue's images could not be written"
-  local context=""
-  if [ -n "$record" ]; then
-    tehas_retry_context "$record" "$want_comments" >"$images/retry-context.md" || return 1
-    if [ -s "$images/retry-context.md" ]; then
-      context=retry-context.md
-      chmod 644 "$images/retry-context.md" || return 1
-    else
-      rm -f "$images/retry-context.md"
-    fi
+    image_why="the issue could not be read for its images"
+    [ -n "$data" ] || { data=$(gh api "repos/$TEHAS_REPO/issues/$1" 2>/dev/null) || return 1; }
+    jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
+    image_why=$tehas_no_attach
+    ! _tehas_may_link "$data" || return 1
   fi
-  jq -n --argjson issue "$issue" --argjson given "$given" --argjson files "$want_files" --arg context "$context" \
-    --slurpfile images "$images/.taken" --slurpfile taken "$images/.files" --slurpfile left "$images/.left" \
-    "$(tehas_manifest_cap)"'{images: $images} + (if $files == 1 then {files: $taken} else {} end) + {leftOut: $left, issue: $issue, approval: $given}
-      + (if $context == "" then {} else {retryContext: $context} end) | cap_left' \
-    >"$images/manifest.json" || return 1
-  rm -f "$images/.part" "$images/.taken" "$images/.files" "$images/.left"
-  { chmod 755 "$images" && chmod 644 "$images/manifest.json"; } || return 1
-  image_why=""
+  [ "${TEHAS_WORK_FILES:-0}" != 1 ] || files=$'  "files": [],\n'
+  image_why="the directory for the issue's images could not be made"
+  rm -rf "$2" && mkdir -p "$2" && chmod 755 "$2" || return 1
+  printf '{\n  "images": [],\n%s  "leftOut": [],\n  "issue": %s,\n  "approval": %s,\n  "leftOutMore": 0\n}\n' \
+    "$files" "$1" "$approval" >"$2/manifest.json" && chmod 644 "$2/manifest.json"
 }
 
-# A planning session's directory grows by what each reply links. The reply is
-# the text the dispatcher accepted as the answer, from an allowed account, so
-# its links are approved as the label approves the body's. Numbering goes on
-# from the files there, under the same limits counted with them, and a link
-# already there is not fetched again. Images added here are not described.
-# The work is done on a copy, which replaces the directory only when it is
-# whole.
+# The links as the approval saw them. tehas-cycle start-check held the words of
+# this answer to that approval before this was called.
+tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
+  _tehas_has_attach || { _tehas_gives_nothing "$1" "$2" "${4:-}" "${5:-}"; return; }
+  _tehas_take issue "$1" "$2" --approved "${3:-}" --record "${4:-}" --repo "${TEHAS_REPO:-}" \
+    --comments "${TEHAS_WORK_COMMENTS:-0}" --allowed "${TEHAS_ALLOWED_LABELERS:-}" \
+    --millwright "${TEHAS_MILLWRIGHT_LOGIN:-}" <<<"${5:-}"
+}
+
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_answer_images() { # <dir> <answer file> <comment id>
-  local dir=$1 text=$2 id=$3 images=$1.new approved=approved who=""
-  local want_images=1 want_files=0 want_zips=0 used count fused fcount zcount
-  local limit max flimit fmax fone zmax other over fover fbig notext notzip
-  [ "${TEHAS_WORK_IMAGES:-1}" != 0 ] || want_images=0
-  [ "${TEHAS_WORK_FILES:-0}" != 1 ] || want_files=1
-  if [ "${TEHAS_WORK_ZIPS:-0}" = 1 ] && { [ "$want_files" = 1 ] || [ "$want_images" = 1 ]; }; then
-    want_zips=1
-  fi
-  _tehas_take_rules
+  local reply
   answer_new=""
   answer_left=""
-  image_why="the session's images could not be read"
-  jq -e 'type == "object" and (.images | type) == "array" and (.leftOut | type) == "array"
-    and ((.files // []) | type) == "array"' "$dir/manifest.json" >/dev/null 2>&1 || return 1
-  count=$(jq '.images | length' "$dir/manifest.json") || return 1
-  used=$(jq '[.images[].bytes | numbers] | add // 0' "$dir/manifest.json") || return 1
-  fcount=$(jq '(.files // []) | length' "$dir/manifest.json") || return 1
-  fused=$(jq '[(.files // [])[].bytes | numbers] | add // 0' "$dir/manifest.json") || return 1
-  # The archives already unpacked into the session's directory. A reply that
-  # links one more needs the count: libexec/plan runs with set -u, and a
-  # variable never set here would end the turn.
-  zcount=$(jq '[(.images // [])[], (.files // [])[] | select(.zip != null) | .zip] | unique | length' "$dir/manifest.json" 2>/dev/null) || zcount=0
-  [[ $zcount =~ ^[0-9]+$ ]] || zcount=0
-  image_why="the session's images could not be copied"
-  { rm -rf "$images" && cp -r "$dir" "$images"; } || return 1
-  jq -c '.images[]' "$dir/manifest.json" >"$images/.taken" &&
-    jq -c '(.files // [])[]' "$dir/manifest.json" >"$images/.files" && : >"$images/.left" || return 1
-  if ! _tehas_take < <(jq -R -r -s --arg src "answer:$id" --slurpfile m "$dir/manifest.json" "$(tehas_attachment_links)"'
-    ([$m[0].images[]?, $m[0].files[]? | .link]) as $have
-    | links | .[] | select(. as $l | $have | index($l) | not) | "\($src)\t\(.)\t"' "$text" | awk -F '\t' '!seen[$2]++'); then
-    rm -rf "$images"
-    return 1
+  if ! _tehas_has_attach; then
+    image_why=$tehas_no_attach
+    reply=$(cat -- "$2" 2>/dev/null) || return 1
+    ! _tehas_may_link "$reply"
+    return
   fi
-  image_why="the session's images could not be written"
-  if ! jq --argjson files "$want_files" --slurpfile images "$images/.taken" --slurpfile taken "$images/.files" \
-    --slurpfile left "$images/.left" '.images = $images | (if $files == 1 then .files = $taken else . end) | .leftOut += $left' \
-    "$dir/manifest.json" >"$images/manifest.json"; then
-    rm -rf "$images"
-    return 1
-  fi
-  rm -f "$images/.part" "$images/.taken" "$images/.files" "$images/.left"
-  answer_new=$(jq -r --arg src "answer:$id" '.images[]?, .files[]? | select(.source == $src) | "- \(.file), from \(.link)"' "$images/manifest.json")
-  answer_left=$(jq -r --arg src "answer:$id" '.leftOut[] | select(.source == $src) | "- \(.link): \(.reason)"' "$images/manifest.json")
-  if ! { chmod 755 "$images" && chmod 644 "$images/manifest.json" && rm -rf "$dir.old" &&
-    mv "$dir" "$dir.old" && mv "$images" "$dir" && rm -rf "$dir.old"; }; then
-    [ -e "$dir" ] || mv "$dir.old" "$dir"
-    rm -rf "$images"
-    return 1
-  fi
-  image_why=""
+  _tehas_take answer "$1" "$2" "$3" </dev/null || return 1
+  answer_new=$(jq -r .new <<<"$tehas_take_out")
+  answer_left=$(jq -r .left <<<"$tehas_take_out")
 }
 
-# What a cycle was given, said by the program. Each rule and its reasons are in
-# console/attach/src/given.rs; here are the settings it is passed and what the
-# caller reads.
-
-# tehas_retry_context <record> [<comments>]: the record's retry-context.md on
-# standard output, nothing when there is none.
-tehas_retry_context() { # <record> [<comments: 0 or 1>]
-  tehas_attach retry-context "$1" --comments "${2:-1}" --millwright "${TEHAS_MILLWRIGHT_LOGIN:-}" || return 1
-  jq -r '.text // empty' <<<"$tehas_attach_out"
-}
+# What a cycle was given, said by the program: console/attach/src/given.rs.
 
 # Returns 1, with the reason in $image_why, when a link gave other bytes than
 # when this approval was first fetched. A program that cannot answer has not
@@ -933,6 +196,10 @@ tehas_retry_context() { # <record> [<comments: 0 or 1>]
 tehas_issue_images_changed() { # <kept manifest> <dir>
   local link
   [ -f "$1" ] && [ ! -L "$1" ] || return 0
+  # Nothing given has no bytes to hold to the kept manifest.
+  if ! _tehas_has_attach && jq -e '.images + (.files // []) == []' "$2/manifest.json" >/dev/null 2>&1; then
+    return 0
+  fi
   tehas_attach changed "$1" "$2/manifest.json" || {
     image_why="the kept manifest could not be compared"
     return 1

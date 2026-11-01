@@ -314,41 +314,30 @@ t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_BUDGET_MS"
 # A container of a 2048m ceiling runs one gate at a time.
 t_eq "$(after -e | grep '^PI_ENSEMBLE_VERIFY_CONCURRENCY')" "PI_ENSEMBLE_VERIFY_CONCURRENCY=1"
-# Six hours less a quarter of them, in milliseconds since the epoch.
+# Six hours less the handoff allowance, in milliseconds since the epoch.
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_CYCLE_DEADLINE')" 1
-t_eq "$([ "$deadline" -ge $(((before + 16200) * 1000)) ] && [ "$deadline" -le $(((before + 16200 + 60) * 1000)) ] && echo in-range)" in-range
+t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
-t_case "the margin before the time limit holds one run of the gate and the handoff"
+t_case "the deadline does not grow with the run of the gate"
 caps_fresh
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=7200 TEHAS_VERIFY_TIMEOUT=2400
 before=$(date +%s)
 t_run "$work 7"
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
-# 7200 - (2400 + 480)
-t_eq "$([ "$deadline" -ge $(((before + 4320) * 1000)) ] && [ "$deadline" -le $(((before + 4320 + 60) * 1000)) ] && echo in-range)" in-range
-t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
-
-t_case "a runner that bounds its steps by the deadline gets the limit less the handoff allowance"
-caps_fresh
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-jq '.features.cycleDeadlineHandoffAllowance = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
-before=$(date +%s)
-t_run "$work 7"
-deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
-# 21600 - 480
-t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
+# 7200 - 480
+t_eq "$([ "$deadline" -ge $(((before + 6720) * 1000)) ] && [ "$deadline" -le $(((before + 6720 + 60) * 1000)) ] && echo in-range)" in-range
 t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
 caps_good
 
 t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
 caps_fresh
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120 TEHAS_CHILD_TIMEOUT=600
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=480 TEHAS_VERIFY_TIMEOUT=120 TEHAS_CHILD_TIMEOUT=480
 jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 t_run "$work 7"
 t_lacks "$t_out" "does not support"
-t_contains "$t_out" "the time limit of 600s leaves no room for a deadline before it, the cycle has none"
+t_contains "$t_out" "the time limit of 480s leaves no room for a deadline before it, the cycle has none"
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_DEADLINE"
 caps_good
 caps_fresh
@@ -439,14 +428,14 @@ t_eq "$(tail -n 1 "$cycle_log.preflight")" "$line"
 t_case "the product's own .pi/settings.json is merged over the host's, as Pi merges them"
 mkdir -p "$T/prod/.pi"
 echo '{"retry":{"provider":{"maxRetries":2}},"httpIdleTimeoutMs":120000}' >"$T/prod/.pi/settings.json"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_run "'$T_CYCLE' sandbox retry '$T/prod'"
 t_eq "$t_out" "provider retry: timeoutMs=600000 maxRetries=2 maxRetryDelayMs=60000 httpIdleTimeoutMs=120000 agentMaxRetries=10 agentBaseDelayMs=5000 agentMaxDelayMs=120000"
 echo '{"retry":' >"$T/prod/.pi/settings.json"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_run "'$T_CYCLE' sandbox retry '$T/prod'"
 t_contains "$t_out" "provider retry: unknown"
 t_contains "$t_out" "is not JSON"
 mv "$T/home/.pi/agent/settings.json" "$T/settings.kept"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; tehas_sandbox_retry '$T/prod'"
+t_run "'$T_CYCLE' sandbox retry '$T/prod'"
 t_eq "$t_out" "provider retry: unknown, $T/home/.pi/agent/settings.json is missing"
 mv "$T/settings.kept" "$T/home/.pi/agent/settings.json"
 rm -rf "$T/prod"
@@ -487,42 +476,67 @@ t_lacks "$given" ".ssh"
 t_lacks "$given" ".config/tehas"
 t_lacks "$given" "--privileged"
 
-# The options themselves, as lib/sandbox.sh prints them: the one function the
-# cycle, the planning turn, the session and the push check are all given them
-# from. The units pin them on the docker line; this pins the source of them.
+# The options themselves, as tehas-cycle sandbox prints them: the one list the
+# cycle, the planning turn, the session and the push check are all given. The
+# units pin them on the docker line; this pins the source of them.
+real=$tree/libexec/tehas-cycle.real
+words_of() { t_run ". '$T_ROOT/lib/config.sh'; tehas_load || exit 9; '$real' sandbox limits 'tehas work' 'a cycle' | tr '\0' '\n'; exit \"\${PIPESTATUS[0]}\""; }
 t_case "the security options drop every capability and take privileges away"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security | tr '\0' '\n'"
+words_of
 t_eq "$t_rc" 0
-t_eq "$(printf '%s\n' "$t_out" | tr '\n' ' ')" "$security_opts "
-# The library's own two guards, which the four commands ask before Docker is
-# called: they are asked here of the function, so a guard that drifted from the
-# list is a failure in this file and not a cycle that stops on a host.
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_count"
-t_eq "$t_out" "$(printf '%s\n' "$security_opts" | wc -w)"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=2048; tehas_sandbox_security_ok"
-t_eq "$t_rc" 0
+t_eq "$(printf '%s\n' "$t_out" | sed -n '15,24p' | tr '\n' ' ')" "$security_opts "
 # No capability is left in the default list by name, and nothing is added
 # beyond the two a gate needs: a wider list here is a change of the contract.
 t_eq "$(printf '%s\n' "$t_out" | sed -n 's/^--cap-add=//p')" ""
+
+# The guard of tehas_sandbox_limits (lib/sandbox.sh), which judges what the
+# program hands out before Docker is called: asked of the command, so a guard
+# that drifted from the list is a failure in this file and not a cycle that stops
+# on a host. The tables of the size are in console/core/src/sandbox.rs.
+t_case "a list the program hands out that is not the documented one starts no cycle"
+short=$T/short-caps
+mkdir -p "$short/libexec"
+ln -s "$T_ROOT/lib" "$short/lib"
+ln -s "$T_ROOT/libexec/work" "$short/libexec/work"
+fourteen="--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024"
+for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
+  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" \
+  "--memory 2048m --cgroup-parent tehas.slice --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
+  rm -f "$T"/calls/*
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
+  t_run "$short/libexec/work 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas work: the container limits could not be made, not starting"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+done
+for opts in "--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true" \
+  "--cap-drop NET_RAW --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"; do
+  rm -f "$T"/calls/*
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $fourteen $opts
+  t_run "$short/libexec/work 7"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas_sandbox_security gave "
+  t_contains "$t_out" "wants 10: not starting a cycle"
+  t_eq "$(find "$T/calls" -name 'docker.args.*' | wc -l)" 0
+done
 
 # A cycle's /tmp is a tmpfs, whose pages count against --memory and cannot be
 # reclaimed: one as large as the ceiling ends in OOM kills, not ENOSPC. It is
 # half the ceiling, and without a ceiling there is no list to start with.
 t_case "the /tmp tmpfs is half the container's memory ceiling, and no ceiling gives no options"
+words_of
+t_contains "$t_out" "/tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
 # size=0 would be no bound at all, so a ceiling under 10 MiB is no ceiling.
-for pair in 2048:1024m 5478:2739m 10:5m; do
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB=${pair%%:*}; tehas_sandbox_security | tr '\0' '\n' | grep -c 'size=${pair#*:},'; tehas_sandbox_security_ok"
-  t_eq "$t_rc" 0
-  t_eq "$t_out" 1
-done
-for bad in "" 0 1 9 8g 1+1 abc; do
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security | wc -c; tehas_sandbox_security_ok"
-  t_eq "$t_rc" 1
-  t_eq "$t_out" 0
-  t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; TEHAS_SLICE_CEILING_MB='$bad'; tehas_sandbox_security_take 'tehas work' 'a cycle'"
-  t_eq "$t_rc" 1
-  t_contains "$t_out" "not starting a cycle"
-done
+printf '%s\n' FragmentPath=/etc/systemd/system/tehas.slice ActiveState=active MemoryMax=33554432 >"$T/slice.show"
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_CYCLE_RESERVE=6m
+words_of
+t_eq "$t_rc" 78
+t_contains "$t_out" "tehas work: tehas_sandbox_security gave 0 words, wants 0: not starting a cycle"
+slice_good
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
+t_run "$work 7"
 
 # The manual's table of "What a container may not do" is the same list as the
 # function's, option by option and value by value: the page and the container
@@ -547,16 +561,15 @@ t_lacks "$(cat "$T"/calls/docker.args.*)" "--network host"
 
 # The credential helper git is given, by name and by value: the container's
 # entry, the key tehas setup asks the host's git about, and the command the gh
-# stub of test/setup_test.sh writes are one contract in lib/sandbox.sh, so a
-# change to its spelling that only one of the three follows fails here. The
+# stub of test/setup_test.sh writes are one contract, so a change to its
+# spelling that only one of the three follows fails here. The
 # value is not a secret: it is a command on PATH, and the host's operator's own
 # helper is the only value that is withheld, in libexec/setup.
 t_case "the helper a container's git runs is the one key and the one command"
-t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\" \"\$(tehas_sandbox_helper_command)\""
+t_run ". '$T_ROOT/lib/config.sh'; . '$T_ROOT/lib/sandbox.sh'; printf '%s\n' \"\$(tehas_git_github_host)\" \"\$(tehas_git_credential_helper_key)\""
 t_eq "$t_rc" 0
 t_eq "$(printf '%s\n' "$t_out")" "github.com
-credential.https://github.com.helper
-!gh auth git-credential"
+credential.https://github.com.helper"
 
 # The container's own entries, read off the docker options of the cycle the
 # cases above started: the name on one line and its value on the next, the way

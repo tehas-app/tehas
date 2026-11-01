@@ -107,10 +107,13 @@ esac
 # lib/ is beside sandbox/ on a host, and two up in the checkout.
 lib=""
 for d in "$here/../lib" "$here/../../lib"; do
-  [ -f "$d/headless.sh" ] && [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
+  [ -f "$d/rukas.sh" ] && [ -f "$d/config.sh" ] && { lib=$d; break; }
 done
-if [ -z "$lib" ]; then
-  echo "sandbox: no lib/headless.sh, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
+# What reads the base's --capabilities. Read before tehas_load clears the name.
+# A checkout has no libexec/tehas-cycle: a build there names one.
+cycle=${TEHAS_CYCLE_BIN:-$lib/../libexec/tehas-cycle}
+if [ -z "$lib" ] || [ ! -x "$cycle" ]; then
+  echo "sandbox: no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh beside $here, the base cannot be checked" >&2
   exit 1
 fi
 # The recipe the image is made from goes with lib/: a toolchain that lacks it
@@ -132,20 +135,17 @@ if [ "$(grep -cxF -- 'FROM shared' "$dockerfile")" != 1 ] ||
   echo "sandbox: $dockerfile does not hold one 'FROM shared' stage and one 'ARG TEHAS_UID=' line, so the shared layers cannot be cut" >&2
   exit 1
 fi
+# What asks the date sweep below what is held. Read before tehas_load clears the
+# name. A checkout has no console, so a build there keeps every tag and says so.
+console=${TEHAS_CONSOLE:-$lib/../libexec/console}
 # shellcheck source=lib/rukas.sh
 . "$lib/rukas.sh"
-# shellcheck source=lib/headless.sh
-. "$lib/headless.sh"
 # The instance directory, resolved as every command resolves it: loading
 # settings has no side effects (AGENTS.md rule 3), so sourcing the library is
 # safe here and reaches the `instance-dir` pointer that only tehas_load would
 # otherwise read.
 # shellcheck source=lib/config.sh
 . "$lib/config.sh"
-# images_held, which the date sweep below asks: what a container or a uid tag
-# holds. tehasbot clean asks the same function for the same question.
-# shellcheck source=lib/sandbox.sh
-. "$lib/sandbox.sh"
 instance_file=$(tehas_instance_dir)/sandbox.Dockerfile
 # A host with an instance may follow another pi-rukas than its release names
 # (PI_RUKAS_FOLLOW in instance.env). Its settings are loaded and checked as
@@ -259,7 +259,7 @@ if ! docker pull -q "$base" >/dev/null 2>&1; then
 fi
 
 # What the base image's pi-rukas supports, asked with its own --capabilities
-# answer before anything is built (lib/headless.sh reads it). An image that
+# answer before anything is built (tehas-cycle caps reads it). An image that
 # does not speak the contract versions tehas work reads, or whose runner does
 # not take the flags it passes, is not built: every cycle on it would be
 # refused. Whether its pi-rukas reads the images a cycle is given goes into the
@@ -277,7 +277,7 @@ case "$rc" in
     ;;
   *) echo "sandbox: $base gave no --capabilities answer (exit $rc)" >&2; exit 1 ;;
 esac
-if ! unsupported=$(tehas_headless_unsupported "$caps" "--timeout --json --restart" ""); then
+if ! unsupported=$("$cycle" caps unsupported "--timeout --json --restart" "" <<<"$caps"); then
   echo "sandbox: the --capabilities answer of $base is not a JSON object" >&2
   exit 1
 fi
@@ -286,7 +286,7 @@ if [ -n "$unsupported" ]; then
   printf '%s\n' "$unsupported" | sed 's/^/    /' >&2
   exit 1
 fi
-reads=$(tehas_headless_reads_images "$caps")
+reads=$("$cycle" caps reads-images <<<"$caps")
 
 stamp=$(date -u +%y%m%d-%H%M)
 # The recipe the build is handed, written from the tracked file just before the
@@ -462,13 +462,13 @@ if [ -f "$instance_file" ]; then
   echo "built $image:$stamp-product from $instance_file, also tagged $current"
 fi
 
-# The ids of images a container was made from, or a uid tag names, are
-# images_held in lib/sandbox.sh, which the cleaner asks too.
+# The ids of images a container was made from, or a uid tag names, are the
+# console's answer, the one the cleaner goes by.
 
 prune_dated() {
   local tags held tag id n=0
   tags=$(docker image ls --no-trunc --format '{{.Tag}} {{.ID}}' "$image") || return 1
-  held=$(images_held "$tags") || return 1
+  held=$("$console" clean held "$tags") || return 1
   while read -r tag id; do
     n=$((n + 1))
     [ "$n" -gt "$keep" ] || continue
@@ -481,4 +481,8 @@ prune_dated() {
     fi
   done < <(grep -E '^[0-9]{6}-[0-9]{4}(-product)? ' <<<"$tags" | LC_ALL=C sort -r)
 }
-prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+if [ ! -x "$console" ]; then
+  echo "warning: no console at $console, no old $image tag was removed" >&2
+else
+  prune_dated || echo "warning: docker did not list its images or containers, no old $image tag was removed" >&2
+fi
