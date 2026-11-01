@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 /// want-token-<name> names a file, the stub says one word on that file of the
 /// world if it ran with a token; the word is the only thing it writes, so a
 /// test can count the processes that were given one without any part of a
-/// token reaching a file, a log or an argument.
+/// token reaching a file, a log or an argument. want-from-poll-<name> is the
+/// same for `TEHAS_FROM_POLL`, the name the poll gives the status alone.
 const STUB: &str = r#"#!/bin/bash
 d=$(dirname "$0")
 name=$(basename "$0")
@@ -22,6 +23,10 @@ case $name in gh) input=$(cat) ;; esac
 printf '%s %s%s\n' "$name" "$*" "${input:+ <<< $input}" >>"$d/calls.log"
 if [ -f "$d/want-token-$name" ] && [ -n "${TEHAS_GH_TOKEN:-}" ]; then
   printf 'token\n' >>"$d/$(cat "$d/want-token-$name")"
+fi
+if [ -f "$d/want-from-poll-$name" ]; then
+  [ "${TEHAS_FROM_POLL:-absent}" = 1 ] && printf 'from-poll\n' >>"$d/$(cat "$d/want-from-poll-$name")"
+  printf '%s\n' "${TEHAS_FROM_POLL:-absent}" >>"$d/$(cat "$d/want-from-poll-$name").seen"
 fi
 if [ -f "$d/fail-$name" ]; then
   while IFS= read -r line; do
@@ -247,6 +252,26 @@ impl World {
         }
     }
 
+    /// Make <program>'s stub record a line in <file> of the world when it ran
+    /// with `TEHAS_FROM_POLL` set to exactly `1`, and in `<file>.seen` the
+    /// value it ran with (`absent` for none), so a case can say both that the
+    /// status was told and that nothing else was.
+    fn asks_for_from_poll(&self, program: &str, file: &str) {
+        fs::write(
+            self.dir.join(format!("want-from-poll-{program}")),
+            format!("{file}\n"),
+        )
+        .unwrap();
+    }
+
+    /// The tidy, status and health stubs each recording their word in <file>
+    /// when they were given `TEHAS_FROM_POLL`.
+    fn expects_from_poll_on_its_host_commands(&self, file: &str) {
+        for program in ["tidy", "status", "health"] {
+            self.asks_for_from_poll(program, file);
+        }
+    }
+
     /// The words the stubs said for the token, one line per process that was
     /// given one.
     fn token_said(&self, file: &str) -> Vec<String> {
@@ -374,6 +399,48 @@ fn host_commands_get_none_without_a_token() {
         printed,
         vec!["the tidy line", "the status line", "the health line"]
     );
+}
+
+#[test]
+fn the_status_is_told_the_poll_ran_it_and_the_others_are_not() {
+    // The bug of #1169: the status took "the poll gave me its token" for "the
+    // poll ran me", so on a host with a machine-user token, or after a token
+    // read that failed, it ran health and the poll ran it again. The name of
+    // the poll is its own and says nothing about a token, so this world holds
+    // none: the status still learns it, and tidy and health do not - health
+    // especially, since it is the command the poll runs next and the one that
+    // must refresh the file itself.
+    let mut t = world();
+    t.expects_from_poll_on_its_host_commands(GIVEN);
+    assert_eq!(t.w.calls.gh_token, None);
+    let mut printed = Vec::new();
+    runs_host_commands(&mut t.w, true, &mut printed);
+    assert_eq!(t.token_said(GIVEN), vec!["from-poll"]);
+    // The value is the one the status reads, and the two commands that share
+    // the run hold nothing of it: `absent` is the name's own absence.
+    assert_eq!(
+        t.token_said(&format!("{GIVEN}.seen")),
+        vec!["absent", "1", "absent"]
+    );
+    assert_eq!(
+        printed,
+        vec!["the tidy line", "the status line", "the health line"]
+    );
+}
+
+#[test]
+fn the_console_commands_of_the_poll_are_not_told_it_ran_them() {
+    // The name is the status command's alone: pr-title runs through the same
+    // runner and is not the script that leaves health to the poll.
+    let mut t = world();
+    t.asks_for_from_poll("console", GIVEN);
+    let mut printed = Vec::new();
+    t.w.status_of(
+        &t.w.host.console_cmd.clone(),
+        &["pr-title".into(), "poll".into()],
+        &mut printed,
+    );
+    assert_eq!(t.token_said(GIVEN), Vec::<String>::new());
 }
 
 #[test]
