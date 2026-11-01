@@ -188,6 +188,9 @@ t_stub fake-tidy '[ ! -e "$T/calls/fake-start" ] || : >"$T/calls/tidy.after-star
 t_stub fake-health
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 real_health() { t_health || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(TEHAS_HEALTH_CMD="$T_HEALTH"); }
+# The bash poll reads the free disk through the console, which the checkout's
+# libexec does not hold.
+bash_poll_console() { t_console || t_bad "no console: $t_console_why"; T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE"); }
 # The dispatcher waits for a planning turn in steps of ten seconds. No case
 # here needs that time to
 # pass: the wait for a turn returns at once. Every other sleep is real, the
@@ -397,9 +400,7 @@ reset() {
   # TEHAS_DISPATCHER=bash does.
   if [ -n "${T_BASH_POLL:-}" ]; then
     case " ${T_MINIMAL[*]} " in *" TEHAS_DISPATCHER=bash "*) ;; *) T_MINIMAL+=(TEHAS_DISPATCHER=bash) ;; esac
-    # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
-    t_console || t_bad "no console: $t_console_why"
-    T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
+    bash_poll_console
   else
     # shellcheck disable=SC2154  # t_dispatch_why is set by t_dispatch (test/lib.sh)
     t_dispatch || t_bad "no tehas-dispatch: $t_dispatch_why"
