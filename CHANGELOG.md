@@ -13,6 +13,9 @@ empty one above it.
 
 ### Changes
 
+- `scripts/verify.sh --changed` runs `cargo test -p` for the crates a change can
+  affect, not the whole workspace (#911).
+
 ### Adopter action
 
 None.
