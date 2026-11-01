@@ -256,7 +256,7 @@ fn secs(var: &str, default: u64) -> Duration {
     Duration::from_secs(n)
 }
 
-/// What tehas_slice_ok and tehas_slice_room read of the host, in the shape
+/// What `console slice ok` and `slice room` read of the host, in the shape
 /// the snapshot's slice takes: systemctl show, docker info, the cgroup
 /// files, nproc and the running cycles' cid files.
 pub fn slice(home: &Path, running: &[u64]) -> Value {
