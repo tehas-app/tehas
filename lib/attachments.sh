@@ -67,7 +67,7 @@ tehas_record_is_file() {
 }
 
 # The most bytes the improvement loop copies of a manifest into the analyst's
-# record (lib/improve.sh). A manifest over it is left out whole, so both
+# record (console/cycle/src/improve.rs). A manifest over it is left out whole, so both
 # writers of state/cycles/<issue>.manifest.json keep this instead.
 tehas_manifest_bytes() {
   echo 262144

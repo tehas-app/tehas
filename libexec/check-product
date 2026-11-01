@@ -20,7 +20,7 @@
 # the image as this user, .pi/worktree-setup when there is one, the first
 # command of .pi/verify-cmd-full (else .pi/verify-cmd) and, when there is one,
 # of .pi/smoke-cmd. The clone is made as a cycle's workspace is
-# (tehas_sandbox_clone): the default branch at origin's tip, with
+# (tehas-cycle sandbox clone): the default branch at origin's tip, with
 # origin/<default branch> and origin/HEAD set, then a work branch with one
 # empty commit, so a gate that diffs against origin/main finds its base and
 # a change of nothing. It is removed afterwards.

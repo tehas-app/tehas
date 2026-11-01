@@ -140,12 +140,12 @@ pub fn wants_driver(record: &Value) -> bool {
     ) && record.get("driver") != Some(&Value::String(String::new()))
 }
 
-fn record_value(file: &Path) -> Option<Value> {
+pub fn record_value(file: &Path) -> Option<Value> {
     let text = fs::read_to_string(file).ok()?;
     runner::values(&text)?.pop()
 }
 
-fn is_record(p: &str) -> bool {
+pub fn is_record(p: &str) -> bool {
     !p.is_empty() && fs::symlink_metadata(p).is_ok_and(|m| m.is_file())
 }
 
@@ -285,17 +285,17 @@ fn measure(home: &Path, t: &Text, issue: &Value) {
 }
 
 /// A comment that says why no cycle started. Its path stays on the host.
-fn tell(t: &Text, why: &str) {
+pub fn tell(issue: u64, repo: &str, wait: u64, why: &str) {
     let body = format!("Tehas started no cycle: {why}. To retry, apply `tehas:ready`.");
     let done = Command::new("timeout")
-        .args(["-k", "10", &t.wait.to_string(), "gh", "issue", "comment"])
-        .args([&t.issue.to_string(), "--repo", &t.repo, "--body", &body])
+        .args(["-k", "10", &wait.to_string(), "gh", "issue", "comment"])
+        .args([&issue.to_string(), "--repo", repo, "--body", &body])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
     if !done.is_ok_and(|s| s.success()) {
-        eprintln!("tehas work: the comment on #{} failed", t.issue);
+        eprintln!("tehas work: the comment on #{issue} failed");
     }
 }
 
@@ -308,7 +308,7 @@ pub fn text(home: &Path, t: &Text) -> i32 {
             why.to_string()
         };
         eprintln!("tehas work: {shown}, not starting a cycle");
-        tell(t, why);
+        tell(t.issue, &t.repo, t.wait, why);
         4
     };
     if !t.why.is_empty() {

@@ -447,7 +447,6 @@ files=(
   "lib/park-fields.jq|$TEHAS_HOME/lib/park-fields.jq|644"
   "lib/cycles.sh|$TEHAS_HOME/lib/cycles.sh|644"
   "lib/labels.sh|$TEHAS_HOME/lib/labels.sh|644"
-  "lib/improve.sh|$TEHAS_HOME/lib/improve.sh|644"
   "lib/improve-prompt.md|$TEHAS_HOME/lib/improve-prompt.md|644"
   "lib/refine-brief.md|$TEHAS_HOME/lib/refine-brief.md|644"
   "lib/issue-brief.md|$TEHAS_HOME/lib/issue-brief.md|644"
@@ -1209,6 +1208,7 @@ for f in \
   libexec/console.ts \
   lib/live.sh \
   lib/headless.sh \
+  lib/improve.sh \
   lib/planning.sh \
   lib/refresh.sh \
   lib/sizing.sh \

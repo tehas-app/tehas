@@ -13,6 +13,7 @@
 //! `sandbox` prints the docker options of a container for the commands that
 //! keep their docker line in bash.
 //! `start` holds a start to its approval before anything of it is written.
+//! `prepare` makes what a container starts from.
 //! `watch` starts a cycle's container and sees it to its end, and `progress`
 //! summarises what the runner wrote.
 
@@ -29,6 +30,7 @@ pub mod index;
 pub mod jq;
 pub mod last_attempt;
 pub mod pin;
+pub mod prepare;
 pub mod progress;
 pub mod renew;
 pub mod report;
