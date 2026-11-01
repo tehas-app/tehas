@@ -19,6 +19,29 @@ use std::io::ErrorKind;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+/// The names of the `*.lock` files in `dir` that are held, in the order of a
+/// glob. One that cannot be read counts as held: nothing may guess that nobody
+/// holds it.
+pub fn held_in(dir: &Path) -> Vec<String> {
+    let mut held: Vec<String> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path
+                .file_name()?
+                .to_str()?
+                .strip_suffix(".lock")?
+                .to_string();
+            (!name.is_empty() && !matches!(probe(&path), Probe::Free | Probe::Absent))
+                .then_some(name)
+        })
+        .collect();
+    held.sort();
+    held
+}
+
 /// What one probe of one path found.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Probe {
