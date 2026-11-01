@@ -52,11 +52,12 @@
 //! WARN line when the snapshot cannot be written, on standard error. Exit 0 even
 //! when GitHub is down: the previous file is then left in place.
 
-use crate::flags::{epoch, oneline};
+use crate::flags::{epoch, REASON};
 use crate::jq::{obj, J};
 use crate::platform;
 use crate::publish::{log, Analytics};
 use crate::shipped;
+use crate::status::oneline;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::env;
@@ -235,7 +236,10 @@ fn pause_flag(file: &Path) -> (J, bool) {
         Some((J::Str(at), J::Str(reason))) if matches!(flag, Some(J::Obj(_))) => (
             obj(vec![
                 ("at", J::str(at.clone())),
-                ("reason", J::str(oneline(reason))),
+                (
+                    "reason",
+                    J::str(oneline(reason).chars().take(REASON).collect::<String>()),
+                ),
             ]),
             true,
         ),
@@ -865,6 +869,28 @@ mod tests {
             flag_paused: false,
             no_resources: false,
         }
+    }
+
+    #[test]
+    fn a_pause_reason_reads_as_the_bash_gave_it() {
+        let dir = temp("reason");
+        let f = dir.join("pause.flag");
+        let reason = |written: &str| {
+            let flag = obj(vec![
+                ("at", J::str("T".to_string())),
+                ("reason", J::str(written.to_string())),
+            ]);
+            fs::write(&f, flag.dump()).unwrap();
+            pause_flag(&f).0.get("reason").as_str().unwrap().to_string()
+        };
+        assert_eq!(reason("a\n\n\tb"), "a b");
+        assert_eq!(reason("a  b"), "a  b");
+        assert_eq!(reason("\n  a  \n"), "a");
+        // The ends go before the cut, and the cut leaves what it leaves.
+        let long = format!("{}{}", " ".repeat(10), "x".repeat(300));
+        assert_eq!(reason(&long), "x".repeat(200));
+        let spaced = format!("{} {}", "y".repeat(199), "z".repeat(9));
+        assert_eq!(reason(&spaced), format!("{} ", "y".repeat(199)));
     }
 
     #[test]

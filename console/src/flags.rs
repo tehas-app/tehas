@@ -118,7 +118,7 @@ fn clock(given: Option<String>) -> i64 {
 }
 
 /// The longest reason the flag holds.
-const REASON: usize = 200;
+pub const REASON: usize = 200;
 /// The largest limit a person can set, and the widest `--for` in seconds: the
 /// bounds `tehas limit` has always checked its arguments against.
 const MAX_CYCLES: u64 = 9999;
