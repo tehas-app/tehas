@@ -54,7 +54,7 @@
 //!
 //! The lines and the object of tehas status, see src/status.rs.
 //!
-//!   console review since|refused|run ...
+//!   console review main|table
 //!
 //! What tehasbot review decides and how it runs its container, see
 //! src/review.rs.

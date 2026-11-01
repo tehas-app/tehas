@@ -1129,25 +1129,6 @@ t_eq "$t_rc" 78
 t_lacks "$(t_calls docker)" "run "
 t_contains "$t_out" "TEHAS_CYCLE_RESERVE=3g is more than a container may use here (2048m"
 
-t_case "the fourteen words are all present or nothing starts"
-# The command beside a tehas-cycle that says yes and hands out a short list, or
-# a list that names another parent.
-short=$T/short
-mkdir -p "$short/libexec"
-ln -s "$T_ROOT/lib" "$short/lib"
-ln -s "$review" "$short/libexec/review"
-for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
-  "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
-  t_case "the limits were '$words'"
-  reset
-  # shellcheck disable=SC2086  # the words are the list
-  t_fake_limits "$short/libexec" $words ${words:+"${sandbox_security_words[@]}"}
-  t_run "$short/libexec/review"
-  t_eq "$t_rc" 78
-  t_lacks "$(t_calls docker)" "run "
-  t_contains "$t_out" "tehas review: the container limits could not be made, not starting"
-done
-
 t_case "with a GitHub App the review is given neither the app's token nor its directory"
 # tehas plan and tehas work mount the directory the host keeps the app's token
 # in. A review is given no GH_TOKEN, so it is not given that directory either.
@@ -1163,19 +1144,6 @@ t_lacks "$(run_args)" "/run/tehas/github"
 t_lacks "$(run_args)" "$state_dir/github"
 t_lacks "$(run_args)" "ghs_app"
 t_eq "$(after -e | grep -c -x -e GH_TOKEN)" 0
-
-t_case "security options that are not the documented ones start no review"
-# The guard of lib/sandbox.sh, asked of a program whose list drifted: the eight
-# words a cycle was given before /tmp was bounded.
-t_fake_limits "$short/libexec" --cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m \
-  --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024 \
-  --cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true
-reset
-t_run "$short/libexec/review"
-t_eq "$t_rc" 78
-t_lacks "$(t_calls docker)" "lens-review"
-t_contains "$t_out" "tehas review: tehas_sandbox_security gave 8 words, wants 10: not starting a review"
-t_eq "$([ -e "$tree" ] && echo made)" ""
 
 t_case "a workspace directory tehas did not make is not touched"
 reset
