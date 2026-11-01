@@ -135,6 +135,8 @@ case "$1 $2" in
     [ ! -e "$T/fx/issue-fails" ] || exit 1
     if [ -e "$T/fx/issue-$n.json" ]; then cat "$T/fx/issue-$n.json"; else echo "{\"number\":$n,\"state\":\"open\"}"; fi ;;
 esac'
+# A file that asks for it runs every case with the report in Rust.
+[ -z "${T_CYCLE_REPORT:-}" ] || T_MINIMAL+=("TEHAS_CYCLE_REPORT=$T_CYCLE_REPORT")
 # The sandbox image has no label unless a case writes one: no commit is then
 # on record.
 t_stub docker '[ -e "$T/fx/image.label" ] || exit 1; cat "$T/fx/image.label"'
@@ -176,7 +178,8 @@ reset() {
   # does so before tehas work has run: the directory is made here so the file
   # has somewhere to go.
   mkdir -p "$T/home/tehas/logs"
-  # The state store a cycle runs, with nothing on record.
+  # The state store a cycle runs, with nothing on record, and what follows
+  # its end.
   t_store_home "$T/home/tehas"
   # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
   t_cycle || t_bad "no tehas-cycle: $t_cycle_why"

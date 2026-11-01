@@ -1,5 +1,5 @@
 //! A cycle's report, decided: what libexec/cycle does once tehas work has
-//! ended, from what the cycle left (`Facts`) and the two questions it asks
+//! ended, from what the cycle left (`Facts`) and the questions it asks
 //! GitHub on the way (`Ask`). It writes nothing. Its answer is the lines it
 //! logs while it reads, the writes in their order, and what goes on the
 //! cycle's record, in the analytics and to the improvement loop.
@@ -7,13 +7,16 @@
 //! The order of the bash is kept, and so are its words: the report of the
 //! Rust and the report of the bash are compared line by line.
 
+use crate::after::After;
 use crate::facts::{first_bytes, line, two_lines, words, Facts, File};
+use crate::improve::Ended;
+use crate::last_attempt;
 use crate::runner::{self, cut, kept, names_issue};
 use serde_json::{json, Map, Value};
 use tehas_core::question::{q_clean, q_render, Kind};
 
-/// The two questions a report asks GitHub, as the bash asks them: each
-/// with its tries and bounds, which are the caller's.
+/// What a report asks GitHub, as the bash asks it: each with its tries and
+/// bounds, which are the caller's.
 pub trait Ask {
     /// The bot's pull requests on a branch, in any state; None when GitHub
     /// would not list them.
@@ -21,11 +24,15 @@ pub trait Ask {
     /// Whether the issue carries needs-human-attention now; None when its
     /// labels could not be read.
     fn attention(&mut self) -> Option<bool>;
+    /// The issue as GitHub's REST API answers it; None when it could not be
+    /// read.
+    fn issue(&mut self) -> Option<Value>;
 }
 
 /// GitHub's answers as facts hold them under "github": "prs", the list (null
-/// when GitHub would not give it), and "attention", whether the issue
-/// carries needs-human-attention (null when its labels could not be read).
+/// when GitHub would not give it), "attention", whether the issue carries
+/// needs-human-attention (null when its labels could not be read), and
+/// "issue", the issue itself.
 pub struct Given(pub Value);
 
 impl Ask for Given {
@@ -43,6 +50,10 @@ impl Ask for Given {
             None => Some(false),
             _ => None,
         }
+    }
+
+    fn issue(&mut self) -> Option<Value> {
+        self.0.get("issue").filter(|v| !v.is_null()).cloned()
     }
 }
 
@@ -67,6 +78,16 @@ pub struct Park {
     /// pi-rukas's handoff marker and tehas's park marker.
     pub marker: String,
     pub park_marker: String,
+    /// The host's line when this park repeats the one before it.
+    pub repeat: String,
+    /// It ended at child-timeout:develop with no stop: once it is on record
+    /// the issue is read, for `last_attempt`.
+    pub develop: bool,
+    /// What that read decided: no retry box and these words, or this body
+    /// for the issue.
+    pub no_retry: bool,
+    pub say: String,
+    pub edit: Option<String>,
 }
 
 impl Park {
@@ -74,6 +95,9 @@ impl Park {
     /// (the store took the park) are known.
     pub fn parked(&self, stuck: bool, on_record: bool) -> String {
         let mut p = self.text.clone();
+        if !self.say.is_empty() {
+            p += &format!(" {}", self.say);
+        }
         if !self.auto.is_empty() {
             if on_record {
                 p += &self.auto;
@@ -84,7 +108,7 @@ impl Park {
         if stuck {
             p += STUCK;
         }
-        p
+        p + &self.repeat
     }
 
     /// The question of a park on record: the text the question file holds,
@@ -96,7 +120,8 @@ impl Park {
             self.handoff_part(),
             self.usage
         );
-        let out = json!({"text": text, "question": null, "marker": self.marker, "park": self.park_marker});
+        let out = json!({"text": text, "question": null, "marker": self.marker,
+                         "park": self.park_marker, "retry": !self.no_retry});
         let body = q_render(Kind::Park, issue, 1, &out, "");
         (text, body)
     }
@@ -131,6 +156,37 @@ impl Park {
             String::new()
         } else {
             format!("\n\n{}", self.handoff)
+        }
+    }
+
+    /// A develop timeout leaves a note in the body, which the next cycle
+    /// reads; a second one on the same text offers no retry. The park is on
+    /// record before the issue is read. An issue that cannot be read changes
+    /// nothing.
+    pub fn last_attempt(&mut self, f: &Facts, ask: &mut dyn Ask) {
+        if !self.develop {
+            return;
+        }
+        let Some(issue) = ask.issue() else {
+            return;
+        };
+        let result = f.file("result.json").text();
+        match last_attempt::of_issue(f.issue, &issue, result, f.work_state.as_ref()) {
+            Some(last_attempt::Action::Repeat) => {
+                self.no_retry = true;
+                self.say = last_attempt::REPEAT.to_string();
+            }
+            Some(last_attempt::Action::Edit(body)) => self.edit = Some(body),
+            _ => {}
+        }
+    }
+}
+
+/// `Park::last_attempt` of a report that writes nothing.
+pub fn last_attempts(r: &mut Report, f: &Facts, ask: &mut dyn Ask) {
+    for a in &mut r.actions {
+        if let Action::Park(p) = a {
+            p.last_attempt(f, ask);
         }
     }
 }
@@ -177,9 +233,10 @@ pub struct Report {
     /// The line logged once the writes are done.
     pub done: String,
     /// The arguments of `store cycle-end`; the paths of the result and the
-    /// progress are the caller's to add, for each of `files`.
+    /// progress are the caller's to add, for each of `files`, at `files_at`.
     pub end: Vec<String>,
     pub files: Vec<String>,
+    pub files_at: usize,
     /// The analytics line, without its time.
     pub history: Value,
     /// The arguments of `analytics run` after the issue, the attempt and the
@@ -191,6 +248,10 @@ pub struct Report {
     pub status_run: bool,
     /// What GitHub was asked, in order: `prs <branch>`, `attention`.
     pub asked: Vec<String>,
+    /// Which arm of the report this cycle took, for the shadow's log.
+    pub arm: &'static str,
+    /// What follows the end; the caller adds the approval and its programs.
+    pub after: After,
 }
 
 fn re(pattern: &str, s: &str) -> bool {
@@ -247,6 +308,72 @@ pub fn park_marker(
         low(kind),
         u8::from(provider)
     )
+}
+
+/// q_park_repeat: the line a repeating park says of itself, in the host's
+/// own words. Nothing of a failure's free text reaches the comment.
+fn repeat_line(step: &str, cap: &str) -> String {
+    let step = cut(
+        &kept(step, |c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+        }),
+        40,
+    );
+    let cap = cut(
+        &kept(cap, |c| c.is_ascii_alphanumeric() || "_.:-".contains(c)),
+        80,
+    );
+    let mut line =
+        " This park repeats the one before it: number 1 of the parks in a row that stopped"
+            .to_string();
+    if !step.is_empty() {
+        line += &format!(" at step `{step}`");
+    }
+    if !cap.is_empty() {
+        line += &format!(" on the cap `{cap}`");
+    }
+    line + ". A retry on the same text will likely stop the same way and spend another slot: change the issue first, or ask for a smaller change with `tehas:plan`."
+}
+
+/// tehas_park_repeat, lib/park-fields.jq: whether the issue's last end is a
+/// park of this one's signature and no provider outage. Unreadable history
+/// says nothing.
+fn repeats(f: &Facts, sig: &str, step: &str) -> bool {
+    let Some(rows) = f
+        .history
+        .as_ref()
+        .ok()
+        .and_then(|h| h.get("rows"))
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let Some(p) = rows
+        .iter()
+        .rfind(|r| r.get("kind").and_then(Value::as_str) == Some("cycle"))
+    else {
+        return false;
+    };
+    let word = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("");
+    let low = |s: &str| {
+        cut(
+            &kept(s, |c| {
+                c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'
+            }),
+            40,
+        )
+    };
+    let wanted = low(if step == "-" { "" } else { step });
+    p.get("parked") == Some(&Value::Bool(true))
+        && p.get("provider") != Some(&Value::Bool(true))
+        && low(word("step")) == wanted
+        && tehas_core::question::park_sig(
+            word("step"),
+            word("cap"),
+            word("park_reason"),
+            word("failure_kind"),
+            word("failure_cause"),
+        ) == sig
 }
 
 /// The report of a cycle that ended.
@@ -325,7 +452,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         let marker = regex::Regex::new(r"\A<!-- pi-rukas:handoff [^\n]*-->\n*").unwrap();
         v(&marker.replace(&b, ""))
     };
-    let park_reason = v(&cut(
+    let mut park_reason = v(&cut(
         &kept(&text(&outcome, "parkReason"), |c| {
             c.is_ascii_lowercase() || c == '-'
         }),
@@ -599,27 +726,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     };
     let [review_held, mut reason, failure_from, failure_kind, failure_role, failure_cause] =
         runner::progress_fields(progress);
-    let mut provider = false;
-    if failure_from == "result" {
-        provider = failure_kind == "provider";
-    } else {
-        if cap.starts_with("step-failed:") && reason.is_empty() {
-            warn(
-                &mut r,
-                format!(
-                    "#{issue} ended at {cap} and no reason was found in its progress: an outage is not told from a failure (pi-rukas#1367)"
-                ),
-            );
-        }
-        if (cap.starts_with("step-failed:") || cap == "adversarial-infra-failure")
-            && re(
-                r"(?i)provider|time(d)? ?out|connection|ECONNRE|ETIMEDOUT|(^|[^0-9])5[0-9]{2}([^0-9]|$)",
-                &reason,
-            )
-        {
-            provider = true;
-        }
-    }
+    let provider = failure_from == "result" && failure_kind == "provider";
     // A stop of tehas's own is its own cap.
     let mut own = "";
     let mut stop_why = String::new();
@@ -744,7 +851,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         why = format!(" pi-rukas stopped on the cap `{cap}`{pr_why}.");
     }
     if cap == "deadline" {
-        why += " It reached its deadline, a quarter of its time limit before the end, and started no new step.";
+        why += " It reached its deadline before the time limit and started no new step.";
     }
     if own.is_empty()
         && failure_from == "result"
@@ -781,8 +888,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         .file("done")
         .text()
         .map(|t| first_bytes(t, 16))
-        .filter(|w| ["closed", "merged", "pr-closed"].contains(&w.as_str()))
         .unwrap_or_default();
+    if done_why == "quiet" {
+        if park_reason.is_empty() {
+            park_reason = "quiet".into();
+        }
+        why += " The dispatcher stopped it: nothing was heard from it for longer than its quiet bound.";
+    }
     // The approval this start used.
     let (mut refreshed, mut base_at, mut base_by) = (String::new(), String::new(), String::new());
     match &f.approval {
@@ -848,14 +960,20 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         &failure_cause,
         provider,
     );
+    let sig =
+        tehas_core::question::park_sig(&step, &cap, &park_reason, &failure_kind, &failure_cause);
     let base = Park {
-        args: vec![],
-        text: String::new(),
-        auto: String::new(),
         handoff: handoff.clone(),
         usage: usage.clone(),
         marker: marker.clone(),
         park_marker: pm,
+        repeat: if !provider && repeats(f, &sig, &step) {
+            repeat_line(&step, &cap)
+        } else {
+            String::new()
+        },
+        develop: cap == "child-timeout:develop" && !f.signalled,
+        ..Park::default()
     };
     // park_args: the record of a park, by tehas's word for it or else the
     // cap, else the status.
@@ -968,11 +1086,13 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
     if !merged_pr.is_empty() {
         r.actions.push(running());
         if rc == 0 && status == "merged" {
+            r.arm = "merged";
             r.actions.push(comment(&|s| {
                 format!("Tehas cycle finished: {summary}. The change was merged: {merged_pr}{killed}{s}")
             }));
             r.actions.push(tidy);
         } else {
+            r.arm = "merged-outside";
             r.actions.push(comment(&|s| {
                 format!("Tehas cycle ended: its pull request {merged_pr} was merged while the cycle ran (last step `{step}`, {mins} min, runner exit {runner_rc}). Nothing more is needed here. {kept_said}.{killed}{s}")
             }));
@@ -980,12 +1100,14 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         status = "merged".into();
         pr = merged_pr.clone();
     } else if unread {
+        r.arm = "prs-unread";
         parked_now = true;
         r.actions.push(park(park_args("", &cap, &status, &step, &pr), format!(
             "Tehas cycle stopped, and its pull request could not be looked up: GitHub did not list the pull requests of the branch `{}` ({summary}, runner exit {runner_rc}). Look for one there before you retry. {kept_said}; {log_where}.{killed}",
             said_branch(&branch)
         ), String::new()));
     } else if rc == 0 && status == "merged" {
+        r.arm = "merged-claimed";
         parked_now = true;
         let b = if branch.is_empty() {
             "none".to_string()
@@ -1012,6 +1134,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             }
         }
     {
+        r.arm = "awaiting-merge";
         r.actions.push(to("tehas:awaiting-merge"));
         r.actions.push(comment(&|s| {
             format!("Tehas cycle finished: {summary}. Pull request waiting for a human: {pr}{killed}{s}")
@@ -1041,17 +1164,20 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         if cap.is_empty() {
             why = " The result names no cap, so it is not taken for a pull request that waits only for a merge.".into();
         }
+        r.arm = "handoff-parked";
         parked_now = true;
         r.actions.push(park(park_args("", &cap, &status, &step, &pr), format!(
             "Tehas cycle handed off with its pull request open: {summary} (runner exit {runner_rc}).{why}{held} Read the pull request before you retry: {pr}. {kept_said}; {log_where}.{killed}{foreign}"
         ), String::new()));
     } else if done_why == "closed" {
+        r.arm = "issue-closed";
         r.actions.push(running());
         r.actions.push(comment(&|s| {
             format!("Tehas stopped the cycle: this issue was closed while it ran ({summary}). Nothing more is needed here. {kept_said}; {log_where}.{killed}{s}")
         }));
         status = "closed".into();
     } else if pr.is_empty() && !closed_pr.is_empty() && !never_started {
+        r.arm = "pr-closed";
         r.actions.push(to("needs-human-attention"));
         r.actions.push(comment(&|s| {
             format!(
@@ -1060,6 +1186,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             )
         }));
     } else if died_with_open_pr {
+        r.arm = "died-with-pr";
         r.actions.push(to("needs-human-attention"));
         r.actions.push(comment(&|s| {
             format!(
@@ -1079,7 +1206,9 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         );
         let mut park_why = "";
         let mut auto = String::new();
+        r.arm = "parked";
         if never_started {
+            r.arm = "never-ran";
             never_ran = true;
             let (mut by, mut epoch) = (f.start_by.clone(), f.approval_at.clone());
             match f.start_how.as_str() {
@@ -1106,6 +1235,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
                 parked = format!("Tehas started no cycle: this start's approval says driver `lean`, and this tehas cannot run the lean driver yet (runner exit {runner_rc}). It does not run classic in its place, and nothing of it ran. To run it on classic, take `tehas:lean` off, then retry; {log_where}.");
             }
         } else if provider {
+            r.arm = "provider";
             park_why = "provider-outage";
             let rs = if reason.is_empty() {
                 String::new()
@@ -1177,6 +1307,7 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
             end.extend(["--pr".into(), n.to_string()]);
         }
     }
+    r.files_at = end.len();
     for (k, name) in [("result", "result.json"), ("progress", "progress.json")] {
         if f.file(name) != &File::Absent {
             r.files.push(k.to_string());
@@ -1241,6 +1372,34 @@ pub fn report(f: &Facts, ask: &mut dyn Ask) -> Report {
         "--forks".into(),
         forks.clone(),
     ]);
+    r.after = After {
+        ended: Ended {
+            issue,
+            started: f.started,
+            rc,
+            status: status.clone(),
+            step: step.clone(),
+            pr: pr.clone(),
+            kills: kills.clone(),
+            image: image_id.clone(),
+            rukas: image_rukas.clone(),
+            cap: cap.clone(),
+            reason: reason.clone(),
+            build: build.clone(),
+        },
+        attempt: f.attempt,
+        park_reason,
+        failure_kind,
+        failure_cause,
+        provider,
+        parked: parked_now,
+        by: f.start_by.clone(),
+        how: f.start_how.clone(),
+        image_built: f.image_built.clone(),
+        forks: forks.clone(),
+        signalled: f.signalled,
+        ..After::default()
+    };
     r.improve = vec![
         issue.to_string(),
         f.started.to_string(),
@@ -1282,6 +1441,7 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
                 "question": both(&|s| p.question(issue, s).1),
                 "comment": both(&|s| p.comment(s, true)),
                 "comment_unrecorded": both(&|s| p.comment(s, false)),
+                "edit": p.edit.is_some(),
             }}),
             Action::PrComment { pr, body } => json!({"pr_comment": {"pr": pr, "body": body}}),
             Action::Tidy { remove, warn } => json!({"tidy": {"remove": remove, "warn": warn}}),
@@ -1291,6 +1451,6 @@ pub fn to_json(r: &Report, issue: u64) -> Value {
     json!({
         "log": r.log, "actions": actions, "done": r.done, "end": r.end, "files": r.files,
         "history": r.history, "analytics": r.analytics, "improve": r.improve,
-        "status_run": r.status_run, "asked": r.asked,
+        "status_run": r.status_run, "asked": r.asked, "arm": r.arm,
     })
 }

@@ -103,7 +103,7 @@ impl Host {
         let console = dir.join("console");
         fs::write(
             &console,
-            "#!/usr/bin/env bash\n[ \"$1\" != check ] || exit 0\n\
+            "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
              shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();

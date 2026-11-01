@@ -1,20 +1,50 @@
-//! tehas-cycle: a cycle's report in Rust, beside libexec/cycle. It acts on
-//! nothing on GitHub or in the state store.
+//! tehas-cycle: a cycle's report in Rust, beside libexec/cycle.
 //!
 //! Usage:
 //!   tehas-cycle report <facts.json>   print the report of an ended cycle,
 //!                                     as JSON, from the facts in the file
 //!                                     (src/facts.rs) and the answers of
 //!                                     GitHub it holds under "github"
+//!   tehas-cycle report <issue> --attempt <n> --rc <n> --started <s>
+//!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
+//!       --requeued 0|1 [--now <s>] --console <path> --status-cmd <path>
+//!                                     libexec/cycle execs this where the
+//!                                     instance sets TEHAS_CYCLE_REPORT=rust:
+//!                                     report the cycle, every GitHub write
+//!                                     through the action journal, then what
+//!                                     follows its end (src/apply.rs)
 //!   tehas-cycle shadow <issue> --attempt <n> --rc <n> --started <s>
 //!       --signalled 0|1 --by <login> --how <how> --approval-at <s>
-//!       --requeued 0|1
+//!       --requeued 0|1 [--now <s>]
 //!                                     just before libexec/cycle reports:
 //!                                     decide the report from the host and
 //!                                     keep it in state/cycles/shadow-<issue>.json
 //!   tehas-cycle compare <issue>       after the report: set the bash's
 //!                                     beside it and add one line to
 //!                                     logs/cycle-shadow.log
+//!   tehas-cycle approved <issue> <attempt>
+//!                                     print {at, how, driver} of the approval
+//!                                     that attempt used, or null: read
+//!                                     before cycle-end, which removes the
+//!                                     record of a start that never ran
+//!   tehas-cycle after <issue>         standard input holds, each word ended
+//!                                     by a NUL as a status can pass what one
+//!                                     argument may hold: --attempt <n>
+//!       --started <s> --rc <n> --status <word> --step <step> --cap <cap> --park-reason <word>
+//!       --failure-kind <word> --failure-cause <word> --provider 0|1
+//!       --parked true|false --pr <url> --by <login> --how <how>
+//!       --approved <json> --image <id> --image-built <time>
+//!       --rukas-image <commit> --oom <n> --forks <n> --reason <text>
+//!       --build <commit> --signalled 0|1 --workdir <dir> --console <path>
+//!       --status-cmd <path>
+//!                                     what follows a cycle's record, each
+//!                                     step's failure a WARN line: the live
+//!                                     view, the run and its end in the
+//!                                     analytics, the improvement record, the
+//!                                     workspace's build output, the status
+//!                                     unless a signal stopped the cycle, and
+//!                                     the next poll (src/after.rs). A flag
+//!                                     with nothing to say may be left out
 //!   tehas-cycle last-attempt <issue> <result.json> <workspace>
 //!                                     the issue as GitHub's REST API answers
 //!                                     it on standard input: what a cycle
@@ -163,7 +193,14 @@
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
-//! Exit: 0 it printed or kept its answer; 1 what it reads could not be
+//! report <issue> reads what shadow and after read, and TEHAS_CYCLE_RETRY_WAIT
+//! and TEHAS_CYCLE_STOP_GH_WAIT.
+//!
+//! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
+//! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
+//!
+//! Exit: 0 it printed or kept its answer; 70 report: the end of the cycle is
+//! not on record; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused, or a caps or runner verb said no as above;
 //! 2 `clock check` said `over`; 3 `clock check` said `unknown`; 64 an argument
@@ -176,11 +213,12 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tehas_cycle::after::{self, After};
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
-use tehas_cycle::report::{to_json, Given};
+use tehas_cycle::report::{last_attempts, to_json, Given};
+use tehas_cycle::{apply, finish, pin, renew, report, shadow, Facts};
 use tehas_cycle::{caps, clock, index, runner, sandbox};
-use tehas_cycle::{finish, pin, renew, report, shadow, Facts};
 
 fn usage() -> String {
     include_str!("main.rs")
@@ -233,40 +271,24 @@ fn main() {
         ["last-attempt", n, result, workspace] => {
             last_attempt(issue(n, &args), result, Path::new(workspace))
         }
-        ["shadow", n, rest @ ..] => {
-            let n = issue(n, &args);
-            let mut start = Start {
-                issue: n,
-                attempt: 0,
-                rc: 0,
-                started: 0,
-                signalled: false,
-                by: String::new(),
-                how: String::new(),
-                approval_at: String::new(),
-                requeued: false,
-            };
-            let mut it = rest.iter();
-            while let Some(flag) = it.next() {
-                let v = it.next().unwrap_or_else(|| wrong(&args)).to_string();
-                let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(&args));
-                match *flag {
-                    "--attempt" => {
-                        start.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(&args))
-                    }
-                    "--rc" => start.rc = num(&v),
-                    "--started" => start.started = num(&v),
-                    "--signalled" => start.signalled = v == "1",
-                    "--by" => start.by = v,
-                    "--how" => start.how = v,
-                    "--approval-at" => start.approval_at = v,
-                    "--requeued" => start.requeued = v == "1",
-                    _ => wrong(&args),
-                }
-            }
-            if start.attempt == 0 {
+        ["approved", n, attempt] => {
+            let attempt = attempt
+                .parse()
+                .ok()
+                .filter(|a| *a > 0)
+                .unwrap_or_else(|| wrong(&args));
+            println!("{}", after::approved(&home, issue(n, &args), attempt));
+        }
+        ["after", n] => after_verb(&home, issue(n, &args), &args),
+        ["report", n, rest @ ..] if !rest.is_empty() => {
+            let start = start(issue(n, &args), &args, rest);
+            if start.console.is_empty() || start.status_cmd.is_empty() {
                 wrong(&args);
             }
+            std::process::exit(apply::run(&home, &start));
+        }
+        ["shadow", n, rest @ ..] => {
+            let start = start(issue(n, &args), &args, rest);
             if on() {
                 shadow::begin(&home, &start).unwrap_or_else(|e| fail(e));
             }
@@ -365,6 +387,96 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// The start and end of a cycle, as libexec/cycle holds them.
+fn start(n: u64, args: &[String], rest: &[&str]) -> Start {
+    let mut start = Start {
+        issue: n,
+        attempt: 0,
+        rc: 0,
+        started: 0,
+        signalled: false,
+        by: String::new(),
+        how: String::new(),
+        approval_at: String::new(),
+        requeued: false,
+        now: None,
+        console: String::new(),
+        status_cmd: String::new(),
+    };
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
+        let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(args));
+        match *flag {
+            "--attempt" => start.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(args)),
+            "--rc" => start.rc = num(&v),
+            "--started" => start.started = num(&v),
+            "--signalled" => start.signalled = v == "1",
+            "--by" => start.by = v,
+            "--how" => start.how = v,
+            "--approval-at" => start.approval_at = v,
+            "--requeued" => start.requeued = v == "1",
+            "--now" => start.now = Some(num(&v)),
+            "--console" => start.console = v,
+            "--status-cmd" => start.status_cmd = v,
+            _ => wrong(args),
+        }
+    }
+    if start.attempt == 0 {
+        wrong(args);
+    }
+    start
+}
+
+/// What follows a cycle's record, from what libexec/cycle holds of its end.
+fn after_verb(home: &Path, n: u64, args: &[String]) {
+    let mut bytes = vec![];
+    let read = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes);
+    read.unwrap_or_else(|e| fail(format!("the words cannot be read: {e}")));
+    let text = String::from_utf8_lossy(&bytes);
+    let mut a = After::default();
+    a.ended.issue = n;
+    let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(args));
+    let mut it = text.split_terminator('\0');
+    while let Some(flag) = it.next() {
+        let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
+        let e = &mut a.ended;
+        match flag {
+            "--attempt" => a.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(args)),
+            "--started" => e.started = num(&v),
+            "--rc" => e.rc = num(&v),
+            "--status" => e.status = v,
+            "--step" => e.step = v,
+            "--cap" => e.cap = v,
+            "--park-reason" => a.park_reason = v,
+            "--failure-kind" => a.failure_kind = v,
+            "--failure-cause" => a.failure_cause = v,
+            "--provider" => a.provider = v == "1",
+            "--parked" => a.parked = v == "true",
+            "--pr" => e.pr = v,
+            "--by" => a.by = v,
+            "--how" => a.how = v,
+            "--approved" => a.approved = v,
+            "--image" => e.image = v,
+            "--image-built" => a.image_built = v,
+            "--rukas-image" => e.rukas = v,
+            "--oom" => e.kills = v,
+            "--forks" => a.forks = v,
+            "--reason" => e.reason = v,
+            "--build" => e.build = v,
+            "--signalled" => a.signalled = v == "1",
+            "--workdir" => a.workdir = v,
+            "--console" => a.console = v,
+            "--status-cmd" => a.status_cmd = v,
+            _ => wrong(args),
+        }
+    }
+    if a.attempt == 0 || a.ended.started == 0 || a.console.is_empty() || a.status_cmd.is_empty() {
+        wrong(args);
+    }
+    after::after(home, &a);
 }
 
 /// The caps verbs. The answer comes on standard input: it can pass what one
@@ -528,7 +640,8 @@ fn print_report(file: &str) {
         .unwrap_or_else(|e| fail(format!("the facts in {file} cannot be read: {e}")));
     let facts = Facts::from_json(&v).unwrap_or_else(|e| fail(e));
     let mut gh = Given(v.get("github").cloned().unwrap_or(json!({})));
-    let r = report(&facts, &mut gh);
+    let mut r = report(&facts, &mut gh);
+    last_attempts(&mut r, &facts, &mut gh);
     println!("{}", to_json(&r, facts.issue));
 }
 
@@ -538,25 +651,15 @@ fn last_attempt(n: u64, result: &str, workspace: &Path) {
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
     let issue: Value = serde_json::from_str(&stdin)
         .unwrap_or_else(|e| fail(format!("the issue cannot be read: {e}")));
-    let r: Value = std::fs::read_to_string(result)
-        .map_err(|e| e.to_string())
-        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))
+    let text = std::fs::read_to_string(result)
         .unwrap_or_else(|e| fail(format!("the result in {result} cannot be read: {e}")));
-    let entry = r
-        .get("issues")
-        .and_then(Value::as_array)
-        .and_then(|l| {
-            l.iter()
-                .find(|e| e.get("issue").and_then(Value::as_u64) == Some(n))
-        })
-        .cloned()
-        .unwrap_or(Value::Null);
-    let body = match issue.get("body") {
-        Some(Value::String(b)) => b.as_str(),
-        Some(Value::Null) => "",
-        _ => fail("the issue has no body".to_string()),
-    };
-    let action = last_attempt::decide(body, &entry, last_attempt::state(workspace, n).as_ref());
+    let state = last_attempt::state(workspace, n);
+    let action =
+        last_attempt::of_issue(n, &issue, Some(&text), state.as_ref()).unwrap_or_else(|| {
+            fail(format!(
+                "the issue or the result in {result} cannot be read"
+            ))
+        });
     println!(
         "{}",
         match action {
