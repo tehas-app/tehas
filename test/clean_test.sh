@@ -52,8 +52,8 @@ mkdir -p "$fx"
 # those two calls is what the cleaner reads as "docker answered", so neither
 # branch may end on a test that ran nothing.
 t_stub docker 'case "$1" in
-  # Where the images live: the one question of lib/disk.sh this stub answers,
-  # since tehas_free_kb is pointed at that directory for the second of its two
+  # Where the images live: the one question of console disk free this stub answers,
+  # since the reading is pointed at that directory for the second of its two
   # readings. `docker info` is no question the five steps of the cleaner ask.
   # A case makes docker answer nothing of it with $fx/docker-down.
   info) case "$*" in
@@ -132,7 +132,7 @@ t_stub docker 'case "$1" in
   *) exit 1 ;;
 esac'
 
-# The free disk of the host, which the cleaner reads through lib/disk.sh: the
+# The free disk of the host, which the cleaner reads through console disk free: the
 # one df of ~/tehas, the one docker info of the images and the df of the file
 # system those answers name. The figure of every file system comes from
 # $fx/free, in kilobytes as df prints them; $fx/free-docker is the figure of

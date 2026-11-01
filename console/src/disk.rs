@@ -4,6 +4,12 @@
 //!   console disk [<home>] [--full] [--json] [--publish]
 //!     [--wait <seconds>] [--walk-wait <seconds>]
 //!     [--max-entries <n>] [--max-depth <n>]
+//!   console disk free <path> [<seconds>]
+//!
+//! `free` is the one reading a command holds work on: the free kilobytes of the
+//! file system of `<path>` and of Docker's, the smaller, as a line. No figure
+//! prints nothing and exits 1 (`tehas_core::disk`). `<seconds>` bounds each call,
+//! 10 when it is empty or no number from 1 to 99.
 //!
 //! `<home>` is the instance's, read from its own settings: `$TEHAS_HOME`, or
 //! `$HOME/tehas` with neither, as `lib/config.sh` resolves it, so
@@ -21,8 +27,8 @@
 //! thing twice about the disk they are standing on.
 //!
 //! A figure that cannot be read is `null` with the reason it could not, never
-//! 0: no figure is never the same as plenty, which is what `lib/disk.sh` has
-//! always said of the figure the dispatcher holds a host on.
+//! 0: no figure is never the same as plenty, which is what `tehas_core::disk`
+//! says of the figure the dispatcher holds a host on.
 //!
 //! `--full` adds what fills them, biggest first: each entry of `<home>` and of
 //! `$HOME/.pi/agent`, each clone's `dev/<name>.state/target`, `docker system
@@ -52,12 +58,13 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
+use tehas_core::disk::figure;
 use tehas_core::time;
 
 /// The walls of one run: the seconds an outside call is given, and the seconds
 /// a walk of one place is given. Both are `TEHAS_DISK_WAIT`, the bound the
-/// factory has always put on a read of the host's space - `lib/disk.sh` gives
-/// it its `df` and `docker info` and the dispatcher's hold gives it the same -
+/// factory has always put on a read of the host's space - `console disk free`
+/// gives it its `df` and `docker info` and the dispatcher's hold the same -
 /// doubled for a walk, which reads a whole tree where a call reads one line.
 /// One run's bounds, read once. A test builds its own, so a case names the
 /// bounds it walks under and is not at the mercy of the host's environment.
@@ -105,9 +112,40 @@ const COMMAND_MAX: usize = 200;
 /// a file over it is not one and is not published or read.
 const PUBLISH_BOUND: u64 = 256 * 1024;
 const USAGE: &str = "usage: console disk [<home>] [--full] [--json] [--publish]
-       [--scratch <dir>] [--wait <s>] [--walk-wait <s>] [--max-entries <n>] [--max-depth <n>]";
+       [--scratch <dir>] [--wait <s>] [--walk-wait <s>] [--max-entries <n>] [--max-depth <n>]
+       console disk free <path> [<seconds>]";
+
+/// The bound of one call of `free`, in whole seconds, 10 for anything else.
+fn free_wait(given: &str) -> u64 {
+    let word = (1..=2).contains(&given.len())
+        && !given.starts_with('0')
+        && given.bytes().all(|b| b.is_ascii_digit());
+    word.then(|| given.parse().ok()).flatten().unwrap_or(10)
+}
+
+fn free(given: &[String]) -> u8 {
+    let (path, wait) = match given {
+        [path] => (path, ""),
+        [path, wait] => (path, wait.as_str()),
+        _ => return usage(),
+    };
+    if path.is_empty() {
+        return 1;
+    }
+    let wait = Duration::from_secs(free_wait(wait));
+    match tehas_core::disk::free_kb(path, |program, args| run(program, args, wait).ok()) {
+        Some(kb) => {
+            println!("{kb}");
+            0
+        }
+        None => 1,
+    }
+}
 
 pub fn main(given: &[String]) -> u8 {
+    if given.first().is_some_and(|verb| verb == "free") {
+        return free(&given[1..]);
+    }
     // A run that named no home is the command a person typed: the console reads
     // the instance's own settings for it, for the scratch disk and for the
     // bound, as the settings library does, and refuses 78 when they cannot be
@@ -483,7 +521,7 @@ fn one(path: &Path, text: &str, opts: &Options) -> Fs {
 
 /// What `df -Pk` says of one file system, or why it says nothing. The fourth
 /// and second columns of its second line are free and total in 1024-blocks;
-/// a word that is no whole number is no figure, as `lib/disk.sh` reads it, so
+/// a word that is no whole number is no figure (`tehas_core::disk::figure`), so
 /// the caller's arithmetic cannot be handed a figure that wraps into another.
 struct Df {
     mount: Option<String>,
@@ -501,14 +539,7 @@ fn df(path: &Path, wait: Duration) -> Result<Df, String> {
     if cols.len() < 4 {
         return Err(format!("{}: df gave no figure", path.display()));
     }
-    let number = |w: &str| -> Option<u64> {
-        (!w.is_empty()
-            && w.len() <= 18
-            && (w == "0" || (!w.starts_with('0') && w.bytes().all(|b| b.is_ascii_digit()))))
-        .then(|| w.parse().ok())
-        .flatten()
-    };
-    let (Some(free), Some(total)) = (number(cols[3]), number(cols[1])) else {
+    let (Some(free), Some(total)) = (figure(cols[3]), figure(cols[1])) else {
         return Err(format!(
             "{}: df's figure is not a number of bytes",
             path.display()
@@ -1062,6 +1093,7 @@ mod tests {
         cut_word, du, file_systems, gib, lines, one, places, published, put, read, used, Bounds,
         Host, Options, Place, PUBLISH_BOUND,
     };
+    use super::{free, free_wait};
     use serde_json::{json, Value};
     use std::fs;
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -1113,6 +1145,22 @@ mod tests {
     // The two paths of one file system are one entry that names both: the
     // common case of a host whose home, /tmp and Docker root are all of the
     // same disk, which is why the reading groups by device at all.
+    #[test]
+    fn the_bound_of_free_is_a_number_from_1_to_99_and_10_otherwise() {
+        assert_eq!(free_wait("3"), 3);
+        assert_eq!(free_wait("99"), 99);
+        for word in ["", "0", "07", "100", "+5", "abc", "٣"] {
+            assert_eq!(free_wait(word), 10, "{word}");
+        }
+    }
+
+    #[test]
+    fn free_of_no_path_is_no_figure_and_of_too_much_a_usage_error() {
+        assert_eq!(free(&[String::new()]), 1);
+        assert_eq!(free(&[]), 64);
+        assert_eq!(free(&["/a".into(), "1".into(), "x".into()]), 64);
+    }
+
     #[test]
     fn two_paths_of_one_file_system_are_one_entry_that_names_both() {
         let d = dir("same");

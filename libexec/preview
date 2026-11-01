@@ -246,13 +246,12 @@ purge() { # <number>: everything of one pull request
 }
 
 # --- Free space --------------------------------------------------------------
-# The reading itself is tehas_free_kb in lib/disk.sh, which the dispatcher
-# shares. min_kb is the bound this command holds builds to, in the same
+# The reading itself is console disk free, which the dispatcher shares. min_kb is the bound this command holds builds to, in the same
 # kilobytes.
 min_kb=$((TEHAS_PREVIEW_MIN_FREE_MB * 1024))
 # measure: set "free" and "low" for this run. Space that cannot be read is
 # low: nothing is built on a guess. The bound TEHAS_PREVIEW_MIN_FREE is this
-# command's; the reading of the two file systems is lib/disk.sh's.
+# command's; the reading of the two file systems is the console's.
 measure() {
   if free=$(tehas_free_kb "$TEHAS_HOME"); then
     [ "$free" -ge "$min_kb" ] || low=true
