@@ -46,6 +46,18 @@ empty one above it.
 - The libraries lose the functions only the bash poll called.
 - The dispatcher's shadow is removed: the poll's unit appends to `logs/dispatch.log` and nothing else.
 - The bash left behind by the poll's removal is gone: `lib/limit.sh` and five functions only tests called.
+- `tehasbot status` is a verb of the console; libexec/status, lib/status.sh and lib/analytics.sh are gone.
+- The watch of a cycle is `tehas-cycle watch`, and `lib/headless.sh` is gone.
+- A start is approved, read and measured in `tehas-cycle start-check`, and `lib/sizing.sh` is gone.
+- The workspace, the push check and the image record of a cycle are `tehas-cycle prepare`, and `lib/improve.sh` is gone.
+- models.json is read by the programs; lib/models.sh is gone.
+- Who applied a label is read in one place, the console.
+- The files of an issue and of a reply are fetched and judged by libexec/attach; lib/attachments.sh is a thin wrapper.
+- `tehas_load` asks the console, and `lib/config.sh` is a thin loader. A load needs `libexec/console`; `install.sh` builds it first.
+- tehas update reads, checks and switches releases in the console; lib/update-release.sh is gone.
+- tehas update runs its follow-ups in the console; a --to to a version before this finishes with console.prev.
+- install.sh asks the console which steps a changed file owes.
+- libexec/update is a thin wrapper round the console; a console that does not start stops an update, and the manual says how to recover.
 
 ### Adopter action
 
