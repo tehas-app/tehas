@@ -41,6 +41,9 @@ pub struct Start {
     pub requeued: bool,
     /// When the report began, as libexec/cycle read it; None reads the clock.
     pub now: Option<i64>,
+    /// The cycle's console and status programs, for the report.
+    pub console: String,
+    pub status_cmd: String,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.

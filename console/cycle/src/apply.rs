@@ -557,25 +557,6 @@ fn end(home: &Path, r: &Report, f: &Facts) -> bool {
     }
 }
 
-/// The program `name` of this cycle's code: the command a test names, else
-/// beside tehas-cycle in the copy a pinned cycle runs from.
-fn program(home: &Path, var: &str, name: &str) -> String {
-    let given = env(var);
-    if !given.is_empty() {
-        return given;
-    }
-    let code = env("TEHAS_CODE");
-    let root = if code.is_empty() {
-        home.to_path_buf()
-    } else {
-        Path::new(&code).to_path_buf()
-    };
-    root.join("libexec")
-        .join(name)
-        .to_string_lossy()
-        .into_owned()
-}
-
 /// Report the cycle `s`. The exit status of the cycle: 0, or 70 when its end
 /// is not on record.
 pub fn run(home: &Path, s: &Start) -> i32 {
@@ -638,17 +619,16 @@ pub fn run(home: &Path, s: &Start) -> i32 {
         }
     }
     log(&r.done);
-    let console = program(home, "TEHAS_CONSOLE_CMD", "console");
     let prefix = format!("https://github.com/{}/pull/", facts.repo);
     if let Some(n) = r.after.ended.pr.strip_prefix(&prefix) {
-        sync_title(&console, n, s.signalled);
+        sync_title(&s.console, n, s.signalled);
     }
     let approved = after::approved(home, issue, s.attempt);
     let on_record = end(home, &r, &facts);
     let mut a = r.after.clone();
     a.approved = approved;
-    a.console = console;
-    a.status_cmd = program(home, "TEHAS_STATUS_CMD", "status");
+    a.console = s.console.clone();
+    a.status_cmd = s.status_cmd.clone();
     a.workdir = workdir;
     after::after(home, &a);
     if on_record {

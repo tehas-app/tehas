@@ -85,6 +85,7 @@ impl Host {
             .args(["--started", "1000", "--by", "alice", "--how", "label"])
             .args(["--signalled", if signalled { "1" } else { "0" }])
             .args(["--approval-at", "900", "--requeued", "0", "--now", "1060"])
+            .args(["--console", "true", "--status-cmd", "true"])
             .env(
                 "PATH",
                 format!(
@@ -97,8 +98,6 @@ impl Host {
             .env("HOME", &self.dir)
             .env("TEHAS_REPO", "a/b")
             .env("TEHAS_WORK_DIR", self.dir.join("work/widget"))
-            .env("TEHAS_CONSOLE_CMD", "true")
-            .env("TEHAS_STATUS_CMD", "true")
             .env("TEHAS_CYCLE_RETRY_WAIT", "0")
             .env("TEHAS_CYCLE_STOP_GH_WAIT", "1")
             .env("TEHAS_ANALYTICS", "off")
@@ -327,4 +326,16 @@ fn a_merged_cycle_removes_its_workspace_and_its_notes() {
     let end = h.at("store cycle-end");
     assert!(h.calls()[end].contains("--oom 2"), "{}", h.calls()[end]);
     assert!(h.calls()[end].contains("--pr 9"));
+}
+
+#[test]
+fn a_report_not_named_its_programs_is_refused() {
+    let h = Host::new("no-programs");
+    let o = Command::new(env!("CARGO_BIN_EXE_tehas-cycle"))
+        .args(["report", "7", "--attempt", "1", "--console", "true"])
+        .env("TEHAS_HOME", &h.dir)
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(64), "{}", out(&o));
+    assert_eq!(h.calls().len(), 0);
 }

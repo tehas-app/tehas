@@ -541,7 +541,11 @@ rm -f "$T/home/tehas/libexec/tehas-cycle"
 T_ENV+=("TEHAS_CODE=$T/copy")
 t_run "$cycle 7"
 t_eq "$t_rc" 0
-t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "approved after "
+if [ "${T_CYCLE_REPORT:-}" = rust ]; then
+  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "report "
+else
+  t_eq "$(tr '\n' ' ' <"$T/calls/copy")" "approved after "
+fi
 t_eq "$(t_calls systemctl)" "--user start --no-block tehas-dispatch.service"
 
 t_case "a tehas-cycle that cannot run is a warning, and the cycle is on record as ended"
