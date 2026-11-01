@@ -17,6 +17,9 @@ mkdir -p "$shim/libexec"
 ln -s "$T_ROOT/libexec/plan" "$shim/libexec/plan"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$shim/libexec/tehas-cycle"
 plan=$shim/libexec/plan
 fx=$T/fx
 mkdir -p "$fx"
@@ -420,7 +423,8 @@ jq -n '{contracts: {exitCodes: {version: 1}, resultSchema: {version: 5}, ndjson:
 # tehas work reads its approval from the state store: nothing on record, a run
 # by hand.
 t_store_home "$T/home/tehas"
-t_run "$T_ROOT/libexec/work 7"
+ln -s "$T_ROOT/libexec/work" "$shim/libexec/work"
+t_run "$shim/libexec/work 7"
 turn_args | options | without_cycle_only >"$T/work.options"
 t_eq "$(turn_args | grep -c -e '^PI_ENSEMBLE_HANDOFF_CHANNEL=host$' -e '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000$' -e '^PI_ENSEMBLE_CYCLE_DEADLINE=' -e '^PI_ENSEMBLE_VERIFY_CONCURRENCY=')" 4
 t_eq "$([ -s "$T/work.options" ] && echo recorded)" recorded

@@ -16,7 +16,7 @@ cp "$T_ROOT/host/sandbox/build.sh" "$home/sandbox/"
 # too: without it the build stops at the file it cannot read and asks docker
 # nothing.
 cp "$T_ROOT/host/sandbox/Dockerfile" "$home/sandbox/"
-cp "$T_ROOT/lib/headless.sh" "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
+cp "$T_ROOT/lib/rukas.sh" "$T_ROOT/lib/config.sh" \
   "$T_ROOT/lib/sandbox.sh" "$T_ROOT/lib/models.sh" "$home/lib/"
 cp "$T_ROOT/host/versions.env" "$home/"
 # The sweep of old dated tags asks the console what is held.
@@ -24,6 +24,10 @@ cp "$T_ROOT/host/versions.env" "$home/"
 t_console || t_bad "no console: $t_console_why"
 mkdir -p "$home/libexec"
 cp "$T_CONSOLE" "$home/libexec/console"
+# What the base image says is read by tehas-cycle.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$home/libexec/tehas-cycle"
 sed -i 's#^PI_RUKAS_REPO=.*#PI_RUKAS_REPO=https://github.com/Up-Owner/pi-rukas.git#' "$home/versions.env"
 build=$home/sandbox/build.sh
 fx=$T/fx
@@ -167,15 +171,15 @@ t_eq "$t_rc" 1
 t_contains "$t_out" "could not be run to be asked (docker said 125)"
 t_lacks "$(t_calls docker)" "build --build-arg"
 
-t_case "without lib/headless.sh, lib/rukas.sh or lib/config.sh beside it nothing is asked or built"
-for f in headless.sh rukas.sh config.sh; do
+t_case "without libexec/tehas-cycle, lib/rukas.sh or lib/config.sh beside it nothing is asked or built"
+for f in libexec/tehas-cycle lib/rukas.sh lib/config.sh; do
   reset
-  mv "$home/lib/$f" "$T/$f"
+  mv "$home/$f" "$T/held"
   t_run "$build"
   t_eq "$t_rc" 1
-  t_contains "$t_out" "no lib/headless.sh, lib/rukas.sh and lib/config.sh"
+  t_contains "$t_out" "no libexec/tehas-cycle, lib/rukas.sh and lib/config.sh"
   t_eq "$(t_calls git)$(t_calls docker)" ""
-  mv "$T/$f" "$home/lib/$f"
+  mv "$T/held" "$home/$f"
 done
 
 t_case "with --if-moved an image already on the commit followed is left alone"

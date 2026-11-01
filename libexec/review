@@ -192,7 +192,7 @@ if [ "$caps_rc" != 0 ]; then
   echo "tehas review: $image gave no --capabilities answer (exit $caps_rc), not starting" >&2
   exit 78
 fi
-tehas_headless_verb "$caps" lens-review "--since --json" || {
+"$here/tehas-cycle" caps verb lens-review "--since --json" <<<"$caps" || {
   echo "tehas review: $image runs no review (its --capabilities has no verbs lens-review), not starting" >&2
   exit 78
 }

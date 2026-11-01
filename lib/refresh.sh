@@ -31,8 +31,8 @@
 #                                 --continue-pr: its --capabilities answer has
 #                                 features.continuePr. Asked once per command
 #
-# Needs TEHAS_HOME, lib/millwright.sh and lib/store.sh for the history and
-# lib/headless.sh for the answer. Sourcing it does nothing.
+# Needs TEHAS_HOME, lib/millwright.sh and lib/store.sh for the history.
+# Sourcing it does nothing.
 
 tehas_refresh_dir() { printf '%s/state/refresh\n' "$TEHAS_HOME"; }
 
@@ -96,7 +96,7 @@ tehas_refresh_continues() {
     tehas_refresh_asked=1
     caps=$(timeout -k 10 "${TEHAS_CAPS_WAIT:-120}" docker run --rm --init "${PI_ENSEMBLE_IMAGE:-}" \
       /opt/pi-rukas/bin/pi-rukas-headless --capabilities 2>/dev/null) || caps=""
-    [ "$(tehas_headless_mode "$caps" continuePr)" != native ] || tehas_refresh_answer=0
+    [ "$("$TEHAS_HOME/libexec/tehas-cycle" caps mode continuePr <<<"$caps")" != native ] || tehas_refresh_answer=0
   fi
   return "$tehas_refresh_answer"
 }

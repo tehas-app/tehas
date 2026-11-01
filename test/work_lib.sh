@@ -72,7 +72,8 @@ mv "$T/bin/console" "$tree/libexec/console"
 # measured as it was before the cycle clock: `clock now` gives the seconds
 # since the mark and `clock check` decides from them. A case that means the
 # cycle clock itself writes $T/clock.now, one reading per call of `clock now`
-# in order, and $T/clock.check, the word `clock check` answers with.
+# in order, and $T/clock.check, the word `clock check` answers with. Any other
+# verb goes to the real program.
 t_stub tehas-cycle 'case "$1 $2" in
   "clock mark") date +%s >"$3"; date +%s >"$T/clock.start" ;;
   "clock now")
@@ -94,9 +95,14 @@ t_stub tehas-cycle 'case "$1 $2" in
     [ $((now - start)) -le "$limit" ] || { echo over; exit 2; }
     [ $((now - since)) -lt "$stall" ] || { echo stalled; exit 1; }
     echo ok ;;
+  *) exec "$0.real" "$@" ;;
 esac
 exit 0'
 mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
+# The real program, beside the stub.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at
