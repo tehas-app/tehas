@@ -1,8 +1,8 @@
 //! `tehas analytics` against this program: the copy a person or a program
 //! fetches holds no token, no URL with a host and no address, and the command
-//! calls nothing outside the host. The settings are loaded by the real
-//! libexec/with-settings. The console this crate cannot build stands in for
-//! its verb, which test/analytics_cmd_test.sh runs.
+//! calls nothing outside the host. The real libexec/with-settings runs it. The
+//! console this crate cannot build stands in for the load of the settings and
+//! for its verb, which test/analytics_cmd_test.sh runs.
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
@@ -104,6 +104,7 @@ impl Host {
         fs::write(
             &console,
             "#!/usr/bin/env bash\ncase $1 in check | needs) exit 0 ;; esac\n\
+             [ \"$1\" != settings ] || { echo _tehas_loaded=1; exit 0; }\n\
              shift 2\nexec \"$TEHAS_HOME/libexec/analytics\" \"$@\" </dev/null\n",
         )
         .unwrap();
@@ -134,6 +135,7 @@ impl Host {
             .env("TEHAS_HOME", &self.home)
             .env("TEHAS_INSTANCE_DIR", &self.instance)
             .env("TEHAS_CONSOLE", self.dir.join("console"))
+            .env("TEHAS_SETTINGS_CMD", self.dir.join("console"))
             .output()
             .unwrap();
         (
