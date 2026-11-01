@@ -3281,8 +3281,8 @@ time 15 minutes after boot, and a run goes ahead only when the last one began
 `TEHAS_REFRESH_EVERY` minutes ago or more (`~/tehas/state/refresh/last-run`,
 written as a run begins, so a failed run counts too). With
 `TEHAS_REFRESH_CONFLICTS` other than 1, or inside the interval, it exits 0 at
-once and calls nothing. Exit 1 when a call to GitHub fails: no
-request is written or removed, and the dispatcher checks the old ones again
+once and calls nothing. Exit 1 when a call to GitHub fails or takes more
+than 30 seconds: no request is written or removed, and the dispatcher checks the old ones again
 before it starts any.
 
 ## tehasbot github-token

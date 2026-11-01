@@ -77,11 +77,29 @@ const COMMENTS: &str = r#"query($owner: String!, $name: String!, $number: Int!) 
         comments(last: 100) { nodes { databaseId id author { login } body createdAt lastEditedAt editor { login }
           userContentEdits(last: 100) { totalCount nodes { editor { login } } } } } } } }"#;
 
-const PULL: &str = r#"query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
-      pullRequest(number: $number) { state number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable
+/// What the refresh rule reads of a pull request and of the issue it closes.
+macro_rules! pull_fields {
+    () => {
+        r#"number url isDraft isCrossRepository headRefOid baseRefName baseRefOid mergeable
         author { login } headRepository { nameWithOwner } labels(first: 50) { nodes { name } }
         closingIssuesReferences(first: 5) { totalCount nodes { number state labels(first: 50) { nodes { name } }
-          closedByPullRequestsReferences(first: 10) { nodes { number state } } } } } } }"#;
+          closedByPullRequestsReferences(first: 10) { nodes { number state } } } }"#
+    };
+}
+
+const PULL: &str = concat!(
+    r#"query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) { state "#,
+    pull_fields!(),
+    " } } }"
+);
+
+const PULLS: &str = concat!(
+    r#"query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+      pullRequests(states: OPEN, first: 100) { nodes { "#,
+    pull_fields!(),
+    " } } } }"
+);
 
 /// One open issue as the page gave it.
 pub struct Open {
@@ -419,6 +437,13 @@ pub fn pull(calls: &mut Calls, repo: &str, pr: u64) -> Value {
     }
 }
 
+/// The open pull requests as tehasbot refresh reads them: gh's whole answer.
+pub fn pulls(calls: &mut Calls, repo: &str) -> Result<Value, GhFail> {
+    let (owner, name) = split(repo);
+    let query = format!("query={PULLS}");
+    calls.gh(&["api", "graphql", "-F", &owner, "-F", &name, "-f", &query])
+}
+
 /// A list gh answers, or {"failed": true}.
 pub fn list(calls: &mut Calls, args: &[&str]) -> Value {
     calls.gh(args).unwrap_or_else(|_| json!({"failed": true}))
@@ -427,6 +452,23 @@ pub fn list(calls: &mut Calls, args: &[&str]) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_list_and_the_one_pull_request_ask_the_same_fields() {
+        let fields = pull_fields!();
+        assert!(PULL.contains(&format!("{{ state {fields} }}")));
+        assert!(PULLS.contains(&format!("{{ nodes {{ {fields} }}")));
+        assert!(PULLS.contains("pullRequests(states: OPEN, first: 100)"));
+        let args = [
+            "api".to_string(),
+            "graphql".to_string(),
+            "-F".to_string(),
+            "owner=a".to_string(),
+            "-f".to_string(),
+            format!("query={PULLS}"),
+        ];
+        assert!(crate::read::run::gh_reads(&args));
+    }
 
     /// A label event's kind. An unlisted kind does not compile, so a case
     /// cannot ask for an application and get a removal.
