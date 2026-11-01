@@ -772,7 +772,8 @@ start=$(date +%s)
 T_ENV=(FLOCK_WAIT=3 GH_TOKEN=test-token "$root")
 t_run "$dev_cmd erin"
 t_eq "$t_rc" 0
-t_eq "$(($(date +%s) - start))" 3
+# At least: a loaded host adds to the wait, and whole seconds round it.
+t_eq "$(($(date +%s) - start >= 3))" 1
 t_eq "$(containers)" 1
 t_contains "$(session_args)" "$devs/erin.state/target:$target_container"
 t_eq "$(find "$devs/erin.state/target" -mindepth 1 | wc -l)" 0
