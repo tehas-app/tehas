@@ -32,6 +32,8 @@ ln -s "$T_ROOT/libexec/work" "$tree/libexec/work"
 # The measure of a start is the real console's: a size verb goes to it.
 # shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
 t_console || t_bad "no console: $t_console_why"
+# The slice is the real console's too, whatever a case does to the stub.
+T_ENV_ALWAYS+=(TEHAS_CONSOLE_CMD="$T_CONSOLE")
 t_stub console '[ "${1:-}" != size ] || exec "$T/console-bin" "$@"
 prev=
 for a in "$@"; do
@@ -103,9 +105,6 @@ mv "$T/bin/tehas-cycle" "$tree/libexec/tehas-cycle"
 # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
 t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 cp "$T_CYCLE" "$tree/libexec/tehas-cycle.real"
-# The commands test/sandbox_argv_test.sh runs from $T/shim, beside the real one.
-mkdir -p "$T/shim/libexec"
-cp "$T_CYCLE" "$T/shim/libexec/tehas-cycle"
 work="$tree/libexec/work"
 checkout=$T/home/tehas/repos/widget
 # The workspace of issue 7 on the host, and the path every cycle has it at

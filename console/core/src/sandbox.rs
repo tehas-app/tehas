@@ -12,7 +12,7 @@
 //! Every list here is docker options, one word each.
 
 use crate::models::{self, ModelFile};
-use crate::slice::{self, Load, Reading, Usable};
+use crate::slice::{self, Load, Probe, Usable};
 use std::env;
 use std::fs;
 use std::process::{Command, Stdio};
@@ -467,7 +467,7 @@ pub struct Taken {
 
 /// The limits and the security options from a reading of the host, or the
 /// words a person is told, led by <who>. <what> names what does not start.
-pub fn take(r: &Reading, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
+pub fn take(r: &impl Probe, load: &Load, who: &str, what: &str) -> Result<Taken, String> {
     let slice =
         slice::usable(r, &load.reserve, &load.containers).map_err(|why| format!("{who}: {why}"))?;
     let limits = slice::limits(&slice, load)
@@ -656,18 +656,18 @@ mod tests {
         }
     }
 
-    fn host(max: &str) -> Reading {
+    fn host(max: &str) -> slice::Reading {
         let mut show = serde_json::Map::new();
         show.insert("FragmentPath".into(), "/etc/tehas.slice".into());
         show.insert("ActiveState".into(), "active".into());
         show.insert("MemoryMax".into(), max.into());
-        Reading {
+        slice::Reading {
             show: Some(show),
             docker: Some("systemd 2".into()),
             controllers: Some("cpu memory pids".into()),
             cpus: Some("16".into()),
             root: "/sys/fs/cgroup".into(),
-            ..Reading::default()
+            ..slice::Reading::default()
         }
     }
 
