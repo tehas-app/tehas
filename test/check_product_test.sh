@@ -4,7 +4,14 @@
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-check="$T_ROOT/libexec/check-product"
+# The command as a host has it: beside the console, which does the work
+# (console/src/product.rs), and the tests of its parts are beside its source.
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+ln -s "$T_ROOT/libexec/check-product" "$T/tree/libexec/check-product"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+check=$T/tree/libexec/check-product
 result=$T/home/tehas/state/check-product.json
 g() { git -c user.name=t -c user.email=t@example.invalid -c init.defaultBranch=main "$@"; }
 
@@ -239,6 +246,25 @@ t_run "$check --sandbox"
 t_eq "$t_rc" 78
 t_lacks "$t_out" "sandbox"
 t_eq "$(t_calls docker)" ""
+
+t_case "--sandbox: a signal during the run takes the clone away"
+product "${good[@]}"
+t_stub docker 'case $1 in image) exit 0 ;; run) : >"$T/calls/started"; exec sleep 5 ;; esac'
+t_run "$check --sandbox >/dev/null 2>&1 &
+pid=\$!
+until [ -e \"\$T/calls/started\" ]; do sleep 0.05; done
+kill -TERM \$pid
+wait \$pid
+echo status \$?"
+t_eq "$t_out" "status 143"
+t_eq "$(find "$T/home/tehas/tmp" -mindepth 1 | wc -l)" 0
+
+t_case "a host with no console beside the command starts nothing: 78, and says to install"
+rm "$T/tree/libexec/console"
+t_run "$check"
+t_eq "$t_rc" 78
+t_contains "$t_out" "no console beside this command"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
 
 t_case "a wrong argument is 64"
 t_run "$check --what"
