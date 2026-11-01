@@ -184,6 +184,18 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "tehas help [command]"
 t_eq "$(ran)" ""
 
+t_case "the text of a command the console holds, with no console: 78, and what to do"
+for words in "update --help" "update -h" "help update" "status --help"; do
+  reset
+  T_ENV=(TEHAS_CONSOLE="$T/no-console")
+  t_run "$tehas $words"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "no console at $T/no-console, so no text to show: run install.sh"
+  t_lacks "$t_out" "No such file"
+  t_eq "$(ran)" ""
+done
+T_ENV=()
+
 t_case "--help with another argument is the script's to judge"
 reset
 t_run "$tehas work --help 7"
