@@ -12,8 +12,6 @@ home=$T/home/tehas
 shadow_log=$home/logs/cycle-shadow.log
 # shadow_on: tehas-cycle installed, and the shadow asked for.
 shadow_on() {
-  t_cycle || { t_bad "no tehas-cycle: $t_cycle_why"; return 1; }
-  cp "$T_CYCLE" "$home/libexec/tehas-cycle"
   mkdir -p "$home/state"
   : >"$home/state/cycle-shadow.on"
 }
@@ -23,7 +21,6 @@ leftovers() { find "$state" -name 'shadow-7.*' -o -name '7.shadow*' 2>/dev/null 
 t_case "with the shadow off, nothing of it runs or is written"
 reset
 rm -f "$home/state/cycle-shadow.on"
-t_cycle && cp "$T_CYCLE" "$home/libexec/tehas-cycle"
 ended aborted develop
 t_run "$cycle 7"
 t_eq "$t_rc" 0
@@ -109,6 +106,9 @@ t_case "a shadow that cannot run leaves the report as it was"
 reset
 mkdir -p "$home/state"
 : >"$home/state/cycle-shadow.on"
+mv "$home/libexec/tehas-cycle" "$home/libexec/tehas-cycle.real"
+printf '%s\n' '#!/usr/bin/env bash' '[ "$1" != shadow ] || exit 1' 'exec "$0.real" "$@"' >"$home/libexec/tehas-cycle"
+chmod +x "$home/libexec/tehas-cycle"
 ended aborted develop
 t_run "$cycle 7"
 t_eq "$t_rc" 0

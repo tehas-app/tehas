@@ -97,7 +97,7 @@ came in schema 1. A column without a value is NULL.
 
 One row per run, written when the run ends. A work run takes its facts from
 the cycle, which gathers them into a private file for the call
-(`lib/analytics.sh`): the line of history the cycle made of its end and the
+(`tehas-cycle after`): the line of history the cycle made of its end and the
 attempt the state store gave its start, and from the state store `at`, `how`
 and `driver` of the approval that start used, read before the end goes on record
 because a start that never ran takes its approval with it, the run's `settings`

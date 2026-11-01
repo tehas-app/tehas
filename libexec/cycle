@@ -180,8 +180,8 @@
 #
 # When the cycle has been reported it leaves state/dispatch.again (for
 # tehas-dispatch.path, after a poll already running) and starts one poll
-# without waiting, so its slot is filled at once. A failure is a warning: the
-# timer still runs the poll.
+# without waiting, so its slot is filled at once (tehas-cycle after). A failure
+# is a warning: the timer still runs the poll.
 #
 # Once the comments and labels are done it ends the cycle's record on the
 # state store (cycle-end): how it ended, the counts tehas work left, the
@@ -192,11 +192,10 @@
 # approval off the record with it: an approval that started nothing is no
 # approval a later start can rest on.
 #
-# Then it records the run and its end in state/analytics.db (lib/analytics.sh),
-# each call bounded, a failure a WARN line; TEHAS_ANALYTICS=off makes no call.
-#
-# With TEHAS_IMPROVE_REPO it leaves the cycle's record, with the image and the
-# pi-rukas commit, in tmp/improve/window for the loop (lib/improve.sh).
+# Then it records the run and its end in state/analytics.db, each call bounded,
+# a failure a WARN line; TEHAS_ANALYTICS=off makes no call. With
+# TEHAS_IMPROVE_REPO it leaves the cycle's record, with the image and the
+# pi-rukas commit, in tmp/improve/window for the loop (tehas-cycle after).
 #
 # Instance settings (lib/config.sh): TEHAS_REPO, TEHAS_IMPROVE_REPO,
 # TEHAS_ANALYTICS.
@@ -218,16 +217,12 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/cycles.sh
 . "$here/../lib/cycles.sh"
-# shellcheck source=lib/improve.sh
-. "$here/../lib/improve.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
 . "$here/../lib/millwright.sh"
-# shellcheck source=lib/analytics.sh
-. "$here/../lib/analytics.sh"
 # shellcheck source=lib/store.sh
 . "$here/../lib/store.sh"
 tehas_load || exit 78
@@ -251,6 +246,8 @@ workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
 status_cmd=${TEHAS_STATUS_CMD:-$here/status}
 console=${TEHAS_CONSOLE_CMD:-$here/console}
+# A pinned cycle runs its own copy.
+tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle
 cycles=$TEHAS_HOME/state/cycles
 
 mkdir -p "$cycles" "$TEHAS_HOME/logs"
@@ -1382,7 +1379,7 @@ done
 [ "$parked_now" != true ] || end_args+=(--parked)
 # A start that never ran takes its approval with it, once analytics has read it:
 # the fixer, a refresh and a later start read an approval as one whose cycle happened.
-approved=$(tehas_analytics_approval "$issue" "$attempt")
+approved=$("$tc" approved "$issue" "$attempt") || approved=null
 [ "$never_ran" != 1 ] || end_args+=(--never-ran)
 [ -z "$shadow" ] || printf '%s\0' "${end_args[@]}" >"$shadow.end"
 if tehas_store_try 5 cycle-end "${end_args[@]}"; then
@@ -1395,36 +1392,7 @@ if tehas_store_try 5 cycle-end "${end_args[@]}"; then
 else end_rc=70
   log "ERROR: the end of #$issue is not on record ($tehas_store_word: $tehas_store_line): cycle-end ${end_args[*]}"
 fi
-# The live view, as lib/live.sh describes it, with this end in it.
-tehas_store_try 3 publish ||
-  log "WARN: the live view is not published after the end of #$issue ($tehas_store_word: $tehas_store_line)"
-# The run and its end in the factory's analytics, from the line of history as
-# the cycle saw it and what the cycle's record holds (lib/analytics.sh); the
-# image, the counts and the approval were read above. A failure is a warning.
-TZ=UTC0 printf -v now '%(%FT%TZ)T' -1
-line=$(jq -n -c --arg at "$now" --argjson started "$started" --argjson rc "$rc" \
-  --arg status "$status" --arg step "$step" --arg cap "$cap" --arg park_reason "$park_reason" \
-  --arg failure_kind "$failure_kind" --arg failure_cause "$failure_cause" --argjson parked "$parked_now" \
-  --argjson provider "$([ "$provider" = 1 ] && echo true || echo false)" --arg pr "${pr:-}" \
-  --arg by "$start_by" --arg how "$start_how" \
-  '{$at, $started, $rc, $status, $step, $cap, $park_reason, $failure_kind, $failure_cause, $provider, $parked, $pr, $by, $how}
-   | with_entries(select(.value != ""))') || line=null
-tehas_analytics_run "$issue" "$attempt" "$line" "$approved" ${image_id:+--image "$image_id"} ${image_built:+--image-built "$image_built"} \
-  ${image_rukas:+--rukas-image "$image_rukas"} ${kills:+--oom "$kills"} ${forks:+--forks "$forks"}
-tehas_analytics event "$issue" ended
-# For the improvement loop, where the instance has one. The cycle is reported
-# by now, and a record that cannot be written is the loop's loss only.
-tehas_improve_record "$issue" "$started" "$rc" "$status" "$step" "$pr" "$kills" "$image_id" "$image_rukas" "$cap" "$reason" "$build" || log "WARN: no record of #$issue for the improvement loop"
-[ -z "$shadow" ] || timeout 60 "$TEHAS_HOME/libexec/tehas-cycle" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
-# Nothing builds in a kept workspace again, and this cycle still holds the lock.
-timeout -k 5 300 "$console" clean ended "$workdir" "$TEHAS_CLEAN_DIRS" "$TEHAS_HOME/logs/clean.log" "${TEHAS_SCRATCH_DIR:+$TEHAS_SCRATCH_DIR/${workdir##*/}}" >/dev/null 2>&1 || log "WARN: the build output of $workdir was not removed"
-# The next poll refreshes the status. A stopped cycle leaves it to that poll.
-[ "$signalled" = 1 ] || "$status_cmd"
-# The slot is free now: fill it without waiting for the timer. systemd takes a
-# start asked while a poll runs as that poll, which may have counted this cycle
-# as running, so the file is left too: tehas-dispatch.path starts the next poll
-# when that one ends. The start is for a host where the path unit is not on.
-: >"$TEHAS_HOME/state/dispatch.again" 2>/dev/null || log "WARN: could not write $TEHAS_HOME/state/dispatch.again"
-timeout -k 5 10 systemctl --user start --no-block tehas-dispatch.service 9>&- >/dev/null 2>&1 ||
-  log "WARN: could not start a poll of the dispatcher"
+[ -z "$shadow" ] || timeout 60 "$tc" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
+# What follows the end, each step's failure a WARN line (tehas-cycle after).
+"$tc" after "$issue" --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd" || log "WARN: what follows the end of #$issue did not run"
 exit "${end_rc:-0}"

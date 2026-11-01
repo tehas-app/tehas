@@ -15,6 +15,27 @@
 //!   tehas-cycle compare <issue>       after the report: set the bash's
 //!                                     beside it and add one line to
 //!                                     logs/cycle-shadow.log
+//!   tehas-cycle approved <issue> <attempt>
+//!                                     print {at, how, driver} of the approval
+//!                                     that attempt used, or null: read
+//!                                     before cycle-end, which removes the
+//!                                     record of a start that never ran
+//!   tehas-cycle after <issue> --attempt <n> --started <s> --rc <n>
+//!       --status <word> --step <step> --cap <cap> --park-reason <word>
+//!       --failure-kind <word> --failure-cause <word> --provider 0|1
+//!       --parked true|false --pr <url> --by <login> --how <how>
+//!       --approved <json> --image <id> --image-built <time>
+//!       --rukas-image <commit> --oom <n> --forks <n> --reason <text>
+//!       --build <commit> --signalled 0|1 --workdir <dir> --console <path>
+//!       --status-cmd <path>
+//!                                     what follows a cycle's record, each
+//!                                     step's failure a WARN line: the live
+//!                                     view, the run and its end in the
+//!                                     analytics, the improvement record, the
+//!                                     workspace's build output, the status
+//!                                     unless a signal stopped the cycle, and
+//!                                     the next poll (src/after.rs). A flag
+//!                                     with nothing to say may be left out
 //!   tehas-cycle last-attempt <issue> <result.json> <workspace>
 //!                                     the issue as GitHub's REST API answers
 //!                                     it on standard input: what a cycle
@@ -89,6 +110,9 @@
 //! tehasbot runs instead. It returns only when neither could be run. pin plan
 //! does the same under $TEHAS_HOME/run/plan-<issue>-<pid>/.
 //!
+//! after and approved read $TEHAS_HOME, TEHAS_ANALYTICS, TEHAS_ANALYTICS_WAIT,
+//! TEHAS_IMPROVE_REPO, TEHAS_CLEAN_DIRS and TEHAS_SCRATCH_DIR.
+//!
 //! Exit: 0 it printed or kept its answer; 1 what it reads could not be
 //! read, said on standard error, or run could not exec, or `clock check` said
 //! `stalled`, or `finish` refused; 2 `clock check` said `over`; 3 `clock check`
@@ -102,6 +126,7 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tehas_cycle::after::{self, After};
 use tehas_cycle::clock;
 use tehas_cycle::host::Start;
 use tehas_cycle::last_attempt::{self, Action};
@@ -150,6 +175,15 @@ fn main() {
         ["last-attempt", n, result, workspace] => {
             last_attempt(issue(n, &args), result, Path::new(workspace))
         }
+        ["approved", n, attempt] => {
+            let attempt = attempt
+                .parse()
+                .ok()
+                .filter(|a| *a > 0)
+                .unwrap_or_else(|| wrong(&args));
+            println!("{}", after::approved(&home, issue(n, &args), attempt));
+        }
+        ["after", n, rest @ ..] => after_verb(&home, issue(n, &args), &args, rest),
         ["shadow", n, rest @ ..] => {
             let n = issue(n, &args);
             let mut start = Start {
@@ -266,6 +300,51 @@ fn main() {
         }
         _ => wrong(&args),
     }
+}
+
+/// What follows a cycle's record, from what libexec/cycle holds of its end.
+fn after_verb(home: &Path, n: u64, args: &[String], rest: &[&str]) {
+    let mut a = After::default();
+    a.ended.issue = n;
+    let num = |v: &str| v.parse::<i64>().unwrap_or_else(|_| wrong(args));
+    let mut it = rest.iter();
+    while let Some(flag) = it.next() {
+        let v = it.next().unwrap_or_else(|| wrong(args)).to_string();
+        let e = &mut a.ended;
+        match *flag {
+            "--attempt" => a.attempt = num(&v).try_into().unwrap_or_else(|_| wrong(args)),
+            "--started" => e.started = num(&v),
+            "--rc" => e.rc = num(&v),
+            "--status" => e.status = v,
+            "--step" => e.step = v,
+            "--cap" => e.cap = v,
+            "--park-reason" => a.park_reason = v,
+            "--failure-kind" => a.failure_kind = v,
+            "--failure-cause" => a.failure_cause = v,
+            "--provider" => a.provider = v == "1",
+            "--parked" => a.parked = v == "true",
+            "--pr" => e.pr = v,
+            "--by" => a.by = v,
+            "--how" => a.how = v,
+            "--approved" => a.approved = v,
+            "--image" => e.image = v,
+            "--image-built" => a.image_built = v,
+            "--rukas-image" => e.rukas = v,
+            "--oom" => e.kills = v,
+            "--forks" => a.forks = v,
+            "--reason" => e.reason = v,
+            "--build" => e.build = v,
+            "--signalled" => a.signalled = v == "1",
+            "--workdir" => a.workdir = v,
+            "--console" => a.console = v,
+            "--status-cmd" => a.status_cmd = v,
+            _ => wrong(args),
+        }
+    }
+    if a.attempt == 0 || a.ended.started == 0 || a.console.is_empty() || a.status_cmd.is_empty() {
+        wrong(args);
+    }
+    after::after(home, &a);
 }
 
 /// The ask of part 2's poll step: the words of one finish, and the run of them.

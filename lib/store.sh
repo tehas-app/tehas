@@ -49,10 +49,6 @@
 #                                 startedAt (ISO), comment (the id asked for),
 #                                 lost, by, label, answers, filed, and the
 #                                 notes fixer_refused and held, absent if none
-#   tehas_settings_shape          a jq filter: of a cycle as cycle-show answers
-#                                 tehas_improve_settings writes them:
-#                                 {container, host, concurrentCycles}; null when
-#                                 the cycle has none
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -239,11 +235,3 @@ plan_view() { # <issue>
   }
   printf '%s\n' "$file"
 }
-
-# The prefix of a setting's name says which half it came from (cycle-image).
-# shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
-tehas_settings_shape='if (.settings | type) != "object" or (.settings | length) == 0 then null
-  else .settings as $s
-  | {container: ($s | with_entries(select(.key | startswith("PI_ENSEMBLE_")))),
-     host: ($s | with_entries(select(.key | startswith("TEHAS_")))),
-     concurrentCycles: ($s.concurrentCycles | if . == null then null else (tonumber? // null) end)} end'
