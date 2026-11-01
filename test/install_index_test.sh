@@ -18,6 +18,12 @@ product() {
   }
   git clone -q "$T/git/acme/widget" "$th/repos/widget"
 }
+# tehas index is tehas-cycle's and asks the console for the slice: the programs
+# of this checkout, not the stub's line of text.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+console_env=(CONSOLE_BIN="$T_CONSOLE" CYCLE_BIN="$T_CYCLE")
+t_env
 index_runs() { t_calls docker | grep -c -e '^run .*index_repository' || true; }
 # tehas index starts nothing without the slice: a host that has it.
 slice_state 0.00

@@ -28,19 +28,13 @@
 #                       from the result's handoff and labels the issue.
 #   PI_ENSEMBLE_HANDOFF_TIMEOUT_MS  the handoff allowance, 480000 (8 minutes,
 #                       pi-rukas's own default): the time the cycle's handoff
-#                       may take. It is the one allowance: the margin below
-#                       is sized from it, so the handoff never lands on the
-#                       container's stop.
+#                       may take. The deadline below is the limit less this,
+#                       so the handoff never lands on the container's stop.
 #   PI_ENSEMBLE_CYCLE_DEADLINE   the time after which the cycle starts no new
 #                       step and parks with cap "deadline", in milliseconds
 #                       since the epoch: the start, plus TEHAS_WORK_TIMEOUT,
-#                       less a margin. With an image whose --capabilities has
-#                       features.cycleDeadlineHandoffAllowance the margin is
-#                       the handoff allowance: that runner bounds every step
-#                       by the deadline. Otherwise it is a quarter of the
-#                       limit, or one run of the gate and the handoff
-#                       allowance when that is longer, for a step that runs
-#                       past the deadline. None when that leaves no time.
+#                       less the handoff allowance: the runner bounds every
+#                       step by the deadline. None when that leaves no time.
 #                       PI_ENSEMBLE_CYCLE_BUDGET_MS is not passed.
 #   PI_ENSEMBLE_VERIFY_CONCURRENCY  runs of the gate at once, from the
 #                       container's share of the CPUs and memory ceiling
@@ -534,21 +528,10 @@ runner=/opt/pi-rukas/bin/pi-rukas-headless
 caps=$(timeout -k 10 "$caps_wait" docker run --rm --init "$image" "$runner" --capabilities 2>/dev/null)
 caps_rc=$?
 # No step starts after the deadline: the cycle parks with a handoff instead.
-# A runner whose answer has features.cycleDeadlineHandoffAllowance bounds
-# every step by the deadline and keeps its handoff inside the allowance
-# (pi-rukas#1603), so the deadline is the limit less the allowance. With any
-# other runner a step that started before the deadline may run past it, so
-# the margin holds the longest step there is room for and then the handoff:
-# a quarter of the limit, and never less than one run of the gate and the
-# handoff allowance.
-if [ "$("$here/tehas-cycle" caps mode cycleDeadlineHandoffAllowance <<<"$caps")" = native ]; then
-  margin=$handoff
-else
-  margin=$((limit / 4))
-  [ "$margin" -ge $((TEHAS_VERIFY_TIMEOUT + handoff)) ] || margin=$((TEHAS_VERIFY_TIMEOUT + handoff))
-fi
-if [ "$margin" -lt "$limit" ]; then
-  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$(((EPOCHSECONDS + limit - margin) * 1000))")
+# The runner of result schema 5 bounds every step by the deadline and keeps its
+# handoff inside the allowance (pi-rukas#1603).
+if [ "$handoff" -lt "$limit" ]; then
+  envs+=(-e "PI_ENSEMBLE_CYCLE_DEADLINE=$(((EPOCHSECONDS + limit - handoff) * 1000))")
   features+=" cycleDeadline"
 else
   echo "tehas work: the time limit of ${limit}s leaves no room for a deadline before it, the cycle has none"

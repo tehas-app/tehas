@@ -1,6 +1,6 @@
 [
  {
-  "case": "1793028991705861129",
+  "case": "a merged cycle only loses its running label",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -12,8 +12,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028991,
-   "now": 1793028991,
+   "started": 1793525961,
+   "now": 1793525961,
    "start": {
     "attempt": 1,
     "by": "",
@@ -34,12 +34,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028991
+     "seen_at": 1793525961
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028991,
+     "started_at": 1793525961,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -71,7 +71,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -127,7 +128,7 @@
   }
  },
  {
-  "case": "1793028992151358814",
+  "case": "a merged state with no merged pull request is a claim: parked, and nothing is removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -139,8 +140,8 @@
    "before_retry_dir": true,
    "rc": 0,
    "signalled": false,
-   "started": 1793028992,
-   "now": 1793028992,
+   "started": 1793525965,
+   "now": 1793525965,
    "start": {
     "attempt": 1,
     "by": "",
@@ -161,12 +162,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028992
+     "seen_at": 1793525965
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028992,
+     "started_at": 1793525964,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -198,10 +199,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -259,7 +267,7 @@
   }
  },
  {
-  "case": "1793028992715575238",
+  "case": "a merged state whose branch has only an open pull request is parked, and the comment names it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -271,8 +279,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028992,
-   "now": 1793028992,
+   "started": 1793525971,
+   "now": 1793525971,
    "start": {
     "attempt": 1,
     "by": "",
@@ -293,12 +301,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028992
+     "seen_at": 1793525971
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028992,
+     "started_at": 1793525970,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -330,7 +338,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -341,6 +350,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -402,7 +417,7 @@
   }
  },
  {
-  "case": "1793028993281764034",
+  "case": "a merged pull request of another issue does not make a merge",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -414,8 +429,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028993,
-   "now": 1793028993,
+   "started": 1793525975,
+   "now": 1793525975,
    "start": {
     "attempt": 1,
     "by": "",
@@ -436,12 +451,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028993
+     "seen_at": 1793525976
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028993,
+     "started_at": 1793525975,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -473,7 +488,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -484,6 +500,12 @@
       "headRefName": "feature/issue-9-other"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -541,7 +563,7 @@
   }
  },
  {
-  "case": "1793028993841911900",
+  "case": "a handoff whose branch is another issue's pull request is parked, and nothing is posted on it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -553,8 +575,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028993,
-   "now": 1793028993,
+   "started": 1793525981,
+   "now": 1793525981,
    "start": {
     "attempt": 1,
     "by": "",
@@ -575,12 +597,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028993
+     "seen_at": 1793525982
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028993,
+     "started_at": 1793525981,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -612,7 +634,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -623,6 +646,12 @@
       "headRefName": "feature/issue-9-other"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -682,7 +711,7 @@
   }
  },
  {
-  "case": "1793028994492442193",
+  "case": "a pull request whose head is the issue's branch names it, whatever its body says",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -694,8 +723,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028994,
-   "now": 1793028994,
+   "started": 1793525986,
+   "now": 1793525987,
    "start": {
     "attempt": 1,
     "by": "",
@@ -716,12 +745,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028994
+     "seen_at": 1793525987
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028994,
+     "started_at": 1793525986,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -753,7 +782,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -816,7 +846,7 @@
   }
  },
  {
-  "case": "1793028995019404061",
+  "case": "a body that closes a longer number does not name this issue",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -828,8 +858,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028995,
-   "now": 1793028995,
+   "started": 1793525996,
+   "now": 1793525996,
    "start": {
     "attempt": 1,
     "by": "",
@@ -850,12 +880,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028995
+     "seen_at": 1793525996
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028995,
+     "started_at": 1793525993,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -887,7 +917,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -898,6 +929,12 @@
       "headRefName": "feature/x"
      }
     ]
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -957,7 +994,7 @@
   }
  },
  {
-  "case": "1793028995584008189",
+  "case": "a result that is a link is not read",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -969,8 +1006,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028995,
-   "now": 1793028995,
+   "started": 1793526002,
+   "now": 1793526002,
    "start": {
     "attempt": 1,
     "by": "",
@@ -993,12 +1030,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028995
+     "seen_at": 1793526002
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028995,
+     "started_at": 1793526001,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1030,9 +1067,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1090,7 +1134,7 @@
   }
  },
  {
-  "case": "1793028996143202210",
+  "case": "a progress older than the cycle's start is not on record as its own (G3)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1102,8 +1146,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793028996,
-   "now": 1793028996,
+   "started": 1793526007,
+   "now": 1793526008,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1124,12 +1168,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028996
+     "seen_at": 1793526009
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028996,
+     "started_at": 1793526007,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1161,10 +1205,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -1224,7 +1275,7 @@
   }
  },
  {
-  "case": "1793028996702157182",
+  "case": "a state file the cycle left in its workspace is not read: only the runner's result is",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1236,8 +1287,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028996,
-   "now": 1793028996,
+   "started": 1793526014,
+   "now": 1793526014,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1257,12 +1308,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028996
+     "seen_at": 1793526014
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028996,
+     "started_at": 1793526013,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1294,9 +1345,23 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   },
+   "work_state": {
+    "pipelineState": {
+     "status": "merged",
+     "currentStep": "done",
+     "branchName": "feature/x"
+    }
+   }
   },
   "met": {
    "recorded": true,
@@ -1353,7 +1418,7 @@
   }
  },
  {
-  "case": "1793028997247630033",
+  "case": "a result of another schema, or of another issue, is no result",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1365,8 +1430,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028997,
-   "now": 1793028997,
+   "started": 1793526019,
+   "now": 1793526020,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1387,12 +1452,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028997
+     "seen_at": 1793526020
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028997,
+     "started_at": 1793526019,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1424,9 +1489,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1481,7 +1553,7 @@
   }
  },
  {
-  "case": "1793028997809414958",
+  "case": "a result of another schema, or of another issue, is no result (2)",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1493,8 +1565,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028997,
-   "now": 1793028997,
+   "started": 1793526024,
+   "now": 1793526024,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1515,12 +1587,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028997
+     "seen_at": 1793526025
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028997,
+     "started_at": 1793526023,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1552,9 +1624,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1609,7 +1688,7 @@
   }
  },
  {
-  "case": "1793028998381086122",
+  "case": "a result left by an earlier cycle is not this cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1621,8 +1700,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793028998,
-   "now": 1793028998,
+   "started": 1793526029,
+   "now": 1793526029,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1642,12 +1721,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028998
+     "seen_at": 1793526029
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028998,
+     "started_at": 1793526029,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1679,9 +1758,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -1738,7 +1824,7 @@
   }
  },
  {
-  "case": "1793028998969660821",
+  "case": "a pull request a person merged while the cycle ran ends it as merged: no park, no question",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1750,8 +1836,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028999,
-   "now": 1793028999,
+   "started": 1793526034,
+   "now": 1793526034,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1772,12 +1858,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028999
+     "seen_at": 1793526035
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028999,
+     "started_at": 1793526034,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1809,7 +1895,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1865,7 +1952,7 @@
   }
  },
  {
-  "case": "1793028999583475558",
+  "case": "a pull request closed without a merge parks the issue without the retry boxes",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -1877,8 +1964,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793028999,
-   "now": 1793028999,
+   "started": 1793526039,
+   "now": 1793526039,
    "start": {
     "attempt": 1,
     "by": "",
@@ -1899,12 +1986,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793028999
+     "seen_at": 1793526040
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793028999,
+     "started_at": 1793526039,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -1936,7 +2023,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -1991,7 +2079,7 @@
   }
  },
  {
-  "case": "1793029000093090604",
+  "case": "an open pull request beside a closed one is the cycle's",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2003,8 +2091,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029000,
-   "now": 1793029000,
+   "started": 1793526044,
+   "now": 1793526044,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2025,12 +2113,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029000
+     "seen_at": 1793526045
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029000,
+     "started_at": 1793526044,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2062,7 +2150,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2131,7 +2220,7 @@
   }
  },
  {
-  "case": "1793029000583921018",
+  "case": "a state file in the product checkout is not the cycle's: the container never writes there",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2143,8 +2232,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029000,
-   "now": 1793029000,
+   "started": 1793526050,
+   "now": 1793526050,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2164,12 +2253,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029000
+     "seen_at": 1793526051
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029000,
+     "started_at": 1793526050,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2201,9 +2290,16 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
-   "github": {}
+   "github": {},
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
+   }
   },
   "met": {
    "recorded": true,
@@ -2260,7 +2356,7 @@
   }
  },
  {
-  "case": "1793029001107800603",
+  "case": "the workspace of a cycle that left a pull request is removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2272,8 +2368,8 @@
    "before_retry_dir": false,
    "rc": 10,
    "signalled": false,
-   "started": 1793029001,
-   "now": 1793029001,
+   "started": 1793526055,
+   "now": 1793526055,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2294,12 +2390,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029001
+     "seen_at": 1793526056
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029001,
+     "started_at": 1793526055,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2331,7 +2427,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2394,7 +2491,7 @@
   }
  },
  {
-  "case": "1793029001597091110",
+  "case": "and with it the one kept from an earlier stopped cycle of the issue",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2406,8 +2503,8 @@
    "before_retry_dir": true,
    "rc": 10,
    "signalled": false,
-   "started": 1793029001,
-   "now": 1793029001,
+   "started": 1793526060,
+   "now": 1793526061,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2428,12 +2525,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029001
+     "seen_at": 1793526061
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029001,
+     "started_at": 1793526060,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2465,7 +2562,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2528,7 +2626,7 @@
   }
  },
  {
-  "case": "1793029002115889700",
+  "case": "so is the workspace of a merged cycle",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2540,8 +2638,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029002,
-   "now": 1793029002,
+   "started": 1793526064,
+   "now": 1793526065,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2562,12 +2660,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029002
+     "seen_at": 1793526065
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029002,
+     "started_at": 1793526064,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2599,7 +2697,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -2655,7 +2754,7 @@
   }
  },
  {
-  "case": "1793029002582194481",
+  "case": "the workspace of a cycle that stopped is kept for a person to read",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2667,8 +2766,8 @@
    "before_retry_dir": false,
    "rc": 20,
    "signalled": false,
-   "started": 1793029002,
-   "now": 1793029002,
+   "started": 1793526069,
+   "now": 1793526070,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2689,12 +2788,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029002
+     "seen_at": 1793526070
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029002,
+     "started_at": 1793526069,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2726,10 +2825,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2787,7 +2893,7 @@
   }
  },
  {
-  "case": "1793029003102038680",
+  "case": "and so is the one kept from the cycle before it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2799,8 +2905,8 @@
    "before_retry_dir": true,
    "rc": 20,
    "signalled": false,
-   "started": 1793029003,
-   "now": 1793029003,
+   "started": 1793526076,
+   "now": 1793526076,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2821,12 +2927,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029003
+     "seen_at": 1793526076
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029003,
+     "started_at": 1793526075,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2858,10 +2964,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -2919,7 +3032,7 @@
   }
  },
  {
-  "case": "1793029003659268848",
+  "case": "the workspace of a cycle a merge interrupted is kept, and its comment names it",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -2931,8 +3044,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793029003,
-   "now": 1793029003,
+   "started": 1793526080,
+   "now": 1793526080,
    "start": {
     "attempt": 1,
     "by": "",
@@ -2953,12 +3066,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029003
+     "seen_at": 1793526081
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029003,
+     "started_at": 1793526080,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -2990,7 +3103,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -3046,7 +3160,7 @@
   }
  },
  {
-  "case": "1793029004184706639",
+  "case": "and so is the one kept from an earlier stopped cycle of an interrupted merge",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3058,8 +3172,8 @@
    "before_retry_dir": true,
    "rc": 2,
    "signalled": false,
-   "started": 1793029004,
-   "now": 1793029004,
+   "started": 1793526087,
+   "now": 1793526087,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3080,12 +3194,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029004
+     "seen_at": 1793526087
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029004,
+     "started_at": 1793526087,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3117,7 +3231,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -3173,7 +3288,7 @@
   }
  },
  {
-  "case": "1793029004674701491",
+  "case": "a cycle the dispatcher stopped for a closed issue names the workspace it kept",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3185,8 +3300,8 @@
    "before_retry_dir": false,
    "rc": 2,
    "signalled": false,
-   "started": 1793029004,
-   "now": 1793029004,
+   "started": 1793526091,
+   "now": 1793526091,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3208,12 +3323,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029004
+     "seen_at": 1793526092
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029004,
+     "started_at": 1793526091,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3245,7 +3360,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
@@ -3292,7 +3408,7 @@
   }
  },
  {
-  "case": "1793029005141787631",
+  "case": "a cycle that made no workspace is not said to have kept one",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3304,8 +3420,8 @@
    "before_retry_dir": false,
    "rc": 21,
    "signalled": false,
-   "started": 1793029005,
-   "now": 1793029005,
+   "started": 1793526097,
+   "now": 1793526097,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3326,12 +3442,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029005
+     "seen_at": 1793526098
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029005,
+     "started_at": 1793526097,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3363,10 +3479,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3424,7 +3547,7 @@
   }
  },
  {
-  "case": "1793029005722365447",
+  "case": "a cycle that cloned no workspace names the copy an earlier attempt left",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3436,8 +3559,8 @@
    "before_retry_dir": true,
    "rc": 21,
    "signalled": false,
-   "started": 1793029005,
-   "now": 1793029005,
+   "started": 1793526103,
+   "now": 1793526103,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3458,12 +3581,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029005
+     "seen_at": 1793526104
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029005,
+     "started_at": 1793526103,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3495,10 +3618,17 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": []
+   },
+   "history": {
+    "api": 1,
+    "verb": "history-show",
+    "ok": true,
+    "rows": []
    }
   },
   "met": {
@@ -3556,7 +3686,7 @@
   }
  },
  {
-  "case": "1793029006284556425",
+  "case": "a directory tehas work did not mark is never removed",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3568,8 +3698,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029006,
-   "now": 1793029006,
+   "started": 1793526110,
+   "now": 1793526110,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3590,12 +3720,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029006
+     "seen_at": 1793526111
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029006,
+     "started_at": 1793526109,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3627,7 +3757,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -3683,7 +3814,7 @@
   }
  },
  {
-  "case": "1793029006800376077",
+  "case": "a workspace that cannot be removed is said so",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3695,8 +3826,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029006,
-   "now": 1793029006,
+   "started": 1793526114,
+   "now": 1793526115,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3717,12 +3848,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029006
+     "seen_at": 1793526115
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029006,
+     "started_at": 1793526114,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3754,7 +3885,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [
@@ -3810,7 +3942,7 @@
   }
  },
  {
-  "case": "1793029007262954871",
+  "case": "another issue's workspace is left alone",
   "facts": {
    "issue": 7,
    "repo": "acme/widget",
@@ -3822,8 +3954,8 @@
    "before_retry_dir": false,
    "rc": 0,
    "signalled": false,
-   "started": 1793029007,
-   "now": 1793029007,
+   "started": 1793526119,
+   "now": 1793526119,
    "start": {
     "attempt": 1,
     "by": "",
@@ -3844,12 +3976,12 @@
      "state": "held",
      "probe_rc": 1,
      "file": true,
-     "seen_at": 1793029007
+     "seen_at": 1793526120
     },
     "cycle": {
      "issue": 7,
      "attempt": 1,
-     "started_at": 1793029007,
+     "started_at": 1793526119,
      "started_by": null,
      "how": "hand",
      "requeued": false,
@@ -3881,7 +4013,8 @@
     "rests_on": null,
     "millwright_starts": 0,
     "fixer_starts": 0,
-    "refreshes": 0
+    "refreshes": 0,
+    "easy": false
    },
    "github": {
     "prs": [

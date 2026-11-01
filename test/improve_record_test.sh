@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# Tests for the improvement loop: the record a cycle leaves (lib/improve.sh),
-# what a cycle ran with, and how a whole log is packed.
+# Tests for the improvement loop: the record a cycle leaves (tehas-cycle
+# after), what a cycle ran with (lib/improve.sh), and how a whole log is packed.
 # shellcheck disable=SC2016  # stub bodies and snippets are expanded when they run
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 # shellcheck source=test/improve_lib.sh
 . "$(dirname "$0")/improve_lib.sh" || exit 1
 
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
 # lib <snippet>: run it with the settings and the loop's library loaded.
-lib() { t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78; '"$1"; }
+# tehas_improve_record is the verb under the arguments of the function it
+# replaced.
+lib() {
+  t_run '. "$T_ROOT/lib/config.sh"; . "$T_ROOT/lib/improve.sh"; tehas_load || exit 78
+tehas_improve_record() { "$T/cycle-bin" after "$1" < <(printf "%s\0" --attempt 1 --started "$2" --rc "$3" --status "$4" --step "$5" --pr "${6:-}" --oom "${7:-0}" --image "${8:-}" --rukas-image "${9:-}" --cap "${10:-}" --reason "${11:-}" --build "${12:-}" --forks 0 --signalled 1 --workdir /nowhere --console true --status-cmd true); }
+'"$1"
+}
 
 # --- The record of a cycle ---------------------------------------------------
 started=$(($(date +%s) - 100))
@@ -124,8 +131,9 @@ t_eq "$t_rc" 0
 t_case "no log since the cycle began: no record, and the caller is told"
 reset
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$t_rc" 1
-t_contains "$t_out" "no log of issue 7"
+t_eq "$t_rc" 0
+t_contains "$t_out" "tehas: improve: no log of issue 7 since the cycle began, no record written"
+t_contains "$t_out" "WARN: no record of #7 for the improvement loop"
 [ -z "$(ls -A "$base/window" 2>/dev/null)" ] || t_bad "a record was written"
 
 t_case "an older log of the same issue is not taken for this cycle's"
@@ -133,7 +141,7 @@ reset
 cycle_log
 touch -d '2 hours ago' "$home/logs/work-$REC.jsonl"
 lib "tehas_improve_record 7 $started 0 handoff review"
-t_eq "$t_rc" 1
+t_contains "$t_out" "WARN: no record of #7 for the improvement loop"
 
 t_case "two cycles that end at once leave two whole records"
 reset

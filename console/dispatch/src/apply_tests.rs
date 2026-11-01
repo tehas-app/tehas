@@ -3788,3 +3788,75 @@ fn a_plans_issue_edit_is_settled_by_its_title() {
         "journal: action 4 (issue-edit on #7, 10s old) did not happen (its body does not say what it replaces); this poll decides it again",
     ]);
 }
+
+/// A lock of `t`'s home for the issue: held for as long as the file lives.
+fn cycle_lock(t: &World, n: u64) -> fs::File {
+    let dir = t.w.home.join("state/cycles");
+    fs::create_dir_all(&dir).unwrap();
+    let f = fs::File::create(dir.join(format!("{n}.lock"))).unwrap();
+    f.try_lock().unwrap();
+    f
+}
+
+#[test]
+fn an_open_action_of_a_cycle_whose_lock_is_held_is_left_alone() {
+    let mut t = world();
+    let held = cycle_lock(&t, 7);
+    let mut intended = open_label_add(3, 7, "intended");
+    intended["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    let mut attempted = open_label_add(4, 7, "attempted");
+    attempted["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    left_open(&t, json!([intended, attempted]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert!(log.is_empty(), "{log:?}");
+    assert!(settled(&t).is_empty());
+    assert!(!t.calls().iter().any(|c| c.starts_with("gh ")));
+    // The cycle is gone: its rows are read as any other's.
+    drop(held);
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        settled(&t)[0],
+        "store journal-settle --action 3 --abandoned"
+    );
+}
+
+#[test]
+fn an_open_action_of_a_cycle_that_has_no_lock_is_settled() {
+    let mut t = world();
+    let mut row = open_label_add(3, 7, "intended");
+    row["args"]["cycle"] = json!({"issue": 7, "attempt": 1});
+    left_open(&t, json!([row]));
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        settled(&t),
+        vec!["store journal-settle --action 3 --abandoned"]
+    );
+}
+
+#[test]
+fn a_body_written_whole_settles_as_done_by_its_sum() {
+    use sha2::{Digest, Sha256};
+    let mut t = world();
+    let body = "Fix the drain.\n\n<!-- tehas:last-attempt -->";
+    let sum: String = Sha256::digest(body.as_bytes())
+        .iter()
+        .map(|x| format!("{x:02x}"))
+        .collect();
+    let row = |id: u64, sum: &str| {
+        json!({"id": id, "kind": "issue-edit", "issue": 7, "state": "attempted",
+            "intended_at": 990, "attempted_at": 991,
+            "args": {"gh": ["api", "-X", "PATCH", "repos/r/issues/7", "--input", "-"],
+                     "input": {"sha256": sum, "bytes": body.len()}}})
+    };
+    left_open(&t, json!([row(3, &sum), row(4, "0000")]));
+    fs::write(t.dir.join("issue-7"), json!({"body": body}).to_string()).unwrap();
+    let mut log = Vec::new();
+    t.w.settle(1000, &mut log);
+    assert_eq!(
+        log[0],
+        "journal: action 3 (issue-edit on #7, 10s old) was done"
+    );
+    assert!(log[1].contains("did not happen"), "{log:?}");
+}

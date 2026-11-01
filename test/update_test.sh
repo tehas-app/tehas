@@ -203,9 +203,12 @@ instance_models() {
 # its producer.
 real_platform() {
   # The console the stub of cargo builds is no program, and tehas labels and tehas
-  # api are verbs of it.
+  # api are verbs of it. Nor is its tehas-cycle: the real sandbox build asks that
+  # one what the base image can do.
   t_console || t_bad "$t_console_why"
-  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE")
+  # shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+  t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+  T_ENV_ALWAYS=(TEHAS_CONSOLE="$T_CONSOLE" CYCLE_BIN="$T_CYCLE")
   rm -rf "${T:?}/home" "$T/origin" "$T/upstream" "$T/calls"/*
   mkdir -p "$T/home"
   systemctl_active

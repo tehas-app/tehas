@@ -72,6 +72,7 @@ in the platform repository has every one with a comment.
 | `TEHAS_ANALYTICS_COOKIE`        | `0`                                      | `1` adds `data-cookie="true"` to that script tag                |
 | `TEHAS_THEME`                   | `pixel`                                  | The look of every page: `pixel`, `paper`, `beesknees` or `beesknees26`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
 | `TEHAS_LAYOUT`                  | `floor`                                  | The front page: `floor`, the game view, or `business`. Both are always at `/floor` and `/business`. Another name stops every command with 78. See [The host](/host#themes-and-layouts) |
+| `TEHAS_CYCLE_REPORT`            | `bash`                                   | Who reports a cycle: `bash`, `libexec/cycle`, or `rust`, `tehas-cycle report`. See [The report in Rust](/operating#the-report-in-rust). Any other value is exit 78 |
 | `TEHAS_ANALYTICS`               | `on`                                     | The factory's own analytics, not the visitor analytics above: 365 days of runs, issue events and poll samples in `~/tehas/state/analytics.db`. `off` stops every write and leaves the file as it is. Anything but `on` or `off` stops every command with 78 |
 | `TEHAS_PROTOLAB_URL`            | `https://lab.<domain>`, or port 8081     | Address people reach the Protolab at, when it is published elsewhere, as `https://lab.example`. The dashboard links to it. Without it: `https://lab.<domain>` when `TEHAS_DOMAIN` is set, else port 8081 of the dashboard's host |
 | `TEHAS_DOMAIN`                  | none                                     | The domain the edge's names are made under, as `tehas.app`: `uat-<pr>.` for a preview, `lab-<issue>.` for a ticket of the Protolab, `lab.` for its list |
@@ -744,7 +745,7 @@ Five inputs are this command's, whatever the instance says:
 | --- | --- | --- |
 | `PI_ENSEMBLE_HANDOFF_CHANNEL` | `host` | pi-rukas posts no handoff comment and applies no label. `tehasbot cycle` posts the one comment of the park from the result's handoff, and labels the issue |
 | `PI_ENSEMBLE_HANDOFF_TIMEOUT_MS` | `480000`, 8 minutes | The handoff allowance: the time the cycle's handoff may take. It is the one allowance tehas and pi-rukas share. The deadline's margin holds it, so the handoff is written before the container is stopped, not as it is stopped |
-| `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less a margin, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. When the image's `--capabilities` answer has the feature `cycleDeadlineHandoffAllowance`, its runner bounds every step by the deadline, and the margin is the handoff allowance alone: with the default limit the deadline is 5 h 52 min in. Otherwise the margin is a quarter of the limit, or one run of the gate (`TEHAS_VERIFY_TIMEOUT`) and the handoff allowance when that is longer: a step that started before the deadline may run past it, and the handoff comes after that step. With the default limit the deadline is 4 h 30 min in. A limit too short for the margin gives no deadline, and the log says so |
+| `PI_ENSEMBLE_CYCLE_DEADLINE` | the start plus `TEHAS_WORK_TIMEOUT` less the handoff allowance, in milliseconds since the epoch | After it the cycle starts no new step and parks with the cap `deadline`, with a handoff. The runner bounds every step by the deadline: with the default limit the deadline is 5 h 52 min in. A limit no longer than the handoff allowance gives no deadline, and the log says so |
 | `PI_ENSEMBLE_VERIFY_CONCURRENCY` | one for each two whole CPUs of the container's share and each 2 GiB of its memory ceiling, the lower, at least 1 | How many runs of the gate the cycle makes at once. pi-rukas's own rule for a host, applied to the container. On 16 CPUs with four cycles side by side that is 1 |
 | `PI_ENSEMBLE_SPAWN_TIMEOUT_MS` | `TEHAS_CHILD_TIMEOUT` times 1000, 7200000 by default | The bound on one child of the cycle: pi-rukas's backstop for a child nothing else ended. tehas gives it so a fixer still making progress is not stopped at pi-rukas's own two-hour default with hours of the cycle's budget left. An instance line for the name is dropped before tehas' own is added |
 
@@ -4453,9 +4454,8 @@ four things:
 | `error`    | the answer could not be read: not a JSON object, or a `features` that is not an object. Status 1 |
 
 `native` wins, so a host stops using a polyfill the moment its sandbox image
-has the feature, before the code is removed. The refresh (`continuePr`), the
-planning turns (`planTurns`) and the cycle deadline (`cycleDeadlineHandoffAllowance`)
-are read this way. None of them has a polyfill.
+has the feature, before the code is removed. The refresh (`continuePr`) and the
+planning turns (`planTurns`) are read this way. Neither has a polyfill.
 
 An answer that cannot be read is `error`, never `polyfill`, so a probe that
 failed cannot read as a feature tehas should supply. An object with no
