@@ -87,6 +87,25 @@ for program in "$T/bin/no-such-poll" "$T/bin/plain-file" "$T/bin"; do
   t_eq "$(t_calls gh)" ""
 done
 rm -f "$T/bin/plain-file"
+for bytes in '' '\n' 'not a program\n' '\01\02\03\04\05'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "is not installed (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+for bytes in '\0177ELF\02\01\01' '#!/no/such/interpreter\n'; do
+  printf '%b' "$bytes" >"$T/bin/not-a-program"
+  chmod +x "$T/bin/not-a-program"
+  T_ENV_ALWAYS=(TEHAS_DISPATCH_CMD="$T/bin/not-a-program")
+  t_run "$dispatch"
+  t_eq "$t_rc" 78
+  t_contains "$t_out" "tehas: $T/bin/not-a-program cannot run (run install.sh)"
+  t_eq "$(t_calls gh)" ""
+done
+rm -f "$T/bin/not-a-program"
 T_ENV_ALWAYS=("${keep_env[@]}")
 
 t_case "with no TEHAS_DISPATCH_CMD the poll is the program beside the command"

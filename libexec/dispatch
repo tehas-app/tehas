@@ -22,8 +22,8 @@
 #
 # Exit: 0 the poll ran, or there was nothing to do; 64 an argument this command
 # does not know, which starts no poll; 78 instance settings are missing or
-# malformed, tehas-dispatch is not installed, or the state store is not
-# installed or cannot be used (before any call to GitHub when it is not
+# malformed, tehas-dispatch is not installed or cannot run, or the state store
+# is not installed or cannot be used (before any call to GitHub when it is not
 # installed); 1 a call to GitHub failed or its
 # answer could not be read, the state store could not be read, systemd cannot
 # load the cycle unit (before any label changes), or a cycle could not be
@@ -383,8 +383,20 @@ tehas_checkout || exit 78
 tehas_branch >/dev/null || exit 78
 
 poll=${TEHAS_DISPATCH_CMD:-$here/tehas-dispatch}
-if ! [ -f "$poll" ] || ! [ -x "$poll" ]; then
-  tehas_err "$poll is not installed (run install.sh)"
-  exit 78
+# bash runs a file with no magic number as a script of its own: an empty one
+# would be a poll that did nothing and exited 0.
+magic=
+if [ -f "$poll" ] && [ -x "$poll" ]; then
+  IFS= LC_ALL=C read -r -n 4 magic <"$poll"
 fi
+case $magic in
+  $'\x7f'ELF | '#!'*) ;;
+  *)
+    tehas_err "$poll is not installed (run install.sh)"
+    exit 78
+    ;;
+esac
+shopt -s execfail
 exec "$poll" poll "$@"
+tehas_err "$poll cannot run (run install.sh)"
+exit 78
