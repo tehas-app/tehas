@@ -95,67 +95,8 @@ live=$TEHAS_HOME/live
 mkdir -p "$live"
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 
-# The ten-day report of the factory's analytics, live/analytics.json, for
-# the dashboard. Public, so only the keys named here reach it; what each
-# holds is pinned by the program's tests. Off, or no program: no file. A
-# report that fails or does not parse keeps the file there while it is less
-# than analytics_keep seconds old: one poll that meets a locked database
-# does not empty the section, and a database that keeps failing does not
-# show old figures for long.
-analytics_keep=600
-analytics_keys='["report","from","to","shipped","planned","runs","planningTurns","handoffRate",
-  "firstPassYield","leadTime","cycleTime","machineTime","tokens","availability","energy","daily",
-  "stopReasons","stations","versions","refine"]'
-# shellcheck disable=SC2329  # the EXIT trap below calls it
-analytics_report() {
-  # Names of this run: a cycle's end and a poll may run status at once. The
-  # edge serves no *.new, so the unfiltered report is never public.
-  local file=$live/analytics.json rc written
-  local raw=$file.$$.raw.new new=$file.$$.new
-  tehas_analytics_to /dev/null orders
-  tehas_analytics_to "$raw" report --json
-  rc=$?
-  if [ "$rc" = 0 ] && jq -ce --argjson keys "$analytics_keys" '
-      select(type == "object" and .report == 1) | with_entries(select(.key as $k | $keys | index($k)))' \
-      "$raw" >"$new" 2>/dev/null && mv -f "$new" "$file"; then
-    rm -f "$raw"
-    return 0
-  fi
-  rm -f "$raw" "$new"
-  if [ "$rc" = 2 ]; then
-    rm -f "$file" "$live/orders.json"
-    return 0
-  fi
-  [ "$rc" = 1 ] || log "WARN analytics report: not a report"
-  written=$(stat -c %Y "$file" 2>/dev/null) || return 0
-  [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
-}
-# The private files of the MCP server, under mcp/ (never live/, which is
-# public): sessions.jsonl, the last thirty days, and outcomes.jsonl, how the
-# runs ended for a year back. The program makes the directory (700) and writes
-# both itself (600, renamed into place), so the host neither reads nor writes
-# them. A failed poll keeps a file younger than analytics_keep, not an older one.
-# shellcheck disable=SC2329  # the two below and the EXIT trap call it
-analytics_publish() {
-  # <subcommand> <file>: the two differ in the command and the name alone.
-  local subcommand=$1 file=$2 rc written
-  (umask 077; tehas_analytics_to /dev/null "$subcommand" --out "$TEHAS_HOME/mcp")
-  rc=$?
-  [ "$rc" = 0 ] && return 0
-  if [ "$rc" = 2 ]; then
-    rm -f "$file"
-    return 0
-  fi
-  [ "$rc" = 1 ] || log "WARN analytics $subcommand: not written"
-  written=$(stat -c %Y "$file" 2>/dev/null) || return 0
-  [ $((EPOCHSECONDS - written)) -lt "$analytics_keep" ] || rm -f "$file"
-}
-# shellcheck disable=SC2329  # the EXIT trap below calls it
-analytics_sessions() { analytics_publish sessions "$TEHAS_HOME/mcp/sessions.jsonl"; }
-# shellcheck disable=SC2329  # the EXIT trap below calls it
-analytics_outcomes() { analytics_publish outcomes "$TEHAS_HOME/mcp/outcomes.jsonl"; }
 # Write the report, and refresh health unless the poll ran this: it runs health next.
-trap 'analytics_report; analytics_sessions; analytics_outcomes; [ -n "$from_poll" ] || "$here/with-settings" tehasbot health 2>/dev/null || true' EXIT
+trap '"$console" status publish; [ -n "$from_poll" ] || "$here/with-settings" tehasbot health 2>/dev/null || true' EXIT
 
 fetch_limit=60
 "$console" status platform
