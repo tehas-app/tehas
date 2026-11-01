@@ -414,7 +414,7 @@ The record is also the way to finish an install on a host that cannot run an
 update. A checkout at a release tag has no branch to fast-forward, and a remote
 that is a local path can stop answering, while the copies `install.sh` made are
 already in place. `tehas update --pending` reads that record, runs the steps it
-lists in the order `lib/update-steps.sh` gives them, and calls no git command and
+lists in the order they run, and calls no git command and
 no `install.sh`, so it needs no checkout and no remote and no hold to be removed.
 A program finishes an install with `install.sh` and then that command; see
 [tehas update](/tools#tehas-update).

@@ -13,7 +13,7 @@
 //! host with nothing installed yet.
 
 use super::{
-    fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Plan,
+    fault, first_line, host_or_refuse, output, quiet, say, tell, temp_dir, timed, Host, Mode, Plan,
 };
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -814,7 +814,8 @@ fn bring(host: &Host, target: &str, tree: &Path, arch: &str) -> u8 {
 /// The version to run, unpacked beside the others and checked before current is
 /// moved to it, so a download that fails a check, or a release that asks for a
 /// setting this instance lacks, leaves the host on the version it runs.
-fn go(host: &Host, check: bool, to: Option<&str>, plan: &mut Plan) -> u8 {
+fn go(host: &Host, to: Option<&str>, plan: &mut Plan) -> u8 {
+    let check = plan.mode == Mode::Check;
     let installed = installed(host);
     let list = match list(host) {
         Ok(list) => list,
@@ -941,16 +942,15 @@ fn go(host: &Host, check: bool, to: Option<&str>, plan: &mut Plan) -> u8 {
     0
 }
 
-/// `console update move --plan <file> --mode update|check [--to <version>]`.
+/// `console update move --plan <file> [--to <version>]`.
 /// Exit: 0 the plan says what comes next, 1 no release could be taken, 78 a
 /// setting is missing or the release asks for one this instance lacks.
 pub fn moved(given: &[String]) -> u8 {
-    let (mut file, mut mode, mut to) = (None, None, None);
+    let (mut file, mut to) = (None, None);
     let mut words = given.iter();
     while let Some(word) = words.next() {
         let slot = match word.as_str() {
             "--plan" => &mut file,
-            "--mode" => &mut mode,
             "--to" => &mut to,
             _ => {
                 tell(&format!("console update move: unknown argument: {word}"));
@@ -959,24 +959,19 @@ pub fn moved(given: &[String]) -> u8 {
         };
         *slot = words.next().map(String::as_str);
     }
-    let check = match mode {
-        Some("update") => false,
-        Some("check") => true,
-        _ => {
-            tell("console update move: --mode takes update or check");
-            return 64;
-        }
-    };
     let Some(file) = file else {
         tell("console update move: --plan is required");
+        return 64;
+    };
+    let Some(mut plan) = Plan::read(Path::new(file)) else {
+        tell(&format!("console update move: {file} is no plan"));
         return 64;
     };
     let host = match host_or_refuse() {
         Ok(host) => host,
         Err(rc) => return rc,
     };
-    let mut plan = Plan::default();
-    let rc = go(&host, check, to, &mut plan);
+    let rc = go(&host, to, &mut plan);
     if rc != 0 {
         return rc;
     }

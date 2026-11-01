@@ -184,20 +184,13 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/update-steps.sh"
 lock_wait=$(tehas_update_lock_wait)
 
-# Timeouts for the calls outside this command. Each is generous next to the work
-# it bounds; its job is to turn a daemon or a remote that stopped answering into
-# a failure that says so, rather than an update that hangs after install.sh has
-# already copied files.
-fetch_limit=120    # git fetch from origin
-install_limit=1800 # install.sh: the copies, the dependency check and the tests.
-                   # install.sh bounds one cargo build with TEHAS_BUILD_TIMEOUT
-                   # (1800s by default), so keep this the larger of the two:
-                   # otherwise a build that is cut off is reported as this
-                   # timeout, not as install.sh's own message
-compose_limit=180  # docker ps and docker compose up
-systemd_limit=60   # systemctl daemon-reload, is-active and restart
-build_limit=1800   # sandbox image build
-labels_limit=120   # tehas labels: one gh label create per label of this version
+# Bounds the fetch and install.sh, the calls out this script still makes. The
+# console bounds its own. install.sh bounds one cargo build with
+# TEHAS_BUILD_TIMEOUT (1800s by default), so its limit stays the larger of the
+# two: otherwise a build that is cut off is reported as this timeout, not as
+# install.sh's own message.
+fetch_limit=120
+install_limit=1800
 
 show_usage() {
   sed -n '2,/^[^#]/p' "$0" | sed -n '/^#/s/^# \{0,1\}//p'
@@ -348,50 +341,24 @@ fi
 # A redirection cannot be kept in a variable and expanded into place, so it is
 # written on each of those lines.
 
-# Steps an earlier run was asked for and did not finish are still owed, and this
-# command finishes them: install.sh's report of what changed is spent by the run
-# that made the copies, so a run that stopped partway would otherwise look green
-# from here on. A line in that record that is not a step lib/update-steps.sh knows
-# is not owed work this command can do; it is named, kept in the record, and the
-# run ends red until something that knows it runs.
-pending_file=$(tehas_pending_file)
-leftover=()
-unknown=()
-record=$(tehas_read_steps) || {
-  echo "update: the follow-up record is there but cannot be read; nothing was run" >&2
+# What the steps of this run hand each other. A separate file, because the
+# console that finishes a run may be another one than the console that began it.
+scratch=${TMPDIR:-/tmp}
+mkdir -p "$scratch" 2>/dev/null || scratch=/tmp
+if ! plan=$(mktemp "$scratch/tehas-update.XXXXXX") || ! out_file=$(mktemp "$scratch/tehas-update.XXXXXX") ||
+  ! err_file=$(mktemp "$scratch/tehas-update.XXXXXX"); then
+  echo "tehas update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
   exit 1
-}
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  if tehas_valid_step "$line"; then leftover+=("$line"); else unknown+=("$line"); fi
-done <<<"$record"
-if [ "${#leftover[@]}" != 0 ]; then
-  printf 'update: %s follow-up(s) an earlier run did not finish (see %s)\n' \
-    "${#leftover[@]}" "$pending_file" >&2
-  printf '  next: %s\n' "${leftover[@]}" >&2
 fi
-if [ "$mode" = pending ] && [ "${#leftover[@]}" = 0 ]; then
-  # The record is the whole of the work this form was asked for. A line no step
-  # here knows is not owed work this command can do, so once those are named
-  # below, the record holds nothing more for it and the run has nothing to do.
-  # install.sh --check reports the unknown line on its own, as it does for any
-  # other run.
-  [ "${#unknown[@]}" != 0 ] || {
-    echo "update: nothing is owed"
-    exit 0
-  }
-fi
+trap 'rm -f "$plan" "$out_file" "$err_file"' EXIT
 
-# The step lines this run was given that no step here knows. They are named, and
-# they stay in the record: a producer that has moved ahead of this consumer is a
-# difference between two versions of tehas, not work that has been done.
-warn_unknown() {
-  if [ "${#unknown[@]}" = 0 ]; then return 0; fi
-  printf 'WARN: %s step line(s) name no step this command knows (see lib/update-steps.sh); they were not run and stay recorded in %s\n' \
-    "${#unknown[@]}" "$pending_file" >&2
-  printf '  next: %s\n' "${unknown[@]}" >&2
-  return 0
-}
+# Steps an earlier run did not finish are still owed, and this command finishes
+# them. The console reads the record, says what it found, and stops the run when
+# the record cannot be read.
+"$console" update leftover --plan "$plan" --mode "$mode" --from "$from" 7>&-
+rc=$?
+[ "$rc" != 99 ] || exit 0
+[ "$rc" = 0 ] || exit "$rc"
 
 if [ "$mode" = pending ]; then
   # --- 1. Nothing: no git, no remote, no install.sh ---------------------------
@@ -522,15 +489,9 @@ else
   # --- 1. The release ----------------------------------------------------------
   # The console chooses the version, and downloads, checks and unpacks it before
   # current moves, so whatever fails leaves the host on the version it runs. The
-  # plan says what comes next: the tree install.sh runs from, whether --check
-  # found something, whether a version's image came back, and the status of a
-  # run that ends here because it has no install.sh to ask.
-  plan=$(mktemp "${TMPDIR:-/tmp}/tehas-update.XXXXXX") || {
-    echo "tehas update: could not make a scratch file for the plan; nothing was changed" >&2
-    exit 1
-  }
-  trap 'rm -f "$plan"' EXIT
-  move=(--plan "$plan" --mode "$mode")
+  # plan says what comes next: the tree install.sh runs from, and the status of
+  # a run that ends here because it has no install.sh to ask.
+  move=(--plan "$plan")
   [ -z "$to" ] || move+=(--to "$to")
   "$console" update move "${move[@]}" 7>&-
   rc=$?
@@ -538,462 +499,41 @@ else
   while IFS='=' read -r key value; do
     case "$key" in
       tree) checkout=$value ;;
-      found) [ "$value" = 0 ] || pending=1 ;;
-      reused) reused=$value ;;
       end) exit "$value" ;;
     esac
   done <"$plan"
 fi
 
-# pi-rukas is not pinned: the sandbox image follows the commit the installed
-# versions.env names by PI_RUKAS_FOLLOW, so an update looks upstream even when
-# no file of tehas changed. A host whose versions.env has no PI_RUKAS_FOLLOW is
-# left as it is.
-follows_rukas() {
-  grep -q '^PI_RUKAS_FOLLOW=' "$TEHAS_HOME/versions.env" 2>/dev/null && [ -x "$TEHAS_HOME/sandbox/build.sh" ]
-}
-rukas_step() { # --if-moved | --check
-  local out rc
-  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" "$1" 7>&- 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" = 124 ]; then
-    echo "pi-rukas: the build gave no answer in ${build_limit}s" >&2
-  fi
-  return "$rc"
-}
-
-# The host's clone of pi-rukas lags the sandbox image whenever the followed
-# commit moved, and the only thing that moves it is bootstrap.sh user. install.sh
-# prints that follow-up for a changed versions.env; a followed commit can move
-# with no file of tehas changing, so the line is printed here too. It is called
-# where a run left the image on the commit it follows, so what is compared is the
-# pair install.sh --check will report on.
-# Not a step: bootstrap.sh user fetches from the network and replaces the tools
-# and the checkout, so this command never runs it. Nothing is decided on a
-# missing answer - no image, no label, no clone - because that is not evidence
-# the clone is behind. The answer of docker is read before the clone is asked
-# anything: a host with an image already on the followed commit prints nothing,
-# whether or not it has a clone.
-rukas_later() {
-  local image clone
-  image=$(timeout "$compose_limit" docker image inspect \
-    --format '{{index .Config.Labels "tehas.rukas"}}' "$PI_ENSEMBLE_IMAGE" 7>&- 2>/dev/null) || image=""
-  # Docker's own words for "no such image" are not an answer about a commit.
-  case "$image" in '' | *"No such image"*) return 0 ;; esac
-  clone=$(git -C "$TEHAS_HOME/repos/pi-rukas" rev-parse HEAD 2>/dev/null) || clone=""
-  [ -n "$clone" ] || return 0
-  [ "$image" != "$clone" ] || return 0
-  echo "later: $checkout/bootstrap.sh user   (pi-rukas moved to ${image:0:7}; until it runs, --check says Dependencies: NOT OK)"
-}
-
 # --- 2. install.sh -----------------------------------------------------------
-# Its stdout is printed as it is; its stderr goes on this command's stderr, where
-# a diagnostic belongs, so what happened to be written as an error can never be
-# taken for a step to run. Its follow-ups are read twice: from the lines it
-# printed, and from the record it wrote as it copied.
-# --pending runs no install.sh: the record of section 1 is what it was asked to
-# finish, so it carries that record forward as the report of this run and skips
-# the copies, the dependency check and the tests install.sh would run.
-if [ "$mode" = pending ]; then
-  # The lines of the record, in the form install.sh prints them, so section 3
-  # below reads one list for both kinds of run. Nothing here asks install.sh:
-  # its copies, its dependency check and its tests are not what this form was
-  # called for.
-  out=""
-  [ "${#leftover[@]}" = 0 ] || out=$(printf 'next: %s\n' "${leftover[@]}")
-  rc=0
-else
-run=("$checkout/install.sh")
-[ "$mode" = check ] && run+=(--check)
-# install.sh is the step that does the real work on the host - copies, a
-# dependency check, the tests, and one call to a remote - so it carries a limit of
-# its own. Without one, a remote that stops answering hangs an update halfway
-# through, after the files are already copied.
-scratch=${TMPDIR:-/tmp}
-mkdir -p "$scratch" 2>/dev/null || scratch=/tmp
-err_file=$(mktemp "$scratch/tehas-update.XXXXXX") || {
-  echo "tehas update: could not make a scratch file to keep install.sh's diagnostics apart" >&2
-  exit 1
-}
-trap 'rm -f "$err_file" "${plan:-}"' EXIT
-# install.sh is the one child that keeps the descriptor: it is named there in
-# TEHAS_UPDATE_LOCK_FD and takes the lock on it rather than refusing its parent,
-# which is what test/update_test.sh checks.
-out=$(timeout "$install_limit" "${run[@]}" 2>"$err_file")
-rc=$?
-# Print what install.sh reported, but not a follow-up line: this command runs
-# the ones it knows, and names the ones it does not as a WARN below. An operator
-# reading the log sees each step and its answer, not a line that looks like work
-# left over, and install.sh's own diagnostics arrive on stderr where they belong.
-if [ -n "$out" ]; then
-  printf '%s\n' "$out" | while IFS= read -r line; do
-    case "$line" in
-      next:*) : ;;
-      *) printf '%s\n' "$line" ;;
-    esac
-  done
-fi
-[ -s "$err_file" ] && cat -- "$err_file" >&2
-if [ "$rc" = 124 ]; then
-  warn_unknown
-  if [ "$mode" = check ]; then
-    printf 'install: install.sh --check gave no answer in %ss and was stopped; it changes nothing, so nothing was installed.\n' \
-      "$install_limit" >&2
-  else
-    printf 'install: install.sh gave no answer in %ss and was stopped; what it had copied is installed, and any follow-up it recorded in %s is still owed.\n' \
-      "$install_limit" "$pending_file" >&2
-  fi
-  exit 1
-fi
-if [ "$rc" != 0 ]; then
-  warn_unknown
-  if [ "$mode" = check ]; then
-    # install.sh --check answers 1 when it found something. That is its report,
-    # not a failed step: in check mode nothing was meant to run. Files that
-    # differ and steps owed are what an update fixes; the host's tools, the
-    # slice, root's copy of the command and the tests are not.
-    found=0
-    if grep -qE '^(Installed: +DRIFT|Follow-ups: +NOT DONE)' <<<"$out"; then
-      echo "install: install.sh --check found something to update" >&2
-      found=1
-    fi
-    if grep -qE '^(Dependencies: +NOT OK|Slice: +(MISSING|DIFFERS)|Login: +NOT CURRENT|Tests: +FAILED)' <<<"$out"; then
-      echo "install: install.sh --check found something tehas update does not fix; its lines above say what" >&2
-      found=1
-    fi
-    [ "$found" = 1 ] || echo "install: install.sh --check exited $rc" >&2
-  else
-    echo "install: install.sh exited $rc; no follow-up was run" >&2
-  fi
-  # Pass on the statuses install.sh documents. Anything else is a step that
-  # failed, whatever number it came back with: bash answers 126 or 127 when the
-  # file lost its exec bit, and this command documents 0, 1, 64 and 78.
-  case "$rc" in 1 | 78) exit "$rc" ;; *) exit 1 ;; esac
+# It carries a limit of its own: without one, a remote that stops answering hangs
+# an update halfway through, after the files are already copied. It is the one
+# child that keeps the lock descriptor: TEHAS_UPDATE_LOCK_FD names it there and it
+# takes the lock on it rather than refusing its parent. --pending runs no
+# install.sh: the record is the whole of what it was asked to finish. Its stdout
+# and stderr are kept apart, so what happened to be written as an error can never
+# be taken for a step to run.
+rc=0
+if [ "$mode" != pending ]; then
+  run=("$checkout/install.sh")
+  [ "$mode" = check ] && run+=(--check)
+  timeout "$install_limit" "${run[@]}" >"$out_file" 2>"$err_file"
+  rc=$?
 fi
 
-# The step library this command loaded is the one installed before this run.
-# install.sh printed its lines from the checkout's, which may know a step or a
-# unit the old one does not, so the lines are checked against that one.
-if [ "$mode" = update ] && [ -r "$checkout/lib/update-steps.sh" ]; then
-  # shellcheck source=lib/update-steps.sh
-  . "$checkout/lib/update-steps.sh" || {
-    echo "update: $checkout/lib/update-steps.sh could not be read; no follow-up was run" >&2
+# --- 3. The follow-ups --------------------------------------------------------
+# The console reads install.sh's answer and runs what it asked for. install.sh may
+# have replaced it: the one installed now holds the rules of the code just
+# installed, as it should. A --to below the release that moved this into the
+# console leaves one that cannot finish, and then the one install.sh kept does.
+finisher=$console
+if [ "$("$finisher" update api 2>/dev/null 7>&-)" != 1 ]; then
+  finisher=$console.prev
+  if [ "$("$finisher" update api 2>/dev/null 7>&-)" != 1 ]; then
+    cat -- "$out_file"
+    cat -- "$err_file" >&2
+    echo "tehas update: neither $console nor $finisher can finish this update; what install.sh copied is installed, and what it recorded is still owed" >&2
     exit 1
-  }
+  fi
 fi
-fi
-
-# --- 3. The follow-ups -------------------------------------------------------
-# Every step line this run was given: the ones install.sh printed, and the ones
-# its record holds. Those are not the same list - a run that died partway records
-# what it copied and prints no report, and an id newer than this command is
-# recorded before anything here can read it - so the record is read as well as the
-# report. Each line is checked in lib/update-steps.sh before it runs, so an
-# option-shaped token or a verb this command was not asked for never reaches
-# systemctl or docker. --check starts no build, unit or container and writes
-# nothing: it names what is waiting and exits 1.
-given=()
-add_given() { # one line once, whatever asked for it twice
-  local have
-  if [ "${#given[@]}" != 0 ]; then
-    for have in "${given[@]}"; do
-      [ "$have" = "$1" ] && return 0
-    done
-  fi
-  given+=("$1")
-}
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  add_given "$line"
-done < <(printf '%s\n' "$out" | sed -n 's/^next: //p')
-record=$(tehas_read_steps) || {
-  echo "update: the follow-up record is there but cannot be read; no follow-up was run, and what install.sh copied stays installed" >&2
-  exit 1
-}
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  add_given "$line"
-done <<<"$record"
-
-asked=()
-unknown=()
-for line in "${given[@]}"; do
-  if tehas_valid_step "$line"; then asked+=("$line"); else unknown+=("$line"); fi
-done
-warn_unknown
-
-if [ "$mode" = check ]; then
-  # Nothing was merged, installed, built or started. What is left to do is the
-  # checkout moving, and any step an earlier run never finished.
-  if [ "${#leftover[@]}" != 0 ] || [ "${#unknown[@]}" != 0 ]; then pending=1; fi
-  if follows_rukas && ! rukas_step --check; then pending=1; fi
-  exit "$pending"
-fi
-
-# A compose server is renewed only where it already runs: an update keeps a
-# service the host is using current, it does not add one to the host. Whether it
-# runs is asked of Docker with one plain ps on the project name the compose file
-# pins (name: tehas-docs, name: tehas-edge); the shell tests assert those
-# names are still in the files. docker compose is for the renewal only.
-# The arguments are the ones written on install.sh's line, checked before use.
-compose_up() { # name project file [argument...]
-  local name=$1 project=$2 file=$3 running out rc
-  shift 3
-  if [ ! -f "$file" ]; then
-    echo "$name: $file is not installed, left alone" >&2
-    return 1
-  fi
-  # Containers of that project answer one id each; an empty answer means none is
-  # running. A query that fails (no daemon, no docker, a bad filter) is not an
-  # answer of "none", and this command cannot tell "not running" from it.
-  running=$(timeout "$compose_limit" docker ps --quiet \
-    --filter "label=com.docker.compose.project=$project" 7>&- 2>&1)
-  rc=$?
-  if [ "$rc" != 0 ]; then
-    echo "$name: docker ps failed; the step is not done" >&2
-    [ "$rc" = 124 ] && echo "  docker gave no answer in ${compose_limit}s" >&2
-    [ -n "$running" ] && printf '%s\n' "$running" | sed 's/^/  /' >&2
-    return 1
-  fi
-  if [ -z "$running" ]; then
-    echo "$name: not running on this host, left alone"
-    return 0
-  fi
-  echo "$name: updating the container"
-  out=$(timeout "$compose_limit" docker compose -f "$file" up -d "$@" 7>&- 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" = 124 ]; then
-    echo "$name: docker compose gave no answer in ${compose_limit}s; the step is not done" >&2
-    return 1
-  fi
-  if [ "$rc" != 0 ]; then
-    echo "$name: docker compose exited $rc" >&2
-    return 1
-  fi
-  return 0
-}
-
-# install.sh asks for these by name. This command never enables a unit: it
-# restarts the ones that were already active, which is what a changed unit file
-# needs, and leaves the rest as the operator left them. The reload comes first,
-# because a unit file copied onto the host is not in effect until systemd has read
-# it - restarting before that applies the definitions systemd still holds.
-restart_units() { # unit names install.sh asked for (checked by tehas_valid_step)
-  local unit answer reason active=() out rc
-  # Only silence next to exit 0 means the reload happened: a systemctl wrapper on
-  # a host with no systemd prints an error and still answers 0. A reload that did
-  # not happen stops the step, so the units stay owed and the run stays red rather
-  # than report changed unit files as applied.
-  out=$(timeout "$systemd_limit" systemctl --user daemon-reload 7>&- 2>&1)
-  rc=$?
-  if [ "$rc" = 124 ]; then
-    echo "systemd: systemctl --user daemon-reload gave no answer in ${systemd_limit}s; no unit was restarted, and the step is not done" >&2
-    return 1
-  fi
-  if [ "$rc" != 0 ] || [ -n "$out" ]; then
-    reason="answered with text"
-    if [ "$rc" != 0 ] && [ "$rc" != 124 ]; then reason="did not run"; fi
-    echo "systemd: systemctl --user daemon-reload $reason; the changed unit files are not in effect, no unit was restarted, and the step is not done" >&2
-    if [ -n "$out" ]; then printf '%s\n' "$out" | sed 's/^/  /' >&2; fi
-    return 1
-  fi
-  for unit in "$@"; do
-    # Ask without --quiet so there is an answer to read, and read only systemd's
-    # own states: every state of the active family - including a unit that is
-    # activating between restarts, or reloading - means this unit runs, so it
-    # gets the new unit file. inactive and failed leave it alone; unknown means
-    # systemd has no such unit on this host, which is an answer too. Anything
-    # else - no user bus, a systemctl wrapper on a host with no systemd printing
-    # "systemd is not running" while it exits 0 - says nothing about this unit,
-    # so nothing is restarted and the step is not done. Exit status alone would
-    # read that last one as active.
-    answer=$(timeout "$systemd_limit" systemctl --user is-active "$unit" 7>&- 2>&1)
-    rc=$?
-    if [ "$rc" = 124 ]; then
-      echo "systemd: systemctl is-active gave no answer for $unit in ${systemd_limit}s; no unit was restarted" >&2
-      return 1
-    fi
-    case "$answer" in
-      active | activating | reloading | refreshing | maintenance | deactivating) active+=("$unit") ;;
-      inactive | failed | unknown) ;;
-      *)
-        echo "systemd: systemctl is-active gave no answer for $unit; no unit was restarted" >&2
-        [ -n "$answer" ] && printf '%s\n' "$answer" | sed 's/^/  /' >&2
-        return 1
-        ;;
-    esac
-  done
-  if [ "${#active[@]}" = 0 ]; then
-    echo "systemd: none of them runs on this host, left alone"
-    return 0
-  fi
-  echo "systemd: restarted ${active[*]}"
-  out=$(timeout "$systemd_limit" systemctl --user restart "${active[@]}" 7>&- 2>&1)
-  rc=$?
-  if [ "$rc" = 124 ]; then
-    echo "systemd: systemctl gave no answer in ${systemd_limit}s; the step is not done" >&2
-    return 1
-  fi
-  if [ "$rc" != 0 ]; then
-    echo "systemd: systemctl exited $rc" >&2
-    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  /' >&2
-    return 1
-  fi
-  return 0
-}
-
-# The sandbox image, when its Dockerfile or the versions it pins changed.
-build_sandbox() {
-  local out rc
-  if [ ! -x "$TEHAS_HOME/sandbox/build.sh" ]; then
-    echo "sandbox: $TEHAS_HOME/sandbox/build.sh is not installed" >&2
-    return 1
-  fi
-  echo "sandbox: building the image"
-  built=1
-  out=$(timeout "$build_limit" "$TEHAS_HOME/sandbox/build.sh" 7>&- 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" = 124 ]; then
-    echo "sandbox: the build gave no answer in ${build_limit}s; the step is not done" >&2
-    return 1
-  fi
-  if [ "$rc" != 0 ]; then
-    echo "sandbox: the build exited $rc" >&2
-    return 1
-  fi
-  return 0
-}
-
-# The labels of the product repository, when the command that makes them changed.
-# `tehas labels` is run as the host's own command does it, by the path the host's
-# units name rather than by whatever `tehas` the calling account has on its PATH:
-# the installed command loads the instance settings and calls gh for each label, so
-# those two are the whole of what this step asks of the host, and the status of the
-# labels command is the status of the step. install.sh makes the same call on a
-# first install, and tehas labels answers a repository it cannot write with 1.
-run_labels() {
-  local out rc
-  if [ ! -x "$TEHAS_HOME/bin/tehas" ]; then
-    echo "labels: $TEHAS_HOME/bin/tehas is not installed" >&2
-    return 1
-  fi
-  echo "labels: making the tehas labels"
-  out=$(timeout "$labels_limit" "$TEHAS_HOME/bin/tehas" labels 7>&- 2>&1)
-  rc=$?
-  [ -n "$out" ] && printf '%s\n' "$out"
-  if [ "$rc" = 124 ]; then
-    echo "labels: tehas labels gave no answer in ${labels_limit}s; the step is not done" >&2
-    return 1
-  fi
-  if [ "$rc" != 0 ]; then
-    echo "labels: tehas labels exited $rc; the step is not done" >&2
-    return 1
-  fi
-  return 0
-}
-
-# One step, run as this command's own words: the id says which, and the
-# arguments on install.sh's line - checked by tehas_valid_step - say how. The
-# helper answers with a status; whether that stops the run is decided here, in
-# the one place that sequences the steps.
-run_step() { # step line
-  local argv=() id
-  read -r -a argv <<<"$1"
-  id=$(tehas_step_id "${argv[0]}")
-  case "$id" in
-    units) restart_units "${argv[@]:1}" ;;
-    sandbox) build_sandbox ;;
-    docs) compose_up docs tehas-docs "$TEHAS_HOME/edge/docs.compose.yaml" "${argv[@]:1}" ;;
-    edge) compose_up edge tehas-edge "$TEHAS_HOME/edge/router.compose.yaml" "${argv[@]:1}" ;;
-    labels) run_labels ;;
-    *)
-      echo "WARN: no step this command knows for: $1" >&2
-      return 1
-      ;;
-  esac
-}
-
-# Record what was asked for before any of it runs, and drop each step from the
-# record only once it has run. A run that stops partway therefore leaves the
-# rest owed, in a file the next run reads - and install.sh --check reports -
-# instead of losing them with its one-shot report. A line no step here knows is
-# never run and is written back as it came. tehas_write_steps replaces the record
-# through a temporary file, so a run that died mid-write leaves the old record
-# rather than half of a new one.
-write_pending() { # the steps still owed, in the order they run; none means gone
-  local line owed=()
-  if [ "$#" != 0 ]; then owed=("$@"); fi
-  for line in "${unknown[@]}"; do owed+=("$line"); done
-  tehas_write_steps "${owed[@]}"
-}
-
-# The work list, ordered by lib/update-steps.sh rather than by whoever wrote the
-# lines: systemd first, because a unit file is not in effect until it is reloaded
-# and its unit restarted. A step an earlier run owed runs in the same place as one
-# this run was asked for, whatever order the two of them were recorded in.
-steps=()
-while IFS= read -r line; do steps+=("$line"); done < <(tehas_sort_steps "${asked[@]}")
-
-status=0
-built=0
-if [ "${reused:-0}" = 1 ]; then
-  kept=()
-  for step in "${steps[@]}"; do
-    [ "$(tehas_step_id "${step%% *}")" = sandbox ] || kept+=("$step")
-  done
-  steps=("${kept[@]}")
-  built=1
-fi
-if [ "${#unknown[@]}" != 0 ]; then status=1; fi
-if ! write_pending "${steps[@]}"; then exit 1; fi
-
-ran=0
-for step in "${steps[@]}"; do
-  run_step "$step"
-  rc=$?
-  if [ "$rc" != 0 ]; then
-    status=1
-    break
-  fi
-  ran=$((ran + 1))
-  if ! write_pending "${steps[@]:$ran}"; then
-    status=1
-    break
-  fi
-done
-
-if [ "${#steps[@]}" != 0 ] && [ "$ran" -lt "${#steps[@]}" ]; then
-  printf 'update: %s of %s follow-up(s) are not done, recorded in %s; tehas update runs them again\n' \
-    $((${#steps[@]} - ran)) "${#steps[@]}" "$pending_file" >&2
-fi
-
-# A build this run made is already on the commit followed. --pending moves
-# nothing: it asked no remote anything, so a head it did not ask about is not
-# something it can be said to have missed.
-if [ "$mode" != pending ] && [ "$status" = 0 ] && [ "$built" = 0 ] && follows_rukas &&
-  ! rukas_step --if-moved; then
-  echo "pi-rukas: the image was not moved to the commit versions.env follows; tehas update tries again" >&2
-  status=1
-fi
-
-# Whether the clone came along. A build this run made, or one it moved onto, is
-# on the followed commit, and only bootstrap.sh user moves the clone to it; the
-# answer of install.sh says whether that run already printed the line, so a
-# person reads the follow-up once. --check changes nothing and asks for nothing.
-if [ "$status" = 0 ] && [ "$mode" = update ] && follows_rukas; then
-  case $out in
-    *"later: "*"bootstrap.sh user"*) ;;
-    *) rukas_later ;;
-  esac
-fi
-
-# The image this version runs with keeps a tag of its own, and versions past the
-# last three go.
-if [ "$status" = 0 ] && [ "$from" = release ]; then
-  "$console" update release keep 7>&-
-fi
-
-exit "$status"
+"$finisher" update finish --plan "$plan" --tree "$checkout" --found "$pending" \
+  --install-out "$out_file" --install-err "$err_file" --install-rc "$rc" 7>&-

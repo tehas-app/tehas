@@ -963,15 +963,15 @@ line.
 
 A follow-up that was asked for has not run. The lines are in
 `~/tehas/state/update-pending`: what `install.sh` recorded as it copied files, and
-what `tehas update` has not finished. Run `tehas update`: it runs the steps in the
-order `lib/update-steps.sh` lists them and clears the record. If it names a step
+what `tehas update` has not finished. Run `tehas update`: it runs the steps in
+their fixed order and clears the record. If it names a step
 line in a `WARN:` instead, the checkout asks for a step this installed
 `tehas update` does not know. Pull and run it again, since `install.sh` installs
 the commands before the follow-ups run.
 
 The lines are step lines, not shell text: `docs` on its own is not one, because
-that renewal needs its `--force-recreate` flag. A line `lib/update-steps.sh` does
-not accept is named in a `WARN:`, is not run, and stays in the record.
+that renewal needs its `--force-recreate` flag. A line this version does not
+accept is named in a `WARN:`, is not run, and stays in the record.
 
 A record this account cannot open, written by another account or with a mode
 that blocks reading, stops the update with exit 1 rather than read as "nothing

@@ -4042,15 +4042,17 @@ reporting the service as absent. Liveness is asked of Docker with `docker ps
 --filter label=com.docker.compose.project=...`, which needs the project name each
 compose file pins.
 
-A step line whose id or arguments are not ones `lib/update-steps.sh` defines is
+A step line whose id or arguments are not ones this version of tehas defines is
 not run: it is named in a `WARN:`, stays in the record of steps owed, and the
 command exits 1, so a producer and a consumer that have drifted apart cannot both
 stay green while a step nobody performed is treated as done. The units on a step
 line are checked as unit names and against the units this version of tehas
-installs - `tehas_units` - so a step line cannot name some other unit of the host's
-for an update to restart. The lines are checked with the checkout's
-`lib/update-steps.sh` once install.sh has run, so a unit the pulled version adds
-is restarted by the update that pulled it. A compose line that leaves out its flag is refused for
+installs, so a step line cannot name some other unit of the host's for an update
+to restart. Once install.sh has run, the console it installed reads its answer and
+runs the steps, so a unit the new version adds is restarted by the update that
+installed it. A `--to` below the release that moved this into the console installs
+one that cannot, and `libexec/console.prev`, which install.sh keeps, finishes that
+run. A compose line that leaves out its flag is refused for
 the same reason: `docker compose up -d` without `--force-recreate` is the weaker
 action, and running it would renew nothing while the step was counted as done.
 
@@ -4069,7 +4071,7 @@ leaves the rest owed instead of losing it with install.sh's one-shot report of
 what changed - the next run compares again and finds those files matching.
 `install.sh --check` reports the record as `Follow-ups: NOT DONE` and exits 1
 while any of it is left, including a step line no version of tehas here knows.
-Steps run in the order `lib/update-steps.sh` lists them - systemd first - whatever
+Steps run in a fixed order - systemd, the sandbox, docs, edge, labels - whatever
 order the lines were recorded in, so a step owed from an earlier run does not jump
 ahead of this run's unit reload. A hand-run install.sh leaves the same record
 behind; running `tehas update` finishes it, and repeating a renewal that has
@@ -4081,8 +4083,7 @@ what names them. There is no command that marks a follow-up done by hand; runnin
 
 **`--pending`.** `tehas update --pending` runs the lines that record holds and
 nothing else: it takes the update lock, reads `$TEHAS_HOME/state/update-pending`,
-runs each step in the order `lib/update-steps.sh` gives them, drops each line as
-it runs, and calls no git command and no `install.sh`. That is the half of an
+runs each step in that order, drops each line as it runs, and calls no git command and no `install.sh`. That is the half of an
 install a program can finish on a host the other three forms refuse: a checkout
 at a release tag has no branch to fast-forward, and a remote that is a local path
 can stop answering, while the copies `install.sh` made are already in place. It

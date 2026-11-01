@@ -4,9 +4,8 @@
 # One place names them, because two commands read the list. install.sh prints
 # the steps its changed sources call for, one per line, as "next: <step line>",
 # and records the same lines in the file of steps owed before it copies a file.
-# A step line is checked here before anything runs it, so what a step may be
-# asked for - including the arguments it needs - is fixed by this file, not by
-# whoever wrote the line.
+# The console checks a step line before anything runs it, in
+# console/src/update/steps.rs, which holds these tables too.
 # tehas update reads those lines and runs each step as its own command with the
 # arguments written on that line. Neither side rewrites a step into a command
 # line of its own, so editing what install.sh asks for cannot silently turn a
@@ -19,9 +18,6 @@
 #   tehas_sort_steps <line>.. the same step lines in the order they run
 #   tehas_step_id <token>       the id this file defines for that token: the
 #                               Protolab's old name reads as the edge step
-#   tehas_valid_step <line>   0 when a step line names an id this file knows and
-#                             carries the arguments that id requires, and no
-#                             others; 1 otherwise
 #   tehas_read_steps          the lines of the record of steps owed, one per line;
 #                             1 when there is a record this cannot read
 #   tehas_write_steps <line>.. replace that record with these lines (it writes)
@@ -158,57 +154,6 @@ tehas_sort_steps() { # step lines -> the same lines, ordered
       *) printf '%s\n' "$line" ;;
     esac
   done
-  return 0
-}
-
-# A systemd unit name: one word that ends in a unit suffix. A token that is not
-# one is not a unit, whatever it looks like, and never reaches systemctl.
-tehas_is_unit() {
-  case "$1" in
-    -*) return 1 ;;
-  esac
-  [[ $1 =~ ^[A-Za-z0-9_.:@+-]+\.(service|timer|socket)$ ]]
-}
-
-# Is this a step this file knows, carrying only arguments that id accepts? A
-# line that fails here is not run: the command reading it says so out loud.
-tehas_valid_step() { # <step line>
-  local id token argv=()
-  read -r -a argv <<<"$1"
-  [ "${#argv[@]}" = 0 ] && return 1
-  id=$(tehas_step_id "${argv[0]}")
-  case "$id" in
-    units)
-      [ "${#argv[@]}" -gt 1 ] || return 1
-      for token in "${argv[@]:1}"; do
-        tehas_is_unit "$token" || return 1
-        # And only the units this version of tehas installs. A step line is not a
-        # way to name some other unit of the host's for an update to restart.
-        tehas_units_line
-        case " $_tehas_units_line " in
-          *" $token "*) ;;
-          *) return 1 ;;
-        esac
-      done
-      ;;
-    sandbox)
-      [ "${#argv[@]}" = 1 ] || return 1
-      ;;
-    docs | edge)
-      # Exactly one argument, and it is the flag: --force-recreate, or nothing.
-      # Anything else - another option, a docker verb - is not this step. A bare
-      # id is refused too, because docker compose up -d without the flag leaves a
-      # running container serving the config it loaded at its start, and the line
-      # would then be counted as a step that ran.
-      [ "${#argv[@]}" = 2 ] || return 1
-      [ "${argv[1]}" = --force-recreate ] || return 1
-      ;;
-    labels)
-      # The command it runs takes no argument, so neither does the step.
-      [ "${#argv[@]}" = 1 ] || return 1
-      ;;
-    *) return 1 ;;
-  esac
   return 0
 }
 
