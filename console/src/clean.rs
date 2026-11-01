@@ -1543,6 +1543,14 @@ impl Run {
         )
     }
 
+    /// The clone's lock, held while the file lives. A lock not there yet is made:
+    /// a session that starts during the removal must find it taken.
+    fn hold_clone(&self, name: &str) -> Option<File> {
+        let lock = self.clone_lock(name)?;
+        fs::create_dir_all(lock.parent()?).ok()?;
+        take_clone_lock(&lock).ok()
+    }
+
     /// The names of the host's containers, as docker lists them: one call for
     /// the whole step, as the image steps list the host's images once. The one
     /// form `--format` is asked with, so no step of the cleaner asks docker for
@@ -1654,19 +1662,14 @@ impl Run {
                 self.freed += bytes;
                 continue;
             }
-            // The session's lock is asked of again at the instant of the removal.
-            let held = !matches!(
-                self.clone_lock(shown_name)
-                    .as_deref()
-                    .map(tehas_core::lock::probe),
-                Some(tehas_core::lock::Probe::Absent) | Some(tehas_core::lock::Probe::Free)
-            );
-            if held {
+            // Held through the removal: a session that starts now waits behind
+            // it, and one that started since the question above keeps its build.
+            let Some(_held) = self.hold_clone(shown_name) else {
                 self.log(&format!(
                     "kept the build output of clone {shown_name}: its session is open, {bytes} bytes"
                 ));
                 continue;
-            }
+            };
             if remove(&target) {
                 self.freed += bytes;
                 self.log(&format!(
@@ -2036,6 +2039,17 @@ mod tests {
         std::os::unix::fs::symlink(root.join("nope"), run.clone_lock("dave").unwrap()).unwrap();
         assert_eq!(run.session_open("dave", Some(&none)), Some(true));
         drop(held);
+        // The removal's own hold: it makes a lock not there yet, and a session
+        // finds it taken for as long as the hold lives.
+        let eve = run.clone_lock("eve").unwrap();
+        let hold = run.hold_clone("eve").unwrap();
+        assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Held);
+        assert!(run.hold_clone("eve").is_none());
+        drop(hold);
+        assert_eq!(tehas_core::lock::probe(&eve), tehas_core::lock::Probe::Free);
+        // A link is not taken, and a name of no plain word has no lock to hold.
+        assert!(run.hold_clone("dave").is_none());
+        assert!(run.hold_clone("a.b").is_none());
         fs::remove_dir_all(&root).unwrap();
     }
 
