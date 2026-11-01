@@ -99,6 +99,15 @@ t_eq "$(sudo_args)" ""
 rm -f "$T/bin/id" "$T/bin/getent" "$T/bin/sudo"
 
 # --- what sudo runs, as the tehas user ----------------------------------------
+# As a host has it: tehas dev opens its session through the console beside it.
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/libexec/dev-login" "$T/tree/libexec/dev-login"
+ln -s "$T_ROOT/libexec/dev" "$T/tree/libexec/dev"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+entry=$T/tree/libexec/dev-login
 checkout=$T/home/tehas/repos/widget
 devs=$T/home/tehas/dev
 upstream=$T/git/acme/widget
