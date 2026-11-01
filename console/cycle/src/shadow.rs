@@ -4,7 +4,7 @@
 //! state/cycle-shadow.on is there.
 //!
 //! `begin`, just before the bash reads the cycle's files, reads them too,
-//! asks GitHub its own two questions, decides, and keeps all of it in
+//! asks GitHub its own questions, decides, and keeps all of it in
 //! state/cycles/shadow-<issue>.json. While that file is there the bash keeps
 //! what it does beside it: each call of gh (shadow-<issue>.gh), the park
 //! (shadow-<issue>.park) and the end (shadow-<issue>.end) on record. The
@@ -15,7 +15,7 @@
 //! differed keeps its shadow in state/cycle-shadow/, the newest 50.
 
 use crate::host::{self, Live, Start};
-use crate::report::{report, to_json};
+use crate::report::{last_attempts, report, to_json};
 use crate::Facts;
 use serde_json::{json, Value};
 use std::fs;
@@ -60,7 +60,8 @@ pub fn begin(home: &Path, s: &Start) -> Result<(), String> {
         issue: s.issue,
         said: Default::default(),
     };
-    let r = report(&facts, &mut gh);
+    let mut r = report(&facts, &mut gh);
+    last_attempts(&mut r, &facts, &mut gh);
     let mut facts_json = facts_json;
     facts_json["github"] = Value::Object(gh.said);
     let kept = json!({
@@ -93,7 +94,7 @@ fn args(p: &Path) -> Option<Vec<String>> {
 }
 
 /// The writes of the bash to GitHub, in order, from its calls of gh: one
-/// label change however often it was tried.
+/// write however often it was tried.
 pub fn bash_writes(calls: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vec![];
     for call in calls.split(&format!("{CALL_END}\0")) {
@@ -122,11 +123,12 @@ pub fn bash_writes(calls: &str) -> Vec<(String, String)> {
                 "pr_comment",
                 format!("{pr}\n{}", after("--body").unwrap_or_default()),
             ),
+            ["api", "-X", "PATCH", path, ..] => ("body_edit", path.to_string()),
             ["api", "-X", "DELETE", path, ..] => ("refresh_off", path.to_string()),
             _ => continue,
         };
         let w = (w.0.to_string(), w.1);
-        if (w.0 == "relabel" || w.0 == "refresh_off") && out.last() == Some(&w) {
+        if matches!(w.0.as_str(), "relabel" | "refresh_off" | "comment") && out.last() == Some(&w) {
             continue;
         }
         out.push(w);
@@ -185,6 +187,13 @@ fn wanted(report: &Value, repo: &str, bash: &[(String, String)]) -> Vec<Want> {
                 "relabel",
                 vec!["--remove-label tehas:running --add-label needs-human-attention".into()],
             ));
+            if p["edit"] == json!(true) {
+                let issue = s(&report["end"][0]);
+                out.push(Want::One(
+                    "body_edit",
+                    vec![format!("repos/{repo}/issues/{issue}")],
+                ));
+            }
             if recorded {
                 out.push(Want::One("question", both(&p["question"])));
             }
@@ -311,6 +320,7 @@ pub fn compare(home: &Path, issue: u64) -> Result<Option<Value>, String> {
     line["differs"] = json!(differs);
     line["rust_log"] = rep["log"].clone();
     line["done"] = rep["done"].clone();
+    line["arm"] = rep["arm"].clone();
     line["seconds"] = kept["seconds"].clone();
     if !differs.is_empty() {
         keep(home, issue, &kept, &calls);
@@ -413,6 +423,29 @@ mod tests {
                 ("question".into(), "Q".into()),
             ]
         );
+    }
+
+    #[test]
+    fn the_note_left_in_a_body_is_a_write_of_its_own() {
+        let calls = call(&["api", "-X", "PATCH", "repos/a/b/issues/7", "--input", "-"]);
+        assert_eq!(
+            bash_writes(&calls),
+            vec![("body_edit".into(), "repos/a/b/issues/7".into())]
+        );
+        let rep = json!({"end": ["7"], "actions": [{"park": {"args": [], "edit": true,
+            "question": {"ok": "Q", "stuck": "Qs"}, "comment": {"ok": "C", "stuck": "Cs"},
+            "comment_unrecorded": {"ok": "U", "stuck": "Us"}}}]});
+        let c = |k: &str, t: &str| (k.to_string(), t.to_string());
+        let park = c(
+            "relabel",
+            "--remove-label tehas:running --add-label needs-human-attention",
+        );
+        let edit = c("body_edit", "repos/a/b/issues/7");
+        let label = c("relabel", "--add-label tehas:question");
+        let with = vec![park.clone(), edit, c("question", "Q"), label.clone()];
+        assert!(same_writes(&wanted(&rep, "a/b", &with), &with));
+        let without = vec![park, c("question", "Q"), label];
+        assert!(!same_writes(&wanted(&rep, "a/b", &without), &without));
     }
 
     #[test]

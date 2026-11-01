@@ -2,7 +2,7 @@
 //! them for its report: the files of the protocol, the newest run log, the
 //! cycle's record and its approval on the state store, the workspace, and
 //! when docker says the image on the record was built.
-//! And GitHub's two answers, asked with gh as the bash asks them, once each.
+//! And GitHub's answers, asked with gh as the bash asks them, once each.
 
 use crate::report::Ask;
 use serde_json::{json, Map, Value};
@@ -37,6 +37,8 @@ pub struct Start {
     pub how: String,
     pub approval_at: String,
     pub requeued: bool,
+    /// When the report began, as libexec/cycle read it; None reads the clock.
+    pub now: Option<i64>,
 }
 
 /// A file as the facts hold it: its text, {"link": true}, or nothing.
@@ -163,7 +165,7 @@ pub fn facts(home: &Path, s: &Start) -> Value {
         "workdir_dir": is_dir(&workdir),
         "before_retry_dir": is_dir(&format!("{workdir}.before-retry")),
         "rc": s.rc, "signalled": s.signalled, "started": s.started,
-        "now": tehas_core::time::now(),
+        "now": s.now.unwrap_or_else(tehas_core::time::now),
         "start": {"attempt": s.attempt, "by": s.by, "how": s.how,
                   "approval_at": s.approval_at.parse::<i64>().ok(), "requeued": s.requeued},
         "files": files,
@@ -177,6 +179,12 @@ pub fn facts(home: &Path, s: &Start) -> Value {
     let n = issue.to_string();
     f["record"] = store(home, &["cycle-show", &n]).unwrap_or_else(|w| json!({"error": w}));
     f["approval"] = store(home, &["approval-current", &n]).unwrap_or_else(|w| json!({"error": w}));
+    f["history"] = store(home, &["history-show", &n]).unwrap_or_else(|w| json!({"error": w}));
+    if let Some(state) =
+        crate::last_attempt::state(Path::new(f["workdir"].as_str().unwrap_or("")), issue)
+    {
+        f["work_state"] = state;
+    }
     let (id, _) = crate::report::record_image(&f["record"], s.attempt);
     if !id.is_empty() {
         f["image_built"] = json!(built(&id));
@@ -272,6 +280,14 @@ impl Ask for Live {
             "attention".into(),
             got.map(Value::Bool).unwrap_or(Value::Null),
         );
+        got
+    }
+
+    fn issue(&mut self) -> Option<Value> {
+        let got = gh(&["api", &format!("repos/{}/issues/{}", self.repo, self.issue)])
+            .and_then(|o| serde_json::from_slice::<Value>(&o).ok());
+        self.said
+            .insert("issue".into(), got.clone().unwrap_or(Value::Null));
         got
     }
 }

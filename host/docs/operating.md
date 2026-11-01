@@ -561,16 +561,17 @@ beside itself.
 `tehas-cycle`, a cycle's report written in Rust, decides beside each report
 of `tehasbot cycle` while `~/tehas/state/cycle-shadow.on` is there, and acts
 on nothing on GitHub or in the state store. Just before the cycle reads what
-tehas work left, the shadow reads the same files, the cycle's record and its
-approval, asks GitHub once for the bot's pull requests on the branch (and,
-for a handoff, the issue's labels), decides, and keeps its report in
+tehas work left, the shadow reads the same files, the cycle's record, its
+approval and the issue's history, asks GitHub once for the bot's pull requests
+on the branch (for a handoff, the issue's labels too, and for a develop
+timeout the issue itself), decides, and keeps its report in
 `~/tehas/state/cycles/shadow-<issue>.json`. It has 60 seconds. The bash
 report then keeps what it did beside it: each call of `gh`, the park and the
 end it put on record. After the report the shadow sets the two side by side
 and adds one line to `~/tehas/logs/cycle-shadow.log`:
 
 ```json
-{"time":"2026-10-26T18:00:00Z","issue":7,"attempt":1,"same":true,"differs":[],"rust_log":[],"done":"done #7 rc=20 status=aborted step=develop minutes=12 pr=none oom_kills=0 forks_refused=0","seconds":1.4}
+{"time":"2026-10-26T18:00:00Z","issue":7,"attempt":1,"same":true,"differs":[],"rust_log":[],"done":"done #7 rc=20 status=aborted step=develop minutes=12 pr=none oom_kills=0 forks_refused=0","arm":"parked","seconds":1.4}
 ```
 
 - **same**: the two made the same writes to GitHub in the same order, and put
@@ -580,6 +581,9 @@ and adds one line to `~/tehas/logs/cycle-shadow.log`:
 - **differs**: which of `end`, `park` and `writes` differed, each with both
   sides on the line.
 - **rust_log**: the warnings the shadow's report would log.
+- **arm**: the way the report ended: `merged`, `merged-outside`, `prs-unread`,
+  `merged-claimed`, `awaiting-merge`, `handoff-parked`, `issue-closed`,
+  `pr-closed`, `died-with-pr`, `parked`, `never-ran` or `provider`.
 
 A report that differed is kept whole, with what the bash did, in
 `~/tehas/state/cycle-shadow/`, the newest 50. GitHub can answer the shadow
