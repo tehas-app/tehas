@@ -9,7 +9,14 @@
 # every test machine.
 t_stub nproc 'echo 16'
 
-index="$T_ROOT/libexec/index"
+# The command as a host has it: beside tehas-cycle, which makes its limits.
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+mkdir -p "$T/tree/libexec"
+ln -s "$T_ROOT/lib" "$T/tree/lib"
+ln -s "$T_ROOT/libexec/index" "$T/tree/libexec/index"
+cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
+index=$T/tree/libexec/index
 checkout=$T/home/tehas/repos/widget
 ws=$T/home/tehas/work/widget
 marker=$T/home/tehas/state/index.json
@@ -289,16 +296,18 @@ t_contains "$t_out" "tehas index: TEHAS_CYCLE_RESERVE=3g is more than a containe
 t_instance "${T_MINIMAL[@]}"
 
 t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
+# The command beside a tehas-cycle that says yes and hands out a short list, or
+# a list that names another parent.
 short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
+mkdir -p "$short/libexec"
+ln -s "$T_ROOT/lib" "$short/lib"
 ln -s "$index" "$short/libexec/index"
+security="--cap-drop ALL --cap-add CHOWN --cap-add FOWNER --security-opt no-new-privileges:true --tmpfs /tmp:rw,exec,nosuid,nodev,size=1024m,mode=1777"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" >"$short/lib/slice.sh"
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $words ${words:+$security}
   t_run "$short/libexec/index"
   refused
   t_contains "$t_out" "tehas index: the container limits could not be made, not starting"

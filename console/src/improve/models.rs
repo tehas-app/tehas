@@ -212,18 +212,6 @@ pub fn write(out: &Path) -> Option<Vec<String>> {
     Some(key_names(&doc))
 }
 
-/// The analyst's `--add-host` options.
-pub fn hosts(aliases: &str) -> Vec<String> {
-    aliases
-        .lines()
-        .next()
-        .unwrap_or("")
-        .split(',')
-        .filter(|p| !p.is_empty())
-        .map(|p| format!("--add-host={p}"))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,14 +330,5 @@ mod tests {
         assert!(!lists(&doc(r#"{"data":[{"id":"b"}]}"#), &wanted));
         assert!(!lists(&doc(r#"{"data":[]}"#), &[]));
         assert!(!lists(&doc("{}"), &[]));
-    }
-
-    #[test]
-    fn hosts_are_one_option_each() {
-        assert_eq!(
-            hosts("models:192.0.2.9,,b:192.0.2.10,"),
-            ["--add-host=models:192.0.2.9", "--add-host=b:192.0.2.10"]
-        );
-        assert!(hosts("").is_empty());
     }
 }

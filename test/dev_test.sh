@@ -45,6 +45,9 @@ mkdir -p "$T/tree/libexec"
 ln -s "$dev" "$T/tree/libexec/dev"
 ln -s "$T_ROOT/lib" "$T/tree/lib"
 cp "$T_CONSOLE" "$T/tree/libexec/console"
+# shellcheck disable=SC2154  # t_cycle_why is set by t_cycle (test/lib.sh)
+t_cycle || t_bad "no tehas-cycle: $t_cycle_why"
+cp "$T_CYCLE" "$T/tree/libexec/tehas-cycle"
 dev_cmd=$T/tree/libexec/dev
 printf '[user]\n\tname = Test Bot\n\temail = bot@example.com\n' >"$T/home/.gitconfig"
 # Pi's settings as install.sh leaves them on a host.
@@ -74,10 +77,9 @@ limits="--cgroup-parent --memory --memory-swap --memory-reservation --cpus --pid
 . "$(dirname "$0")/docker_args.sh" || exit 1
 docker_opts="$limits --cap-drop --cap-add --security-opt --tmpfs"
 root="TEHAS_CGROUP_ROOT=$T_CGROUP"
-# The container path of the session's cargo build output, read from
-# tehas_sandbox_target_dir itself rather than copied here: the mount, the
-# variable and the manual name the path the container is given.
-target_container=$(tehas_sandbox_target_dir)
+# The container path of the session's cargo build output: the mount, the
+# variable and the manual name it.
+target_container=/home/vscode/.tehas-target
 
 # The arguments of the docker call that starts the session.
 session_args() { cat "$T"/calls/docker.args.* 2>/dev/null; }
@@ -524,7 +526,7 @@ t_case "a session whose build output docker would have to make is refused"
 # container, no directory. And the source is older than the record of the call,
 # so this command made it and Docker was not left to, which is what keeps a
 # missing source from coming back root-owned. The comparison is only as sharp as
-# the clock: tehas_sandbox_mounts makes the state directory's own children, so
+# the clock: tehas-cycle sandbox mounts makes the state directory's own children, so
 # the tree is put a minute behind before the run, since timestamps are whole
 # seconds and cannot tell two moments of one second apart.
 target_guard_stub='if [ "$1" = info ]; then cat "$T/docker.info"; exit; fi
@@ -601,18 +603,18 @@ t_contains "$t_out" "tehas dev: TEHAS_CYCLE_RESERVE=3g is more than a container 
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
 t_case "the fourteen words are all present or nothing starts"
-# The command beside a slice library that says yes and hands out a short list,
-# or a list that names another parent.
+# The command beside a tehas-cycle that says yes and hands out a short list, or
+# a list that names another parent.
 short=$T/short
-mkdir -p "$short/libexec" "$short/lib"
-cp "$T_ROOT"/lib/*.sh "$short/lib/"
+mkdir -p "$short/libexec"
+ln -s "$T_ROOT/lib" "$short/lib"
 ln -s "$dev" "$short/libexec/dev"
 cp "$T_CONSOLE" "$short/libexec/console"
 for words in "--cgroup-parent tehas.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096" \
   "--cgroup-parent other.slice --memory 2048m --memory-swap 2048m --memory-reservation 2g --cpus 3.75 --pids-limit 4096 --cpu-shares 1024" ""; do
   without
-  printf '%s\n' 'tehas_slice_ok() { return 0; }' "tehas_slice_limits() { TEHAS_SLICE_LIMITS=($words); }" \
-    'tehas_slice_room() { echo "4 0 0 0"; }' >"$short/lib/slice.sh"
+  # shellcheck disable=SC2086  # the words are the list
+  t_fake_limits "$short/libexec" $words ${words:+$security_opts}
   t_run "$short/libexec/dev zed"
   refused
   t_contains "$t_out" "tehas dev: the container limits could not be made, not starting"

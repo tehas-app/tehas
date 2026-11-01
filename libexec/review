@@ -67,8 +67,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/config.sh"
 # shellcheck source=lib/sandbox.sh
 . "$here/../lib/sandbox.sh"
-# shellcheck source=lib/slice.sh
-. "$here/../lib/slice.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
 # shellcheck source=lib/store.sh
@@ -79,18 +77,12 @@ tehas_load || exit 78
 # instance that could not review rather than exiting 0 on it.
 tehas_require_instance_settings
 [ "${TEHAS_REVIEW:-0}" = 1 ] || exit 0
-tehas_sandbox_settings_ok || exit 78
+tehas_sandbox_ok || exit 78
 # Docker would create a missing mount source as a root-owned directory.
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 # No container starts outside the slice, and none with half its limits.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas review: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas review: the container limits could not be made, not starting" >&2
-  exit 78
-fi
+tehas_sandbox_limits "tehas review" "a review" || exit 78
 src=$TEHAS_WORK_REPO
 # The workspace inside the container, the directory on the host behind it, and
 # the run's own state beside that, not in it.
@@ -110,7 +102,7 @@ record=$TEHAS_HOME/state/review.json
 console=$here/console
 
 # The committer of the clone: git needs an identity for the branch it checks out,
-# and tehas_sandbox_env hands one to the container. The bot's is the tehas
+# and the container is handed one. The bot's is the tehas
 # user's own, and the runner commits nothing.
 bot_name=$(git config --global user.name || true)
 bot_email=$(git config --global user.email || true)
@@ -125,20 +117,19 @@ bot_email=$(git config --global user.email || true)
 # file itself (store review-file --private).
 mapfile -t private < <("$here/tehas-cycle" private "$(tehas_models_file)" "$bot_email")
 
-# A review writes nothing to the tracker: no token (no-token), and none of the
+# A review writes nothing to the tracker: no token (kind review), and none of the
 # names of a planning turn or of a cycle's gate.
 unset PI_ENSEMBLE_EXTRA_IMAGE_DIRS PI_ENSEMBLE_PLAN_ISSUE \
   PI_ENSEMBLE_PLAN_SESSION_DIR PI_ENSEMBLE_PLAN_CACHE_TTL_MS \
   PI_ENSEMBLE_MAX_WORKSTREAMS PI_ENSEMBLE_VERIFY_TIMEOUT_MS \
   PI_ENSEMBLE_INTEGRATION_VERIFY_TIMEOUT_MS
-mapfile -d '' -t envs < <(tehas_sandbox_env "$repo" "$bot_name" "$bot_email" no-token)
+mapfile -d '' -t envs < <("$here/tehas-cycle" sandbox env review "$repo" "$bot_name" "$bot_email")
 
-mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+mapfile -d '' -t hosts < <("$here/tehas-cycle" sandbox hosts)
 # The -e options are read as the pairs they are: an -e with no value after it
 # would reach docker as a truncated argument list.
 [ "${#envs[@]}" -gt 0 ] && [ $(( ${#envs[@]} % 2 )) = 0 ] ||
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
-tehas_sandbox_security_take "tehas review" "a review" || exit 78
 
 # The findings of a run are filed by the store: `store review-file` reads the
 # document, masks the model's words, looks for the open issue of the range and
@@ -245,7 +236,7 @@ fi
 tehas_sandbox_seed "$container" "$index" ||
   echo "tehas review: the code index could not be copied into $container/cache, this run searches without one"
 # The mounts name directories that only exist now.
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$repo" "$tree" "$container" "$runs" no-token)
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts review "$repo" "$tree" "$container" "$runs")
 [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas review: could not prepare the sandbox, not starting a review" >&2; exit 78; }
 

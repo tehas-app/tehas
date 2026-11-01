@@ -30,8 +30,8 @@
 #                no images or files; no container was started.
 #
 # The container is a cycle's container with a terminal: the same image, limits,
-# mounts and variables as a cycle is given, assembled by lib/sandbox.sh and
-# lib/slice.sh and pinned by test/dev_test.sh. It differs in the tree it works
+# mounts and variables as a cycle is given, assembled by tehas-cycle sandbox and
+# pinned by test/dev_test.sh. It differs in the tree it works
 # in, in git's identity, in TERM and COLORTERM, and in having no cid file. Not
 # the Docker socket, SSH keys, ~/.config/tehas or the rest of the host
 # environment.
@@ -156,17 +156,11 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/github-app.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO PI_ENSEMBLE_SUBAGENT_MODEL PI_ENSEMBLE_SUBAGENT_PROVIDER
-tehas_sandbox_settings_ok || exit 78
+tehas_sandbox_ok || exit 78
 tehas_checkout || exit 78
 branch=$(tehas_branch) || exit 78
 # No container starts outside the slice, and none with half its limits.
-TEHAS_SLICE_LIMITS=()
-tehas_slice_ok || { echo "tehas dev: $TEHAS_SLICE_WHY" >&2; exit 78; }
-tehas_slice_limits || true
-if [ "${#TEHAS_SLICE_LIMITS[@]}" != 14 ] || [ "${TEHAS_SLICE_LIMITS[1]}" != tehas.slice ]; then
-  echo "tehas dev: the container limits could not be made, not starting" >&2
-  exit 78
-fi
+tehas_sandbox_limits "tehas dev" "a session" || exit 78
 devs=$TEHAS_HOME/dev
 tree=$devs/$name
 stored=$devs/$name.author
@@ -176,11 +170,8 @@ images=$devs/$name.images
 # cycle wrote. Kept with the clone.
 state=$devs/$name.state
 runs=$state/runs
-# Where the session's cargo build output lives, on the host and in the
-# container. The container's path comes from lib/sandbox.sh; no setting names
-# either.
+# Where the session's cargo build output lives on the host. No setting names it.
 target_host=$state/target
-target_container=$(tehas_sandbox_target_dir)
 
 tehas_github_env || { echo "tehas dev: no GitHub token for the app" >&2; exit 1; }
 [ -n "${GH_TOKEN:-}" ] || { echo "tehas dev: GH_TOKEN is not set (source ~/tehas/env.sh)" >&2; exit 64; }
@@ -276,15 +267,11 @@ if [ -n "$issue" ]; then
   image_opts=(-v "$images:$images:ro" -e "PI_ENSEMBLE_EXTRA_IMAGE_DIRS=$images")
 fi
 
-mapfile -d '' -t envs < <(tehas_sandbox_env "$tree" "$git_name" "$git_email")
-mapfile -d '' -t mounts < <(tehas_sandbox_mounts "$tree" "$tree" "$state" "$runs")
-# Given after the shared list, so this is the one CARGO_TARGET_DIR the container has.
-mounts+=(-v "$target_host:$target_container")
-envs+=(-e "CARGO_TARGET_DIR=$target_container")
-mapfile -d '' -t hosts < <(tehas_sandbox_hosts)
+mapfile -d '' -t envs < <("$here/tehas-cycle" sandbox env session "$tree" "$git_name" "$git_email")
+mapfile -d '' -t mounts < <(tehas_sandbox_mounts session "$tree" "$tree" "$state" "$runs")
+mapfile -d '' -t hosts < <("$here/tehas-cycle" sandbox hosts)
 [ "${#envs[@]}" -gt 0 ] && [ "${#mounts[@]}" -gt 0 ] ||
   { echo "tehas dev: could not prepare the sandbox, not starting a session" >&2; exit 78; }
-tehas_sandbox_security_take "tehas dev" "a session" || exit 78
 
 echo "tehas dev: $tree, commits as $who"
 # The running cycles, from the view or from the one object an earlier version wrote.
