@@ -42,7 +42,7 @@ pub struct Issue {
     /// The issue's park on the state store (park-show's .park), or the store's
     /// word and exit status when it could not say.
     pub park: Option<Result<Option<Value>, StoreErr>>,
-    /// The approval of its latest start (tehas_approval_view), Err when the
+    /// The approval of its latest start (approval-view), Err when the
     /// store could not answer.
     pub approval: Option<Result<Option<Value>, ()>>,
     /// approval-current's .current, for the owner of a refresh.
