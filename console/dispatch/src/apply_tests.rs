@@ -1506,6 +1506,33 @@ fn a_sweep_removes_an_issues_names_under_its_lock_and_no_other_issues() {
 }
 
 #[test]
+fn a_sweep_that_cannot_remove_a_name_says_so_and_not_that_the_issue_is_gone() {
+    let mut t = world();
+    let works = t.dir.join("works");
+    fs::create_dir_all(works.join("tehas-work-5")).unwrap();
+    fs::write(works.join(".tehas-workspaces"), "").unwrap();
+    let live = t.w.home.join("live");
+    fs::create_dir_all(&live).unwrap();
+    fs::write(live.join("console-5.txt"), "x").unwrap();
+    fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o555)).unwrap();
+    // Root is not kept out of a directory by its mode.
+    if fs::write(live.join("probe"), "").is_ok() {
+        fs::remove_file(live.join("probe")).unwrap();
+        fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let a = t.apply(json!([{"sweep": 5, "log": "removed what #5 left on this host"}]));
+    fs::set_permissions(&live, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        a.log,
+        vec!["WARN: could not remove live/console-5.txt of #5"]
+    );
+    assert!(!works.join("tehas-work-5").exists());
+    assert!(live.join("console-5.txt").exists());
+}
+
+#[test]
 fn a_sweep_whose_lock_a_cycle_holds_touches_nothing() {
     let mut t = world();
     fs::create_dir_all(t.w.home.join("state/cycles")).unwrap();
