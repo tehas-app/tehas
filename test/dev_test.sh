@@ -784,10 +784,27 @@ t_release
 t_stub flock
 rm -rf "$devs/erin.state" "$devs/erin.author" "$devs/erin"
 
+t_case "words of the console on standard error are no part of the lock's path"
+again
+slice_good
+printf '#!/bin/sh\necho "a warning of the console" >&2\nexec "%s" "$@"\n' "$T_CONSOLE" >"$T/tree/libexec/console"
+chmod +x "$T/tree/libexec/console"
+T_ENV=(GH_TOKEN=test-token "$root")
+t_run "$dev_cmd grace"
+t_eq "$t_rc" 0
+t_eq "$(containers)" 1
+t_eq "$(find "$T/home/tehas/state/dev" -name 'grace.lock' | wc -l)" 1
+T_ENV=()
+cp "$T_CONSOLE" "$T/tree/libexec/console"
+rm -rf "$devs/grace.state" "$devs/grace.author" "$devs/grace"
+
 t_case "a lock that is not free in five minutes starts no session and says who holds it"
 again
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 T_ENV=()
+# The console of the case waits one second of the five minutes the command asks.
+printf '#!/bin/sh\nexec "%s" clean session "$3" "$4" 1\n' "$T_CONSOLE" >"$T/tree/libexec/console"
+chmod +x "$T/tree/libexec/console"
 t_stub flock "if [ \"\${FLOCK_WHY:-}\" = held ]; then exit 1; fi
 if [ \"\$1\" = -w ]; then sleep \"\${FLOCK_WAIT:-0}\"; fi
 exec $(command -pv flock) \"\$@\""
@@ -803,6 +820,7 @@ t_eq "$t_rc" 78
 t_eq "$(containers)" 0
 t_lacks "$(t_calls docker)" "run "
 t_contains "$t_out" "$T/home/tehas/state/dev/erin.lock is held"
+t_contains "$t_out" "waiting 1 seconds for it"
 t_contains "$t_out" "$sleep_holder"
 t_eq "$([ -e "$devs/erin" ] && echo there)" ""
 # The refusal neither makes the clone nor takes what an earlier session of it
@@ -818,6 +836,7 @@ t_eq "$([ -d "$devs/erin/.git" ] && echo clone)" ""
 t_eq "$(cat "$devs/erin.state/target/debug/console")" built
 t_release
 rm -f "$T/home/tehas/state/dev/erin.lock"
+cp "$T_CONSOLE" "$T/tree/libexec/console"
 t_stub docker "$docker_stub"
 t_stub flock
 rm -rf "$devs/erin.state" "$devs/erin"
