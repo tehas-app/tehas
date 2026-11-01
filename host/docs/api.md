@@ -354,7 +354,8 @@ Without `--json`, one line each, oldest first.
 
 Exit 0 when it printed, also with nothing to list; 1 when the state store was
 busy, which prints nothing; 64 on a bad argument, which reads nothing; 78
-without an instance or without a state store that can be used.
+without an instance, without a valid `TEHAS_REPO` or without a state store that
+can be used.
 
 ## tehas export
 
