@@ -176,7 +176,7 @@ t_eq "$(jq -c . "$T/calls/facts.json")" '{"session":"s","turns":1,"options":[],"
 t_eq "$(cat "$T/calls/facts.mode")" 600
 t_eq "$([ -e "$facts" ] && echo there || echo gone)" gone
 t_eq "$([[ $facts == "$T/home/tehas/tmp/analytics-facts."?????? ]] && echo named)" named
-t_store_answers plan-show 1 'store: busy #7: the database is locked'
+t_store_answers plan-view 1 'store: busy #7: the database is locked'
 t_run "$scall; tehas_analytics_plan 7 --rc 0"
 t_eq "$(cat "$T/calls/facts.json")" null
 t_store_home "$home"

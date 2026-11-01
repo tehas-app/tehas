@@ -241,7 +241,7 @@
 # without looking at the stream first.
 #
 # With TEHAS_WORK_DESCRIBE=1 the model endpoint describes each image in words
-# first (lib/describe.sh), into images.md in the same directory, for the steps
+# first (tehas-cycle describe), into images.md in the same directory, for the steps
 # that are not shown the pixels. It is in the directory already mounted: no
 # mount and no variable more. A description that fails says so in the file and
 # stops nothing.
@@ -339,8 +339,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/slice.sh"
 # shellcheck source=lib/attachments.sh
 . "$here/../lib/attachments.sh"
-# shellcheck source=lib/describe.sh
-. "$here/../lib/describe.sh"
 # shellcheck source=lib/labels.sh
 . "$here/../lib/labels.sh"
 # shellcheck source=lib/millwright.sh
@@ -351,8 +349,6 @@ here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$here/../lib/improve.sh"
 # shellcheck source=lib/headless.sh
 . "$here/../lib/headless.sh"
-# shellcheck source=lib/private.sh
-. "$here/../lib/private.sh"
 # shellcheck source=lib/github-app.sh
 . "$here/../lib/github-app.sh"
 # shellcheck source=lib/sizing.sh
@@ -402,7 +398,7 @@ forks_file=$TEHAS_HOME/state/cycles/$issue.forks
 stall_file=$TEHAS_HOME/state/cycles/$issue.stalled
 timed_file=$TEHAS_HOME/state/cycles/$issue.timed
 # The ledger of the sizes tehas work records at an approved start, kept by
-# tehas_size_record (lib/sizing.sh), which says what it holds and how long.
+# tehas_size_record (console/src/size.rs), which says what it holds and how long.
 sizes_file=$TEHAS_HOME/state/sizes.jsonl
 # The manifest of the last fetch, kept.
 kept=$TEHAS_HOME/state/cycles/$issue.manifest.json
@@ -552,7 +548,7 @@ caps_rc=$?
 # the margin holds the longest step there is room for and then the handoff:
 # a quarter of the limit, and never less than one run of the gate and the
 # handoff allowance.
-if [ "$(tehas_headless_mode "$caps" cycleDeadlineHandoffAllowance)" = native ]; then
+if [ "$("$here/tehas-cycle" caps mode cycleDeadlineHandoffAllowance <<<"$caps")" = native ]; then
   margin=$handoff
 else
   margin=$((limit / 4))
@@ -588,7 +584,7 @@ for e in "${envs[@]}"; do
   case "$e" in PI_ENSEMBLE_*) names+=" ${e%%=*}" ;; esac
 done
 [ "$give" != 1 ] || names+=" PI_ENSEMBLE_EXTRA_IMAGE_DIRS"
-if [ "$caps_rc" != 0 ] || ! unsupported=$(tehas_headless_unsupported "$caps" "${run_flags[*]}" "$names" "$features"); then
+if [ "$caps_rc" != 0 ] || ! unsupported=$("$here/tehas-cycle" caps unsupported "${run_flags[*]}" "$names" "$features" <<<"$caps"); then
   echo "tehas work: $image gave no --capabilities answer (exit $caps_rc), not starting a cycle" >&2
   exit 78
 fi
@@ -599,7 +595,7 @@ if [ -n "$unsupported" ]; then
 fi
 # A workaround the instance carries for a pi-rukas defect ends with the
 # release that fixes it.
-expired=$(tehas_headless_expired "$caps" "$TEHAS_RUKAS_WORKAROUNDS")
+expired=$("$here/tehas-cycle" caps expired "$TEHAS_RUKAS_WORKAROUNDS" <<<"$caps")
 if [ -n "$expired" ]; then
   echo "tehas work: TEHAS_RUKAS_WORKAROUNDS names a workaround this image no longer needs, not starting a cycle:" >&2
   printf '%s\n' "$expired" | sed 's/^/    /' >&2
@@ -662,7 +658,7 @@ fi
 # What the cycle starts with, measured. Only a start that had the approval
 # record to check is measured: the body is the one in $issue_now, already read
 # above, so this asks GitHub nothing more, and a run by hand, which has no
-# approved body, records nothing. lib/sizing.sh says what the ledger is and
+# approved body, records nothing. console/src/size.rs says what the ledger is and
 # keeps it bounded. A line that cannot be written is one word on this command's
 # error stream: the measure is a record of the start, never a reason to stop
 # one.
@@ -710,7 +706,7 @@ if [ "$give" = 1 ]; then
       echo "tehas work: the comment on #$issue failed" >&2
     exit 4
   fi
-  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! tehas_describe_images "$images"; then
+  if [ "$TEHAS_WORK_DESCRIBE" = 1 ] && ! "$here/tehas-cycle" describe "$images"; then
     echo "tehas work: the descriptions of the images could not be written, the cycle goes on without them" >&2
   fi
   { cp "$images/manifest.json" "$kept.new" && mv "$kept.new" "$kept"; } 2>/dev/null ||
@@ -917,14 +913,8 @@ console=$live/console-$issue.txt
 console_now=$console.now
 : >"$console"
 rm -f "${console_now:?}"
-# The cycle does not depend on it: without a console it runs all the same,
-# and this says why the dashboard shows none.
-[ -x "$here/console" ] || echo "tehas work: no console at $here/console, so the dashboard shows none; run install.sh"
-# The names for the console to mask (lib/private.sh).
-private=()
-while IFS= read -r private_name; do
-  private+=(--private "$private_name")
-done < <(tehas_private_names "$agent/models.json" "$bot_email")
+# The names for the console to mask.
+mapfile -t private < <("$here/tehas-cycle" private "$agent/models.json" "$bot_email")
 "$here/console" --progress "$log" \
   --runs "$runs" --out "$console" --since "$((started - 5))" --now "$console_now" "${private[@]}" >/dev/null 2>"$log.console" &
 cpid=$!
@@ -1023,7 +1013,7 @@ rm -f "$cid_file"
 if [ -n "$oom_id" ] && oom_log=$(timeout -k 5 "$stop_wait" journalctl -k -q -o cat --no-pager --since "@$started" 2>/dev/null |
   grep -c "^oom-kill:.*task_memcg=/tehas.slice/docker-$oom_id.scope,") && [ "$oom_log" -gt "$ooms" ]; then ooms=$oom_log; fi
 have=0 error_only=0
-outcome=$(tehas_headless_outcome "$result_file" "$issue") && have=1 || outcome='{}'
+outcome=$("$here/tehas-cycle" runner outcome "$result_file" "$issue") && have=1 || outcome='{}'
 [ "$have" = 1 ] || ! tehas_headless_error_only "$result_file" || error_only=1
 # What the runner ended with, whatever this command goes on to exit with. Said
 # in the cycle's comment, which otherwise names only this command's status.
@@ -1147,7 +1137,7 @@ if kill -0 "$cpid" 2>/dev/null; then
 fi
 wait "$cpid" 2>/dev/null
 crc=$?
-[ "$crc" = 0 ] || [ ! -x "$here/console" ] || echo "tehas work: the console ended with $crc, see $log.console"
+[ "$crc" = 0 ] || echo "tehas work: the console ended with $crc, see $log.console"
 
 step=$(jq -r '[.failedStep, .lastStep] | map(strings | select(. != "")) | first // "-"' <<<"$outcome" 2>/dev/null)
 step=${step:--}

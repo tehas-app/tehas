@@ -33,22 +33,15 @@
 #                                 it in the caller's shell, never in $(...), so
 #                                 tehas_store_word stays readable
 #   tehas_approval_view <issue> [<attempt>]
-#       The approval of the issue's latest start, in the shape .approved.json
-#       had, in a new 0600 file under $TEHAS_HOME/tmp; prints its path, and the
-#       caller removes it. With <attempt>, only the approval that start used.
-#       Returns 0 with a path, 1 when there is none on record, 2 when the store
-#       could not answer (and prints nothing).
+#       The store's approval-view of the issue's latest start in a new 0600 file
+#       under $TEHAS_HOME/tmp; prints its path, and the caller removes it. With
+#       <attempt>, only the approval that start used. Returns 0 with a path, 1
+#       when there is none on record, 2 when the store could not answer (and
+#       prints nothing).
 #   plan_view <issue>
-#       The issue's open planning session, in the shape its record file had
-#       before the store (tehas_plan_shape), in a new 0600 file under
-#       $TEHAS_HOME/tmp; prints its path, the caller removes it. Returns 0
+#       The store's plan-view of the issue's open session, in a new 0600 file
+#       under $TEHAS_HOME/tmp; prints its path, the caller removes it. Returns 0
 #       with a path, 1 when none is open, 2 when the store could not answer.
-#   tehas_plan_shape              a jq filter: of plan-show's answer, the
-#                                 session as its record file had it: session,
-#                                 turns, options, pending, failed, running,
-#                                 startedAt (ISO), comment (the id asked for),
-#                                 lost, by, label, answers, filed, and the
-#                                 notes fixer_refused and held, absent if none
 #
 # The rule for every reader: read a field only after a 0, and read JSON null as
 # "none on record". After 1, 64 or 78 never use an empty value: take the branch
@@ -158,44 +151,15 @@ tehas_cycle_attempt() { # <issue>
   tehas_cycle_attempt_is=$got
 }
 
-# The approval as the dispatcher wrote .approved.json: its inputs, the driver it
-# bound, and for a millwright's or a refresh start the approval it rests on and
-# the starts counted on that. A refresh names the person's approval: its own at
-# is when the dispatcher decided (D5). mw is #686's alias: new words to the old.
-# shellcheck disable=SC2016  # a jq program
-tehas_approval_shape='def iso: if type == "number" then todate else error("not a time") end;
-  def person: if . == null then null else {at: (.at | iso), by, how, body_sha256} end;
-  def mw: if . == "millwright" then "fixer" else . end; # part 5 of #686
-  (.millwright_starts? // .fixer_starts? // 0) as $starts | .current as $c
-  | if $c == null or ($want != null and $c.used_by != $want) then null
-    elif ($c | type) != "object" then error("not an approval")
-    else ($c.input // {}) as $in | (.rests_on | person) as $base | ($c.how | mw) as $how
-    | {at: ($c.at | iso), by: $c.by, how: $how, body_sha256: $c.body_sha256, links: ($in.links // [])}
-      + (if $c.title_sha256 == null then {} else {title_sha256: $c.title_sha256} end)
-      + (if $in | has("comment_links") then {comment_links: $in.comment_links} else {} end)
-      + (if $in.driver == null then {} else {driver: $in.driver} end)
-      + (if ($in.retry_context // []) | length == 0 then {} else {retry_context: $in.retry_context} end)
-      + (if $in | has("park_lifted") then {park_lifted: $in.park_lifted} else {} end)
-      + (if $how == "fixer" then {rests_on: $base, fixer_starts: $starts} else {} end)
-      + (if $how == "refresh" then {rests_on: $base, fixer_starts: $starts, refreshes, refresh_of: $in.refresh_of}
-           + (if $base == null then {} else {at: $base.at, by: $base.by} end)
-         else {} end)
-    end'
-
-tehas_approval_view() { # <issue> [<attempt>]
-  local want=null dir=${TEHAS_HOME:-}/tmp view file
-  # An empty attempt is a caller's mistake, not a wish for any start's approval.
-  if [ "$#" -ge 2 ]; then
-    want=$2
-    [[ $want =~ ^[1-9][0-9]{0,8}$ ]] || return 2
-  fi
-  tehas_store approval-current "$1" || return 2
-  view=$(jq -c --argjson want "$want" "$tehas_approval_shape" <<<"$tehas_store_out" 2>/dev/null) || return 2
+# The view of the last answer in a new file, as tehas_approval_view says.
+tehas_view_file() { # <name>
+  local dir=${TEHAS_HOME:-}/tmp view file
+  view=$(jq -c .view <<<"$tehas_store_out" 2>/dev/null) || return 2
   [ -n "$view" ] || return 2
   [ "$view" != null ] || return 1
   [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
-  file=$(mktemp "$dir/approval.XXXXXX" 2>/dev/null) || return 2
+  file=$(mktemp "$dir/$1.XXXXXX" 2>/dev/null) || return 2
   printf '%s\n' "$view" >"$file" 2>/dev/null || {
     rm -f "$file"
     return 2
@@ -203,35 +167,12 @@ tehas_approval_view() { # <issue> [<attempt>]
   printf '%s\n' "$file"
 }
 
-# The planning record as its file had it before the store, and #686's alias: the
-# refused comments go under either name.
-# shellcheck disable=SC2016,SC2034  # a jq program, read by the caller
-tehas_plan_shape='.planning | if type != "object" then null else
-  ((.notes.millwright_refused // []) + (.notes.fixer_refused // [])) as $refused | # part 5 of #686
-  {session: (.session // ""), turns, options: (.options // []), pending, failed, running}
-  + (if .started_at == null then {} else {startedAt: (.started_at | todate)} end)
-  + (if .comment_id == null then {} else {comment: .comment_id} end)
-  + (if .lost == true then {lost: true} else {} end)
-  + (if .by == null then {} else {by} end)
-  + (if .label == null then {} else {label} end)
-  + {answers: ((.answers // []) | map(if (.millwright | type) == "boolean" then {turn, by, fixer: .millwright} else . end))} # part 5 of #686
-  + (if (.filed // []) == [] then {} else {filed} end)
-  + (if $refused == [] then {} else {fixer_refused: $refused} end)
-  + (if (.notes.held // []) == [] then {} else {held: .notes.held} end) end'
+tehas_approval_view() { # <issue> [<attempt>]
+  tehas_store approval-view "$1" ${2+--attempt "$2"} || return 2
+  tehas_view_file approval
+}
 
 plan_view() { # <issue>
-  local dir=${TEHAS_HOME:-}/tmp view file
-  tehas_store plan-show "$1" || return 2
-  [ "$(jq -r '.planning | if type == "object" and .ended_at == null then "open" else "none" end' <<<"$tehas_store_out" 2>/dev/null)" = open ] ||
-    return 1
-  view=$(jq -c "$tehas_plan_shape" <<<"$tehas_store_out" 2>/dev/null) || return 2
-  [ -n "$view" ] && [ "$view" != null ] || return 2
-  [ -e "$dir" ] || mkdir -m 700 "$dir" 2>/dev/null
-  [ -d "$dir" ] && [ ! -L "$dir" ] || return 2
-  file=$(mktemp "$dir/plan.XXXXXX" 2>/dev/null) || return 2
-  printf '%s\n' "$view" >"$file" 2>/dev/null || {
-    rm -f "$file"
-    return 2
-  }
-  printf '%s\n' "$file"
+  tehas_store plan-view "$1" --open || return 2
+  tehas_view_file plan
 }

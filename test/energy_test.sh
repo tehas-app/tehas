@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Tests for libexec/energy, the sampler behind the Energy use section. A stub
+# Tests for console energy, the sampler behind the Energy use section. A stub
 # curl plays the mesh: it answers with the status and the body the case set.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
 
-energy="$T_ROOT/libexec/energy"
+# shellcheck disable=SC2154  # t_console_why is set by t_console (test/lib.sh)
+t_console || t_bad "no console: $t_console_why"
+energy="$T_CONSOLE energy"
 file=$T/home/tehas/live/energy.json
 fixture=$T_ROOT/test/fixtures/cluster.json
 url=http://mesh.example:8086/v1/cluster
@@ -277,7 +279,7 @@ mainmesh() { # <status> <body or @file>
 }
 # The two stand-ins: the main endpoint answers from main-status and main-body,
 # the backup from status and body, and is down when down is there.
-t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+t_stub curl '[ "$2 $3" != "-K -" ] || cat >>"$T/calls/curl-config"
 case "$*" in
   *main.example*) [ -e "$T/mesh/main-status" ] || exit 7
     cat "$T/mesh/main-body" 2>/dev/null
@@ -292,7 +294,7 @@ endsample() { # <after> [<more settings>...]
   local after=$1
   shift
   rm -f "$T/calls/curl"
-  T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_NOW="$((NOW + after))" "$@")
+  T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_NOW="$((NOW + after))" PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet "$@")
   t_run "$energy"
 }
 # The fixture with its first host renamed, so a case tells the two meshes apart.
@@ -402,7 +404,7 @@ bothends
 dispatched '{"endpoint": "main"}'
 mainmesh 404 "not a mesh"
 mesh 200 "@$T/backup-mesh.json"
-T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_URL="$url" TEHAS_ENERGY_NOW="$NOW")
+T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY_URL="$url" TEHAS_ENERGY_NOW="$NOW" PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet)
 t_run "$energy"
 t_eq "$(asked)" 1
 t_eq "$(t_calls curl | awk '{ print $NF }')" "$url"
@@ -412,7 +414,7 @@ t_case "the mesh address comes from the model provider"
 fresh
 models=$T/models.json
 echo '{"providers": {"fleet": {"baseUrl": "http://mesh.example:8086/v1/"}, "other": {"baseUrl": "http://other.example:9"}}}' >"$models"
-T_ENV=(TEHAS_MODELS_FILE="$models")
+T_ENV=(TEHAS_MODELS_FILE="$models" PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet)
 t_run "$energy"
 t_eq "$(there)" there
 t_eq "$(t_calls curl | awk '{ print $NF }')" "$url"
@@ -425,7 +427,7 @@ T_ENV=(TEHAS_MODELS_FILE="$models" PI_ENSEMBLE_SUBAGENT_PROVIDER=missing)
 t_run "$energy"
 t_eq "$(there)" gone
 sample 0
-T_ENV=(TEHAS_MODELS_FILE="$T/none.json")
+T_ENV=(TEHAS_MODELS_FILE="$T/none.json" PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet)
 t_run "$energy"
 t_eq "$t_rc" 0
 t_eq "$(there)" gone
@@ -434,7 +436,7 @@ t_eq "$(there)" gone
 t_eq "$(asked)" 3
 
 t_case "a main endpoint that is not a mesh is passed over for its backup, asked with the backup's token"
-t_stub curl 'for a; do case "$a" in /dev/fd/*) cat "$a" >>"$T/calls/curl-config" ;; esac; done
+t_stub curl '[ "$2 $3" != "-K -" ] || cat >>"$T/calls/curl-config"
 case "$*" in
   *main.example*) [ ! -e "$T/mesh/main-down" ] || exit 7; printf "%s\n404" "not found" ;;
   *) cat "$T/mesh/body"; printf "\n%s" "$(cat "$T/mesh/status")" ;;
@@ -443,7 +445,7 @@ fresh
 rm -f "$T/calls/curl-config"
 jq -n '{providers: {fleet: {baseUrl: "https://main.example/v1", apiKey: "$TEHAS_MODEL_KEY_MAIN",
   backupBaseUrl: "http://mesh.example:8086/v1", backupApiKey: "$TEHAS_MODEL_KEY_FLEET"}}}' >"$models"
-T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret TEHAS_ENERGY_NOW="$NOW")
+T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_MODEL_KEY_MAIN=main-secret TEHAS_MODEL_KEY_FLEET=fleet-secret TEHAS_ENERGY_NOW="$NOW" PI_ENSEMBLE_SUBAGENT_PROVIDER=fleet)
 t_run "$energy"
 t_eq "$(there)" there
 t_eq "$(t_calls curl | awk '{ print $NF }' | tr '\n' ' ')" "https://main.example/v1/cluster $url "
@@ -521,5 +523,54 @@ t_case "an unknown argument is a usage error"
 T_ENV=()
 t_run "$energy --loop"
 t_eq "$t_rc" 64
+t_contains "$t_out" "usage: tehasbot energy [--every]"
+
+t_case "with no provider and no url it stops with 78, asks nobody and writes nothing"
+fresh
+models=$T/models.json
+echo '{"providers": {"fleet": {"baseUrl": "http://mesh.example:8086/v1"}}}' >"$models"
+T_ENV=(TEHAS_MODELS_FILE="$models")
+t_run "$energy"
+t_eq "$t_rc" 78
+t_contains "$t_out" "PI_ENSEMBLE_SUBAGENT_PROVIDER is not set"
+t_eq "$(asked)" 0
+t_eq "$([ -e "$T/home/tehas/live" ] && echo there || echo gone)" gone
+# An energy file already there stays, and an empty provider is no provider.
+sample 0
+before=$(cat "$file")
+rm -f "$T/calls/curl"
+T_ENV=(TEHAS_MODELS_FILE="$models" PI_ENSEMBLE_SUBAGENT_PROVIDER=)
+t_run "$energy"
+t_eq "$t_rc" 78
+t_eq "$(asked)" 0
+t_eq "$(cat "$file")" "$before"
+# TEHAS_ENERGY=off needs no provider.
+T_ENV=(TEHAS_MODELS_FILE="$models" TEHAS_ENERGY=off)
+t_run "$energy"
+t_eq "$t_rc" 0
+t_eq "$(there)" gone
+
+# What stands at $TEHAS_HOME/libexec/console when --every runs a child.
+child() { # <script body>
+  mkdir -p "$T/home/tehas/libexec"
+  printf '%s\n' '#!/usr/bin/env bash' "$1" >"$T/home/tehas/libexec/console"
+  chmod +x "$T/home/tehas/libexec/console"
+}
+
+t_case "--every runs the console at its installed path, so an update reaches the loop"
+fresh
+# The child says how it was run and ends the loop, which is the real console.
+child 'printf "%s\n" "$*" >"$T/mesh/child"; kill "$PPID"'
+T_ENV=(T="$T")
+t_run "$energy --every"
+t_eq "$(cat "$T/mesh/child")" energy
+
+t_case "--every ends when a sample says a setting is missing, and goes on after any other failure"
+fresh
+child 'n=$(cat "$T/mesh/runs" 2>/dev/null || echo 0); echo $((n + 1)) >"$T/mesh/runs"; exit 78'
+T_ENV=(T="$T")
+t_run "$energy --every"
+t_eq "$t_rc" 78
+t_eq "$(cat "$T/mesh/runs")" 1
 
 t_done

@@ -36,127 +36,16 @@
 # derived. --sandbox also uses PI_ENSEMBLE_IMAGE.
 set -uo pipefail
 
-sandbox=0
 case "$#:${1-}" in
-  0:) ;;
-  1:--sandbox) sandbox=1 ;;
+  0: | 1:--sandbox) ;;
   *) echo "usage: tehas check-product [--sandbox]" >&2; exit 64 ;;
 esac
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-# shellcheck source=lib/sandbox.sh
-. "$here/../lib/sandbox.sh"
 tehas_load || exit 78
 tehas_require TEHAS_REPO
-
-repo=$TEHAS_WORK_REPO
-models_file=$(tehas_instance_dir)/models.json
-failures=()
-fail() {
-  failures+=("$1")
-  printf 'FAIL  %-8s %s\n' "$2" "$1"
-}
-pass() { printf 'ok    %-8s %s\n' "$1" "$2"; }
-
-# The first line of a file in the commit that is not empty or a comment.
-command_of() {
-  git -C "$repo" show "$ref:$1" 2>/dev/null | sed -n '/^[[:space:]]*#/d; /^[[:space:]]*$/d; p; q'
-}
-
-ref=""
-if [ ! -d "$repo/.git" ]; then
-  fail "no product checkout at $repo" origin
-else
-  if err=$(tehas_checkout 2>&1); then
-    pass origin "$repo is a clone of $TEHAS_REPO"
-  else
-    fail "${err#tehas: }" origin
-  fi
-  if git -C "$repo" symbolic-ref -q refs/remotes/origin/HEAD >/dev/null; then
-    ref=refs/remotes/origin/HEAD
-    pass default "origin/HEAD is $(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)"
-  else
-    fail "origin/HEAD is not set: run git -C $repo remote set-head origin --auto" default
-  fi
-fi
-
-if [ -n "$ref" ]; then
-  if git -C "$repo" cat-file -e "$ref:AGENTS.md" 2>/dev/null; then
-    pass agents "AGENTS.md"
-  else
-    fail "no AGENTS.md: tehas init-product proposes one" agents
-  fi
-  if [ -n "$(command_of .pi/verify-cmd)" ]; then
-    pass gate ".pi/verify-cmd: $(command_of .pi/verify-cmd)"
-  else
-    fail "no command in .pi/verify-cmd: tehas init-product proposes one" gate
-  fi
-  if settings=$(git -C "$repo" show "$ref:.pi/settings.json" 2>/dev/null); then
-    pm=$(jq -r '"\(.defaultProvider // "")/\(.defaultModel // "")"' <<<"$settings" 2>/dev/null) || pm=""
-    if [ -z "$pm" ]; then
-      fail ".pi/settings.json is not valid JSON" model
-    elif [ "$pm" = / ]; then
-      pass model ".pi/settings.json names no model, the instance's is used"
-    elif jq -e --arg p "${pm%%/*}" --arg m "${pm#*/}" '.providers[$p].models // [] | any(.id == $m)' "$models_file" >/dev/null 2>&1; then
-      pass model ".pi/settings.json names $pm"
-    else
-      fail ".pi/settings.json names $pm, which $models_file does not list" model
-    fi
-  else
-    pass model "no .pi/settings.json, the instance's model is used"
-  fi
-fi
-
-sandboxed=null
-if [ "$sandbox" = 1 ] && [ -n "$ref" ]; then
-  gate=$(command_of .pi/verify-cmd-full)
-  [ -n "$gate" ] || gate=$(command_of .pi/verify-cmd)
-  smoke=$(command_of .pi/smoke-cmd)
-  setup=""
-  git -C "$repo" cat-file -e "$ref:.pi/worktree-setup" 2>/dev/null && setup=1
-  if [ -z "$gate" ]; then
-    fail "no gate to run in the sandbox" sandbox
-  elif ! docker image inspect "$PI_ENSEMBLE_IMAGE" >/dev/null 2>&1; then
-    echo "tehas check-product: no sandbox image $PI_ENSEMBLE_IMAGE: build it with $TEHAS_HOME/sandbox/build.sh" >&2
-    exit 1
-  else
-    mkdir -p "$TEHAS_HOME/tmp" || exit 1
-    tree=$(mktemp -d "$TEHAS_HOME/tmp/check-product.XXXXXX") || exit 1
-    trap 'rm -rf "$tree"' EXIT
-    branch=$(git -C "$repo" symbolic-ref -q --short refs/remotes/origin/HEAD)
-    # A cycle's gate runs on its work branch, ahead of the default branch. An
-    # empty commit puts the clone there too, so a gate that diffs against
-    # origin/main compares a proper ancestor and finds no change.
-    if ! { tehas_sandbox_clone "$repo" "$tree" "${branch#origin/}" &&
-      git -C "$tree" checkout -q -b tehas/check-product &&
-      git -C "$tree" -c user.name=tehas -c user.email=tehas@localhost \
-        commit -q --allow-empty --no-verify -m "tehas check-product: no change"; }; then
-      echo "tehas check-product: could not clone $repo into $tree" >&2
-      exit 1
-    fi
-    script=""
-    [ -z "$setup" ] || script="sh .pi/worktree-setup && "
-    script+="sh -c \"\$1\""
-    [ -z "$smoke" ] || script+=" && sh -c \"\$2\""
-    if docker run --rm --cgroup-parent tehas.slice --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" \
-      -e HOME=/home/vscode -v "$tree:$tree" -w "$tree" --entrypoint bash \
-      "$PI_ENSEMBLE_IMAGE" -c "$script" gates "$gate" "$smoke"; then
-      sandboxed=true
-      pass sandbox "the gates passed in $PI_ENSEMBLE_IMAGE"
-    else
-      sandboxed=false
-      fail "the gates failed in $PI_ENSEMBLE_IMAGE" sandbox
-    fi
-  fi
-fi
-
-mkdir -p "$TEHAS_HOME/state" &&
-  jq -n --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson sandbox "$sandboxed" \
-    '{v: 1, at: $at, ok: ($ARGS.positional | length == 0), failures: $ARGS.positional, sandbox: $sandbox}' \
-    --args "${failures[@]}" >"$TEHAS_HOME/state/check-product.json.new" &&
-  mv "$TEHAS_HOME/state/check-product.json.new" "$TEHAS_HOME/state/check-product.json" ||
-  echo "tehas check-product: could not write $TEHAS_HOME/state/check-product.json" >&2
-
-[ "${#failures[@]}" = 0 ] || exit 78
+console=$here/console
+[ -x "$console" ] || { printf 'tehas check-product: no console beside this command at %s, run install.sh\n' "$console" >&2; exit 78; }
+exec "$console" check-product "$@"

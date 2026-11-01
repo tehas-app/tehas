@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests for libexec/top-publish: the snapshot it writes for the dashboard.
+# Tests for tehasbot top: the snapshot it writes for the dashboard.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -39,26 +39,8 @@ energy
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
 t_run "$publish"
 t_eq "$(published_keys)" "cycle,energy,factory,generatedAt,host,queue,units"
-# The same snapshot with a key no page draws, and one that holds a token: what
-# comes out of the cut is what it was without them.
-t_run '. "$T_ROOT/lib/top.sh"; snapshot=$(tehas_top_snapshot 16)
-  extended=$(jq -c ". + {token: \"ghp_aStringThatIsASecret\", draft: {note: \"not published\"}}" <<<"$snapshot")
-  tehas_top_published "$extended" >"$T/out"
-  jq -c "del(.generatedAt, .factory.ageSeconds, .console, .reading)" <<<"$snapshot" >"$T/kept"'
-t_eq "$t_rc" 0
-t_eq "$(jq -r 'keys | join(",")' "$T/out")" "cycle,energy,factory,generatedAt,host,queue,units"
-t_lacks "$T/out" "ghp_aStringThatIsASecret"
-t_lacks "$T/out" "not published"
-t_lacks "$T/out" "\"token\""
-t_eq "$(cat "$T/kept")" "$(jq -c 'del(.generatedAt, .factory.ageSeconds)' "$T/out")"
-
-# The cut answers nothing for a snapshot that is not one.
-t_case "the published cut refuses a snapshot that is not an object"
-reset
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published "{not json}"'
-t_eq "$t_rc" 1
-t_run '. "$T_ROOT/lib/top.sh"; tehas_top_published ""'
-t_eq "$t_rc" 1
+# The same cut of a snapshot with a key no page draws, and of what is no
+# snapshot, is in console/src/top.rs.
 
 t_case "the publisher writes the file and changes nothing else under live/"
 reset
@@ -134,7 +116,7 @@ rmdir "$live/top.json.new"
 t_case "with --every a malformed setting stops the publisher instead of looping"
 reset
 files
-# The loop re-runs this script at every mark. Settings that are broken do not
+# The loop re-runs the command at every mark. Settings that are broken do not
 # mend themselves between marks: the unit is told, so systemd shows it.
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=yes
 t_run "$publish --every"
@@ -142,13 +124,22 @@ t_eq "$t_rc" 78
 t_contains "$t_out" "TEHAS_TOP is not valid: expected 0 or 1"
 t_eq "$(published)" "gone"
 
-# The loop re-runs the script, and the re-run loads the settings again, which
-# clears TEHAS_PROC_DIR from its own environment. What it reads has to be said
-# to it, or a host section written in a loop would come from the machine that
-# ran it rather than the one it was pointed at.
+# What stands at $TEHAS_HOME/libexec when --every runs a child: the real one by
+# default, as an install leaves it.
+installed() {
+  mkdir -p "$T/home/tehas/libexec"
+  [ -e "$T/home/tehas/lib" ] || ln -s "$T_ROOT/lib" "$T/home/tehas/lib"
+  cp "$T_ROOT/libexec/with-settings" "$T/home/tehas/libexec/with-settings"
+}
+
+# The loop re-runs the command, and the re-run loads the settings again. What
+# it reads has to reach it through that load, or a host section written in a
+# loop would come from the machine that ran it rather than the one it was
+# pointed at.
 t_case "with --every the runs it starts read the host tree it was given"
 reset
 files
+installed
 t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
 # One turn of the loop, stopped as soon as the file is there: what matters is
 # which tree that run read, not how many snapshots it wrote. Its own output goes
@@ -158,6 +149,24 @@ t_eq "$(published)" "there"
 t_eq "$(cat "$T/every.log")" ""
 t_eq "$(jq -r '[.host.processes[].name] | sort | join(",")' "$live/top.json")" \
   "gh,pi-rukas,systemd,tehas-cycle"
+
+# The first child fails as a write does, the second as broken settings do.
+t_case "with --every a child runs at the installed path each mark, and only 78 ends the loop"
+reset
+files
+installed
+t_instance "${T_MINIMAL[@]}" TEHAS_TOP=1
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "%s\n" "$*" >>"$T/calls/child"' \
+  '[ "$(wc -l <"$T/calls/child")" -ge 2 ] && exit 78' 'exit 1' \
+  >"$T/home/tehas/libexec/with-settings"
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1" T="$T")
+t_run "$publish --every"
+t_eq "$t_rc" 78
+t_eq "$(cat "$T/calls/child")" "tehasbot top
+tehasbot top"
+T_ENV=(TEHAS_CONSOLE="$T_CONSOLE" TEHAS_PROC_DIR="$proc1")
+rm -rf "$T/home/tehas/libexec"
 
 t_case "the publisher takes no other argument"
 reset

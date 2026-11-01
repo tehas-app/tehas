@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the three scripts around the factory's state: libexec/status
-# writes the queue snapshot and runs libexec/health beside it, and
-# libexec/summary prints the health file for `tehas status`.
+# writes the queue snapshot and runs tehasbot health beside it, and
+# `tehas status` prints the health file.
 # shellcheck disable=SC2016  # stub bodies are expanded when the stub runs
 # shellcheck source=test/lib.sh
 . "$(dirname "$0")/lib.sh" || exit 1
@@ -21,12 +21,12 @@ mkdir -p "$shim/libexec"
 cp "$T_ROOT/libexec/status" "$shim/libexec/status"
 ln -s "$T_ROOT/lib" "$shim/lib"
 cp "$T_CONSOLE" "$shim/libexec/console"
-for sibling in health summary analytics; do
+for sibling in with-settings analytics; do
   ln -s "$T_ROOT/libexec/$sibling" "$shim/libexec/$sibling"
 done
 status=$shim/libexec/status
-health="$T_ROOT/libexec/health"
-summary="$T_ROOT/libexec/summary"
+health="$T_ROOT/bin/tehasbot health"
+summary="$T_ROOT/bin/tehas status"
 live=$T/home/tehas/live
 
 t_stub gh '
@@ -575,23 +575,32 @@ t_eq "$t_rc" 0
 t_eq "$(cksum <"$live/status.json")" "$before"
 t_eq "$(jq -r .status "$live/health.json")" pass
 
-t_case "given the poll's token, status leaves the health file to the poll"
+t_case "given the poll's name, status leaves the health file to the poll"
 reset
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "unset TEHAS_GH_TOKEN; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "unset TEHAS_FROM_POLL; $status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .status "$live/health.json")" pass
 rm "$live/health.json"
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_FROM_POLL=1; $status"
 t_eq "$t_rc" 0
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
-T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_FROM_POLL=; $status"
 t_eq "$t_rc" 0
 t_eq "$(jq -r .status "$live/health.json")" pass
 
-t_case "the poll's token leaves the analytics of the trap alone"
+# The name of the token is not the name of the poll: a host whose poll holds
+# no App token, or whose token read failed, still has health to refresh.
+t_case "the poll's token alone does not leave the health file to the poll"
+reset
+rm "$live/health.json"
+T_ENV=(TEHAS_STATUS_CMD="$status") t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+t_eq "$t_rc" 0
+t_eq "$(jq -r .status "$live/health.json")" pass
+
+t_case "the poll's name leaves the analytics of the trap alone"
 reset
 t_stub_analytics 'printf "%s\n" "{\"report\":1}"'
-T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_GH_TOKEN=ghs_poll; $status"
+T_ENV=(TEHAS_STATUS_CMD="$status" TEHAS_ANALYTICS=on) t_run "export TEHAS_FROM_POLL=1; $status"
 t_eq "$t_rc" 0
 t_eq "$(wc -l <"$T/calls/analytics")" 4
 
@@ -853,16 +862,16 @@ t_run "$status"
 t_eq "$([ -e "$live/health.json" ] && echo written)" written
 rm -f "$live/health.json"
 t_store_answers plan-show 1 'store: busy #0: the database is locked'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 1
 t_contains "$t_out" "the planning sessions could not be read from the state store"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 t_store_answers plan-show 78 'store: corrupt: the file is not a database'
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
 rm -f "$T/home/tehas/libexec/store"
-t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/libexec/health"
+t_run "TEHAS_HOME=$T/home/tehas $T_ROOT/bin/tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "ERROR: the state store is not installed (run install.sh)"
 
@@ -877,12 +886,12 @@ reset
 # the case cannot empty, so the wrapper of this case is given the empty name by
 # its own command line and the run is called with env -i through t_run's PATH.
 mkdir -p "$T/no-console"
-cp "$T_ROOT/libexec/health" "$T/no-console/health"
+cp "$T_ROOT/libexec/with-settings" "$T/no-console/with-settings"
 mkdir -p "$T/lib"
 cp "$T_ROOT/lib/config.sh" "$T/lib/config.sh"
 rm -f "$T/bin/console"
 T_ENV=(TEHAS_CONSOLE= TEHAS_CONSOLE= PATH=/usr/bin:/bin)
-t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/health"
+t_run "unset TEHAS_CONSOLE; TEHAS_HOME=$T/home/tehas $T/no-console/with-settings tehasbot health"
 t_eq "$t_rc" 78
 t_contains "$t_out" "tehasbot health: no console at $T/no-console/console: run install.sh"
 t_eq "$([ -e "$live/health.json" ] && echo written)" ""
