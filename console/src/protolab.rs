@@ -544,8 +544,8 @@ fn live_file(tickets: &[Value], now: &str, url: &str, domain: &str, limit: i64) 
 // --- The links of a ticket --------------------------------------------------
 
 /// Every link of GitHub's own attachment storage in a text, in the order it was
-/// written: the same shapes tehas_attachment_links of lib/attachments.sh gives,
-/// which are the only addresses the lab ever fetches.
+/// written: the same shapes as LINK_RULE of console/attach/src/given.rs, which
+/// are the only addresses the lab ever fetches.
 ///
 /// The scan walks the text a byte at a time and asks each position whether a
 /// scan of that regular expression may begin there, which is what the
@@ -574,7 +574,7 @@ const IMAGES: &str = "https://user-images.githubusercontent.com/";
 const GITHUB: &str = "https://github.com/";
 
 /// The byte one past the link that begins at `at`, or None when no branch of
-/// the regular expression of lib/attachments.sh matches there. Each branch is
+/// the regular expression of console/attach matches there. Each branch is
 /// the host, the folders that say the file is GitHub's own, and then a run of
 /// URL characters that holds the file.
 fn address(bytes: &[u8], at: usize) -> Option<usize> {
@@ -662,21 +662,20 @@ mod tests {
         text.lines().map(value_of).collect()
     }
 
-    /// The links of `text` as jq reads them with the program of
-    /// lib/attachments.sh. The definition is read from that file when the test
-    /// runs, so this compares two readings and not two copies of one. With no
-    /// jq on the host there is nothing to compare, and the Rust side is pinned
-    /// by every other case of links here.
-    fn links_of_the_shell(text: &str) -> Vec<String> {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lib/attachments.sh");
-        let source = fs::read_to_string(path).expect("lib/attachments.sh is there");
-        let held = source
+    /// The links of `text` as jq reads them with the rule of
+    /// console/attach/src/given.rs. The rule is read from that file when the
+    /// test runs, so this compares two readings and not two copies of one. With
+    /// no jq on the host there is nothing to compare, and the Rust side is
+    /// pinned by every other case of links here.
+    fn links_of_the_rule(text: &str) -> Vec<String> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/attach/src/given.rs");
+        let source = fs::read_to_string(path).expect("console/attach/src/given.rs is there");
+        let rule = source
             .lines()
-            .find(|line| line.contains("def links:"))
-            .expect("the definition of links is in lib/attachments.sh");
-        // The printf of the function holds the program between two quotes,
-        // after the one that quotes the format of the printf.
-        let program = held.split('\'').nth(3).expect("the program of the printf");
+            .find_map(|line| line.strip_prefix("pub const LINK_RULE: &str = r\""))
+            .and_then(|tail| tail.strip_suffix("\";"))
+            .expect("the rule of the links is in console/attach/src/given.rs");
+        let program = format!("def links: [scan({})];", Value::from(rule));
         let Ok(answered) = std::process::Command::new("jq")
             .args(["-Rs", "--arg", "t", text])
             .arg(format!("{program} $t | links"))
@@ -1030,11 +1029,10 @@ mod tests {
                 "https://github.com/a/b/files/2/c.js",
             ]
         );
-        // The same cut with jq's own program, read from lib/attachments.sh
-        // where it lives, so the two cannot drift: the line is taken from the
-        // file every time this test runs.
+        // The same cut with jq's own reading of the rule, so the two cannot
+        // drift: the line is taken from the file every time this test runs.
         let cases = "x https://github.com/user-attachments/files/1/a.png?foo=bar&x=1,baz, https://github.com/a/b/files/2/c.js#frag y";
-        let said = links_of_the_shell(cases);
+        let said = links_of_the_rule(cases);
         assert_eq!(said, links(cases));
         // Markdown's bracket is no URL character, and a link may stand alone.
         assert_eq!(

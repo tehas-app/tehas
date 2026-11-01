@@ -38,11 +38,9 @@ fn compose(rec: &Value) -> (Value, String) {
 }
 
 #[test]
-fn the_links_rule_is_the_one_of_the_shell() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../lib/attachments.sh");
-    let shell = fs::read_to_string(path).unwrap();
-    let held = shell.lines().find(|l| l.contains("def links:")).unwrap();
-    assert!(held.contains(&LINK_RULE.replace('\\', "\\\\")));
+fn the_links_rule_is_the_one_of_the_dispatcher() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../dispatch/src/text.rs");
+    assert!(fs::read_to_string(path).unwrap().contains(LINK_RULE));
 }
 
 #[test]

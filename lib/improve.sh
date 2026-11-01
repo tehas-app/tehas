@@ -13,8 +13,6 @@
 #
 # Source lib/config.sh and call tehas_load first.
 
-# shellcheck source=lib/attachments.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/attachments.sh"
 # shellcheck source=lib/store.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/store.sh"
 
