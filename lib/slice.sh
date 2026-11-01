@@ -6,7 +6,7 @@
 # settings must not.
 #
 # A command that starts a container asks `tehas-cycle sandbox limits`, which
-# keeps the same rules. With no console there is no slice: not ok, and no room.
+# keeps the same rules. With no console there is no slice: not ok.
 
 tehas_slice_console=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/libexec/console
 tehas_slice_none="no console beside this command at $tehas_slice_console, run install.sh"
@@ -25,20 +25,4 @@ tehas_slice_ok() {
   out=$(_tehas_slice ok) || rc=1
   eval "$out"
   return "$rc"
-}
-
-tehas_slice_room() {
-  _tehas_slice room "$@" || echo "0 0 ${TEHAS_SLICE_MAX:-0} 0 unreadable $tehas_slice_none"
-}
-
-# shellcheck disable=SC2034  # the caller reads what this sets
-tehas_slice_pressure() {
-  local out
-  TEHAS_SLICE_WHY=""
-  if out=$(_tehas_slice pressure); then
-    echo "$out"
-    return 0
-  fi
-  TEHAS_SLICE_WHY=${out:-$tehas_slice_none}
-  return 1
 }
