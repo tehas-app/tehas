@@ -523,8 +523,74 @@ t_eq "$got" "png:image jpg:image jpeg:image gif:image webp:image svg:image avif:
 
 t_case "without the attachment checker a cycle given an issue's files does not start"
 mv "$T/home/tehas/libexec/attach" "$T/attach.away"
+rm -f "$T"/calls/*
 NET_ZIP=$zips/good.zip zip_case "$zipdir" "$zip_body"
-t_eq "$t_out" "FAILED the issue's files could not be checked (attach: absent: $T/home/tehas/libexec/attach is not an executable file)"
+t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
+t_lacks "$t_out" "$T"
+t_eq "$(t_calls curl)" ""
+
+t_case "without the checker an issue that links nothing gets a manifest that gives nothing"
+zip_case "$zipdir" "No link here, and https://github.com/acme/widget/pull/3 is no attachment"
+t_eq "$t_out" ""
+t_eq "$(cd "$zipdir" && find . -mindepth 1)" "./manifest.json"
+t_eq "$(jq -c . "$zipdir/manifest.json")" '{"images":[],"files":[],"leftOut":[],"issue":7,"approval":null,"leftOutMore":0}'
+t_run "$lib; tehas_issue_images_said $zipdir cycle 1"
+t_eq "$t_rc$t_out" "1"
+
+t_case "without the checker an instance that gives no files is given no files list"
+zip_case "$zipdir" "No link here" TEHAS_WORK_FILES=0
+t_eq "$t_out" ""
+t_eq "$(jq -c 'keys_unsorted' "$zipdir/manifest.json")" '["images","leftOut","issue","approval","leftOutMore"]'
+
+t_case "without the checker every shape of a link stops the start"
+for link in "https://github.com/user-attachments/assets/1" "https://github.com/user-attachments/files/2/a.md" \
+  "https://github.com/acme/widget/assets/3/a.png" "https://github.com/acme/widget/files/4/a.zip" \
+  "https://user-images.githubusercontent.com/5/a.png"; do
+  zip_case "$zipdir" "See $link"
+  t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
+done
+
+t_case "without the checker an issue that cannot be read stops the start"
+t_run "$lib; TEHAS_REPO=acme/widget tehas_issue_images 7 $zipdir approved '' '[1]' || echo \"FAILED \$image_why\""
+t_eq "$t_out" "FAILED the issue could not be read for its images"
+
+t_case "without the checker a record decides what there is to give, not the body"
+record "no link"
+t_run "$lib; tehas_issue_images 7 $zipdir approved $T/record.json '{\"body\":\"no link\"}' || echo \"FAILED \$image_why\""
+t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
+jq '.links = []' "$T/record.json" >"$T/m" && mv "$T/m" "$T/record.json"
+t_run "$lib; tehas_issue_images 7 $zipdir approved $T/record.json '{\"body\":\"$anyzip\"}' || echo \"FAILED \$image_why\""
+t_eq "$t_out" ""
+t_eq "$(jq -c .approval "$zipdir/manifest.json")" '{"at":"2026-10-14T00:00:00Z","by":"alice","how":"label"}'
+
+t_case "without the checker a kept manifest has nothing to compare with an issue that gives nothing"
+cp "$zipdir/manifest.json" "$T/kept.json"
+jq '.images = [{link: "L", sha256: "aa"}]' "$zipdir/manifest.json" >"$T/kept.json"
+t_run "$lib; tehas_issue_images_changed $T/kept.json $zipdir || echo \"FAILED \$image_why\""
+t_eq "$t_rc$t_out" "0"
+rm -f "$T/kept.json"
+
+t_case "without the checker a record with comment links or the words of a retry stops the start"
+for edit in '.comment_links = [{link: "L"}]' '.retry_context = [{source: "refresh", text: "t"}]' 'del(.at) | .links = 7'; do
+  jq "$edit" "$T/record.json" >"$T/edited.json"
+  t_run "$lib; tehas_issue_images 7 $zipdir approved $T/edited.json '{}' || echo \"FAILED \$image_why\""
+  t_eq "$t_out" "FAILED the issue's files could not be checked (the attachment checker is not installed)"
+done
+
+t_case "without the checker a reply that links nothing goes on, and one that links a file stops"
+mkdir -p "$T/session"
+echo '{"images":[],"leftOut":[]}' >"$T/session/manifest.json"
+printf 'The operator replied on the issue:\n\nNo link, only https://example.com/x.png\n' >"$T/reply.md"
+answer="$lib; tehas_answer_images $T/session $T/reply.md 4003 || { echo \"FAILED \$image_why\"; exit 1; }"
+t_run "$answer"
+t_eq "$t_rc$t_out" "0"
+printf 'See %s\n' "$anyzip" >"$T/reply.md"
+t_run "$answer"
+t_eq "$t_rc $t_out" "1 FAILED the issue's files could not be checked (the attachment checker is not installed)"
+rm -f "$T/reply.md"
+t_run "$answer"
+t_eq "$t_rc" 1
+t_lacks "$t_out" "$T"
 mv "$T/attach.away" "$T/home/tehas/libexec/attach"
 
 # attach_answers <rc>: the installed program exits <rc> for unpack and is the

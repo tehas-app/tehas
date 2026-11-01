@@ -89,13 +89,30 @@ tehas_record_is_file() {
   [ -f "$1" ] && [ ! -L "$1" ]
 }
 
+# With no libexec/attach nothing can be checked, so a text that links a file
+# stops and one that links nothing goes on. The reason may be put on the issue,
+# so it names no host path.
+tehas_no_attach="the issue's files could not be checked (the attachment checker is not installed)"
+_tehas_has_attach() {
+  [ -n "${TEHAS_HOME:-}" ] && [ -f "$TEHAS_HOME/libexec/attach" ] && [ -x "$TEHAS_HOME/libexec/attach" ]
+}
+
+# Wider than LINK_RULE of console/attach/src/given.rs, so no link it takes is
+# missed. The text may be JSON, which may escape a slash.
+_tehas_may_link() { # <text>
+  case ${1//\\/} in
+    *https://github.com/*/assets/* | *https://github.com/*/files/* | *https://user-images.githubusercontent.com/*) return 0 ;;
+  esac
+  return 1
+}
+
 # tehas_attach <verb> [args...]: run libexec/attach, within 60 s. Its answer is
 # in $tehas_attach_out after a 0.
 tehas_attach_out=""
 tehas_attach() { # <verb> [args...]
   local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach out
   tehas_attach_out=""
-  { [ -n "${TEHAS_HOME:-}" ] && [ -f "$bin" ] && [ -x "$bin" ]; } || return 1
+  _tehas_has_attach || return 1
   out=$(timeout -k 2 60 "$bin" "$@" </dev/null 2>&1) || return 1
   [[ $out != *$'\n'* ]] || return 1
   jq -e --arg v "$verb" '.api == 1 and .ok == true and .verb == $v' <<<"$out" >/dev/null 2>&1 || return 1
@@ -110,10 +127,6 @@ tehas_take_out=""
 _tehas_take() { # <verb> [args...]
   local verb=$1 bin=${TEHAS_HOME:-}/libexec/attach rc
   tehas_take_out=""
-  if [ -z "${TEHAS_HOME:-}" ] || [ ! -f "$bin" ] || [ ! -x "$bin" ]; then
-    image_why="the issue's files could not be checked (attach: absent: $bin is not an executable file)"
-    return 1
-  fi
   tehas_take_out=$(GH_TOKEN=${GH_TOKEN:-} "$bin" "$@" --attach "$bin" --images "${TEHAS_WORK_IMAGES:-1}" \
     --files "${TEHAS_WORK_FILES:-0}" --zips "${TEHAS_WORK_ZIPS:-0}")
   rc=$?
@@ -125,9 +138,33 @@ _tehas_take() { # <verb> [args...]
   [ -z "$image_why" ]
 }
 
+# tehas_issue_images with no program: <dir> with a manifest that gives nothing,
+# when there is nothing to give. A record's links and the words of a retry are
+# what a start with one is given, else the links of the issue's text.
+_tehas_gives_nothing() { # <issue> <dir> [record] [issue]
+  local data=${4:-} approval=null files=""
+  if [ -n "${3:-}" ]; then
+    image_why=$tehas_no_attach
+    approval=$(jq -ec 'select((.links // []) + (.comment_links // []) + (.retry_context // []) == []) | {at, by, how}' \
+      "$3" 2>/dev/null) || return 1
+  else
+    image_why="the issue could not be read for its images"
+    [ -n "$data" ] || { data=$(gh api "repos/$TEHAS_REPO/issues/$1" 2>/dev/null) || return 1; }
+    jq -e 'type == "object" and (.body == null or (.body | type) == "string")' <<<"$data" >/dev/null 2>&1 || return 1
+    image_why=$tehas_no_attach
+    ! _tehas_may_link "$data" || return 1
+  fi
+  [ "${TEHAS_WORK_FILES:-0}" != 1 ] || files=$'  "files": [],\n'
+  image_why="the directory for the issue's images could not be made"
+  rm -rf "$2" && mkdir -p "$2" && chmod 755 "$2" || return 1
+  printf '{\n  "images": [],\n%s  "leftOut": [],\n  "issue": %s,\n  "approval": %s,\n  "leftOutMore": 0\n}\n' \
+    "$files" "$1" "$approval" >"$2/manifest.json" && chmod 644 "$2/manifest.json"
+}
+
 # The links as the approval saw them. tehas-cycle start-check held the words of
 # this answer to that approval before this was called.
 tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
+  _tehas_has_attach || { _tehas_gives_nothing "$1" "$2" "${4:-}" "${5:-}"; return; }
   _tehas_take issue "$1" "$2" --approved "${3:-}" --record "${4:-}" --repo "${TEHAS_REPO:-}" \
     --comments "${TEHAS_WORK_COMMENTS:-0}" --allowed "${TEHAS_ALLOWED_LABELERS:-}" \
     --millwright "${TEHAS_MILLWRIGHT_LOGIN:-}" <<<"${5:-}"
@@ -135,8 +172,15 @@ tehas_issue_images() { # <issue> <dir> [approved] [record] [issue]
 
 # shellcheck disable=SC2034  # the caller reads what this sets
 tehas_answer_images() { # <dir> <answer file> <comment id>
+  local reply
   answer_new=""
   answer_left=""
+  if ! _tehas_has_attach; then
+    image_why=$tehas_no_attach
+    reply=$(cat -- "$2" 2>/dev/null) || return 1
+    ! _tehas_may_link "$reply"
+    return
+  fi
   _tehas_take answer "$1" "$2" "$3" </dev/null || return 1
   answer_new=$(jq -r .new <<<"$tehas_take_out")
   answer_left=$(jq -r .left <<<"$tehas_take_out")
@@ -152,6 +196,10 @@ tehas_answer_images() { # <dir> <answer file> <comment id>
 tehas_issue_images_changed() { # <kept manifest> <dir>
   local link
   [ -f "$1" ] && [ ! -L "$1" ] || return 0
+  # Nothing given has no bytes to hold to the kept manifest.
+  if ! _tehas_has_attach && jq -e '.images + (.files // []) == []' "$2/manifest.json" >/dev/null 2>&1; then
+    return 0
+  fi
   tehas_attach changed "$1" "$2/manifest.json" || {
     image_why="the kept manifest could not be compared"
     return 1

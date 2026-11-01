@@ -506,10 +506,10 @@ and of a planning reply, judges who may attach them and how much is given,
 reads their bytes, unpacks their zips, and composes what a cycle is told it was
 given (see [Tools](/tools)). It holds `GH_TOKEN` only to pass it to `gh` and to
 `curl`, on `curl`'s standard input; what was fetched is read by the same program
-run as a child with no environment but `PATH`. Without it a cycle on an instance
-that gives attachments does not start, whether or not its issue links any, a
-cycle given none says it could not read the record, and the Protolab leaves a
-zip out. A host installed from a release tarball has neither
+run as a child with no environment but `PATH`. Without it a start or a planning
+reply that links a file stops, with a reason that names no host path, one that
+links nothing goes on with a manifest that gives nothing, a cycle given none says
+it could not read the record, and the Protolab leaves a zip out. A host installed from a release tarball has neither
 `cargo` nor `console/`: its programs are the ones the release packed
 ([Releases](/tools#releases)), and a release without a store installs only on a
 host that has one. On a host with none, `--check` says so on a `Store: REFUSED`
