@@ -54,11 +54,11 @@
 //!
 //! The lines and the object of tehas status, see src/status.rs.
 //!
-//!   console dev words|run <arguments> | table
+//!   console dev table
 //!   console review main|table
 //!
-//! What tehasbot review decides and how it runs its container, see
-//! src/review.rs.
+//! The row of the table of runs of a manual session, see src/dev.rs, and what
+//! tehasbot review decides and how it runs its container, see src/review.rs.
 //!
 //!   console clean run ...
 //!
@@ -159,7 +159,7 @@
 //! The product against the contract, and the files it is missing proposed in a
 //! pull request, see src/product.rs.
 //!
-//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
+//!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|dev|dev-login|mcp ...
 //!   console tehasbot health|status|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
@@ -176,6 +176,7 @@
 //! output cannot be written, 2 usage.
 
 mod api;
+mod attach;
 mod clean;
 mod commands;
 mod dev;

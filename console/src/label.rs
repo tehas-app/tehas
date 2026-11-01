@@ -58,7 +58,8 @@ fn events_given() -> Option<Vec<Event>> {
     read_events(&text).ok()
 }
 
-fn is_allowed(issue: &str, label: &str) -> u8 {
+/// `console label allowed`, for a command of this program.
+pub fn allowed_issue(issue: &str, label: &str) -> u8 {
     let Ok(number) = issue.parse::<u64>() else {
         return 2;
     };
@@ -100,7 +101,7 @@ pub fn main(given: &[String]) -> u8 {
     let words: Vec<&str> = given.iter().map(String::as_str).collect();
     let (rc, out) = match words.as_slice() {
         ["actor", label] => actor(events_given(), label),
-        ["allowed", issue, label] => (is_allowed(issue, label), String::new()),
+        ["allowed", issue, label] => (allowed_issue(issue, label), String::new()),
         ["pause-holds"] => holds(events_given()),
         _ => {
             eprintln!("{USAGE}");

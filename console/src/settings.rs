@@ -21,6 +21,9 @@
 //!   console settings words <name>
 //!
 //! The words a setting takes, for what ships to be held against them.
+//!
+//! [`loaded`] is tehas_load and tehas_require for a command with no shell before
+//! it.
 
 use std::env;
 use std::ffi::OsStr;
@@ -28,6 +31,7 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::process::{Command, Stdio};
+use tehas_core::sandbox;
 use tehas_core::settings::load::{self, Host, Sourced, Vars};
 use tehas_core::settings::rules::{self, Trees};
 
@@ -125,6 +129,53 @@ fn run_load(uid: &str, bash: &str) -> u8 {
     }
 }
 
+// tehas_require: the first of `names` that is not set, or holds no value of its
+// rule. A name set to spaces only counts as not set.
+fn refusal(names: &[&str], vars: &Vars) -> Option<String> {
+    let bad = load::bad(vars);
+    let dir = vars.text("TEHAS_INSTANCE_DIR");
+    let file = format!("{}/instance.env", if dir.is_empty() { "?" } else { &dir });
+    names.iter().find_map(|name| {
+        if vars.text(name).trim_matches(' ').is_empty() {
+            return Some(format!("tehas: {name} is not set (see {file})"));
+        }
+        let (_, reason) = bad.iter().find(|(bad, _)| bad == name)?;
+        Some(format!("tehas: {name} is not valid: {reason} (see {file})"))
+    })
+}
+
+/// tehas_load then tehas_require on this process's own environment, so all it
+/// starts is given the settings. Call it before any thread. Err is the status,
+/// 78, the line said on standard error.
+pub fn loaded(names: &[&str]) -> Result<(), u8> {
+    let start = Vars::new(env::vars_os().map(|(k, v)| (k.into_vec(), v.into_vec())));
+    let mut vars = start.clone();
+    let mut host = Real {
+        bash: "bash".to_string(),
+    };
+    let uid = sandbox::user();
+    let uid = uid.split(':').next().unwrap_or_default();
+    let got = load::load(&mut vars, &mut host, uid);
+    let (dropped, set) = load::changes(&start, &vars);
+    for name in dropped {
+        env::remove_var(OsStr::from_bytes(name));
+    }
+    for (name, value) in set {
+        env::set_var(OsStr::from_bytes(name), OsStr::from_bytes(value));
+    }
+    if let Err(line) = got {
+        eprintln!("tehas: {line}");
+        return Err(REFUSED);
+    }
+    match refusal(names, &vars) {
+        Some(line) => {
+            eprintln!("{line}");
+            Err(REFUSED)
+        }
+        None => Ok(()),
+    }
+}
+
 fn why(name: &str, value: &str) -> Option<String> {
     let var = |k: &str| env::var(k).unwrap_or_default();
     let (home, instance, work_repo) = (
@@ -205,6 +256,31 @@ mod tests {
             ]
         );
         assert!(pairs(b"").is_empty());
+    }
+
+    #[test]
+    fn a_required_setting_is_set_and_holds_a_value_of_its_rule() {
+        let vars = |list: &[(&str, &str)]| {
+            Vars::new(
+                list.iter()
+                    .map(|(k, v)| (k.as_bytes().to_vec(), v.as_bytes().to_vec())),
+            )
+        };
+        let good = vars(&[("TEHAS_REPO", "acme/widget")]);
+        assert_eq!(refusal(&["TEHAS_REPO"], &good), None);
+        for empty in ["", "   "] {
+            assert_eq!(
+                refusal(&["TEHAS_REPO"], &vars(&[("TEHAS_REPO", empty)])).unwrap(),
+                "tehas: TEHAS_REPO is not set (see ?/instance.env)"
+            );
+        }
+        let bad = vars(&[("TEHAS_REPO", "no"), ("TEHAS_INSTANCE_DIR", "/i")]);
+        let said = refusal(&["TEHAS_REPO"], &bad).unwrap();
+        assert!(
+            said.starts_with("tehas: TEHAS_REPO is not valid: "),
+            "{said}"
+        );
+        assert!(said.ends_with(" (see /i/instance.env)"), "{said}");
     }
 
     #[test]

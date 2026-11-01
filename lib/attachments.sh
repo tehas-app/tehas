@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Files attached to an issue, for tehas work, tehas plan and tehas dev: the way
+# Files attached to an issue, for tehas work and tehas plan: the way
 # to the program $TEHAS_HOME/libexec/attach (console/attach). It holds which
 # links count, who may attach, how much an issue is given and what a file is,
 # and it fetches. Here are the settings it is passed and what a caller reads.
