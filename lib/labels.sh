@@ -24,9 +24,6 @@
 #   tehas_allowed_labeler <login>   0 when <login> is one of
 #                                   TEHAS_ALLOWED_LABELERS. An empty name is
 #                                   nobody and is never allowed.
-#   tehas_label_denied <issue> <label> [<account>]
-#                                   one line naming the issue, the label and the
-#                                   account that applied it. The caller logs it.
 #   tehas_label_allowed <issue> <label>
 #                                   asks GitHub for the issue's events in
 #                                   TEHAS_REPO: 0 when the account that applied
@@ -79,10 +76,6 @@ tehas_allowed_labeler() {
     *" $1 "*) return 0 ;;
     *) return 1 ;;
   esac
-}
-
-tehas_label_denied() {
-  printf '#%s: %s was applied by %s, not an allowed account' "$1" "$2" "'${3:-unknown}'"
 }
 
 tehas_label_allowed() { # <issue> <label>

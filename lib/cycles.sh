@@ -24,10 +24,6 @@
 #   tehas_rukas_reads_images      whether that pi-rukas reads the issue image
 #                                 manifest: 1, 0, or nothing when the image
 #                                 does not say
-#   tehas_index_state <commit>    the code index for that commit: current when
-#                                 the host's index holds a database and its
-#                                 record names the commit, failed when the
-#                                 indexer last failed at it, due otherwise
 #
 # Needs TEHAS_HOME. Reads only: it takes each lock for an instant and lets go,
 # on a descriptor of the shell's, so no probe runs `true`.
@@ -185,14 +181,3 @@ tehas_names_issue() {
   or ((.body // "") | tostring | test("(?i)\\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\\s+#\($n)([^0-9]|$)"));'
 }
 
-tehas_index_state() {
-  # The directory is tehas_index_dir of lib/sandbox.sh. Only a database counts
-  # as index data, not the indexer's configuration.
-  local dir=$TEHAS_HOME/state/index f
-  if [ "$(jq -r '.commit // empty' "$TEHAS_HOME/state/index.json" 2>/dev/null)" = "$1" ]; then
-    for f in "$dir"/*.db; do
-      [ -f "$f" ] && [ "$f" != "$dir/_config.db" ] && { echo current; return 0; }
-    done
-  fi
-  if [ "$(head -c 64 "$TEHAS_HOME/state/index.failed" 2>/dev/null)" = "$1" ]; then echo failed; else echo due; fi
-}

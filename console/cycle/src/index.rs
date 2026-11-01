@@ -337,7 +337,6 @@ enum State {
     Due,
 }
 
-// lib/cycles.sh keeps the same reading for the bash poll: tehas_index_state.
 fn state(dir: &Path, marker: &Path, failed: &Path, commit: &str) -> State {
     if jq_raw(record_of(marker).get("commit"), "") == commit
         && files(dir)
