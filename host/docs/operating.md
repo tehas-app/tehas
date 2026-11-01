@@ -554,21 +554,49 @@ The shadow is for a host that runs the bash poll (`TEHAS_DISPATCHER=bash`).
 Beside the Rust poll, which is the default, it only sets the Rust's decision
 beside itself.
 
+### The report in Rust
+
+`TEHAS_CYCLE_REPORT=rust` in `instance.env` has `tehas-cycle report` report a
+cycle. `bash`, or leaving the setting out, is the report of `libexec/cycle`. A
+value of neither is exit 78. The switch is read when a cycle starts, with the
+rest of its settings, so a cycle already running reports as the line said then.
+Roll back by taking the line out: cycles that start after that report in bash,
+and one already running does not change. A host without `libexec/tehas-cycle`
+reports in bash, and what follows the end does not run (see
+[The cycle's shadow](#the-cycles-shadow)).
+
+The Rust report makes the same writes in the same order, with the same tries:
+three, and one bounded try after a stop. The differences:
+
+- Every write to GitHub goes through the action journal, as a poll's does, and
+  each try is a row of its own. The row names the cycle. A poll leaves the open
+  rows of a cycle whose lock is held, and settles the rows of one that is gone.
+  A store that will not record a write, after three tries, does not stop it:
+  the report logs `WARN: the journal will not record the report of #N` once, and
+  that write and the rest of the report's writes go to GitHub with no row, as
+  the bash's do. A poll's write in that case is not made, as its next read
+  decides again; nothing decides a report again.
+- Bodies go to gh on standard input, not as an argument.
+- A call to GitHub has a bound of two minutes. The bash has none.
+
+While it reports, the shadow below does not run.
+
 ### The cycle's shadow
 
 `tehas-cycle`, a cycle's report written in Rust, decides beside each report
 of `tehasbot cycle` while `~/tehas/state/cycle-shadow.on` is there, and acts
 on nothing on GitHub or in the state store. Just before the cycle reads what
-tehas work left, the shadow reads the same files, the cycle's record and its
-approval, asks GitHub once for the bot's pull requests on the branch (and,
-for a handoff, the issue's labels), decides, and keeps its report in
+tehas work left, the shadow reads the same files, the cycle's record, its
+approval and the issue's history, asks GitHub once for the bot's pull requests
+on the branch (for a handoff, the issue's labels too, and for a develop
+timeout the issue itself), decides, and keeps its report in
 `~/tehas/state/cycles/shadow-<issue>.json`. It has 60 seconds. The bash
 report then keeps what it did beside it: each call of `gh`, the park and the
 end it put on record. After the report the shadow sets the two side by side
 and adds one line to `~/tehas/logs/cycle-shadow.log`:
 
 ```json
-{"time":"2026-10-26T18:00:00Z","issue":7,"attempt":1,"same":true,"differs":[],"rust_log":[],"done":"done #7 rc=20 status=aborted step=develop minutes=12 pr=none oom_kills=0 forks_refused=0","seconds":1.4}
+{"time":"2026-10-26T18:00:00Z","issue":7,"attempt":1,"same":true,"differs":[],"rust_log":[],"done":"done #7 rc=20 status=aborted step=develop minutes=12 pr=none oom_kills=0 forks_refused=0","arm":"parked","seconds":1.4}
 ```
 
 - **same**: the two made the same writes to GitHub in the same order, and put
@@ -578,15 +606,21 @@ and adds one line to `~/tehas/logs/cycle-shadow.log`:
 - **differs**: which of `end`, `park` and `writes` differed, each with both
   sides on the line.
 - **rust_log**: the warnings the shadow's report would log.
+- **arm**: the way the report ended: `merged`, `merged-outside`, `prs-unread`,
+  `merged-claimed`, `awaiting-merge`, `handoff-parked`, `issue-closed`,
+  `pr-closed`, `died-with-pr`, `parked`, `never-ran` or `provider`.
 
 A report that differed is kept whole, with what the bash did, in
 `~/tehas/state/cycle-shadow/`, the newest 50. GitHub can answer the shadow
 and the bash differently in the seconds between their asks, so one
 difference is not yet a fault; the same one cycle after cycle is.
 `jq -c 'select(.same | not)' ~/tehas/logs/cycle-shadow.log` lists them. `touch
-~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it. A
-host where `libexec/tehas-cycle` is not installed, or the file is not there,
-reports as before; the shadow failing never fails the report.
+~/tehas/state/cycle-shadow.on` starts it, and removing the file stops it.
+Without that file the bash report runs alone, and the shadow failing never
+fails the report. A host needs `libexec/tehas-cycle` all the same: without it
+the cycle still reports and ends on record, with one line `WARN: what follows
+the end of #N did not run`, and the live view, the run in the analytics, the
+improvement record, the clean, the status and the next poll do not happen.
 
 ## 4. Review and merge
 
@@ -672,9 +706,8 @@ result](/troubleshooting).
 An issue never ends a cycle with both labels.
 
 A cycle that reaches its deadline parks with the cap `deadline`. tehas gives
-pi-rukas a deadline a quarter of `TEHAS_WORK_TIMEOUT` before the end (at least
-one run of the gate and the handoff's 8 minutes): after it, the cycle starts no new step and
-hands off with its branch and pull request, instead of being stopped in the
+pi-rukas a deadline the handoff's 8 minutes before the end of
+`TEHAS_WORK_TIMEOUT`: after it, the cycle starts no new step and hands off with its branch and pull request, instead of being stopped in the
 middle of one.
 
 To try again after fixing the cause (often: make the issue clearer), tick

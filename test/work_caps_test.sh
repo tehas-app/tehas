@@ -314,41 +314,30 @@ t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_BUDGET_MS"
 # A container of a 2048m ceiling runs one gate at a time.
 t_eq "$(after -e | grep '^PI_ENSEMBLE_VERIFY_CONCURRENCY')" "PI_ENSEMBLE_VERIFY_CONCURRENCY=1"
-# Six hours less a quarter of them, in milliseconds since the epoch.
+# Six hours less the handoff allowance, in milliseconds since the epoch.
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
 t_eq "$(after -e | grep -c '^PI_ENSEMBLE_CYCLE_DEADLINE')" 1
-t_eq "$([ "$deadline" -ge $(((before + 16200) * 1000)) ] && [ "$deadline" -le $(((before + 16200 + 60) * 1000)) ] && echo in-range)" in-range
+t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
 
-t_case "the margin before the time limit holds one run of the gate and the handoff"
+t_case "the deadline does not grow with the run of the gate"
 caps_fresh
 t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=7200 TEHAS_VERIFY_TIMEOUT=2400
 before=$(date +%s)
 t_run "$work 7"
 deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
-# 7200 - (2400 + 480)
-t_eq "$([ "$deadline" -ge $(((before + 4320) * 1000)) ] && [ "$deadline" -le $(((before + 4320 + 60) * 1000)) ] && echo in-range)" in-range
-t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
-
-t_case "a runner that bounds its steps by the deadline gets the limit less the handoff allowance"
-caps_fresh
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9
-jq '.features.cycleDeadlineHandoffAllowance = true' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
-before=$(date +%s)
-t_run "$work 7"
-deadline=$(after -e | sed -n 's/^PI_ENSEMBLE_CYCLE_DEADLINE=//p')
-# 21600 - 480
-t_eq "$([ "$deadline" -ge $(((before + 21120) * 1000)) ] && [ "$deadline" -le $(((before + 21120 + 60) * 1000)) ] && echo in-range)" in-range
+# 7200 - 480
+t_eq "$([ "$deadline" -ge $(((before + 6720) * 1000)) ] && [ "$deadline" -le $(((before + 6720 + 60) * 1000)) ] && echo in-range)" in-range
 t_eq "$(after -e | grep '^PI_ENSEMBLE_HANDOFF_TIMEOUT_MS')" "PI_ENSEMBLE_HANDOFF_TIMEOUT_MS=480000"
 caps_good
 
 t_case "a time limit with no room for a deadline gives none, says so, and does not need the feature"
 caps_fresh
-t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=600 TEHAS_VERIFY_TIMEOUT=120 TEHAS_CHILD_TIMEOUT=600
+t_instance "${T_MINIMAL[@]}" PI_ENSEMBLE_HOST_ALIASES=models:192.0.2.9 TEHAS_WORK_TIMEOUT=480 TEHAS_VERIFY_TIMEOUT=120 TEHAS_CHILD_TIMEOUT=480
 jq 'del(.features.cycleDeadline)' "$T/caps.json" >"$T/caps.new" && mv "$T/caps.new" "$T/caps.json"
 t_run "$work 7"
 t_lacks "$t_out" "does not support"
-t_contains "$t_out" "the time limit of 600s leaves no room for a deadline before it, the cycle has none"
+t_contains "$t_out" "the time limit of 480s leaves no room for a deadline before it, the cycle has none"
 t_lacks "$(after -e)" "PI_ENSEMBLE_CYCLE_DEADLINE"
 caps_good
 caps_fresh

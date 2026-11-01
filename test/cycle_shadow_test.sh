@@ -12,8 +12,6 @@ home=$T/home/tehas
 shadow_log=$home/logs/cycle-shadow.log
 # shadow_on: tehas-cycle installed, and the shadow asked for.
 shadow_on() {
-  t_cycle || { t_bad "no tehas-cycle: $t_cycle_why"; return 1; }
-  cp "$T_CYCLE" "$home/libexec/tehas-cycle"
   mkdir -p "$home/state"
   : >"$home/state/cycle-shadow.on"
 }
@@ -23,7 +21,6 @@ leftovers() { find "$state" -name 'shadow-7.*' -o -name '7.shadow*' 2>/dev/null 
 t_case "with the shadow off, nothing of it runs or is written"
 reset
 rm -f "$home/state/cycle-shadow.on"
-t_cycle && cp "$T_CYCLE" "$home/libexec/tehas-cycle"
 ended aborted develop
 t_run "$cycle 7"
 t_eq "$t_rc" 0
@@ -55,6 +52,19 @@ merged_pr
 t_run "$cycle 7"
 t_eq "$(jq -c '[.same, .differs]' "$shadow_log")" '[true,[]]'
 t_contains "$(t_calls gh)" "The change was merged: https://github.com/acme/widget/pull/9"
+t_eq "$(jq -r .arm "$shadow_log")" merged
+
+t_case "a park that repeats the one before it is decided alike, and the log names the arm"
+reset
+shadow_on
+ended aborted develop
+t_run "$cycle 7"
+ended aborted develop
+rm -f "$shadow_log"
+t_run "$cycle 7"
+t_eq "$t_rc" 0
+t_contains "$(t_calls gh)" "This park repeats the one before it"
+t_eq "$(jq -c '[.same, .differs, .arm]' "$shadow_log")" '[true,[],"parked"]'
 
 t_case "a report that differs is logged with both sides and kept for a person"
 reset
