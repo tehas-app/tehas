@@ -139,6 +139,15 @@ pub fn key_names(models: &Value) -> Vec<String> {
 /// Every key is a word or a set token. Why not is the message for standard
 /// error.
 pub fn keys_ok(models: &Value, file: &str, set: impl Fn(&str) -> bool) -> Result<(), String> {
+    // `keys` reads only a map, so any other shape would pass unread.
+    if models
+        .get("providers")
+        .is_some_and(|p| !p.is_object() && !p.is_null())
+    {
+        return Err(format!(
+            "models.json: providers is not a map of provider names (see {file})"
+        ));
+    }
     if let Some((provider, _)) =
         keys(models).find(|(_, k)| !names_a_token(k) && k.contains(['$', '!']))
     {
@@ -512,6 +521,25 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn providers_of_another_shape_are_refused_unread() {
+        for providers in [
+            json!([{"apiKey": "$GH_TOKEN"}]),
+            json!([{"apiKey": "unused"}]),
+            json!([]),
+            json!(7),
+            json!("main"),
+        ] {
+            assert_eq!(
+                keys_ok(&json!({"providers": providers}), "f", |_| true),
+                Err("models.json: providers is not a map of provider names (see f)".to_string()),
+                "{providers}"
+            );
+        }
+        assert_eq!(keys_ok(&json!({"providers": null}), "f", |_| false), Ok(()));
+        assert_eq!(keys_ok(&json!({}), "f", |_| false), Ok(()));
     }
 
     #[test]
