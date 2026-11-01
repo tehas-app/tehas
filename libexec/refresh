@@ -14,8 +14,9 @@
 # exactly one open issue carrying tehas:awaiting-merge or, after a handoff,
 # needs-human-attention, and not tehas:running, not the control issue, and are
 # the only open pull request that closes it; whose branch is in the
-# repository and that are no draft (lib/refresh.sh). Of those, the ones GitHub
-# says are CONFLICTING get a request, $TEHAS_HOME/state/refresh/<issue>.json:
+# repository and that are no draft (console/dispatch/src/decide/retry.rs). Of
+# those, the ones GitHub says are CONFLICTING get a request,
+# $TEHAS_HOME/state/refresh/<issue>.json:
 # {at, pr, head_sha, base_sha}. A request for the same pull request at the
 # same head keeps its time. UNKNOWN is skipped this run, and a request it has
 # stays: GitHub computes the state lazily and the next run reads it again. Any
