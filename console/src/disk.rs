@@ -235,26 +235,11 @@ pub struct Instance {
     pub wait: u64,
 }
 
-/// One `KEY=value` line of instance.env, whose value may be quoted as shell
-/// does, or nothing when the line names another setting or holds no `=`.
-pub fn setting(text: &str, name: &str) -> Option<String> {
-    for line in text.lines() {
-        let line = line.trim().strip_prefix("export ").unwrap_or(line).trim();
-        let (key, value) = line.split_once('=')?;
-        if key.trim() != name {
-            continue;
-        }
-        let value = value.trim().trim_matches(|c| c == '"' || c == '\'');
-        return (!value.is_empty()).then(|| value.to_string());
-    }
-    None
-}
-
 /// A path of the instance's own: absolute, of the characters the settings
 /// allow, and no `..` in it. The reading that uses it only ever stats and
 /// walks it, but a path is not read on a guess.
 fn setting_path(text: &str, name: &str) -> Result<Option<PathBuf>, String> {
-    let Some(value) = setting(text, name) else {
+    let Some(value) = tehas_core::env_file::value(text, name) else {
         return Ok(None);
     };
     let ok = value.len() > 1
@@ -284,14 +269,14 @@ impl Instance {
             // settings library exports TEHAS_HOME, so an empty one is a host
             // that named the home and got nothing for it.
             Some(from_env) => PathBuf::from(from_env),
-            None => setting(&text, "TEHAS_HOME")
+            None => tehas_core::env_file::value(&text, "TEHAS_HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| {
                     let home = std::env::var_os("HOME").unwrap_or_default();
                     PathBuf::from(home).join("tehas")
                 }),
         };
-        let wait = setting(&text, "TEHAS_DISK_WAIT")
+        let wait = tehas_core::env_file::value(&text, "TEHAS_DISK_WAIT")
             .and_then(|v| v.parse::<u64>().ok())
             .filter(|n| (1..=99).contains(n))
             .unwrap_or(10);
