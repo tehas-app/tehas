@@ -23,6 +23,7 @@ libc = "0.2"
 serde_json = "1"
 signal-hook = "0.3"
 tehas-core = { path = "core", features = ["mask"] }
+tehas-cycle = { path = "cycle" }
 
 # Line tables only, and no incremental data: a build of the workspace in the
 # dev and test profiles is about a third the size. Backtraces keep file and
