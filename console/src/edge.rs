@@ -16,8 +16,8 @@
 //! that it does not matter, and an old Docker is not asked to make anything.
 //!
 //! `check` is install.sh's: it changes nothing. `create` makes the network.
-//! `ensure` is tehasbot preview's: it makes a network Docker does not have,
-//! then checks.
+//! `ensure` is what tehasbot preview does: it makes a network Docker does not
+//! have, then checks.
 //!
 //! Exit, with the reason on standard output for 1, 2 and 3: 0 the network
 //! keeps the host out, or `create` made it; 1 it does not, or `create` failed;
@@ -137,7 +137,7 @@ fn docker_fault(docker: &mut impl FnMut(&[&str]) -> Option<String>) -> Option<St
 
 /// The four words of Docker's answer, split as `read` does: on blanks in the
 /// first line, what is left over staying in the last.
-fn words(said: &str) -> [&str; 4] {
+pub fn words(said: &str) -> [&str; 4] {
     let blank = [' ', '\t'];
     let mut rest = said.split('\n').next().unwrap_or("").trim_matches(blank);
     let mut found = [""; 4];
@@ -224,7 +224,14 @@ fn net_answer(
     }
 }
 
-fn docker(args: &[&str]) -> Option<String> {
+/// Why the network does not keep the host out, as `ensure` finds it: a network
+/// Docker does not have is made first.
+pub fn network_fault(network: &str) -> Option<String> {
+    let mut ask = docker;
+    ensure(&mut ask, network).1
+}
+
+pub fn docker(args: &[&str]) -> Option<String> {
     let out = Command::new("docker")
         .args(args)
         .stderr(Stdio::null())

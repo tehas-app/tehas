@@ -64,6 +64,16 @@ t_eq "$t_rc" 0
 t_contains "$t_out" "removed: $th/libexec/tidy"
 t_eq "$([ -e "$th/libexec/tidy" ] || echo gone)" "gone"
 
+t_case "the library of before the console did the edge's work goes the same way"
+echo "# old" >"$th/lib/edge.sh"
+t_run "$install --check"
+t_eq "$t_rc" 1
+t_contains "$t_out" "stale: $th/lib/edge.sh"
+t_run "$install"
+t_eq "$t_rc" 0
+t_contains "$t_out" "removed: $th/lib/edge.sh"
+t_eq "$([ -e "$th/lib/edge.sh" ] || echo gone)" "gone"
+
 t_case "while a poll holds the dispatcher's lock nothing is installed, and the next run removes them"
 old_layout
 mkdir -p "$th/state"

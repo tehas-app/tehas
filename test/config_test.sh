@@ -844,21 +844,6 @@ t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org TEHAS_PROTOLAB_URL=https:/
 t_run "$load && echo \"\$TEHAS_PROTOLAB_URL\""
 t_eq "$t_out" "https://proto.example.net"
 
-t_case "tehas_edge_name makes a name from the domain, and nothing else"
-t_instance "${T_MINIMAL[@]}" TEHAS_DOMAIN=example.org
-t_run "$load && tehas_edge_name uat 12 && tehas_edge_name lab 7 && tehas_edge_name uat 999999999"
-t_eq "$t_out" "uat-12.example.org
-lab-7.example.org
-uat-999999999.example.org"
-# A number is one to nine digits and does not start with a zero.
-for bad in "www 1" "uat 0" "uat 01" "uat x" "uat" "lab 1x" "lab -1" "uat 1234567890" "lab 1000000000" "uat 12345678901234567890"; do
-  t_run "$load; tehas_edge_name $bad; echo rc=\$?"
-  t_eq "$t_out" "rc=1"
-done
-t_instance "${T_MINIMAL[@]}"
-t_run "$load; tehas_edge_name uat 12; echo rc=\$?"
-t_eq "$t_out" "rc=1"
-
 t_case "an explicit host address is kept"
 t_instance "${T_MINIMAL[@]}" TEHAS_HOST_ADDR=192.0.2.7
 t_run "$load && echo \"\$TEHAS_HOST_ADDR\""
