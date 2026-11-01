@@ -43,7 +43,7 @@ and services run. Each of their commands is a script in `~/tehas/libexec`,
 installed from `libexec/` in the platform repository, or a verb of the console
 beside those scripts; the two commands only choose one and run it, and exit
 with its status. `tehas status` and `tehas disk` need no settings. `tehas
-state`, `limit`, `pause` and `analytics` and `tehasbot health` run under
+state`, `limit`, `pause`, `analytics` and `stop` and `tehasbot health` run under
 `libexec/with-settings`, which checks the arguments, loads the settings and
 hands over to the console. A command neither of them knows is exit 64 with the list on standard error. `tehas <command> --help`
 prints the same text as `tehas help <command>`.

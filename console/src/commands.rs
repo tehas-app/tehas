@@ -12,6 +12,7 @@
 //!   console tehas labels
 //!   console tehas resume
 //!   console tehas drain [--wait SECONDS] [--json]
+//!   console tehas stop <issue> [--keep-workspace]
 //!   console tehasbot health
 //!   console tehasbot top [--every]
 //!
@@ -28,7 +29,7 @@
 //!
 //! Exit: the status of the command; 64 usage.
 
-use crate::{api, disk, flags, health, labels, state, status, top};
+use crate::{api, disk, flags, health, labels, state, status, stop, top};
 use std::env;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -142,6 +143,7 @@ pub fn tehas(given: &[String]) -> u8 {
         "labels" => labels::main(rest),
         "resume" => flags::resume(rest),
         "drain" => flags::drain(rest),
+        "stop" => stop::main(rest),
         _ => {
             eprintln!("console tehas: no such command: {command}");
             64
@@ -160,6 +162,10 @@ pub fn tehasbot(given: &[String]) -> u8 {
     }
 }
 
+/// What `check` ends with when it was the whole answer, as a help text met
+/// among the arguments is: `libexec/with-settings` then ends 0 and loads nothing.
+const ANSWERED: u8 = 99;
+
 /// What can be said of the arguments before the settings are loaded. A
 /// command with no check here passes.
 pub fn check(given: &[String]) -> u8 {
@@ -173,6 +179,11 @@ pub fn check(given: &[String]) -> u8 {
         ["tehas", "labels"] => labels::words(rest),
         ["tehas", "resume"] => flags::resume_words(rest),
         ["tehas", "drain"] => flags::drain_words(rest).map(|_| ()),
+        ["tehas", "stop"] => match stop::parse(rest) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(ANSWERED),
+            Err(rc) => Err(rc),
+        },
         _ => Ok(()),
     };
     said.err().unwrap_or(0)
@@ -209,6 +220,7 @@ fn text(command: &str) -> Option<&'static str> {
         "resume" => include_str!("usage/resume.txt"),
         "state" => include_str!("usage/state.txt"),
         "status" => include_str!("usage/status.txt"),
+        "stop" => stop::USAGE,
         "top" => include_str!("usage/top.txt"),
         _ => return None,
     })
