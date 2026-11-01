@@ -141,7 +141,7 @@ carrier "$n"'\.stopped\b' 'stopped_marker=$state/$n.stopped' \
   'libexec/cycle console/src/stop.rs' \
   "tehas stop tells a running cycle it was stopped"
 carrier '\.cid\b' 'cid_file=$TEHAS_HOME/state/cycles/$issue.cid' \
-  'libexec/dev libexec/dispatch console/src/stop.rs libexec/work' \
+  'console/src/dev.rs libexec/dispatch console/src/stop.rs libexec/work' \
   "the container's id, for docker"
 carrier '\.manifest\.json\b' 'kept=$TEHAS_HOME/state/cycles/$issue.manifest.json' \
   'lib/attachments.sh console/src/export.rs console/src/stop.rs libexec/work' \
