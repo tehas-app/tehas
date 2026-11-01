@@ -12,5 +12,6 @@ pub mod plan;
 #[cfg(feature = "mask")]
 pub mod question;
 pub mod review;
+pub mod settings;
 pub mod slow;
 pub mod time;
