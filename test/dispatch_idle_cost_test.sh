@@ -49,8 +49,8 @@
 # those steps: it is the fixture of #736, which was written when the poll's
 # host commands were named on the case's own environment, before
 # test/dispatch_lib.sh began to name them for every case, and its environment
-# now says `TEHAS_STATUS_CMD=$T_ROOT/libexec/status` after the lib named the
-# test's stub. So this poll runs the real libexec/status whether the queue
+# now names a wrapper of the real `tehasbot status` after the lib named the
+# test's stub. So this poll runs the real status whether the queue
 # changed or not, and the figure is the status's own 169 processes plus the
 # poll's. That is why the number below is the figure and not the figure minus
 # what #871 took out: the ceiling is where the fixture's cost sits, and the
@@ -67,6 +67,8 @@ log=$T/home/tehas/state/github-writes.log
 t_console || t_bad "no console: $t_console_why"
 printf '#!%s\nexec "%s" tidy run "$@"\n' "$T_BASH" "$T_CONSOLE" >"$T/real-tidy"
 chmod +x "$T/real-tidy"
+printf '#!%s\nTEHAS_CONSOLE="%s" exec "%s/libexec/with-settings" tehasbot status\n' "$T_BASH" "$T_CONSOLE" "$T_ROOT" >"$T/real-status"
+chmod +x "$T/real-status"
 
 # The world of a host that has been running: <locks> lock files of issues this
 # host once ran, dated nothing so no rule has a reason to open them beyond
@@ -99,7 +101,7 @@ world() { # <locks> <shipped> <blocked>
   done
 }
 
-# One poll of that world, run as the poll really runs: the real libexec/status
+# One poll of that world, run as the poll really runs: the real tehasbot status
 # for the queue and the real console tidy run for the closed issues, both of which
 # the other dispatch tests stand in for. The control issue is paused, so the
 # poll ends before its queue and starts nothing.
@@ -107,7 +109,7 @@ idle_poll() {
   echo '{"labels":[{"name":"tehas:pause"}]}' >"$fx/control.json"
   echo '[{"event":"labeled","label":{"name":"tehas:pause"},"actor":{"login":"alice"}}]' >"$fx/events-1.json"
   T_ENV=(TEHAS_CYCLE_START_CMD=fake-start TEHAS_CYCLE_START_WAIT=2
-    TEHAS_STATUS_CMD="$T_ROOT/libexec/status" TEHAS_TIDY_CMD="$T/real-tidy"
+    TEHAS_STATUS_CMD="$T/real-status" TEHAS_TIDY_CMD="$T/real-tidy"
     TEHAS_INDEX_CMD=fake-index TEHAS_INDEX_START_CMD=fake-index-start
     TEHAS_PLAN_CMD=fake-plan TEHAS_PLAN_START_CMD=fake-plan-start "$slice_env")
   t_procs_reset

@@ -202,9 +202,9 @@ t_stub sleep '[ "$1" = 10 ] || PATH=/usr/bin:/bin exec sleep "$@"'
 # The real timeout, named once, for the stub of it below.
 t_real_timeout=$(command -v timeout || true)
 # Stands in for the real timeout, which sits around the calls of lib/store.sh,
-# lib/disk.sh, lib/slice.sh, lib/analytics.sh, lib/attachments.sh and
-# libexec/status, and around the poll's own git fetch, gh call, stop of a unit
-# and run of the low-priority gate. The commands a poll of these tests runs are
+# lib/disk.sh, lib/slice.sh, lib/attachments.sh and tehasbot status, and around
+# the poll's own git fetch, gh call, stop of a unit and run of the low-priority
+# gate. The commands a poll of these tests runs are
 # stubs, and a stub answers from a fixture: it runs no network, no daemon and
 # nothing that waits, so a bound around it guards nothing a test can hang on,
 # and the process that pays for that bound is the test's. Such a call is execed

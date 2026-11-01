@@ -90,7 +90,7 @@
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
-//! see src/epics.rs.
+//! see src/epics.rs. A run of tehasbot status calls this with a time limit.
 //!
 //!   console flags limit show|set|clear|read ...
 //!
@@ -116,8 +116,7 @@
 //!   console shipped page|query|answer|list|has|whole ...
 //!
 //! What closed an issue: the page and the GraphQL query of the read, and what its
-//! answer says, for tehasbot status, which makes the call to these verbs itself,
-//! see src/shipped.rs.
+//! answer says, see src/shipped.rs.
 //!
 //!   console tidy run [--dry-run]
 //!
@@ -147,7 +146,7 @@
 //! pull request, see src/product.rs.
 //!
 //!   console tehas status|disk|state|limit|pause|analytics|top|api|labels|resume|drain|stop|mcp ...
-//!   console tehasbot health|top|mcp
+//!   console tehasbot health|status|top|mcp
 //!   console check tehas|tehasbot <command> ...
 //!   console usage <command>
 //!
@@ -179,10 +178,13 @@ mod mcp;
 mod notice;
 mod now;
 mod plan;
+mod platform;
 mod pr_title;
 mod preview;
 mod product;
 mod protolab;
+mod publish;
+mod queue;
 mod render;
 mod review;
 mod setup;

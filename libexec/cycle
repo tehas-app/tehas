@@ -242,7 +242,9 @@ repo=$TEHAS_REPO
 # The cycle's workspace on the host; tehas work makes it under this name.
 workdir=$TEHAS_WORK_DIR-$issue
 work=${TEHAS_WORK_CMD:-$here/work}
-status_cmd=${TEHAS_STATUS_CMD:-$here/status}
+status_cmd=${TEHAS_STATUS_CMD:-$here/with-settings}
+status_args=()
+[ -n "${TEHAS_STATUS_CMD:-}" ] || status_args=(--status-arg tehasbot --status-arg status)
 console=${TEHAS_CONSOLE_CMD:-$here/console}
 # A pinned cycle runs its own copy.
 tc=${TEHAS_CODE:-$TEHAS_HOME}/libexec/tehas-cycle
@@ -473,7 +475,7 @@ trap '' TERM INT HUP
 [ "$signalled" = 0 ] || tries=1
 # The report in Rust, where the instance asks for it: the signals stay ignored
 # across the exec, and the lock stays held. Without the program bash reports.
-[ "${TEHAS_CYCLE_REPORT:-}" != rust ] || [ ! -x "$tc" ] || exec "$tc" report "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" --console "$console" --status-cmd "$status_cmd"
+[ "${TEHAS_CYCLE_REPORT:-}" != rust ] || [ ! -x "$tc" ] || exec "$tc" report "$issue" --attempt "$attempt" --rc "$rc" --started "$started" --signalled "$signalled" --by "$start_by" --how "$start_how" --approval-at "$approval_at" --requeued "$requeued" --console "$console" --status-cmd "$status_cmd" "${status_args[@]}"
 # The report's shadow (#256): tehas-cycle decides beside this report, from the
 # same files, while state/cycle-shadow.on is there. It never fails the report.
 ended=$EPOCHSECONDS mins=$(((ended - started) / 60))
@@ -1395,5 +1397,5 @@ else end_rc=70
 fi
 [ -z "$shadow" ] || timeout 60 "$tc" compare "$issue" >/dev/null 2>&1 || log "WARN: the report's shadow of #$issue could not be compared"
 # What follows the end, each step's failure a WARN line (tehas-cycle after).
-"$tc" after "$issue" < <(printf '%s\0' --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd") || log "WARN: what follows the end of #$issue did not run"
+"$tc" after "$issue" < <(printf '%s\0' --attempt "$attempt" --started "$started" --rc "$rc" --status "$status" --step "$step" --cap "$cap" --park-reason "$park_reason" --failure-kind "$failure_kind" --failure-cause "$failure_cause" --provider "$provider" --parked "$parked_now" --pr "${pr:-}" --by "$start_by" --how "$start_how" --approved "$approved" --image "$image_id" --image-built "$image_built" --rukas-image "$image_rukas" --oom "$kills" --forks "$forks" --reason "$reason" --build "$build" --signalled "$signalled" --workdir "$workdir" --console "$console" --status-cmd "$status_cmd" "${status_args[@]}") || log "WARN: what follows the end of #$issue did not run"
 exit "${end_rc:-0}"

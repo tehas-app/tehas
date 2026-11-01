@@ -439,7 +439,6 @@ files=(
   "shim/gh|$TEHAS_HOME/shim/gh|755"
   "lib/config.sh|$TEHAS_HOME/lib/config.sh|644"
   "lib/paths.sh|$TEHAS_HOME/lib/paths.sh|644"
-  "lib/analytics.sh|$TEHAS_HOME/lib/analytics.sh|644"
   "lib/attachments.sh|$TEHAS_HOME/lib/attachments.sh|644"
   "lib/history-lines.jq|$TEHAS_HOME/lib/history-lines.jq|644"
   "lib/history-listing.jq|$TEHAS_HOME/lib/history-listing.jq|644"
@@ -464,7 +463,6 @@ files=(
   # The measure of an issue body, read by the dispatcher and the analytics.
   "lib/sizing.sh|$TEHAS_HOME/lib/sizing.sh|644"
   "lib/questions.sh|$TEHAS_HOME/lib/questions.sh|644"
-  "lib/status.sh|$TEHAS_HOME/lib/status.sh|644"
   # How the commands run the state store, libexec/store.
   "lib/store.sh|$TEHAS_HOME/lib/store.sh|644"
   # The key a release signature is checked with. It is here so the copy an
@@ -532,7 +530,6 @@ for f in \
   refresh \
   review \
   setup \
-  status \
   update \
   with-settings \
   work; do
@@ -1202,6 +1199,7 @@ for f in \
   bin/tehas-status \
   bin/tehas-test \
   bin/tehas-work \
+  lib/analytics.sh \
   lib/describe.sh \
   lib/edge.sh \
   lib/private.sh \
@@ -1212,6 +1210,7 @@ for f in \
   lib/live.sh \
   lib/planning.sh \
   lib/refresh.sh \
+  lib/status.sh \
   libexec/disk \
   libexec/drain \
   libexec/energy \
@@ -1222,6 +1221,7 @@ for f in \
   libexec/pause \
   libexec/resume \
   libexec/state \
+  libexec/status \
   libexec/stop \
   libexec/summary \
   libexec/tidy \

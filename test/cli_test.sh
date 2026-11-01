@@ -218,7 +218,7 @@ t_run "$bot dispatch && $bot cycle 7 && $bot status && $bot health && $bot energ
 t_eq "$t_rc" 0
 t_eq "$(ran)" "dispatch
 cycle|7
-status
+with-settings|tehasbot|status
 with-settings|tehasbot|health
 console|energy|--every
 with-settings|tehasbot|top|--every
@@ -229,7 +229,7 @@ improve"
 t_case "tehasbot status writes the snapshot; it is not the script that prints"
 reset
 t_run "$bot status"
-t_eq "$(ran)" "status"
+t_eq "$(ran)" "with-settings|tehasbot|status"
 
 t_case "tehasbot alone and help print the usage; an unknown command is exit 64"
 reset
@@ -283,11 +283,11 @@ names=$("$T_ROOT/bin/tehasbot" help | sed -n 's/^  tehasbot \([a-z-]*\).*/\1/p' 
 t_eq "$names" "dispatch cycle status health energy top protolab preview improve refresh review clean mcp github-token "
 missing=""
 for name in $names; do
-  # health and top are verbs of the console.
+  # health, status and top are verbs of the console.
   script=$name
   # The sampler is a verb of the console, built by install.sh.
   [ "$name" = energy ] && continue
-  case "$name" in health | top | mcp) script=with-settings ;; esac
+  case "$name" in health | status | top | mcp) script=with-settings ;; esac
   [ -x "$T_ROOT/libexec/$script" ] || missing="$missing $name"
 done
 t_eq "$missing" ""

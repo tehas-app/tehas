@@ -181,14 +181,14 @@ fn store_ready(home: &Path) -> bool {
     bin && db
 }
 
-/// The health command and its arguments: the one a test named, or
-/// `with-settings tehasbot health` beside this program.
-fn health_command(named: Option<String>, here: &Path) -> (String, Vec<String>) {
+/// A verb of tehasbot and its arguments: the command a test named, or
+/// `with-settings tehasbot <verb>` beside this program.
+fn tehasbot_command(named: Option<String>, here: &Path, verb: &str) -> (String, Vec<String>) {
     match named {
         Some(cmd) => (cmd, Vec::new()),
         None => (
             here.join("with-settings").to_string_lossy().into_owned(),
-            vec!["tehasbot".to_string(), "health".to_string()],
+            vec!["tehasbot".to_string(), verb.to_string()],
         ),
     }
 }
@@ -209,7 +209,8 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
     let here = here(home);
     let or =
         |k: &str, d: &str| opt(k).unwrap_or_else(|| here.join(d).to_string_lossy().into_owned());
-    let health_cmd = health_command(opt("TEHAS_HEALTH_CMD"), &here);
+    let health_cmd = tehasbot_command(opt("TEHAS_HEALTH_CMD"), &here, "health");
+    let status_cmd = tehasbot_command(opt("TEHAS_STATUS_CMD"), &here, "status");
     let analytics = libexec.join("analytics");
     let analytics = (env("TEHAS_ANALYTICS") == "on" && analytics.is_file())
         .then(|| analytics.to_string_lossy().into_owned());
@@ -248,7 +249,8 @@ fn writer(home: &Path, settings: &Settings, bot: &str, poll_at: i64, before: i64
             start_cmd: opt("TEHAS_CYCLE_START_CMD"),
             stop_cmd: opt("TEHAS_CYCLE_STOP_CMD"),
             start_wait: secs("TEHAS_CYCLE_START_WAIT", 30),
-            status_cmd: or("TEHAS_STATUS_CMD", "status"),
+            status_cmd: status_cmd.0,
+            status_args: status_cmd.1,
             health_cmd: health_cmd.0,
             health_args: health_cmd.1,
             console_cmd: or("TEHAS_CONSOLE_CMD", "console"),
@@ -827,12 +829,22 @@ fn sweep_locks(w: &mut Writer, dry: bool) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn status_runs_under_with_settings_unless_a_test_names_a_command() {
+        let (cmd, args) =
+            super::tehasbot_command(None, std::path::Path::new("/h/libexec"), "status");
+        assert_eq!(cmd, "/h/libexec/with-settings");
+        assert_eq!(args, ["tehasbot", "status"]);
+    }
+
+    #[test]
     fn health_runs_under_with_settings_unless_a_test_names_a_command() {
-        let (cmd, args) = super::health_command(None, std::path::Path::new("/h/libexec"));
+        let (cmd, args) =
+            super::tehasbot_command(None, std::path::Path::new("/h/libexec"), "health");
         assert_eq!(cmd, "/h/libexec/with-settings");
         assert_eq!(args, ["tehasbot", "health"]);
         let named = Some("fake-health".to_string());
-        let (cmd, args) = super::health_command(named, std::path::Path::new("/h/libexec"));
+        let (cmd, args) =
+            super::tehasbot_command(named, std::path::Path::new("/h/libexec"), "health");
         assert_eq!(cmd, "fake-health");
         assert!(args.is_empty());
     }

@@ -1,5 +1,5 @@
 //! `analytics report --json`: the ten-day report the dashboard shows, as one
-//! JSON object. libexec/status writes it to live/analytics.json, which is
+//! JSON object. tehasbot status writes it to live/analytics.json, which is
 //! public, so it holds aggregates only: counts, durations, token sums,
 //! version strings and the vocabulary words of stop reasons and steps. No
 //! issue number, title, failure cause, account, model or provider.
@@ -25,7 +25,7 @@
 //! say nothing of what the issue asked for.
 //!
 //! `gate` says what the runs of the product's gate cost, and is the one section
-//! of the report a `tehasbot status` poll does not publish: `libexec/status`
+//! of the report a `tehasbot status` poll does not publish: `tehasbot status`
 //! names the keys it copies and this is not among them. Its figures are the
 //! median and p90 of one run of the gate, how many a work run made and their
 //! share of the runs' time, over the runs that recorded them, from the two gate
