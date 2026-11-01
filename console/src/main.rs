@@ -61,6 +61,11 @@
 //!
 //! What tehasbot clean removes, see src/clean.rs.
 //!
+//!   console disk <home> [--full] [--json] [--publish]
+//!
+//! How full this host is and what fills it, for tehas disk and the MCP tool
+//! factory_disk, see src/disk.rs.
+//!
 //!   console epics <owner/name> <out>
 //!
 //! The open epics and their sub-issues, live/epics.json, for tehasbot status,
@@ -115,6 +120,7 @@
 //! output cannot be written, 2 usage.
 
 mod clean;
+mod disk;
 mod epics;
 mod export;
 mod flags;
@@ -343,6 +349,7 @@ fn main() -> ExitCode {
     if let Ok(given) = &given {
         match given.first().map(String::as_str) {
             Some("clean") => return ExitCode::from(clean::main(&given[1..])),
+            Some("disk") => return ExitCode::from(disk::main(&given[1..])),
             Some("epics") => return ExitCode::from(epics::main(&given[1..])),
             Some("export") => return ExitCode::from(export::main(&given[1..])),
             Some("flags") => return ExitCode::from(flags::main(&given[1..])),
