@@ -130,6 +130,11 @@
 //! one label, who applied the label that lets a cycle start, and a label put on
 //! or taken off, asked of GitHub through tehas_core::forge, see src/forge.rs.
 //!
+//!   console models keys-ok | pick <provider> | resolve <out>
+//!
+//! The host's models.json: its keys, the endpoint of a provider, and the file
+//! a container is given, see src/models.rs.
+//!
 //!   console slice ok|limits|cpus|verify|room|pressure ...
 //!
 //! tehas.slice for the commands that start a container, behind lib/slice.sh,
@@ -173,9 +178,9 @@ mod frame;
 mod github;
 mod health;
 mod improve;
-mod jq;
 mod labels;
 mod mcp;
+mod models;
 mod notice;
 mod now;
 mod plan;
@@ -208,6 +213,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tehas_core::jq;
 use tehas_core::mask;
 
 const POLL: Duration = Duration::from_millis(1500);
@@ -419,6 +425,7 @@ fn main() -> ExitCode {
             Some("slice") => return ExitCode::from(slice::main(&given[1..])),
             Some("health") => return ExitCode::from(health::main(&given[1..])),
             Some("improve") => return ExitCode::from(improve::main(&given[1..])),
+            Some("models") => return ExitCode::from(models::main(&given[1..])),
             Some("state") => return ExitCode::from(state::main(&given[1..])),
             Some("status") => return ExitCode::from(status::main(&given[1..])),
             Some("shipped") => return ExitCode::from(shipped::main(&given[1..])),

@@ -12,7 +12,6 @@
 //! console/store/src/review_issue.rs): this asks for the filing and says what it
 //! answered, and nothing else.
 
-use crate::improve::models;
 use crate::store;
 use serde_json::Value;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
@@ -26,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-use tehas_core::models::host_path;
+use tehas_core::models::{self, host_path};
 use tehas_core::sandbox::{self, Identity, Kind, Paths};
 use tehas_core::slice::{Host, Load};
 use tehas_core::{mask, settings, time};

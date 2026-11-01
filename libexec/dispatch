@@ -371,11 +371,8 @@ fi
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=lib/config.sh
 . "$here/../lib/config.sh"
-# shellcheck source=lib/models.sh
-. "$here/../lib/models.sh"
 tehas_load || exit 78
 tehas_require_instance_settings
-[ ! -f "$(tehas_models_file)" ] || tehas_model_keys_ok || exit 78
 # Known before anything is touched: a cycle must never start from a guess,
 # nor in a checkout of another repository.
 tehas_checkout || exit 78
